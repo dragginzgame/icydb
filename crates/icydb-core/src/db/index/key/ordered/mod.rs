@@ -11,9 +11,8 @@ mod semantics;
 #[cfg(test)]
 use crate::db::numeric::compare_numeric_or_strict_order;
 use crate::{
-    db::index::key::ordered::semantics::OrderedEncode,
-    types::{Account, Principal, Subaccount, Timestamp, Ulid},
-    value::{StorageKey, Value},
+    db::index::key::ordered::semantics::OrderedEncode, db::key_taxonomy::PrimaryKeyComponent,
+    value::Value,
 };
 #[cfg(test)]
 use std::cmp::Ordering;
@@ -104,54 +103,49 @@ pub(crate) fn encode_canonical_index_component(
 /// Encode one decoded primary-key value into canonical index-component bytes without
 /// materializing an owned runtime `Value`.
 pub(crate) fn encode_canonical_index_component_from_primary_key_value(
-    value: StorageKey,
+    value: PrimaryKeyComponent,
 ) -> Result<Vec<u8>, OrderedValueEncodeError> {
     let mut out = Vec::new();
-    out.push(match value {
-        StorageKey::Account(_) => Value::Account(Account::canonical_tag_sentinel())
-            .canonical_tag()
-            .to_u8(),
-        StorageKey::Int(_) => Value::Int64(0).canonical_tag().to_u8(),
-        StorageKey::Principal(_) => Value::Principal(Principal::empty_sentinel())
-            .canonical_tag()
-            .to_u8(),
-        StorageKey::Subaccount(_) => Value::Subaccount(Subaccount::MIN).canonical_tag().to_u8(),
-        StorageKey::Timestamp(_) => Value::Timestamp(Timestamp::EPOCH).canonical_tag().to_u8(),
-        StorageKey::Nat(_) => Value::Nat64(0).canonical_tag().to_u8(),
-        StorageKey::Ulid(_) => Value::Ulid(Ulid::nil()).canonical_tag().to_u8(),
-        StorageKey::Unit => Value::Unit.canonical_tag().to_u8(),
-    });
+    out.push(value.as_runtime_value().canonical_tag().to_u8());
 
     match value {
-        StorageKey::Account(value) => {
+        PrimaryKeyComponent::Account(value) => {
             parts::push_account_payload(&mut out, &value)?;
             Ok(out)
         }
-        StorageKey::Int(value) => {
+        PrimaryKeyComponent::Int64(value) => {
             out.extend_from_slice(&semantics::ordered_i64_bytes(value));
             Ok(out)
         }
-        StorageKey::Principal(value) => {
-            parts::push_terminated_bytes(&mut out, value.as_slice());
-            Ok(out)
-        }
-        StorageKey::Subaccount(value) => {
-            out.extend_from_slice(&value.to_bytes());
-            Ok(out)
-        }
-        StorageKey::Timestamp(value) => {
+        PrimaryKeyComponent::Int128(value) => {
             value.encode_ordered(&mut out)?;
             Ok(out)
         }
-        StorageKey::Nat(value) => {
-            out.extend_from_slice(&value.to_be_bytes());
+        PrimaryKeyComponent::Principal(value) => {
+            parts::push_terminated_bytes(&mut out, value.as_slice());
             Ok(out)
         }
-        StorageKey::Ulid(value) => {
+        PrimaryKeyComponent::Subaccount(value) => {
             out.extend_from_slice(&value.to_bytes());
             Ok(out)
         }
-        StorageKey::Unit => Ok(out),
+        PrimaryKeyComponent::Timestamp(value) => {
+            value.encode_ordered(&mut out)?;
+            Ok(out)
+        }
+        PrimaryKeyComponent::Nat64(value) => {
+            out.extend_from_slice(&value.to_be_bytes());
+            Ok(out)
+        }
+        PrimaryKeyComponent::Nat128(value) => {
+            value.encode_ordered(&mut out)?;
+            Ok(out)
+        }
+        PrimaryKeyComponent::Ulid(value) => {
+            out.extend_from_slice(&value.to_bytes());
+            Ok(out)
+        }
+        PrimaryKeyComponent::Unit => Ok(out),
     }
 }
 

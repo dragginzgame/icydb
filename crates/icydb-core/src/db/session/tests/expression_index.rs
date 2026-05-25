@@ -330,9 +330,7 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
                         .expect("expression-order index range scan entry");
                     keys.push(DecodedDataStoreKey::new(
                         ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
-                        entry
-                            .try_storage_key()
-                            .expect("expression-order row identity should be scalar"),
+                        entry.primary_key_value(),
                     ));
                     if keys.len() == 3 {
                         return Ok(true);
@@ -347,19 +345,16 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
     });
     let scanned_ids = keys
         .into_iter()
-        .map(|key: DecodedDataStoreKey| {
-            match key
-                .try_storage_key()
-                .expect("expression-order fixture key should be scalar")
-            {
-                StorageKey::Ulid(id) => id,
+        .map(
+            |key: DecodedDataStoreKey| match key.primary_key_value().scalar_component() {
+                Some(PrimaryKeyComponent::Ulid(id)) => id,
                 other => {
                     panic!(
                         "expression-order fixture keys should stay on ULID primary keys: {other:?}"
                     )
                 }
-            }
-        })
+            },
+        )
         .collect::<Vec<_>>();
 
     assert_eq!(

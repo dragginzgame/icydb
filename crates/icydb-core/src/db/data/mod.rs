@@ -13,8 +13,9 @@ mod structural_field;
 mod structural_row;
 
 // re-exports (Tier-3 → Tier-2 boundary)
+#[cfg(test)]
+pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
-pub(in crate::db) use crate::value::{StorageKey, StorageKeyEncodeError};
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_contract;
 pub(in crate::db) use key::{DecodedDataStoreKey, primary_key_value_from_structural_value};
 pub(in crate::db) use persisted_row::{
@@ -51,19 +52,20 @@ pub(in crate::db) use row::CanonicalRow;
 pub(in crate::db) use row::{DataRow, RawRow};
 pub use store::DataStore;
 pub(in crate::db) use structural_field::{
-    FieldDecodeError, ValueStorageView, accepted_kind_supports_storage_key_binary,
-    decode_accepted_relation_target_storage_keys_bytes, decode_enum,
-    decode_storage_key_binary_value_bytes, decode_structural_field_by_accepted_kind_bytes,
-    decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
-    decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
-    decode_value_storage_text, encode_enum, encode_storage_key_binary_value_bytes,
+    FieldDecodeError, ValueStorageView, accepted_kind_supports_primary_key_component_binary,
+    decode_accepted_relation_target_primary_key_components_bytes, decode_enum,
+    decode_primary_key_component_binary_value_bytes,
+    decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
+    decode_structural_value_storage_bytes, decode_value_storage_list_item_slices,
+    decode_value_storage_map_entry_slices, decode_value_storage_text, encode_enum,
+    encode_primary_key_component_binary_value_bytes,
     encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
     encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
     encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
-    encode_value_storage_text, supports_storage_key_binary_kind,
-    validate_storage_key_binary_value_bytes, validate_structural_field_by_accepted_kind_bytes,
-    validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
-    value_storage_bytes_are_null,
+    encode_value_storage_text, supports_primary_key_component_binary_kind,
+    validate_primary_key_component_binary_value_bytes,
+    validate_structural_field_by_accepted_kind_bytes, validate_structural_field_by_kind_bytes,
+    validate_structural_value_storage_bytes, value_storage_bytes_are_null,
 };
 pub(in crate::db::data) use structural_row::{
     SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,

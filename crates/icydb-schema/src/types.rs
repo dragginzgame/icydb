@@ -158,13 +158,13 @@ impl Primitive {
     }
 
     #[must_use]
-    pub const fn is_storage_key_encodable(self) -> bool {
-        primitive_scalar_kind(self).is_storage_key_encodable()
+    pub const fn is_primary_key_component_encodable(self) -> bool {
+        primitive_scalar_kind(self).is_primary_key_component_encodable()
     }
 
     #[must_use]
     pub const fn is_primary_key_encodable(self) -> bool {
-        primitive_scalar_kind(self).is_storage_key_encodable()
+        primitive_scalar_kind(self).is_primary_key_component_encodable()
             || matches!(self, Self::Int128 | Self::Nat128)
     }
 

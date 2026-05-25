@@ -99,8 +99,7 @@ fn decode_required_test_slots_with_metrics(
         RowDecoder::structural()
             .decode_slots(
                 &RowLayout::from_generated_model_for_test(RowDecodeEntity::MODEL),
-                key.try_storage_key()
-                    .expect("row-decode fixture key should be scalar"),
+                &key.primary_key_value(),
                 &row,
                 Some(required_slots),
             )
@@ -304,9 +303,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
     };
     let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
-    let storage_key = key
-        .try_storage_key()
-        .expect("row-decode fixture key should be scalar");
+    let primary_key = key.primary_key_value();
     let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
@@ -340,7 +337,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
     let generated_sparse = RowDecoder::structural()
         .decode_slots(
             &generated_layout,
-            storage_key,
+            &primary_key,
             &raw_row,
             Some(&selected_slots),
         )
@@ -348,7 +345,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
     let accepted_sparse = RowDecoder::structural()
         .decode_slots(
             &accepted_layout,
-            storage_key,
+            &primary_key,
             &raw_row,
             Some(&selected_slots),
         )
@@ -574,8 +571,7 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
 
     let values = RowDecoder::decode_indexed_slot_values(
         &row_layout,
-        key.try_storage_key()
-            .expect("row-decode fixture key should be scalar"),
+        &key.primary_key_value(),
         &row,
         &layout,
     )
@@ -808,9 +804,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     };
     let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeValueEntity>(entity.id)
         .expect("test key construction should succeed");
-    let storage_key = key
-        .try_storage_key()
-        .expect("row-decode fixture key should be scalar");
+    let primary_key = key.primary_key_value();
     let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
@@ -841,7 +835,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     let generated_sparse = RowDecoder::structural()
         .decode_slots(
             &generated_layout,
-            storage_key,
+            &primary_key,
             &raw_row,
             Some(&selected_slots),
         )
@@ -849,7 +843,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     let accepted_sparse = RowDecoder::structural()
         .decode_slots(
             &accepted_layout,
-            storage_key,
+            &primary_key,
             &raw_row,
             Some(&selected_slots),
         )

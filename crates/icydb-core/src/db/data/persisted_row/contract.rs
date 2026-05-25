@@ -14,12 +14,14 @@ use crate::{
         codec::serialize_row_payload,
         data::{
             CanonicalRow, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
-            accepted_kind_supports_storage_key_binary, decode_storage_key_binary_value_bytes,
+            accepted_kind_supports_primary_key_component_binary,
+            decode_primary_key_component_binary_value_bytes,
             decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
-            decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
+            decode_structural_value_storage_bytes, encode_primary_key_component_binary_value_bytes,
             encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
             encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
-            supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
+            supports_primary_key_component_binary_kind,
+            validate_primary_key_component_binary_value_bytes,
             validate_structural_field_by_accepted_kind_bytes,
             validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
             value_storage_bytes_are_null,
@@ -286,14 +288,18 @@ pub(in crate::db::data::persisted_row) fn encode_runtime_value_for_field_model(
                 Ok(encode_scalar_slot_value(scalar))
             }
             LeafCodec::StructuralFallback => {
-                if supports_storage_key_binary_kind(field.kind()) {
-                    encode_storage_key_binary_value_bytes(field.kind(), value, field.name())?
-                        .ok_or_else(|| {
-                            InternalError::persisted_row_field_encode_failed(
-                                field.name(),
-                                "storage-key binary lane rejected a supported field kind",
-                            )
-                        })
+                if supports_primary_key_component_binary_kind(field.kind()) {
+                    encode_primary_key_component_binary_value_bytes(
+                        field.kind(),
+                        value,
+                        field.name(),
+                    )?
+                    .ok_or_else(|| {
+                        InternalError::persisted_row_field_encode_failed(
+                            field.name(),
+                            "storage-key binary lane rejected a supported field kind",
+                        )
+                    })
                 } else {
                     encode_structural_field_by_kind_bytes(field.kind(), value, field.name())
                 }
@@ -356,14 +362,20 @@ fn encode_null_slot_value_for_field(field: &FieldModel) -> Result<Vec<u8>, Inter
         FieldStorageDecode::Value => Ok(encode_structural_value_storage_null_bytes()),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
             LeafCodec::Scalar(_) => Ok(encode_scalar_slot_value(ScalarSlotValueRef::Null)),
-            LeafCodec::StructuralFallback if supports_storage_key_binary_kind(field.kind()) => {
-                encode_storage_key_binary_value_bytes(field.kind(), &Value::Null, field.name())?
-                    .ok_or_else(|| {
-                        InternalError::persisted_row_field_encode_failed(
-                            field.name(),
-                            "storage-key binary lane rejected a supported field kind",
-                        )
-                    })
+            LeafCodec::StructuralFallback
+                if supports_primary_key_component_binary_kind(field.kind()) =>
+            {
+                encode_primary_key_component_binary_value_bytes(
+                    field.kind(),
+                    &Value::Null,
+                    field.name(),
+                )?
+                .ok_or_else(|| {
+                    InternalError::persisted_row_field_encode_failed(
+                        field.name(),
+                        "storage-key binary lane rejected a supported field kind",
+                    )
+                })
             }
             LeafCodec::StructuralFallback => Ok(encode_structural_value_storage_null_bytes()),
         },
@@ -811,14 +823,17 @@ fn decode_non_scalar_slot_value(
     raw_value: &[u8],
     field: StructuralFieldDecodeContract,
 ) -> Result<Value, InternalError> {
-    if nullable_non_storage_key_by_kind_slot_payload_is_structural_null(raw_value, field)? {
+    if nullable_non_primary_key_component_by_kind_slot_payload_is_structural_null(raw_value, field)?
+    {
         return Ok(Value::Null);
     }
 
     match field.storage_decode() {
         crate::model::field::FieldStorageDecode::ByKind => match field.leaf_codec() {
-            LeafCodec::StructuralFallback if supports_storage_key_binary_kind(field.kind()) => {
-                match decode_storage_key_binary_value_bytes(raw_value, field.kind()) {
+            LeafCodec::StructuralFallback
+                if supports_primary_key_component_binary_kind(field.kind()) =>
+            {
+                match decode_primary_key_component_binary_value_bytes(raw_value, field.kind()) {
                     Ok(Some(value)) => Ok(value),
                     Ok(None) => {
                         unreachable!("storage-key binary lane must decode supported field kinds")
@@ -856,7 +871,9 @@ fn decode_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<Value, InternalError> {
-    if nullable_non_storage_key_accepted_slot_payload_is_structural_null(raw_value, field)? {
+    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
+        raw_value, field,
+    )? {
         return Ok(Value::Null);
     }
 
@@ -888,14 +905,17 @@ pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
     raw_value: &[u8],
     field: StructuralFieldDecodeContract,
 ) -> Result<(), InternalError> {
-    if nullable_non_storage_key_by_kind_slot_payload_is_structural_null(raw_value, field)? {
+    if nullable_non_primary_key_component_by_kind_slot_payload_is_structural_null(raw_value, field)?
+    {
         return Ok(());
     }
 
     match field.storage_decode() {
         crate::model::field::FieldStorageDecode::ByKind => match field.leaf_codec() {
-            LeafCodec::StructuralFallback if supports_storage_key_binary_kind(field.kind()) => {
-                match validate_storage_key_binary_value_bytes(raw_value, field.kind()) {
+            LeafCodec::StructuralFallback
+                if supports_primary_key_component_binary_kind(field.kind()) =>
+            {
+                match validate_primary_key_component_binary_value_bytes(raw_value, field.kind()) {
                     Ok(true) => Ok(()),
                     Ok(false) => {
                         unreachable!("storage-key binary lane must validate supported field kinds")
@@ -935,7 +955,9 @@ pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<(), InternalError> {
-    if nullable_non_storage_key_accepted_slot_payload_is_structural_null(raw_value, field)? {
+    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
+        raw_value, field,
+    )? {
         return Ok(());
     }
 
@@ -1031,13 +1053,13 @@ fn generated_row_contract_reached_runtime_boundary(
 // Nullable non-storage-key by-kind leaves share the structural null sentinel,
 // but their concrete leaf decoders are intentionally strict about non-null
 // field kinds. Detect the sentinel before dispatching to those leaf decoders.
-fn nullable_non_storage_key_by_kind_slot_payload_is_structural_null(
+fn nullable_non_primary_key_component_by_kind_slot_payload_is_structural_null(
     raw_value: &[u8],
     field: StructuralFieldDecodeContract,
 ) -> Result<bool, InternalError> {
     if !field.nullable()
         || !matches!(field.storage_decode(), FieldStorageDecode::ByKind)
-        || supports_storage_key_binary_kind(field.kind())
+        || supports_primary_key_component_binary_kind(field.kind())
     {
         return Ok(false);
     }
@@ -1051,13 +1073,13 @@ fn nullable_non_storage_key_by_kind_slot_payload_is_structural_null(
 // check. Storage-key-compatible accepted kinds keep their own null encoding
 // lane, so only non-storage-key by-kind payloads use the structural null
 // sentinel here.
-fn nullable_non_storage_key_accepted_slot_payload_is_structural_null(
+fn nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<bool, InternalError> {
     if !field.nullable()
         || !matches!(field.storage_decode(), FieldStorageDecode::ByKind)
-        || accepted_kind_supports_storage_key_binary(field.kind())
+        || accepted_kind_supports_primary_key_component_binary(field.kind())
     {
         return Ok(false);
     }

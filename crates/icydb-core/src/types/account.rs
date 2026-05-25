@@ -66,21 +66,6 @@ impl Account {
         Self { owner, subaccount }
     }
 
-    /// Sentinel account for storage lower bounds and tag-only derivation.
-    ///
-    /// This is not a domain account; it exists so storage code does not spell
-    /// empty principals as if they were ordinary identities.
-    #[must_use]
-    pub(crate) const fn storage_min_sentinel() -> Self {
-        Self::from_parts(Principal::empty_sentinel(), None)
-    }
-
-    /// Sentinel value used when only the `Value::Account` canonical tag matters.
-    #[must_use]
-    pub(crate) const fn canonical_tag_sentinel() -> Self {
-        Self::storage_min_sentinel()
-    }
-
     /// Return the account owner principal.
     #[must_use]
     pub const fn owner(&self) -> Principal {

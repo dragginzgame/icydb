@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.23` removes the obsolete `StorageKey` row-identity bridge and makes
+  data keys, index suffixes, persisted-row decode, and relation paths route
+  through compact primary-key identity.
+
 - `0.162.22` admits `int128` / `nat128` as compact primary-key components and
   moves live secondary-index row identity construction off the legacy
   `StorageKey` bridge.

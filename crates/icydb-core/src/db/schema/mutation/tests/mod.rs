@@ -3,13 +3,13 @@ use super::*;
 use crate::{
     db::{
         data::{
-            CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StorageKey,
-            StructuralFieldDecodeContract,
+            CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StructuralFieldDecodeContract,
         },
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
         },
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
             AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
             PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
@@ -286,8 +286,8 @@ fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
         accepted_name_field_path_target(),
         None,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -306,7 +306,7 @@ fn extra_staged_name_index_entry() -> super::SchemaFieldPathIndexStagedEntry {
         accepted_name_field_path_target(),
         None,
         [super::SchemaFieldPathIndexRebuildRow::new(
-            StorageKey::Nat(3),
+            PrimaryKeyComponent::Nat64(3),
             &extra,
         )],
     )

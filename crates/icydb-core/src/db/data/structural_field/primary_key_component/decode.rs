@@ -1,4 +1,4 @@
-//! Module: data::structural_field::storage_key::decode
+//! Module: data::structural_field::primary_key_component::decode
 //! Responsibility: storage-key-compatible Structural Binary decode and validation.
 //! Does not own: relation indexing policy, runtime row decode, or generic value-storage envelopes.
 //! Boundary: callers provide field-kind authority; this module returns storage-key/runtime values only.
@@ -11,39 +11,43 @@ use crate::{
             skip_binary_value as skip_structural_binary_value,
             walk_binary_list_items as walk_structural_binary_list_items,
         },
-        storage_key::{
+        primary_key_component::{
             AcceptedRelationKeyDecodeState, RelationKeyDecodeState,
             scalar::{
-                decode_account_storage_key_binary_bytes, decode_int_storage_key_binary_bytes,
-                decode_nat_storage_key_binary_bytes, decode_principal_storage_key_binary_bytes,
-                decode_subaccount_storage_key_binary_bytes,
-                decode_timestamp_storage_key_binary_bytes, decode_ulid_storage_key_binary_bytes,
-                decode_unit_storage_key_binary_bytes,
+                decode_account_primary_key_component_binary_bytes,
+                decode_int_primary_key_component_binary_bytes,
+                decode_nat_primary_key_component_binary_bytes,
+                decode_principal_primary_key_component_binary_bytes,
+                decode_subaccount_primary_key_component_binary_bytes,
+                decode_timestamp_primary_key_component_binary_bytes,
+                decode_ulid_primary_key_component_binary_bytes,
+                decode_unit_primary_key_component_binary_bytes,
             },
-            supports_storage_key_binary_kind,
+            supports_primary_key_component_binary_kind,
         },
     },
+    db::key_taxonomy::PrimaryKeyComponent,
     db::schema::PersistedFieldKind,
     model::field::FieldKind,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::Value,
 };
 
 /// Decode one strong-relation field payload from Structural Binary v1 directly
 /// into target storage keys.
 #[cfg(test)]
-pub(in crate::db) fn decode_relation_target_storage_keys_binary_bytes(
+pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Vec<StorageKey>, FieldDecodeError> {
+) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     match kind {
         FieldKind::Relation { key_kind, .. } => Ok(
-            decode_optional_relation_storage_key_binary_bytes(raw_bytes, *key_kind)?
+            decode_optional_relation_primary_key_component_binary_bytes(raw_bytes, *key_kind)?
                 .into_iter()
                 .collect(),
         ),
         FieldKind::List(FieldKind::Relation { key_kind, .. })
         | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
-            decode_relation_storage_key_binary_list_bytes(raw_bytes, **key_kind)
+            decode_relation_primary_key_component_binary_list_bytes(raw_bytes, **key_kind)
         }
         other => Err(FieldDecodeError::new(format!(
             "invalid strong relation field kind during structural binary key decode: {other:?}"
@@ -53,15 +57,17 @@ pub(in crate::db) fn decode_relation_target_storage_keys_binary_bytes(
 
 /// Decode one accepted strong-relation field payload from Structural Binary v1
 /// directly into target storage keys.
-pub(in crate::db) fn decode_accepted_relation_target_storage_keys_binary_bytes(
+pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_binary_bytes(
     raw_bytes: &[u8],
     kind: &PersistedFieldKind,
-) -> Result<Vec<StorageKey>, FieldDecodeError> {
+) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     match kind {
         PersistedFieldKind::Relation { key_kind, .. } => Ok(
-            decode_optional_accepted_relation_storage_key_binary_bytes(raw_bytes, key_kind)?
-                .into_iter()
-                .collect(),
+            decode_optional_accepted_relation_primary_key_component_binary_bytes(
+                raw_bytes, key_kind,
+            )?
+            .into_iter()
+            .collect(),
         ),
         PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner)
             if matches!(inner.as_ref(), PersistedFieldKind::Relation { .. }) =>
@@ -70,7 +76,7 @@ pub(in crate::db) fn decode_accepted_relation_target_storage_keys_binary_bytes(
                 unreachable!("relation shape checked above");
             };
 
-            decode_accepted_relation_storage_key_binary_list_bytes(raw_bytes, key_kind)
+            decode_accepted_relation_primary_key_component_binary_list_bytes(raw_bytes, key_kind)
         }
         other => Err(FieldDecodeError::new(format!(
             "invalid accepted strong relation field kind during structural binary key decode: {other:?}"
@@ -79,27 +85,27 @@ pub(in crate::db) fn decode_accepted_relation_target_storage_keys_binary_bytes(
 }
 
 /// Decode one storage-key-compatible Structural Binary v1 field payload
-/// directly into its canonical `StorageKey` form.
-pub(in crate::db) fn decode_storage_key_field_binary_bytes(
+/// directly into its canonical `PrimaryKeyComponent` form.
+pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<StorageKey, FieldDecodeError> {
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     match kind {
-        FieldKind::Account => decode_account_storage_key_binary_bytes(raw_bytes),
+        FieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
         FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
-            decode_int_storage_key_binary_bytes(raw_bytes)
+            decode_int_primary_key_component_binary_bytes(raw_bytes)
         }
-        FieldKind::Principal => decode_principal_storage_key_binary_bytes(raw_bytes),
+        FieldKind::Principal => decode_principal_primary_key_component_binary_bytes(raw_bytes),
         FieldKind::Relation { key_kind, .. } => {
-            decode_storage_key_field_binary_bytes(raw_bytes, *key_kind)
+            decode_primary_key_component_field_binary_bytes(raw_bytes, *key_kind)
         }
-        FieldKind::Subaccount => decode_subaccount_storage_key_binary_bytes(raw_bytes),
-        FieldKind::Timestamp => decode_timestamp_storage_key_binary_bytes(raw_bytes),
+        FieldKind::Subaccount => decode_subaccount_primary_key_component_binary_bytes(raw_bytes),
+        FieldKind::Timestamp => decode_timestamp_primary_key_component_binary_bytes(raw_bytes),
         FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
-            decode_nat_storage_key_binary_bytes(raw_bytes)
+            decode_nat_primary_key_component_binary_bytes(raw_bytes)
         }
-        FieldKind::Ulid => decode_ulid_storage_key_binary_bytes(raw_bytes),
-        FieldKind::Unit => decode_unit_storage_key_binary_bytes(raw_bytes),
+        FieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
+        FieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(
             "unsupported storage-key field kind during structural binary key decode: {other:?}"
         ))),
@@ -107,42 +113,42 @@ pub(in crate::db) fn decode_storage_key_field_binary_bytes(
 }
 
 /// Decode one optional storage-key-compatible Structural Binary v1 field
-/// payload directly into its canonical `StorageKey` form.
-pub(in crate::db) fn decode_optional_storage_key_field_binary_bytes(
+/// payload directly into its canonical `PrimaryKeyComponent` form.
+pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<StorageKey>, FieldDecodeError> {
+) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
     if binary_payload_is_null(raw_bytes)? {
         return Ok(None);
     }
 
-    decode_storage_key_field_binary_bytes(raw_bytes, kind).map(Some)
+    decode_primary_key_component_field_binary_bytes(raw_bytes, kind).map(Some)
 }
 
 /// Decode one Structural Binary v1 storage-key-compatible field payload
 /// directly into its semantic runtime value.
-pub(in crate::db) fn decode_storage_key_binary_value_bytes(
+pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Value>, FieldDecodeError> {
-    if !supports_storage_key_binary_kind(kind) {
+    if !supports_primary_key_component_binary_kind(kind) {
         return Ok(None);
     }
 
     let value = match kind {
         FieldKind::Relation { key_kind, .. } => {
-            decode_optional_relation_storage_key_binary_bytes(raw_bytes, *key_kind)?
-                .map_or(Value::Null, |key| storage_key_as_runtime_value(&key))
+            decode_optional_relation_primary_key_component_binary_bytes(raw_bytes, *key_kind)?
+                .map_or(Value::Null, PrimaryKeyComponent::as_runtime_value)
         }
         FieldKind::List(FieldKind::Relation { key_kind, .. })
         | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => Value::List(
-            decode_relation_storage_key_binary_list_bytes(raw_bytes, **key_kind)?
+            decode_relation_primary_key_component_binary_list_bytes(raw_bytes, **key_kind)?
                 .into_iter()
-                .map(|key| storage_key_as_runtime_value(&key))
+                .map(PrimaryKeyComponent::as_runtime_value)
                 .collect(),
         ),
         _ if binary_payload_is_null(raw_bytes)? => Value::Null,
-        _ => storage_key_as_runtime_value(&decode_storage_key_field_binary_bytes(raw_bytes, kind)?),
+        _ => decode_primary_key_component_field_binary_bytes(raw_bytes, kind)?.as_runtime_value(),
     };
 
     Ok(Some(value))
@@ -150,15 +156,15 @@ pub(in crate::db) fn decode_storage_key_binary_value_bytes(
 
 /// Validate one Structural Binary v1 storage-key-compatible field payload
 /// without routing through the generic structural value lane.
-pub(in crate::db) fn validate_storage_key_binary_value_bytes(
+pub(in crate::db) fn validate_primary_key_component_binary_value_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<bool, FieldDecodeError> {
-    if !supports_storage_key_binary_kind(kind) {
+    if !supports_primary_key_component_binary_kind(kind) {
         return Ok(false);
     }
 
-    decode_storage_key_binary_value_bytes(raw_bytes, kind)?;
+    decode_primary_key_component_binary_value_bytes(raw_bytes, kind)?;
 
     Ok(true)
 }
@@ -182,10 +188,10 @@ fn binary_payload_is_null(raw_bytes: &[u8]) -> Result<bool, FieldDecodeError> {
 
 // Decode one singular relation payload from Structural Binary v1, treating
 // explicit null as "no target".
-fn decode_optional_relation_storage_key_binary_bytes(
+fn decode_optional_relation_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
-) -> Result<Option<StorageKey>, FieldDecodeError> {
+) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated binary value",
@@ -201,15 +207,15 @@ fn decode_optional_relation_storage_key_binary_bytes(
         return Ok(None);
     }
 
-    decode_relation_storage_key_binary_scalar_bytes(raw_bytes, key_kind).map(Some)
+    decode_relation_primary_key_component_binary_scalar_bytes(raw_bytes, key_kind).map(Some)
 }
 
 // Decode one accepted singular relation payload from Structural Binary v1,
 // treating explicit null as "no target".
-fn decode_optional_accepted_relation_storage_key_binary_bytes(
+fn decode_optional_accepted_relation_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
     key_kind: &PersistedFieldKind,
-) -> Result<Option<StorageKey>, FieldDecodeError> {
+) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated binary value",
@@ -225,15 +231,15 @@ fn decode_optional_accepted_relation_storage_key_binary_bytes(
         return Ok(None);
     }
 
-    decode_accepted_storage_key_field_binary_bytes(raw_bytes, key_kind).map(Some)
+    decode_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind).map(Some)
 }
 
 // Decode one list/set relation payload from Structural Binary v1 into
 // canonical storage keys while preserving current null-item semantics.
-fn decode_relation_storage_key_binary_list_bytes(
+fn decode_relation_primary_key_component_binary_list_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
-) -> Result<Vec<StorageKey>, FieldDecodeError> {
+) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated binary value",
@@ -254,7 +260,7 @@ fn decode_relation_storage_key_binary_list_bytes(
         "expected Structural Binary list for relation field",
         "structural binary: trailing bytes after relation field",
         (&raw mut state).cast(),
-        push_relation_storage_key_binary_item,
+        push_relation_primary_key_component_binary_item,
     )?;
 
     Ok(state.0)
@@ -262,10 +268,10 @@ fn decode_relation_storage_key_binary_list_bytes(
 
 // Decode one accepted list/set relation payload from Structural Binary v1 into
 // canonical storage keys while preserving current null-item semantics.
-fn decode_accepted_relation_storage_key_binary_list_bytes(
+fn decode_accepted_relation_primary_key_component_binary_list_bytes(
     raw_bytes: &[u8],
     key_kind: &PersistedFieldKind,
-) -> Result<Vec<StorageKey>, FieldDecodeError> {
+) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated binary value",
@@ -286,7 +292,7 @@ fn decode_accepted_relation_storage_key_binary_list_bytes(
         "expected Structural Binary list for relation field",
         "structural binary: trailing bytes after relation field",
         (&raw mut state).cast(),
-        push_accepted_relation_storage_key_binary_item,
+        push_accepted_relation_primary_key_component_binary_item,
     )?;
 
     Ok(state.0)
@@ -294,37 +300,43 @@ fn decode_accepted_relation_storage_key_binary_list_bytes(
 
 // Decode one relation-compatible scalar field payload from Structural Binary
 // v1 into its storage-key form.
-fn decode_relation_storage_key_binary_scalar_bytes(
+fn decode_relation_primary_key_component_binary_scalar_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
-) -> Result<StorageKey, FieldDecodeError> {
-    decode_storage_key_field_binary_bytes(raw_bytes, key_kind)
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
+    decode_primary_key_component_field_binary_bytes(raw_bytes, key_kind)
 }
 
 // Decode one accepted relation-compatible scalar field payload from Structural
 // Binary v1 into its storage-key form.
-fn decode_accepted_storage_key_field_binary_bytes(
+fn decode_accepted_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     kind: &PersistedFieldKind,
-) -> Result<StorageKey, FieldDecodeError> {
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     match kind {
-        PersistedFieldKind::Account => decode_account_storage_key_binary_bytes(raw_bytes),
+        PersistedFieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
         PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64 => decode_int_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Principal => decode_principal_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Relation { key_kind, .. } => {
-            decode_accepted_storage_key_field_binary_bytes(raw_bytes, key_kind)
+        | PersistedFieldKind::Int64 => decode_int_primary_key_component_binary_bytes(raw_bytes),
+        PersistedFieldKind::Principal => {
+            decode_principal_primary_key_component_binary_bytes(raw_bytes)
         }
-        PersistedFieldKind::Subaccount => decode_subaccount_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Timestamp => decode_timestamp_storage_key_binary_bytes(raw_bytes),
+        PersistedFieldKind::Relation { key_kind, .. } => {
+            decode_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind)
+        }
+        PersistedFieldKind::Subaccount => {
+            decode_subaccount_primary_key_component_binary_bytes(raw_bytes)
+        }
+        PersistedFieldKind::Timestamp => {
+            decode_timestamp_primary_key_component_binary_bytes(raw_bytes)
+        }
         PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64 => decode_nat_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Ulid => decode_ulid_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Unit => decode_unit_storage_key_binary_bytes(raw_bytes),
+        | PersistedFieldKind::Nat64 => decode_nat_primary_key_component_binary_bytes(raw_bytes),
+        PersistedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
+        PersistedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(
             "unsupported accepted storage-key field kind during structural binary key decode: {other:?}"
         ))),
@@ -336,12 +348,14 @@ fn decode_accepted_storage_key_field_binary_bytes(
 //
 // Safety:
 // `context` must be a valid `RelationKeyDecodeState`.
-fn push_relation_storage_key_binary_item(
+fn push_relation_primary_key_component_binary_item(
     item_bytes: &[u8],
     context: *mut (),
 ) -> Result<(), FieldDecodeError> {
     let state = unsafe { &mut *context.cast::<RelationKeyDecodeState>() };
-    if let Some(value) = decode_optional_relation_storage_key_binary_bytes(item_bytes, state.1)? {
+    if let Some(value) =
+        decode_optional_relation_primary_key_component_binary_bytes(item_bytes, state.1)?
+    {
         state.0.push(value);
     }
 
@@ -353,13 +367,13 @@ fn push_relation_storage_key_binary_item(
 //
 // Safety:
 // `context` must be a valid `AcceptedRelationKeyDecodeState`.
-fn push_accepted_relation_storage_key_binary_item(
+fn push_accepted_relation_primary_key_component_binary_item(
     item_bytes: &[u8],
     context: *mut (),
 ) -> Result<(), FieldDecodeError> {
     let state = unsafe { &mut *context.cast::<AcceptedRelationKeyDecodeState<'_>>() };
     if let Some(value) =
-        decode_optional_accepted_relation_storage_key_binary_bytes(item_bytes, state.1)?
+        decode_optional_accepted_relation_primary_key_component_binary_bytes(item_bytes, state.1)?
     {
         state.0.push(value);
     }

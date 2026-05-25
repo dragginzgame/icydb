@@ -1,11 +1,11 @@
 use crate::{
+    db::key_taxonomy::PrimaryKeyComponent,
     db::{
         direction::Direction,
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
     },
     testing::test_memory,
     traits::Storable,
-    value::StorageKey,
 };
 use std::{borrow::Cow, ops::Bound};
 
@@ -14,8 +14,9 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
     let mut index_store = IndexStore::init(test_memory(91));
     for value in [1_u8, 2, 3] {
         let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
-        let raw_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(u64::from(value))])
-            .expect("encode index entry");
+        let raw_entry =
+            IndexEntryValue::try_from_keys([PrimaryKeyComponent::Nat64(u64::from(value))])
+                .expect("encode index entry");
         index_store.insert(raw_key, raw_entry);
     }
 

@@ -10,8 +10,11 @@ use crate::db::data::structural_field::{
         payload_bytes as binary_payload_bytes, push_binary_bytes, push_binary_int64,
         push_binary_list_len, push_binary_nat64, push_binary_null, skip_binary_value,
     },
+    primary_key_component::{
+        decode_primary_key_component_binary_value_bytes,
+        encode_primary_key_component_binary_value_bytes,
+    },
     primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
-    storage_key::{decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes},
     typed::{
         decode_date_payload_days, decode_decimal_payload_parts, decode_duration_payload_millis,
         encode_date_payload_days, encode_decimal_payload_parts, encode_duration_payload_millis,
@@ -36,7 +39,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | FieldKind::Principal
         | FieldKind::Subaccount
         | FieldKind::Timestamp
-        | FieldKind::Unit => decode_storage_key_binary_value_bytes(raw_bytes, kind)?
+        | FieldKind::Unit => decode_primary_key_component_binary_value_bytes(raw_bytes, kind)?
             .expect("storage-key-owned leaf kinds must return a value"),
         FieldKind::Date => decode_date_value_bytes(raw_bytes)?,
         FieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes)?,
@@ -86,7 +89,9 @@ pub(super) fn encode_leaf_field_binary_bytes(
         | FieldKind::Principal
         | FieldKind::Subaccount
         | FieldKind::Timestamp
-        | FieldKind::Unit => encode_storage_key_binary_value_bytes(kind, value, field_name)?,
+        | FieldKind::Unit => {
+            encode_primary_key_component_binary_value_bytes(kind, value, field_name)?
+        }
         FieldKind::Date => Some(encode_date_value_bytes(value, field_name)?),
         FieldKind::Decimal { .. } => Some(encode_decimal_value_bytes(value, field_name)?),
         FieldKind::Duration => Some(encode_duration_value_bytes(value, field_name)?),

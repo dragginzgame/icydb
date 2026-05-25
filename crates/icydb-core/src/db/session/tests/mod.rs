@@ -54,6 +54,7 @@ use crate::{
         direction::Direction,
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
         index::{IndexKey, IndexStore, key_within_envelope},
+        key_taxonomy::PrimaryKeyComponent,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             builder::{
@@ -97,7 +98,7 @@ use crate::{
         RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{Blob, Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
-    value::{OutputValue, StorageKey, Value},
+    value::{OutputValue, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -3119,7 +3120,7 @@ fn seed_filtered_composite_indexed_session_sql_entities(
 // SQL route so tests can assert both index isolation and scan order directly.
 fn inspect_filtered_expression_order_only_raw_scan(
     session: &DbSession<SessionSqlCanister>,
-) -> (Vec<(StorageKey, StorageKey)>, Vec<Ulid>) {
+) -> (Vec<(PrimaryKeyComponent, PrimaryKeyComponent)>, Vec<Ulid>) {
     let plan = lower_select_query_for_tests::<FilteredIndexedSessionSqlEntity>(&session,
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
@@ -3146,13 +3147,18 @@ fn inspect_filtered_expression_order_only_raw_scan(
                 let decoded_key =
                     IndexKey::try_from_raw(&raw_key).expect("filtered expression test key");
                 let decoded_id = raw_entry
-                    .decode_storage_key(&raw_key)
-                    .expect("filtered expression test entry");
+                    .decode_row_identity(&raw_key)
+                    .expect("filtered expression test entry")
+                    .primary_key_value()
+                    .scalar_component()
+                    .expect("filtered expression test scalar entry");
 
                 (
                     decoded_key
-                        .primary_key_storage_key()
-                        .expect("primary-key value"),
+                        .primary_key_value()
+                        .expect("primary-key value")
+                        .scalar_component()
+                        .expect("filtered expression decoded key should be scalar"),
                     decoded_id,
                 )
             })
@@ -3172,9 +3178,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
                         .expect("filtered expression index range scan entry");
                     keys.push(DecodedDataStoreKey::new(
                         FilteredIndexedSessionSqlEntity::ENTITY_TAG,
-                        entry
-                            .try_storage_key()
-                            .expect("filtered expression row identity should be scalar"),
+                        entry.primary_key_value(),
                     ));
                     if keys.len() == 4 {
                         return Ok(true);
@@ -3189,17 +3193,14 @@ fn inspect_filtered_expression_order_only_raw_scan(
     });
     let scanned_ids = keys
         .into_iter()
-        .map(|key: DecodedDataStoreKey| {
-            match key
-                .try_storage_key()
-                .expect("filtered expression fixture key should be scalar")
-            {
-                StorageKey::Ulid(id) => id,
+        .map(
+            |key: DecodedDataStoreKey| match key.primary_key_value().scalar_component() {
+                Some(PrimaryKeyComponent::Ulid(id)) => id,
                 other => panic!(
                     "filtered expression fixture keys should stay on ULID primary keys: {other:?}"
                 ),
-            }
-        })
+            },
+        )
         .collect::<Vec<_>>();
 
     (entries_in_range, scanned_ids)

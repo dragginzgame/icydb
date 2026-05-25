@@ -26,6 +26,7 @@ use crate::{
         },
         executor::SaveExecutor,
         index::{IndexEntryValue, IndexKey, IndexStore},
+        key_taxonomy::PrimaryKeyComponent,
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
@@ -45,7 +46,7 @@ use crate::{
         RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{EntityTag, Ulid},
-    value::{StorageKey, Value, ValueEnum, storage_key_as_runtime_value},
+    value::{Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -60,7 +61,10 @@ fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
 }
 
-fn scalar_storage_key_for_test<K: PrimaryKeyCodec>(key: &K, context: &'static str) -> StorageKey {
+fn scalar_primary_key_component_for_test<K: PrimaryKeyCodec>(
+    key: &K,
+    context: &'static str,
+) -> PrimaryKeyComponent {
     let component = key
         .to_primary_key_value()
         .expect(context)
@@ -68,20 +72,28 @@ fn scalar_storage_key_for_test<K: PrimaryKeyCodec>(key: &K, context: &'static st
         .expect("test fixtures use scalar primary keys");
 
     match component {
-        crate::db::key_taxonomy::PrimaryKeyComponent::Account(value) => StorageKey::Account(value),
-        crate::db::key_taxonomy::PrimaryKeyComponent::Int64(value) => StorageKey::Int(value),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Account(value) => {
+            PrimaryKeyComponent::Account(value)
+        }
+        crate::db::key_taxonomy::PrimaryKeyComponent::Int64(value) => {
+            PrimaryKeyComponent::Int64(value)
+        }
         crate::db::key_taxonomy::PrimaryKeyComponent::Principal(value) => {
-            StorageKey::Principal(value)
+            PrimaryKeyComponent::Principal(value)
         }
         crate::db::key_taxonomy::PrimaryKeyComponent::Subaccount(value) => {
-            StorageKey::Subaccount(value)
+            PrimaryKeyComponent::Subaccount(value)
         }
         crate::db::key_taxonomy::PrimaryKeyComponent::Timestamp(value) => {
-            StorageKey::Timestamp(value)
+            PrimaryKeyComponent::Timestamp(value)
         }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(value) => StorageKey::Nat(value),
-        crate::db::key_taxonomy::PrimaryKeyComponent::Ulid(value) => StorageKey::Ulid(value),
-        crate::db::key_taxonomy::PrimaryKeyComponent::Unit => StorageKey::Unit,
+        crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(value) => {
+            PrimaryKeyComponent::Nat64(value)
+        }
+        crate::db::key_taxonomy::PrimaryKeyComponent::Ulid(value) => {
+            PrimaryKeyComponent::Ulid(value)
+        }
+        crate::db::key_taxonomy::PrimaryKeyComponent::Unit => PrimaryKeyComponent::Unit,
         crate::db::key_taxonomy::PrimaryKeyComponent::Int128(_)
         | crate::db::key_taxonomy::PrimaryKeyComponent::Nat128(_) => {
             panic!("test storage-key fixture does not support 128-bit primary keys")
@@ -827,12 +839,13 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
     with_recovery_store(|store| {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
-                let storage_key = entry
+                let primary_key_component = entry
                     .decode_row_identity(&index_key)
                     .expect("index entry decode should succeed")
-                    .try_storage_key()
+                    .primary_key_value()
+                    .scalar_component()
                     .expect("decoded index row identity should be scalar");
-                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
+                let Value::Ulid(value) = primary_key_component.as_runtime_value() else {
                     panic!("decoded index key should be a Ulid");
                 };
                 BTreeSet::from([value])
@@ -851,12 +864,13 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
     with_recovery_store(|store| {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
-                let storage_key = entry
+                let primary_key_component = entry
                     .decode_row_identity(&index_key)
                     .expect("nullable index entry decode should succeed")
-                    .try_storage_key()
+                    .primary_key_value()
+                    .scalar_component()
                     .expect("decoded nullable index row identity should be scalar");
-                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
+                let Value::Ulid(value) = primary_key_component.as_runtime_value() else {
                     panic!("decoded nullable index key should be a Ulid");
                 };
                 BTreeSet::from([value])
@@ -953,12 +967,13 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
     with_recovery_store(|store| {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
-                let storage_key = entry
+                let primary_key_component = entry
                     .decode_row_identity(&index_key)
                     .expect("conditional index entry decode should succeed")
-                    .try_storage_key()
+                    .primary_key_value()
+                    .scalar_component()
                     .expect("decoded conditional index row identity should be scalar");
-                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
+                let Value::Ulid(value) = primary_key_component.as_runtime_value() else {
                     panic!("decoded conditional index key should be a Ulid");
                 };
                 BTreeSet::from([value])
@@ -3247,9 +3262,11 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         .expect("stale key build should succeed")
         .expect("stale key should exist")
         .to_raw();
-    let stale_storage_key =
-        scalar_storage_key_for_test(&stale.id, "stale storage key should encode");
-    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_storage_key])
+    let stale_primary_key_component = scalar_primary_key_component_for_test(
+        &stale.id,
+        "stale primary-key component should encode",
+    );
+    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_primary_key_component])
         .expect("stale index entry should encode");
 
     with_recovery_store(|store| {
@@ -3345,9 +3362,11 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
         .expect("stale nullable key build should succeed")
         .expect("stale nullable key should exist")
         .to_raw();
-    let stale_storage_key =
-        scalar_storage_key_for_test(&stale.id, "stale nullable storage key should encode");
-    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_storage_key])
+    let stale_primary_key_component = scalar_primary_key_component_for_test(
+        &stale.id,
+        "stale nullable primary-key component should encode",
+    );
+    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_primary_key_component])
         .expect("stale nullable index entry should encode");
 
     // Phase 1: seed old two-slot rows and intentionally stale secondary index
@@ -3438,9 +3457,9 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
         .expect("old nullable index key build should succeed")
         .expect("old nullable index key should exist")
         .to_raw();
-    let old_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
+    let old_entry = IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
         &old.id,
-        "old nullable storage key should encode",
+        "old nullable primary-key component should encode",
     )])
     .expect("old nullable index entry should encode");
 
@@ -3523,14 +3542,15 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
         .expect("stale index key build should succeed")
         .expect("stale index key should exist")
         .to_raw();
-    let inactive_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
-        &inactive.id,
-        "inactive storage key should encode",
-    )])
-    .expect("inactive stale index entry should encode");
-    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
+    let inactive_entry =
+        IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
+            &inactive.id,
+            "inactive primary-key component should encode",
+        )])
+        .expect("inactive stale index entry should encode");
+    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
         &stale.id,
-        "stale storage key should encode",
+        "stale primary-key component should encode",
     )])
     .expect("stale index entry should encode");
 
@@ -3624,9 +3644,9 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         .expect("stale expression index key build should succeed")
         .expect("stale expression index key should exist")
         .to_raw();
-    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
+    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
         &stale.id,
-        "stale expression storage key",
+        "stale expression primary-key component",
     )])
     .expect("stale expression index entry should encode");
 
@@ -3819,9 +3839,11 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         .expect("sentinel key build should succeed")
         .expect("sentinel key should exist")
         .to_raw();
-    let sentinel_storage_key =
-        scalar_storage_key_for_test(&sentinel.id, "sentinel storage key should encode");
-    let sentinel_entry = IndexEntryValue::try_from_keys(vec![sentinel_storage_key])
+    let sentinel_primary_key_component = scalar_primary_key_component_for_test(
+        &sentinel.id,
+        "sentinel primary-key component should encode",
+    );
+    let sentinel_entry = IndexEntryValue::try_from_keys(vec![sentinel_primary_key_component])
         .expect("sentinel entry should encode");
 
     with_recovery_store(|store| {

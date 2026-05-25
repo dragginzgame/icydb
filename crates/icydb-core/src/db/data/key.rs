@@ -14,10 +14,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError, Storable},
     types::EntityTag,
-    value::{
-        StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
-        storage_key_from_runtime_value,
-    },
+    value::Value,
 };
 use ic_memory::stable_structures::storable::Bound as StorableBound;
 use std::{
@@ -57,23 +54,11 @@ impl From<DecodedDataStoreKeyEncodeError> for InternalError {
 
 #[derive(Debug, ThisError)]
 pub(in crate::db) enum PrimaryKeyValueDecodeError {
-    #[error("invalid primary key encoding: {source}")]
-    InvalidEncoding {
-        #[source]
-        source: StorageKeyDecodeError,
-    },
-
     #[error("invalid compact primary key encoding: {source}")]
     InvalidCompactEncoding {
         #[source]
         source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError,
     },
-}
-
-impl From<StorageKeyDecodeError> for PrimaryKeyValueDecodeError {
-    fn from(source: StorageKeyDecodeError) -> Self {
-        Self::InvalidEncoding { source }
-    }
 }
 
 impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for PrimaryKeyValueDecodeError {
@@ -114,13 +99,14 @@ impl DecodedDataStoreKey {
     // Constructors
     // ------------------------------------------------------------------
 
-    /// Construct from runtime identity and key payload.
+    /// Construct from runtime identity and a scalar-or-composite key payload.
     #[must_use]
-    pub(in crate::db) const fn new(entity: EntityTag, key: StorageKey) -> Self {
-        Self::new_primary_key_value(
+    pub(in crate::db) const fn new(entity: EntityTag, key: &PrimaryKeyValue) -> Self {
+        Self {
             entity,
-            &PrimaryKeyValue::Scalar(primary_key_component_from_storage_key(key)),
-        )
+            key: *key,
+            raw: OnceCell::new(),
+        }
     }
 
     /// Construct from runtime identity and a scalar-or-composite key payload.
@@ -129,11 +115,7 @@ impl DecodedDataStoreKey {
         entity: EntityTag,
         key: &PrimaryKeyValue,
     ) -> Self {
-        Self {
-            entity,
-            key: *key,
-            raw: OnceCell::new(),
-        }
+        Self::new(entity, key)
     }
 
     /// Construct one data key while freezing the already-known raw on-disk
@@ -226,10 +208,6 @@ impl DecodedDataStoreKey {
         self.key
     }
 
-    pub(in crate::db) fn try_storage_key(&self) -> Result<StorageKey, InternalError> {
-        scalar_storage_key_from_primary_key_value(&self.key)
-    }
-
     pub(in crate::db) fn primary_key_runtime_value(&self) -> Value {
         self.key.as_runtime_value()
     }
@@ -287,38 +265,6 @@ impl DecodedDataStoreKey {
         Ok(raw)
     }
 
-    /// Encode into compact on-disk representation, retaining the historical
-    /// direct storage-key error shape for callers that still report through
-    /// storage-key encode boundaries.
-    pub(in crate::db) fn to_raw_storage_key_error(
-        &self,
-    ) -> Result<RawDataStoreKey, StorageKeyEncodeError> {
-        if let Some(raw) = self.raw.get() {
-            return Ok(raw.clone());
-        }
-
-        let key =
-            self.try_storage_key()
-                .map_err(|_| StorageKeyEncodeError::UnsupportedValueKind {
-                    kind: "CompositePrimaryKey",
-                })?;
-        key.to_bytes()?;
-        let raw = self
-            .to_raw_compact_key_error()
-            .expect("storage-key encodable value must compact-encode");
-        let _ = self.raw.set(raw.clone());
-
-        Ok(raw)
-    }
-
-    /// Encode a raw data-store key from validated entity + storage-key parts.
-    pub(in crate::db) fn raw_from_parts(
-        entity: EntityTag,
-        key: StorageKey,
-    ) -> Result<RawDataStoreKey, StorageKeyEncodeError> {
-        Self::new(entity, key).to_raw_storage_key_error()
-    }
-
     pub(in crate::db) fn try_from_raw(
         raw: &RawDataStoreKey,
     ) -> Result<Self, DecodedDataStoreKeyDecodeError> {
@@ -336,31 +282,6 @@ impl DecodedDataStoreKey {
             raw.clone(),
         ))
     }
-}
-
-const fn primary_key_component_from_storage_key(key: StorageKey) -> PrimaryKeyComponent {
-    match key {
-        StorageKey::Account(value) => PrimaryKeyComponent::Account(value),
-        StorageKey::Int(value) => PrimaryKeyComponent::Int64(value),
-        StorageKey::Principal(value) => PrimaryKeyComponent::Principal(value),
-        StorageKey::Subaccount(value) => PrimaryKeyComponent::Subaccount(value),
-        StorageKey::Timestamp(value) => PrimaryKeyComponent::Timestamp(value),
-        StorageKey::Nat(value) => PrimaryKeyComponent::Nat64(value),
-        StorageKey::Ulid(value) => PrimaryKeyComponent::Ulid(value),
-        StorageKey::Unit => PrimaryKeyComponent::Unit,
-    }
-}
-
-fn scalar_storage_key_from_primary_key_value(
-    key: &PrimaryKeyValue,
-) -> Result<StorageKey, InternalError> {
-    let Some(component) = key.scalar_component() else {
-        return Err(InternalError::store_unsupported(
-            "composite primary key cannot be viewed as scalar StorageKey",
-        ));
-    };
-
-    storage_key_from_primary_key_component(component)
 }
 
 pub(in crate::db) fn primary_key_value_from_structural_value(
@@ -409,33 +330,8 @@ fn composite_primary_key_value_from_structural_values(
 fn primary_key_component_from_structural_value(
     value: &Value,
 ) -> Result<PrimaryKeyComponent, InternalError> {
-    match value {
-        Value::Int128(value) => Ok(PrimaryKeyComponent::Int128(*value)),
-        Value::Nat128(value) => Ok(PrimaryKeyComponent::Nat128(*value)),
-        _ => storage_key_from_runtime_value(value)
-            .map(PrimaryKeyComponent::from)
-            .map_err(InternalError::from),
-    }
-}
-
-fn storage_key_from_primary_key_component(
-    component: PrimaryKeyComponent,
-) -> Result<StorageKey, InternalError> {
-    match component {
-        PrimaryKeyComponent::Account(value) => Ok(StorageKey::Account(value)),
-        PrimaryKeyComponent::Int64(value) => Ok(StorageKey::Int(value)),
-        PrimaryKeyComponent::Principal(value) => Ok(StorageKey::Principal(value)),
-        PrimaryKeyComponent::Subaccount(value) => Ok(StorageKey::Subaccount(value)),
-        PrimaryKeyComponent::Timestamp(value) => Ok(StorageKey::Timestamp(value)),
-        PrimaryKeyComponent::Nat64(value) => Ok(StorageKey::Nat(value)),
-        PrimaryKeyComponent::Ulid(value) => Ok(StorageKey::Ulid(value)),
-        PrimaryKeyComponent::Unit => Ok(StorageKey::Unit),
-        PrimaryKeyComponent::Int128(_) | PrimaryKeyComponent::Nat128(_) => {
-            Err(InternalError::store_unsupported(
-                "128-bit primary key cannot be viewed as scalar StorageKey",
-            ))
-        }
-    }
+    PrimaryKeyComponent::from_runtime_value(value)
+        .ok_or_else(|| InternalError::store_unsupported("value is not admitted as a primary key"))
 }
 
 impl Clone for DecodedDataStoreKey {
@@ -563,10 +459,10 @@ mod tests {
     use super::*;
     use crate::{
         db::key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent},
-        error::{ErrorClass, ErrorOrigin, InternalError},
+        error::{ErrorClass, ErrorOrigin},
         traits::{KeyValueCodec, PrimaryKeyCodec, PrimaryKeyDecode},
         types::{Account, Principal, Subaccount, Timestamp, Ulid},
-        value::{Value, storage_key_from_runtime_value},
+        value::Value,
     };
     use std::borrow::Cow;
 
@@ -649,7 +545,7 @@ mod tests {
         );
     }
 
-    fn assert_storage_key_roundtrip<K>(key: K)
+    fn assert_primary_key_roundtrip<K>(key: K)
     where
         K: Copy + Eq + std::fmt::Debug + PrimaryKeyCodec + PrimaryKeyDecode,
     {
@@ -679,6 +575,10 @@ mod tests {
         PrimaryKeyValue::Composite(composite)
     }
 
+    const fn scalar_key(component: PrimaryKeyComponent) -> PrimaryKeyValue {
+        PrimaryKeyValue::Scalar(component)
+    }
+
     fn taxonomy_range_contains_raw_key(
         range: &RawDataStoreKeyRange,
         key: &RawDataStoreKey,
@@ -698,7 +598,10 @@ mod tests {
 
     #[test]
     fn data_key_golden_snapshot_entity_and_compact_primary_key_layout_is_stable() {
-        let key = DecodedDataStoreKey::new(EntityTag::new(5), StorageKey::Int(-1));
+        let key = DecodedDataStoreKey::new(
+            EntityTag::new(5),
+            &scalar_key(PrimaryKeyComponent::Int64(-1)),
+        );
         let raw = key.to_raw().expect("data key should encode");
 
         // Freeze the 0.159 on-disk wire contract:
@@ -718,10 +621,22 @@ mod tests {
     #[test]
     fn data_key_ordering_matches_bytes() {
         let keys = vec![
-            DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Int(0)),
-            DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Int(0)),
-            DecodedDataStoreKey::new(EntityTag::new(2), StorageKey::Int(0)),
-            DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Nat(1)),
+            DecodedDataStoreKey::new(
+                EntityTag::new(1),
+                &scalar_key(PrimaryKeyComponent::Int64(0)),
+            ),
+            DecodedDataStoreKey::new(
+                EntityTag::new(1),
+                &scalar_key(PrimaryKeyComponent::Int64(0)),
+            ),
+            DecodedDataStoreKey::new(
+                EntityTag::new(2),
+                &scalar_key(PrimaryKeyComponent::Int64(0)),
+            ),
+            DecodedDataStoreKey::new(
+                EntityTag::new(1),
+                &scalar_key(PrimaryKeyComponent::Nat64(1)),
+            ),
             composite_data_key_fixture(),
         ];
 
@@ -749,16 +664,6 @@ mod tests {
         assert_eq!(decoded.entity_tag(), key.entity_tag());
         assert_eq!(decoded.key, key.key);
         assert_eq!(decoded.to_raw().unwrap().as_bytes(), raw.as_bytes());
-    }
-
-    #[test]
-    fn data_key_scalar_storage_key_accessor_rejects_composite_primary_key() {
-        let err = composite_data_key_fixture()
-            .try_storage_key()
-            .expect_err("composite key cannot be viewed as scalar StorageKey");
-
-        assert_eq!(err.class(), ErrorClass::Unsupported);
-        assert_eq!(err.origin(), ErrorOrigin::Store);
     }
 
     #[test]
@@ -853,50 +758,33 @@ mod tests {
     }
 
     #[test]
-    fn storage_key_decode_roundtrips_supported_typed_keys() {
-        assert_storage_key_roundtrip(-42_i8);
-        assert_storage_key_roundtrip(-43_i16);
-        assert_storage_key_roundtrip(-44_i32);
-        assert_storage_key_roundtrip(-45_i64);
-        assert_storage_key_roundtrip(i128::MIN);
-        assert_storage_key_roundtrip(42_u8);
-        assert_storage_key_roundtrip(43_u16);
-        assert_storage_key_roundtrip(44_u32);
-        assert_storage_key_roundtrip(45_u64);
-        assert_storage_key_roundtrip(u128::MAX);
-        assert_storage_key_roundtrip(Principal::from_slice(&[1, 2, 3, 4]));
-        assert_storage_key_roundtrip(Subaccount::new([7; 32]));
-        assert_storage_key_roundtrip(Timestamp::from_millis(1_710_013_530_123));
-        assert_storage_key_roundtrip(Ulid::from_u128(42));
-        assert_storage_key_roundtrip(Account::from_parts(
+    fn primary_key_decode_roundtrips_supported_typed_keys() {
+        assert_primary_key_roundtrip(-42_i8);
+        assert_primary_key_roundtrip(-43_i16);
+        assert_primary_key_roundtrip(-44_i32);
+        assert_primary_key_roundtrip(-45_i64);
+        assert_primary_key_roundtrip(i128::MIN);
+        assert_primary_key_roundtrip(42_u8);
+        assert_primary_key_roundtrip(43_u16);
+        assert_primary_key_roundtrip(44_u32);
+        assert_primary_key_roundtrip(45_u64);
+        assert_primary_key_roundtrip(u128::MAX);
+        assert_primary_key_roundtrip(Principal::from_slice(&[1, 2, 3, 4]));
+        assert_primary_key_roundtrip(Subaccount::new([7; 32]));
+        assert_primary_key_roundtrip(Timestamp::from_millis(1_710_013_530_123));
+        assert_primary_key_roundtrip(Ulid::from_u128(42));
+        assert_primary_key_roundtrip(Account::from_parts(
             Principal::from_slice(&[9, 8, 7]),
             Some(Subaccount::new([5; 32])),
         ));
-        assert_storage_key_roundtrip(());
-    }
-
-    #[test]
-    fn data_key_scalar_storage_key_accessor_rejects_fixed_128_bit_primary_keys() {
-        for key in [
-            DecodedDataStoreKey::try_from_typed_key(EntityTag::new(29), &i128::MIN)
-                .expect("i128 primary key should encode"),
-            DecodedDataStoreKey::try_from_typed_key(EntityTag::new(29), &u128::MAX)
-                .expect("u128 primary key should encode"),
-        ] {
-            let err = key
-                .try_storage_key()
-                .expect_err("128-bit primary key must not use StorageKey bridge");
-
-            assert_eq!(err.class(), ErrorClass::Unsupported);
-            assert_eq!(err.origin(), ErrorOrigin::Store);
-        }
+        assert_primary_key_roundtrip(());
     }
 
     #[test]
     fn primary_key_decode_rejects_variant_mismatch_and_out_of_range_keys() {
-        let variant_err = u64::from_primary_key_value(&StorageKey::Int(7).into())
+        let variant_err = u64::from_primary_key_value(&PrimaryKeyComponent::Int64(7).into())
             .expect_err("nat decode must reject signed storage-key variants");
-        let range_err = u8::from_primary_key_value(&StorageKey::Nat(300).into())
+        let range_err = u8::from_primary_key_value(&PrimaryKeyComponent::Nat64(300).into())
             .expect_err("narrow integer decode must reject out-of-range values");
 
         assert_eq!(variant_err.class(), ErrorClass::Corruption);
@@ -906,37 +794,20 @@ mod tests {
     }
 
     #[test]
-    fn data_key_constructors_reject_non_storage_key_values_consistently() {
+    fn data_key_constructors_reject_non_primary_key_values_consistently() {
         let entity = EntityTag::new(23);
         let unsupported_values = [
-            Value::Text("not-a-storage-key".to_string()),
+            Value::Text("not-a-primary-key".to_string()),
             Value::Bool(true),
             Value::List(vec![Value::Nat64(1)]),
             Value::Null,
         ];
 
         for value in unsupported_values {
-            let typed_err = InternalError::from(
-                storage_key_from_runtime_value(&value)
-                    .expect_err("runtime bridge must reject non-primary-key values"),
-            );
             let structural_err = DecodedDataStoreKey::try_from_structural_key(entity, &value)
                 .expect_err("structural constructor must reject non-primary-key values");
 
-            assert_eq!(typed_err.class(), ErrorClass::Unsupported);
-            assert_eq!(typed_err.origin(), ErrorOrigin::Serialize);
             assert_eq!(structural_err.class(), ErrorClass::Unsupported);
-            assert_eq!(structural_err.origin(), ErrorOrigin::Serialize);
-            assert_eq!(
-                typed_err.class(),
-                structural_err.class(),
-                "typed and structural constructors must classify the same rejection for {value:?}",
-            );
-            assert_eq!(
-                typed_err.origin(),
-                structural_err.origin(),
-                "typed and structural constructors must report the same rejection origin for {value:?}",
-            );
         }
     }
 
@@ -1063,15 +934,19 @@ mod tests {
     fn data_key_raw_entity_prefix_range_contains_only_matching_entity() {
         let entity = EntityTag::new(41);
         let range = RawDataStoreKeyRange::entity_prefix(entity);
-        let matching = DecodedDataStoreKey::new(entity, StorageKey::Nat(1))
+        let matching = DecodedDataStoreKey::new(entity, &scalar_key(PrimaryKeyComponent::Nat64(1)))
             .to_raw()
             .expect("matching key should encode");
-        let previous = DecodedDataStoreKey::new(EntityTag::new(40), StorageKey::Unit)
-            .to_raw()
-            .expect("previous key should encode");
-        let next = DecodedDataStoreKey::new(EntityTag::new(42), StorageKey::Nat(0))
-            .to_raw()
-            .expect("next key should encode");
+        let previous =
+            DecodedDataStoreKey::new(EntityTag::new(40), &scalar_key(PrimaryKeyComponent::Unit))
+                .to_raw()
+                .expect("previous key should encode");
+        let next = DecodedDataStoreKey::new(
+            EntityTag::new(42),
+            &scalar_key(PrimaryKeyComponent::Nat64(0)),
+        )
+        .to_raw()
+        .expect("next key should encode");
 
         assert!(taxonomy_range_contains_raw_key(&range, &matching));
         assert!(!taxonomy_range_contains_raw_key(&range, &previous));

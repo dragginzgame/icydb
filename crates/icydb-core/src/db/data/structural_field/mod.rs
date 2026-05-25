@@ -8,9 +8,9 @@ mod binary;
 mod composite;
 mod encode;
 mod leaf;
+mod primary_key_component;
 mod primitive;
 mod scalar;
-mod storage_key;
 #[cfg(test)]
 mod tests;
 mod typed;
@@ -50,18 +50,19 @@ use scalar::{
 };
 
 pub(in crate::db) use accepted::{
-    accepted_kind_supports_storage_key_binary, decode_structural_field_by_accepted_kind_bytes,
-    encode_structural_field_by_accepted_kind_bytes,
+    accepted_kind_supports_primary_key_component_binary,
+    decode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_accepted_kind_bytes,
     validate_structural_field_by_accepted_kind_bytes,
 };
 pub(in crate::db) use encode::encode_structural_field_by_kind_bytes;
 #[cfg(test)]
-pub(in crate::db) use storage_key::decode_relation_target_storage_keys_bytes;
-pub(in crate::db) use storage_key::{
-    decode_accepted_relation_target_storage_keys_bytes, decode_optional_storage_key_field_bytes,
-    decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes,
-    encode_storage_key_field_bytes, supports_storage_key_binary_kind,
-    validate_storage_key_binary_value_bytes,
+pub(in crate::db) use primary_key_component::decode_relation_target_primary_key_components_bytes;
+pub(in crate::db) use primary_key_component::{
+    decode_accepted_relation_target_primary_key_components_bytes,
+    decode_optional_primary_key_component_field_bytes,
+    decode_primary_key_component_binary_value_bytes,
+    encode_primary_key_component_binary_value_bytes, encode_primary_key_component_field_bytes,
+    supports_primary_key_component_binary_kind, validate_primary_key_component_binary_value_bytes,
 };
 pub(in crate::db) use value_storage::{
     ValueStorageView, decode_account, decode_decimal, decode_enum, decode_int, decode_int128,

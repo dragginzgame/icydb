@@ -155,7 +155,9 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
 // Return whether one accepted persisted kind uses the storage-key binary lane.
 // This mirrors the generated-kind lane so nullable structural-null detection
 // can avoid treating storage-key nulls as value-storage null sentinels.
-pub(in crate::db) fn accepted_kind_supports_storage_key_binary(kind: &PersistedFieldKind) -> bool {
+pub(in crate::db) fn accepted_kind_supports_primary_key_component_binary(
+    kind: &PersistedFieldKind,
+) -> bool {
     match kind {
         PersistedFieldKind::Account
         | PersistedFieldKind::Int8
@@ -172,11 +174,11 @@ pub(in crate::db) fn accepted_kind_supports_storage_key_binary(kind: &PersistedF
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => true,
         PersistedFieldKind::Relation { key_kind, .. } => {
-            accepted_kind_supports_storage_key_binary(key_kind)
+            accepted_kind_supports_primary_key_component_binary(key_kind)
         }
         PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
             matches!(inner.as_ref(), PersistedFieldKind::Relation { .. })
-                && accepted_kind_supports_storage_key_binary(inner)
+                && accepted_kind_supports_primary_key_component_binary(inner)
         }
         _ => false,
     }

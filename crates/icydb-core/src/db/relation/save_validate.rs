@@ -263,33 +263,22 @@ fn validate_save_accepted_relation_value<E>(
 where
     E: EntityKind + EntityValue,
 {
-    // Strong relation targets are scalar-keyed in 0.162. Composite target
-    // identities must fail closed here until reverse relation indexes grow a
-    // composite source/target key shape.
-    let storage_key = crate::value::storage_key_from_runtime_value(value).map_err(|err| {
-        InternalError::relation_target_raw_key_error(
-            crate::db::relation::RelationTargetRawKeyError::StorageKeyEncode(err),
+    let Some(component) = crate::db::key_taxonomy::PrimaryKeyComponent::from_runtime_value(value)
+    else {
+        return Err(InternalError::relation_target_raw_key_error(
             E::PATH,
             relation.field_name.as_str(),
             relation.target.path.as_str(),
             value,
             "strong relation target key unsupported",
-        )
-    })?;
-    let raw_key = crate::db::data::DecodedDataStoreKey::raw_from_parts(
+        ));
+    };
+    let raw_key = crate::db::data::DecodedDataStoreKey::new(
         relation.target.entity_tag,
-        storage_key,
+        &crate::db::key_taxonomy::PrimaryKeyValue::Scalar(component),
     )
-    .map_err(|err| {
-        InternalError::relation_target_raw_key_error(
-            crate::db::relation::RelationTargetRawKeyError::StorageKeyEncode(err),
-            E::PATH,
-            relation.field_name.as_str(),
-            relation.target.path.as_str(),
-            value,
-            "strong relation target key unsupported",
-        )
-    })?;
+    .to_raw()
+    .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
     let target_store = db
         .with_store_registry(|registry| registry.try_get_store(relation.target.store_path.as_str()))
         .map_err(|err| {

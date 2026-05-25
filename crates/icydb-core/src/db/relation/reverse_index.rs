@@ -9,8 +9,8 @@ use crate::{
         commit::PreparedIndexMutation,
         data::{
             CanonicalSlotReader, DecodedDataStoreKey, RawDataStoreKey, RawRow, ScalarSlotValueRef,
-            ScalarValueRef, StorageKey, StructuralRowContract, StructuralSlotReader,
-            decode_accepted_relation_target_storage_keys_bytes,
+            ScalarValueRef, StructuralRowContract, StructuralSlotReader,
+            decode_accepted_relation_target_primary_key_components_bytes,
         },
         identity::EntityName,
         index::{
@@ -422,11 +422,11 @@ fn reverse_index_id_for_relation(
     Ok(IndexId::new(source.entity_tag, ordinal))
 }
 
-/// Build reverse-index prefix bounds for one target storage key.
-pub(super) fn reverse_index_key_bounds_for_target_storage_key(
+/// Build reverse-index prefix bounds for one target primary-key component.
+pub(super) fn reverse_index_key_bounds_for_target_primary_key_component(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    target_key_value: StorageKey,
+    target_key_value: PrimaryKeyComponent,
 ) -> Result<Option<(RawIndexStoreKey, RawIndexStoreKey)>, InternalError> {
     let Ok(encoded_value) =
         encode_canonical_index_component_from_primary_key_value(target_key_value)
@@ -446,11 +446,11 @@ pub(super) fn reverse_index_key_bounds_for_target_storage_key(
 }
 
 /// Build the concrete reverse-index key for one target/source relation edge.
-fn reverse_index_key_for_target_and_source_storage_key(
+fn reverse_index_key_for_target_and_source_primary_key(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    target_key_value: StorageKey,
-    source_key_value: StorageKey,
+    target_key_value: PrimaryKeyComponent,
+    source_key_value: &PrimaryKeyValue,
 ) -> Result<Option<RawIndexStoreKey>, InternalError> {
     let Ok(encoded_value) =
         encode_canonical_index_component_from_primary_key_value(target_key_value)
@@ -459,12 +459,11 @@ fn reverse_index_key_for_target_and_source_storage_key(
     };
 
     let index_id = reverse_index_id_for_relation(source, relation)?;
-    let source_primary_key = PrimaryKeyValue::from(source_key_value);
     let key = IndexKey::new_from_components_with_primary_key_value(
         &index_id,
         IndexKeyKind::System,
         std::slice::from_ref(&encoded_value),
-        &source_primary_key,
+        source_key_value,
     );
 
     Ok(Some(key.to_raw()))
@@ -478,7 +477,8 @@ fn relation_target_raw_keys_for_source_slots(
     source_info: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
-    let keys = relation_target_storage_keys_for_source_slots(row_fields, source_info, relation)?;
+    let keys =
+        relation_target_primary_key_components_for_source_slots(row_fields, source_info, relation)?;
 
     relation_target_raw_keys_from_primary_key_values(source_info, relation, keys)
 }
@@ -494,7 +494,7 @@ pub(in crate::db::relation) fn source_row_references_relation_target(
     source_row_contract: StructuralRowContract,
     source_info: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    target_key: StorageKey,
+    target_key: PrimaryKeyComponent,
 ) -> Result<bool, InternalError> {
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, source_row_contract)?;
@@ -508,9 +508,10 @@ fn source_slots_reference_relation_target(
     row_fields: &StructuralSlotReader<'_>,
     source_info: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    target_key: StorageKey,
+    target_key: PrimaryKeyComponent,
 ) -> Result<bool, InternalError> {
-    let keys = relation_target_storage_keys_for_source_slots(row_fields, source_info, relation)?;
+    let keys =
+        relation_target_primary_key_components_for_source_slots(row_fields, source_info, relation)?;
 
     Ok(keys.into_iter().any(|candidate| candidate == target_key))
 }
@@ -609,7 +610,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
 fn relation_target_raw_keys_from_primary_key_values(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    keys: Vec<StorageKey>,
+    keys: Vec<PrimaryKeyComponent>,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let mut keys = keys
         .into_iter()
@@ -623,54 +624,56 @@ fn relation_target_raw_keys_from_primary_key_values(
 // Decode one relation field into structural target primary-key values through the
 // shared scalar-fast-path or field-bytes path used by delete validation and
 // reverse-index mutation preparation.
-fn relation_target_storage_keys_for_source_slots(
+fn relation_target_primary_key_components_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Vec<StorageKey>, InternalError> {
+) -> Result<Vec<PrimaryKeyComponent>, InternalError> {
     // Phase 1: keep single relation slots on the scalar fast path when the
     // persisted field already uses a primary-key-compatible leaf codec.
-    if let Some(keys) = relation_target_storage_keys_from_scalar_slot(row_fields, source, relation)?
+    if let Some(keys) =
+        relation_target_primary_key_components_from_scalar_slot(row_fields, source, relation)?
     {
         return Ok(keys);
     }
 
     // Phase 2: decode the declared relation field payload directly into target
     // primary-key values without rebuilding a runtime `Value` container.
-    relation_target_storage_keys_from_field_bytes(row_fields, source, relation)
+    relation_target_primary_key_components_from_field_bytes(row_fields, source, relation)
 }
 
 // Decode the one strong-relation field payload needed by structural delete
 // validation directly into relation target primary-key values from the
 // encoded field bytes.
-fn relation_target_storage_keys_from_field_bytes(
+fn relation_target_primary_key_components_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Vec<StorageKey>, InternalError> {
+) -> Result<Vec<PrimaryKeyComponent>, InternalError> {
     validate_relation_field_kind(relation)?;
 
     let bytes = row_fields.required_field_bytes(relation.field_index(), relation.field_name())?;
-    let keys = decode_accepted_relation_target_storage_keys_bytes(bytes, relation.field_kind())
-        .map_err(|err| {
-            InternalError::relation_source_row_decode_failed(
-                source.path,
-                relation.field_name(),
-                relation.target().path(),
-                err,
-            )
-        })?;
+    let keys =
+        decode_accepted_relation_target_primary_key_components_bytes(bytes, relation.field_kind())
+            .map_err(|err| {
+                InternalError::relation_source_row_decode_failed(
+                    source.path,
+                    relation.field_name(),
+                    relation.target().path(),
+                    err,
+                )
+            })?;
 
     Ok(keys)
 }
 
 // Decode one singular strong relation directly from the scalar slot codec when
 // the relation key kind is already primary-key-compatible on the persisted row.
-fn relation_target_storage_keys_from_scalar_slot(
+fn relation_target_primary_key_components_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Option<Vec<StorageKey>>, InternalError> {
+) -> Result<Option<Vec<PrimaryKeyComponent>>, InternalError> {
     let PersistedFieldKind::Relation { .. } = relation.field_kind() else {
         return Ok(None);
     };
@@ -694,15 +697,17 @@ fn relation_target_storage_keys_from_scalar_slot(
 
 // Convert one scalar relation payload into the decoded primary-key
 // representation used by reverse-index and target-row identities.
-const fn primary_key_value_from_relation_scalar(value: ScalarValueRef<'_>) -> Option<StorageKey> {
+const fn primary_key_value_from_relation_scalar(
+    value: ScalarValueRef<'_>,
+) -> Option<PrimaryKeyComponent> {
     match value {
-        ScalarValueRef::Int(value) => Some(StorageKey::Int(value)),
-        ScalarValueRef::Principal(value) => Some(StorageKey::Principal(value)),
-        ScalarValueRef::Subaccount(value) => Some(StorageKey::Subaccount(value)),
-        ScalarValueRef::Timestamp(value) => Some(StorageKey::Timestamp(value)),
-        ScalarValueRef::Nat(value) => Some(StorageKey::Nat(value)),
-        ScalarValueRef::Ulid(value) => Some(StorageKey::Ulid(value)),
-        ScalarValueRef::Unit => Some(StorageKey::Unit),
+        ScalarValueRef::Int(value) => Some(PrimaryKeyComponent::Int64(value)),
+        ScalarValueRef::Principal(value) => Some(PrimaryKeyComponent::Principal(value)),
+        ScalarValueRef::Subaccount(value) => Some(PrimaryKeyComponent::Subaccount(value)),
+        ScalarValueRef::Timestamp(value) => Some(PrimaryKeyComponent::Timestamp(value)),
+        ScalarValueRef::Nat(value) => Some(PrimaryKeyComponent::Nat64(value)),
+        ScalarValueRef::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
+        ScalarValueRef::Unit => Some(PrimaryKeyComponent::Unit),
         ScalarValueRef::Blob(_)
         | ScalarValueRef::Bool(_)
         | ScalarValueRef::Date(_)
@@ -718,9 +723,14 @@ const fn primary_key_value_from_relation_scalar(value: ScalarValueRef<'_>) -> Op
 fn raw_relation_target_key_from_primary_key_value(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    value: StorageKey,
+    value: PrimaryKeyComponent,
 ) -> Result<RawDataStoreKey, InternalError> {
-    DecodedDataStoreKey::raw_from_parts(relation.target().entity_tag(), value).map_err(|err| {
+    DecodedDataStoreKey::new(
+        relation.target().entity_tag(),
+        &PrimaryKeyValue::Scalar(value),
+    )
+    .to_raw()
+    .map_err(|err| {
         InternalError::relation_source_row_decode_failed(
             source.path,
             relation.field_name(),
@@ -827,8 +837,8 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl<C>(
 where
     C: CanisterKind,
 {
-    // Phase 1: derive the single source storage key once from the already-validated
-    // commit marker key instead of recomputing it through typed entity ids.
+    // Phase 1: reuse the already-validated commit marker key instead of
+    // recomputing it through typed entity ids.
     let mut ops = Vec::new();
 
     let relations = accepted_strong_relations_for_row_contract(
@@ -839,17 +849,6 @@ where
     if relations.is_empty() {
         return Ok(ops);
     }
-
-    // Reverse relation indexes are still scalar-keyed in 0.162. Composite
-    // source identity must fail closed instead of choosing one component and
-    // corrupting `target_storage_key -> source_storage_key` membership.
-    let Some(source_component) = source_primary_key.scalar_component() else {
-        return Err(InternalError::serialize_unsupported(format!(
-            "reverse relation index maintenance does not support composite source primary keys yet: source={}",
-            source.path,
-        )));
-    };
-    let source_storage_key = source_component_storage_key(source.path, source_component)?;
 
     // Phase 2: evaluate each strong relation independently and derive index deltas
     // directly from persisted row payloads.
@@ -917,11 +916,21 @@ where
                 );
             };
 
-            let Some(reverse_key) = reverse_index_key_for_target_and_source_storage_key(
+            let Some(target_component) = target_data_key.primary_key_value().scalar_component()
+            else {
+                return Err(InternalError::serialize_unsupported(format!(
+                    "reverse relation index maintenance does not support composite target primary keys yet: source={} field={} target={}",
+                    source.path,
+                    relation.field_name(),
+                    relation.target().path(),
+                )));
+            };
+
+            let Some(reverse_key) = reverse_index_key_for_target_and_source_primary_key(
                 source,
                 &relation,
-                target_data_key.try_storage_key()?,
-                source_storage_key,
+                target_component,
+                source_primary_key,
             )?
             else {
                 continue;
@@ -942,27 +951,6 @@ where
     }
 
     Ok(ops)
-}
-
-fn source_component_storage_key(
-    source_path: &'static str,
-    source_component: PrimaryKeyComponent,
-) -> Result<StorageKey, InternalError> {
-    match source_component {
-        PrimaryKeyComponent::Account(value) => Ok(StorageKey::Account(value)),
-        PrimaryKeyComponent::Int64(value) => Ok(StorageKey::Int(value)),
-        PrimaryKeyComponent::Principal(value) => Ok(StorageKey::Principal(value)),
-        PrimaryKeyComponent::Subaccount(value) => Ok(StorageKey::Subaccount(value)),
-        PrimaryKeyComponent::Timestamp(value) => Ok(StorageKey::Timestamp(value)),
-        PrimaryKeyComponent::Nat64(value) => Ok(StorageKey::Nat(value)),
-        PrimaryKeyComponent::Ulid(value) => Ok(StorageKey::Ulid(value)),
-        PrimaryKeyComponent::Unit => Ok(StorageKey::Unit),
-        PrimaryKeyComponent::Int128(_) | PrimaryKeyComponent::Nat128(_) => {
-            Err(InternalError::serialize_unsupported(format!(
-                "reverse relation index maintenance does not support 128-bit source primary keys yet: source={source_path}",
-            )))
-        }
-    }
 }
 
 // Resolve relation targets for one old/new source-row side from the decoded

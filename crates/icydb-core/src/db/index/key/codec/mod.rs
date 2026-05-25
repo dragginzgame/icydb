@@ -9,8 +9,6 @@ mod error;
 mod scalar;
 mod tuple;
 
-#[cfg(test)]
-use crate::value::{StorageKey, StorageKeyDecodeError};
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -203,48 +201,6 @@ impl IndexKey {
         EncodedPrimaryKey::try_from(self.primary_key.as_slice())?.decode()
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn primary_key_storage_key(
-        &self,
-    ) -> Result<StorageKey, StorageKeyDecodeError> {
-        let value = self
-            .primary_key_value()
-            .map_err(primary_key_decode_error_to_storage_key_decode_error)?;
-
-        let Some(component) = value.scalar_component() else {
-            return Err(StorageKeyDecodeError::InvalidSize);
-        };
-
-        match component {
-            crate::db::key_taxonomy::PrimaryKeyComponent::Account(value) => {
-                Ok(StorageKey::Account(value))
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Int64(value) => {
-                Ok(StorageKey::Int(value))
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Principal(value) => {
-                Ok(StorageKey::Principal(value))
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Subaccount(value) => {
-                Ok(StorageKey::Subaccount(value))
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Timestamp(value) => {
-                Ok(StorageKey::Timestamp(value))
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(value) => {
-                Ok(StorageKey::Nat(value))
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Ulid(value) => {
-                Ok(StorageKey::Ulid(value))
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Unit => Ok(StorageKey::Unit),
-            crate::db::key_taxonomy::PrimaryKeyComponent::Int128(_)
-            | crate::db::key_taxonomy::PrimaryKeyComponent::Nat128(_) => {
-                Err(StorageKeyDecodeError::InvalidSize)
-            }
-        }
-    }
-
     pub(in crate::db) fn compact_primary_key_value_bytes(primary_key: &PrimaryKeyValue) -> Vec<u8> {
         EncodedPrimaryKey::encode(*primary_key)
             .expect("primary-key values must compact-encode")
@@ -257,30 +213,6 @@ const fn index_key_kind_to_store_key_kind(kind: IndexKeyKind) -> IndexStoreKeyKi
     match kind {
         IndexKeyKind::User => IndexStoreKeyKind::User,
         IndexKeyKind::System => IndexStoreKeyKind::System,
-    }
-}
-
-#[cfg(test)]
-const fn primary_key_decode_error_to_storage_key_decode_error(
-    err: CompactPrimaryKeyDecodeError,
-) -> StorageKeyDecodeError {
-    match err {
-        CompactPrimaryKeyDecodeError::Empty
-        | CompactPrimaryKeyDecodeError::InvalidLength { .. } => StorageKeyDecodeError::InvalidSize,
-        CompactPrimaryKeyDecodeError::UnknownKind { .. } => StorageKeyDecodeError::InvalidTag,
-        CompactPrimaryKeyDecodeError::InvalidPrincipalLength { .. } => {
-            StorageKeyDecodeError::InvalidPrincipalLength
-        }
-        CompactPrimaryKeyDecodeError::InvalidAccount { reason } => {
-            StorageKeyDecodeError::InvalidAccountPayload { reason }
-        }
-        CompactPrimaryKeyDecodeError::InvalidCompositeCount { .. }
-        | CompactPrimaryKeyDecodeError::UnitCompositeComponent { .. }
-        | CompactPrimaryKeyDecodeError::NestedComposite
-        | CompactPrimaryKeyDecodeError::CompositeNotScalar
-        | CompactPrimaryKeyDecodeError::TrailingCompositeBytes { .. } => {
-            StorageKeyDecodeError::InvalidSize
-        }
     }
 }
 

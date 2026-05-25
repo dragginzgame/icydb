@@ -760,8 +760,7 @@ fn save_preflight_relations_use_accepted_contracts() {
     assert!(
         relation_save_validate
             .contains("validate_save_strong_relations_with_accepted_contract<E>",)
-            && relation_save_validate.contains("Strong relation targets are scalar-keyed in 0.162")
-            && relation_save_validate.contains("storage_key_from_runtime_value(value)")
+            && relation_save_validate.contains("PrimaryKeyComponent::from_runtime_value(value)")
             && !relation_save_validate.contains("strong_relations_for_model_iter")
             && !relation_save_validate.contains("E::MODEL"),
         "save relation validation must derive relation metadata from accepted row contracts and fail closed at the scalar-keyed strong-relation target boundary",
@@ -778,8 +777,8 @@ fn reverse_relation_runtime_paths_use_accepted_contracts() {
     assert!(
         reverse_index.contains("accepted_strong_relations_for_row_contract(")
             && reverse_index.contains("source_row_contract: StructuralRowContract,")
-            && reverse_index.contains("Reverse relation indexes are still scalar-keyed in 0.162")
-            && reverse_index.contains("source_primary_key.scalar_component()")
+            && reverse_index.contains("source_key_value: &PrimaryKeyValue,")
+            && reverse_index.contains("relation_target_primary_key_components_for_source_slots(")
             && !reverse_index.contains("strong_relations_for_model_iter")
             && !reverse_index.contains("source_model: &'static EntityModel"),
         "reverse-index mutation preparation must derive relation fields from accepted row contracts and fail closed at the scalar-keyed source identity boundary",

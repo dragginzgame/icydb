@@ -10,11 +10,11 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
     let slots = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Ada".to_string()))],
     };
-    let storage_key = crate::db::data::StorageKey::Nat(42);
+    let primary_key_component = PrimaryKeyComponent::Nat64(42);
 
     let key = IndexKey::new_from_slots_with_field_path_rebuild_target(
         EntityTag::new(7),
-        storage_key,
+        primary_key_component,
         &target,
         &slots,
     )
@@ -24,9 +24,9 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
     assert_eq!(key.index_id(), &IndexId::new(EntityTag::new(7), 1));
     assert_eq!(key.component_count(), 1);
     assert_eq!(
-        key.primary_key_storage_key()
+        key.primary_key_value()
             .expect("index key should carry primary-key value"),
-        storage_key,
+        PrimaryKeyValue::Scalar(primary_key_component),
     );
 }
 
@@ -84,11 +84,11 @@ fn expression_rebuild_key_materializes_from_accepted_target_slots() {
     let lower_case = RebuildSlotReader {
         values: vec![None, Some(Value::Text("ada".to_string()))],
     };
-    let storage_key = crate::db::data::StorageKey::Nat(42);
+    let primary_key_component = PrimaryKeyComponent::Nat64(42);
 
     let mixed_key = IndexKey::new_from_slots_with_expression_rebuild_target(
         EntityTag::new(7),
-        storage_key,
+        primary_key_component,
         &target,
         &mixed_case,
     )
@@ -96,7 +96,7 @@ fn expression_rebuild_key_materializes_from_accepted_target_slots() {
     .expect("text expression component should be indexable");
     let lower_key = IndexKey::new_from_slots_with_expression_rebuild_target(
         EntityTag::new(7),
-        storage_key,
+        primary_key_component,
         &target,
         &lower_case,
     )
@@ -108,9 +108,9 @@ fn expression_rebuild_key_materializes_from_accepted_target_slots() {
     assert!(mixed_key.has_same_components(&lower_key));
     assert_eq!(
         mixed_key
-            .primary_key_storage_key()
+            .primary_key_value()
             .expect("index key should carry primary-key value"),
-        storage_key,
+        PrimaryKeyValue::Scalar(primary_key_component),
     );
 }
 
@@ -137,9 +137,9 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
         target,
         None,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(3), &skipped),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(3), &skipped),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -166,14 +166,15 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
                 .entry()
                 .decode_row_identity(entry.key())
                 .expect("staged entry should decode")
-                .try_storage_key()
+                .primary_key_value()
+                .scalar_component()
                 .expect("staged row identity should be scalar")
         })
         .collect::<Vec<_>>();
 
     assert_eq!(
         staged_row_witnesses,
-        vec![StorageKey::Nat(1), StorageKey::Nat(2)],
+        vec![PrimaryKeyComponent::Nat64(1), PrimaryKeyComponent::Nat64(2)],
     );
 
     let validation = staged
@@ -207,8 +208,8 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
         target,
         None,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -268,8 +269,8 @@ fn field_path_unique_rebuild_validation_rejects_duplicate_components() {
         target,
         None,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &duplicate),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &duplicate),
         ],
     )
     .expect("unique field-path rebuild rows should stage before validation");
@@ -297,8 +298,8 @@ fn field_path_unique_rebuild_validation_accepts_distinct_components() {
         target,
         None,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
         ],
     )
     .expect("distinct unique field-path rebuild rows should stage");
@@ -336,9 +337,9 @@ fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication(
         target,
         None,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(3), &skipped),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(3), &skipped),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -399,8 +400,8 @@ fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
         target,
         None,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");

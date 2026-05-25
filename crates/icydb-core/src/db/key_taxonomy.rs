@@ -2,8 +2,8 @@
 //! Responsibility: compact key vocabulary and canonical primary-key encoder
 //! proof, including the 0.162 scalar-or-composite primary-key value model.
 //! Does not own: index-entry value ownership or cursor semantics.
-//! Boundary: storage-format layers consume these wrappers instead of treating
-//! the old fixed-width `StorageKey` frame as the conceptual API.
+//! Boundary: storage-format layers consume these wrappers as the only row
+//! identity vocabulary.
 //!
 //! Invariant:
 //! One accepted entity primary-key namespace has exactly one logical
@@ -18,7 +18,7 @@ use crate::{
     db::index::IndexId,
     traits::Repr,
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
-    value::{StorageKey, Value},
+    value::Value,
 };
 use std::cmp::Ordering;
 use thiserror::Error as ThisError;
@@ -167,19 +167,23 @@ impl PrimaryKeyComponent {
             Self::Unit => Value::Unit,
         }
     }
-}
 
-impl From<StorageKey> for PrimaryKeyComponent {
-    fn from(value: StorageKey) -> Self {
+    /// Convert one runtime scalar value into an admitted compact primary-key
+    /// component without routing through the legacy `PrimaryKeyComponent` frame.
+    #[must_use]
+    pub(in crate::db) const fn from_runtime_value(value: &Value) -> Option<Self> {
         match value {
-            StorageKey::Nat(value) => Self::Nat64(value),
-            StorageKey::Int(value) => Self::Int64(value),
-            StorageKey::Timestamp(value) => Self::Timestamp(value),
-            StorageKey::Ulid(value) => Self::Ulid(value),
-            StorageKey::Principal(value) => Self::Principal(value),
-            StorageKey::Subaccount(value) => Self::Subaccount(value),
-            StorageKey::Account(value) => Self::Account(value),
-            StorageKey::Unit => Self::Unit,
+            Value::Account(value) => Some(Self::Account(*value)),
+            Value::Int64(value) => Some(Self::Int64(*value)),
+            Value::Nat64(value) => Some(Self::Nat64(*value)),
+            Value::Int128(value) => Some(Self::Int128(*value)),
+            Value::Nat128(value) => Some(Self::Nat128(*value)),
+            Value::Principal(value) => Some(Self::Principal(*value)),
+            Value::Subaccount(value) => Some(Self::Subaccount(*value)),
+            Value::Timestamp(value) => Some(Self::Timestamp(*value)),
+            Value::Ulid(value) => Some(Self::Ulid(*value)),
+            Value::Unit => Some(Self::Unit),
+            _ => None,
         }
     }
 }
@@ -288,8 +292,7 @@ impl PartialOrd for CompositePrimaryKeyValue {
 /// Complete logical primary-key value before compact canonical encoding.
 ///
 /// Scalar keys remain the one-component case. Composite keys are represented
-/// separately so scalar-only paths cannot silently treat them as the historical
-/// decoded `StorageKey`.
+/// separately so scalar-only paths cannot silently erase composite identity.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[expect(
     clippy::large_enum_variant,
@@ -348,12 +351,6 @@ impl PrimaryKeyValue {
 impl From<PrimaryKeyComponent> for PrimaryKeyValue {
     fn from(value: PrimaryKeyComponent) -> Self {
         Self::Scalar(value)
-    }
-}
-
-impl From<StorageKey> for PrimaryKeyValue {
-    fn from(value: StorageKey) -> Self {
-        Self::Scalar(PrimaryKeyComponent::from(value))
     }
 }
 
@@ -1439,8 +1436,8 @@ mod tests {
             index::{IndexId, IndexKey, IndexKeyKind},
         },
         traits::Repr,
-        types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
-        value::StorageKey,
+        types::{Account, EntityTag, IntBig, NatBig, Principal, Subaccount, Timestamp, Ulid},
+        value::Value,
     };
 
     fn account_fixture(seed: u8) -> Account {
@@ -1466,6 +1463,62 @@ mod tests {
                 .decode_component()
                 .expect("primary key should decode"),
             value
+        );
+    }
+
+    #[test]
+    fn runtime_values_convert_directly_to_primary_key_components() {
+        let account = account_fixture(3);
+        let cases = [
+            (Value::Nat64(42), PrimaryKeyComponent::Nat64(42)),
+            (Value::Int64(-42), PrimaryKeyComponent::Int64(-42)),
+            (
+                Value::Nat128(u128::MAX),
+                PrimaryKeyComponent::Nat128(u128::MAX),
+            ),
+            (
+                Value::Int128(i128::MIN),
+                PrimaryKeyComponent::Int128(i128::MIN),
+            ),
+            (
+                Value::Timestamp(Timestamp::from_millis(-42)),
+                PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-42)),
+            ),
+            (
+                Value::Ulid(Ulid::from_u128(42)),
+                PrimaryKeyComponent::Ulid(Ulid::from_u128(42)),
+            ),
+            (
+                Value::Principal(Principal::from_slice(&[1, 2, 3])),
+                PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
+            ),
+            (
+                Value::Subaccount(Subaccount::from_array([7; 32])),
+                PrimaryKeyComponent::Subaccount(Subaccount::from_array([7; 32])),
+            ),
+            (
+                Value::Account(account),
+                PrimaryKeyComponent::Account(account),
+            ),
+            (Value::Unit, PrimaryKeyComponent::Unit),
+        ];
+
+        for (value, expected) in cases {
+            assert_eq!(
+                PrimaryKeyComponent::from_runtime_value(&value),
+                Some(expected),
+                "value: {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_big_integer_values_do_not_convert_to_primary_key_components() {
+        assert!(
+            PrimaryKeyComponent::from_runtime_value(&Value::IntBig(IntBig::from(1i32))).is_none()
+        );
+        assert!(
+            PrimaryKeyComponent::from_runtime_value(&Value::NatBig(NatBig::from(1u32))).is_none()
         );
     }
 
@@ -2033,15 +2086,14 @@ mod tests {
     }
 
     #[test]
-    fn compact_primary_key_storage_key_bridge_preserves_logical_values() {
-        let storage_key = StorageKey::Timestamp(Timestamp::from_millis(-11));
-        let primary_key = PrimaryKeyComponent::from(storage_key);
+    fn compact_primary_key_component_preserves_logical_values() {
+        let primary_key = PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-11));
 
         assert_eq!(
             EncodedPrimaryKey::encode(primary_key)
-                .expect("storage-key bridge should encode")
+                .expect("primary-key component should encode")
                 .decode_component()
-                .expect("storage-key bridge should decode"),
+                .expect("primary-key component should decode"),
             primary_key
         );
     }
@@ -2053,9 +2105,12 @@ mod tests {
             .expect("primary key should encode");
         let data_key = DataStoreKey::new(entity, primary_key.clone());
         let raw_data: RawDataStoreKey = data_key.to_raw();
-        let live_data_key = DecodedDataStoreKey::new(entity, StorageKey::Nat(5))
-            .to_raw()
-            .expect("live data key should encode");
+        let live_data_key = DecodedDataStoreKey::new(
+            entity,
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(5)),
+        )
+        .to_raw()
+        .expect("live data key should encode");
 
         assert_eq!(raw_data.as_bytes().len(), size_of::<u64>() + 1 + 8);
         assert_eq!(
@@ -2063,7 +2118,6 @@ mod tests {
             raw_data.as_bytes(),
             "live data-store keys should use the compact taxonomy wire shape"
         );
-        assert_eq!(StorageKey::STORED_SIZE_USIZE, 64);
         assert_eq!(
             RawDataStoreKey::MAX_STORED_SIZE_BYTES,
             size_of::<u64>() as u64 + COMPOSITE_PRIMARY_KEY_MAX_SIZE as u64
@@ -2358,7 +2412,7 @@ mod tests {
                 &index_id,
                 live_kind,
                 &[component.as_bytes()],
-                &PrimaryKeyValue::from(StorageKey::Nat(77)),
+                &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(77)),
             )
             .to_raw();
 

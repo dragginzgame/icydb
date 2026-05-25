@@ -47,9 +47,9 @@ fn expression_rebuild_stages_sorted_entries_without_publication() {
         accepted_lower_name_expression_target(),
         None,
         [
-            super::SchemaExpressionIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaExpressionIndexRebuildRow::new(StorageKey::Nat(1), &first),
-            super::SchemaExpressionIndexRebuildRow::new(StorageKey::Nat(3), &skipped),
+            super::SchemaExpressionIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaExpressionIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
+            super::SchemaExpressionIndexRebuildRow::new(PrimaryKeyComponent::Nat64(3), &skipped),
         ],
     )
     .expect("expression rebuild rows should stage into raw index entries");
@@ -99,7 +99,7 @@ fn expression_rebuild_writer_reports_staged_write_intents_without_physical_mutat
 #[test]
 fn expression_rebuild_write_batch_snapshots_physical_rollback_without_publication() {
     let buffer = staged_lower_name_expression_store();
-    let previous_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(99)])
+    let previous_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Nat64(99)])
         .expect("previous entry should encode");
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
@@ -138,7 +138,7 @@ fn expression_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
 #[test]
 fn expression_rebuild_write_batch_derives_reverse_rollback_plan() {
     let buffer = staged_lower_name_expression_store();
-    let previous_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(99)])
+    let previous_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Nat64(99)])
         .expect("previous entry should encode");
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
@@ -197,8 +197,8 @@ fn staged_lower_name_expression_store() -> super::SchemaExpressionIndexStagedSto
         accepted_lower_name_expression_target(),
         None,
         [
-            super::SchemaExpressionIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaExpressionIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaExpressionIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaExpressionIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
         ],
     )
     .expect("expression rebuild rows should stage into raw index entries");
@@ -224,8 +224,8 @@ fn expression_rebuild_validation_reports_runner_diagnostics_without_publication(
         accepted_lower_name_expression_target(),
         None,
         [
-            super::SchemaExpressionIndexRebuildRow::new(StorageKey::Nat(2), &second),
-            super::SchemaExpressionIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaExpressionIndexRebuildRow::new(PrimaryKeyComponent::Nat64(2), &second),
+            super::SchemaExpressionIndexRebuildRow::new(PrimaryKeyComponent::Nat64(1), &first),
         ],
     )
     .expect("expression rebuild rows should stage into raw index entries");

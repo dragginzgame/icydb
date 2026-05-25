@@ -9,7 +9,7 @@ use crate::{
     },
     value::{
         CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
-        hash_value, storage_key_as_runtime_value,
+        hash_value,
     },
 };
 use std::cmp::Ordering;
@@ -107,10 +107,10 @@ macro_rules! sample_value_for_scalar {
 /// Build scalar-backed values paired with their registry numeric flag.
 fn registry_numeric_cases() -> Vec<(Value, bool)> {
     macro_rules! collect_cases {
-        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $is_numeric) ),* ]
         };
-        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $is_numeric) ),* ]
         };
     }
@@ -123,10 +123,10 @@ fn registry_numeric_cases() -> Vec<(Value, bool)> {
 /// Build scalar-backed values paired with their registry numeric-coercion flag.
 fn registry_numeric_coercion_cases() -> Vec<(Value, bool)> {
     macro_rules! collect_cases {
-        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $supports_numeric_coercion) ),* ]
         };
-        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $supports_numeric_coercion) ),* ]
         };
     }
@@ -134,29 +134,13 @@ fn registry_numeric_coercion_cases() -> Vec<(Value, bool)> {
     scalar_registry!(collect_cases)
 }
 
-/// Build scalar-backed values paired with their legacy storage-key bridge flag.
-fn registry_storage_key_bridge_cases() -> Vec<(Value, bool)> {
-    macro_rules! collect_cases {
-        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-            vec![ $( (sample_value_for_scalar!($scalar), $is_storage_key_encodable) ),* ]
-        };
-        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-            vec![ $( (sample_value_for_scalar!($scalar), $is_storage_key_encodable) ),* ]
-        };
-    }
-
-    let cases = scalar_registry!(collect_cases);
-
-    cases
-}
-
 /// Build scalar-backed values paired with their registry coercion family.
 fn registry_coercion_family_cases() -> Vec<(Value, CoercionFamily)> {
     macro_rules! collect_cases {
-        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $coercion_family) ),* ]
         };
-        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $coercion_family) ),* ]
         };
     }
@@ -164,49 +148,6 @@ fn registry_coercion_family_cases() -> Vec<(Value, CoercionFamily)> {
     let cases = scalar_registry!(collect_cases);
 
     cases
-}
-
-// ---- keys --------------------------------------------------------------
-
-#[test]
-fn as_primary_key_value_some_for_keyable_variants() {
-    assert!(Value::Int64(7).as_primary_key_value().is_some());
-    assert!(Value::Nat64(7).as_primary_key_value().is_some());
-    assert!(Value::Ulid(Ulid::MIN).as_primary_key_value().is_some());
-    assert!(Value::Unit.as_primary_key_value().is_some());
-
-    // Non-key / non-orderable variants
-    assert!(v_txt("x").as_primary_key_value().is_none());
-    assert!(
-        Value::Decimal(Decimal::new(1, 0))
-            .as_primary_key_value()
-            .is_none()
-    );
-    assert!(Value::List(vec![]).as_primary_key_value().is_none());
-    assert!(Value::Null.as_primary_key_value().is_none());
-}
-
-#[test]
-fn primary_key_value_round_trips_through_value() {
-    let values = [
-        Value::Int64(-9),
-        Value::Nat64(9),
-        Value::Ulid(Ulid::MAX),
-        Value::Unit,
-    ];
-
-    for v in values {
-        let key = v
-            .as_primary_key_value()
-            .expect("value should be convertible to primary-key value");
-
-        let back = storage_key_as_runtime_value(&key);
-
-        assert_eq!(
-            v, back,
-            "Value <-> primary-key value round trip failed: {v:?} -> {key:?} -> {back:?}"
-        );
-    }
 }
 
 #[test]
@@ -280,17 +221,6 @@ fn value_supports_numeric_coercion_matches_registry_flag() {
         assert_eq!(
             value.supports_numeric_coercion(),
             expected,
-            "value: {value:?}"
-        );
-    }
-}
-
-#[test]
-fn value_as_primary_key_value_matches_storage_key_bridge_flag() {
-    for (value, is_storage_key_encodable) in registry_storage_key_bridge_cases() {
-        assert_eq!(
-            value.as_primary_key_value().is_some(),
-            is_storage_key_encodable,
             "value: {value:?}"
         );
     }

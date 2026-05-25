@@ -869,7 +869,7 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
 
 #[test]
 fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_rows() {
-    let storage_key_terminal_grouped =
+    let primary_key_terminal_grouped =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: grouped_field_slots(&["rank"]),
@@ -882,7 +882,7 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
                 execution: GroupedExecutionConfig::unbounded(),
             });
     assert_eq!(
-        grouped_policy_snapshot(&storage_key_terminal_grouped),
+        grouped_policy_snapshot(&primary_key_terminal_grouped),
         (
             GroupedPlanStrategy::hash_group_with_aggregate_family(
                 GroupedPlanFallbackReason::GroupKeyOrderUnavailable,

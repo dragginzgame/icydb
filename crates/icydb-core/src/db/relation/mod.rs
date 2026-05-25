@@ -9,10 +9,7 @@ mod save_validate;
 mod validate;
 
 use crate::{
-    db::{
-        Db,
-        data::{RawDataStoreKey, StorageKeyEncodeError},
-    },
+    db::{Db, data::RawDataStoreKey},
     error::InternalError,
     value::Value,
 };
@@ -58,33 +55,18 @@ enum RelationTargetMismatchPolicy {
     Reject,
 }
 
-///
-/// RelationTargetRawKeyError
-/// Error variants for building a relation target `RawDataStoreKey` from user value.
-///
-
-#[derive(Debug)]
-pub(in crate::db::relation) enum RelationTargetRawKeyError {
-    StorageKeyEncode(StorageKeyEncodeError),
-}
-
 impl InternalError {
     /// Map a relation-target key normalization failure into a typed `InternalError`.
     pub(in crate::db::relation) fn relation_target_raw_key_error(
-        err: RelationTargetRawKeyError,
         source_path: &'static str,
         field_name: &str,
         target_path: &str,
         value: &Value,
-        storage_compat_message: &'static str,
+        message: &'static str,
     ) -> Self {
-        match err {
-            RelationTargetRawKeyError::StorageKeyEncode(err) => {
-                Self::executor_unsupported(format!(
-                    "{storage_compat_message}: source={source_path} field={field_name} target={target_path} value={value:?} ({err})",
-                ))
-            }
-        }
+        Self::executor_unsupported(format!(
+            "{message}: source={source_path} field={field_name} target={target_path} value={value:?}",
+        ))
     }
 
     /// Construct the canonical strong-relation invalid target-name error.

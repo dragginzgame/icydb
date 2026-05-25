@@ -1,4 +1,4 @@
-//! Module: data::structural_field::storage_key::scalar::bytes
+//! Module: data::structural_field::primary_key_component::scalar::bytes
 //! Responsibility: byte-backed storage-key scalar decode for principal, subaccount, and ULID.
 //! Does not own: generic scalar dispatch, relation traversal, or row decode.
 //! Boundary: decodes byte-backed storage-key payloads after callers select this scalar lane.
@@ -16,13 +16,13 @@ use crate::{
             decode_ulid_payload_bytes,
         },
     },
-    value::StorageKey,
+    db::key_taxonomy::PrimaryKeyComponent,
 };
 
 // Decode one principal relation-key payload from Structural Binary v1.
-pub(in crate::db::data::structural_field::storage_key) fn decode_principal_storage_key_binary_bytes(
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_principal_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
-) -> Result<StorageKey, FieldDecodeError> {
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated principal payload",
@@ -46,13 +46,13 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_principal_stora
         payload_start,
         "principal",
     )?)
-    .map(StorageKey::Principal)
+    .map(PrimaryKeyComponent::Principal)
 }
 
 // Decode one subaccount relation-key payload from Structural Binary v1.
-pub(in crate::db::data::structural_field::storage_key) fn decode_subaccount_storage_key_binary_bytes(
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_subaccount_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
-) -> Result<StorageKey, FieldDecodeError> {
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated subaccount payload",
@@ -75,14 +75,14 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_subaccount_stor
         payload_start,
         "subaccount",
     )?)
-    .map(StorageKey::Subaccount)
+    .map(PrimaryKeyComponent::Subaccount)
 }
 
 // Decode one ULID relation-key payload directly from its fixed-width Structural
 // Binary bytes form.
-pub(in crate::db::data::structural_field::storage_key) fn decode_ulid_storage_key_binary_bytes(
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_ulid_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
-) -> Result<StorageKey, FieldDecodeError> {
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated ulid payload",
@@ -101,5 +101,5 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_ulid_storage_ke
     }
 
     decode_ulid_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start, "ulid")?)
-        .map(StorageKey::Ulid)
+        .map(PrimaryKeyComponent::Ulid)
 }

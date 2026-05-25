@@ -77,7 +77,6 @@ mod tests {
         },
         traits::Storable,
         types::{Principal, Subaccount, Timestamp, Ulid},
-        value::StorageKey,
     };
     use std::borrow::Cow;
 
@@ -101,42 +100,46 @@ mod tests {
     }
 
     #[test]
-    fn pk_equivalence_matches_when_anchor_and_boundary_share_storage_key() {
+    fn pk_equivalence_matches_when_anchor_and_boundary_share_primary_key_component() {
         let cases = [
             (
-                index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Int(-7))),
+                index_key_with_primary_key_value(&PrimaryKeyValue::from(
+                    PrimaryKeyComponent::Int64(-7),
+                )),
                 Value::Int64(-7),
             ),
             (
-                index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Nat(42))),
+                index_key_with_primary_key_value(&PrimaryKeyValue::from(
+                    PrimaryKeyComponent::Nat64(42),
+                )),
                 Value::Nat64(42),
             ),
             (
-                index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Principal(
-                    Principal::from_slice(&[9]),
-                ))),
+                index_key_with_primary_key_value(&PrimaryKeyValue::from(
+                    PrimaryKeyComponent::Principal(Principal::from_slice(&[9])),
+                )),
                 Value::Principal(Principal::from_slice(&[9])),
             ),
             (
-                index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Subaccount(
-                    Subaccount::new([7; 32]),
-                ))),
+                index_key_with_primary_key_value(&PrimaryKeyValue::from(
+                    PrimaryKeyComponent::Subaccount(Subaccount::new([7; 32])),
+                )),
                 Value::Subaccount(Subaccount::new([7; 32])),
             ),
             (
-                index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Timestamp(
-                    Timestamp::from_secs(17),
-                ))),
+                index_key_with_primary_key_value(&PrimaryKeyValue::from(
+                    PrimaryKeyComponent::Timestamp(Timestamp::from_secs(17)),
+                )),
                 Value::Timestamp(Timestamp::from_secs(17)),
             ),
             (
-                index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Ulid(
-                    Ulid::from_u128(91),
-                ))),
+                index_key_with_primary_key_value(&PrimaryKeyValue::from(
+                    PrimaryKeyComponent::Ulid(Ulid::from_u128(91)),
+                )),
                 Value::Ulid(Ulid::from_u128(91)),
             ),
             (
-                index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Unit)),
+                index_key_with_primary_key_value(&PrimaryKeyValue::from(PrimaryKeyComponent::Unit)),
                 Value::Unit,
             ),
         ];
@@ -167,9 +170,10 @@ mod tests {
     }
 
     #[test]
-    fn pk_equivalence_rejects_non_storage_key_boundary_values() {
-        let index_key =
-            index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Nat(42)));
+    fn pk_equivalence_rejects_non_primary_key_component_boundary_values() {
+        let index_key = index_key_with_primary_key_value(&PrimaryKeyValue::from(
+            PrimaryKeyComponent::Nat64(42),
+        ));
         let err = primary_key_matches_value(&index_key, &Value::Text("broken".to_string()))
             .expect_err("non-storage-key runtime value must be rejected");
 
@@ -181,8 +185,9 @@ mod tests {
 
     #[test]
     fn pk_equivalence_reports_false_for_distinct_primary_key_values() {
-        let index_key =
-            index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Nat(42)));
+        let index_key = index_key_with_primary_key_value(&PrimaryKeyValue::from(
+            PrimaryKeyComponent::Nat64(42),
+        ));
 
         assert!(
             !primary_key_matches_value(&index_key, &Value::Nat64(99))

@@ -4,18 +4,21 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::index::key::{
-        OrderedValueEncodeError,
-        ordered::{
-            compare_index_component_values, encode_canonical_index_component,
-            encode_canonical_index_component_from_primary_key_value,
+    db::{
+        index::key::{
+            OrderedValueEncodeError,
+            ordered::{
+                compare_index_component_values, encode_canonical_index_component,
+                encode_canonical_index_component_from_primary_key_value,
+            },
         },
+        key_taxonomy::PrimaryKeyComponent,
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
-    value::{StorageKey, Value, ValueEnum, storage_key_as_runtime_value},
+    value::{Value, ValueEnum},
 };
 use proptest::prelude::*;
 use std::cmp::Ordering;
@@ -160,23 +163,23 @@ fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
 #[test]
 fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants() {
     let samples = [
-        StorageKey::Account(Account::from_parts(
+        PrimaryKeyComponent::Account(Account::from_parts(
             Principal::from_slice(&[7]),
             Some(Subaccount::from_array([7; 32])),
         )),
-        StorageKey::Int(-7),
-        StorageKey::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
-        StorageKey::Subaccount(Subaccount::new([7u8; 32])),
-        StorageKey::Timestamp(Timestamp::from_secs(7)),
-        StorageKey::Nat(7),
-        StorageKey::Ulid(Ulid::from_u128(7)),
-        StorageKey::Unit,
+        PrimaryKeyComponent::Int64(-7),
+        PrimaryKeyComponent::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
+        PrimaryKeyComponent::Subaccount(Subaccount::new([7u8; 32])),
+        PrimaryKeyComponent::Timestamp(Timestamp::from_secs(7)),
+        PrimaryKeyComponent::Nat64(7),
+        PrimaryKeyComponent::Ulid(Ulid::from_u128(7)),
+        PrimaryKeyComponent::Unit,
     ];
 
     for sample in samples {
         let primary_key_bytes = encode_canonical_index_component_from_primary_key_value(sample)
             .expect("primary key should encode");
-        let value_bytes = encode_canonical_index_component(&storage_key_as_runtime_value(&sample))
+        let value_bytes = encode_canonical_index_component(&sample.as_runtime_value())
             .expect("value should encode");
 
         assert_eq!(

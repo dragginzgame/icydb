@@ -23,6 +23,7 @@ use super::{
     writer::CompleteSerializedPatchWriter,
 };
 use crate::{
+    db::key_taxonomy::PrimaryKeyComponent,
     db::{
         codec::serialize_row_payload,
         data::{
@@ -57,7 +58,6 @@ use crate::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
         Subaccount, Timestamp, Ulid, Unit,
     },
-    value::StorageKey,
     value::{Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -1708,7 +1708,7 @@ fn option_by_kind_codec_preserves_valid_non_null_value() {
 }
 
 #[test]
-fn option_storage_key_backed_by_kind_malformed_non_null_error_is_stable() {
+fn option_primary_key_component_backed_by_kind_malformed_non_null_error_is_stable() {
     let malformed = encode_structural_value_storage_bytes(&Value::Text("not a nat".to_string()))
         .expect("malformed storage-key fixture should still be structural bytes");
     let err = Option::<u64>::decode_persisted_option_slot_payload_by_kind(
@@ -1820,28 +1820,33 @@ fn accepted_row_contract_reads_missing_trailing_nullable_slots_as_null() {
     let mut reader =
         StructuralSlotReader::from_raw_row_with_validated_contract(&raw_row, contract.clone())
             .expect("accepted row contract should allow missing nullable append-only slot");
-    let dense =
-        super::decode_dense_raw_row_with_contract(&raw_row, contract.clone(), StorageKey::Ulid(id))
-            .expect("dense direct decode should synthesize null for missing nullable slot");
+    let dense = super::decode_dense_raw_row_with_contract(
+        &raw_row,
+        contract.clone(),
+        &PrimaryKeyComponent::Ulid(id).into(),
+    )
+    .expect("dense direct decode should synthesize null for missing nullable slot");
     let sparse = super::decode_sparse_raw_row_with_contract(
         &raw_row,
         contract.clone(),
-        StorageKey::Ulid(id),
+        &PrimaryKeyComponent::Ulid(id).into(),
         &[2],
     )
     .expect("sparse direct decode should synthesize null for missing nullable slot");
     let compact = super::decode_sparse_indexed_raw_row_with_contract(
         &raw_row,
         contract.clone(),
-        StorageKey::Ulid(id),
+        &PrimaryKeyComponent::Ulid(id).into(),
         &[2],
     )
     .expect("compact sparse direct decode should synthesize null for missing nullable slot");
-    let required =
-        decode_sparse_required_slot_with_contract(&raw_row, contract, StorageKey::Ulid(id), 2)
-            .expect(
-                "required sparse direct decode should synthesize null for missing nullable slot",
-            );
+    let required = decode_sparse_required_slot_with_contract(
+        &raw_row,
+        contract,
+        &PrimaryKeyComponent::Ulid(id).into(),
+        2,
+    )
+    .expect("required sparse direct decode should synthesize null for missing nullable slot");
 
     assert_eq!(
         reader.get_value(2).expect("reader missing slot"),
@@ -1959,13 +1964,16 @@ fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
     let contract = accepted_row_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
 
-    let decoded =
-        super::decode_dense_raw_row_with_contract(&raw_row, contract.clone(), StorageKey::Ulid(id))
-            .expect("accepted primary-key contract should validate expected row key");
+    let decoded = super::decode_dense_raw_row_with_contract(
+        &raw_row,
+        contract.clone(),
+        &PrimaryKeyComponent::Ulid(id).into(),
+    )
+    .expect("accepted primary-key contract should validate expected row key");
     let err = super::decode_dense_raw_row_with_contract(
         &raw_row,
         contract,
-        StorageKey::Ulid(Ulid::from_u128(150)),
+        &PrimaryKeyComponent::Ulid(Ulid::from_u128(150)).into(),
     )
     .expect_err("accepted primary-key contract should reject mismatched row key");
 
@@ -1984,9 +1992,12 @@ fn accepted_row_contract_preserves_malformed_present_slot_corruption_taxonomy() 
     else {
         panic!("accepted row contract must reject malformed present slot bytes");
     };
-    let dense_err =
-        super::decode_dense_raw_row_with_contract(&raw_row, contract, StorageKey::Ulid(id))
-            .expect_err("accepted dense decode must reject malformed present slot bytes");
+    let dense_err = super::decode_dense_raw_row_with_contract(
+        &raw_row,
+        contract,
+        &PrimaryKeyComponent::Ulid(id).into(),
+    )
+    .expect_err("accepted dense decode must reject malformed present slot bytes");
 
     assert_error_taxonomy(&lazy_err, ErrorClass::Corruption, ErrorOrigin::Serialize);
     assert_error_taxonomy(&dense_err, ErrorClass::Corruption, ErrorOrigin::Serialize);
@@ -2656,7 +2667,7 @@ fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
 }
 
 #[test]
-fn dense_row_decode_materializes_relation_primary_key_from_authoritative_storage_key() {
+fn dense_row_decode_materializes_relation_primary_key_from_authoritative_primary_key_value() {
     let token_id = Ulid::from_u128(91);
     let token_id_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
@@ -2680,7 +2691,7 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_storage
     let decoded = super::decode_dense_raw_row_with_contract(
         &raw_row,
         StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
-        StorageKey::Ulid(token_id),
+        &PrimaryKeyComponent::Ulid(token_id).into(),
     )
     .expect("relation primary-key row decode should succeed");
 
@@ -2688,7 +2699,8 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_storage
 }
 
 #[test]
-fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritative_storage_key() {
+fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritative_primary_key_value()
+ {
     let token_id = Ulid::from_u128(92);
     let token_id_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
@@ -2712,7 +2724,7 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
     let decoded = decode_sparse_required_slot_with_contract(
         &raw_row,
         StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
-        StorageKey::Ulid(token_id),
+        &PrimaryKeyComponent::Ulid(token_id).into(),
         0,
     )
     .expect("relation primary-key sparse required-slot decode should succeed");

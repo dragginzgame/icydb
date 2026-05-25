@@ -64,8 +64,9 @@ Stable-memory and index encodings use storage-specific names:
 - `DecodedDataStoreKey`
 
 Use these names when discussing persisted bytes or decoded storage-key
-components. `StorageKey` names the older decoded scalar key frame and should not
-be used for new schema concepts.
+components. Row identity is expressed as `PrimaryKeyComponent`,
+`PrimaryKeyValue`, and `EncodedPrimaryKey`; the older decoded scalar
+`StorageKey` frame is not a live storage or schema concept.
 
 ## Layer Names
 

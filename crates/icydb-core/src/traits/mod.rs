@@ -177,9 +177,9 @@ pub trait KeyValueCodec {
 ///
 /// PrimaryKeyEncodeError
 ///
-/// Typed primary-key admission errors. This is deliberately separate from the
-/// scalar `StorageKey` frame so composite keys do not inherit old storage-key
-/// vocabulary or compatibility lanes.
+/// Typed primary-key admission errors. This is deliberately separate from
+/// compact row-key encoding so composite keys do not inherit scalar-only
+/// compatibility lanes.
 ///
 
 #[derive(Debug, ThisError)]

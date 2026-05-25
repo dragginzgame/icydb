@@ -1,4 +1,4 @@
-//! Module: data::structural_field::storage_key::scalar::account
+//! Module: data::structural_field::primary_key_component::scalar::account
 //! Responsibility: account storage-key scalar decode.
 //! Does not own: generic scalar dispatch, relation traversal, or row decode.
 //! Boundary: decodes the account-specific storage-key payload after callers select this scalar lane.
@@ -10,18 +10,19 @@ use crate::{
             TAG_LIST, parse_binary_head as parse_structural_binary_head,
             skip_binary_value as skip_structural_binary_value,
         },
-        storage_key::scalar::{
-            decode_principal_storage_key_binary_bytes, decode_subaccount_storage_key_binary_bytes,
+        primary_key_component::scalar::{
+            decode_principal_primary_key_component_binary_bytes,
+            decode_subaccount_primary_key_component_binary_bytes,
         },
     },
-    value::StorageKey,
+    db::key_taxonomy::PrimaryKeyComponent,
 };
 
 // Decode one account relation-key payload from Structural Binary v1 without
 // routing through generic value decode.
-pub(in crate::db::data::structural_field::storage_key) fn decode_account_storage_key_binary_bytes(
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_account_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
-) -> Result<StorageKey, FieldDecodeError> {
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated account payload",
@@ -43,8 +44,8 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_account_storage
         ));
     }
 
-    let StorageKey::Principal(owner) =
-        decode_principal_storage_key_binary_bytes(&raw_bytes[owner_start..owner_end])?
+    let PrimaryKeyComponent::Principal(owner) =
+        decode_principal_primary_key_component_binary_bytes(&raw_bytes[owner_start..owner_end])?
     else {
         unreachable!("principal key decode must return a principal");
     };
@@ -54,8 +55,10 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_account_storage
         if tag == crate::db::data::structural_field::binary::TAG_NULL {
             None
         } else {
-            match decode_subaccount_storage_key_binary_bytes(&raw_bytes[sub_start..sub_end])? {
-                StorageKey::Subaccount(value) => Some(value),
+            match decode_subaccount_primary_key_component_binary_bytes(
+                &raw_bytes[sub_start..sub_end],
+            )? {
+                PrimaryKeyComponent::Subaccount(value) => Some(value),
                 _ => unreachable!("subaccount key decode must return a subaccount"),
             }
         }
@@ -65,7 +68,7 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_account_storage
         ));
     };
 
-    Ok(StorageKey::Account(crate::types::Account::from_parts(
-        owner, subaccount,
-    )))
+    Ok(PrimaryKeyComponent::Account(
+        crate::types::Account::from_parts(owner, subaccount),
+    ))
 }

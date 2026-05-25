@@ -3,7 +3,10 @@
 //! Does not own: planner query validation policy or access-path execution routing.
 //! Boundary: defines cursor-boundary domain types shared by cursor planning/runtime paths.
 
-use crate::db::{data::primary_key_value_from_structural_value, key_taxonomy::PrimaryKeyValue};
+use crate::db::{
+    data::primary_key_value_from_structural_value,
+    key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+};
 use crate::{
     db::{
         cursor::CursorPlanError,
@@ -198,7 +201,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                 }
 
                 if field.is_some_and(|field| is_primary_key_field(schema, field))
-                    && Value::as_primary_key_value(value).is_none()
+                    && PrimaryKeyComponent::from_runtime_value(value).is_none()
                 {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(

@@ -14,7 +14,6 @@ use crate::{
     },
     testing::test_memory,
     types::EntityTag,
-    value::StorageKey,
 };
 
 use std::cell::RefCell;
@@ -29,7 +28,10 @@ thread_local! {
 }
 
 fn test_key() -> DecodedDataStoreKey {
-    DecodedDataStoreKey::new(EntityTag::new(17), StorageKey::Nat(41))
+    DecodedDataStoreKey::new(
+        EntityTag::new(17),
+        &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(41)),
+    )
 }
 
 fn composite_test_key() -> DecodedDataStoreKey {
@@ -115,7 +117,7 @@ fn fused_secondary_covering_authority_tracks_candidate_and_probe_metrics() {
 
     let (row_exists, metrics) = with_row_check_metrics(|| {
         TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow(|store| {
-            let primary_key = PrimaryKeyValue::from(StorageKey::Nat(41));
+            let primary_key = PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(41));
             FusedSecondaryCoveringAuthority::new(store, EntityTag::new(17), MissingRowPolicy::Error)
                 .admits_primary_key_value(&primary_key)
                 .expect("fused secondary covering probe should succeed")

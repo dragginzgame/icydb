@@ -1,4 +1,4 @@
-//! Module: data::structural_field::storage_key::encode
+//! Module: data::structural_field::primary_key_component::encode
 //! Responsibility: storage-key-compatible Structural Binary encode.
 //! Does not own: relation indexing policy, runtime row encode, or generic value-storage envelopes.
 //! Boundary: callers provide field-kind authority; this module writes storage-key-compatible payloads only.
@@ -6,47 +6,53 @@
 use crate::{
     db::data::structural_field::{
         binary::{push_binary_list_len, push_binary_null},
-        storage_key::supports_storage_key_binary_kind,
+        primary_key_component::supports_primary_key_component_binary_kind,
     },
+    db::key_taxonomy::PrimaryKeyComponent,
     error::InternalError,
     model::field::FieldKind,
-    value::{StorageKey, Value, storage_key_from_runtime_value},
+    value::Value,
 };
 
 /// Encode strong-relation target keys into the owner-local Structural Binary
 /// v1 storage-key lane.
-pub(in crate::db) fn encode_relation_target_storage_keys_binary_bytes(
-    keys: &[StorageKey],
+pub(in crate::db) fn encode_relation_target_primary_key_components_binary_bytes(
+    keys: &[PrimaryKeyComponent],
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let mut encoded = Vec::new();
-    encode_relation_target_storage_keys_binary_into(&mut encoded, keys, kind, field_name)?;
+    encode_relation_target_primary_key_components_binary_into(
+        &mut encoded,
+        keys,
+        kind,
+        field_name,
+    )?;
 
     Ok(encoded)
 }
 
-/// Encode one canonical `StorageKey` into the owner-local Structural Binary v1
+/// Encode one canonical primary-key component into the owner-local Structural Binary v1
 /// storage-key lane.
-pub(in crate::db) fn encode_storage_key_field_binary_bytes(
-    key: StorageKey,
+pub(in crate::db) fn encode_primary_key_component_field_binary_bytes(
+    key: PrimaryKeyComponent,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let mut encoded = Vec::new();
-    encode_storage_key_field_binary_into(&mut encoded, key, kind, field_name)?;
+    encode_primary_key_component_field_binary_into(&mut encoded, key, kind, field_name)?;
 
     Ok(encoded)
 }
 
 /// Encode one storage-key-compatible runtime value through the owner-local
 /// Structural Binary v1 lane.
-pub(in crate::db) fn encode_storage_key_binary_value_bytes(
+pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
     kind: FieldKind,
     value: &Value,
     field_name: &str,
 ) -> Result<Option<Vec<u8>>, InternalError> {
-    if !supports_storage_key_binary_kind(kind) {
+    if !supports_primary_key_component_binary_kind(kind) {
         return Ok(None);
     }
 
@@ -54,11 +60,9 @@ pub(in crate::db) fn encode_storage_key_binary_value_bytes(
         FieldKind::Relation { .. } => {
             let keys = match value {
                 Value::Null => Vec::new(),
-                value => vec![storage_key_from_runtime_value(value).map_err(|err| {
-                    InternalError::persisted_row_field_encode_failed(field_name, err)
-                })?],
+                value => vec![primary_key_component_from_runtime_value(value, field_name)?],
             };
-            encode_relation_target_storage_keys_binary_bytes(&keys, kind, field_name)?
+            encode_relation_target_primary_key_components_binary_bytes(&keys, kind, field_name)?
         }
         FieldKind::List(FieldKind::Relation { .. })
         | FieldKind::Set(FieldKind::Relation { .. }) => {
@@ -73,20 +77,17 @@ pub(in crate::db) fn encode_storage_key_binary_value_bytes(
                 if matches!(item, Value::Null) {
                     continue;
                 }
-                keys.push(storage_key_from_runtime_value(item).map_err(|err| {
-                    InternalError::persisted_row_field_encode_failed(field_name, err)
-                })?);
+                keys.push(primary_key_component_from_runtime_value(item, field_name)?);
             }
-            encode_relation_target_storage_keys_binary_bytes(&keys, kind, field_name)?
+            encode_relation_target_primary_key_components_binary_bytes(&keys, kind, field_name)?
         }
         _ if matches!(value, Value::Null) => {
             let mut encoded = Vec::new();
             push_binary_null(&mut encoded);
             encoded
         }
-        _ => encode_storage_key_field_binary_bytes(
-            storage_key_from_runtime_value(value)
-                .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))?,
+        _ => encode_primary_key_component_field_binary_bytes(
+            primary_key_component_from_runtime_value(value, field_name)?,
             kind,
             field_name,
         )?,
@@ -97,9 +98,9 @@ pub(in crate::db) fn encode_storage_key_binary_value_bytes(
 
 // Encode one strong-relation field into the storage-key Structural Binary v1
 // lane without routing through runtime `Value`.
-fn encode_relation_target_storage_keys_binary_into(
+fn encode_relation_target_primary_key_components_binary_into(
     out: &mut Vec<u8>,
-    keys: &[StorageKey],
+    keys: &[PrimaryKeyComponent],
     kind: FieldKind,
     field_name: &str,
 ) -> Result<(), InternalError> {
@@ -109,7 +110,9 @@ fn encode_relation_target_storage_keys_binary_into(
                 push_binary_null(out);
                 Ok(())
             }
-            [key] => encode_storage_key_field_binary_into(out, *key, *key_kind, field_name),
+            [key] => {
+                encode_primary_key_component_field_binary_into(out, *key, *key_kind, field_name)
+            }
             _ => Err(InternalError::persisted_row_field_encode_failed(
                 field_name,
                 "singular relation field received more than one target key",
@@ -119,7 +122,7 @@ fn encode_relation_target_storage_keys_binary_into(
         | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
             push_binary_list_len(out, keys.len());
             for key in keys {
-                encode_storage_key_field_binary_into(out, *key, **key_kind, field_name)?;
+                encode_primary_key_component_field_binary_into(out, *key, **key_kind, field_name)?;
             }
 
             Ok(())
@@ -135,18 +138,30 @@ fn encode_relation_target_storage_keys_binary_into(
 
 // Encode one storage-key-compatible field into the owner-local Structural
 // Binary v1 storage-key lane.
-fn encode_storage_key_field_binary_into(
+fn encode_primary_key_component_field_binary_into(
     out: &mut Vec<u8>,
-    key: StorageKey,
+    key: PrimaryKeyComponent,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<(), InternalError> {
     match (kind, key) {
         (FieldKind::Relation { key_kind, .. }, key) => {
-            encode_storage_key_field_binary_into(out, key, *key_kind, field_name)
+            encode_primary_key_component_field_binary_into(out, key, *key_kind, field_name)
         }
-        _ => crate::db::data::structural_field::storage_key::scalar::encode_scalar_storage_key_field_binary_into(
+        _ => crate::db::data::structural_field::primary_key_component::scalar::encode_scalar_primary_key_component_field_binary_into(
             out, key, kind, field_name,
         ),
     }
+}
+
+fn primary_key_component_from_runtime_value(
+    value: &Value,
+    field_name: &str,
+) -> Result<PrimaryKeyComponent, InternalError> {
+    PrimaryKeyComponent::from_runtime_value(value).ok_or_else(|| {
+        InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("runtime value {value:?} is not admitted as a primary-key component"),
+        )
+    })
 }

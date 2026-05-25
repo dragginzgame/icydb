@@ -8,13 +8,14 @@ use crate::db::data::structural_field::binary::{
     push_binary_variant_unit, split_binary_variant_payload, walk_binary_list_items,
     walk_binary_map_entries,
 };
+use crate::db::data::structural_field::primary_key_component::{
+    decode_primary_key_component_binary_value_bytes,
+    encode_primary_key_component_binary_value_bytes,
+    validate_primary_key_component_binary_value_bytes,
+};
 use crate::db::data::structural_field::scalar::{
     decode_scalar_fast_path_binary_bytes, encode_scalar_fast_path_binary_bytes,
     validate_scalar_fast_path_binary_bytes,
-};
-use crate::db::data::structural_field::storage_key::{
-    decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes,
-    validate_storage_key_binary_value_bytes,
 };
 use crate::db::data::structural_field::value_storage::{
     encode_structural_value_storage_bytes, normalize_map_entries_or_preserve,
@@ -369,7 +370,7 @@ fn decode_structural_binary_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Value, FieldDecodeError> {
-    if let Some(value) = decode_storage_key_binary_value_bytes(raw_bytes, kind)? {
+    if let Some(value) = decode_primary_key_component_binary_value_bytes(raw_bytes, kind)? {
         return Ok(value);
     }
     if let Some(value) = decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
@@ -384,7 +385,7 @@ fn validate_structural_binary_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<(), FieldDecodeError> {
-    if validate_storage_key_binary_value_bytes(raw_bytes, kind)? {
+    if validate_primary_key_component_binary_value_bytes(raw_bytes, kind)? {
         return Ok(());
     }
     if validate_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
@@ -401,7 +402,8 @@ fn encode_structural_binary_field_by_kind_into(
     value: &Value,
     field_name: &str,
 ) -> Result<(), InternalError> {
-    if let Some(encoded) = encode_storage_key_binary_value_bytes(kind, value, field_name)? {
+    if let Some(encoded) = encode_primary_key_component_binary_value_bytes(kind, value, field_name)?
+    {
         out.extend_from_slice(encoded.as_slice());
         return Ok(());
     }

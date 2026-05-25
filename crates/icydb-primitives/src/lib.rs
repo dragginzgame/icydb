@@ -83,8 +83,8 @@ impl ScalarKind {
 
     /// Return whether this scalar can be encoded as a storage key.
     #[must_use]
-    pub const fn is_storage_key_encodable(self) -> bool {
-        self.metadata().is_storage_key_encodable
+    pub const fn is_primary_key_component_encodable(self) -> bool {
+        self.metadata().is_primary_key_component_encodable
     }
 }
 
@@ -104,7 +104,7 @@ pub struct ScalarMetadata {
     supports_equality: bool,
     supports_ordering: bool,
     is_keyable: bool,
-    is_storage_key_encodable: bool,
+    is_primary_key_component_encodable: bool,
 }
 
 impl ScalarMetadata {
@@ -152,8 +152,8 @@ impl ScalarMetadata {
 
     /// Return whether this scalar can be encoded as a storage key.
     #[must_use]
-    pub const fn is_storage_key_encodable(self) -> bool {
-        self.is_storage_key_encodable
+    pub const fn is_primary_key_component_encodable(self) -> bool {
+        self.is_primary_key_component_encodable
     }
 }
 
@@ -241,8 +241,8 @@ mod tests {
             assert_eq!(kind.supports_ordering(), metadata.supports_ordering());
             assert_eq!(kind.is_keyable(), metadata.is_keyable());
             assert_eq!(
-                kind.is_storage_key_encodable(),
-                metadata.is_storage_key_encodable(),
+                kind.is_primary_key_component_encodable(),
+                metadata.is_primary_key_component_encodable(),
             );
         }
     }

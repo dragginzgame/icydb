@@ -1,6 +1,6 @@
 use super::{
-    decode_relation_target_storage_keys_bytes, decode_structural_field_by_kind_bytes,
-    decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
+    decode_relation_target_primary_key_components_bytes, decode_structural_field_by_kind_bytes,
+    decode_structural_value_storage_bytes, encode_primary_key_component_binary_value_bytes,
     encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
     encode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
     validate_structural_value_storage_bytes,
@@ -9,10 +9,11 @@ use crate::{
     db::data::structural_field::binary::{
         push_binary_bytes, push_binary_list_len, push_binary_nat64, push_binary_text,
     },
+    db::key_taxonomy::PrimaryKeyComponent,
     db::schema::PersistedFieldKind,
     model::field::{FieldKind, RelationStrength},
     types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount, Ulid},
-    value::{StorageKey, Value, ValueEnum},
+    value::{Value, ValueEnum},
 };
 
 static RELATION_ULID_KEY_KIND: FieldKind = FieldKind::Ulid;
@@ -27,23 +28,28 @@ static STRONG_RELATION_KIND: FieldKind = FieldKind::Relation {
 static STRONG_RELATION_LIST_KIND: FieldKind = FieldKind::List(&STRONG_RELATION_KIND);
 
 #[test]
-fn relation_target_storage_key_decode_handles_single_ulid_and_null() {
+fn relation_target_primary_key_component_decode_handles_single_ulid_and_null() {
     let target = Ulid::from_u128(7);
-    let target_bytes =
-        encode_storage_key_binary_value_bytes(STRONG_RELATION_KIND, &Value::Ulid(target), "id")
-            .expect("storage-key relation bytes should encode")
-            .expect("relation kind should use storage-key binary lane");
+    let target_bytes = encode_primary_key_component_binary_value_bytes(
+        STRONG_RELATION_KIND,
+        &Value::Ulid(target),
+        "id",
+    )
+    .expect("storage-key relation bytes should encode")
+    .expect("relation kind should use storage-key binary lane");
     let null_bytes =
-        encode_storage_key_binary_value_bytes(STRONG_RELATION_KIND, &Value::Null, "id")
+        encode_primary_key_component_binary_value_bytes(STRONG_RELATION_KIND, &Value::Null, "id")
             .expect("null relation bytes should encode")
             .expect("relation kind should use storage-key binary lane");
 
-    let decoded = decode_relation_target_storage_keys_bytes(&target_bytes, STRONG_RELATION_KIND)
-        .expect("single relation should decode");
-    let decoded_null = decode_relation_target_storage_keys_bytes(&null_bytes, STRONG_RELATION_KIND)
-        .expect("null relation should decode");
+    let decoded =
+        decode_relation_target_primary_key_components_bytes(&target_bytes, STRONG_RELATION_KIND)
+            .expect("single relation should decode");
+    let decoded_null =
+        decode_relation_target_primary_key_components_bytes(&null_bytes, STRONG_RELATION_KIND)
+            .expect("null relation should decode");
 
-    assert_eq!(decoded, vec![StorageKey::Ulid(target)]);
+    assert_eq!(decoded, vec![PrimaryKeyComponent::Ulid(target)]);
     assert!(
         decoded_null.is_empty(),
         "null relation should yield no targets"
@@ -51,10 +57,10 @@ fn relation_target_storage_key_decode_handles_single_ulid_and_null() {
 }
 
 #[test]
-fn relation_target_storage_key_decode_handles_list_and_skips_null_items() {
+fn relation_target_primary_key_component_decode_handles_list_and_skips_null_items() {
     let left = Ulid::from_u128(8);
     let right = Ulid::from_u128(9);
-    let bytes = encode_storage_key_binary_value_bytes(
+    let bytes = encode_primary_key_component_binary_value_bytes(
         STRONG_RELATION_LIST_KIND,
         &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
         "ids",
@@ -62,12 +68,16 @@ fn relation_target_storage_key_decode_handles_list_and_skips_null_items() {
     .expect("relation list bytes should encode")
     .expect("relation list should use storage-key binary lane");
 
-    let decoded = decode_relation_target_storage_keys_bytes(&bytes, STRONG_RELATION_LIST_KIND)
-        .expect("relation list should decode");
+    let decoded =
+        decode_relation_target_primary_key_components_bytes(&bytes, STRONG_RELATION_LIST_KIND)
+            .expect("relation list should decode");
 
     assert_eq!(
         decoded,
-        vec![StorageKey::Ulid(left), StorageKey::Ulid(right)],
+        vec![
+            PrimaryKeyComponent::Ulid(left),
+            PrimaryKeyComponent::Ulid(right)
+        ],
     );
 }
 
@@ -325,7 +335,7 @@ fn structural_field_validate_matches_decode_for_malformed_leaf_payloads() {
 }
 
 #[test]
-fn structural_field_validate_matches_decode_for_malformed_storage_key_payloads() {
+fn structural_field_validate_matches_decode_for_malformed_primary_key_component_payloads() {
     let mut bytes = Vec::new();
     push_binary_text(&mut bytes, "aaaaa-aa");
 

@@ -18,8 +18,6 @@ pub(crate) mod ops;
 mod output;
 mod rank;
 mod semantics;
-mod storage_key;
-mod storage_key_runtime;
 mod tag;
 mod wire;
 
@@ -44,10 +42,6 @@ pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value
 pub use input::{InputValue, InputValueEnum};
 pub use map::{MapValueError, SchemaInvariantError};
 pub use output::{OutputValue, OutputValueEnum};
-pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
-pub(crate) use storage_key_runtime::{
-    storage_key_as_runtime_value, storage_key_from_runtime_value,
-};
 pub use tag::ValueTag;
 
 //
@@ -337,25 +331,6 @@ impl Value {
     ///
     /// CONVERSION
     ///
-
-    /// NOTE:
-    /// `Unit` is intentionally treated as a valid primary-key value and indexable,
-    /// used for singleton tables and synthetic identity entities.
-    /// Only `Null` is non-indexable.
-    #[must_use]
-    pub(crate) const fn as_primary_key_value(&self) -> Option<StorageKey> {
-        match self {
-            Self::Account(value) => Some(StorageKey::Account(*value)),
-            Self::Int64(value) => Some(StorageKey::Int(*value)),
-            Self::Principal(value) => Some(StorageKey::Principal(*value)),
-            Self::Subaccount(value) => Some(StorageKey::Subaccount(*value)),
-            Self::Timestamp(value) => Some(StorageKey::Timestamp(*value)),
-            Self::Nat64(value) => Some(StorageKey::Nat(*value)),
-            Self::Ulid(value) => Some(StorageKey::Ulid(*value)),
-            Self::Unit => Some(StorageKey::Unit),
-            _ => None,
-        }
-    }
 
     #[must_use]
     pub const fn as_text(&self) -> Option<&str> {

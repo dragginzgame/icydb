@@ -4,8 +4,6 @@
 //! Boundary: planning/mutation paths call into this constructor layer.
 
 #[cfg(test)]
-use crate::db::data::StorageKey;
-#[cfg(test)]
 use crate::model::entity::EntityModel;
 #[cfg(test)]
 use crate::model::index::IndexModel;
@@ -272,9 +270,9 @@ impl IndexKey {
     /// Build an index key from one structural row slot reader plus runtime identity.
     /// Returns `Ok(None)` when indexed values are non-indexable.
     #[cfg(test)]
-    pub(crate) fn new_from_slot_reader_with_legacy_storage_key(
+    pub(crate) fn new_from_slot_reader_with_primary_key_value(
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: &PrimaryKeyValue,
         entity_model: &EntityModel,
         index: &IndexModel,
         read_slot: &mut dyn FnMut(usize) -> Option<Value>,
@@ -306,12 +304,7 @@ impl IndexKey {
             encode_value_index_component(value)
         };
 
-        build_legacy_storage_key_generated_model_index_key(
-            entity_tag,
-            storage_key,
-            index,
-            &mut component_bytes,
-        )
+        build_generated_model_index_key(entity_tag, primary_key, index, &mut component_bytes)
     }
 
     /// Build an index key from one structural row slot ref reader using the
@@ -352,46 +345,11 @@ impl IndexKey {
     ) -> Result<Option<Self>, InternalError> {
         let entity_key = entity.id().key();
         let primary_key_value = crate::traits::PrimaryKeyCodec::to_primary_key_value(&entity_key)?;
-        let Some(component) = primary_key_value.scalar_component() else {
-            return Err(InternalError::store_unsupported(
-                "composite primary keys are not routed through test index-key builders yet",
-            ));
-        };
-        let primary_key_value = match component {
-            crate::db::key_taxonomy::PrimaryKeyComponent::Account(value) => {
-                crate::value::StorageKey::Account(value)
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Int64(value) => {
-                crate::value::StorageKey::Int(value)
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Principal(value) => {
-                crate::value::StorageKey::Principal(value)
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Subaccount(value) => {
-                crate::value::StorageKey::Subaccount(value)
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Timestamp(value) => {
-                crate::value::StorageKey::Timestamp(value)
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(value) => {
-                crate::value::StorageKey::Nat(value)
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Ulid(value) => {
-                crate::value::StorageKey::Ulid(value)
-            }
-            crate::db::key_taxonomy::PrimaryKeyComponent::Unit => crate::value::StorageKey::Unit,
-            crate::db::key_taxonomy::PrimaryKeyComponent::Int128(_)
-            | crate::db::key_taxonomy::PrimaryKeyComponent::Nat128(_) => {
-                return Err(InternalError::store_unsupported(
-                    "128-bit primary keys are not routed through test storage-key index builders",
-                ));
-            }
-        };
         let mut read_slot = |slot| entity.get_value_by_index(slot);
 
-        Self::new_from_slot_reader_with_legacy_storage_key(
+        Self::new_from_slot_reader_with_primary_key_value(
             E::ENTITY_TAG,
-            primary_key_value,
+            &primary_key_value,
             E::MODEL,
             index,
             &mut read_slot,
@@ -1085,11 +1043,11 @@ fn build_accepted_field_path_index_key_from_components(
     }))
 }
 
-// Build one generated-model index key for the legacy StorageKey test bridge.
+// Build one generated-model index key for test-only model parity checks.
 #[cfg(test)]
-fn build_legacy_storage_key_generated_model_index_key(
+fn build_generated_model_index_key(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     index: &IndexModel,
     component_bytes: &mut dyn FnMut(IndexKeyItem) -> Result<Option<Vec<u8>>, InternalError>,
 ) -> Result<Option<IndexKey>, InternalError> {
@@ -1132,8 +1090,7 @@ fn build_legacy_storage_key_generated_model_index_key(
     }
 
     // Phase 3: encode the primary key once and assemble the final user key.
-    let primary_key =
-        IndexKey::compact_primary_key_value_bytes(&PrimaryKeyValue::from(storage_key));
+    let primary_key = IndexKey::compact_primary_key_value_bytes(primary_key);
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,

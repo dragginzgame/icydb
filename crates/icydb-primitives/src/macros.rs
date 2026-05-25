@@ -16,7 +16,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
             (
                 Blob,
@@ -27,7 +27,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = false,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Bool,
@@ -38,7 +38,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Date,
@@ -49,7 +49,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Decimal,
@@ -60,7 +60,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Duration,
@@ -71,7 +71,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Enum,
@@ -82,7 +82,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Float32,
@@ -93,7 +93,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Float64,
@@ -104,7 +104,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Int,
@@ -115,7 +115,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
             (
                 Int128,
@@ -126,7 +126,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 IntBig,
@@ -137,7 +137,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Principal,
@@ -148,7 +148,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
             (
                 Subaccount,
@@ -159,7 +159,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
             (
                 Text,
@@ -170,7 +170,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Timestamp,
@@ -181,7 +181,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
             (
                 Nat,
@@ -192,7 +192,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
             (
                 Nat128,
@@ -203,7 +203,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 NatBig,
@@ -214,7 +214,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = false,
-                is_storage_key_encodable = false
+                is_primary_key_component_encodable = false
             ),
             (
                 Ulid,
@@ -225,7 +225,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
             (
                 Unit,
@@ -236,7 +236,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = false,
                 is_keyable = true,
-                is_storage_key_encodable = true
+                is_primary_key_component_encodable = true
             ),
         }
     };
@@ -253,7 +253,7 @@ macro_rules! scalar_kind_registry {
 }
 
 macro_rules! metadata_from_registry {
-    ( @args $kind:expr; @entries $( ($scalar:ident, $family:ident, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+    ( @args $kind:expr; @entries $( ($scalar:ident, $family:ident, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         match $kind {
             $(
                 $crate::ScalarKind::$scalar => $crate::ScalarMetadata {
@@ -264,7 +264,7 @@ macro_rules! metadata_from_registry {
                     supports_equality: $supports_equality,
                     supports_ordering: $supports_ordering,
                     is_keyable: $is_keyable,
-                    is_storage_key_encodable: $is_storage_key_encodable,
+                    is_primary_key_component_encodable: $is_primary_key_component_encodable,
                 },
             )*
         }
@@ -272,10 +272,10 @@ macro_rules! metadata_from_registry {
 }
 
 macro_rules! all_kinds_from_registry {
-    ( @entries $( ($scalar:ident, $family:ident, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+    ( @entries $( ($scalar:ident, $family:ident, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         [ $( $crate::ScalarKind::$scalar ),* ]
     };
-    ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:ident, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+    ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:ident, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
         [ $( $crate::ScalarKind::$scalar ),* ]
     };
 }

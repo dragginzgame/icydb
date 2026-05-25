@@ -20,7 +20,7 @@ use crate::{
             CommitRowOp, ensure_recovered, init_commit_store_for_tests,
             prepare_row_commit_for_entity_with_structural_readers,
         },
-        data::{CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow, StorageKey},
+        data::{CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
@@ -215,9 +215,15 @@ fn diagnostics_entity_tag(entity_name: &str) -> EntityTag {
     }
 }
 
-fn insert_data_row(path: &'static str, entity_name: &str, key: StorageKey, row_len: usize) {
+fn insert_data_row(
+    path: &'static str,
+    entity_name: &str,
+    key: PrimaryKeyComponent,
+    row_len: usize,
+) {
     let entity = diagnostics_entity_tag(entity_name);
-    let raw_key = DecodedDataStoreKey::raw_from_parts(entity, key)
+    let raw_key = DecodedDataStoreKey::new(entity, &key.into())
+        .to_raw()
         .expect("diagnostics test data key should encode from valid parts");
     insert_raw_data_row(path, raw_key, row_len);
 }
@@ -246,10 +252,11 @@ fn insert_raw_data_row(path: &'static str, raw_key: RawDataStoreKey, row_len: us
 }
 
 fn insert_corrupted_data_key(path: &'static str) {
-    let valid = DecodedDataStoreKey::raw_from_parts(
+    let valid = DecodedDataStoreKey::new(
         diagnostics_entity_tag(VALID_ENTITY_NAME),
-        StorageKey::Int(1),
+        &PrimaryKeyComponent::Int64(1).into(),
     )
+    .to_raw()
     .expect("valid data key should encode");
 
     let mut corrupted_bytes = valid.as_bytes().to_vec();
@@ -278,7 +285,7 @@ fn index_key(kind: IndexKeyKind, entity_name: &str, field: &str) -> RawIndexStor
         &id,
         kind,
         &components,
-        &PrimaryKeyValue::from(StorageKey::Int(1)),
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Int64(1)),
     )
     .to_raw()
 }
@@ -486,12 +493,22 @@ fn storage_report_empty_store_snapshot() {
 fn storage_report_default_matches_empty_alias_snapshot() {
     reset_stores();
 
-    insert_data_row(STORE_A_PATH, FIRST_ENTITY_NAME, StorageKey::Int(1), 2);
-    insert_data_row(STORE_A_PATH, SECOND_ENTITY_NAME, StorageKey::Int(2), 3);
+    insert_data_row(
+        STORE_A_PATH,
+        FIRST_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(1),
+        2,
+    );
+    insert_data_row(
+        STORE_A_PATH,
+        SECOND_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(2),
+        3,
+    );
     insert_index_entry(
         STORE_A_PATH,
         index_key(IndexKeyKind::User, "diag_index_entity", "email"),
-        IndexEntryValue::try_from_keys([StorageKey::Int(1)])
+        IndexEntryValue::try_from_keys([PrimaryKeyComponent::Int64(1)])
             .expect("diagnostics test index entry should encode"),
     );
 
@@ -524,9 +541,24 @@ fn storage_report_default_matches_empty_alias_snapshot() {
 fn storage_report_single_entity_multiple_rows() {
     reset_stores();
 
-    insert_data_row(STORE_A_PATH, SINGLE_ENTITY_NAME, StorageKey::Int(3), 3);
-    insert_data_row(STORE_A_PATH, SINGLE_ENTITY_NAME, StorageKey::Int(1), 1);
-    insert_data_row(STORE_A_PATH, SINGLE_ENTITY_NAME, StorageKey::Int(2), 2);
+    insert_data_row(
+        STORE_A_PATH,
+        SINGLE_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(3),
+        3,
+    );
+    insert_data_row(
+        STORE_A_PATH,
+        SINGLE_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(1),
+        1,
+    );
+    insert_data_row(
+        STORE_A_PATH,
+        SINGLE_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(2),
+        2,
+    );
 
     let report = diagnostics_report(&[(SINGLE_ENTITY_NAME, SINGLE_ENTITY_PATH)]);
     let entity_snapshot = report
@@ -570,9 +602,24 @@ fn storage_report_accepts_composite_primary_key_data_keys() {
 fn storage_report_multiple_entities_in_same_store() {
     reset_stores();
 
-    insert_data_row(STORE_A_PATH, FIRST_ENTITY_NAME, StorageKey::Int(10), 1);
-    insert_data_row(STORE_A_PATH, FIRST_ENTITY_NAME, StorageKey::Int(11), 1);
-    insert_data_row(STORE_A_PATH, SECOND_ENTITY_NAME, StorageKey::Int(20), 1);
+    insert_data_row(
+        STORE_A_PATH,
+        FIRST_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(10),
+        1,
+    );
+    insert_data_row(
+        STORE_A_PATH,
+        FIRST_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(11),
+        1,
+    );
+    insert_data_row(
+        STORE_A_PATH,
+        SECOND_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(20),
+        1,
+    );
 
     let report = diagnostics_report(&[
         (FIRST_ENTITY_NAME, FIRST_ENTITY_PATH),
@@ -598,9 +645,24 @@ fn storage_report_multiple_entities_in_same_store() {
 fn storage_report_entity_snapshots_are_sorted_by_store_then_path() {
     reset_stores();
 
-    insert_data_row(STORE_Z_PATH, FIRST_ENTITY_NAME, StorageKey::Int(1), 1);
-    insert_data_row(STORE_A_PATH, SECOND_ENTITY_NAME, StorageKey::Int(2), 1);
-    insert_data_row(STORE_A_PATH, FIRST_ENTITY_NAME, StorageKey::Int(3), 1);
+    insert_data_row(
+        STORE_Z_PATH,
+        FIRST_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(1),
+        1,
+    );
+    insert_data_row(
+        STORE_A_PATH,
+        SECOND_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(2),
+        1,
+    );
+    insert_data_row(
+        STORE_A_PATH,
+        FIRST_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(3),
+        1,
+    );
 
     let report = diagnostics_report(&[
         (FIRST_ENTITY_NAME, "diagnostics_tests::entity::z_first"),
@@ -621,7 +683,12 @@ fn storage_report_entity_snapshots_are_sorted_by_store_then_path() {
 fn storage_report_corrupted_key_detection() {
     reset_stores();
 
-    insert_data_row(STORE_A_PATH, VALID_ENTITY_NAME, StorageKey::Int(7), 1);
+    insert_data_row(
+        STORE_A_PATH,
+        VALID_ENTITY_NAME,
+        PrimaryKeyComponent::Int64(7),
+        1,
+    );
     insert_corrupted_data_key(STORE_A_PATH);
 
     let report = diagnostics_report(&[(VALID_ENTITY_NAME, VALID_ENTITY_PATH)]);
@@ -662,10 +729,10 @@ fn storage_report_system_vs_user_namespace_split() {
 
     let user_key = index_key(IndexKeyKind::User, "diag_namespace_entity", "email");
     let system_key = index_key(IndexKeyKind::System, "diag_namespace_entity", "email");
-    let user_entry =
-        IndexEntryValue::try_from_keys([StorageKey::Int(1)]).expect("user entry should encode");
-    let system_entry =
-        IndexEntryValue::try_from_keys([StorageKey::Int(2)]).expect("system entry should encode");
+    let user_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Int64(1)])
+        .expect("user entry should encode");
+    let system_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Int64(2)])
+        .expect("system entry should encode");
     insert_index_entry(STORE_A_PATH, user_key, user_entry);
     insert_index_entry(STORE_A_PATH, system_key, system_entry);
 
@@ -748,7 +815,12 @@ fn integrity_report_detects_orphan_index_references() {
 fn integrity_report_classifies_unsupported_entity_rows_as_misuse() {
     reset_stores();
 
-    insert_data_row(STORE_A_PATH, "diag_unknown_entity", StorageKey::Int(9), 8);
+    insert_data_row(
+        STORE_A_PATH,
+        "diag_unknown_entity",
+        PrimaryKeyComponent::Int64(9),
+        8,
+    );
 
     let report = diagnostics_integrity_report();
     let store = integrity_store_snapshot(&report, STORE_A_PATH);

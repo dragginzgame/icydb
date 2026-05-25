@@ -9,12 +9,12 @@ use crate::{
                 reader::metrics::StructuralReadProbe,
             },
         },
-        key_taxonomy::PrimaryKeyComponent,
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
     },
     error::InternalError,
     model::field::{FieldKind, LeafCodec},
-    value::{StorageKey, Value},
+    value::Value,
 };
 
 // Convert one scalar slot fast-path value into its decoded primary-key value
@@ -34,12 +34,8 @@ const fn primary_key_component_from_scalar_ref(
     }
 }
 
-fn primary_key_component_from_runtime_value(value: &Value) -> Option<PrimaryKeyComponent> {
-    match value {
-        Value::Int128(value) => Some(PrimaryKeyComponent::Int128(*value)),
-        Value::Nat128(value) => Some(PrimaryKeyComponent::Nat128(*value)),
-        _ => value.as_primary_key_value().map(PrimaryKeyComponent::from),
-    }
+const fn primary_key_component_from_runtime_value(value: &Value) -> Option<PrimaryKeyComponent> {
+    PrimaryKeyComponent::from_runtime_value(value)
 }
 
 // Validate the persisted primary-key payload against one authoritative
@@ -47,32 +43,46 @@ fn primary_key_component_from_runtime_value(value: &Value) -> Option<PrimaryKeyC
 pub(super) fn validate_primary_key_value_from_field_bytes(
     contract: StructuralRowContract,
     field_bytes: &StructuralRowFieldBytes<'_>,
-    expected_key: StorageKey,
+    expected_key: &PrimaryKeyValue,
 ) -> Result<(), InternalError> {
-    let primary_key_slot = contract.primary_key_slot();
-    let primary_key_name = contract.field_name(primary_key_slot)?;
-    let raw_value = field_bytes
-        .field(primary_key_slot)
-        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(primary_key_name))?;
+    match *expected_key {
+        PrimaryKeyValue::Scalar(component) => {
+            let primary_key_slot = contract.primary_key_slot();
+            let primary_key_name = contract.field_name(primary_key_slot)?;
+            let raw_value = field_bytes.field(primary_key_slot).ok_or_else(|| {
+                InternalError::persisted_row_declared_field_missing(primary_key_name)
+            })?;
 
-    validate_primary_key_value_from_slot_bytes_with_contract(&contract, raw_value, expected_key)
-}
+            validate_primary_key_component_from_slot_bytes_with_contract(
+                &contract,
+                primary_key_slot,
+                raw_value,
+                component,
+            )
+        }
+        PrimaryKeyValue::Composite(composite) => {
+            let slots = contract.primary_key_slot_indices();
+            if slots.len() != composite.len() {
+                return Err(InternalError::persisted_row_decode_failed(format!(
+                    "composite primary-key slot count mismatch: expected {} slots, row contract has {}",
+                    composite.len(),
+                    slots.len(),
+                )));
+            }
 
-// Validate one raw primary-key payload through the row contract owner. Sparse
-// row readers that do not own a full field-span wrapper use this so they do
-// not repeat accepted-vs-generated primary-key selection locally.
-pub(super) fn validate_primary_key_value_from_slot_bytes_with_contract(
-    contract: &StructuralRowContract,
-    raw_value: &[u8],
-    expected_key: StorageKey,
-) -> Result<(), InternalError> {
-    let primary_key_slot = contract.primary_key_slot();
-    validate_primary_key_component_from_slot_bytes_with_contract(
-        contract,
-        primary_key_slot,
-        raw_value,
-        PrimaryKeyComponent::from(expected_key),
-    )
+            for (&slot, &component) in slots.iter().zip(composite.components()) {
+                let field_name = contract.field_name(slot)?;
+                let raw_value = field_bytes.field(slot).ok_or_else(|| {
+                    InternalError::persisted_row_declared_field_missing(field_name)
+                })?;
+                validate_primary_key_component_from_slot_bytes_with_contract(
+                    &contract, slot, raw_value, component,
+                )?;
+            }
+
+            Ok(())
+        }
+    }
 }
 
 // Validate one primary-key component payload through the row contract owner.
@@ -226,10 +236,10 @@ fn validate_primary_key_value_from_slot_bytes_with_field(
 }
 
 // Materialize the already-validated primary-key slot directly from the
-// authoritative primary-key value carried by the row boundary.
-pub(super) fn materialize_primary_key_slot_value_from_expected_key(
+// authoritative primary-key component carried by the row boundary.
+pub(super) fn materialize_primary_key_slot_value_from_expected_component(
     field: StructuralFieldDecodeContract,
-    expected_key: StorageKey,
+    expected_key: PrimaryKeyComponent,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
     probe.record_validated_slot();
@@ -239,37 +249,45 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_key(
     }
 
     match (field.kind(), expected_key) {
-        (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int64(value)),
-        (FieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
+        (FieldKind::Account, PrimaryKeyComponent::Account(value)) => Ok(Value::Account(value)),
+        (FieldKind::Int64, PrimaryKeyComponent::Int64(value)) => Ok(Value::Int64(value)),
+        (FieldKind::Int8, PrimaryKeyComponent::Int64(value)) if i8::try_from(value).is_ok() => {
             Ok(Value::Int64(value))
         }
-        (FieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
+        (FieldKind::Int16, PrimaryKeyComponent::Int64(value)) if i16::try_from(value).is_ok() => {
             Ok(Value::Int64(value))
         }
-        (FieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
+        (FieldKind::Int32, PrimaryKeyComponent::Int64(value)) if i32::try_from(value).is_ok() => {
             Ok(Value::Int64(value))
         }
-        (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
-        (FieldKind::Relation { key_kind, .. }, storage_key) => {
-            materialize_primary_key_value_from_kind(*key_kind, storage_key)
+        (FieldKind::Int128, PrimaryKeyComponent::Int128(value)) => Ok(Value::Int128(value)),
+        (FieldKind::Principal, PrimaryKeyComponent::Principal(value)) => {
+            Ok(Value::Principal(value))
         }
-        (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
-        (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat64(value)),
-        (FieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
+        (FieldKind::Relation { key_kind, .. }, primary_key_component) => {
+            materialize_primary_key_value_from_kind(*key_kind, primary_key_component)
+        }
+        (FieldKind::Subaccount, PrimaryKeyComponent::Subaccount(value)) => {
+            Ok(Value::Subaccount(value))
+        }
+        (FieldKind::Timestamp, PrimaryKeyComponent::Timestamp(value)) => {
+            Ok(Value::Timestamp(value))
+        }
+        (FieldKind::Nat64, PrimaryKeyComponent::Nat64(value)) => Ok(Value::Nat64(value)),
+        (FieldKind::Nat8, PrimaryKeyComponent::Nat64(value)) if u8::try_from(value).is_ok() => {
             Ok(Value::Nat64(value))
         }
-        (FieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
+        (FieldKind::Nat16, PrimaryKeyComponent::Nat64(value)) if u16::try_from(value).is_ok() => {
             Ok(Value::Nat64(value))
         }
-        (FieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
+        (FieldKind::Nat32, PrimaryKeyComponent::Nat64(value)) if u32::try_from(value).is_ok() => {
             Ok(Value::Nat64(value))
         }
-        (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
-        (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
-        (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
-            "validated primary-key storage key does not match field kind: field='{}' kind={kind:?} storage_key={storage_key:?}",
+        (FieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => Ok(Value::Nat128(value)),
+        (FieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
+        (FieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
+        (kind, component) => Err(InternalError::persisted_row_decode_failed(format!(
+            "validated primary-key component does not match field kind: field='{}' kind={kind:?} component={component:?}",
             field.name(),
         ))),
     }
@@ -278,9 +296,9 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_key(
 // Materialize one accepted-schema primary-key slot from the authoritative row
 // key. This mirrors generated primary-key materialization while keeping
 // relation-key recursion on accepted persisted kind metadata.
-pub(super) fn materialize_primary_key_slot_value_from_expected_key_with_accepted_field(
+pub(super) fn materialize_primary_key_slot_value_from_expected_component_with_accepted_field(
     field: AcceptedFieldDecodeContract<'_>,
-    expected_key: StorageKey,
+    expected_key: PrimaryKeyComponent,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
     probe.record_validated_slot();
@@ -303,40 +321,48 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_key_with_accepted
 // reuse the same scalar primary-key shape as their declared target key kind.
 fn materialize_primary_key_value_from_kind(
     kind: FieldKind,
-    storage_key: StorageKey,
+    component: PrimaryKeyComponent,
 ) -> Result<Value, InternalError> {
-    match (kind, storage_key) {
-        (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int64(value)),
-        (FieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
+    match (kind, component) {
+        (FieldKind::Account, PrimaryKeyComponent::Account(value)) => Ok(Value::Account(value)),
+        (FieldKind::Int64, PrimaryKeyComponent::Int64(value)) => Ok(Value::Int64(value)),
+        (FieldKind::Int8, PrimaryKeyComponent::Int64(value)) if i8::try_from(value).is_ok() => {
             Ok(Value::Int64(value))
         }
-        (FieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
+        (FieldKind::Int16, PrimaryKeyComponent::Int64(value)) if i16::try_from(value).is_ok() => {
             Ok(Value::Int64(value))
         }
-        (FieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
+        (FieldKind::Int32, PrimaryKeyComponent::Int64(value)) if i32::try_from(value).is_ok() => {
             Ok(Value::Int64(value))
         }
-        (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
-        (FieldKind::Relation { key_kind, .. }, storage_key) => {
-            materialize_primary_key_value_from_kind(*key_kind, storage_key)
+        (FieldKind::Int128, PrimaryKeyComponent::Int128(value)) => Ok(Value::Int128(value)),
+        (FieldKind::Principal, PrimaryKeyComponent::Principal(value)) => {
+            Ok(Value::Principal(value))
         }
-        (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
-        (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat64(value)),
-        (FieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
+        (FieldKind::Relation { key_kind, .. }, component) => {
+            materialize_primary_key_value_from_kind(*key_kind, component)
+        }
+        (FieldKind::Subaccount, PrimaryKeyComponent::Subaccount(value)) => {
+            Ok(Value::Subaccount(value))
+        }
+        (FieldKind::Timestamp, PrimaryKeyComponent::Timestamp(value)) => {
+            Ok(Value::Timestamp(value))
+        }
+        (FieldKind::Nat64, PrimaryKeyComponent::Nat64(value)) => Ok(Value::Nat64(value)),
+        (FieldKind::Nat8, PrimaryKeyComponent::Nat64(value)) if u8::try_from(value).is_ok() => {
             Ok(Value::Nat64(value))
         }
-        (FieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
+        (FieldKind::Nat16, PrimaryKeyComponent::Nat64(value)) if u16::try_from(value).is_ok() => {
             Ok(Value::Nat64(value))
         }
-        (FieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
+        (FieldKind::Nat32, PrimaryKeyComponent::Nat64(value)) if u32::try_from(value).is_ok() => {
             Ok(Value::Nat64(value))
         }
-        (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
-        (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
-        (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
-            "validated primary-key storage key does not match field kind kind={kind:?} storage_key={storage_key:?}",
+        (FieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => Ok(Value::Nat128(value)),
+        (FieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
+        (FieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
+        (kind, component) => Err(InternalError::persisted_row_decode_failed(format!(
+            "validated primary-key component does not match field kind kind={kind:?} component={component:?}",
         ))),
     }
 }
@@ -346,46 +372,66 @@ fn materialize_primary_key_value_from_kind(
 // their declared target-key kind exactly like the generated bridge.
 fn materialize_primary_key_value_from_persisted_kind(
     kind: &PersistedFieldKind,
-    storage_key: StorageKey,
+    component: PrimaryKeyComponent,
 ) -> Result<Value, String> {
-    match (kind, storage_key) {
-        (PersistedFieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (PersistedFieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int64(value)),
-        (PersistedFieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
+    match (kind, component) {
+        (PersistedFieldKind::Account, PrimaryKeyComponent::Account(value)) => {
+            Ok(Value::Account(value))
+        }
+        (PersistedFieldKind::Int64, PrimaryKeyComponent::Int64(value)) => Ok(Value::Int64(value)),
+        (PersistedFieldKind::Int8, PrimaryKeyComponent::Int64(value))
+            if i8::try_from(value).is_ok() =>
+        {
             Ok(Value::Int64(value))
         }
-        (PersistedFieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
+        (PersistedFieldKind::Int16, PrimaryKeyComponent::Int64(value))
+            if i16::try_from(value).is_ok() =>
+        {
             Ok(Value::Int64(value))
         }
-        (PersistedFieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
+        (PersistedFieldKind::Int32, PrimaryKeyComponent::Int64(value))
+            if i32::try_from(value).is_ok() =>
+        {
             Ok(Value::Int64(value))
         }
-        (PersistedFieldKind::Principal, StorageKey::Principal(value)) => {
+        (PersistedFieldKind::Int128, PrimaryKeyComponent::Int128(value)) => {
+            Ok(Value::Int128(value))
+        }
+        (PersistedFieldKind::Principal, PrimaryKeyComponent::Principal(value)) => {
             Ok(Value::Principal(value))
         }
-        (PersistedFieldKind::Relation { key_kind, .. }, storage_key) => {
-            materialize_primary_key_value_from_persisted_kind(key_kind, storage_key)
+        (PersistedFieldKind::Relation { key_kind, .. }, component) => {
+            materialize_primary_key_value_from_persisted_kind(key_kind, component)
         }
-        (PersistedFieldKind::Subaccount, StorageKey::Subaccount(value)) => {
+        (PersistedFieldKind::Subaccount, PrimaryKeyComponent::Subaccount(value)) => {
             Ok(Value::Subaccount(value))
         }
-        (PersistedFieldKind::Timestamp, StorageKey::Timestamp(value)) => {
+        (PersistedFieldKind::Timestamp, PrimaryKeyComponent::Timestamp(value)) => {
             Ok(Value::Timestamp(value))
         }
-        (PersistedFieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat64(value)),
-        (PersistedFieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
+        (PersistedFieldKind::Nat64, PrimaryKeyComponent::Nat64(value)) => Ok(Value::Nat64(value)),
+        (PersistedFieldKind::Nat8, PrimaryKeyComponent::Nat64(value))
+            if u8::try_from(value).is_ok() =>
+        {
             Ok(Value::Nat64(value))
         }
-        (PersistedFieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
+        (PersistedFieldKind::Nat16, PrimaryKeyComponent::Nat64(value))
+            if u16::try_from(value).is_ok() =>
+        {
             Ok(Value::Nat64(value))
         }
-        (PersistedFieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
+        (PersistedFieldKind::Nat32, PrimaryKeyComponent::Nat64(value))
+            if u32::try_from(value).is_ok() =>
+        {
             Ok(Value::Nat64(value))
         }
-        (PersistedFieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
-        (PersistedFieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
-        (kind, storage_key) => Err(format!(
-            "validated primary-key storage key does not match accepted field kind: kind={kind:?} storage_key={storage_key:?}",
+        (PersistedFieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => {
+            Ok(Value::Nat128(value))
+        }
+        (PersistedFieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
+        (PersistedFieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
+        (kind, component) => Err(format!(
+            "validated primary-key component does not match accepted field kind: kind={kind:?} component={component:?}",
         )),
     }
 }

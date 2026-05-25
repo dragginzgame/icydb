@@ -67,15 +67,6 @@ impl Principal {
         Self(WrappedPrincipal::anonymous())
     }
 
-    /// Zero-length principal used by storage/order sentinels.
-    ///
-    /// This is not a domain identity and should not be used as a user-authored
-    /// schema default or application principal.
-    #[must_use]
-    pub(crate) const fn empty_sentinel() -> Self {
-        Self(WrappedPrincipal::from_slice(&[]))
-    }
-
     pub fn from_text(text: &str) -> Result<Self, PrincipalError> {
         let inner = WrappedPrincipal::from_text(text)
             .map_err(|e| PrincipalError::Wrapped(e.to_string()))?;

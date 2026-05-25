@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, StorageKey},
+        data::{DecodedDataStoreKey, PrimaryKeyComponent},
         direction::Direction,
         executor::{
             KeyOrderComparator, OrderedKeyStream,
@@ -18,8 +18,10 @@ use crate::{
 use std::{cell::Cell, rc::Rc};
 
 fn data_key(value: u64) -> DecodedDataStoreKey {
-    let raw = DecodedDataStoreKey::raw_from_parts(EntityTag::new(1), StorageKey::Nat(value))
-        .expect("test key encoding should succeed");
+    let raw =
+        DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(value).into())
+            .to_raw()
+            .expect("test key encoding should succeed");
 
     DecodedDataStoreKey::try_from_raw(&raw).expect("test key decode should succeed")
 }
