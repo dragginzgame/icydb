@@ -18,8 +18,8 @@ help: the trait `PersistedByKindCodec` is not implemented for `CloneDebugOnly`
              Option<T>
              Vec<T>
              bool
+             i128
              i16
-             i32
            and $N others
 note: required by a bound in `icydb_core::db::encode_persisted_slot_payload_by_kind`
   --> src/db/data/persisted_row/codec/by_kind.rs
