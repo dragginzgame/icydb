@@ -56,7 +56,7 @@ crate::test_entity_schema! {
     entity_name = "GroupedStateTestEntity",
     entity_tag = crate::testing::GROUPED_STATE_TEST_ENTITY_TAG,
     pk_index = 0,
-    fields = [("id", FieldKind::Nat)],
+    fields = [("id", FieldKind::Nat64)],
     indexes = [],
     store = GroupedStateTestStore,
     canister = GroupedStateTestCanister,

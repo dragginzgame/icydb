@@ -153,9 +153,9 @@ mod tests {
     };
 
     static FIELDS: [FieldModel; 3] = [
-        FieldModel::generated("tenant_id", FieldKind::Nat),
-        FieldModel::generated("local_id", FieldKind::Nat),
-        FieldModel::generated("rank", FieldKind::Nat),
+        FieldModel::generated("tenant_id", FieldKind::Nat64),
+        FieldModel::generated("local_id", FieldKind::Nat64),
+        FieldModel::generated("rank", FieldKind::Nat64),
     ];
     static PK_FIELDS: [&FieldModel; 2] = [&FIELDS[0], &FIELDS[1]];
     static MODEL: EntityModel = EntityModel::generated_with_primary_key_model(

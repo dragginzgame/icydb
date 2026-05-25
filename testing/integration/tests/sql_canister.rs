@@ -1107,7 +1107,7 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
-    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat")
+    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
     let set_default = ddl_sql(
         &fixture,
@@ -1142,7 +1142,7 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     assert!(
         describe_after_set.fields().iter().any(|field| {
             field.name() == "bonus"
-                && field.kind().starts_with("nat default=slot_payload(")
+                && field.kind().starts_with("nat64 default=slot_payload(")
                 && field.origin() == "ddl"
         }),
         "DESCRIBE should expose the accepted default change: {describe_after_set:?}",
@@ -1281,10 +1281,10 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
 
     ddl_sql(
         &fixture,
-        "ALTER TABLE SqlTestUser ADD COLUMN required_score nat NOT NULL DEFAULT 7",
+        "ALTER TABLE SqlTestUser ADD COLUMN required_score nat64 NOT NULL DEFAULT 7",
     )
     .expect("setup required ADD COLUMN DEFAULT should publish before unsupported DROP DEFAULT");
-    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat")
+    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
         .expect("setup nullable ADD COLUMN should publish before invalid SET DEFAULT");
 
     for (sql, expected_message) in [

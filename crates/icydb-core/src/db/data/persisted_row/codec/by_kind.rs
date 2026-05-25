@@ -239,7 +239,7 @@ macro_rules! impl_persisted_by_kind_storage_int_leaf {
                             bytes,
                             kind,
                             field_name,
-                            "storage int",
+                            "storage int64",
                             |key| match key {
                                 StorageKey::Int(value) => Some(value),
                                 _ => None,
@@ -266,7 +266,7 @@ macro_rules! impl_persisted_by_kind_storage_nat_leaf {
                             bytes,
                             kind,
                             field_name,
-                            "storage nat",
+                            "storage nat64",
                             |key| match key {
                                 StorageKey::Nat(value) => Some(value),
                                 _ => None,

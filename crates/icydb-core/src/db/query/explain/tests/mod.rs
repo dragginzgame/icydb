@@ -41,7 +41,7 @@ ident = ExplainPushdownEntity,
     fields = [
         ("id", FieldKind::Ulid),
         ("tag", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int),
+        ("rank", FieldKind::Int64),
     ],
     indexes = [&PUSHDOWN_INDEX],
 }

@@ -357,7 +357,7 @@ fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> 
 
 fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length("int"));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length("int64"));
     }
 
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
@@ -371,7 +371,7 @@ fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length("nat"));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length("nat64"));
     }
 
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];

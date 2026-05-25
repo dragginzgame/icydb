@@ -10,6 +10,9 @@ use crate::{
 };
 use std::{borrow::Cow, cmp::Ordering};
 
+/// Default maximum encoded byte length for arbitrary-precision integer fields.
+pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = 256;
+
 ///
 /// FieldStorageDecode
 ///
@@ -472,20 +475,16 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         FieldKind::Duration => LeafCodec::Scalar(ScalarCodec::Duration),
         FieldKind::Float32 => LeafCodec::Scalar(ScalarCodec::Float32),
         FieldKind::Float64 => LeafCodec::Scalar(ScalarCodec::Float64),
-        FieldKind::Int
-        | FieldKind::Int8
-        | FieldKind::Int16
-        | FieldKind::Int32
-        | FieldKind::Int64 => LeafCodec::Scalar(ScalarCodec::Int64),
+        FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
+            LeafCodec::Scalar(ScalarCodec::Int64)
+        }
         FieldKind::Principal => LeafCodec::Scalar(ScalarCodec::Principal),
         FieldKind::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
         FieldKind::Text { .. } => LeafCodec::Scalar(ScalarCodec::Text),
         FieldKind::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
-        FieldKind::Nat
-        | FieldKind::Nat8
-        | FieldKind::Nat16
-        | FieldKind::Nat32
-        | FieldKind::Nat64 => LeafCodec::Scalar(ScalarCodec::Nat64),
+        FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
+            LeafCodec::Scalar(ScalarCodec::Nat64)
+        }
         FieldKind::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
         FieldKind::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
         FieldKind::Relation { key_kind, .. } => leaf_codec_for(*key_kind, storage_decode),
@@ -493,13 +492,13 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         | FieldKind::Decimal { .. }
         | FieldKind::Enum { .. }
         | FieldKind::Int128
-        | FieldKind::IntBig
+        | FieldKind::IntBig { .. }
         | FieldKind::List(_)
         | FieldKind::Map { .. }
         | FieldKind::Set(_)
         | FieldKind::Structured { .. }
         | FieldKind::Nat128
-        | FieldKind::NatBig => LeafCodec::StructuralFallback,
+        | FieldKind::NatBig { .. } => LeafCodec::StructuralFallback,
     }
 }
 
@@ -547,13 +546,15 @@ pub enum FieldKind {
     },
     Float32,
     Float64,
-    Int,
     Int8,
     Int16,
     Int32,
     Int64,
     Int128,
-    IntBig,
+    IntBig {
+        /// Maximum accepted persisted payload byte length.
+        max_bytes: u32,
+    },
     Principal,
     Subaccount,
     Text {
@@ -561,13 +562,15 @@ pub enum FieldKind {
         max_len: Option<u32>,
     },
     Timestamp,
-    Nat,
     Nat8,
     Nat16,
     Nat32,
     Nat64,
     Nat128,
-    NatBig,
+    NatBig {
+        /// Maximum accepted persisted payload byte length.
+        max_bytes: u32,
+    },
     Ulid,
     Unit,
 
@@ -617,24 +620,22 @@ impl FieldKind {
             | Self::Enum { .. }
             | Self::Float32
             | Self::Float64
-            | Self::Int
             | Self::Int8
             | Self::Int16
             | Self::Int32
             | Self::Int64
             | Self::Int128
-            | Self::IntBig
+            | Self::IntBig { .. }
             | Self::Principal
             | Self::Subaccount
             | Self::Text { .. }
             | Self::Timestamp
-            | Self::Nat
             | Self::Nat8
             | Self::Nat16
             | Self::Nat32
             | Self::Nat64
             | Self::Nat128
-            | Self::NatBig
+            | Self::NatBig { .. }
             | Self::Ulid
             | Self::Unit
             | Self::Decimal { .. }
@@ -693,24 +694,22 @@ impl FieldKind {
             | Self::Duration
             | Self::Float32
             | Self::Float64
-            | Self::Int
             | Self::Int8
             | Self::Int16
             | Self::Int32
             | Self::Int64
             | Self::Int128
-            | Self::IntBig
+            | Self::IntBig { .. }
             | Self::Principal
             | Self::Subaccount
             | Self::Text { .. }
             | Self::Timestamp
-            | Self::Nat
             | Self::Nat8
             | Self::Nat16
             | Self::Nat32
             | Self::Nat64
             | Self::Nat128
-            | Self::NatBig
+            | Self::NatBig { .. }
             | Self::Ulid => true,
         }
     }
@@ -732,16 +731,14 @@ impl FieldKind {
             | (Self::Enum { .. }, Value::Enum(_))
             | (Self::Float32, Value::Float32(_))
             | (Self::Float64, Value::Float64(_))
-            | (Self::Int | Self::Int64, Value::Int(_))
+            | (Self::Int64, Value::Int(_))
             | (Self::Int128, Value::Int128(_))
-            | (Self::IntBig, Value::IntBig(_))
-            | (Self::Nat | Self::Nat64, Value::Nat(_))
+            | (Self::Nat64, Value::Nat(_))
             | (Self::Principal, Value::Principal(_))
             | (Self::Subaccount, Value::Subaccount(_))
             | (Self::Text { .. }, Value::Text(_))
             | (Self::Timestamp, Value::Timestamp(_))
             | (Self::Nat128, Value::Nat128(_))
-            | (Self::NatBig, Value::NatBig(_))
             | (Self::Ulid, Value::Ulid(_))
             | (Self::Unit, Value::Unit)
             | (Self::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
@@ -751,6 +748,12 @@ impl FieldKind {
             (Self::Nat8, Value::Nat(value)) => u8::try_from(*value).is_ok(),
             (Self::Nat16, Value::Nat(value)) => u16::try_from(*value).is_ok(),
             (Self::Nat32, Value::Nat(value)) => u32::try_from(*value).is_ok(),
+            (Self::IntBig { max_bytes }, Value::IntBig(value)) => {
+                value.to_leb128().len() <= *max_bytes as usize
+            }
+            (Self::NatBig { max_bytes }, Value::NatBig(value)) => {
+                value.to_leb128().len() <= *max_bytes as usize
+            }
             (Self::Relation { key_kind, .. }, value) => key_kind.accepts_value(value),
             (Self::List(inner) | Self::Set(inner), Value::List(items)) => {
                 items.iter().all(|item| inner.accepts_value(item))

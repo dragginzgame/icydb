@@ -7,9 +7,10 @@ use crate::{
     db::schema::PersistedFieldKind,
     model::field::FieldKind,
     traits::RuntimeValueKind,
-    types::Ulid,
+    types::{Int, Int128, Nat, Nat128, Ulid},
     value::{CoercionFamily, Value},
 };
+use candid::{Int as WrappedInt, Nat as WrappedNat};
 use std::fmt;
 
 ///
@@ -34,25 +35,40 @@ pub(crate) enum ScalarType {
     Enum,
     Float32,
     Float64,
-    Int,
+    SignedNumeric,
     Int128,
     IntBig,
     Principal,
     Subaccount,
     Text,
     Timestamp,
-    Nat,
+    UnsignedNumeric,
     Nat128,
     NatBig,
     Ulid,
     Unit,
 }
 
+// The scalar registry is keyed by runtime `Value` variant names. Keep that
+// value vocabulary local and project broad fixed-width schema families onto
+// explicit signed/unsigned predicate classifications.
+macro_rules! scalar_type_variant {
+    (Int) => {
+        ScalarType::SignedNumeric
+    };
+    (Nat) => {
+        ScalarType::UnsignedNumeric
+    };
+    ($scalar:ident) => {
+        ScalarType::$scalar
+    };
+}
+
 // Local helpers to expand the scalar registry into match arms.
 macro_rules! scalar_coercion_family_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
-            $( ScalarType::$scalar => $coercion_family, )*
+            $( scalar_type_variant!($scalar) => $coercion_family, )*
         }
     };
 }
@@ -61,7 +77,7 @@ macro_rules! scalar_matches_value_from_registry {
     ( @args $self:expr, $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         matches!(
             ($self, $value),
-            $( (ScalarType::$scalar, $value_pat) )|*
+            $( (scalar_type_variant!($scalar), $value_pat) )|*
         )
     };
 }
@@ -69,7 +85,7 @@ macro_rules! scalar_matches_value_from_registry {
 macro_rules! scalar_supports_numeric_coercion_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
-            $( ScalarType::$scalar => $supports_numeric_coercion, )*
+            $( scalar_type_variant!($scalar) => $supports_numeric_coercion, )*
         }
     };
 }
@@ -77,7 +93,7 @@ macro_rules! scalar_supports_numeric_coercion_from_registry {
 macro_rules! scalar_is_keyable_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
-            $( ScalarType::$scalar => $is_keyable, )*
+            $( scalar_type_variant!($scalar) => $is_keyable, )*
         }
     };
 }
@@ -85,7 +101,7 @@ macro_rules! scalar_is_keyable_from_registry {
 macro_rules! scalar_supports_ordering_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
-            $( ScalarType::$scalar => $supports_ordering, )*
+            $( scalar_type_variant!($scalar) => $supports_ordering, )*
         }
     };
 }
@@ -247,24 +263,20 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
         FieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
         FieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
         FieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
-        FieldKind::Int
-        | FieldKind::Int8
-        | FieldKind::Int16
-        | FieldKind::Int32
-        | FieldKind::Int64 => FieldType::Scalar(ScalarType::Int),
+        FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
+            FieldType::Scalar(ScalarType::SignedNumeric)
+        }
         FieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
-        FieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
+        FieldKind::IntBig { .. } => FieldType::Scalar(ScalarType::IntBig),
         FieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
         FieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
         FieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
         FieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        FieldKind::Nat
-        | FieldKind::Nat8
-        | FieldKind::Nat16
-        | FieldKind::Nat32
-        | FieldKind::Nat64 => FieldType::Scalar(ScalarType::Nat),
+        FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
+            FieldType::Scalar(ScalarType::UnsignedNumeric)
+        }
         FieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
-        FieldKind::NatBig => FieldType::Scalar(ScalarType::NatBig),
+        FieldKind::NatBig { .. } => FieldType::Scalar(ScalarType::NatBig),
         FieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
         FieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
         FieldKind::Relation { key_kind, .. } => field_type_from_model_kind(key_kind),
@@ -290,9 +302,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         PersistedFieldKind::Relation { key_kind, .. } => {
             canonicalize_strict_sql_literal_for_persisted_kind(key_kind, value)
         }
-        PersistedFieldKind::Int | PersistedFieldKind::Int64 => {
-            canonicalize_int_persisted_literal(value, i64::MIN, i64::MAX)
-        }
+        PersistedFieldKind::Int64 => canonicalize_int_persisted_literal(value, i64::MIN, i64::MAX),
         PersistedFieldKind::Int8 => {
             canonicalize_int_persisted_literal(value, i64::from(i8::MIN), i64::from(i8::MAX))
         }
@@ -302,12 +312,18 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         PersistedFieldKind::Int32 => {
             canonicalize_int_persisted_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
         }
-        PersistedFieldKind::Nat | PersistedFieldKind::Nat64 => {
-            canonicalize_nat_persisted_literal(value, u64::MAX)
-        }
+        PersistedFieldKind::Nat64 => canonicalize_nat_persisted_literal(value, u64::MAX),
         PersistedFieldKind::Nat8 => canonicalize_nat_persisted_literal(value, u64::from(u8::MAX)),
         PersistedFieldKind::Nat16 => canonicalize_nat_persisted_literal(value, u64::from(u16::MAX)),
         PersistedFieldKind::Nat32 => canonicalize_nat_persisted_literal(value, u64::from(u32::MAX)),
+        PersistedFieldKind::Int128 => canonicalize_int128_persisted_literal(value),
+        PersistedFieldKind::IntBig { max_bytes } => {
+            canonicalize_int_big_persisted_literal(value, *max_bytes)
+        }
+        PersistedFieldKind::Nat128 => canonicalize_nat128_persisted_literal(value),
+        PersistedFieldKind::NatBig { max_bytes } => {
+            canonicalize_nat_big_persisted_literal(value, *max_bytes)
+        }
         PersistedFieldKind::Ulid => match value {
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
@@ -329,14 +345,10 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         | PersistedFieldKind::Enum { .. }
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig
         | PersistedFieldKind::Unit
         | PersistedFieldKind::Map { .. }
         | PersistedFieldKind::Structured { .. } => None,
@@ -354,24 +366,22 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
         PersistedFieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
         PersistedFieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
         PersistedFieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
-        PersistedFieldKind::Int
-        | PersistedFieldKind::Int8
+        PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64 => FieldType::Scalar(ScalarType::Int),
+        | PersistedFieldKind::Int64 => FieldType::Scalar(ScalarType::SignedNumeric),
         PersistedFieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
-        PersistedFieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
+        PersistedFieldKind::IntBig { .. } => FieldType::Scalar(ScalarType::IntBig),
         PersistedFieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
         PersistedFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
         PersistedFieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
         PersistedFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        PersistedFieldKind::Nat
-        | PersistedFieldKind::Nat8
+        PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64 => FieldType::Scalar(ScalarType::Nat),
+        | PersistedFieldKind::Nat64 => FieldType::Scalar(ScalarType::UnsignedNumeric),
         PersistedFieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
-        PersistedFieldKind::NatBig => FieldType::Scalar(ScalarType::NatBig),
+        PersistedFieldKind::NatBig { .. } => FieldType::Scalar(ScalarType::NatBig),
         PersistedFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
         PersistedFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
         PersistedFieldKind::Relation { key_kind, .. } => field_type_from_persisted_kind(key_kind),
@@ -411,6 +421,60 @@ fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> 
     (value <= max).then_some(Value::Nat(value))
 }
 
+fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => i128::from(*inner),
+        Value::Nat(inner) => i128::from(*inner),
+        Value::Int128(inner) => inner.get(),
+        Value::Nat128(inner) => i128::try_from(inner.get()).ok()?,
+        Value::IntBig(inner) => inner.to_i128()?,
+        Value::NatBig(inner) => i128::try_from(inner.to_u128()?).ok()?,
+        Value::Text(inner) => inner.parse::<i128>().ok()?,
+        _ => return None,
+    };
+
+    Some(Value::Int128(Int128::from(value)))
+}
+
+fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => u128::try_from(*inner).ok()?,
+        Value::Nat(inner) => u128::from(*inner),
+        Value::Int128(inner) => u128::try_from(inner.get()).ok()?,
+        Value::Nat128(inner) => inner.get(),
+        Value::IntBig(inner) => inner.to_string().parse::<u128>().ok()?,
+        Value::NatBig(inner) => inner.to_u128()?,
+        Value::Text(inner) => inner.parse::<u128>().ok()?,
+        _ => return None,
+    };
+
+    Some(Value::Nat128(Nat128::from(value)))
+}
+
+fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => Int::from(WrappedInt::from(*inner)),
+        Value::Nat(inner) => Int::from(WrappedInt::from(*inner)),
+        Value::IntBig(inner) => inner.clone(),
+        Value::Text(inner) => inner.parse::<Int>().ok()?,
+        _ => return None,
+    };
+
+    (value.to_leb128().len() <= max_bytes as usize).then_some(Value::IntBig(value))
+}
+
+fn canonicalize_nat_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => Nat::from(WrappedNat::from(u64::try_from(*inner).ok()?)),
+        Value::Nat(inner) => Nat::from(*inner),
+        Value::NatBig(inner) => inner.clone(),
+        Value::Text(inner) => inner.parse::<Nat>().ok()?,
+        _ => return None,
+    };
+
+    (value.to_leb128().len() <= max_bytes as usize).then_some(Value::NatBig(value))
+}
+
 impl fmt::Display for FieldType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -422,5 +486,101 @@ impl fmt::Display for FieldType {
                 write!(f, "Structured<queryable={queryable}>")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strict_sql_literal_canonicalization_enforces_explicit_integer_bounds() {
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Int8,
+                &Value::Int(i64::from(i8::MAX)),
+            ),
+            Some(Value::Int(i64::from(i8::MAX))),
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Int8,
+                &Value::Int(i64::from(i8::MAX) + 1),
+            ),
+            None,
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Nat8,
+                &Value::Nat(u64::from(u8::MAX)),
+            ),
+            Some(Value::Nat(u64::from(u8::MAX))),
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Nat8,
+                &Value::Int(-1),
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn strict_sql_literal_canonicalization_supports_128_bit_integer_bounds() {
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Int128,
+                &Value::Text(i128::MAX.to_string()),
+            ),
+            Some(Value::Int128(Int128::from(i128::MAX))),
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Int128,
+                &Value::Text(
+                    (u128::try_from(i128::MAX).expect("i128 max fits u128") + 1).to_string()
+                ),
+            ),
+            None,
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Nat128,
+                &Value::Text(u128::MAX.to_string()),
+            ),
+            Some(Value::Nat128(Nat128::from(u128::MAX))),
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::Nat128,
+                &Value::Text("-1".to_string()),
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn strict_sql_literal_canonicalization_enforces_big_integer_byte_bounds() {
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::IntBig { max_bytes: 1 },
+                &Value::Text("0".to_string()),
+            ),
+            Some(Value::IntBig(Int::from(WrappedInt::from(0)))),
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::IntBig { max_bytes: 1 },
+                &Value::Text("128".to_string()),
+            ),
+            None,
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_persisted_kind(
+                &PersistedFieldKind::NatBig { max_bytes: 1 },
+                &Value::Text("-1".to_string()),
+            ),
+            None,
+        );
     }
 }

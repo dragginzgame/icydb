@@ -455,7 +455,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            FieldKind::Int if view.is_i64() => {
+            FieldKind::Int64 if view.is_i64() => {
                 ScalarValueRef::Int(view.as_i64().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.name(),
@@ -473,7 +473,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            FieldKind::Nat if view.is_u64() => {
+            FieldKind::Nat64 if view.is_u64() => {
                 ScalarValueRef::Nat(view.as_u64().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.name(),
@@ -506,7 +506,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            PersistedFieldKind::Int if view.is_i64() => {
+            PersistedFieldKind::Int64 if view.is_i64() => {
                 ScalarValueRef::Int(view.as_i64().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),
@@ -524,7 +524,7 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
-            PersistedFieldKind::Nat if view.is_u64() => {
+            PersistedFieldKind::Nat64 if view.is_u64() => {
                 ScalarValueRef::Nat(view.as_u64().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),

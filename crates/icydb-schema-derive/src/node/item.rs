@@ -23,6 +23,9 @@ pub struct Item {
     pub(crate) max_len: Option<u32>,
 
     #[darling(default)]
+    pub(crate) max_bytes: Option<u32>,
+
+    #[darling(default)]
     pub(crate) unbounded: bool,
 
     #[darling(default, rename = "rel")]
@@ -107,6 +110,18 @@ impl Item {
                 "item(max_len = N) requires a positive value",
             ));
         }
+        if self.max_bytes.is_some()
+            && !matches!(self.primitive, Some(Primitive::IntBig | Primitive::NatBig))
+        {
+            return Err(DarlingError::custom(
+                "max_bytes may only be used with prim = \"IntBig\" or prim = \"NatBig\"",
+            ));
+        }
+        if self.max_bytes.is_some_and(|max_bytes| max_bytes == 0) {
+            return Err(DarlingError::custom(
+                "item(max_bytes = N) requires a positive value",
+            ));
+        }
         if self.unbounded && !matches!(self.primitive, Some(Primitive::Text | Primitive::Blob)) {
             return Err(DarlingError::custom(
                 "unbounded may only be used with prim = \"Text\" or prim = \"Blob\"",
@@ -185,6 +200,7 @@ impl HasSchemaPart for Item {
         let relation = quote_option(self.relation.as_ref(), to_path);
         let scale = quote_option(self.scale.as_ref(), |scale| quote!(#scale));
         let max_len = quote_option(self.max_len.as_ref(), |max_len| quote!(#max_len));
+        let max_bytes = quote_option(self.max_bytes.as_ref(), |max_bytes| quote!(#max_bytes));
         let validators = quote_slice(&self.validators, TypeValidator::schema_part);
         let sanitizers = quote_slice(&self.sanitizers, TypeSanitizer::schema_part);
         let indirect = self.indirect;
@@ -195,6 +211,7 @@ impl HasSchemaPart for Item {
                 #relation,
                 #scale,
                 #max_len,
+                #max_bytes,
                 #validators,
                 #sanitizers,
                 #indirect,
@@ -330,6 +347,19 @@ mod tests {
     }
 
     #[test]
+    fn validate_accepts_max_bytes_for_big_integer_primitives() {
+        for primitive in [Primitive::IntBig, Primitive::NatBig] {
+            let item = Item {
+                primitive: Some(primitive),
+                max_bytes: Some(512),
+                ..Item::default()
+            };
+
+            assert!(item.validate().is_ok());
+        }
+    }
+
+    #[test]
     fn validate_accepts_explicit_unbounded_for_text_primitive() {
         let item = Item {
             primitive: Some(Primitive::Text),
@@ -378,6 +408,28 @@ mod tests {
         let item = Item {
             primitive: Some(Primitive::Nat64),
             max_len: Some(32),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_max_bytes_for_non_big_integer_primitive() {
+        let item = Item {
+            primitive: Some(Primitive::Nat64),
+            max_bytes: Some(512),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_zero_max_bytes() {
+        let item = Item {
+            primitive: Some(Primitive::NatBig),
+            max_bytes: Some(0),
             ..Item::default()
         };
 

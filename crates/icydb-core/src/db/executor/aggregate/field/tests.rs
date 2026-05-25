@@ -21,7 +21,7 @@ use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::cmp::Ordering;
 
-static SCORE_LIST_KIND: FieldKind = FieldKind::Nat;
+static SCORE_LIST_KIND: FieldKind = FieldKind::Nat64;
 
 fn compare_entity_slot(
     left: &AggregateFieldEntity,
@@ -88,7 +88,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Nat),
+        ("rank", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
         ("scores", FieldKind::List(&SCORE_LIST_KIND)),
     ],
@@ -105,7 +105,7 @@ fn resolve_orderable_target_slot_accepts_scalar_field() {
     )
     .expect("rank should be accepted as orderable target");
 
-    assert!(matches!(slot.kind, FieldKind::Nat));
+    assert!(matches!(slot.kind, FieldKind::Nat64));
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn resolve_orderable_target_slot_matches_schema_index() {
     .expect("rank slot should resolve");
 
     assert_eq!(slot.index, 1);
-    assert!(matches!(slot.kind, FieldKind::Nat));
+    assert!(matches!(slot.kind, FieldKind::Nat64));
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn compare_entities_by_orderable_field_returns_deterministic_ordering() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Nat,
+            kind: FieldKind::Nat64,
         },
     )
     .expect("typed field comparison should succeed");
@@ -279,7 +279,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_asc() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Nat,
+            kind: FieldKind::Nat64,
         },
         Direction::Asc,
     )
@@ -309,7 +309,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_desc() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Nat,
+            kind: FieldKind::Nat64,
         },
         Direction::Desc,
     )
@@ -326,7 +326,7 @@ fn resolve_numeric_target_slot_accepts_numeric_field() {
     )
     .expect("numeric target field should be accepted");
 
-    assert!(matches!(slot.kind, FieldKind::Nat));
+    assert!(matches!(slot.kind, FieldKind::Nat64));
 }
 
 #[test]
@@ -356,7 +356,7 @@ fn extract_numeric_field_decimal_coerces_numeric_values() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Nat,
+            kind: FieldKind::Nat64,
         },
         &mut |index| entity.get_value_by_index(index),
     )

@@ -194,26 +194,28 @@ enum PersistedFieldKindWire {
     },
     Float32,
     Float64,
-    Int,
     Int8,
     Int16,
     Int32,
     Int64,
     Int128,
-    IntBig,
+    IntBig {
+        max_bytes: u32,
+    },
     Principal,
     Subaccount,
     Text {
         max_len: Option<u32>,
     },
     Timestamp,
-    Nat,
     Nat8,
     Nat16,
     Nat32,
     Nat64,
     Nat128,
-    NatBig,
+    NatBig {
+        max_bytes: u32,
+    },
     Ulid,
     Unit,
     Relation {
@@ -749,24 +751,26 @@ impl PersistedFieldKindWire {
             },
             PersistedFieldKind::Float32 => Self::Float32,
             PersistedFieldKind::Float64 => Self::Float64,
-            PersistedFieldKind::Int => Self::Int,
             PersistedFieldKind::Int8 => Self::Int8,
             PersistedFieldKind::Int16 => Self::Int16,
             PersistedFieldKind::Int32 => Self::Int32,
             PersistedFieldKind::Int64 => Self::Int64,
             PersistedFieldKind::Int128 => Self::Int128,
-            PersistedFieldKind::IntBig => Self::IntBig,
+            PersistedFieldKind::IntBig { max_bytes } => Self::IntBig {
+                max_bytes: *max_bytes,
+            },
             PersistedFieldKind::Principal => Self::Principal,
             PersistedFieldKind::Subaccount => Self::Subaccount,
             PersistedFieldKind::Text { max_len } => Self::Text { max_len: *max_len },
             PersistedFieldKind::Timestamp => Self::Timestamp,
-            PersistedFieldKind::Nat => Self::Nat,
             PersistedFieldKind::Nat8 => Self::Nat8,
             PersistedFieldKind::Nat16 => Self::Nat16,
             PersistedFieldKind::Nat32 => Self::Nat32,
             PersistedFieldKind::Nat64 => Self::Nat64,
             PersistedFieldKind::Nat128 => Self::Nat128,
-            PersistedFieldKind::NatBig => Self::NatBig,
+            PersistedFieldKind::NatBig { max_bytes } => Self::NatBig {
+                max_bytes: *max_bytes,
+            },
             PersistedFieldKind::Ulid => Self::Ulid,
             PersistedFieldKind::Unit => Self::Unit,
             PersistedFieldKind::Relation {
@@ -813,24 +817,22 @@ impl PersistedFieldKindWire {
             },
             Self::Float32 => PersistedFieldKind::Float32,
             Self::Float64 => PersistedFieldKind::Float64,
-            Self::Int => PersistedFieldKind::Int,
             Self::Int8 => PersistedFieldKind::Int8,
             Self::Int16 => PersistedFieldKind::Int16,
             Self::Int32 => PersistedFieldKind::Int32,
             Self::Int64 => PersistedFieldKind::Int64,
             Self::Int128 => PersistedFieldKind::Int128,
-            Self::IntBig => PersistedFieldKind::IntBig,
+            Self::IntBig { max_bytes } => PersistedFieldKind::IntBig { max_bytes },
             Self::Principal => PersistedFieldKind::Principal,
             Self::Subaccount => PersistedFieldKind::Subaccount,
             Self::Text { max_len } => PersistedFieldKind::Text { max_len },
             Self::Timestamp => PersistedFieldKind::Timestamp,
-            Self::Nat => PersistedFieldKind::Nat,
             Self::Nat8 => PersistedFieldKind::Nat8,
             Self::Nat16 => PersistedFieldKind::Nat16,
             Self::Nat32 => PersistedFieldKind::Nat32,
             Self::Nat64 => PersistedFieldKind::Nat64,
             Self::Nat128 => PersistedFieldKind::Nat128,
-            Self::NatBig => PersistedFieldKind::NatBig,
+            Self::NatBig { max_bytes } => PersistedFieldKind::NatBig { max_bytes },
             Self::Ulid => PersistedFieldKind::Ulid,
             Self::Unit => PersistedFieldKind::Unit,
             Self::Relation {
@@ -1154,7 +1156,7 @@ mod tests {
                 FieldId::new(1),
                 "score".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Nat,
+                PersistedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::SlotPayload(default_payload.clone()),
@@ -1172,6 +1174,61 @@ mod tests {
         assert_eq!(
             decoded.fields()[0].default().slot_payload(),
             Some(default_payload.as_slice())
+        );
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_big_integer_max_bytes_contracts() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::BigNumbers".to_string(),
+            "BigNumbers".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "signed".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::IntBig { max_bytes: 384 },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "unsigned".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::NatBig { max_bytes: 512 },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        );
+
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode bounded big integers");
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode bounded big integers");
+
+        assert_eq!(
+            decoded.fields()[0].kind(),
+            &PersistedFieldKind::IntBig { max_bytes: 384 },
+        );
+        assert_eq!(
+            decoded.fields()[1].kind(),
+            &PersistedFieldKind::NatBig { max_bytes: 512 },
         );
     }
 
@@ -1195,7 +1252,7 @@ mod tests {
                     FieldId::new(1),
                     "tenant_id".to_string(),
                     SchemaFieldSlot::new(0),
-                    PersistedFieldKind::Nat,
+                    PersistedFieldKind::Nat64,
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,

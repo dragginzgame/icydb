@@ -57,25 +57,23 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | PersistedFieldKind::Duration
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig
+        | PersistedFieldKind::IntBig { .. }
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Structured { .. }
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig
+        | PersistedFieldKind::NatBig { .. }
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are decoded above"),
     }
@@ -132,25 +130,23 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | PersistedFieldKind::Duration
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig
+        | PersistedFieldKind::IntBig { .. }
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Structured { .. }
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig
+        | PersistedFieldKind::NatBig { .. }
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are validated above"),
     }
@@ -162,7 +158,6 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
 pub(in crate::db) fn accepted_kind_supports_storage_key_binary(kind: &PersistedFieldKind) -> bool {
     match kind {
         PersistedFieldKind::Account
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
@@ -170,7 +165,6 @@ pub(in crate::db) fn accepted_kind_supports_storage_key_binary(kind: &PersistedF
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
@@ -205,13 +199,14 @@ const fn generated_compatible_simple_kind_from_accepted_kind(
         PersistedFieldKind::Duration => Some(FieldKind::Duration),
         PersistedFieldKind::Float32 => Some(FieldKind::Float32),
         PersistedFieldKind::Float64 => Some(FieldKind::Float64),
-        PersistedFieldKind::Int => Some(FieldKind::Int),
+        PersistedFieldKind::Int64 => Some(FieldKind::Int64),
         PersistedFieldKind::Int8 => Some(FieldKind::Int8),
         PersistedFieldKind::Int16 => Some(FieldKind::Int16),
         PersistedFieldKind::Int32 => Some(FieldKind::Int32),
-        PersistedFieldKind::Int64 => Some(FieldKind::Int64),
         PersistedFieldKind::Int128 => Some(FieldKind::Int128),
-        PersistedFieldKind::IntBig => Some(FieldKind::IntBig),
+        PersistedFieldKind::IntBig { max_bytes } => Some(FieldKind::IntBig {
+            max_bytes: *max_bytes,
+        }),
         PersistedFieldKind::Principal => Some(FieldKind::Principal),
         PersistedFieldKind::Structured { queryable } => Some(FieldKind::Structured {
             queryable: *queryable,
@@ -219,13 +214,14 @@ const fn generated_compatible_simple_kind_from_accepted_kind(
         PersistedFieldKind::Subaccount => Some(FieldKind::Subaccount),
         PersistedFieldKind::Text { max_len } => Some(FieldKind::Text { max_len: *max_len }),
         PersistedFieldKind::Timestamp => Some(FieldKind::Timestamp),
-        PersistedFieldKind::Nat => Some(FieldKind::Nat),
+        PersistedFieldKind::Nat64 => Some(FieldKind::Nat64),
         PersistedFieldKind::Nat8 => Some(FieldKind::Nat8),
         PersistedFieldKind::Nat16 => Some(FieldKind::Nat16),
         PersistedFieldKind::Nat32 => Some(FieldKind::Nat32),
-        PersistedFieldKind::Nat64 => Some(FieldKind::Nat64),
         PersistedFieldKind::Nat128 => Some(FieldKind::Nat128),
-        PersistedFieldKind::NatBig => Some(FieldKind::NatBig),
+        PersistedFieldKind::NatBig { max_bytes } => Some(FieldKind::NatBig {
+            max_bytes: *max_bytes,
+        }),
         PersistedFieldKind::Ulid => Some(FieldKind::Ulid),
         PersistedFieldKind::Unit => Some(FieldKind::Unit),
         PersistedFieldKind::Enum { .. }
@@ -270,25 +266,23 @@ fn encode_accepted_binary_field_into(
         | PersistedFieldKind::Duration
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig
+        | PersistedFieldKind::IntBig { .. }
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Structured { .. }
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig
+        | PersistedFieldKind::NatBig { .. }
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are encoded above"),
     }
@@ -695,11 +689,13 @@ mod tests {
     fn accepted_kind_decoder_matches_generated_nested_collection_payloads() {
         let generated_kind = FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::List(&FieldKind::Nat),
+            value: &FieldKind::List(&FieldKind::Nat64),
         };
         let accepted_kind = PersistedFieldKind::Map {
             key: Box::new(PersistedFieldKind::Text { max_len: None }),
-            value: Box::new(PersistedFieldKind::List(Box::new(PersistedFieldKind::Nat))),
+            value: Box::new(PersistedFieldKind::List(Box::new(
+                PersistedFieldKind::Nat64,
+            ))),
         };
         let value = Value::Map(vec![
             (
@@ -722,8 +718,8 @@ mod tests {
 
     #[test]
     fn accepted_kind_decoder_rejects_malformed_nested_lists_like_generated_decoder() {
-        let generated_kind = FieldKind::List(&FieldKind::Nat);
-        let accepted_kind = PersistedFieldKind::List(Box::new(PersistedFieldKind::Nat));
+        let generated_kind = FieldKind::List(&FieldKind::Nat64);
+        let accepted_kind = PersistedFieldKind::List(Box::new(PersistedFieldKind::Nat64));
         let value = Value::List(vec![Value::Nat(1), Value::Nat(2)]);
         let mut malformed =
             encode_structural_field_by_kind_bytes(generated_kind, &value, "numbers")
@@ -741,11 +737,11 @@ mod tests {
     fn accepted_kind_decoder_rejects_malformed_nested_maps_like_generated_decoder() {
         let generated_kind = FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Nat,
+            value: &FieldKind::Nat64,
         };
         let accepted_kind = PersistedFieldKind::Map {
             key: Box::new(PersistedFieldKind::Text { max_len: None }),
-            value: Box::new(PersistedFieldKind::Nat),
+            value: Box::new(PersistedFieldKind::Nat64),
         };
         let value = Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat(1))]);
         let mut malformed =
@@ -765,7 +761,7 @@ mod tests {
         static GENERATED_VARIANTS: &[crate::model::field::EnumVariantModel] =
             &[crate::model::field::EnumVariantModel::new(
                 "Loaded",
-                Some(&FieldKind::Nat),
+                Some(&FieldKind::Nat64),
                 FieldStorageDecode::ByKind,
             )];
         let generated_kind = FieldKind::Enum {
@@ -776,7 +772,7 @@ mod tests {
             path: "tests::State".to_string(),
             variants: vec![PersistedEnumVariant::new(
                 "Loaded".to_string(),
-                Some(Box::new(PersistedFieldKind::Nat)),
+                Some(Box::new(PersistedFieldKind::Nat64)),
                 FieldStorageDecode::ByKind,
             )],
         };

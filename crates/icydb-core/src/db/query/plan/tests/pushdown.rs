@@ -49,7 +49,7 @@ crate::test_entity! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tag", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int),
+        ("rank", FieldKind::Int64),
     ],
     indexes = [&INDEX_MODEL],
 }
@@ -62,7 +62,7 @@ crate::test_entity! {
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int),
+        ("rank", FieldKind::Int64),
     ],
     indexes = [&EXPRESSION_INDEX_MODEL],
 }

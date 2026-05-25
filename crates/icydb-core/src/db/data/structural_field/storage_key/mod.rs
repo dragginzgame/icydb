@@ -35,7 +35,6 @@ type AcceptedRelationKeyDecodeState<'a> = (Vec<StorageKey>, &'a PersistedFieldKi
 pub(in crate::db) const fn supports_storage_key_binary_kind(kind: FieldKind) -> bool {
     match kind {
         FieldKind::Account
-        | FieldKind::Int
         | FieldKind::Int8
         | FieldKind::Int16
         | FieldKind::Int32
@@ -43,7 +42,6 @@ pub(in crate::db) const fn supports_storage_key_binary_kind(kind: FieldKind) -> 
         | FieldKind::Principal
         | FieldKind::Subaccount
         | FieldKind::Timestamp
-        | FieldKind::Nat
         | FieldKind::Nat8
         | FieldKind::Nat16
         | FieldKind::Nat32

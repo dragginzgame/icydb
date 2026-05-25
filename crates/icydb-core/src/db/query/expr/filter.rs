@@ -748,7 +748,7 @@ mod tests {
 
     static FILTER_TEST_FIELDS: [FieldModel; 3] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("rank", FieldKind::Nat),
+        FieldModel::generated("rank", FieldKind::Nat64),
         FieldModel::generated("active", FieldKind::Bool),
     ];
     static FILTER_TEST_MODEL: EntityModel = EntityModel::generated(

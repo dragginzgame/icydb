@@ -6,7 +6,7 @@ use crate::{
         encode_persisted_slot_payload_by_kind,
     },
     error::InternalError,
-    model::field::FieldKind,
+    model::field::{DEFAULT_BIG_INT_MAX_BYTES, FieldKind},
     traits::{FieldTypeMeta, PersistedByKindCodec, PersistedFieldSlotCodec},
     types::{
         Account, Blob, Date, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
@@ -262,23 +262,27 @@ impl_persisted_field_slot_scalar!(
 
 impl_persisted_field_slot_by_kind!(
     Account => FieldKind::Account,
-    Int => FieldKind::IntBig,
+    Int => FieldKind::IntBig {
+        max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
+    },
     Int128 => FieldKind::Int128,
-    Nat => FieldKind::NatBig,
+    Nat => FieldKind::NatBig {
+        max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
+    },
     Nat128 => FieldKind::Nat128,
 );
 
 impl_persisted_field_slot_kind!(
     () => FieldKind::Unit,
     bool => FieldKind::Bool,
-    i8 => FieldKind::Int,
-    i16 => FieldKind::Int,
-    i32 => FieldKind::Int,
-    i64 => FieldKind::Int,
-    u8 => FieldKind::Nat,
-    u16 => FieldKind::Nat,
-    u32 => FieldKind::Nat,
-    u64 => FieldKind::Nat,
+    i8 => FieldKind::Int64,
+    i16 => FieldKind::Int64,
+    i32 => FieldKind::Int64,
+    i64 => FieldKind::Int64,
+    u8 => FieldKind::Nat64,
+    u16 => FieldKind::Nat64,
+    u32 => FieldKind::Nat64,
+    u64 => FieldKind::Nat64,
     String => FieldKind::Text { max_len: None },
     Account => FieldKind::Account,
     Blob => FieldKind::Blob { max_len: None },
@@ -286,9 +290,13 @@ impl_persisted_field_slot_kind!(
     Duration => FieldKind::Duration,
     Float32 => FieldKind::Float32,
     Float64 => FieldKind::Float64,
-    Int => FieldKind::IntBig,
+    Int => FieldKind::IntBig {
+        max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
+    },
     Int128 => FieldKind::Int128,
-    Nat => FieldKind::NatBig,
+    Nat => FieldKind::NatBig {
+        max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
+    },
     Nat128 => FieldKind::Nat128,
     Principal => FieldKind::Principal,
     Subaccount => FieldKind::Subaccount,

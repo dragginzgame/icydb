@@ -818,6 +818,9 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         FieldKind::Decimal { scale } => {
             let _ = write!(out, "decimal(scale={scale})");
         }
+        FieldKind::IntBig { max_bytes } => {
+            write_byte_bounded_field_kind_summary(out, "int_big", *max_bytes);
+        }
         FieldKind::Enum { path, .. } => {
             out.push_str("enum(");
             out.push_str(path);
@@ -866,25 +869,24 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         | FieldKind::Duration
         | FieldKind::Float32
         | FieldKind::Float64
-        | FieldKind::Int
         | FieldKind::Int8
         | FieldKind::Int16
         | FieldKind::Int32
         | FieldKind::Int64
         | FieldKind::Int128
-        | FieldKind::IntBig
         | FieldKind::Principal
         | FieldKind::Subaccount
         | FieldKind::Timestamp
-        | FieldKind::Nat
         | FieldKind::Nat8
         | FieldKind::Nat16
         | FieldKind::Nat32
         | FieldKind::Nat64
         | FieldKind::Nat128
-        | FieldKind::NatBig
         | FieldKind::Ulid
         | FieldKind::Unit => unreachable!("plain field kind labels return before recursive render"),
+        FieldKind::NatBig { max_bytes } => {
+            write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
+        }
     }
 }
 
@@ -901,28 +903,26 @@ impl DescribeKindName for FieldKind {
             Self::Duration => "duration",
             Self::Float32 => "float32",
             Self::Float64 => "float64",
-            Self::Int => "int",
             Self::Int8 => "int8",
             Self::Int16 => "int16",
             Self::Int32 => "int32",
             Self::Int64 => "int64",
             Self::Int128 => "int128",
-            Self::IntBig => "int_big",
             Self::Principal => "principal",
             Self::Subaccount => "subaccount",
             Self::Timestamp => "timestamp",
-            Self::Nat => "nat",
             Self::Nat8 => "nat8",
             Self::Nat16 => "nat16",
             Self::Nat32 => "nat32",
             Self::Nat64 => "nat64",
             Self::Nat128 => "nat128",
-            Self::NatBig => "nat_big",
             Self::Ulid => "ulid",
             Self::Unit => "unit",
             Self::Blob { .. }
             | Self::Decimal { .. }
             | Self::Enum { .. }
+            | Self::IntBig { .. }
+            | Self::NatBig { .. }
             | Self::Text { .. }
             | Self::Relation { .. }
             | Self::List(_)
@@ -949,6 +949,13 @@ fn write_length_bounded_field_kind_summary(
     } else {
         out.push_str("(unbounded)");
     }
+}
+
+fn write_byte_bounded_field_kind_summary(out: &mut String, kind_name: &str, max_bytes: u32) {
+    out.push_str(kind_name);
+    out.push_str("(max_bytes=");
+    out.push_str(&max_bytes.to_string());
+    out.push(')');
 }
 
 // Append database-default metadata without decoding the stored payload back
@@ -1019,6 +1026,9 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKin
         PersistedFieldKind::Decimal { scale } => {
             let _ = write!(out, "decimal(scale={scale})");
         }
+        PersistedFieldKind::IntBig { max_bytes } => {
+            write_byte_bounded_field_kind_summary(out, "int_big", *max_bytes);
+        }
         PersistedFieldKind::Enum { path, .. } => {
             out.push_str("enum(");
             out.push_str(path);
@@ -1067,26 +1077,25 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKin
         | PersistedFieldKind::Duration
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => {
             unreachable!("plain persisted field kind labels return before recursive render")
+        }
+        PersistedFieldKind::NatBig { max_bytes } => {
+            write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }
     }
 }
@@ -1100,28 +1109,26 @@ impl DescribeKindName for PersistedFieldKind {
             Self::Duration => "duration",
             Self::Float32 => "float32",
             Self::Float64 => "float64",
-            Self::Int => "int",
             Self::Int8 => "int8",
             Self::Int16 => "int16",
             Self::Int32 => "int32",
             Self::Int64 => "int64",
             Self::Int128 => "int128",
-            Self::IntBig => "int_big",
             Self::Principal => "principal",
             Self::Subaccount => "subaccount",
             Self::Timestamp => "timestamp",
-            Self::Nat => "nat",
             Self::Nat8 => "nat8",
             Self::Nat16 => "nat16",
             Self::Nat32 => "nat32",
             Self::Nat64 => "nat64",
             Self::Nat128 => "nat128",
-            Self::NatBig => "nat_big",
             Self::Ulid => "ulid",
             Self::Unit => "unit",
             Self::Blob { .. }
             | Self::Decimal { .. }
             | Self::Enum { .. }
+            | Self::IntBig { .. }
+            | Self::NatBig { .. }
             | Self::Text { .. }
             | Self::Relation { .. }
             | Self::List(_)
@@ -1198,7 +1205,7 @@ mod tests {
         target_entity_name: "Account",
         target_entity_tag: EntityTag::new(0xD002),
         target_store_path: "stores::Account",
-        key_kind: &FieldKind::Nat,
+        key_kind: &FieldKind::Nat64,
         strength: RelationStrength::Weak,
     };
     static DESCRIBE_SET_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
@@ -1228,8 +1235,8 @@ mod tests {
         &DESCRIBE_RELATION_INDEXES,
     );
     static DESCRIBE_COMPOSITE_PK_FIELDS: [FieldModel; 3] = [
-        FieldModel::generated("tenant_id", FieldKind::Nat),
-        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("tenant_id", FieldKind::Nat64),
+        FieldModel::generated("local_id", FieldKind::Nat64),
         FieldModel::generated("label", FieldKind::Text { max_len: None }),
     ];
     static DESCRIBE_COMPOSITE_PK_FIELD_REFS: [&FieldModel; 2] = [
@@ -1492,12 +1499,14 @@ mod tests {
 
     #[test]
     fn schema_describe_preserves_fixed_width_numeric_kind_labels() {
-        static FIELDS: [FieldModel; 5] = [
+        static FIELDS: [FieldModel; 7] = [
             FieldModel::generated("id", FieldKind::Ulid),
             FieldModel::generated("small_signed", FieldKind::Int8),
             FieldModel::generated("cell_x", FieldKind::Nat16),
             FieldModel::generated("large_signed", FieldKind::Int64),
             FieldModel::generated("large_unsigned", FieldKind::Nat64),
+            FieldModel::generated("huge_signed", FieldKind::IntBig { max_bytes: 384 }),
+            FieldModel::generated("huge_unsigned", FieldKind::NatBig { max_bytes: 512 }),
         ];
         static INDEXES: [&crate::model::index::IndexModel; 0] = [];
         static MODEL: EntityModel = EntityModel::generated(
@@ -1519,6 +1528,14 @@ mod tests {
         assert!(described.contains(&("cell_x".to_string(), "nat16".to_string())));
         assert!(described.contains(&("large_signed".to_string(), "int64".to_string())));
         assert!(described.contains(&("large_unsigned".to_string(), "nat64".to_string())));
+        assert!(described.contains(&(
+            "huge_signed".to_string(),
+            "int_big(max_bytes=384)".to_string()
+        )));
+        assert!(described.contains(&(
+            "huge_unsigned".to_string(),
+            "nat_big(max_bytes=512)".to_string()
+        )));
     }
 
     #[test]
@@ -1528,7 +1545,7 @@ mod tests {
             FieldModel::generated("id", FieldKind::Ulid),
             FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
                 "score",
-                FieldKind::Nat,
+                FieldKind::Nat64,
                 FieldStorageDecode::ByKind,
                 false,
                 None,
@@ -1556,7 +1573,7 @@ mod tests {
 
         assert_eq!(
             score_field.kind(),
-            "nat default=slot_payload(bytes=10, sha256=37746b8fe16bb6b4)"
+            "nat64 default=slot_payload(bytes=10, sha256=37746b8fe16bb6b4)"
         );
     }
 
@@ -1736,7 +1753,7 @@ mod tests {
     fn schema_describe_expands_generated_structured_field_leaves() {
         static NESTED_FIELDS: [FieldModel; 3] = [
             FieldModel::generated("name", FieldKind::Text { max_len: None }),
-            FieldModel::generated("level", FieldKind::Nat),
+            FieldModel::generated("level", FieldKind::Nat64),
             FieldModel::generated("pid", FieldKind::Principal),
         ];
         static FIELDS: [FieldModel; 2] = [
@@ -1774,7 +1791,7 @@ mod tests {
                 ("id", Some(0), "ulid", true),
                 ("mentor", Some(1), "structured", false),
                 ("├─ name", None, "text(unbounded)", true),
-                ("├─ level", None, "nat", true),
+                ("├─ level", None, "nat64", true),
                 ("└─ pid", None, "principal", true),
             ],
         );

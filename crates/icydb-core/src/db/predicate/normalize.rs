@@ -323,20 +323,18 @@ fn normalize_value_for_kind(
         | FieldKind::Ulid
         | FieldKind::Unit
         | FieldKind::Structured { .. } => Ok(value.clone()),
-        FieldKind::Int
-        | FieldKind::Int8
+        FieldKind::Int8
         | FieldKind::Int16
         | FieldKind::Int32
         | FieldKind::Int64
         | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Nat
+        | FieldKind::IntBig { .. }
         | FieldKind::Nat8
         | FieldKind::Nat16
         | FieldKind::Nat32
         | FieldKind::Nat64
         | FieldKind::Nat128
-        | FieldKind::NatBig => Ok(normalize_numeric_value_for_kind(
+        | FieldKind::NatBig { .. } => Ok(normalize_numeric_value_for_kind(
             value,
             expected_kind,
             coercion,
@@ -369,7 +367,7 @@ fn normalize_numeric_value_for_kind(
     }
 
     let normalized = match expected_kind {
-        FieldKind::Int => value
+        FieldKind::Int64 => value
             .to_numeric_decimal()
             .and_then(<i64 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Int),
@@ -377,11 +375,11 @@ fn normalize_numeric_value_for_kind(
             .to_numeric_decimal()
             .and_then(<Int128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Int128),
-        FieldKind::IntBig => value
+        FieldKind::IntBig { .. } => value
             .to_numeric_decimal()
             .and_then(<Int as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::IntBig),
-        FieldKind::Nat => value
+        FieldKind::Nat64 => value
             .to_numeric_decimal()
             .and_then(<u64 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Nat),
@@ -389,7 +387,7 @@ fn normalize_numeric_value_for_kind(
             .to_numeric_decimal()
             .and_then(<Nat128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Nat128),
-        FieldKind::NatBig => value
+        FieldKind::NatBig { .. } => value
             .to_numeric_decimal()
             .and_then(<Nat as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::NatBig),
@@ -977,7 +975,7 @@ mod tests {
                 Value::Nat(3),
                 Value::Nat(2),
             ]),
-            &FieldKind::Nat,
+            &FieldKind::Nat64,
             &CoercionSpec::new(CoercionId::Strict),
         )
         .expect("IN literal normalization should succeed");
@@ -1000,7 +998,7 @@ mod tests {
                 Value::Nat(3),
                 Value::Nat(2),
             ]),
-            &FieldKind::Nat,
+            &FieldKind::Nat64,
             &CoercionSpec::new(CoercionId::Strict),
         )
         .expect("NOT IN literal normalization should succeed");

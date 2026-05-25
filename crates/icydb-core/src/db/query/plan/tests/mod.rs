@@ -150,9 +150,9 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("a", FieldKind::Nat),
-        ("b", FieldKind::Nat),
-        ("c", FieldKind::Nat),
+        ("a", FieldKind::Nat64),
+        ("b", FieldKind::Nat64),
+        ("c", FieldKind::Nat64),
     ],
     indexes = [&RANGE_INDEX_MODEL],
 }
@@ -161,8 +161,8 @@ struct PlanCompositePrimaryKeyEntity;
 
 impl PlanCompositePrimaryKeyEntity {
     const FIELD_MODELS: [crate::model::field::FieldModel; 3] = [
-        crate::model::field::FieldModel::generated("tenant_id", FieldKind::Nat),
-        crate::model::field::FieldModel::generated("local_id", FieldKind::Nat),
+        crate::model::field::FieldModel::generated("tenant_id", FieldKind::Nat64),
+        crate::model::field::FieldModel::generated("local_id", FieldKind::Nat64),
         crate::model::field::FieldModel::generated("tag", FieldKind::Text { max_len: None }),
     ];
     const PRIMARY_KEY_FIELDS: [&'static crate::model::field::FieldModel; 2] =
@@ -202,7 +202,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("score", FieldKind::Nat),
+        ("score", FieldKind::Nat64),
     ],
     indexes = [&FILTERED_NUMERIC_INDEX_MODEL],
 }

@@ -20,7 +20,7 @@ use crate::{
 };
 
 static CAPABILITY_FIELDS: [FieldModel; 3] = [
-    FieldModel::generated("score", FieldKind::Int),
+    FieldModel::generated("score", FieldKind::Int64),
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
 ];

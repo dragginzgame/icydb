@@ -551,11 +551,15 @@ fn database_default_slot_payload_bytes(default: &Arg, value: &Value) -> Result<V
         (Primitive::Date, default) => encode_date_database_default_payload(default),
         (Primitive::Decimal, default) => encode_decimal_database_default_payload(default, value),
         (Primitive::Duration, default) => encode_duration_database_default_payload(default),
-        (Primitive::Int, default) => encode_int_big_database_default_payload(default),
+        (Primitive::IntBig, default) => {
+            encode_int_big_database_default_payload(default, value.item.max_bytes)
+        }
         (Primitive::Int128, Arg::Number(default)) => {
             encode_int128_database_default_payload(default)
         }
-        (Primitive::Nat, default) => encode_nat_big_database_default_payload(default),
+        (Primitive::NatBig, default) => {
+            encode_nat_big_database_default_payload(default, value.item.max_bytes)
+        }
         (Primitive::Nat128, Arg::Number(default)) => {
             encode_nat128_database_default_payload(default)
         }
@@ -643,18 +647,28 @@ fn encode_primitive_default_database_default_payload(
         ),
         Primitive::Float32 => encode_float32_database_default_payload(&ArgNumber::Float32(0.0)),
         Primitive::Float64 => encode_float64_database_default_payload(&ArgNumber::Float64(0.0)),
-        Primitive::Int => encode_by_kind_database_default_payload(
+        Primitive::IntBig => encode_by_kind_database_default_payload(
             &icydb_core::types::Int::default(),
-            icydb_core::model::FieldKind::IntBig,
+            icydb_core::model::FieldKind::IntBig {
+                max_bytes: value
+                    .item
+                    .max_bytes
+                    .unwrap_or(icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES),
+            },
             primitive,
         ),
         Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => {
             encode_int_database_default_payload(&ArgNumber::Int8(0), primitive)
         }
         Primitive::Int128 => encode_int128_database_default_payload(&ArgNumber::Int8(0)),
-        Primitive::Nat => encode_by_kind_database_default_payload(
+        Primitive::NatBig => encode_by_kind_database_default_payload(
             &icydb_core::types::Nat::default(),
-            icydb_core::model::FieldKind::NatBig,
+            icydb_core::model::FieldKind::NatBig {
+                max_bytes: value
+                    .item
+                    .max_bytes
+                    .unwrap_or(icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES),
+            },
             primitive,
         ),
         Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
@@ -838,25 +852,30 @@ fn encode_int128_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, 
     .map_err(|err| format!("default Int128 payload failed to encode: {err}"))
 }
 
-fn encode_int_big_database_default_payload(default: &Arg) -> Result<Vec<u8>, String> {
+fn encode_int_big_database_default_payload(
+    default: &Arg,
+    max_bytes: Option<u32>,
+) -> Result<Vec<u8>, String> {
     let value = match default {
-        Arg::Number(value) => arg_number_to_integer_string(value)
-            .ok_or_else(|| "default for primitive Int requires an integer literal".to_string())?,
+        Arg::Number(value) => arg_number_to_integer_string(value).ok_or_else(|| {
+            "default for primitive IntBig requires an integer literal".to_string()
+        })?,
         Arg::String(value) => value.value(),
         Arg::Bool(_) | Arg::Char(_) | Arg::ConstPath(_) | Arg::FuncPath(_) => {
             return Err(
-                "default for primitive Int requires an integer or string integer literal"
+                "default for primitive IntBig requires an integer or string integer literal"
                     .to_string(),
             );
         }
     };
     let value = icydb_core::types::Int::from_str(value.as_str())
-        .map_err(|err| format!("default for primitive Int is invalid: {err}"))?;
+        .map_err(|err| format!("default for primitive IntBig is invalid: {err}"))?;
+    let max_bytes = max_bytes.unwrap_or(icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES);
 
     encode_by_kind_database_default_payload(
         &value,
-        icydb_core::model::FieldKind::IntBig,
-        Primitive::Int,
+        icydb_core::model::FieldKind::IntBig { max_bytes },
+        Primitive::IntBig,
     )
 }
 
@@ -873,26 +892,30 @@ fn encode_nat128_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, 
     .map_err(|err| format!("default Nat128 payload failed to encode: {err}"))
 }
 
-fn encode_nat_big_database_default_payload(default: &Arg) -> Result<Vec<u8>, String> {
+fn encode_nat_big_database_default_payload(
+    default: &Arg,
+    max_bytes: Option<u32>,
+) -> Result<Vec<u8>, String> {
     let value = match default {
         Arg::Number(value) => arg_number_to_unsigned_integer_string(value).ok_or_else(|| {
-            "default for primitive Nat requires an unsigned integer literal".to_string()
+            "default for primitive NatBig requires an unsigned integer literal".to_string()
         })?,
         Arg::String(value) => value.value(),
         Arg::Bool(_) | Arg::Char(_) | Arg::ConstPath(_) | Arg::FuncPath(_) => {
             return Err(
-                "default for primitive Nat requires an unsigned integer or string integer literal"
+                "default for primitive NatBig requires an unsigned integer or string integer literal"
                     .to_string(),
             );
         }
     };
     let value = icydb_core::types::Nat::from_str(value.as_str())
-        .map_err(|err| format!("default for primitive Nat is invalid: {err}"))?;
+        .map_err(|err| format!("default for primitive NatBig is invalid: {err}"))?;
+    let max_bytes = max_bytes.unwrap_or(icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES);
 
     encode_by_kind_database_default_payload(
         &value,
-        icydb_core::model::FieldKind::NatBig,
-        Primitive::Nat,
+        icydb_core::model::FieldKind::NatBig { max_bytes },
+        Primitive::NatBig,
     )
 }
 
@@ -1293,13 +1316,13 @@ const fn primitive_default_type_names(primitive: Primitive) -> &'static [&'stati
         Primitive::Duration => &["Duration", "u64"],
         Primitive::Float32 => &["Float32", "f32"],
         Primitive::Float64 => &["Float64", "f64"],
-        Primitive::Int => &["Int"],
+        Primitive::IntBig => &["Int"],
         Primitive::Int8 => &["Int8", "i8"],
         Primitive::Int16 => &["Int16", "i16"],
         Primitive::Int32 => &["Int32", "i32"],
         Primitive::Int64 => &["Int64", "i64"],
         Primitive::Int128 => &["Int128", "i128"],
-        Primitive::Nat => &["Nat"],
+        Primitive::NatBig => &["Nat"],
         Primitive::Nat8 => &["Nat8", "u8"],
         Primitive::Nat16 => &["Nat16", "u16"],
         Primitive::Nat32 => &["Nat32", "u32"],
@@ -1322,13 +1345,13 @@ const fn primitive_supports_zero_literal(primitive: Primitive) -> bool {
             | Primitive::Duration
             | Primitive::Float32
             | Primitive::Float64
-            | Primitive::Int
+            | Primitive::IntBig
             | Primitive::Int8
             | Primitive::Int16
             | Primitive::Int32
             | Primitive::Int64
             | Primitive::Int128
-            | Primitive::Nat
+            | Primitive::NatBig
             | Primitive::Nat8
             | Primitive::Nat16
             | Primitive::Nat32
@@ -1924,7 +1947,7 @@ mod tests {
                 Primitive::Float64,
                 Arg::FuncPath(parse_quote!(Float64::default)),
             ),
-            (Primitive::Int, Arg::FuncPath(parse_quote!(Int::default))),
+            (Primitive::IntBig, Arg::FuncPath(parse_quote!(Int::default))),
             (Primitive::Int8, Arg::FuncPath(parse_quote!(i8::default))),
             (Primitive::Int16, Arg::FuncPath(parse_quote!(i16::default))),
             (Primitive::Int32, Arg::FuncPath(parse_quote!(i32::default))),
@@ -1933,7 +1956,7 @@ mod tests {
                 Primitive::Int128,
                 Arg::FuncPath(parse_quote!(i128::default)),
             ),
-            (Primitive::Nat, Arg::FuncPath(parse_quote!(Nat::default))),
+            (Primitive::NatBig, Arg::FuncPath(parse_quote!(Nat::default))),
             (Primitive::Nat8, Arg::FuncPath(parse_quote!(u8::default))),
             (Primitive::Nat16, Arg::FuncPath(parse_quote!(u16::default))),
             (Primitive::Nat32, Arg::FuncPath(parse_quote!(u32::default))),
@@ -2010,7 +2033,7 @@ mod tests {
     fn database_default_encodes_int_and_nat_big_payloads_with_by_kind_codecs() {
         let int_literal = "-170141183460469231731687303715884105729";
         let int_field = default_test_field(
-            Primitive::Int,
+            Primitive::IntBig,
             Arg::String(syn::LitStr::new(
                 int_literal,
                 proc_macro2::Span::call_site(),
@@ -2023,7 +2046,9 @@ mod tests {
         .expect("Int default should encode");
         let expected_int = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
             &icydb_core::types::Int::from_str(int_literal).expect("expected Int should parse"),
-            icydb_core::model::FieldKind::IntBig,
+            icydb_core::model::FieldKind::IntBig {
+                max_bytes: icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES,
+            },
             "int_big",
         )
         .expect("expected Int payload should encode");
@@ -2031,7 +2056,7 @@ mod tests {
 
         let nat_literal = "340282366920938463463374607431768211456";
         let nat_field = default_test_field(
-            Primitive::Nat,
+            Primitive::NatBig,
             Arg::String(syn::LitStr::new(
                 nat_literal,
                 proc_macro2::Span::call_site(),
@@ -2044,7 +2069,9 @@ mod tests {
         .expect("Nat default should encode");
         let expected_nat = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
             &icydb_core::types::Nat::from_str(nat_literal).expect("expected Nat should parse"),
-            icydb_core::model::FieldKind::NatBig,
+            icydb_core::model::FieldKind::NatBig {
+                max_bytes: icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES,
+            },
             "nat_big",
         )
         .expect("expected Nat payload should encode");

@@ -206,10 +206,10 @@ mod tests {
         testing::entity_model_from_static,
     };
 
-    static SCALAR_FIELDS: [FieldModel; 1] = [FieldModel::generated("id", FieldKind::Nat)];
+    static SCALAR_FIELDS: [FieldModel; 1] = [FieldModel::generated("id", FieldKind::Nat64)];
     static COMPOSITE_FIELDS: [FieldModel; 3] = [
-        FieldModel::generated("tenant_id", FieldKind::Nat),
-        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("tenant_id", FieldKind::Nat64),
+        FieldModel::generated("local_id", FieldKind::Nat64),
         FieldModel::generated("label", FieldKind::Text { max_len: None }),
     ];
     static EMPTY_INDEXES: [&IndexModel; 0] = [];

@@ -98,11 +98,11 @@ pub(super) const fn expr_type_from_field_type(field_type: &FieldType) -> ExprTyp
         FieldType::Scalar(ScalarType::Bool) => ExprType::Bool,
         FieldType::Scalar(
             ScalarType::Duration
-            | ScalarType::Int
+            | ScalarType::SignedNumeric
             | ScalarType::Int128
             | ScalarType::IntBig
             | ScalarType::Timestamp
-            | ScalarType::Nat
+            | ScalarType::UnsignedNumeric
             | ScalarType::Nat128
             | ScalarType::NatBig,
         ) => ExprType::Numeric(NumericSubtype::Integer),

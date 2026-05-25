@@ -237,7 +237,7 @@ const fn expression_output_kind_matches_op(
         crate::db::schema::PersistedIndexExpressionOp::Year
         | crate::db::schema::PersistedIndexExpressionOp::Month
         | crate::db::schema::PersistedIndexExpressionOp::Day => {
-            matches!(output_kind, PersistedFieldKind::Int)
+            matches!(output_kind, PersistedFieldKind::Int64)
         }
     }
 }

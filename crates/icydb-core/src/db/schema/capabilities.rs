@@ -210,24 +210,22 @@ fn sql_capabilities_for_non_scalar(kind: &PersistedFieldKind) -> SqlCapabilities
         | PersistedFieldKind::Enum { .. }
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig
+        | PersistedFieldKind::IntBig { .. }
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig
+        | PersistedFieldKind::NatBig { .. }
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit
         | PersistedFieldKind::Relation { .. } => {
@@ -250,20 +248,18 @@ fn persisted_sql_scalar_family(kind: &PersistedFieldKind) -> Option<PersistedSql
         PersistedFieldKind::Decimal { .. }
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig
-        | PersistedFieldKind::Nat
+        | PersistedFieldKind::IntBig { .. }
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig => {
+        | PersistedFieldKind::NatBig { .. } => {
             Some(PersistedSqlScalarFamily::Numeric { arithmetic: true })
         }
         PersistedFieldKind::Duration | PersistedFieldKind::Timestamp => {
@@ -346,7 +342,7 @@ mod tests {
 
     #[test]
     fn sql_capabilities_relation_inherits_key_capabilities() {
-        let relation = sql_capabilities(&relation_to_key(PersistedFieldKind::Nat));
+        let relation = sql_capabilities(&relation_to_key(PersistedFieldKind::Nat64));
 
         assert!(relation.selectable());
         assert!(relation.comparable());

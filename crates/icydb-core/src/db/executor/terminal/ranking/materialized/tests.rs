@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 fn nat_field_slot() -> FieldSlot {
     FieldSlot {
         index: 0,
-        kind: FieldKind::Nat,
+        kind: FieldKind::Nat64,
     }
 }
 

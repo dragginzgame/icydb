@@ -21,6 +21,9 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     max_len: Option<u32>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_bytes: Option<u32>,
+
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     validators: &'static [TypeValidator],
 
@@ -33,11 +36,16 @@ pub struct Item {
 
 impl Item {
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema item construction keeps generated scalar, relation, and validation metadata explicit"
+    )]
     pub const fn new(
         target: ItemTarget,
         relation: Option<&'static str>,
         scale: Option<u32>,
         max_len: Option<u32>,
+        max_bytes: Option<u32>,
         validators: &'static [TypeValidator],
         sanitizers: &'static [TypeSanitizer],
         indirect: bool,
@@ -47,6 +55,7 @@ impl Item {
             relation,
             scale,
             max_len,
+            max_bytes,
             validators,
             sanitizers,
             indirect,
@@ -71,6 +80,11 @@ impl Item {
     #[must_use]
     pub const fn max_len(&self) -> Option<u32> {
         self.max_len
+    }
+
+    #[must_use]
+    pub const fn max_bytes(&self) -> Option<u32> {
+        self.max_bytes
     }
 
     #[must_use]
@@ -123,19 +137,23 @@ impl ValidateNode for Item {
                         // Step 3: Compare declared item target and primitive metadata.
                         let relation_scale = primary_field.value().item().scale();
                         let relation_max_len = primary_field.value().item().max_len();
+                        let relation_max_bytes = primary_field.value().item().max_bytes();
                         if self.target() != relation_target
                             || self.scale() != relation_scale
                             || self.max_len() != relation_max_len
+                            || self.max_bytes() != relation_max_bytes
                         {
                             err!(
                                 errs,
-                                "relation target type mismatch: expected ({:?}, scale={:?}, max_len={:?}), found ({:?}, scale={:?}, max_len={:?})",
+                                "relation target type mismatch: expected ({:?}, scale={:?}, max_len={:?}, max_bytes={:?}), found ({:?}, scale={:?}, max_len={:?}, max_bytes={:?})",
                                 relation_target,
                                 relation_scale,
                                 relation_max_len,
+                                relation_max_bytes,
                                 self.target(),
                                 self.scale(),
-                                self.max_len()
+                                self.max_len(),
+                                self.max_bytes()
                             );
                         }
                     } else {

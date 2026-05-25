@@ -114,7 +114,7 @@ struct RouteCapabilityEntity {
     scores: Vec<u32>,
 }
 
-static ROUTE_CAPABILITY_SCORE_KIND: FieldKind = FieldKind::Nat;
+static ROUTE_CAPABILITY_SCORE_KIND: FieldKind = FieldKind::Nat64;
 static ROUTE_CAPABILITY_INDEX_FIELDS: [&str; 1] = ["rank"];
 static ROUTE_CAPABILITY_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["rank", "label"];
 static ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
@@ -139,7 +139,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Nat),
+        ("rank", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
         ("scores", FieldKind::List(&ROUTE_CAPABILITY_SCORE_KIND)),
     ],
@@ -178,7 +178,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("code", FieldKind::Nat),
+        ("code", FieldKind::Nat64),
     ],
     indexes = [&UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0]],
     store = RouteCapabilityTestStore,

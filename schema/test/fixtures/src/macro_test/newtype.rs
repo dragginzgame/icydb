@@ -25,7 +25,7 @@ pub struct Float32N {}
 #[newtype(primitive = "Float64", item(prim = "Float64"))]
 pub struct Float64N {}
 
-#[newtype(primitive = "Int", item(prim = "Int"))]
+#[newtype(primitive = "IntBig", item(prim = "IntBig"))]
 pub struct IntN {}
 
 #[newtype(primitive = "Int8", item(prim = "Int8"))]
@@ -43,7 +43,7 @@ pub struct Int64N {}
 #[newtype(primitive = "Int128", item(prim = "Int128"))]
 pub struct Int128N {}
 
-#[newtype(primitive = "Nat", item(prim = "Nat"))]
+#[newtype(primitive = "NatBig", item(prim = "NatBig"))]
 pub struct NatN {}
 
 #[newtype(primitive = "Nat8", item(prim = "Nat8"))]
@@ -127,13 +127,13 @@ pub struct Float32D {}
 #[newtype(primitive = "Float64", item(prim = "Float64"))]
 pub struct Float64D {}
 
-#[newtype(primitive = "Int", item(prim = "Int"))]
+#[newtype(primitive = "IntBig", item(prim = "IntBig"))]
 pub struct IntD {}
 
 #[newtype(primitive = "Int128", item(prim = "Int128"))]
 pub struct Int128D {}
 
-#[newtype(primitive = "Nat", item(prim = "Nat"))]
+#[newtype(primitive = "NatBig", item(prim = "NatBig"))]
 pub struct NatD {}
 
 #[newtype(primitive = "Nat32", item(prim = "Nat32"))]

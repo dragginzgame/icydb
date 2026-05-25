@@ -245,7 +245,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Nat),
+        ("tag", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&INDEXED_METRICS_INDEX_MODELS[0]],
@@ -284,8 +284,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat),
-        ("rank", FieldKind::Nat),
+        ("group", FieldKind::Nat64),
+        ("rank", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PUSHDOWN_PARITY_INDEX_MODELS[0]],
@@ -325,7 +325,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("code", FieldKind::Nat),
+        ("code", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]],
@@ -346,7 +346,7 @@ pub(in crate::db::executor::tests) struct PhaseEntity {
     pub(in crate::db::executor::tests) label: String,
 }
 
-pub(in crate::db::executor::tests) static PHASE_TAG_KIND: FieldKind = FieldKind::Nat;
+pub(in crate::db::executor::tests) static PHASE_TAG_KIND: FieldKind = FieldKind::Nat64;
 
 crate::impl_test_entity_markers!(PhaseEntity);
 
@@ -358,11 +358,11 @@ crate::impl_test_entity_model_storage!(
         crate::model::field::FieldModel::generated("id", FieldKind::Ulid),
         crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "opt_rank",
-            FieldKind::Nat,
+            FieldKind::Nat64,
             crate::model::field::FieldStorageDecode::ByKind,
             true,
         ),
-        crate::model::field::FieldModel::generated("rank", FieldKind::Nat),
+        crate::model::field::FieldModel::generated("rank", FieldKind::Nat64),
         crate::model::field::FieldModel::generated("tags", FieldKind::List(&PHASE_TAG_KIND)),
         crate::model::field::FieldModel::generated("label", FieldKind::Text { max_len: None })
     ],

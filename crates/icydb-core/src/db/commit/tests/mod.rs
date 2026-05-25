@@ -367,7 +367,7 @@ crate::test_entity_schema! {
     entity_name = "RecoveryIndexedEntity",
     entity_tag = crate::testing::RECOVERY_INDEXED_ENTITY_TAG,
     pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("group", FieldKind::Nat)],
+    fields = [("id", FieldKind::Ulid), ("group", FieldKind::Nat64)],
     indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
@@ -390,7 +390,7 @@ crate::impl_test_entity_model_storage!(
         ),
         FieldModel::generated_with_storage_decode_and_nullability(
             "group",
-            FieldKind::Nat,
+            FieldKind::Nat64,
             FieldStorageDecode::ByKind,
             false,
         ),
@@ -474,7 +474,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat),
+        ("group", FieldKind::Nat64),
         ("active", FieldKind::Bool),
     ],
     indexes = [&RECOVERY_CONDITIONAL_INDEX_MODELS[0]],

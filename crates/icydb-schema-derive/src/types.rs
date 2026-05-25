@@ -35,6 +35,12 @@ impl TraitStrategy {
 }
 
 pub(crate) fn primitive_type_tokens(primitive: Primitive) -> TokenStream {
+    match primitive {
+        Primitive::IntBig => return quote!(::icydb::types::Int),
+        Primitive::NatBig => return quote!(::icydb::types::Nat),
+        _ => {}
+    }
+
     let ident = format_ident!("{primitive:?}");
 
     quote!(::icydb::types::#ident)

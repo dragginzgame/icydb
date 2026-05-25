@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.18` hard-cuts schema numeric names to explicit fixed-width
+  `int*` / `nat*` contracts and bounded `int_big` / `nat_big` contracts.
+
 - `0.162.17` adds a composite-key demo fixture, local fixture-cycle preflight,
   fixed-width numeric schema labels, and final scalar relation-boundary guards
   before the explicit integer-name hard cut.

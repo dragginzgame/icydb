@@ -160,11 +160,11 @@ fn direct_compare_orderable_field_values(
         (FieldKind::Float64, Value::Float64(left), Value::Float64(right)) => {
             left.get().partial_cmp(&right.get())
         }
-        (FieldKind::Int, Value::Int(left), Value::Int(right)) => Some(left.cmp(right)),
+        (FieldKind::Int64, Value::Int(left), Value::Int(right)) => Some(left.cmp(right)),
         (FieldKind::Int128, Value::Int128(left), Value::Int128(right)) => {
             Some(left.get().cmp(&right.get()))
         }
-        (FieldKind::Nat, Value::Nat(left), Value::Nat(right)) => Some(left.cmp(right)),
+        (FieldKind::Nat64, Value::Nat(left), Value::Nat(right)) => Some(left.cmp(right)),
         (FieldKind::Nat128, Value::Nat128(left), Value::Nat128(right)) => {
             Some(left.get().cmp(&right.get()))
         }

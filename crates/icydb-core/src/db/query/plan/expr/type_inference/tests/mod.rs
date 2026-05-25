@@ -50,7 +50,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Nat),
+        ("rank", FieldKind::Nat64),
         ("flag", FieldKind::Bool),
         ("label", FieldKind::Text { max_len: None }),
         ("created_on", FieldKind::Date),
@@ -58,7 +58,7 @@ crate::test_entity! {
     indexes = [&EMPTY_INDEX],
 }
 
-static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat)];
+static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat64)];
 static PROFILE_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(

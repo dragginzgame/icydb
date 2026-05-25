@@ -470,7 +470,9 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
             })?;
             ScalarValueRef::Float64(value)
         }
-        ScalarCodec::Int64 => ScalarValueRef::Int(decode_i64_payload(payload, field_name, "int")?),
+        ScalarCodec::Int64 => {
+            ScalarValueRef::Int(decode_i64_payload(payload, field_name, "int64")?)
+        }
         ScalarCodec::Principal => ScalarValueRef::Principal(
             Principal::try_from_bytes(payload)
                 .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?,
@@ -489,7 +491,9 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
             let millis = decode_i64_payload(payload, field_name, "timestamp")?;
             ScalarValueRef::Timestamp(Timestamp::from_millis(millis))
         }
-        ScalarCodec::Nat64 => ScalarValueRef::Nat(decode_u64_payload(payload, field_name, "nat")?),
+        ScalarCodec::Nat64 => {
+            ScalarValueRef::Nat(decode_u64_payload(payload, field_name, "nat64")?)
+        }
         ScalarCodec::Ulid => {
             let bytes = decode_fixed(payload, field_name, "ulid")?;
             ScalarValueRef::Ulid(Ulid::from_bytes(bytes))
@@ -517,7 +521,7 @@ macro_rules! impl_persisted_scalar_signed {
                     bytes: &[u8],
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
-                    <$ty>::try_from(decode_i64_payload(bytes, field_name, "int")?).map_err(|_| {
+                    <$ty>::try_from(decode_i64_payload(bytes, field_name, "int64")?).map_err(|_| {
                         InternalError::persisted_row_field_payload_out_of_range(
                             field_name,
                             "integer",
@@ -543,7 +547,7 @@ macro_rules! impl_persisted_scalar_unsigned {
                     bytes: &[u8],
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
-                    <$ty>::try_from(decode_u64_payload(bytes, field_name, "nat")?).map_err(|_| {
+                    <$ty>::try_from(decode_u64_payload(bytes, field_name, "nat64")?).map_err(|_| {
                         InternalError::persisted_row_field_payload_out_of_range(
                             field_name,
                             "unsigned",

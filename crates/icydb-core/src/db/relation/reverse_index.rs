@@ -747,7 +747,6 @@ fn validate_relation_field_kind(
 fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), InternalError> {
     match key_kind {
         PersistedFieldKind::Account
-        | PersistedFieldKind::Int
         | PersistedFieldKind::Int8
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
@@ -755,7 +754,6 @@ fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), Inter
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat
         | PersistedFieldKind::Nat8
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32

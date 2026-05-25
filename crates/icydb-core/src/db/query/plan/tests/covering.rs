@@ -37,8 +37,8 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat),
-        ("rank", FieldKind::Nat),
+        ("group", FieldKind::Nat64),
+        ("rank", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&COVERING_READ_INDEX],

@@ -1139,7 +1139,8 @@ mod tests {
         FieldModel::generated("name", FieldKind::Text { max_len: None }),
         FieldModel::generated("id", FieldKind::Ulid),
     ];
-    static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat)];
+    static PROFILE_NESTED_FIELDS: [FieldModel; 1] =
+        [FieldModel::generated("rank", FieldKind::Nat64)];
     static PROFILE_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
@@ -1339,7 +1340,7 @@ mod tests {
                     FieldId::new(3),
                     "age".to_string(),
                     SchemaFieldSlot::new(2),
-                    PersistedFieldKind::Nat,
+                    PersistedFieldKind::Nat64,
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,
@@ -1441,7 +1442,7 @@ mod tests {
     #[test]
     fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind() {
         let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
-        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Nat);
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Nat64);
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
         assert_eq!(

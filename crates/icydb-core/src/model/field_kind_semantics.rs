@@ -232,14 +232,12 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
         FieldKind::Duration => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::DurationLike),
         )),
-        FieldKind::Int
-        | FieldKind::Int8
-        | FieldKind::Int16
-        | FieldKind::Int32
-        | FieldKind::Int64 => FieldKindSemantics::new(FieldKindCategory::Scalar(
-            FieldKindScalarClass::Numeric(FieldKindNumericClass::Signed64),
-        )),
-        FieldKind::Int128 | FieldKind::IntBig => {
+        FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
+            FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
+                FieldKindNumericClass::Signed64,
+            )))
+        }
+        FieldKind::Int128 | FieldKind::IntBig { .. } => {
             FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
                 FieldKindNumericClass::SignedWide,
             )))
@@ -247,14 +245,12 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
         FieldKind::Timestamp => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::TimestampLike),
         )),
-        FieldKind::Nat
-        | FieldKind::Nat8
-        | FieldKind::Nat16
-        | FieldKind::Nat32
-        | FieldKind::Nat64 => FieldKindSemantics::new(FieldKindCategory::Scalar(
-            FieldKindScalarClass::Numeric(FieldKindNumericClass::Unsigned64),
-        )),
-        FieldKind::Nat128 | FieldKind::NatBig => {
+        FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
+            FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
+                FieldKindNumericClass::Unsigned64,
+            )))
+        }
+        FieldKind::Nat128 | FieldKind::NatBig { .. } => {
             FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
                 FieldKindNumericClass::UnsignedWide,
             )))
@@ -347,7 +343,7 @@ fn canonicalize_lossless_field_literal_for_kind(
         FieldKind::Relation { key_kind, .. } => {
             canonicalize_lossless_field_literal_for_kind(*key_kind, value, allow_text_ulid)
         }
-        FieldKind::Int | FieldKind::Int64 => canonicalize_int_literal(value, i64::MIN, i64::MAX),
+        FieldKind::Int64 => canonicalize_int_literal(value, i64::MIN, i64::MAX),
         FieldKind::Int8 => canonicalize_int_literal(value, i64::from(i8::MIN), i64::from(i8::MAX)),
         FieldKind::Int16 => {
             canonicalize_int_literal(value, i64::from(i16::MIN), i64::from(i16::MAX))
@@ -364,7 +360,7 @@ fn canonicalize_lossless_field_literal_for_kind(
                 .map(Value::Int128),
             _ => None,
         },
-        FieldKind::IntBig => match value {
+        FieldKind::IntBig { .. } => match value {
             Value::IntBig(inner) => Some(Value::IntBig(inner.clone())),
             Value::Text(inner) => Int::from_str(inner).ok().map(Value::IntBig),
             _ => None,
@@ -390,7 +386,7 @@ fn canonicalize_lossless_field_literal_for_kind(
             Value::Text(inner) => Some(Value::Text(inner.clone())),
             _ => None,
         },
-        FieldKind::Nat | FieldKind::Nat64 => canonicalize_nat_literal(value, u64::MAX),
+        FieldKind::Nat64 => canonicalize_nat_literal(value, u64::MAX),
         FieldKind::Nat8 => canonicalize_nat_literal(value, u64::from(u8::MAX)),
         FieldKind::Nat16 => canonicalize_nat_literal(value, u64::from(u16::MAX)),
         FieldKind::Nat32 => canonicalize_nat_literal(value, u64::from(u32::MAX)),
@@ -403,7 +399,7 @@ fn canonicalize_lossless_field_literal_for_kind(
                 .map(Value::Nat128),
             _ => None,
         },
-        FieldKind::NatBig => match value {
+        FieldKind::NatBig { .. } => match value {
             Value::NatBig(inner) => Some(Value::NatBig(inner.clone())),
             Value::Text(inner) => Nat::from_str(inner).ok().map(Value::NatBig),
             _ => None,
@@ -471,9 +467,7 @@ fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value)
         FieldKind::Relation { key_kind, .. } => {
             canonicalize_strict_sql_literal_for_kind_impl(*key_kind, value)
         }
-        FieldKind::Int | FieldKind::Int64 => {
-            canonicalize_int_strict_literal(value, i64::MIN, i64::MAX)
-        }
+        FieldKind::Int64 => canonicalize_int_strict_literal(value, i64::MIN, i64::MAX),
         FieldKind::Int8 => {
             canonicalize_int_strict_literal(value, i64::from(i8::MIN), i64::from(i8::MAX))
         }
@@ -483,7 +477,7 @@ fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value)
         FieldKind::Int32 => {
             canonicalize_int_strict_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
         }
-        FieldKind::Nat | FieldKind::Nat64 => canonicalize_nat_strict_literal(value, u64::MAX),
+        FieldKind::Nat64 => canonicalize_nat_strict_literal(value, u64::MAX),
         FieldKind::Nat8 => canonicalize_nat_strict_literal(value, u64::from(u8::MAX)),
         FieldKind::Nat16 => canonicalize_nat_strict_literal(value, u64::from(u16::MAX)),
         FieldKind::Nat32 => canonicalize_nat_strict_literal(value, u64::from(u32::MAX)),
@@ -524,7 +518,7 @@ mod tests {
 
     #[test]
     fn classify_numeric_scalar_field_kind() {
-        let semantics = classify_field_kind(&FieldKind::Nat);
+        let semantics = classify_field_kind(&FieldKind::Nat64);
 
         assert_eq!(
             semantics.category(),
@@ -539,7 +533,7 @@ mod tests {
 
     #[test]
     fn classify_relation_uses_key_semantics_without_expr_numeric() {
-        static NAT_KEY_KIND: FieldKind = FieldKind::Nat;
+        static NAT_KEY_KIND: FieldKind = FieldKind::Nat64;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
@@ -609,7 +603,7 @@ mod tests {
 
     #[test]
     fn grouped_field_kind_helpers_keep_decimal_relation_and_unit_edges_explicit() {
-        static NAT_KEY_KIND: FieldKind = FieldKind::Nat;
+        static NAT_KEY_KIND: FieldKind = FieldKind::Nat64;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
@@ -635,7 +629,7 @@ mod tests {
     #[test]
     fn runtime_value_acceptance_recurses_through_nested_field_kinds() {
         static TEXT_KIND: FieldKind = FieldKind::Text { max_len: None };
-        static NAT_KIND: FieldKind = FieldKind::Nat;
+        static NAT_KIND: FieldKind = FieldKind::Nat64;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
@@ -658,7 +652,7 @@ mod tests {
 
     #[test]
     fn grouped_having_numeric_canonicalization_keeps_numeric_relation_recursion() {
-        static NAT_KIND: FieldKind = FieldKind::Nat;
+        static NAT_KIND: FieldKind = FieldKind::Nat64;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
@@ -670,7 +664,7 @@ mod tests {
 
         assert_eq!(
             canonicalize_grouped_having_numeric_literal_for_field_kind(
-                Some(FieldKind::Int),
+                Some(FieldKind::Int64),
                 &Value::Nat(7),
             ),
             Some(Value::Int(7)),
@@ -700,7 +694,7 @@ mod tests {
             Some(Value::Ulid(_)),
         ));
         assert_eq!(
-            canonicalize_strict_sql_literal_for_kind(&FieldKind::Nat, &Value::Int(4)),
+            canonicalize_strict_sql_literal_for_kind(&FieldKind::Nat64, &Value::Int(4)),
             Some(Value::Nat(4)),
         );
         assert_eq!(

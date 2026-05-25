@@ -706,7 +706,7 @@ fn persisted_expression_output_kind(
                 source_kind,
                 PersistedFieldKind::Date | PersistedFieldKind::Timestamp
             ) {
-                Some(PersistedFieldKind::Int)
+                Some(PersistedFieldKind::Int64)
             } else {
                 None
             }
@@ -824,7 +824,7 @@ mod tests {
 
     static PROFILE_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
-        FieldModel::generated("score", FieldKind::Nat),
+        FieldModel::generated("score", FieldKind::Nat64),
     ];
     static FIELDS: [FieldModel; 4] = [
         FieldModel::generated("id", FieldKind::Ulid),
@@ -834,7 +834,7 @@ mod tests {
             FieldStorageDecode::ByKind,
             true,
         ),
-        FieldModel::generated("rank", FieldKind::Nat),
+        FieldModel::generated("rank", FieldKind::Nat64),
         FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
             "profile",
             FieldKind::Structured { queryable: true },
@@ -992,7 +992,7 @@ mod tests {
         assert_eq!(profile.nested_leaves()[1].path(), &["score".to_string()]);
         assert!(matches!(
             profile.nested_leaves()[1].kind(),
-            PersistedFieldKind::Nat
+            PersistedFieldKind::Nat64
         ));
 
         let name_index = &snapshot.indexes()[0];

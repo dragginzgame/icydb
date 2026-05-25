@@ -54,7 +54,7 @@ crate::test_entity! {
         ("id", FieldKind::Ulid),
         ("team", FieldKind::Text { max_len: None }),
         ("region", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat),
+        ("score", FieldKind::Nat64),
     ],
     indexes = [&EMPTY_INDEX],
 }
@@ -242,7 +242,12 @@ fn accepted_schema_with_team_layout_slot(team_slot: SchemaFieldSlot) -> SchemaIn
                 SchemaFieldSlot::new(2),
                 PersistedFieldKind::Text { max_len: None },
             ),
-            accepted_field(4, "score", SchemaFieldSlot::new(3), PersistedFieldKind::Nat),
+            accepted_field(
+                4,
+                "score",
+                SchemaFieldSlot::new(3),
+                PersistedFieldKind::Nat64,
+            ),
         ],
     ));
 
@@ -731,7 +736,7 @@ fn projection_expr_type_validation_rejects_unknown_fields() {
 #[test]
 fn projection_expr_type_validation_rejects_unknown_generated_field_path_leaf() {
     static NESTED_FIELDS: [FieldModel; 2] = [
-        FieldModel::generated("rank", FieldKind::Int),
+        FieldModel::generated("rank", FieldKind::Int64),
         FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
     ];
     static FIELDS: [FieldModel; 1] = [

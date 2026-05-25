@@ -33,7 +33,7 @@ pub(in crate::db::data::structural_field::storage_key) fn encode_scalar_storage_
             }
             Ok(())
         }
-        (FieldKind::Int | FieldKind::Int64, StorageKey::Int(value)) => {
+        (FieldKind::Int64, StorageKey::Int(value)) => {
             push_binary_int64(out, value);
             Ok(())
         }
@@ -61,7 +61,7 @@ pub(in crate::db::data::structural_field::storage_key) fn encode_scalar_storage_
             push_binary_int64(out, encode_timestamp_payload_millis(value));
             Ok(())
         }
-        (FieldKind::Nat | FieldKind::Nat64, StorageKey::Nat(value)) => {
+        (FieldKind::Nat64, StorageKey::Nat(value)) => {
             push_binary_nat64(out, value);
             Ok(())
         }

@@ -147,9 +147,9 @@ mod primary_key_model_tests {
     use super::{PrimaryKeyModel, PrimaryKeyModelFields};
     use crate::model::FieldModel;
 
-    static ID_FIELD: FieldModel = FieldModel::generated("id", crate::model::FieldKind::Nat);
+    static ID_FIELD: FieldModel = FieldModel::generated("id", crate::model::FieldKind::Nat64);
     static TENANT_FIELD: FieldModel =
-        FieldModel::generated("tenant_id", crate::model::FieldKind::Nat);
+        FieldModel::generated("tenant_id", crate::model::FieldKind::Nat64);
     static ORDERED_FIELDS: [&FieldModel; 2] = [&ID_FIELD, &TENANT_FIELD];
 
     #[test]

@@ -138,7 +138,7 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_MODEL: EntityModel = entity_model_from_s
 static PLANNER_ORDER_COMPOSITE_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("code", FieldKind::Text { max_len: None }),
-    FieldModel::generated("serial", FieldKind::Nat),
+    FieldModel::generated("serial", FieldKind::Nat64),
     FieldModel::generated("note", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_ORDER_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["code", "serial"];
@@ -283,7 +283,7 @@ static PLANNER_RANKING_MODEL: EntityModel = entity_model_from_static(
 static PLANNER_RANGE_RANKING_FIELDS: [FieldModel; 5] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("tier", FieldKind::Text { max_len: None }),
-    FieldModel::generated("score", FieldKind::Nat),
+    FieldModel::generated("score", FieldKind::Nat64),
     FieldModel::generated("handle", FieldKind::Text { max_len: None }),
     FieldModel::generated("label", FieldKind::Text { max_len: None }),
 ];
@@ -318,7 +318,7 @@ static PLANNER_RANGE_RANKING_MODEL: EntityModel = entity_model_from_static(
 static PLANNER_RANGE_STRENGTH_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("tier", FieldKind::Text { max_len: None }),
-    FieldModel::generated("score", FieldKind::Nat),
+    FieldModel::generated("score", FieldKind::Nat64),
     FieldModel::generated("label", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_RANGE_STRENGTH_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];

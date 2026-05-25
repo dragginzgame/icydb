@@ -2325,7 +2325,7 @@ fn sql_ddl_alter_table_add_defaulted_column_binds_against_accepted_catalog() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let statement =
-        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL")
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7 NOT NULL")
             .expect("ALTER TABLE ADD COLUMN DEFAULT should parse before DDL binding");
 
     let bound =
@@ -2337,10 +2337,58 @@ fn sql_ddl_alter_table_add_defaulted_column_binds_against_accepted_catalog() {
 
     assert_eq!(add_column.entity_name(), "SessionSqlEntity");
     assert_eq!(add_column.field().name(), "score");
-    assert_eq!(add_column.field().kind(), &PersistedFieldKind::Nat);
+    assert_eq!(add_column.field().kind(), &PersistedFieldKind::Nat64);
     assert_eq!(add_column.field().origin(), PersistedFieldOrigin::SqlDdl);
     assert!(!add_column.field().nullable());
     assert!(!add_column.field().default().is_none());
+}
+
+#[test]
+fn sql_ddl_alter_table_add_big_int_column_binds_max_bytes_contract() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement =
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat_big(max_bytes = 512)")
+            .expect("ALTER TABLE ADD COLUMN nat_big should parse before DDL binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("big-int additive column DDL should bind against accepted schema metadata");
+    let BoundSqlDdlStatement::AddColumn(add_column) = bound.statement() else {
+        panic!("ALTER TABLE ADD COLUMN should bind to an additive field DDL request");
+    };
+
+    assert_eq!(add_column.entity_name(), "SessionSqlEntity");
+    assert_eq!(add_column.field().name(), "score");
+    assert_eq!(
+        add_column.field().kind(),
+        &PersistedFieldKind::NatBig { max_bytes: 512 },
+    );
+    assert!(add_column.field().nullable());
+    assert!(add_column.field().default().is_none());
+}
+
+#[test]
+fn sql_ddl_alter_table_add_big_int_column_rejects_zero_max_bytes() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement =
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat_big(max_bytes = 0)")
+            .expect("zero max_bytes should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("zero max_bytes should not bind as a supported column type");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnsupportedAlterTableAddColumnType {
+            entity_name,
+            column_name,
+            column_type,
+        } if entity_name == "SessionSqlEntity"
+            && column_name == "score"
+            && column_type == "nat_big(max_bytes=0)"
+    ));
 }
 
 #[test]
@@ -2367,7 +2415,7 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
     ));
 
     let invalid_default_statement =
-        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 'seven'")
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 'seven'")
             .expect("ALTER TABLE ADD COLUMN invalid DEFAULT should parse before DDL binding");
     let err = bind_sql_ddl_statement(
         &invalid_default_statement,
@@ -2383,6 +2431,48 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
             column_name,
             ..
         } if entity_name == "SessionSqlEntity" && column_name == "score"
+    ));
+
+    let legacy_nat_statement =
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 0")
+            .expect("legacy nat spelling should parse as unresolved DDL intent");
+    let err = bind_sql_ddl_statement(
+        &legacy_nat_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("legacy nat spelling should no longer bind as a column type");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnsupportedAlterTableAddColumnType {
+            entity_name,
+            column_name,
+            column_type,
+        } if entity_name == "SessionSqlEntity"
+            && column_name == "score"
+            && column_type == "nat"
+    ));
+
+    let legacy_int_statement =
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN delta int DEFAULT 0")
+            .expect("legacy int spelling should parse as unresolved DDL intent");
+    let err = bind_sql_ddl_statement(
+        &legacy_int_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("legacy int spelling should no longer bind as a column type");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnsupportedAlterTableAddColumnType {
+            entity_name,
+            column_name,
+            column_type,
+        } if entity_name == "SessionSqlEntity"
+            && column_name == "delta"
+            && column_type == "int"
     ));
 }
 
@@ -3180,7 +3270,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
 
     let SqlStatementResult::Ddl(report) = session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat NOT NULL DEFAULT 0",
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 NOT NULL DEFAULT 0",
         )
         .expect("defaulted ADD COLUMN should publish accepted schema metadata")
     else {
@@ -3206,7 +3296,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
             .expect("DDL-published schema should include the defaulted field");
 
         assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
-        assert_eq!(score.kind(), &PersistedFieldKind::Nat);
+        assert_eq!(score.kind(), &PersistedFieldKind::Nat64);
         assert!(!score.nullable());
         assert!(!score.default().is_none());
     });
@@ -3223,7 +3313,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
     );
     assert!(
         columns.iter().any(|field| field.name() == "score"
-            && field.kind().starts_with("nat default=slot_payload(")
+            && field.kind().starts_with("nat64 default=slot_payload(")
             && !field.nullable()
             && field.origin() == "ddl"),
         "metadata surfaces should expose the DDL-published defaulted column",
@@ -3268,7 +3358,7 @@ fn execute_sql_ddl_publishes_supported_set_default() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat")
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64")
         .expect("setup nullable ADD COLUMN should publish before SET DEFAULT");
 
     let SqlStatementResult::Ddl(report) = session
@@ -3296,7 +3386,7 @@ fn execute_sql_ddl_publishes_supported_set_default() {
             .expect("DDL-published schema should include the altered field");
 
         assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
-        assert_eq!(score.kind(), &PersistedFieldKind::Nat);
+        assert_eq!(score.kind(), &PersistedFieldKind::Nat64);
         assert!(!score.default().is_none());
     });
     let columns =
@@ -3304,7 +3394,7 @@ fn execute_sql_ddl_publishes_supported_set_default() {
             .expect("SHOW COLUMNS should read DDL-published default changes");
     assert!(
         columns.iter().any(|field| field.name() == "score"
-            && field.kind().starts_with("nat default=slot_payload(")
+            && field.kind().starts_with("nat64 default=slot_payload(")
             && field.origin() == "ddl"),
         "metadata surfaces should expose the DDL-published default change",
     );
@@ -3318,7 +3408,7 @@ fn execute_sql_ddl_alter_column_default_reports_no_op_for_matching_default() {
 
     session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7",
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7",
         )
         .expect("setup defaulted ADD COLUMN should publish before matching SET DEFAULT");
     let SqlStatementResult::Ddl(report) = session
@@ -3345,7 +3435,7 @@ fn execute_sql_ddl_rejects_unencodable_set_default_without_publication() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat")
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64")
         .expect("setup nullable ADD COLUMN should publish before invalid SET DEFAULT");
     let err = session
         .execute_sql_ddl::<SessionSqlEntity>(
@@ -3441,7 +3531,7 @@ fn execute_sql_ddl_rejects_required_drop_default_without_publication() {
 
     session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL",
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7 NOT NULL",
         )
         .expect("setup required defaulted ADD COLUMN should publish");
     let err = session
@@ -3478,7 +3568,7 @@ fn execute_sql_ddl_publishes_supported_drop_not_null() {
 
     session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL",
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7 NOT NULL",
         )
         .expect("setup required defaulted ADD COLUMN should publish");
     let SqlStatementResult::Ddl(report) = session

@@ -44,7 +44,7 @@ use crate::db::{
         },
     },
 };
-use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
+use crate::model::field::{DEFAULT_BIG_INT_MAX_BYTES, FieldStorageDecode, LeafCodec, ScalarCodec};
 use thiserror::Error as ThisError;
 
 ///
@@ -1561,11 +1561,6 @@ fn persisted_field_contract_for_sql_column_type(
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Bool),
         )),
-        "int" | "integer" => Some((
-            PersistedFieldKind::Int,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
-        )),
         "int8" => Some((
             PersistedFieldKind::Int8,
             FieldStorageDecode::ByKind,
@@ -1586,10 +1581,10 @@ fn persisted_field_contract_for_sql_column_type(
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Int64),
         )),
-        "nat" | "natural" => Some((
-            PersistedFieldKind::Nat,
+        "int128" => Some((
+            PersistedFieldKind::Int128,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
+            LeafCodec::StructuralFallback,
         )),
         "nat8" => Some((
             PersistedFieldKind::Nat8,
@@ -1611,13 +1606,55 @@ fn persisted_field_contract_for_sql_column_type(
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Nat64),
         )),
+        "nat128" => Some((
+            PersistedFieldKind::Nat128,
+            FieldStorageDecode::ByKind,
+            LeafCodec::StructuralFallback,
+        )),
         "text" | "string" => Some((
             PersistedFieldKind::Text { max_len: None },
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
         )),
-        _ => None,
+        _ => persisted_big_int_contract_for_sql_column_type(&normalized),
     }
+}
+
+fn persisted_big_int_contract_for_sql_column_type(
+    normalized: &str,
+) -> Option<(PersistedFieldKind, FieldStorageDecode, LeafCodec)> {
+    if let Some(max_bytes) = sql_big_int_type_max_bytes(normalized, "int_big") {
+        return Some((
+            PersistedFieldKind::IntBig { max_bytes },
+            FieldStorageDecode::ByKind,
+            LeafCodec::StructuralFallback,
+        ));
+    }
+
+    sql_big_int_type_max_bytes(normalized, "nat_big").map(|max_bytes| {
+        (
+            PersistedFieldKind::NatBig { max_bytes },
+            FieldStorageDecode::ByKind,
+            LeafCodec::StructuralFallback,
+        )
+    })
+}
+
+fn sql_big_int_type_max_bytes(normalized: &str, type_name: &str) -> Option<u32> {
+    if normalized == type_name {
+        return Some(DEFAULT_BIG_INT_MAX_BYTES);
+    }
+
+    let inner = normalized
+        .strip_prefix(type_name)?
+        .strip_prefix("(max_bytes=")?
+        .strip_suffix(')')?;
+    let max_bytes = inner.parse::<u32>().ok()?;
+    if max_bytes == 0 {
+        return None;
+    }
+
+    Some(max_bytes)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2023,7 +2060,7 @@ fn expression_output_kind(
                 source_kind,
                 PersistedFieldKind::Date | PersistedFieldKind::Timestamp
             ) {
-                Some(PersistedFieldKind::Int)
+                Some(PersistedFieldKind::Int64)
             } else {
                 None
             }

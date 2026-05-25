@@ -70,18 +70,18 @@ pub enum Primitive {
     Duration,
     Float32,
     Float64,
-    Int,
     Int8,
     Int16,
     Int32,
     Int64,
     Int128,
-    Nat,
+    IntBig,
     Nat8,
     Nat16,
     Nat32,
     Nat64,
     Nat128,
+    NatBig,
     Principal,
     Subaccount,
     Text,
@@ -103,18 +103,18 @@ impl FromStr for Primitive {
             "Duration" => Ok(Self::Duration),
             "Float32" => Ok(Self::Float32),
             "Float64" => Ok(Self::Float64),
-            "Int" => Ok(Self::Int),
             "Int8" => Ok(Self::Int8),
             "Int16" => Ok(Self::Int16),
             "Int32" => Ok(Self::Int32),
             "Int64" => Ok(Self::Int64),
             "Int128" => Ok(Self::Int128),
-            "Nat" => Ok(Self::Nat),
+            "IntBig" => Ok(Self::IntBig),
             "Nat8" => Ok(Self::Nat8),
             "Nat16" => Ok(Self::Nat16),
             "Nat32" => Ok(Self::Nat32),
             "Nat64" => Ok(Self::Nat64),
             "Nat128" => Ok(Self::Nat128),
+            "NatBig" => Ok(Self::NatBig),
             "Principal" => Ok(Self::Principal),
             "Subaccount" => Ok(Self::Subaccount),
             "Text" => Ok(Self::Text),
@@ -136,12 +136,12 @@ const fn primitive_scalar_kind(primitive: Primitive) -> ScalarKind {
         Primitive::Duration => ScalarKind::Duration,
         Primitive::Float32 => ScalarKind::Float32,
         Primitive::Float64 => ScalarKind::Float64,
-        Primitive::Int => ScalarKind::IntBig,
         Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => ScalarKind::Int,
         Primitive::Int128 => ScalarKind::Int128,
-        Primitive::Nat => ScalarKind::NatBig,
+        Primitive::IntBig => ScalarKind::IntBig,
         Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => ScalarKind::Nat,
         Primitive::Nat128 => ScalarKind::Nat128,
+        Primitive::NatBig => ScalarKind::NatBig,
         Primitive::Principal => ScalarKind::Principal,
         Primitive::Subaccount => ScalarKind::Subaccount,
         Primitive::Text => ScalarKind::Text,
@@ -182,7 +182,7 @@ impl Primitive {
 
     #[must_use]
     pub const fn supports_copy(self) -> bool {
-        !matches!(self, Self::Blob | Self::Int | Self::Nat | Self::Text)
+        !matches!(self, Self::Blob | Self::IntBig | Self::NatBig | Self::Text)
     }
 
     #[must_use]
@@ -198,20 +198,20 @@ impl Primitive {
             Self::Date
                 | Self::Decimal
                 | Self::Duration
-                | Self::Int
                 | Self::Int8
                 | Self::Int16
                 | Self::Int32
                 | Self::Int64
                 | Self::Int128
+                | Self::IntBig
                 | Self::Float32
                 | Self::Float64
-                | Self::Nat
                 | Self::Nat8
                 | Self::Nat16
                 | Self::Nat32
                 | Self::Nat64
                 | Self::Nat128
+                | Self::NatBig
                 | Self::Timestamp
         )
     }
@@ -247,7 +247,7 @@ impl Primitive {
     pub const fn is_signed_int(self) -> bool {
         matches!(
             self,
-            Self::Int | Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64 | Self::Int128
+            Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64 | Self::Int128 | Self::IntBig
         )
     }
 
@@ -255,7 +255,7 @@ impl Primitive {
     pub const fn is_unsigned_int(self) -> bool {
         matches!(
             self,
-            Self::Nat | Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 | Self::Nat128
+            Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 | Self::Nat128 | Self::NatBig
         )
     }
 

@@ -107,7 +107,7 @@ fn model_storage_kind_from_item(item: &Item) -> TokenStream {
         ItemTarget::Primitive(prim) => {
             // Decimal scale and text length are validated by `Item::validate`.
             let decimal_scale = item.scale.unwrap_or(0);
-            model_kind_from_primitive(prim, decimal_scale, item.max_len)
+            model_kind_from_primitive(prim, decimal_scale, item.max_len, item.max_bytes)
         }
         ItemTarget::Is(path) => quote!(<#path as ::icydb::traits::FieldTypeMeta>::KIND),
     }
@@ -128,6 +128,7 @@ fn model_kind_from_primitive(
     prim: Primitive,
     decimal_scale: u32,
     max_len: Option<u32>,
+    max_bytes: Option<u32>,
 ) -> TokenStream {
     match prim {
         Primitive::Account => quote!(::icydb::model::field::FieldKind::Account),
@@ -143,13 +144,19 @@ fn model_kind_from_primitive(
         Primitive::Duration => quote!(::icydb::model::field::FieldKind::Duration),
         Primitive::Float32 => quote!(::icydb::model::field::FieldKind::Float32),
         Primitive::Float64 => quote!(::icydb::model::field::FieldKind::Float64),
-        Primitive::Int => quote!(::icydb::model::field::FieldKind::IntBig),
+        Primitive::IntBig => {
+            let max_bytes = max_bytes.unwrap_or(::icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES);
+            quote!(::icydb::model::field::FieldKind::IntBig { max_bytes: #max_bytes })
+        }
         Primitive::Int8 => quote!(::icydb::model::field::FieldKind::Int8),
         Primitive::Int16 => quote!(::icydb::model::field::FieldKind::Int16),
         Primitive::Int32 => quote!(::icydb::model::field::FieldKind::Int32),
         Primitive::Int64 => quote!(::icydb::model::field::FieldKind::Int64),
         Primitive::Int128 => quote!(::icydb::model::field::FieldKind::Int128),
-        Primitive::Nat => quote!(::icydb::model::field::FieldKind::NatBig),
+        Primitive::NatBig => {
+            let max_bytes = max_bytes.unwrap_or(::icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES);
+            quote!(::icydb::model::field::FieldKind::NatBig { max_bytes: #max_bytes })
+        }
         Primitive::Nat8 => quote!(::icydb::model::field::FieldKind::Nat8),
         Primitive::Nat16 => quote!(::icydb::model::field::FieldKind::Nat16),
         Primitive::Nat32 => quote!(::icydb::model::field::FieldKind::Nat32),

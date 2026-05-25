@@ -228,7 +228,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Int),
+        ("rank", FieldKind::Int64),
         ("flag", FieldKind::Bool),
         ("label", FieldKind::Text { max_len: None }),
         (

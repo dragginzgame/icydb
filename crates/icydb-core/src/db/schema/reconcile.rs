@@ -1328,7 +1328,8 @@ mod tests {
         canister = SchemaReconcileTestCanister,
     }
 
-    static NESTED_PROFILE_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat)];
+    static NESTED_PROFILE_FIELDS: [FieldModel; 1] =
+        [FieldModel::generated("rank", FieldKind::Nat64)];
     static NESTED_SCHEMA_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
@@ -2427,7 +2428,7 @@ mod tests {
             profile.kind().clone(),
             vec![PersistedNestedLeafSnapshot::new(
                 vec!["legacy_rank".to_string()],
-                PersistedFieldKind::Nat,
+                PersistedFieldKind::Nat64,
                 false,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
@@ -2603,7 +2604,7 @@ mod tests {
             FieldId::new(3),
             "legacy_score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Nat,
+            PersistedFieldKind::Nat64,
             Vec::new(),
             false,
             SchemaFieldDefault::None,

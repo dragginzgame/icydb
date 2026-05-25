@@ -609,7 +609,7 @@ mod tests {
     };
 
     static SCALAR_FIELDS: [FieldModel; 2] = [
-        FieldModel::generated("id", FieldKind::Nat),
+        FieldModel::generated("id", FieldKind::Nat64),
         FieldModel::generated("name", FieldKind::Text { max_len: None }),
     ];
     static EMPTY_INDEXES: [&IndexModel; 0] = [];
@@ -623,8 +623,8 @@ mod tests {
     );
 
     static COMPOSITE_FIELDS: [FieldModel; 3] = [
-        FieldModel::generated("tenant_id", FieldKind::Nat),
-        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("tenant_id", FieldKind::Nat64),
+        FieldModel::generated("local_id", FieldKind::Nat64),
         FieldModel::generated("label", FieldKind::Text { max_len: None }),
     ];
     static COMPOSITE_PK_FIELDS: [&FieldModel; 2] = [&COMPOSITE_FIELDS[0], &COMPOSITE_FIELDS[1]];

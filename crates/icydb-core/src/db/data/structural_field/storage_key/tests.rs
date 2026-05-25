@@ -94,7 +94,7 @@ fn storage_key_binary_roundtrips_all_supported_scalar_kinds() {
             StorageKey::Account(account),
             Value::Account(account),
         ),
-        (FieldKind::Int, StorageKey::Int(-9), Value::Int(-9)),
+        (FieldKind::Int64, StorageKey::Int(-9), Value::Int(-9)),
         (
             FieldKind::Principal,
             StorageKey::Principal(Principal::from_slice(&[5])),
@@ -110,7 +110,7 @@ fn storage_key_binary_roundtrips_all_supported_scalar_kinds() {
             StorageKey::Timestamp(timestamp),
             Value::Timestamp(timestamp),
         ),
-        (FieldKind::Nat, StorageKey::Nat(42), Value::Nat(42)),
+        (FieldKind::Nat64, StorageKey::Nat(42), Value::Nat(42)),
         (FieldKind::Ulid, StorageKey::Ulid(ulid), Value::Ulid(ulid)),
         (FieldKind::Unit, StorageKey::Unit, Value::Unit),
     ];
@@ -308,12 +308,12 @@ fn storage_key_relation_list_decode_skips_null_items() {
 #[test]
 fn storage_key_scalar_decoders_accept_supported_binary_shapes() {
     assert_eq!(
-        decode_storage_key_field_binary_bytes(&encode_int64(-5), FieldKind::Int)
+        decode_storage_key_field_binary_bytes(&encode_int64(-5), FieldKind::Int64)
             .expect("int payload should decode"),
         StorageKey::Int(-5),
     );
     assert_eq!(
-        decode_storage_key_field_binary_bytes(&encode_nat64(7), FieldKind::Nat)
+        decode_storage_key_field_binary_bytes(&encode_nat64(7), FieldKind::Nat64)
             .expect("nat payload should decode"),
         StorageKey::Nat(7),
     );
@@ -377,8 +377,8 @@ fn storage_key_relation_encode_binary_bytes_preserves_list_shape() {
 #[test]
 fn storage_key_scalar_encode_roundtrips_supported_kinds() {
     let cases = vec![
-        (FieldKind::Int, StorageKey::Int(-9)),
-        (FieldKind::Nat, StorageKey::Nat(42)),
+        (FieldKind::Int64, StorageKey::Int(-9)),
+        (FieldKind::Nat64, StorageKey::Nat(42)),
         (
             FieldKind::Principal,
             StorageKey::Principal(Principal::from_slice(&[5])),

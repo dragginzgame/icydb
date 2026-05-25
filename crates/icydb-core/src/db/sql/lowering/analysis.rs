@@ -129,7 +129,7 @@ mod tests {
         pk_index = 0,
         fields = [
             ("id", FieldKind::Ulid),
-            ("age", FieldKind::Nat),
+            ("age", FieldKind::Nat64),
         ],
         indexes = [],
         store = LoweredExprAnalysisStore,

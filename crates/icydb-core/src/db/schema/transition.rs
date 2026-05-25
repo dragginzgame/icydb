@@ -1311,7 +1311,7 @@ mod tests {
             FieldId::new(3),
             "score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Nat,
+            PersistedFieldKind::Nat64,
             Vec::new(),
             false,
             SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0]),
@@ -1355,7 +1355,7 @@ mod tests {
             FieldId::new(3),
             "score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Nat,
+            PersistedFieldKind::Nat64,
             Vec::new(),
             false,
             SchemaFieldDefault::SlotPayload(vec![0x00]),
@@ -1481,7 +1481,7 @@ mod tests {
             FieldId::new(2),
             "name".to_string(),
             SchemaFieldSlot::new(1),
-            PersistedFieldKind::Nat,
+            PersistedFieldKind::Nat64,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -1510,7 +1510,7 @@ mod tests {
         assert!(
             rejection
                 .detail()
-                .contains("field[1] kind changed: stored=Nat generated=Text"),
+                .contains("field[1] kind changed: stored=Nat64 generated=Text"),
             "field type drift should name the first changed field contract",
         );
     }
@@ -1611,7 +1611,7 @@ mod tests {
             PersistedFieldKind::Structured { queryable: false },
             vec![PersistedNestedLeafSnapshot::new(
                 vec!["score".to_string()],
-                PersistedFieldKind::Nat,
+                PersistedFieldKind::Nat64,
                 false,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
@@ -1650,7 +1650,7 @@ mod tests {
         );
         assert!(
             rejection.detail().contains(
-                "generated_path='score' generated_kind=Nat generated_nullable=false generated_storage_decode=ByKind generated_leaf_codec=Scalar(Nat64)"
+                "generated_path='score' generated_kind=Nat64 generated_nullable=false generated_storage_decode=ByKind generated_leaf_codec=Scalar(Nat64)"
             ),
             "nested leaf drift should describe the generated leaf contract",
         );
@@ -1669,7 +1669,7 @@ mod tests {
             FieldId::new(3),
             "legacy_score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Nat,
+            PersistedFieldKind::Nat64,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -1700,7 +1700,7 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "unsupported removed field transition: stored field[2] id=3 slot=2 name='legacy_score' kind=Nat; retained-slot support is not enabled yet"
+                "unsupported removed field transition: stored field[2] id=3 slot=2 name='legacy_score' kind=Nat64; retained-slot support is not enabled yet"
             ),
             "removed field drift should be named as an unsupported future transition shape",
         );
@@ -1719,7 +1719,7 @@ mod tests {
             FieldId::new(3),
             "new_score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Nat,
+            PersistedFieldKind::Nat64,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -1750,7 +1750,7 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Nat nullable=false default=None; field must be nullable without a default or carry a valid explicit persisted default payload"
+                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Nat64 nullable=false default=None; field must be nullable without a default or carry a valid explicit persisted default payload"
             ),
             "additive field drift should be named as an unsupported future transition shape",
         );

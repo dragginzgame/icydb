@@ -289,7 +289,7 @@ impl Parser {
             ));
         }
         let column_name = self.expect_identifier()?;
-        let column_type = self.expect_identifier()?;
+        let column_type = self.parse_alter_table_add_column_type()?;
         let mut nullable = true;
         let mut default = None;
 
@@ -318,6 +318,24 @@ impl Parser {
             nullable,
             default,
         })
+    }
+
+    fn parse_alter_table_add_column_type(&mut self) -> Result<String, SqlParseError> {
+        let head = self.expect_identifier()?;
+        if !self.peek_lparen() {
+            return Ok(head);
+        }
+
+        self.expect_lparen()?;
+        self.expect_identifier_keyword("max_bytes")?;
+        if !matches!(self.peek_kind(), Some(TokenKind::Eq)) {
+            return Err(SqlParseError::expected("=", self.peek_kind()));
+        }
+        self.cursor.advance();
+        let max_bytes = self.parse_u32_literal("max_bytes")?;
+        self.expect_rparen()?;
+
+        Ok(format!("{head}(max_bytes={max_bytes})"))
     }
 
     fn parse_alter_table_alter_column_statement(

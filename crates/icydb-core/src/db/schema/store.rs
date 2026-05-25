@@ -885,7 +885,7 @@ mod tests {
                     PersistedFieldKind::Map {
                         key: Box::new(PersistedFieldKind::Text { max_len: None }),
                         value: Box::new(PersistedFieldKind::List(Box::new(
-                            PersistedFieldKind::Nat,
+                            PersistedFieldKind::Nat64,
                         ))),
                     },
                     vec![PersistedNestedLeafSnapshot::new(

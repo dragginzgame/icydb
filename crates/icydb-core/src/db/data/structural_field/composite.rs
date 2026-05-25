@@ -293,25 +293,23 @@ pub(super) fn decode_composite_field_binary_bytes(
         | FieldKind::Duration
         | FieldKind::Float32
         | FieldKind::Float64
-        | FieldKind::Int
         | FieldKind::Int8
         | FieldKind::Int16
         | FieldKind::Int32
         | FieldKind::Int64
         | FieldKind::Int128
-        | FieldKind::IntBig
+        | FieldKind::IntBig { .. }
         | FieldKind::Principal
         | FieldKind::Structured { .. }
         | FieldKind::Subaccount
         | FieldKind::Text { .. }
         | FieldKind::Timestamp
-        | FieldKind::Nat
         | FieldKind::Nat8
         | FieldKind::Nat16
         | FieldKind::Nat32
         | FieldKind::Nat64
         | FieldKind::Nat128
-        | FieldKind::NatBig
+        | FieldKind::NatBig { .. }
         | FieldKind::Ulid
         | FieldKind::Unit => Err(FieldDecodeError::new(
             "leaf field unexpectedly routed through binary composite decode",
@@ -342,25 +340,23 @@ pub(super) fn validate_composite_field_binary_bytes(
         | FieldKind::Duration
         | FieldKind::Float32
         | FieldKind::Float64
-        | FieldKind::Int
         | FieldKind::Int8
         | FieldKind::Int16
         | FieldKind::Int32
         | FieldKind::Int64
         | FieldKind::Int128
-        | FieldKind::IntBig
+        | FieldKind::IntBig { .. }
         | FieldKind::Principal
         | FieldKind::Structured { .. }
         | FieldKind::Subaccount
         | FieldKind::Text { .. }
         | FieldKind::Timestamp
-        | FieldKind::Nat
         | FieldKind::Nat8
         | FieldKind::Nat16
         | FieldKind::Nat32
         | FieldKind::Nat64
         | FieldKind::Nat128
-        | FieldKind::NatBig
+        | FieldKind::NatBig { .. }
         | FieldKind::Ulid
         | FieldKind::Unit => Err(FieldDecodeError::new(
             "leaf field unexpectedly routed through binary composite validate",
@@ -572,7 +568,7 @@ mod tests {
 
     static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
         "Loaded",
-        Some(&FieldKind::Nat),
+        Some(&FieldKind::Nat64),
         FieldStorageDecode::ByKind,
     )];
 
@@ -597,7 +593,7 @@ mod tests {
     fn binary_composite_map_roundtrips_scalar_entries() {
         let kind = FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Nat,
+            value: &FieldKind::Nat64,
         };
         let value = Value::Map(vec![
             (Value::Text("alpha".to_string()), Value::Nat(1)),

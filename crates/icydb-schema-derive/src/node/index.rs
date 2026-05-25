@@ -449,13 +449,21 @@ fn generated_item_kind_for_predicate(item: &Item) -> Result<CoreFieldKind, Darli
         Primitive::Duration => CoreFieldKind::Duration,
         Primitive::Float32 => CoreFieldKind::Float32,
         Primitive::Float64 => CoreFieldKind::Float64,
-        Primitive::Int => CoreFieldKind::IntBig,
+        Primitive::IntBig => CoreFieldKind::IntBig {
+            max_bytes: item
+                .max_bytes
+                .unwrap_or(icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES),
+        },
         Primitive::Int8 => CoreFieldKind::Int8,
         Primitive::Int16 => CoreFieldKind::Int16,
         Primitive::Int32 => CoreFieldKind::Int32,
         Primitive::Int64 => CoreFieldKind::Int64,
         Primitive::Int128 => CoreFieldKind::Int128,
-        Primitive::Nat => CoreFieldKind::NatBig,
+        Primitive::NatBig => CoreFieldKind::NatBig {
+            max_bytes: item
+                .max_bytes
+                .unwrap_or(icydb_core::model::DEFAULT_BIG_INT_MAX_BYTES),
+        },
         Primitive::Nat8 => CoreFieldKind::Nat8,
         Primitive::Nat16 => CoreFieldKind::Nat16,
         Primitive::Nat32 => CoreFieldKind::Nat32,

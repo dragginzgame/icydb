@@ -17,8 +17,8 @@ pub(crate) mod index;
 // re-exports
 pub use entity::{EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter, PrimaryKeyModelFields};
 pub use field::{
-    EnumVariantModel, FieldDatabaseDefault, FieldInsertGeneration, FieldKind, FieldModel,
-    FieldStorageDecode, FieldWriteManagement, RelationStrength,
+    DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault, FieldInsertGeneration,
+    FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement, RelationStrength,
 };
 pub(crate) use field_kind_semantics::{
     canonicalize_filter_literal_for_kind,

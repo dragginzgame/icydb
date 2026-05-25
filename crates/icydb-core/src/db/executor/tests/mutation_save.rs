@@ -1250,7 +1250,7 @@ crate::impl_test_entity_model_storage!(
         crate::model::field::FieldModel::generated("id", FieldKind::Ulid),
         crate::model::field::FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
             "score",
-            FieldKind::Int,
+            FieldKind::Int64,
             FieldStorageDecode::ByKind,
             false,
             None,
@@ -2679,7 +2679,7 @@ fn set_field_encoding_requires_canonical_order_and_uniqueness() {
 fn map_field_encoding_requires_canonical_entry_order() {
     let kind = FieldKind::Map {
         key: &FieldKind::Text { max_len: None },
-        value: &FieldKind::Nat,
+        value: &FieldKind::Nat64,
     };
     let unordered = Value::Map(vec![
         (Value::Text("z".to_string()), Value::Nat(9u64)),

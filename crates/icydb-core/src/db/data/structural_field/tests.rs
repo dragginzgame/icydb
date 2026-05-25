@@ -101,12 +101,12 @@ fn accepted_structural_field_encode_matches_generated_recursive_kinds() {
         PersistedFieldKind::List(Box::new(PersistedFieldKind::Text { max_len: None }));
     let accepted_map_kind = PersistedFieldKind::Map {
         key: Box::new(PersistedFieldKind::Text { max_len: None }),
-        value: Box::new(PersistedFieldKind::Nat),
+        value: Box::new(PersistedFieldKind::Nat64),
     };
     let generated_list_kind = FieldKind::List(&FieldKind::Text { max_len: None });
     let generated_map_kind = FieldKind::Map {
         key: &FieldKind::Text { max_len: None },
-        value: &FieldKind::Nat,
+        value: &FieldKind::Nat64,
     };
 
     let accepted_list =
@@ -173,7 +173,7 @@ fn structural_field_decode_map_bytes_preserves_scalar_entries() {
     let bytes = encode_structural_field_by_kind_bytes(
         FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Nat,
+            value: &FieldKind::Nat64,
         },
         &Value::Map(vec![
             (Value::Text("alpha".to_string()), Value::Nat(1)),
@@ -187,7 +187,7 @@ fn structural_field_decode_map_bytes_preserves_scalar_entries() {
         &bytes,
         FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Nat,
+            value: &FieldKind::Nat64,
         },
     )
     .expect("scalar map field should decode");

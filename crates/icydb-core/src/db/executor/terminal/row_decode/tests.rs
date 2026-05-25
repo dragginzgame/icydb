@@ -192,7 +192,7 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
                 FieldId::new(1),
                 "tenant_id".to_string(),
                 SchemaFieldSlot::new(0),
-                PersistedFieldKind::Nat,
+                PersistedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 crate::db::schema::SchemaFieldDefault::None,
@@ -203,7 +203,7 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
                 FieldId::new(2),
                 "local_id".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Nat,
+                PersistedFieldKind::Nat64,
                 Vec::new(),
                 false,
                 crate::db::schema::SchemaFieldDefault::None,
@@ -617,7 +617,7 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
 fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
     static ENUM_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
         "Loaded",
-        Some(&FieldKind::Nat),
+        Some(&FieldKind::Nat64),
         FieldStorageDecode::ByKind,
     )];
     let bytes = encode_structural_field_by_kind_bytes(

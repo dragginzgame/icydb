@@ -681,7 +681,7 @@ enum SessionSqlFieldPathRank {
 
 impl FieldTypeMeta for SessionSqlFieldPathProfile {
     const KIND: FieldKind = FieldKind::Structured { queryable: false };
-    const NESTED_FIELDS: &'static [FieldModel] = &[FieldModel::generated("rank", FieldKind::Int)];
+    const NESTED_FIELDS: &'static [FieldModel] = &[FieldModel::generated("rank", FieldKind::Int64)];
     const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 
@@ -764,7 +764,7 @@ struct SessionSqlProfileRecord {
 impl FieldTypeMeta for SessionSqlProfileRecord {
     const KIND: FieldKind = FieldKind::Structured { queryable: false };
     const NESTED_FIELDS: &'static [FieldModel] = &[
-        FieldModel::generated("rank", FieldKind::Int),
+        FieldModel::generated("rank", FieldKind::Int64),
         FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
     ];
     const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
@@ -1559,7 +1559,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat),
+        ("age", FieldKind::Nat64),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1591,7 +1591,7 @@ crate::impl_test_entity_markers!(SessionSqlRecordFieldPathEntity);
 
 impl SessionSqlRecordFieldPathEntity {
     const PROFILE_NESTED_FIELDS: [FieldModel; 2] = [
-        FieldModel::generated("rank", FieldKind::Int),
+        FieldModel::generated("rank", FieldKind::Int64),
         FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
     ];
 }
@@ -1704,9 +1704,9 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1044),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Nat),
+        ("id", FieldKind::Nat64),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat),
+        ("age", FieldKind::Nat64),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1717,10 +1717,10 @@ crate::impl_test_entity_markers!(SessionSqlCompositeWriteEntity);
 
 impl SessionSqlCompositeWriteEntity {
     const FIELD_MODELS: [FieldModel; 4] = [
-        FieldModel::generated("tenant_id", FieldKind::Nat),
-        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("tenant_id", FieldKind::Nat64),
+        FieldModel::generated("local_id", FieldKind::Nat64),
         FieldModel::generated("name", FieldKind::Text { max_len: None }),
-        FieldModel::generated("age", FieldKind::Nat),
+        FieldModel::generated("age", FieldKind::Nat64),
     ];
     const PRIMARY_KEY_FIELDS: [&'static FieldModel; 2] =
         [&Self::FIELD_MODELS[0], &Self::FIELD_MODELS[1]];
@@ -1775,7 +1775,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("label", FieldKind::Text { max_len: None }),
-        ("bucket", FieldKind::Nat),
+        ("bucket", FieldKind::Nat64),
         ("thumbnail", FieldKind::Blob { max_len: None }),
         ("chunk", FieldKind::Blob { max_len: None }),
     ],
@@ -1792,7 +1792,7 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1045),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Nat),
+        ("id", FieldKind::Nat64),
         ("token", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("name", FieldKind::Text { max_len: None }),
     ],
@@ -1809,7 +1809,7 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1047),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Nat),
+        ("id", FieldKind::Nat64),
         ("created_on_insert", FieldKind::Timestamp, @generated crate::model::field::FieldInsertGeneration::Timestamp),
         ("name", FieldKind::Text { max_len: None }),
     ],
@@ -1826,7 +1826,7 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1046),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Nat),
+        ("id", FieldKind::Nat64),
         ("name", FieldKind::Text { max_len: None }),
         ("created_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::CreatedAt),
         ("updated_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::UpdatedAt),
@@ -1844,8 +1844,8 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1048),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Int),
-        ("delta", FieldKind::Int),
+        ("id", FieldKind::Int64),
+        ("delta", FieldKind::Int64),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1857,7 +1857,7 @@ static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
     target_entity_name: "SessionSqlSelfRelationEntity",
     target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
     target_store_path: SessionSqlStore::PATH,
-    key_kind: &FieldKind::Nat,
+    key_kind: &FieldKind::Nat64,
     strength: RelationStrength::Strong,
 };
 
@@ -1868,7 +1868,7 @@ crate::impl_test_entity_model_storage!(
     "SessionSqlSelfRelationEntity",
     0,
     fields = [
-        crate::model::field::FieldModel::generated("id", FieldKind::Nat),
+        crate::model::field::FieldModel::generated("id", FieldKind::Nat64),
         crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "parent",
             SESSION_SQL_SELF_RELATION_PARENT_KIND,
@@ -1911,8 +1911,8 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("label", FieldKind::Text { max_len: None }),
-        ("left_score", FieldKind::Nat),
-        ("right_score", FieldKind::Int),
+        ("left_score", FieldKind::Nat64),
+        ("right_score", FieldKind::Int64),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1964,9 +1964,9 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("label", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat),
-        ("min_score", FieldKind::Nat),
-        ("max_score", FieldKind::Nat),
+        ("score", FieldKind::Nat64),
+        ("min_score", FieldKind::Nat64),
+        ("max_score", FieldKind::Nat64),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1983,7 +1983,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat),
+        ("age", FieldKind::Nat64),
     ],
     indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
@@ -2000,7 +2000,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("code", FieldKind::Text { max_len: None }),
-        ("serial", FieldKind::Nat),
+        ("serial", FieldKind::Nat64),
         ("note", FieldKind::Text { max_len: None }),
     ],
     indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
@@ -2021,7 +2021,7 @@ crate::test_entity_schema! {
         ("active", FieldKind::Bool),
         ("tier", FieldKind::Text { max_len: None }),
         ("handle", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat),
+        ("age", FieldKind::Nat64),
     ],
     indexes = [
         &FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS[0],
@@ -2043,7 +2043,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat),
+        ("age", FieldKind::Nat64),
     ],
     indexes = [&EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
@@ -2059,8 +2059,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat),
-        ("rank", FieldKind::Nat),
+        ("group", FieldKind::Nat64),
+        ("rank", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
@@ -2077,8 +2077,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat),
-        ("rank", FieldKind::Nat),
+        ("group", FieldKind::Nat64),
+        ("rank", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&SESSION_EXPLAIN_INDEX_MODELS[0]],
@@ -2135,7 +2135,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat),
+        ("score", FieldKind::Nat64),
         ("handle", FieldKind::Text { max_len: None }),
         ("label", FieldKind::Text { max_len: None }),
     ],
@@ -2157,7 +2157,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat),
+        ("score", FieldKind::Nat64),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
@@ -2391,7 +2391,10 @@ fn session_describe_entity_reports_fields_and_indexes() {
     assert_eq!(plain.primary_key(), "id");
     assert_eq!(plain.fields().len(), 3);
     assert!(plain.fields().iter().any(|field| {
-        field.name() == "age" && field.kind() == "nat" && field.queryable() && !field.primary_key()
+        field.name() == "age"
+            && field.kind() == "nat64"
+            && field.queryable()
+            && !field.primary_key()
     }));
     assert!(
         plain.indexes().is_empty(),

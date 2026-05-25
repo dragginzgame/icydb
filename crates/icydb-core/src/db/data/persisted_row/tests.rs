@@ -379,7 +379,7 @@ crate::test_entity_schema! {
 
 static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
     "Loaded",
-    Some(&FieldKind::Nat),
+    Some(&FieldKind::Nat64),
     FieldStorageDecode::ByKind,
 )];
 static FIELD_MODELS: [FieldModel; 2] = [
@@ -407,7 +407,7 @@ static ADDITIVE_PREFIX_FIELD_MODELS: [FieldModel; 2] = [
 static ADDITIVE_REQUIRED_FIELD_MODELS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
-    FieldModel::generated("score", FieldKind::Nat),
+    FieldModel::generated("score", FieldKind::Nat64),
 ];
 static GENERATED_SCORE_DEFAULT_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
 static ADDITIVE_REQUIRED_GENERATED_DEFAULT_FIELD_MODELS: [FieldModel; 3] = [
@@ -415,7 +415,7 @@ static ADDITIVE_REQUIRED_GENERATED_DEFAULT_FIELD_MODELS: [FieldModel; 3] = [
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
         "score",
-        FieldKind::Nat,
+        FieldKind::Nat64,
         FieldStorageDecode::ByKind,
         false,
         None,
@@ -432,7 +432,7 @@ static MAP_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "props",
     FieldKind::Map {
         key: &FieldKind::Text { max_len: None },
-        value: &FieldKind::Nat,
+        value: &FieldKind::Nat64,
     },
 )];
 static ENUM_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
@@ -1182,14 +1182,14 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
         Float64::try_new(2.5).expect("finite float64"),
         FieldKind::Float64,
     );
-    assert_direct_persisted_by_kind_roundtrip(-5_i8, FieldKind::Int);
-    assert_direct_persisted_by_kind_roundtrip(-6_i16, FieldKind::Int);
-    assert_direct_persisted_by_kind_roundtrip(-7_i32, FieldKind::Int);
-    assert_direct_persisted_by_kind_roundtrip(-8_i64, FieldKind::Int);
-    assert_direct_persisted_by_kind_roundtrip(5_u8, FieldKind::Nat);
-    assert_direct_persisted_by_kind_roundtrip(6_u16, FieldKind::Nat);
-    assert_direct_persisted_by_kind_roundtrip(7_u32, FieldKind::Nat);
-    assert_direct_persisted_by_kind_roundtrip(8_u64, FieldKind::Nat);
+    assert_direct_persisted_by_kind_roundtrip(-5_i8, FieldKind::Int64);
+    assert_direct_persisted_by_kind_roundtrip(-6_i16, FieldKind::Int64);
+    assert_direct_persisted_by_kind_roundtrip(-7_i32, FieldKind::Int64);
+    assert_direct_persisted_by_kind_roundtrip(-8_i64, FieldKind::Int64);
+    assert_direct_persisted_by_kind_roundtrip(5_u8, FieldKind::Nat64);
+    assert_direct_persisted_by_kind_roundtrip(6_u16, FieldKind::Nat64);
+    assert_direct_persisted_by_kind_roundtrip(7_u32, FieldKind::Nat64);
+    assert_direct_persisted_by_kind_roundtrip(8_u64, FieldKind::Nat64);
     assert_direct_persisted_by_kind_roundtrip(
         Timestamp::from_millis(1_234_567),
         FieldKind::Timestamp,
@@ -1225,11 +1225,15 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
     assert_direct_persisted_by_kind_roundtrip(Nat128::from(456_u128), FieldKind::Nat128);
     assert_direct_persisted_by_kind_roundtrip(
         Int::from(candid::Int::from(-789_i32)),
-        FieldKind::IntBig,
+        FieldKind::IntBig {
+            max_bytes: crate::model::field::DEFAULT_BIG_INT_MAX_BYTES,
+        },
     );
     assert_direct_persisted_by_kind_roundtrip(
         Nat::from(candid::Nat::from(987_u64)),
-        FieldKind::NatBig,
+        FieldKind::NatBig {
+            max_bytes: crate::model::field::DEFAULT_BIG_INT_MAX_BYTES,
+        },
     );
 }
 
@@ -1237,11 +1241,11 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
 fn direct_persisted_by_kind_wrapper_codecs_recurse_without_runtime_value_bridge() {
     assert_direct_persisted_by_kind_roundtrip(
         vec![DirectByKindLeaf(3), DirectByKindLeaf(5)],
-        FieldKind::List(&FieldKind::Nat),
+        FieldKind::List(&FieldKind::Nat64),
     );
     assert_direct_persisted_by_kind_roundtrip(
         BTreeSet::from([DirectByKindLeaf(7), DirectByKindLeaf(9)]),
-        FieldKind::Set(&FieldKind::Nat),
+        FieldKind::Set(&FieldKind::Nat64),
     );
     assert_direct_persisted_by_kind_roundtrip(
         BTreeMap::from([
@@ -1249,17 +1253,17 @@ fn direct_persisted_by_kind_wrapper_codecs_recurse_without_runtime_value_bridge(
             (DirectByKindLeaf(17), DirectByKindLeaf(19)),
         ]),
         FieldKind::Map {
-            key: &FieldKind::Nat,
-            value: &FieldKind::Nat,
+            key: &FieldKind::Nat64,
+            value: &FieldKind::Nat64,
         },
     );
 }
 
 #[test]
 fn malformed_by_kind_set_payload_rejects_duplicate_logical_items() {
-    let kind = FieldKind::Set(&FieldKind::Nat);
+    let kind = FieldKind::Set(&FieldKind::Nat64);
     let item = DirectByKindLeaf(7)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat64, "sample")
         .expect("by-kind set item should encode");
     let items = [item.as_slice(), item.as_slice()];
     let payload = encode_list_field_items(items.as_slice(), kind, "sample").expect("set frame");
@@ -1276,17 +1280,17 @@ fn malformed_by_kind_set_payload_rejects_duplicate_logical_items() {
 #[test]
 fn malformed_by_kind_map_payload_rejects_duplicate_logical_key() {
     let kind = FieldKind::Map {
-        key: &FieldKind::Nat,
-        value: &FieldKind::Nat,
+        key: &FieldKind::Nat64,
+        value: &FieldKind::Nat64,
     };
     let key = DirectByKindLeaf(7)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat64, "sample")
         .expect("by-kind map key should encode");
     let first_value = DirectByKindLeaf(11)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat64, "sample")
         .expect("first by-kind map value should encode");
     let second_value = DirectByKindLeaf(13)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat64, "sample")
         .expect("second by-kind map value should encode");
     let entries = [
         (key.as_slice(), first_value.as_slice()),
@@ -1721,7 +1725,7 @@ fn option_storage_key_backed_by_kind_malformed_non_null_error_is_stable() {
         .expect("malformed storage-key fixture should still be structural bytes");
     let err = Option::<u64>::decode_persisted_option_slot_payload_by_kind(
         malformed.as_slice(),
-        FieldKind::Nat,
+        FieldKind::Nat64,
         "sample",
     )
     .expect_err("malformed non-null storage-key option payload must fail");

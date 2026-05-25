@@ -1922,7 +1922,7 @@ fn parse_alter_table_add_column_statement_keeps_ddl_intent_unresolved() {
 
 #[test]
 fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent() {
-    let statement = parse_sql("ALTER TABLE users ADD COLUMN score nat DEFAULT 7 NOT NULL")
+    let statement = parse_sql("ALTER TABLE users ADD COLUMN score nat64 DEFAULT 7 NOT NULL")
         .expect("ALTER TABLE ADD COLUMN with DEFAULT and NOT NULL should parse");
 
     assert_eq!(
@@ -1931,7 +1931,7 @@ fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent()
             SqlAlterTableAddColumnStatement {
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
-                column_type: "nat".to_string(),
+                column_type: "nat64".to_string(),
                 nullable: false,
                 default: Some(Value::Int(7)),
             },
@@ -1941,7 +1941,7 @@ fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent()
 
 #[test]
 fn parse_alter_table_add_column_statement_accepts_not_null_before_default() {
-    let statement = parse_sql("ALTER TABLE users ADD COLUMN score nat NOT NULL DEFAULT 0")
+    let statement = parse_sql("ALTER TABLE users ADD COLUMN score nat64 NOT NULL DEFAULT 0")
         .expect("ALTER TABLE ADD COLUMN with NOT NULL before DEFAULT should parse");
 
     assert_eq!(
@@ -1950,12 +1950,44 @@ fn parse_alter_table_add_column_statement_accepts_not_null_before_default() {
             SqlAlterTableAddColumnStatement {
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
-                column_type: "nat".to_string(),
+                column_type: "nat64".to_string(),
                 nullable: false,
                 default: Some(Value::Int(0)),
             },
         )),
     );
+}
+
+#[test]
+fn parse_alter_table_add_column_statement_keeps_big_int_max_bytes_type_modifier() {
+    let statement =
+        parse_sql("ALTER TABLE users ADD COLUMN score nat_big(max_bytes = 512) DEFAULT 0")
+            .expect("ALTER TABLE ADD COLUMN with big-int max_bytes modifier should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(
+            SqlAlterTableAddColumnStatement {
+                entity: "users".to_string(),
+                column_name: "score".to_string(),
+                column_type: "nat_big(max_bytes=512)".to_string(),
+                nullable: true,
+                default: Some(Value::Int(0)),
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_alter_table_add_column_statement_rejects_malformed_big_int_max_bytes_modifier() {
+    for sql in [
+        "ALTER TABLE users ADD COLUMN score nat_big(max_len = 512)",
+        "ALTER TABLE users ADD COLUMN score nat_big(max_bytes = -1)",
+        "ALTER TABLE users ADD COLUMN score nat_big(max_bytes = 4294967296)",
+        "ALTER TABLE users ADD COLUMN score nat_big(max_bytes = 1, max_bytes = 2)",
+    ] {
+        parse_sql(sql).expect_err("malformed big-int max_bytes modifier should fail parsing");
+    }
 }
 
 #[test]
