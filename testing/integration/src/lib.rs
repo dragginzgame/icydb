@@ -7,10 +7,11 @@ use std::{
 };
 
 use ic_testkit::artifacts::wasm_path;
-use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister_with_cycles};
 use icydb::Error;
 
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
+const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
 
 struct FixtureCanister {
     name: &'static str,
@@ -313,9 +314,10 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
         )
     });
 
-    install_prebuilt_canister(
+    install_prebuilt_canister_with_cycles(
         wasm,
         candid::encode_args(()).expect("encode empty init args"),
+        FIXTURE_INSTALL_CYCLES,
     )
 }
 
