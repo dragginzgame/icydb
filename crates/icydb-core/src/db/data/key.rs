@@ -354,11 +354,13 @@ const fn primary_key_component_from_storage_key(key: StorageKey) -> PrimaryKeyCo
 fn scalar_storage_key_from_primary_key_value(
     key: &PrimaryKeyValue,
 ) -> Result<StorageKey, InternalError> {
-    key.scalar_component().map(StorageKey::from).ok_or_else(|| {
-        InternalError::store_unsupported(
+    let Some(component) = key.scalar_component() else {
+        return Err(InternalError::store_unsupported(
             "composite primary key cannot be viewed as scalar StorageKey",
-        )
-    })
+        ));
+    };
+
+    storage_key_from_primary_key_component(component)
 }
 
 pub(in crate::db) fn primary_key_value_from_structural_value(
@@ -366,9 +368,7 @@ pub(in crate::db) fn primary_key_value_from_structural_value(
 ) -> Result<PrimaryKeyValue, InternalError> {
     match value {
         Value::List(values) => composite_primary_key_value_from_structural_values(values),
-        _ => storage_key_from_runtime_value(value)
-            .map(PrimaryKeyValue::from)
-            .map_err(InternalError::from),
+        _ => primary_key_component_from_structural_value(value).map(PrimaryKeyValue::Scalar),
     }
 }
 
@@ -409,9 +409,33 @@ fn composite_primary_key_value_from_structural_values(
 fn primary_key_component_from_structural_value(
     value: &Value,
 ) -> Result<PrimaryKeyComponent, InternalError> {
-    storage_key_from_runtime_value(value)
-        .map(PrimaryKeyComponent::from)
-        .map_err(InternalError::from)
+    match value {
+        Value::Int128(value) => Ok(PrimaryKeyComponent::Int128(*value)),
+        Value::Nat128(value) => Ok(PrimaryKeyComponent::Nat128(*value)),
+        _ => storage_key_from_runtime_value(value)
+            .map(PrimaryKeyComponent::from)
+            .map_err(InternalError::from),
+    }
+}
+
+fn storage_key_from_primary_key_component(
+    component: PrimaryKeyComponent,
+) -> Result<StorageKey, InternalError> {
+    match component {
+        PrimaryKeyComponent::Account(value) => Ok(StorageKey::Account(value)),
+        PrimaryKeyComponent::Int64(value) => Ok(StorageKey::Int(value)),
+        PrimaryKeyComponent::Principal(value) => Ok(StorageKey::Principal(value)),
+        PrimaryKeyComponent::Subaccount(value) => Ok(StorageKey::Subaccount(value)),
+        PrimaryKeyComponent::Timestamp(value) => Ok(StorageKey::Timestamp(value)),
+        PrimaryKeyComponent::Nat64(value) => Ok(StorageKey::Nat(value)),
+        PrimaryKeyComponent::Ulid(value) => Ok(StorageKey::Ulid(value)),
+        PrimaryKeyComponent::Unit => Ok(StorageKey::Unit),
+        PrimaryKeyComponent::Int128(_) | PrimaryKeyComponent::Nat128(_) => {
+            Err(InternalError::store_unsupported(
+                "128-bit primary key cannot be viewed as scalar StorageKey",
+            ))
+        }
+    }
 }
 
 impl Clone for DecodedDataStoreKey {
@@ -775,7 +799,9 @@ mod tests {
         let entity = EntityTag::new(17);
 
         assert_constructor_equivalence(entity, -42_i64);
+        assert_constructor_equivalence(entity, i128::MIN);
         assert_constructor_equivalence(entity, 42_u64);
+        assert_constructor_equivalence(entity, u128::MAX);
         assert_constructor_equivalence(entity, Principal::from_slice(&[1, 2, 3, 4]));
         assert_constructor_equivalence(entity, Subaccount::new([7; 32]));
         assert_constructor_equivalence(entity, Timestamp::from_millis(1_710_013_530_123));
@@ -832,10 +858,12 @@ mod tests {
         assert_storage_key_roundtrip(-43_i16);
         assert_storage_key_roundtrip(-44_i32);
         assert_storage_key_roundtrip(-45_i64);
+        assert_storage_key_roundtrip(i128::MIN);
         assert_storage_key_roundtrip(42_u8);
         assert_storage_key_roundtrip(43_u16);
         assert_storage_key_roundtrip(44_u32);
         assert_storage_key_roundtrip(45_u64);
+        assert_storage_key_roundtrip(u128::MAX);
         assert_storage_key_roundtrip(Principal::from_slice(&[1, 2, 3, 4]));
         assert_storage_key_roundtrip(Subaccount::new([7; 32]));
         assert_storage_key_roundtrip(Timestamp::from_millis(1_710_013_530_123));
@@ -845,6 +873,23 @@ mod tests {
             Some(Subaccount::new([5; 32])),
         ));
         assert_storage_key_roundtrip(());
+    }
+
+    #[test]
+    fn data_key_scalar_storage_key_accessor_rejects_fixed_128_bit_primary_keys() {
+        for key in [
+            DecodedDataStoreKey::try_from_typed_key(EntityTag::new(29), &i128::MIN)
+                .expect("i128 primary key should encode"),
+            DecodedDataStoreKey::try_from_typed_key(EntityTag::new(29), &u128::MAX)
+                .expect("u128 primary key should encode"),
+        ] {
+            let err = key
+                .try_storage_key()
+                .expect_err("128-bit primary key must not use StorageKey bridge");
+
+            assert_eq!(err.class(), ErrorClass::Unsupported);
+            assert_eq!(err.origin(), ErrorOrigin::Store);
+        }
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::{
     db::{
         data::StorageKey,
         index::{IndexKey, RawIndexStoreKey},
-        key_taxonomy::{IndexEntryValue, PrimaryKeyValue},
+        key_taxonomy::{IndexEntryValue, PrimaryKeyComponent, PrimaryKeyValue},
     },
     traits::Storable,
 };
@@ -144,7 +144,7 @@ impl IndexEntryRowWitness {
     }
 
     #[cfg(test)]
-    pub(in crate::db) fn try_storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
+    pub(in crate::db) const fn try_storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
         storage_key_from_primary_key_value(&self.primary_key_value)
     }
 
@@ -162,7 +162,7 @@ impl IndexRowIdentity {
         }
     }
 
-    pub(crate) fn try_storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
+    pub(crate) const fn try_storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
         storage_key_from_primary_key_value(&self.primary_key_value)
     }
 
@@ -281,13 +281,22 @@ impl IndexEntryValue {
     }
 }
 
-fn storage_key_from_primary_key_value(
+const fn storage_key_from_primary_key_value(
     primary_key_value: &PrimaryKeyValue,
 ) -> Result<StorageKey, IndexEntryCorruption> {
-    primary_key_value
-        .scalar_component()
-        .map(StorageKey::from)
-        .ok_or(IndexEntryCorruption::InvalidKey)
+    match primary_key_value.scalar_component() {
+        Some(PrimaryKeyComponent::Account(value)) => Ok(StorageKey::Account(value)),
+        Some(PrimaryKeyComponent::Int64(value)) => Ok(StorageKey::Int(value)),
+        Some(PrimaryKeyComponent::Principal(value)) => Ok(StorageKey::Principal(value)),
+        Some(PrimaryKeyComponent::Subaccount(value)) => Ok(StorageKey::Subaccount(value)),
+        Some(PrimaryKeyComponent::Timestamp(value)) => Ok(StorageKey::Timestamp(value)),
+        Some(PrimaryKeyComponent::Nat64(value)) => Ok(StorageKey::Nat(value)),
+        Some(PrimaryKeyComponent::Ulid(value)) => Ok(StorageKey::Ulid(value)),
+        Some(PrimaryKeyComponent::Unit) => Ok(StorageKey::Unit),
+        Some(PrimaryKeyComponent::Int128(_) | PrimaryKeyComponent::Nat128(_)) | None => {
+            Err(IndexEntryCorruption::InvalidKey)
+        }
+    }
 }
 
 fn primary_key_value_from_raw_index_store_key(
@@ -346,11 +355,11 @@ mod tests {
 
     fn raw_key_for(key: StorageKey) -> RawIndexStoreKey {
         let component = vec![0x42];
-        IndexKey::new_from_components_with_kind(
+        IndexKey::new_from_components_with_primary_key_value(
             &IndexId::new(EntityTag::new(0x159), 1),
             IndexKeyKind::User,
             std::slice::from_ref(&component),
-            key,
+            &PrimaryKeyValue::from(key),
         )
         .to_raw()
     }

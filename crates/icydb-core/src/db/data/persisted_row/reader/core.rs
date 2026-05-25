@@ -20,10 +20,7 @@ use crate::{
                         materialize_validated_scalar_slot_value,
                         scalar_slot_value_ref_from_validated, validated_scalar_slot_value,
                     },
-                    primary_key::{
-                        validate_primary_key_component_from_slot_bytes_with_contract,
-                        validate_primary_key_value_from_slot_bytes_with_contract,
-                    },
+                    primary_key::validate_primary_key_component_from_slot_bytes_with_contract,
                 },
                 types::{CanonicalSlotReader, SlotReader},
             },
@@ -33,7 +30,7 @@ use crate::{
     },
     error::InternalError,
     model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-    value::{StorageKey, Value},
+    value::Value,
 };
 use std::{borrow::Cow, cell::OnceCell};
 
@@ -184,10 +181,11 @@ impl<'a> StructuralSlotReader<'a> {
                 let field_name = self.contract.field_name(primary_key_slot)?;
                 let raw_value = self.required_field_bytes(primary_key_slot, field_name)?;
 
-                validate_primary_key_value_from_slot_bytes_with_contract(
+                validate_primary_key_component_from_slot_bytes_with_contract(
                     &self.contract,
+                    primary_key_slot,
                     raw_value,
-                    StorageKey::from(component),
+                    component,
                 )
             }
             PrimaryKeyValue::Composite(composite) => {

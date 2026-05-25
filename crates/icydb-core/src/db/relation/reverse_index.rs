@@ -18,7 +18,7 @@ use crate::{
             RawIndexStoreKey, encode_canonical_index_component_from_primary_key_value,
             raw_keys_for_component_prefix_with_kind,
         },
-        key_taxonomy::PrimaryKeyValue,
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         relation::{RelationTargetDecodeContext, RelationTargetMismatchPolicy},
         schema::{PersistedFieldKind, PersistedRelationStrength},
     },
@@ -459,11 +459,12 @@ fn reverse_index_key_for_target_and_source_storage_key(
     };
 
     let index_id = reverse_index_id_for_relation(source, relation)?;
-    let key = IndexKey::new_from_components_with_kind(
+    let source_primary_key = PrimaryKeyValue::from(source_key_value);
+    let key = IndexKey::new_from_components_with_primary_key_value(
         &index_id,
         IndexKeyKind::System,
         std::slice::from_ref(&encoded_value),
-        source_key_value,
+        &source_primary_key,
     );
 
     Ok(Some(key.to_raw()))
@@ -848,7 +849,7 @@ where
             source.path,
         )));
     };
-    let source_storage_key = StorageKey::from(source_component);
+    let source_storage_key = source_component_storage_key(source.path, source_component)?;
 
     // Phase 2: evaluate each strong relation independently and derive index deltas
     // directly from persisted row payloads.
@@ -941,6 +942,27 @@ where
     }
 
     Ok(ops)
+}
+
+fn source_component_storage_key(
+    source_path: &'static str,
+    source_component: PrimaryKeyComponent,
+) -> Result<StorageKey, InternalError> {
+    match source_component {
+        PrimaryKeyComponent::Account(value) => Ok(StorageKey::Account(value)),
+        PrimaryKeyComponent::Int64(value) => Ok(StorageKey::Int(value)),
+        PrimaryKeyComponent::Principal(value) => Ok(StorageKey::Principal(value)),
+        PrimaryKeyComponent::Subaccount(value) => Ok(StorageKey::Subaccount(value)),
+        PrimaryKeyComponent::Timestamp(value) => Ok(StorageKey::Timestamp(value)),
+        PrimaryKeyComponent::Nat64(value) => Ok(StorageKey::Nat(value)),
+        PrimaryKeyComponent::Ulid(value) => Ok(StorageKey::Ulid(value)),
+        PrimaryKeyComponent::Unit => Ok(StorageKey::Unit),
+        PrimaryKeyComponent::Int128(_) | PrimaryKeyComponent::Nat128(_) => {
+            Err(InternalError::serialize_unsupported(format!(
+                "reverse relation index maintenance does not support 128-bit source primary keys yet: source={source_path}",
+            )))
+        }
+    }
 }
 
 // Resolve relation targets for one old/new source-row side from the decoded

@@ -5,6 +5,7 @@ use crate::{
             decode_runtime_value_from_accepted_field_contract,
             persisted_row::{
                 codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
+                contract::decode_runtime_value_from_field_contract,
                 reader::metrics::StructuralReadProbe,
             },
         },
@@ -30,6 +31,14 @@ const fn primary_key_component_from_scalar_ref(
         ScalarValueRef::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
         ScalarValueRef::Unit => Some(PrimaryKeyComponent::Unit),
         _ => None,
+    }
+}
+
+fn primary_key_component_from_runtime_value(value: &Value) -> Option<PrimaryKeyComponent> {
+    match value {
+        Value::Int128(value) => Some(PrimaryKeyComponent::Int128(*value)),
+        Value::Nat128(value) => Some(PrimaryKeyComponent::Nat128(*value)),
+        _ => value.as_primary_key_value().map(PrimaryKeyComponent::from),
     }
 }
 
@@ -106,13 +115,13 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
             match decode_scalar_slot_value(raw_value, codec, field.field_name())? {
                 ScalarSlotValueRef::Null => {
                     return Err(InternalError::persisted_row_primary_key_slot_missing(
-                        StorageKey::from(expected_key),
+                        expected_key,
                     ));
                 }
                 ScalarSlotValueRef::Value(value) => primary_key_component_from_scalar_ref(value)
                     .ok_or_else(|| {
                         InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                            StorageKey::from(expected_key),
+                            expected_key,
                             format!(
                                 "scalar primary-key field '{}' is not primary-key compatible",
                                 field.field_name()
@@ -125,36 +134,33 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
             let value = decode_runtime_value_from_accepted_field_contract(field, raw_value)
                 .map_err(|err| {
                     InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                        StorageKey::from(expected_key),
+                        expected_key,
                         err,
                     )
                 })?;
 
             if matches!(value, Value::Null) {
                 return Err(InternalError::persisted_row_primary_key_slot_missing(
-                    StorageKey::from(expected_key),
+                    expected_key,
                 ));
             }
 
-            value
-                .as_primary_key_value()
-                .map(PrimaryKeyComponent::from)
-                .ok_or_else(|| {
-                    InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                        StorageKey::from(expected_key),
-                        format!(
-                            "primary-key field '{}' is not primary-key compatible",
-                            field.field_name()
-                        ),
-                    )
-                })?
+            primary_key_component_from_runtime_value(&value).ok_or_else(|| {
+                InternalError::persisted_row_primary_key_not_primary_key_encodable(
+                    expected_key,
+                    format!(
+                        "primary-key field '{}' is not primary-key compatible",
+                        field.field_name()
+                    ),
+                )
+            })?
         }
     };
 
     if decoded_key != expected_key {
         return Err(InternalError::persisted_row_key_mismatch(
-            StorageKey::from(expected_key),
-            StorageKey::from(decoded_key),
+            expected_key,
+            decoded_key,
         ));
     }
 
@@ -173,13 +179,13 @@ fn validate_primary_key_value_from_slot_bytes_with_field(
             match decode_scalar_slot_value(raw_value, codec, field.name())? {
                 ScalarSlotValueRef::Null => {
                     return Err(InternalError::persisted_row_primary_key_slot_missing(
-                        StorageKey::from(expected_key),
+                        expected_key,
                     ));
                 }
                 ScalarSlotValueRef::Value(value) => primary_key_component_from_scalar_ref(value)
                     .ok_or_else(|| {
                         InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                            StorageKey::from(expected_key),
+                            expected_key,
                             format!(
                                 "scalar primary-key field '{}' is not primary-key compatible",
                                 field.name()
@@ -189,21 +195,30 @@ fn validate_primary_key_value_from_slot_bytes_with_field(
             }
         }
         LeafCodec::StructuralFallback => {
-            crate::db::data::decode_storage_key_field_bytes(raw_value, field.kind())
-                .map(PrimaryKeyComponent::from)
-                .map_err(|err| {
+            let value =
+                decode_runtime_value_from_field_contract(field, raw_value).map_err(|err| {
                     InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                        StorageKey::from(expected_key),
+                        expected_key,
                         err,
                     )
-                })?
+                })?;
+
+            primary_key_component_from_runtime_value(&value).ok_or_else(|| {
+                InternalError::persisted_row_primary_key_not_primary_key_encodable(
+                    expected_key,
+                    format!(
+                        "primary-key field '{}' is not primary-key compatible",
+                        field.name()
+                    ),
+                )
+            })?
         }
     };
 
     if decoded_key != expected_key {
         return Err(InternalError::persisted_row_key_mismatch(
-            StorageKey::from(expected_key),
-            StorageKey::from(decoded_key),
+            expected_key,
+            decoded_key,
         ));
     }
 

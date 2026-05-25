@@ -211,10 +211,38 @@ impl IndexKey {
             .primary_key_value()
             .map_err(primary_key_decode_error_to_storage_key_decode_error)?;
 
-        value
-            .scalar_component()
-            .map(StorageKey::from)
-            .ok_or(StorageKeyDecodeError::InvalidSize)
+        let Some(component) = value.scalar_component() else {
+            return Err(StorageKeyDecodeError::InvalidSize);
+        };
+
+        match component {
+            crate::db::key_taxonomy::PrimaryKeyComponent::Account(value) => {
+                Ok(StorageKey::Account(value))
+            }
+            crate::db::key_taxonomy::PrimaryKeyComponent::Int64(value) => {
+                Ok(StorageKey::Int(value))
+            }
+            crate::db::key_taxonomy::PrimaryKeyComponent::Principal(value) => {
+                Ok(StorageKey::Principal(value))
+            }
+            crate::db::key_taxonomy::PrimaryKeyComponent::Subaccount(value) => {
+                Ok(StorageKey::Subaccount(value))
+            }
+            crate::db::key_taxonomy::PrimaryKeyComponent::Timestamp(value) => {
+                Ok(StorageKey::Timestamp(value))
+            }
+            crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(value) => {
+                Ok(StorageKey::Nat(value))
+            }
+            crate::db::key_taxonomy::PrimaryKeyComponent::Ulid(value) => {
+                Ok(StorageKey::Ulid(value))
+            }
+            crate::db::key_taxonomy::PrimaryKeyComponent::Unit => Ok(StorageKey::Unit),
+            crate::db::key_taxonomy::PrimaryKeyComponent::Int128(_)
+            | crate::db::key_taxonomy::PrimaryKeyComponent::Nat128(_) => {
+                Err(StorageKeyDecodeError::InvalidSize)
+            }
+        }
     }
 
     pub(in crate::db) fn compact_primary_key_value_bytes(primary_key: &PrimaryKeyValue) -> Vec<u8> {

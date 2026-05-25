@@ -18,7 +18,7 @@ use crate::{
     db::index::IndexId,
     traits::Repr,
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::{StorageKey, Value},
 };
 use std::cmp::Ordering;
 use thiserror::Error as ThisError;
@@ -26,6 +26,8 @@ use thiserror::Error as ThisError;
 const TAG_SIZE: usize = 1;
 const NAT64_SIZE: usize = 8;
 const INT64_SIZE: usize = 8;
+const NAT128_SIZE: usize = 16;
+const INT128_SIZE: usize = 16;
 const TIMESTAMP_SIZE: usize = 8;
 const ULID_SIZE: usize = 16;
 const SUBACCOUNT_SIZE: usize = 32;
@@ -59,6 +61,8 @@ pub(in crate::db) enum PrimaryKeyKind {
     Account = 0x07,
     Unit = 0x08,
     Composite = 0x09,
+    Int128 = 0x0A,
+    Nat128 = 0x0B,
 }
 
 impl PrimaryKeyKind {
@@ -78,6 +82,8 @@ impl PrimaryKeyKind {
             0x07 => Some(Self::Account),
             0x08 => Some(Self::Unit),
             0x09 => Some(Self::Composite),
+            0x0A => Some(Self::Int128),
+            0x0B => Some(Self::Nat128),
             _ => None,
         }
     }
@@ -86,6 +92,8 @@ impl PrimaryKeyKind {
         match self {
             Self::Nat64 => Some(NAT64_SIZE),
             Self::Int64 => Some(INT64_SIZE),
+            Self::Nat128 => Some(NAT128_SIZE),
+            Self::Int128 => Some(INT128_SIZE),
             Self::Timestamp => Some(TIMESTAMP_SIZE),
             Self::Ulid => Some(ULID_SIZE),
             Self::Principal | Self::Composite => None,
@@ -98,7 +106,7 @@ impl PrimaryKeyKind {
     const fn fixed_length_expectation(self) -> &'static str {
         match self {
             Self::Nat64 | Self::Int64 | Self::Timestamp => "tag + 8-byte payload",
-            Self::Ulid => "tag + 16-byte payload",
+            Self::Nat128 | Self::Int128 | Self::Ulid => "tag + 16-byte payload",
             Self::Principal => "tag + one-byte length + principal bytes",
             Self::Subaccount => "tag + 32-byte payload",
             Self::Account => "tag + 62-byte account payload",
@@ -117,6 +125,8 @@ impl PrimaryKeyKind {
 pub enum PrimaryKeyComponent {
     Nat64(u64),
     Int64(i64),
+    Nat128(u128),
+    Int128(i128),
     Timestamp(Timestamp),
     Ulid(Ulid),
     Principal(Principal),
@@ -131,6 +141,8 @@ impl PrimaryKeyComponent {
         match self {
             Self::Nat64(_) => PrimaryKeyKind::Nat64,
             Self::Int64(_) => PrimaryKeyKind::Int64,
+            Self::Nat128(_) => PrimaryKeyKind::Nat128,
+            Self::Int128(_) => PrimaryKeyKind::Int128,
             Self::Timestamp(_) => PrimaryKeyKind::Timestamp,
             Self::Ulid(_) => PrimaryKeyKind::Ulid,
             Self::Principal(_) => PrimaryKeyKind::Principal,
@@ -141,8 +153,19 @@ impl PrimaryKeyComponent {
     }
 
     #[must_use]
-    pub(in crate::db) fn as_runtime_value(self) -> Value {
-        storage_key_as_runtime_value(&StorageKey::from(self))
+    pub(in crate::db) const fn as_runtime_value(self) -> Value {
+        match self {
+            Self::Nat64(value) => Value::Nat64(value),
+            Self::Int64(value) => Value::Int64(value),
+            Self::Nat128(value) => Value::Nat128(value),
+            Self::Int128(value) => Value::Int128(value),
+            Self::Timestamp(value) => Value::Timestamp(value),
+            Self::Ulid(value) => Value::Ulid(value),
+            Self::Principal(value) => Value::Principal(value),
+            Self::Subaccount(value) => Value::Subaccount(value),
+            Self::Account(value) => Value::Account(value),
+            Self::Unit => Value::Unit,
+        }
     }
 }
 
@@ -161,26 +184,13 @@ impl From<StorageKey> for PrimaryKeyComponent {
     }
 }
 
-impl From<PrimaryKeyComponent> for StorageKey {
-    fn from(value: PrimaryKeyComponent) -> Self {
-        match value {
-            PrimaryKeyComponent::Nat64(value) => Self::Nat(value),
-            PrimaryKeyComponent::Int64(value) => Self::Int(value),
-            PrimaryKeyComponent::Timestamp(value) => Self::Timestamp(value),
-            PrimaryKeyComponent::Ulid(value) => Self::Ulid(value),
-            PrimaryKeyComponent::Principal(value) => Self::Principal(value),
-            PrimaryKeyComponent::Subaccount(value) => Self::Subaccount(value),
-            PrimaryKeyComponent::Account(value) => Self::Account(value),
-            PrimaryKeyComponent::Unit => Self::Unit,
-        }
-    }
-}
-
 impl Ord for PrimaryKeyComponent {
     fn cmp(&self, other: &Self) -> Ordering {
         match (*self, *other) {
             (Self::Nat64(a), Self::Nat64(b)) => a.cmp(&b),
             (Self::Int64(a), Self::Int64(b)) => a.cmp(&b),
+            (Self::Nat128(a), Self::Nat128(b)) => a.cmp(&b),
+            (Self::Int128(a), Self::Int128(b)) => a.cmp(&b),
             (Self::Timestamp(a), Self::Timestamp(b)) => a.cmp(&b),
             (Self::Ulid(a), Self::Ulid(b)) => a.cmp(&b),
             (Self::Principal(a), Self::Principal(b)) => a.cmp(&b),
@@ -1013,6 +1023,8 @@ fn encode_primary_key_payload(
     match value {
         PrimaryKeyComponent::Nat64(value) => out.extend_from_slice(&value.to_be_bytes()),
         PrimaryKeyComponent::Int64(value) => out.extend_from_slice(&encode_ordered_i64(value)),
+        PrimaryKeyComponent::Nat128(value) => out.extend_from_slice(&value.to_be_bytes()),
+        PrimaryKeyComponent::Int128(value) => out.extend_from_slice(&encode_ordered_i128(value)),
         PrimaryKeyComponent::Timestamp(value) => {
             out.extend_from_slice(&encode_ordered_i64(value.repr()));
         }
@@ -1062,6 +1074,16 @@ fn decode_primary_key_component(
             let mut buf = [0u8; INT64_SIZE];
             buf.copy_from_slice(payload);
             Ok(PrimaryKeyComponent::Int64(decode_ordered_i64(buf)))
+        }
+        PrimaryKeyKind::Nat128 => {
+            let mut buf = [0u8; NAT128_SIZE];
+            buf.copy_from_slice(payload);
+            Ok(PrimaryKeyComponent::Nat128(u128::from_be_bytes(buf)))
+        }
+        PrimaryKeyKind::Int128 => {
+            let mut buf = [0u8; INT128_SIZE];
+            buf.copy_from_slice(payload);
+            Ok(PrimaryKeyComponent::Int128(decode_ordered_i128(buf)))
         }
         PrimaryKeyKind::Timestamp => {
             let mut buf = [0u8; TIMESTAMP_SIZE];
@@ -1261,6 +1283,16 @@ const fn decode_ordered_i64(bytes: [u8; INT64_SIZE]) -> i64 {
     (u64::from_be_bytes(bytes) ^ (1u64 << 63)).cast_signed()
 }
 
+#[must_use]
+const fn encode_ordered_i128(value: i128) -> [u8; INT128_SIZE] {
+    (value.cast_unsigned() ^ (1u128 << 127)).to_be_bytes()
+}
+
+#[must_use]
+const fn decode_ordered_i128(bytes: [u8; INT128_SIZE]) -> i128 {
+    (u128::from_be_bytes(bytes) ^ (1u128 << 127)).cast_signed()
+}
+
 fn push_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) {
     let len = u16::try_from(bytes.len()).expect("compact key segment fits in u16");
     out.extend_from_slice(&len.to_be_bytes());
@@ -1383,6 +1415,7 @@ const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {
         + match kind {
             PrimaryKeyKind::Principal => TAG_SIZE + Principal::MAX_LENGTH_IN_BYTES as usize,
             PrimaryKeyKind::Nat64 | PrimaryKeyKind::Int64 | PrimaryKeyKind::Timestamp => NAT64_SIZE,
+            PrimaryKeyKind::Nat128 | PrimaryKeyKind::Int128 => NAT128_SIZE,
             PrimaryKeyKind::Ulid => ULID_SIZE,
             PrimaryKeyKind::Subaccount => SUBACCOUNT_SIZE,
             PrimaryKeyKind::Account => ACCOUNT_SIZE,
@@ -1663,10 +1696,39 @@ mod tests {
     }
 
     #[test]
+    fn compact_composite_primary_key_admits_fixed_128_bit_components() {
+        let left = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat128(1),
+            PrimaryKeyComponent::Int128(-1),
+        ])
+        .expect("left composite key should construct");
+        let right = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat128(1),
+            PrimaryKeyComponent::Int128(1),
+        ])
+        .expect("right composite key should construct");
+        let left_encoded =
+            EncodedPrimaryKey::encode_composite(&left).expect("left composite key should encode");
+        let right_encoded =
+            EncodedPrimaryKey::encode_composite(&right).expect("right composite key should encode");
+
+        assert!(left < right);
+        assert!(left_encoded < right_encoded);
+        assert_eq!(
+            left_encoded
+                .decode()
+                .expect("left composite key should decode"),
+            PrimaryKeyValue::Composite(left)
+        );
+    }
+
+    #[test]
     fn compact_primary_key_roundtrip_per_key_type() {
         let values = [
             PrimaryKeyComponent::Nat64(42),
             PrimaryKeyComponent::Int64(-42),
+            PrimaryKeyComponent::Nat128(u128::MAX),
+            PrimaryKeyComponent::Int128(i128::MIN),
             PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-42)),
             PrimaryKeyComponent::Ulid(Ulid::from_u128(42)),
             PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
@@ -1696,6 +1758,8 @@ mod tests {
         let fixed_cases = [
             PrimaryKeyKind::Nat64,
             PrimaryKeyKind::Int64,
+            PrimaryKeyKind::Nat128,
+            PrimaryKeyKind::Int128,
             PrimaryKeyKind::Timestamp,
             PrimaryKeyKind::Ulid,
             PrimaryKeyKind::Subaccount,
@@ -1821,6 +1885,14 @@ mod tests {
                 PrimaryKeyComponent::Int64(1),
             ),
             (
+                PrimaryKeyComponent::Nat128(1),
+                PrimaryKeyComponent::Nat128(u128::MAX),
+            ),
+            (
+                PrimaryKeyComponent::Int128(i128::MIN),
+                PrimaryKeyComponent::Int128(i128::MAX),
+            ),
+            (
                 PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-1)),
                 PrimaryKeyComponent::Timestamp(Timestamp::from_millis(1)),
             ),
@@ -1906,6 +1978,14 @@ mod tests {
             (
                 PrimaryKeyComponent::Int64(-7),
                 PrimaryKeyComponent::Int64(8),
+            ),
+            (
+                PrimaryKeyComponent::Nat128(7),
+                PrimaryKeyComponent::Nat128(8),
+            ),
+            (
+                PrimaryKeyComponent::Int128(-7),
+                PrimaryKeyComponent::Int128(8),
             ),
             (
                 PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-7)),
@@ -2274,11 +2354,11 @@ mod tests {
             )
             .to_raw()
             .expect("taxonomy raw index key should encode");
-            let live_raw = IndexKey::new_from_components_with_kind(
+            let live_raw = IndexKey::new_from_components_with_primary_key_value(
                 &index_id,
                 live_kind,
                 &[component.as_bytes()],
-                StorageKey::Nat(77),
+                &PrimaryKeyValue::from(StorageKey::Nat(77)),
             )
             .to_raw();
 

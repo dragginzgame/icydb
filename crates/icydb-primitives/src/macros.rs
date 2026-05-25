@@ -125,7 +125,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false,
+                is_keyable = true,
                 is_storage_key_encodable = false
             ),
             (
@@ -202,7 +202,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false,
+                is_keyable = true,
                 is_storage_key_encodable = false
             ),
             (

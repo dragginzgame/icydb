@@ -134,14 +134,14 @@ fn registry_numeric_coercion_cases() -> Vec<(Value, bool)> {
     scalar_registry!(collect_cases)
 }
 
-/// Build scalar-backed values paired with their registry keyable flag.
-fn registry_keyable_cases() -> Vec<(Value, bool)> {
+/// Build scalar-backed values paired with their legacy storage-key bridge flag.
+fn registry_storage_key_bridge_cases() -> Vec<(Value, bool)> {
     macro_rules! collect_cases {
         ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-            vec![ $( (sample_value_for_scalar!($scalar), $is_keyable) ),* ]
+            vec![ $( (sample_value_for_scalar!($scalar), $is_storage_key_encodable) ),* ]
         };
         ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-            vec![ $( (sample_value_for_scalar!($scalar), $is_keyable) ),* ]
+            vec![ $( (sample_value_for_scalar!($scalar), $is_storage_key_encodable) ),* ]
         };
     }
 
@@ -286,11 +286,11 @@ fn value_supports_numeric_coercion_matches_registry_flag() {
 }
 
 #[test]
-fn value_as_primary_key_value_matches_registry_flag() {
-    for (value, is_keyable) in registry_keyable_cases() {
+fn value_as_primary_key_value_matches_storage_key_bridge_flag() {
+    for (value, is_storage_key_encodable) in registry_storage_key_bridge_cases() {
         assert_eq!(
             value.as_primary_key_value().is_some(),
-            is_keyable,
+            is_storage_key_encodable,
             "value: {value:?}"
         );
     }

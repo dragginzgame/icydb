@@ -59,9 +59,9 @@ pub(in crate::db) use encode::encode_structural_field_by_kind_bytes;
 pub(in crate::db) use storage_key::decode_relation_target_storage_keys_bytes;
 pub(in crate::db) use storage_key::{
     decode_accepted_relation_target_storage_keys_bytes, decode_optional_storage_key_field_bytes,
-    decode_storage_key_binary_value_bytes, decode_storage_key_field_bytes,
-    encode_storage_key_binary_value_bytes, encode_storage_key_field_bytes,
-    supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
+    decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes,
+    encode_storage_key_field_bytes, supports_storage_key_binary_kind,
+    validate_storage_key_binary_value_bytes,
 };
 pub(in crate::db) use value_storage::{
     ValueStorageView, decode_account, decode_decimal, decode_enum, decode_int, decode_int128,

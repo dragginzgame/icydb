@@ -301,6 +301,18 @@ where
 impl_primary_key_codec_signed!(i8, i16, i32, i64);
 impl_primary_key_codec_unsigned!(u8, u16, u32, u64);
 
+impl PrimaryKeyCodec for i128 {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
+        Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int128(*self)))
+    }
+}
+
+impl PrimaryKeyCodec for u128 {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
+        Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(*self)))
+    }
+}
+
 macro_rules! impl_primary_key_decode_signed {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -347,6 +359,32 @@ macro_rules! impl_primary_key_decode_unsigned {
 
 impl_primary_key_decode_signed!(i8, i16, i32, i64);
 impl_primary_key_decode_unsigned!(u8, u16, u32, u64);
+
+impl PrimaryKeyDecode for i128 {
+    fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
+        match *key {
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int128(value)) => Ok(value),
+            _ => Err(primary_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                key,
+                "PrimaryKeyComponent::Int128",
+            )),
+        }
+    }
+}
+
+impl PrimaryKeyDecode for u128 {
+    fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
+        match *key {
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => Ok(value),
+            _ => Err(primary_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                key,
+                "PrimaryKeyComponent::Nat128",
+            )),
+        }
+    }
+}
 
 impl PrimaryKeyCodec for crate::types::Principal {
     fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {

@@ -82,17 +82,6 @@ pub(in crate::db) fn decode_accepted_relation_target_storage_keys_bytes(
     )
 }
 
-/// Decode one storage-key-compatible field payload directly into its canonical
-/// `StorageKey` form.
-pub(in crate::db) fn decode_storage_key_field_bytes(
-    raw_bytes: &[u8],
-    kind: FieldKind,
-) -> Result<StorageKey, FieldDecodeError> {
-    crate::db::data::structural_field::storage_key::decode::decode_storage_key_field_binary_bytes(
-        raw_bytes, kind,
-    )
-}
-
 /// Decode one optional storage-key-compatible field payload directly into its
 /// canonical `StorageKey` form.
 pub(in crate::db) fn decode_optional_storage_key_field_bytes(

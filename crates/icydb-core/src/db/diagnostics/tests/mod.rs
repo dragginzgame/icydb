@@ -274,7 +274,13 @@ fn index_id(entity_name: &str, field: &str) -> IndexId {
 fn index_key(kind: IndexKeyKind, entity_name: &str, field: &str) -> RawIndexStoreKey {
     let id = index_id(entity_name, field);
     let components: [Vec<u8>; 0] = [];
-    IndexKey::new_from_components_with_kind(&id, kind, &components, StorageKey::Int(1)).to_raw()
+    IndexKey::new_from_components_with_primary_key_value(
+        &id,
+        kind,
+        &components,
+        &PrimaryKeyValue::from(StorageKey::Int(1)),
+    )
+    .to_raw()
 }
 
 fn insert_index_entry(path: &'static str, key: RawIndexStoreKey, entry: IndexEntryValue) {

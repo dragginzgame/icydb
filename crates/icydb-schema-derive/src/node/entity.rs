@@ -346,7 +346,7 @@ impl Entity {
                         ),
                     ));
                 }
-                if !primitive.is_storage_key_encodable() {
+                if !primitive.is_primary_key_encodable() {
                     errors.push(syn::Error::new_spanned(
                         pk_ident,
                         format!(
@@ -835,13 +835,17 @@ mod tests {
     use syn::LitStr;
 
     fn scalar_field(ident: &str) -> Field {
+        primitive_field(ident, Primitive::Ulid)
+    }
+
+    fn primitive_field(ident: &str, primitive: Primitive) -> Field {
         Field {
             ident: format_ident!("{ident}"),
             value: Value {
                 opt: false,
                 many: false,
                 item: Item {
-                    primitive: Some(Primitive::Ulid),
+                    primitive: Some(primitive),
                     ..Item::default()
                 },
             },
@@ -1007,6 +1011,40 @@ mod tests {
             ),
             "unexpected fatal errors: {error_text}",
         );
+    }
+
+    #[test]
+    fn fatal_errors_admit_fixed_128_bit_primary_keys() {
+        for primitive in [Primitive::Int128, Primitive::Nat128] {
+            let entity =
+                entity_with_fields_and_indexes(vec![primitive_field("id", primitive)], vec![]);
+
+            let errors = entity.fatal_errors();
+
+            assert!(
+                errors.is_empty(),
+                "fixed 128-bit primitive {primitive:?} should be primary-key admissible: {errors:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn fatal_errors_reject_big_integer_primary_keys() {
+        for primitive in [Primitive::IntBig, Primitive::NatBig] {
+            let entity =
+                entity_with_fields_and_indexes(vec![primitive_field("id", primitive)], vec![]);
+            let error_text = entity
+                .fatal_errors()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            assert!(
+                error_text.contains("must use a scalar key primitive"),
+                "bounded big integer primitive {primitive:?} must stay non-primary-key: {error_text}",
+            );
+        }
     }
 
     #[test]

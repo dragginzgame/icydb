@@ -61,11 +61,32 @@ fn active_true_predicate() -> &'static Predicate {
 }
 
 fn scalar_storage_key_for_test<K: PrimaryKeyCodec>(key: &K, context: &'static str) -> StorageKey {
-    key.to_primary_key_value()
+    let component = key
+        .to_primary_key_value()
         .expect(context)
         .scalar_component()
-        .map(StorageKey::from)
-        .expect("test fixtures use scalar primary keys")
+        .expect("test fixtures use scalar primary keys");
+
+    match component {
+        crate::db::key_taxonomy::PrimaryKeyComponent::Account(value) => StorageKey::Account(value),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Int64(value) => StorageKey::Int(value),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Principal(value) => {
+            StorageKey::Principal(value)
+        }
+        crate::db::key_taxonomy::PrimaryKeyComponent::Subaccount(value) => {
+            StorageKey::Subaccount(value)
+        }
+        crate::db::key_taxonomy::PrimaryKeyComponent::Timestamp(value) => {
+            StorageKey::Timestamp(value)
+        }
+        crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(value) => StorageKey::Nat(value),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Ulid(value) => StorageKey::Ulid(value),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Unit => StorageKey::Unit,
+        crate::db::key_taxonomy::PrimaryKeyComponent::Int128(_)
+        | crate::db::key_taxonomy::PrimaryKeyComponent::Nat128(_) => {
+            panic!("test storage-key fixture does not support 128-bit primary keys")
+        }
+    }
 }
 
 const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
