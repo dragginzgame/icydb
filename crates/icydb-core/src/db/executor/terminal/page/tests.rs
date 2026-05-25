@@ -13,7 +13,7 @@ use crate::db::{
 };
 
 fn kernel_row_u64(value: u64) -> KernelRow {
-    KernelRow::new_slot_only(RetainedSlotRow::new(1, vec![(0, Value::Nat(value))]))
+    KernelRow::new_slot_only(RetainedSlotRow::new(1, vec![(0, Value::Nat64(value))]))
 }
 
 fn direct_field_order(slot: usize) -> ResolvedOrder {
@@ -29,16 +29,16 @@ fn retained_slot_row_slot_ref_and_take_slot_use_indexed_lookup() {
         8,
         vec![
             (1, Value::Text("alpha".to_string())),
-            (5, Value::Nat(7)),
+            (5, Value::Nat64(7)),
             (3, Value::Bool(true)),
         ],
     );
 
-    assert_eq!(row.slot_ref(5), Some(&Value::Nat(7)));
+    assert_eq!(row.slot_ref(5), Some(&Value::Nat64(7)));
     assert_eq!(row.take_slot(1), Some(Value::Text("alpha".to_string())));
     assert_eq!(row.slot_ref(1), None);
     assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
-    assert_eq!(row.take_slot(5), Some(Value::Nat(7)));
+    assert_eq!(row.take_slot(5), Some(Value::Nat64(7)));
     assert_eq!(row.slot_ref(5), None);
     assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
 }
@@ -50,7 +50,7 @@ fn retained_slot_row_sparse_constructor_preserves_dense_overwrite_semantics() {
         vec![
             (3, Value::Bool(false)),
             (1, Value::Text("first".to_string())),
-            (7, Value::Nat(99)),
+            (7, Value::Nat64(99)),
             (1, Value::Text("last".to_string())),
         ],
     );
@@ -74,15 +74,15 @@ fn retained_slot_row_indexed_layout_uses_shared_slot_lookup() {
         vec![
             Some(Value::Text("alpha".to_string())),
             Some(Value::Bool(true)),
-            Some(Value::Nat(7)),
+            Some(Value::Nat64(7)),
         ],
     );
 
-    assert_eq!(row.slot_ref(5), Some(&Value::Nat(7)));
+    assert_eq!(row.slot_ref(5), Some(&Value::Nat64(7)));
     assert_eq!(row.take_slot(1), Some(Value::Text("alpha".to_string())));
     assert_eq!(row.slot_ref(1), None);
     assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
-    assert_eq!(row.into_dense_slots()[5], Some(Value::Nat(7)));
+    assert_eq!(row.into_dense_slots()[5], Some(Value::Nat64(7)));
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn scalar_materialization_lane_metrics_capture_direct_and_kernel_paths() {
 fn load_cursor_and_pagination_window_compacts_in_one_pass() {
     let resolved_order = direct_field_order(0);
     let boundary = CursorBoundary {
-        slots: vec![CursorBoundarySlot::Present(Value::Nat(2))],
+        slots: vec![CursorBoundarySlot::Present(Value::Nat64(2))],
     };
     let mut rows = vec![
         kernel_row_u64(1),
@@ -161,7 +161,7 @@ fn load_cursor_and_pagination_window_compacts_in_one_pass() {
     assert_eq!(rows_after_cursor, 3);
     assert_eq!(
         rows.into_iter().map(|row| row.slot(0)).collect::<Vec<_>>(),
-        vec![Some(Value::Nat(4)), Some(Value::Nat(5))]
+        vec![Some(Value::Nat64(4)), Some(Value::Nat64(5))]
     );
 }
 
@@ -179,7 +179,7 @@ fn load_pagination_window_without_cursor_skips_offset_then_limits() {
     assert_eq!(rows_after_cursor, 4);
     assert_eq!(
         rows.into_iter().map(|row| row.slot(0)).collect::<Vec<_>>(),
-        vec![Some(Value::Nat(30))]
+        vec![Some(Value::Nat64(30))]
     );
 }
 
@@ -194,12 +194,12 @@ fn compact_kernel_rows_in_place_preserves_kept_order() {
 
     let kept = compact_kernel_rows_in_place(
         &mut rows,
-        |row| matches!(row.slot(0), Some(Value::Nat(value)) if value % 2 == 0),
+        |row| matches!(row.slot(0), Some(Value::Nat64(value)) if value % 2 == 0),
     );
 
     assert_eq!(kept, 2);
     assert_eq!(
         rows.into_iter().map(|row| row.slot(0)).collect::<Vec<_>>(),
-        vec![Some(Value::Nat(2)), Some(Value::Nat(4))]
+        vec![Some(Value::Nat64(2)), Some(Value::Nat64(4))]
     );
 }

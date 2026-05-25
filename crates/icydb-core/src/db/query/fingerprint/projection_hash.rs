@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn literal_numeric_subtype_remains_hash_significant_when_observable() {
         let int_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
-            expr: Expr::Literal(Value::Int(1)),
+            expr: Expr::Literal(Value::Int64(1)),
             alias: None,
         }]);
         let decimal_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
@@ -442,8 +442,8 @@ mod tests {
         let int_plus_int = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Binary {
                 op: BinaryOp::Add,
-                left: Box::new(Expr::Literal(Value::Int(1))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                left: Box::new(Expr::Literal(Value::Int64(1))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             },
             alias: None,
         }]);
@@ -451,7 +451,7 @@ mod tests {
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Binary {
                     op: BinaryOp::Add,
-                    left: Box::new(Expr::Literal(Value::Int(1))),
+                    left: Box::new(Expr::Literal(Value::Int64(1))),
                     right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(20, 1)))),
                 },
                 alias: None,
@@ -461,7 +461,7 @@ mod tests {
                 expr: Expr::Binary {
                     op: BinaryOp::Add,
                     left: Box::new(Expr::Literal(Value::Decimal(Decimal::new(10, 1)))),
-                    right: Box::new(Expr::Literal(Value::Int(2))),
+                    right: Box::new(Expr::Literal(Value::Int64(2))),
                 },
                 alias: None,
             }]);
@@ -563,7 +563,7 @@ mod tests {
                 expr: Expr::Binary {
                     op: BinaryOp::Add,
                     left: Box::new(Expr::Aggregate(sum("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(0))),
+                    right: Box::new(Expr::Literal(Value::Int64(0))),
                 },
                 alias: None,
             }]);
@@ -591,7 +591,7 @@ mod tests {
                 expr: Expr::Binary {
                     op: BinaryOp::Add,
                     left: Box::new(Expr::Aggregate(sum("rank").distinct())),
-                    right: Box::new(Expr::Literal(Value::Int(0))),
+                    right: Box::new(Expr::Literal(Value::Int64(0))),
                 },
                 alias: None,
             }]);

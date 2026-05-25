@@ -305,7 +305,7 @@ fn infer_binary_numeric_expr_requires_numeric_operands() {
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Nat(7))),
+        right: Box::new(Expr::Literal(Value::Nat64(7))),
     };
 
     let inferred = infer_expr_type(&expr, schema).expect("numeric addition should infer");
@@ -370,7 +370,7 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_literal_operand() {
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Literal(Value::Bool(true))),
-        right: Box::new(Expr::Literal(Value::Int(5))),
+        right: Box::new(Expr::Literal(Value::Int64(5))),
     };
 
     let err = infer_expr_type(&expr, schema)
@@ -418,7 +418,7 @@ fn infer_binary_order_compare_over_numeric_expr_returns_bool() {
     let expr = Expr::Binary {
         op: BinaryOp::Gt,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Int(5))),
+        right: Box::new(Expr::Literal(Value::Int64(5))),
     };
 
     let inferred = infer_expr_type(&expr, schema).expect("numeric comparison should infer");
@@ -432,9 +432,9 @@ fn infer_searched_case_returns_shared_branch_type() {
     let expr = Expr::Case {
         when_then_arms: vec![CaseWhenArm::new(
             Expr::Field(FieldId::new("flag")),
-            Expr::Literal(Value::Int(1)),
+            Expr::Literal(Value::Int64(1)),
         )],
-        else_expr: Box::new(Expr::Literal(Value::Nat(0))),
+        else_expr: Box::new(Expr::Literal(Value::Nat64(0))),
     };
 
     let inferred = infer_expr_type(&expr, schema).expect("searched CASE should infer");
@@ -446,8 +446,8 @@ fn infer_searched_case_returns_shared_branch_type() {
 fn infer_case_result_exprs_coarse_family_uses_planner_branch_unification() {
     let schema = schema();
     let result_exprs = [
-        Expr::Literal(Value::Int(1)),
-        Expr::Literal(Value::Nat(0)),
+        Expr::Literal(Value::Int64(1)),
+        Expr::Literal(Value::Nat64(0)),
         Expr::Literal(Value::Null),
     ];
 
@@ -461,8 +461,8 @@ fn infer_case_result_exprs_coarse_family_uses_planner_branch_unification() {
 fn infer_dynamic_function_result_exprs_coarse_family_uses_planner_unification() {
     let schema = schema();
     let args = [
-        Expr::Literal(Value::Int(1)),
-        Expr::Literal(Value::Nat(0)),
+        Expr::Literal(Value::Int64(1)),
+        Expr::Literal(Value::Nat64(0)),
         Expr::Literal(Value::Null),
     ];
 
@@ -479,9 +479,9 @@ fn infer_searched_case_rejects_non_boolean_conditions() {
     let expr = Expr::Case {
         when_then_arms: vec![CaseWhenArm::new(
             Expr::Field(FieldId::new("rank")),
-            Expr::Literal(Value::Int(1)),
+            Expr::Literal(Value::Int64(1)),
         )],
-        else_expr: Box::new(Expr::Literal(Value::Int(0))),
+        else_expr: Box::new(Expr::Literal(Value::Int64(0))),
     };
 
     let err = infer_expr_type(&expr, schema)
@@ -500,7 +500,7 @@ fn infer_searched_case_rejects_incompatible_branch_types() {
             Expr::Field(FieldId::new("flag")),
             Expr::Literal(Value::Text("yes".to_string())),
         )],
-        else_expr: Box::new(Expr::Literal(Value::Int(0))),
+        else_expr: Box::new(Expr::Literal(Value::Int64(0))),
     };
 
     let err = infer_expr_type(&expr, schema)
@@ -517,7 +517,7 @@ fn infer_binary_numeric_expr_rejects_unknown_non_eligible_operands() {
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Aggregate(min())),
-        right: Box::new(Expr::Literal(Value::Int(1))),
+        right: Box::new(Expr::Literal(Value::Int64(1))),
     };
 
     let err = infer_expr_type(&expr, schema)
@@ -535,7 +535,7 @@ fn infer_round_function_expr_returns_decimal_for_numeric_input() {
         function: crate::db::query::plan::expr::Function::Round,
         args: vec![
             Expr::Field(FieldId::new("rank")),
-            Expr::Literal(Value::Nat(2)),
+            Expr::Literal(Value::Nat64(2)),
         ],
     };
 
@@ -551,7 +551,7 @@ fn infer_round_function_expr_rejects_non_numeric_input() {
         function: crate::db::query::plan::expr::Function::Round,
         args: vec![
             Expr::Field(FieldId::new("label")),
-            Expr::Literal(Value::Nat(2)),
+            Expr::Literal(Value::Nat64(2)),
         ],
     };
 
@@ -620,7 +620,7 @@ fn infer_avg_aggregate_over_numeric_expression_uses_expression_result_type() {
         Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Nat(1))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
         },
     ));
 

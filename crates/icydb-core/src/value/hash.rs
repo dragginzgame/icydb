@@ -142,7 +142,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         Value::Duration(value) => feed_u64(&mut hasher, value.repr()),
         Value::Float32(value) => feed_bytes(&mut hasher, &value.to_be_bytes()),
         Value::Float64(value) => feed_bytes(&mut hasher, &value.to_be_bytes()),
-        Value::Int(value) => feed_i64(&mut hasher, *value),
+        Value::Int64(value) => feed_i64(&mut hasher, *value),
         Value::Int128(value) => feed_i128(&mut hasher, value.get()),
         Value::IntBig(value) => {
             let bytes = value.to_leb128();
@@ -162,7 +162,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
             feed_bytes(&mut hasher, value.as_bytes());
         }
         Value::Timestamp(value) => feed_i64(&mut hasher, value.repr()),
-        Value::Nat(value) => feed_u64(&mut hasher, *value),
+        Value::Nat64(value) => feed_u64(&mut hasher, *value),
         Value::Nat128(value) => feed_u128(&mut hasher, value.get()),
         Value::NatBig(value) => {
             let bytes = value.to_leb128();
@@ -283,7 +283,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Float64(v) => {
             feed_bytes(h, &v.to_be_bytes());
         }
-        Value::Int(i) => {
+        Value::Int64(i) => {
             feed_i64(h, *i);
         }
         Value::Int128(i) => {
@@ -327,7 +327,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Timestamp(t) => {
             feed_i64(h, t.repr());
         }
-        Value::Nat(u) => {
+        Value::Nat64(u) => {
             feed_u64(h, *u);
         }
         Value::Nat128(u) => {

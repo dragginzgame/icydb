@@ -306,7 +306,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
                 Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
                     CompareOp::Gte,
-                    Value::Int(21),
+                    Value::Int64(21),
                     CoercionId::NumericWiden,
                 )),
                 Predicate::Compare(ComparePredicate::with_coercion(
@@ -416,7 +416,7 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
                     vec![sql_binary_expr(
                         SqlExpr::Field("age".to_string()),
                         SqlExprBinaryOp::Sub,
-                        SqlExpr::Literal(Value::Int(30)),
+                        SqlExpr::Literal(Value::Int64(30)),
                     )],
                 )),
                 SqlSelectItem::Expr(sql_scalar_function_expr(
@@ -424,7 +424,7 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
                     vec![sql_binary_expr(
                         SqlExpr::Field("age".to_string()),
                         SqlExprBinaryOp::Div,
-                        SqlExpr::Literal(Value::Int(10)),
+                        SqlExpr::Literal(Value::Int64(10)),
                     )],
                 )),
                 SqlSelectItem::Expr(sql_scalar_function_expr(
@@ -432,7 +432,7 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
                     vec![sql_binary_expr(
                         SqlExpr::Field("age".to_string()),
                         SqlExprBinaryOp::Div,
-                        SqlExpr::Literal(Value::Int(10)),
+                        SqlExpr::Literal(Value::Int64(10)),
                     )],
                 )),
                 SqlSelectItem::Expr(sql_scalar_function_expr(
@@ -440,7 +440,7 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
                     vec![sql_binary_expr(
                         SqlExpr::Field("age".to_string()),
                         SqlExprBinaryOp::Div,
-                        SqlExpr::Literal(Value::Int(10)),
+                        SqlExpr::Literal(Value::Int64(10)),
                     )],
                 )),
             ]),
@@ -545,7 +545,7 @@ fn parse_select_statement_with_coalesce_and_nullif_projection_items() {
                     SqlScalarFunction::NullIf,
                     vec![
                         SqlExpr::Field("age".to_string()),
-                        SqlExpr::Literal(Value::Int(20)),
+                        SqlExpr::Literal(Value::Int64(20)),
                     ],
                 )),
                 SqlSelectItem::Field("name".to_string()),
@@ -575,7 +575,7 @@ fn parse_select_statement_with_scalar_add_projection_item() {
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
-                SqlExpr::Literal(Value::Int(1)),
+                SqlExpr::Literal(Value::Int64(1)),
             ))]),
             projection_aliases: vec![None],
             predicate: None,
@@ -605,7 +605,7 @@ fn parse_select_statement_with_field_path_projection_expr() {
                     segments: vec!["rank".to_string()],
                 },
                 SqlExprBinaryOp::Add,
-                SqlExpr::Literal(Value::Int(1)),
+                SqlExpr::Literal(Value::Int64(1)),
             ))]),
             projection_aliases: vec![None],
             predicate: None,
@@ -625,19 +625,19 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
         (
             "SELECT age - 1 FROM users",
             SqlExprBinaryOp::Sub,
-            Value::Int(1),
+            Value::Int64(1),
             "subtraction projection",
         ),
         (
             "SELECT age * 2 FROM users",
             SqlExprBinaryOp::Mul,
-            Value::Int(2),
+            Value::Int64(2),
             "multiplication projection",
         ),
         (
             "SELECT age / 2 FROM users",
             SqlExprBinaryOp::Div,
-            Value::Int(2),
+            Value::Int64(2),
             "division projection",
         ),
     ] {
@@ -709,9 +709,9 @@ fn parse_select_statement_with_chained_scalar_projection_item_preserves_preceden
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
                 sql_binary_expr(
-                    SqlExpr::Literal(Value::Int(1)),
+                    SqlExpr::Literal(Value::Int64(1)),
                     SqlExprBinaryOp::Mul,
-                    SqlExpr::Literal(Value::Int(2)),
+                    SqlExpr::Literal(Value::Int64(2)),
                 ),
             ))]),
             projection_aliases: vec![None],
@@ -745,9 +745,9 @@ fn parse_select_statement_with_parenthesized_round_projection_item() {
                         SqlExpr::Field("salary".to_string()),
                     ),
                     SqlExprBinaryOp::Div,
-                    SqlExpr::Literal(Value::Int(2)),
+                    SqlExpr::Literal(Value::Int64(2)),
                 ),
-                Value::Int(2),
+                Value::Int64(2),
             )]),
             projection_aliases: vec![None],
             predicate: None,
@@ -778,7 +778,7 @@ fn parse_select_statement_with_searched_case_projection_item() {
                     condition: SqlExpr::Binary {
                         op: SqlExprBinaryOp::Gte,
                         left: Box::new(SqlExpr::Field("age".to_string())),
-                        right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                        right: Box::new(SqlExpr::Literal(Value::Int64(21))),
                     },
                     result: SqlExpr::Literal(Value::Text("adult".to_string())),
                 }],
@@ -851,11 +851,11 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
                         condition: SqlExpr::Binary {
                             op: SqlExprBinaryOp::Gte,
                             left: Box::new(SqlExpr::Field("age".to_string())),
-                            right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                            right: Box::new(SqlExpr::Literal(Value::Int64(21))),
                         },
-                        result: SqlExpr::Literal(Value::Int(1)),
+                        result: SqlExpr::Literal(Value::Int64(1)),
                     }],
-                    else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
+                    else_expr: Some(Box::new(SqlExpr::Literal(Value::Int64(0)))),
                 })),
                 filter_expr: None,
                 distinct: false,
@@ -894,14 +894,14 @@ fn parse_select_statement_with_searched_case_where_expression() {
                     condition: SqlExpr::Binary {
                         op: SqlExprBinaryOp::Gte,
                         left: Box::new(SqlExpr::Field("age".to_string())),
-                        right: Box::new(SqlExpr::Literal(Value::Int(30))),
+                        right: Box::new(SqlExpr::Literal(Value::Int64(30))),
                     },
                     result: SqlExpr::Literal(Value::Bool(true)),
                 }],
                 else_expr: Some(Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Eq,
                     left: Box::new(SqlExpr::Field("age".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(20))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(20))),
                 })),
             }),
             distinct: false,
@@ -1001,7 +1001,7 @@ fn parse_select_statement_with_field_path_predicate() {
             predicate: Some(sql_binary_expr(
                 SqlExpr::Field("profile.rank".to_string()),
                 SqlExprBinaryOp::Eq,
-                SqlExpr::Literal(Value::Int(5)),
+                SqlExpr::Literal(Value::Int64(5)),
             )),
             distinct: false,
             group_by: vec![],
@@ -1028,7 +1028,7 @@ fn parse_select_statement_with_symmetric_predicate_forms() {
             projection_aliases: vec![],
             predicate: Some(sql_binary_expr(
                 sql_binary_expr(
-                    SqlExpr::Literal(Value::Int(5)),
+                    SqlExpr::Literal(Value::Int64(5)),
                     SqlExprBinaryOp::Lt,
                     SqlExpr::Field("age".to_string()),
                 ),
@@ -1057,7 +1057,7 @@ fn parse_select_statement_with_round_projection_items() {
     for (sql, expected_item, context) in [
         (
             "SELECT ROUND(age, 2) FROM users",
-            sql_round_item(SqlExpr::Field("age".to_string()), Value::Int(2)),
+            sql_round_item(SqlExpr::Field("age".to_string()), Value::Int64(2)),
             "round over plain field",
         ),
         (
@@ -1066,9 +1066,9 @@ fn parse_select_statement_with_round_projection_items() {
                 sql_binary_expr(
                     SqlExpr::Field("age".to_string()),
                     SqlExprBinaryOp::Div,
-                    SqlExpr::Literal(Value::Int(3)),
+                    SqlExpr::Literal(Value::Int64(3)),
                 ),
-                Value::Int(2),
+                Value::Int64(2),
             ),
             "round over bounded arithmetic expression",
         ),
@@ -1080,7 +1080,7 @@ fn parse_select_statement_with_round_projection_items() {
                     SqlExprBinaryOp::Add,
                     SqlExpr::Field("salary".to_string()),
                 ),
-                Value::Int(2),
+                Value::Int64(2),
             ),
             "round over bounded field-to-field arithmetic expression",
         ),
@@ -1393,14 +1393,14 @@ fn parse_select_statement_with_left_and_right_projection_items() {
                     SqlScalarFunction::Left,
                     vec![
                         SqlExpr::Field("name".to_string()),
-                        SqlExpr::Literal(Value::Int(2)),
+                        SqlExpr::Literal(Value::Int64(2)),
                     ],
                 )),
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Right,
                     vec![
                         SqlExpr::Field("name".to_string()),
-                        SqlExpr::Literal(Value::Int(3)),
+                        SqlExpr::Literal(Value::Int64(3)),
                     ],
                 )),
             ]),
@@ -1515,15 +1515,15 @@ fn parse_select_statement_with_substring_projection_item() {
                     SqlScalarFunction::Substring,
                     vec![
                         SqlExpr::Field("name".to_string()),
-                        SqlExpr::Literal(Value::Int(2)),
-                        SqlExpr::Literal(Value::Int(3)),
+                        SqlExpr::Literal(Value::Int64(2)),
+                        SqlExpr::Literal(Value::Int64(3)),
                     ],
                 )),
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Substring,
                     vec![
                         SqlExpr::Field("name".to_string()),
-                        SqlExpr::Literal(Value::Int(2)),
+                        SqlExpr::Literal(Value::Int64(2)),
                     ],
                 )),
             ]),
@@ -1552,7 +1552,7 @@ fn parse_delete_statement_with_limit() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
-                Value::Int(18),
+                Value::Int64(18),
                 CoercionId::NumericWiden,
             ))),
             order_by: vec![SqlOrderTerm {
@@ -1579,7 +1579,7 @@ fn parse_delete_statement_with_limit_and_offset() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
-                Value::Int(18),
+                Value::Int64(18),
                 CoercionId::NumericWiden,
             ))),
             order_by: vec![SqlOrderTerm {
@@ -1608,7 +1608,7 @@ fn parse_delete_statement_accepts_single_table_alias() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "u.age",
                 CompareOp::Lt,
-                Value::Int(18),
+                Value::Int64(18),
                 CoercionId::NumericWiden,
             ))),
             order_by: vec![SqlOrderTerm {
@@ -1933,7 +1933,7 @@ fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent()
                 column_name: "score".to_string(),
                 column_type: "nat64".to_string(),
                 nullable: false,
-                default: Some(Value::Int(7)),
+                default: Some(Value::Int64(7)),
             },
         )),
     );
@@ -1952,7 +1952,7 @@ fn parse_alter_table_add_column_statement_accepts_not_null_before_default() {
                 column_name: "score".to_string(),
                 column_type: "nat64".to_string(),
                 nullable: false,
-                default: Some(Value::Int(0)),
+                default: Some(Value::Int64(0)),
             },
         )),
     );
@@ -1972,7 +1972,7 @@ fn parse_alter_table_add_column_statement_keeps_nat_big_max_bytes_type_modifier(
                 column_name: "score".to_string(),
                 column_type: "nat_big(max_bytes=512)".to_string(),
                 nullable: true,
-                default: Some(Value::Int(0)),
+                default: Some(Value::Int64(0)),
             },
         )),
     );
@@ -2001,7 +2001,7 @@ fn parse_alter_table_alter_column_statement_keeps_default_intent_unresolved() {
             SqlAlterTableAlterColumnStatement {
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
-                action: SqlAlterColumnAction::SetDefault(Value::Int(7)),
+                action: SqlAlterColumnAction::SetDefault(Value::Int64(7)),
             },
         )),
     );
@@ -2281,7 +2281,7 @@ fn parse_select_statement_with_qualified_identifiers() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "users.age",
                 CompareOp::Gte,
-                Value::Int(21),
+                Value::Int64(21),
                 CoercionId::NumericWiden,
             ))),
             distinct: false,
@@ -2386,7 +2386,7 @@ fn parse_select_statement_with_in_trailing_comma_predicate() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::In,
-                Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
+                Value::List(vec![Value::Int64(10), Value::Int64(20), Value::Int64(30)]),
                 CoercionId::Strict,
             ))),
             distinct: false,
@@ -3043,7 +3043,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "users.age",
                 CompareOp::Gte,
-                Value::Int(21),
+                Value::Int64(21),
                 CoercionId::NumericWiden,
             ))),
             distinct: false,
@@ -3082,7 +3082,7 @@ fn parse_explain_execution_with_qualified_identifiers() {
                 predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "users.age",
                     CompareOp::Gte,
-                    Value::Int(21),
+                    Value::Int64(21),
                     CoercionId::NumericWiden,
                 ))),
                 distinct: false,
@@ -3122,7 +3122,7 @@ fn parse_explain_execution_verbose_with_qualified_identifiers() {
                 predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "users.age",
                     CompareOp::Gte,
-                    Value::Int(21),
+                    Value::Int64(21),
                     CoercionId::NumericWiden,
                 ))),
                 distinct: false,
@@ -3173,7 +3173,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                 left: Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Gte,
                     left: Box::new(SqlExpr::Field("age".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(21))),
                 }),
                 right: Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Gt,
@@ -3183,7 +3183,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                         filter_expr: None,
                         distinct: false,
                     })),
-                    right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(1))),
                 }),
             }],
             order_by: vec![SqlOrderTerm {
@@ -3328,13 +3328,13 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                                 filter_expr: None,
                                 distinct: false,
                             })),
-                            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                            right: Box::new(SqlExpr::Literal(Value::Int64(1))),
                         },
-                        result: SqlExpr::Literal(Value::Int(1)),
+                        result: SqlExpr::Literal(Value::Int64(1)),
                     }],
-                    else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
+                    else_expr: Some(Box::new(SqlExpr::Literal(Value::Int64(0)))),
                 }),
-                right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                right: Box::new(SqlExpr::Literal(Value::Int64(1))),
             }],
             order_by: vec![SqlOrderTerm {
                 field: sql_order_expr("age"),
@@ -3496,9 +3496,9 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int(7),
+                Value::Int64(7),
                 Value::Text("Ada".to_string()),
-                Value::Int(21),
+                Value::Int64(21),
             ]]),
             returning: None,
         }),
@@ -3516,7 +3516,7 @@ fn parse_insert_statement_with_hex_blob_literal_values() {
             entity: "files".to_string(),
             columns: vec!["id".to_string(), "thumbnail".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int(7),
+                Value::Int64(7),
                 Value::Blob(vec![0x0A, 0x0B, 0xFF]),
             ]]),
             returning: None,
@@ -3537,14 +3537,14 @@ fn parse_insert_statement_with_multiple_values_tuples() {
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![
                 vec![
-                    Value::Int(7),
+                    Value::Int64(7),
                     Value::Text("Ada".to_string()),
-                    Value::Int(21)
+                    Value::Int64(21)
                 ],
                 vec![
-                    Value::Int(8),
+                    Value::Int64(8),
                     Value::Text("Bea".to_string()),
-                    Value::Int(22)
+                    Value::Int64(22)
                 ],
             ]),
             returning: None,
@@ -3569,13 +3569,13 @@ fn parse_update_statement_with_assignments_and_predicate() {
                 },
                 SqlAssignment {
                     field: "age".to_string(),
-                    value: Value::Int(21),
+                    value: Value::Int64(21),
                 },
             ],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "id",
                 CompareOp::Eq,
-                Value::Int(7),
+                Value::Int64(7),
                 CoercionId::Strict,
             ))),
             order_by: Vec::new(),
@@ -3603,13 +3603,13 @@ fn parse_update_statement_accepts_single_table_alias() {
                 },
                 SqlAssignment {
                     field: "u.age".to_string(),
-                    value: Value::Int(21),
+                    value: Value::Int64(21),
                 },
             ],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "u.id",
                 CompareOp::Eq,
-                Value::Int(7),
+                Value::Int64(7),
                 CoercionId::Strict,
             ))),
             order_by: Vec::new(),
@@ -3634,7 +3634,7 @@ fn parse_update_statement_with_order_limit_and_offset() {
             table_alias: None,
             assignments: vec![SqlAssignment {
                 field: "age".to_string(),
-                value: Value::Int(22),
+                value: Value::Int64(22),
             }],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "active",
@@ -3695,7 +3695,7 @@ fn parse_insert_statement_with_returning_field_list_parses() {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int(1),
+                Value::Int64(1),
                 Value::Text("Ada".to_string())
             ]]),
             returning: Some(SqlReturningProjection::Fields(vec![
@@ -3721,7 +3721,7 @@ fn parse_update_statement_with_returning_star_parses() {
                 field: "alias.name".to_string(),
                 value: Value::Text("Ada".to_string()),
             }],
-            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int(1))),
+            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int64(1))),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -3741,7 +3741,7 @@ fn parse_delete_statement_with_returning_field_list_parses() {
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
             table_alias: Some("alias".to_string()),
-            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int(1),)),
+            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int64(1),)),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -3763,7 +3763,7 @@ fn parse_delete_statement_with_returning_star_parses() {
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
             table_alias: None,
-            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int(1),)),
+            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int64(1),)),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -3782,7 +3782,7 @@ fn parse_insert_statement_without_column_list_parses() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec![],
-            source: SqlInsertSource::Values(vec![vec![Value::Int(1)]]),
+            source: SqlInsertSource::Values(vec![vec![Value::Int64(1)]]),
             returning: None,
         }),
     );
@@ -3811,7 +3811,7 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
                 predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
                     CompareOp::Gte,
-                    Value::Int(21),
+                    Value::Int64(21),
                     CoercionId::NumericWiden,
                 ))),
                 distinct: false,
@@ -3853,7 +3853,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
                 predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
                     CompareOp::Gte,
-                    Value::Int(21),
+                    Value::Int64(21),
                     CoercionId::NumericWiden,
                 ))),
                 distinct: false,
@@ -3882,7 +3882,7 @@ fn parse_insert_statement_accepts_single_table_alias() {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
-                Value::Int(1),
+                Value::Int64(1),
                 Value::Text("Ada".to_string()),
             ]]),
             returning: None,
@@ -3900,7 +3900,7 @@ fn parse_insert_statement_accepts_as_table_alias_without_column_list() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec![],
-            source: SqlInsertSource::Values(vec![vec![Value::Int(1)]]),
+            source: SqlInsertSource::Values(vec![vec![Value::Int64(1)]]),
             returning: None,
         }),
     );
@@ -3931,14 +3931,14 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
             columns: vec![],
             source: SqlInsertSource::Values(vec![
                 vec![
-                    Value::Int(1),
+                    Value::Int64(1),
                     Value::Text("Ada".to_string()),
-                    Value::Int(21)
+                    Value::Int64(21)
                 ],
                 vec![
-                    Value::Int(2),
+                    Value::Int64(2),
                     Value::Text("Bea".to_string()),
-                    Value::Int(22)
+                    Value::Int64(22)
                 ],
             ]),
             returning: None,
@@ -4239,13 +4239,13 @@ fn parse_sql_accepts_coalesce_and_nullif_in_where() {
                             SqlScalarFunction::NullIf,
                             vec![
                                 SqlExpr::Field("age".to_string()),
-                                SqlExpr::Literal(Value::Int(20)),
+                                SqlExpr::Literal(Value::Int64(20)),
                             ],
                         ),
-                        SqlExpr::Literal(Value::Int(99)),
+                        SqlExpr::Literal(Value::Int64(99)),
                     ],
                 )),
-                right: Box::new(SqlExpr::Literal(Value::Int(99))),
+                right: Box::new(SqlExpr::Literal(Value::Int64(99))),
             }),
             distinct: false,
             group_by: vec![],
@@ -4301,7 +4301,7 @@ fn parse_sql_accepts_aggregate_filter_clauses() {
                 filter_expr: Some(Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Gt,
                     left: Box::new(SqlExpr::Field("age".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(1))),
                 })),
                 distinct: false,
             })]),
@@ -4347,14 +4347,14 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
                     input: Some(Box::new(SqlExpr::Binary {
                         op: SqlExprBinaryOp::Add,
                         left: Box::new(SqlExpr::Field("age".to_string())),
-                        right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                        right: Box::new(SqlExpr::Literal(Value::Int64(1))),
                     })),
                     filter_expr: None,
                     distinct: false,
                 }),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
-                    input: Some(Box::new(SqlExpr::Literal(Value::Int(1)))),
+                    input: Some(Box::new(SqlExpr::Literal(Value::Int64(1)))),
                     filter_expr: None,
                     distinct: false,
                 }),
@@ -4364,12 +4364,12 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
                         input: Some(Box::new(SqlExpr::Binary {
                             op: SqlExprBinaryOp::Add,
                             left: Box::new(SqlExpr::Field("age".to_string())),
-                            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                            right: Box::new(SqlExpr::Literal(Value::Int64(1))),
                         })),
                         filter_expr: None,
                         distinct: false,
                     },),
-                    Value::Int(2),
+                    Value::Int64(2),
                 ),
             ]),
             projection_aliases: vec![None, None, None],
@@ -4548,7 +4548,7 @@ fn parse_sql_accepts_table_alias_as_form() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "u.age",
                 CompareOp::Gte,
-                Value::Int(21),
+                Value::Int64(21),
                 CoercionId::NumericWiden,
             ))),
             distinct: false,
@@ -4584,7 +4584,7 @@ fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "u.age",
                 CompareOp::Gte,
-                Value::Int(21),
+                Value::Int64(21),
                 CoercionId::NumericWiden,
             ))),
             distinct: false,

@@ -67,7 +67,7 @@ macro_rules! scalar_registry_value_pat {
         $crate::value::Value::Float64(_)
     };
     (Int) => {
-        $crate::value::Value::Int(_)
+        $crate::value::Value::Int64(_)
     };
     (Int128) => {
         $crate::value::Value::Int128(_)
@@ -88,7 +88,7 @@ macro_rules! scalar_registry_value_pat {
         $crate::value::Value::Timestamp(_)
     };
     (Nat) => {
-        $crate::value::Value::Nat(_)
+        $crate::value::Value::Nat64(_)
     };
     (Nat128) => {
         $crate::value::Value::Nat128(_)

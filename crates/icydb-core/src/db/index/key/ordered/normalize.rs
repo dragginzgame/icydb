@@ -9,7 +9,7 @@ use crate::{
         parts::{encode_segment_len, push_inverted},
         semantics::ordered_i32_bytes,
     },
-    types::{Decimal, Int, Nat},
+    types::{Decimal, IntBig, NatBig},
 };
 
 const DECIMAL_DIGIT_BUFFER_LEN: usize = 39;
@@ -78,7 +78,7 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
 /// `Value::IntBig` ordering uses sign bucket + digit length + digit bytes.
 pub(super) fn push_signed_big_integer_payload(
     out: &mut Vec<u8>,
-    value: &Int,
+    value: &IntBig,
 ) -> Result<(), OrderedValueEncodeError> {
     let (negative, limbs) = value.sign_and_u32_digits();
     let digits = u32_limbs_to_decimal_digits(limbs);
@@ -106,7 +106,7 @@ pub(super) fn push_signed_big_integer_payload(
 /// `Value::NatBig` ordering is length + digit bytes.
 pub(super) fn push_unsigned_big_integer_payload(
     out: &mut Vec<u8>,
-    value: &Nat,
+    value: &NatBig,
 ) -> Result<(), OrderedValueEncodeError> {
     let digits = u32_limbs_to_decimal_digits(value.u32_digits());
 

@@ -4,8 +4,8 @@
 
 use crate::{
     types::{
-        Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, Int, Int128, Nat, Nat128,
-        Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, Int128, IntBig, Nat128,
+        NatBig, Principal, Subaccount, Timestamp, Ulid,
     },
     value::{
         CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
@@ -23,10 +23,10 @@ fn v_f32(x: f32) -> Value {
     Value::Float32(F32::try_new(x).expect("finite f32"))
 }
 fn v_i(x: i64) -> Value {
-    Value::Int(x)
+    Value::Int64(x)
 }
 fn v_u(x: u64) -> Value {
-    Value::Nat(x)
+    Value::Nat64(x)
 }
 fn v_d_i(x: i64) -> Value {
     Value::Decimal(Decimal::from_i64(x).unwrap())
@@ -67,13 +67,13 @@ macro_rules! sample_value_for_scalar {
         Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite"))
     };
     (Int) => {
-        Value::Int(-7)
+        Value::Int64(-7)
     };
     (Int128) => {
         Value::Int128(Int128::from(123i128))
     };
     (IntBig) => {
-        Value::IntBig(Int::from(99i32))
+        Value::IntBig(IntBig::from(99i32))
     };
     (Principal) => {
         Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8]))
@@ -88,13 +88,13 @@ macro_rules! sample_value_for_scalar {
         Value::Timestamp(Timestamp::from_secs(1))
     };
     (Nat) => {
-        Value::Nat(7)
+        Value::Nat64(7)
     };
     (Nat128) => {
         Value::Nat128(Nat128::from(9u128))
     };
     (NatBig) => {
-        Value::NatBig(Nat::from(11u64))
+        Value::NatBig(NatBig::from(11u64))
     };
     (Ulid) => {
         Value::Ulid(Ulid::from_u128(42))
@@ -170,8 +170,8 @@ fn registry_coercion_family_cases() -> Vec<(Value, CoercionFamily)> {
 
 #[test]
 fn as_primary_key_value_some_for_keyable_variants() {
-    assert!(Value::Int(7).as_primary_key_value().is_some());
-    assert!(Value::Nat(7).as_primary_key_value().is_some());
+    assert!(Value::Int64(7).as_primary_key_value().is_some());
+    assert!(Value::Nat64(7).as_primary_key_value().is_some());
     assert!(Value::Ulid(Ulid::MIN).as_primary_key_value().is_some());
     assert!(Value::Unit.as_primary_key_value().is_some());
 
@@ -189,8 +189,8 @@ fn as_primary_key_value_some_for_keyable_variants() {
 #[test]
 fn primary_key_value_round_trips_through_value() {
     let values = [
-        Value::Int(-9),
-        Value::Nat(9),
+        Value::Int64(-9),
+        Value::Nat64(9),
         Value::Ulid(Ulid::MAX),
         Value::Unit,
     ];
@@ -235,9 +235,9 @@ fn canonical_tag_and_rank_are_stable() {
             Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite")),
             9,
         ),
-        (Value::Int(-7), 10),
+        (Value::Int64(-7), 10),
         (Value::Int128(Int128::from(123i128)), 11),
-        (Value::IntBig(Int::from(99i32)), 12),
+        (Value::IntBig(IntBig::from(99i32)), 12),
         (list, 13),
         (map, 14),
         (Value::Null, 15),
@@ -248,9 +248,9 @@ fn canonical_tag_and_rank_are_stable() {
         (Value::Subaccount(Subaccount::new([1u8; 32])), 17),
         (Value::Text("example".to_string()), 18),
         (Value::Timestamp(Timestamp::from_secs(1)), 19),
-        (Value::Nat(7), 20),
+        (Value::Nat64(7), 20),
         (Value::Nat128(Nat128::from(9u128)), 21),
-        (Value::NatBig(Nat::from(11u64)), 22),
+        (Value::NatBig(NatBig::from(11u64)), 22),
         (Value::Ulid(Ulid::from_u128(42)), 23),
         (Value::Unit, 24),
     ];
@@ -309,7 +309,7 @@ fn value_coercion_family_matches_registry_flag() {
 
 #[test]
 fn coercion_family_surface_is_stable_for_core_variants() {
-    assert_eq!(Value::Int(1).coercion_family(), CoercionFamily::Numeric);
+    assert_eq!(Value::Int64(1).coercion_family(), CoercionFamily::Numeric);
     assert_eq!(
         Value::Decimal(Decimal::new(5, 1)).coercion_family(),
         CoercionFamily::Numeric
@@ -332,11 +332,11 @@ fn coercion_family_surface_is_stable_for_core_variants() {
     );
     assert_eq!(Value::Bool(true).coercion_family(), CoercionFamily::Bool);
     assert_eq!(
-        Value::List(vec![Value::Int(1)]).coercion_family(),
+        Value::List(vec![Value::Int64(1)]).coercion_family(),
         CoercionFamily::Collection
     );
     assert_eq!(
-        Value::from_map(vec![(Value::Text("k".to_string()), Value::Int(1))])
+        Value::from_map(vec![(Value::Text("k".to_string()), Value::Int64(1))])
             .expect("map")
             .coercion_family(),
         CoercionFamily::Collection
@@ -408,9 +408,9 @@ fn cmp_numeric_respects_registry_numeric_coercion_flag() {
 #[test]
 fn cmp_numeric_rejects_date_and_value_big_integers() {
     let date = Value::Date(Date::new(2024, 1, 2));
-    let int_big = Value::IntBig(Int::from(10i32));
-    let nat_big = Value::NatBig(Nat::from(10u64));
-    let one = Value::Int(1);
+    let int_big = Value::IntBig(IntBig::from(10i32));
+    let nat_big = Value::NatBig(NatBig::from(10u64));
+    let one = Value::Int64(1);
 
     assert!(!date.supports_numeric_coercion());
     assert!(!int_big.supports_numeric_coercion());
@@ -424,7 +424,7 @@ fn cmp_numeric_rejects_date_and_value_big_integers() {
 #[test]
 fn cmp_numeric_is_unreachable_for_non_numeric_coercible_values() {
     let left = Value::Date(Date::EPOCH);
-    let right = Value::Int(0);
+    let right = Value::Int64(0);
 
     assert!(!left.supports_numeric_coercion());
     assert!(left.cmp_numeric(&right).is_none());

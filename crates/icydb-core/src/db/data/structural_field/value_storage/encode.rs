@@ -27,7 +27,7 @@ use crate::{
     },
     error::InternalError,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int, Nat, Principal, Subaccount,
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
@@ -140,7 +140,7 @@ pub(in crate::db) fn encode_nat128(value: crate::types::Nat128) -> Vec<u8> {
 }
 
 /// Encode one canonical structural value-storage `Value::IntBig` payload.
-pub(in crate::db) fn encode_int(value: &Int) -> Vec<u8> {
+pub(in crate::db) fn encode_int(value: &IntBig) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_int_big_payload(&mut encoded, value);
 
@@ -148,7 +148,7 @@ pub(in crate::db) fn encode_int(value: &Int) -> Vec<u8> {
 }
 
 /// Encode one canonical structural value-storage `Value::NatBig` payload.
-pub(in crate::db) fn encode_nat(value: &Nat) -> Vec<u8> {
+pub(in crate::db) fn encode_nat(value: &NatBig) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_nat_big_payload(&mut encoded, value);
 
@@ -313,8 +313,8 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         Value::Unit => push_binary_unit(out),
         Value::Blob(value) => push_binary_bytes(out, value.as_slice()),
         Value::Bool(value) => push_binary_bool(out, *value),
-        Value::Int(value) => push_binary_int64(out, *value),
-        Value::Nat(value) => push_binary_nat64(out, *value),
+        Value::Int64(value) => push_binary_int64(out, *value),
+        Value::Nat64(value) => push_binary_nat64(out, *value),
         Value::Text(value) => push_binary_text(out, value),
         Value::List(items) => push_value_binary_list_payload(out, items.as_slice())?,
         Value::Map(entries) => push_value_binary_map_payload(out, entries.as_slice())?,
@@ -495,7 +495,7 @@ fn push_binary_enum_value(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), In
 }
 
 // Encode one binary `Value::IntBig` payload as `(sign, limbs)`.
-fn push_int_big_payload(out: &mut Vec<u8>, value: &Int) {
+fn push_int_big_payload(out: &mut Vec<u8>, value: &IntBig) {
     let (is_negative, digits) = value.sign_and_u32_digits();
 
     push_binary_tag(out, VALUE_BINARY_TAG_INT_BIG);
@@ -514,7 +514,7 @@ fn push_int_big_payload(out: &mut Vec<u8>, value: &Int) {
 }
 
 // Encode one binary `Value::NatBig` payload as a limb sequence.
-fn push_nat_big_payload(out: &mut Vec<u8>, value: &Nat) {
+fn push_nat_big_payload(out: &mut Vec<u8>, value: &NatBig) {
     let digits = value.u32_digits();
 
     push_binary_tag(out, VALUE_BINARY_TAG_NAT_BIG);

@@ -724,9 +724,9 @@ mod tests {
             aggregate_execution_specs.as_slice(),
         );
         let candidates = vec![GroupedPageCandidate {
-            group_key: GroupKey::from_group_values(vec![Value::Nat(21)])
+            group_key: GroupKey::from_group_values(vec![Value::Nat64(21)])
                 .expect("candidate group key"),
-            aggregate_values: vec![Value::Nat(2), Value::Nat(90)],
+            aggregate_values: vec![Value::Nat64(2), Value::Nat64(90)],
             ranking: super::GroupedPageCandidateRanking::Canonical {
                 direction: crate::db::direction::Direction::Asc,
             },
@@ -750,8 +750,8 @@ mod tests {
         assert_eq!(
             rows,
             vec![RuntimeGroupedRow::new(
-                vec![Value::Nat(21)],
-                vec![Value::Nat(90), Value::Nat(2)],
+                vec![Value::Nat64(21)],
+                vec![Value::Nat64(90), Value::Nat64(2)],
             )]
         );
         assert_eq!(next_cursor_boundary, None);

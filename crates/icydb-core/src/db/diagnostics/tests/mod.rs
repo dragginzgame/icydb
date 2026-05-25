@@ -537,12 +537,12 @@ fn storage_report_accepts_composite_primary_key_data_keys() {
     reset_stores();
 
     let first_key = CompositePrimaryKeyValue::try_from_components(&[
-        PrimaryKeyComponent::Nat(1),
+        PrimaryKeyComponent::Nat64(1),
         PrimaryKeyComponent::Ulid(Ulid::from_parts(1, 2)),
     ])
     .expect("first composite diagnostics key should construct");
     let second_key = CompositePrimaryKeyValue::try_from_components(&[
-        PrimaryKeyComponent::Nat(1),
+        PrimaryKeyComponent::Nat64(1),
         PrimaryKeyComponent::Ulid(Ulid::from_parts(1, 3)),
     ])
     .expect("second composite diagnostics key should construct");

@@ -30,7 +30,7 @@ pub(super) fn decode_binary_i64_value_at(
     };
     let (value, cursor) = decode_binary_i64_from_parsed(raw_bytes, tag, len, payload_start, None)?;
 
-    Ok((Value::Int(value), cursor))
+    Ok((Value::Int64(value), cursor))
 }
 
 // Decode one nested u64 scalar while advancing by its fixed-width payload.
@@ -45,7 +45,7 @@ pub(super) fn decode_binary_u64_value_at(
     };
     let (value, cursor) = decode_binary_u64_from_parsed(raw_bytes, tag, len, payload_start, None)?;
 
-    Ok((Value::Nat(value), cursor))
+    Ok((Value::Nat64(value), cursor))
 }
 
 // Decode one nested text scalar while advancing by its length-prefixed payload.

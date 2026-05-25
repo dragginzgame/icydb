@@ -1446,12 +1446,12 @@ mod tests {
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
         assert_eq!(
-            generated.canonicalize_strict_sql_literal("name", &Value::Int(7)),
+            generated.canonicalize_strict_sql_literal("name", &Value::Int64(7)),
             None
         );
         assert_eq!(
-            accepted.canonicalize_strict_sql_literal("name", &Value::Int(7)),
-            Some(Value::Nat(7))
+            accepted.canonicalize_strict_sql_literal("name", &Value::Int64(7)),
+            Some(Value::Nat64(7))
         );
     }
 
@@ -1673,6 +1673,6 @@ mod tests {
             .expect("accepted nested leaf should resolve");
 
         assert!(literal_matches_type(&Value::Blob(vec![1]), &nested_type));
-        assert!(!literal_matches_type(&Value::Nat(1), &nested_type));
+        assert!(!literal_matches_type(&Value::Nat64(1), &nested_type));
     }
 }

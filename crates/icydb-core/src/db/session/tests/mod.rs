@@ -651,7 +651,7 @@ struct SessionSqlFieldPathProfile {
 impl SessionSqlFieldPathProfile {
     fn rank(value: Value) -> Self {
         match value {
-            Value::Int(value) => Self {
+            Value::Int64(value) => Self {
                 rank: SessionSqlFieldPathRank::Value(value),
             },
             Value::Null => Self {
@@ -690,7 +690,7 @@ impl RuntimeValueEncode for SessionSqlFieldPathProfile {
         let rank = match self.rank {
             SessionSqlFieldPathRank::Missing => return Value::Map(Vec::new()),
             SessionSqlFieldPathRank::Null => Value::Null,
-            SessionSqlFieldPathRank::Value(value) => Value::Int(value),
+            SessionSqlFieldPathRank::Value(value) => Value::Int64(value),
         };
 
         Value::Map(vec![(Value::Text("rank".to_string()), rank)])
@@ -705,7 +705,7 @@ impl RuntimeValueDecode for SessionSqlFieldPathProfile {
 
         let rank = session_sql_profile_record_entry(entries.as_slice(), "rank");
         let rank = match rank {
-            Some(Value::Int(rank)) => SessionSqlFieldPathRank::Value(*rank),
+            Some(Value::Int64(rank)) => SessionSqlFieldPathRank::Value(*rank),
             Some(Value::Null) => SessionSqlFieldPathRank::Null,
             Some(_) => return None,
             None => SessionSqlFieldPathRank::Missing,
@@ -777,7 +777,7 @@ impl RuntimeValueEncode for SessionSqlProfileRecord {
                 Value::Text("nickname".to_string()),
                 Value::Text(self.nickname.clone()),
             ),
-            (Value::Text("rank".to_string()), Value::Int(self.rank)),
+            (Value::Text("rank".to_string()), Value::Int64(self.rank)),
         ])
     }
 }
@@ -790,7 +790,7 @@ impl RuntimeValueDecode for SessionSqlProfileRecord {
 
         let rank = session_sql_profile_record_entry(entries.as_slice(), "rank")?;
         let nickname = session_sql_profile_record_entry(entries.as_slice(), "nickname")?;
-        let Value::Int(rank) = rank else {
+        let Value::Int64(rank) = rank else {
             return None;
         };
         let Value::Text(nickname) = nickname else {
@@ -942,14 +942,17 @@ struct SessionSqlCompositeWriteEntityKey {
 
 impl crate::traits::KeyValueCodec for SessionSqlCompositeWriteEntityKey {
     fn to_key_value(&self) -> Value {
-        Value::List(vec![Value::Nat(self.tenant_id), Value::Nat(self.local_id)])
+        Value::List(vec![
+            Value::Nat64(self.tenant_id),
+            Value::Nat64(self.local_id),
+        ])
     }
 
     fn from_key_value(value: &Value) -> Option<Self> {
         let Value::List(values) = value else {
             return None;
         };
-        let [Value::Nat(tenant_id), Value::Nat(local_id)] = values.as_slice() else {
+        let [Value::Nat64(tenant_id), Value::Nat64(local_id)] = values.as_slice() else {
             return None;
         };
 
@@ -965,8 +968,8 @@ impl crate::traits::PrimaryKeyCodec for SessionSqlCompositeWriteEntityKey {
         &self,
     ) -> Result<crate::db::PrimaryKeyValue, crate::traits::PrimaryKeyEncodeError> {
         let composite = crate::db::CompositePrimaryKeyValue::try_from_components(&[
-            crate::db::PrimaryKeyComponent::Nat(self.tenant_id),
-            crate::db::PrimaryKeyComponent::Nat(self.local_id),
+            crate::db::PrimaryKeyComponent::Nat64(self.tenant_id),
+            crate::db::PrimaryKeyComponent::Nat64(self.local_id),
         ])?;
 
         Ok(crate::db::PrimaryKeyValue::Composite(composite))
@@ -981,8 +984,8 @@ impl crate::traits::PrimaryKeyDecode for SessionSqlCompositeWriteEntityKey {
             ));
         };
         let [
-            crate::db::PrimaryKeyComponent::Nat(tenant_id),
-            crate::db::PrimaryKeyComponent::Nat(local_id),
+            crate::db::PrimaryKeyComponent::Nat64(tenant_id),
+            crate::db::PrimaryKeyComponent::Nat64(local_id),
         ] = composite.components()
         else {
             return Err(InternalError::store_corruption(
@@ -2299,7 +2302,11 @@ fn session_select_one_returns_constant_without_execution_metrics() {
     let value = with_metrics_sink(&sink, || session.select_one());
     let events = sink.into_events();
 
-    assert_eq!(value, Value::Int(1), "select_one should return constant 1");
+    assert_eq!(
+        value,
+        Value::Int64(1),
+        "select_one should return constant 1"
+    );
     assert!(
         events.is_empty(),
         "select_one should bypass planner and executor metrics emission",
@@ -2686,7 +2693,7 @@ fn runtime_output(value: OutputValue) -> Value {
         }
         OutputValue::Float32(value) => Value::Float32(value),
         OutputValue::Float64(value) => Value::Float64(value),
-        OutputValue::Int(value) => Value::Int(value),
+        OutputValue::Int64(value) => Value::Int64(value),
         OutputValue::Int128(value) => Value::Int128(value),
         OutputValue::IntBig(value) => Value::IntBig(value),
         OutputValue::List(values) => Value::List(values.into_iter().map(runtime_output).collect()),
@@ -2701,7 +2708,7 @@ fn runtime_output(value: OutputValue) -> Value {
         OutputValue::Subaccount(value) => Value::Subaccount(value),
         OutputValue::Text(value) => Value::Text(value),
         OutputValue::Timestamp(value) => Value::Timestamp(value),
-        OutputValue::Nat(value) => Value::Nat(value),
+        OutputValue::Nat64(value) => Value::Nat64(value),
         OutputValue::Nat128(value) => Value::Nat128(value),
         OutputValue::NatBig(value) => Value::NatBig(value),
         OutputValue::Ulid(value) => Value::Ulid(value),
@@ -3292,7 +3299,7 @@ fn session_aggregate_values_by_rank(
 ) -> Vec<OutputValue> {
     response
         .iter()
-        .map(|row| output(Value::Nat(row.entity_ref().rank)))
+        .map(|row| output(Value::Nat64(row.entity_ref().rank)))
         .collect()
 }
 
@@ -3301,7 +3308,7 @@ fn session_aggregate_values_by_rank_with_ids(
 ) -> Vec<(Ulid, OutputValue)> {
     response
         .iter()
-        .map(|row| (row.id().key(), output(Value::Nat(row.entity_ref().rank))))
+        .map(|row| (row.id().key(), output(Value::Nat64(row.entity_ref().rank))))
         .collect()
 }
 
@@ -3311,7 +3318,7 @@ fn session_aggregate_first_value_by_rank(
     response
         .iter()
         .next()
-        .map(|row| output(Value::Nat(row.entity_ref().rank)))
+        .map(|row| output(Value::Nat64(row.entity_ref().rank)))
 }
 
 fn session_aggregate_last_value_by_rank(
@@ -3320,7 +3327,7 @@ fn session_aggregate_last_value_by_rank(
     response
         .iter()
         .last()
-        .map(|row| output(Value::Nat(row.entity_ref().rank)))
+        .map(|row| output(Value::Nat64(row.entity_ref().rank)))
 }
 
 fn session_aggregate_ids(response: &EntityResponse<SessionAggregateEntity>) -> Vec<Ulid> {
@@ -3467,8 +3474,8 @@ fn session_aggregate_serialized_field_payload_bytes_for_rows(
 ) -> u64 {
     response.iter().fold(0u64, |acc, row| {
         let value = match field {
-            "group" => Value::Nat(row.entity_ref().group),
-            "rank" => Value::Nat(row.entity_ref().rank),
+            "group" => Value::Nat64(row.entity_ref().group),
+            "rank" => Value::Nat64(row.entity_ref().rank),
             "label" => Value::Text(row.entity_ref().label.clone()),
             other => panic!("session aggregate field should resolve: {other}"),
         };

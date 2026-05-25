@@ -75,21 +75,21 @@ fn scalar_compare_fast_path_matches_value_semantics_for_strict_int_and_text() {
     let text_actual = ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"));
 
     let int_cases = [
-        (CompareOp::Eq, Value::Int(7)),
-        (CompareOp::Ne, Value::Int(8)),
-        (CompareOp::Gt, Value::Int(3)),
+        (CompareOp::Eq, Value::Int64(7)),
+        (CompareOp::Ne, Value::Int64(8)),
+        (CompareOp::Gt, Value::Int64(3)),
         (
             CompareOp::In,
-            Value::List(vec![Value::Int(1), Value::Int(7)]),
+            Value::List(vec![Value::Int64(1), Value::Int64(7)]),
         ),
         (
             CompareOp::NotIn,
-            Value::List(vec![Value::Int(1), Value::Int(2)]),
+            Value::List(vec![Value::Int64(1), Value::Int64(2)]),
         ),
     ];
     for (op, expected) in int_cases {
         let direct = eval_compare_scalar_slot(int_actual, op, &expected, &strict);
-        let generic = eval_compare_values(&Value::Int(7), op, &expected, &strict);
+        let generic = eval_compare_values(&Value::Int64(7), op, &expected, &strict);
 
         assert_eq!(direct, Some(generic), "int fast path diverged for {op:?}");
     }
@@ -122,7 +122,7 @@ fn scalar_compare_fast_path_falls_back_for_numeric_widen() {
         Float32::try_new(7.0).expect("finite float should build"),
     ));
 
-    let direct = eval_compare_scalar_slot(actual, CompareOp::Eq, &Value::Int(7), &numeric);
+    let direct = eval_compare_scalar_slot(actual, CompareOp::Eq, &Value::Int64(7), &numeric);
 
     assert_eq!(
         direct, None,
@@ -158,13 +158,13 @@ fn predicate_program_dispatches_scalar_only_predicates_once() {
         Predicate::Compare(ComparePredicate {
             field: "score".to_string(),
             op: CompareOp::Gt,
-            value: Value::Int(10),
+            value: Value::Int64(10),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
         Predicate::Not(Box::new(Predicate::Compare(ComparePredicate {
             field: "score".to_string(),
             op: CompareOp::In,
-            value: Value::List(vec![Value::Int(1), Value::Int(2)]),
+            value: Value::List(vec![Value::Int64(1), Value::Int64(2)]),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }))),
     ]);
@@ -217,13 +217,13 @@ fn scalar_predicate_program_reuses_canonical_executable_tree() {
         Predicate::Compare(ComparePredicate {
             field: "score".to_string(),
             op: CompareOp::Eq,
-            value: Value::Int(10),
+            value: Value::Int64(10),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
         Predicate::Compare(ComparePredicate {
             field: "score".to_string(),
             op: CompareOp::In,
-            value: Value::List(vec![Value::Int(1), Value::Int(2)]),
+            value: Value::List(vec![Value::Int64(1), Value::Int64(2)]),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
     ]);
@@ -242,12 +242,12 @@ fn scalar_predicate_program_reuses_canonical_executable_tree() {
 
     assert_eq!(
         eq.right_literal(),
-        Some(&Value::Int(10)),
+        Some(&Value::Int64(10)),
         "compiled literal compare should keep the literal on the right operand",
     );
     assert_eq!(
         in_list.right_literal(),
-        Some(&Value::List(vec![Value::Int(1), Value::Int(2)])),
+        Some(&Value::List(vec![Value::Int64(1), Value::Int64(2)])),
         "compiled list compare should keep the list literal on the right operand",
     );
 }
@@ -385,7 +385,7 @@ fn predicate_program_accepts_mixed_cow_slot_readers() {
         Predicate::Compare(ComparePredicate {
             field: "score".to_string(),
             op: CompareOp::Gt,
-            value: Value::Int(5),
+            value: Value::Int64(5),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
         Predicate::TextContainsCi {
@@ -394,7 +394,7 @@ fn predicate_program_accepts_mixed_cow_slot_readers() {
         },
     ]);
     let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
-    let borrowed_score = Value::Int(7);
+    let borrowed_score = Value::Int64(7);
 
     let mut read_slot = |slot| match slot {
         1 => Some(Cow::Borrowed(&borrowed_score)),
@@ -438,28 +438,28 @@ fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "score",
                 CompareOp::Eq,
-                Value::Int(7),
+                Value::Int64(7),
                 CoercionId::Strict,
             )),
             PredicateTestSlotReader {
                 score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
                 name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
             },
-            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+            vec![(1, Value::Int64(7)), (3, Value::Text("Alpha".to_string()))],
         ),
         (
             "numeric range",
             Predicate::Compare(ComparePredicate::with_coercion(
                 "score",
                 CompareOp::Gt,
-                Value::Int(3),
+                Value::Int64(3),
                 CoercionId::Strict,
             )),
             PredicateTestSlotReader {
                 score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
                 name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
             },
-            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+            vec![(1, Value::Int64(7)), (3, Value::Text("Alpha".to_string()))],
         ),
         (
             "text casefold",
@@ -473,7 +473,7 @@ fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
                 score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
                 name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
             },
-            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+            vec![(1, Value::Int64(7)), (3, Value::Text("Alpha".to_string()))],
         ),
         (
             "null equality",
@@ -494,14 +494,14 @@ fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "score",
                 CompareOp::In,
-                Value::List(vec![Value::Int(1), Value::Int(7)]),
+                Value::List(vec![Value::Int64(1), Value::Int64(7)]),
                 CoercionId::Strict,
             )),
             PredicateTestSlotReader {
                 score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
                 name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
             },
-            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+            vec![(1, Value::Int64(7)), (3, Value::Text("Alpha".to_string()))],
         ),
         (
             "missing field",
@@ -512,7 +512,7 @@ fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
                 score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
                 name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
             },
-            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+            vec![(1, Value::Int64(7)), (3, Value::Text("Alpha".to_string()))],
         ),
     ];
 
@@ -546,7 +546,7 @@ fn generic_predicate_program_value_readers_match_for_fallback_shapes() {
                 Value::Float32(Float32::try_new(7.0).expect("finite float should build")),
                 CoercionId::NumericWiden,
             )),
-            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+            vec![(1, Value::Int64(7)), (3, Value::Text("Alpha".to_string()))],
         ),
         (
             "list contains fallback",
@@ -557,7 +557,7 @@ fn generic_predicate_program_value_readers_match_for_fallback_shapes() {
                 CoercionId::CollectionElement,
             )),
             vec![
-                (1, Value::Int(7)),
+                (1, Value::Int64(7)),
                 (
                     2,
                     Value::List(vec![
@@ -621,13 +621,13 @@ fn scalar_predicate_program_audit_covers_expected_scalar_shapes() {
         Predicate::Compare(ComparePredicate {
             field: "score".to_string(),
             op: CompareOp::Eq,
-            value: Value::Int(7),
+            value: Value::Int64(7),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
         Predicate::Compare(ComparePredicate {
             field: "score".to_string(),
             op: CompareOp::In,
-            value: Value::List(vec![Value::Int(1), Value::Int(7)]),
+            value: Value::List(vec![Value::Int64(1), Value::Int64(7)]),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
         Predicate::Compare(ComparePredicate {
@@ -681,13 +681,13 @@ fn scalar_predicate_program_audit_covers_expected_scalar_shapes() {
             Predicate::Compare(ComparePredicate {
                 field: "score".to_string(),
                 op: CompareOp::Eq,
-                value: Value::Int(1),
+                value: Value::Int64(1),
                 coercion: CoercionSpec::new(CoercionId::Strict),
             }),
             Predicate::Compare(ComparePredicate {
                 field: "score".to_string(),
                 op: CompareOp::Eq,
-                value: Value::Int(2),
+                value: Value::Int64(2),
                 coercion: CoercionSpec::new(CoercionId::Strict),
             }),
         ]),
@@ -725,13 +725,13 @@ fn scalar_predicate_program_audit_preserves_expected_generic_shapes() {
         },
         Predicate::TextContains {
             field: "name".to_string(),
-            value: Value::Int(1),
+            value: Value::Int64(1),
         },
         Predicate::And(vec![
             Predicate::Compare(ComparePredicate {
                 field: "score".to_string(),
                 op: CompareOp::Eq,
-                value: Value::Int(7),
+                value: Value::Int64(7),
                 coercion: CoercionSpec::new(CoercionId::Strict),
             }),
             Predicate::Compare(ComparePredicate {

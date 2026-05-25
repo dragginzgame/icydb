@@ -7,7 +7,7 @@ fn fingerprint_numeric_projection_alias_only_change_does_not_invalidate() {
         expr: Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -17,7 +17,7 @@ fn fingerprint_numeric_projection_alias_only_change_does_not_invalidate() {
                 expr: Box::new(Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(1))),
+                    right: Box::new(Expr::Literal(Value::Int64(1))),
                 }),
                 name: Alias::new("rank_plus_one_expr"),
             },
@@ -40,7 +40,7 @@ fn fingerprint_numeric_projection_semantic_change_invalidates() {
         expr: Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -48,7 +48,7 @@ fn fingerprint_numeric_projection_semantic_change_invalidates() {
         expr: Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Mul,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -85,7 +85,7 @@ fn fingerprint_numeric_literal_decimal_scale_is_canonicalized() {
 fn fingerprint_literal_numeric_subtype_remains_significant_when_observable() {
     let plan: AccessPlannedQuery = full_scan_query();
     let int_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
-        expr: Expr::Literal(Value::Int(1)),
+        expr: Expr::Literal(Value::Int64(1)),
         alias: None,
     }]);
     let decimal_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
@@ -106,15 +106,15 @@ fn fingerprint_numeric_promotion_paths_do_not_fragment() {
     let int_plus_int = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
         expr: Expr::Binary {
             op: BinaryOp::Add,
-            left: Box::new(Expr::Literal(Value::Int(1))),
-            right: Box::new(Expr::Literal(Value::Int(2))),
+            left: Box::new(Expr::Literal(Value::Int64(1))),
+            right: Box::new(Expr::Literal(Value::Int64(2))),
         },
         alias: None,
     }]);
     let int_plus_decimal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
         expr: Expr::Binary {
             op: BinaryOp::Add,
-            left: Box::new(Expr::Literal(Value::Int(1))),
+            left: Box::new(Expr::Literal(Value::Int64(1))),
             right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(20, 1)))),
         },
         alias: None,
@@ -123,7 +123,7 @@ fn fingerprint_numeric_promotion_paths_do_not_fragment() {
         expr: Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Literal(Value::Decimal(Decimal::new(10, 1)))),
-            right: Box::new(Expr::Literal(Value::Int(2))),
+            right: Box::new(Expr::Literal(Value::Int64(2))),
         },
         alias: None,
     }]);
@@ -190,7 +190,7 @@ fn fingerprint_distinct_numeric_noop_paths_stay_stable() {
             expr: Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Aggregate(sum("rank").distinct())),
-                right: Box::new(Expr::Literal(Value::Int(0))),
+                right: Box::new(Expr::Literal(Value::Int64(0))),
             },
             alias: None,
         }]);

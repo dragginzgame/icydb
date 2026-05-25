@@ -351,7 +351,7 @@ fn continuation_signature_numeric_projection_alias_only_change_does_not_invalida
         expr: Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -361,7 +361,7 @@ fn continuation_signature_numeric_projection_alias_only_change_does_not_invalida
                 expr: Box::new(Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(1))),
+                    right: Box::new(Expr::Literal(Value::Int64(1))),
                 }),
                 name: Alias::new("rank_plus_one_expr"),
             },
@@ -389,7 +389,7 @@ fn continuation_decode_remains_stable_for_alias_only_numeric_projection_changes(
         expr: Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -399,7 +399,7 @@ fn continuation_decode_remains_stable_for_alias_only_numeric_projection_changes(
                 expr: Box::new(Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(1))),
+                    right: Box::new(Expr::Literal(Value::Int64(1))),
                 }),
                 name: Alias::new("rank_plus_one_expr"),
             },
@@ -415,7 +415,7 @@ fn continuation_decode_remains_stable_for_alias_only_numeric_projection_changes(
     );
     let token = GroupedContinuationToken::new_with_direction(
         semantic_signature,
-        vec![Value::Nat(7)],
+        vec![Value::Nat64(7)],
         Direction::Asc,
         0,
     );
@@ -434,7 +434,7 @@ fn continuation_decode_remains_stable_for_alias_only_numeric_projection_changes(
 
     assert_eq!(
         decoded.last_group_key(),
-        Some(vec![Value::Nat(7)].as_slice())
+        Some(vec![Value::Nat64(7)].as_slice())
     );
 }
 
@@ -524,7 +524,7 @@ fn continuation_signature_numeric_projection_semantic_change_invalidates() {
         expr: Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -532,7 +532,7 @@ fn continuation_signature_numeric_projection_semantic_change_invalidates() {
         expr: Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Mul,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -556,7 +556,7 @@ fn continuation_signature_grouped_projection_semantic_change_invalidates() {
             expr: Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             alias: None,
         }]);
@@ -565,7 +565,7 @@ fn continuation_signature_grouped_projection_semantic_change_invalidates() {
             expr: Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             },
             alias: None,
         }]);
@@ -930,7 +930,7 @@ fn signature_changes_when_grouped_having_changes() {
                     &group,
                     0,
                     CompareOp::Gt,
-                    Value::Nat(1),
+                    Value::Nat64(1),
                 )),
             );
     let grouped_having_gte: AccessPlannedQuery =
@@ -941,7 +941,7 @@ fn signature_changes_when_grouped_having_changes() {
                     &group,
                     0,
                     CompareOp::Gte,
-                    Value::Nat(1),
+                    Value::Nat64(1),
                 )),
             );
 
@@ -971,7 +971,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                     &group,
                     0,
                     CompareOp::Gt,
-                    Value::Nat(1),
+                    Value::Nat64(1),
                 )),
             );
     let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
@@ -1073,7 +1073,7 @@ fn signature_snapshot_grouped_filtered_shape_is_stable() {
                     filter_expr: Some(Box::new(Expr::Binary {
                         op: crate::db::query::plan::expr::BinaryOp::Gte,
                         left: Box::new(Expr::Field(FieldId::new("rank"))),
-                        right: Box::new(Expr::Literal(Value::Nat(10))),
+                        right: Box::new(Expr::Literal(Value::Nat64(10))),
                     })),
                     distinct: false,
                 }],
@@ -1100,7 +1100,7 @@ fn signature_snapshot_global_filtered_shape_is_stable() {
                     filter_expr: Some(Box::new(Expr::Binary {
                         op: crate::db::query::plan::expr::BinaryOp::Gte,
                         left: Box::new(Expr::Field(FieldId::new("rank"))),
-                        right: Box::new(Expr::Literal(Value::Nat(10))),
+                        right: Box::new(Expr::Literal(Value::Nat64(10))),
                     })),
                     distinct: false,
                 }],
@@ -1119,7 +1119,7 @@ fn signature_snapshot_global_filtered_shape_is_stable() {
 fn continuation_token_round_trips_index_range_anchor() {
     let raw_key = vec![0xAA, 0xBB, 0xCC];
     let boundary = CursorBoundary {
-        slots: vec![CursorBoundarySlot::Present(Value::Nat(42))],
+        slots: vec![CursorBoundarySlot::Present(Value::Nat64(42))],
     };
     let signature = ContinuationSignature::from_bytes([7u8; 32]);
 

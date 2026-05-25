@@ -127,8 +127,8 @@ impl RuntimeValueEncode for ProjectionEvalProfile {
                 Value::Text("name".to_string()),
                 Value::Text(self.name.clone()),
             ),
-            (Value::Text("rank".to_string()), Value::Int(self.rank)),
-            (Value::Text("score".to_string()), Value::Nat(self.score)),
+            (Value::Text("rank".to_string()), Value::Int64(self.rank)),
+            (Value::Text("score".to_string()), Value::Nat64(self.score)),
             (
                 Value::Text("details".to_string()),
                 Value::Map(vec![(
@@ -153,10 +153,10 @@ impl RuntimeValueDecode for ProjectionEvalProfile {
         let Value::Text(name) = name else {
             return None;
         };
-        let Value::Int(rank) = rank else {
+        let Value::Int64(rank) = rank else {
             return None;
         };
-        let Value::Nat(score) = score else {
+        let Value::Nat64(score) = score else {
             return None;
         };
         let Value::Map(details) = details else {

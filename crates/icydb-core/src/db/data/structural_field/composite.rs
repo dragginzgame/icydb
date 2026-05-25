@@ -596,8 +596,8 @@ mod tests {
             value: &FieldKind::Nat64,
         };
         let value = Value::Map(vec![
-            (Value::Text("alpha".to_string()), Value::Nat(1)),
-            (Value::Text("beta".to_string()), Value::Nat(2)),
+            (Value::Text("alpha".to_string()), Value::Nat64(1)),
+            (Value::Text("beta".to_string()), Value::Nat64(2)),
         ]);
         let encoded = encode_composite_field_binary_bytes(kind, &value, "entries")
             .expect("binary composite map should encode");
@@ -616,7 +616,7 @@ mod tests {
             variants: STATE_VARIANTS,
         };
         let value =
-            Value::Enum(ValueEnum::new("Loaded", Some("State")).with_payload(Value::Nat(7)));
+            Value::Enum(ValueEnum::new("Loaded", Some("State")).with_payload(Value::Nat64(7)));
         let encoded = encode_composite_field_binary_bytes(kind, &value, "state")
             .expect("binary composite enum should encode");
         let decoded = decode_composite_field_binary_bytes(&encoded, kind)

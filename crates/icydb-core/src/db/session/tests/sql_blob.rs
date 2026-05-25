@@ -104,7 +104,7 @@ fn blob_row_summaries(rows: Vec<Vec<Value>>) -> Vec<(String, u64, usize, usize)>
         .map(|row| match row.as_slice() {
             [
                 Value::Text(label),
-                Value::Nat(bucket),
+                Value::Nat64(bucket),
                 Value::Blob(thumbnail),
                 Value::Blob(chunk),
             ] => (label.clone(), *bucket, thumbnail.len(), chunk.len()),
@@ -459,18 +459,18 @@ fn sql_octet_length_reports_blob_byte_lengths() {
         vec![
             vec![
                 Value::Text("archive-thumb".to_string()),
-                Value::Nat(SMALL_THUMBNAIL_BYTES as u64),
-                Value::Nat(LARGE_CHUNK_BYTES as u64),
+                Value::Nat64(SMALL_THUMBNAIL_BYTES as u64),
+                Value::Nat64(LARGE_CHUNK_BYTES as u64),
             ],
             vec![
                 Value::Text("hero-thumb-a".to_string()),
-                Value::Nat(SMALL_THUMBNAIL_BYTES as u64),
-                Value::Nat(LARGE_CHUNK_BYTES as u64),
+                Value::Nat64(SMALL_THUMBNAIL_BYTES as u64),
+                Value::Nat64(LARGE_CHUNK_BYTES as u64),
             ],
             vec![
                 Value::Text("hero-thumb-b".to_string()),
-                Value::Nat(MEDIUM_THUMBNAIL_BYTES as u64),
-                Value::Nat(XL_CHUNK_BYTES as u64),
+                Value::Nat64(MEDIUM_THUMBNAIL_BYTES as u64),
+                Value::Nat64(XL_CHUNK_BYTES as u64),
             ],
         ],
         "OCTET_LENGTH(blob) should count bytes without returning the payload",

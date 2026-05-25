@@ -822,9 +822,9 @@ fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) 
         | (PersistedFieldKind::Enum { .. }, Value::Enum(_))
         | (PersistedFieldKind::Float32, Value::Float32(_))
         | (PersistedFieldKind::Float64, Value::Float64(_))
-        | (PersistedFieldKind::Int64, Value::Int(_))
+        | (PersistedFieldKind::Int64, Value::Int64(_))
         | (PersistedFieldKind::Int128, Value::Int128(_))
-        | (PersistedFieldKind::Nat64, Value::Nat(_))
+        | (PersistedFieldKind::Nat64, Value::Nat64(_))
         | (PersistedFieldKind::Principal, Value::Principal(_))
         | (PersistedFieldKind::Subaccount, Value::Subaccount(_))
         | (PersistedFieldKind::Text { .. }, Value::Text(_))
@@ -833,15 +833,15 @@ fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) 
         | (PersistedFieldKind::Ulid, Value::Ulid(_))
         | (PersistedFieldKind::Unit, Value::Unit)
         | (PersistedFieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
-        (PersistedFieldKind::Int8, Value::Int(value)) => i8::try_from(*value).is_ok(),
-        (PersistedFieldKind::Int16, Value::Int(value)) => i16::try_from(*value).is_ok(),
-        (PersistedFieldKind::Int32, Value::Int(value)) => i32::try_from(*value).is_ok(),
+        (PersistedFieldKind::Int8, Value::Int64(value)) => i8::try_from(*value).is_ok(),
+        (PersistedFieldKind::Int16, Value::Int64(value)) => i16::try_from(*value).is_ok(),
+        (PersistedFieldKind::Int32, Value::Int64(value)) => i32::try_from(*value).is_ok(),
         (PersistedFieldKind::IntBig { max_bytes }, Value::IntBig(value)) => {
             value.to_leb128().len() <= *max_bytes as usize
         }
-        (PersistedFieldKind::Nat8, Value::Nat(value)) => u8::try_from(*value).is_ok(),
-        (PersistedFieldKind::Nat16, Value::Nat(value)) => u16::try_from(*value).is_ok(),
-        (PersistedFieldKind::Nat32, Value::Nat(value)) => u32::try_from(*value).is_ok(),
+        (PersistedFieldKind::Nat8, Value::Nat64(value)) => u8::try_from(*value).is_ok(),
+        (PersistedFieldKind::Nat16, Value::Nat64(value)) => u16::try_from(*value).is_ok(),
+        (PersistedFieldKind::Nat32, Value::Nat64(value)) => u32::try_from(*value).is_ok(),
         (PersistedFieldKind::NatBig { max_bytes }, Value::NatBig(value)) => {
             value.to_leb128().len() <= *max_bytes as usize
         }

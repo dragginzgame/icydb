@@ -388,7 +388,7 @@ fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
     let mut logical = scalar_with_group_order(vec![grouped_order_binary_field_literal(
         "score",
         BinaryOp::Add,
-        Value::Int(1),
+        Value::Int64(1),
         OrderDirection::Asc,
     )]);
     logical.page = Some(PageSpec {
@@ -421,7 +421,7 @@ fn grouped_subtractive_group_key_order_with_limit_passes_planner_cursor_policy()
     let mut logical = scalar_with_group_order(vec![grouped_order_binary_field_literal(
         "score",
         BinaryOp::Sub,
-        Value::Int(2),
+        Value::Int64(2),
         OrderDirection::Asc,
     )]);
     logical.page = Some(PageSpec {
@@ -555,7 +555,7 @@ fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
 #[test]
 fn grouped_distinct_with_having_fails_in_planner_policy() {
     let group = grouped_spec();
-    let having = aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Nat(1));
+    let having = aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Nat64(1));
 
     let err = validate_group_policy(schema(), &scalar_plan(true), &group, Some(&having))
         .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
@@ -579,9 +579,9 @@ fn grouped_policy_allows_widened_having_exprs_on_shared_post_aggregate_seam() {
         left: Box::new(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(Expr::Aggregate(crate::db::count())),
-            right: Box::new(Expr::Literal(Value::Nat(1))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
         }),
-        right: Box::new(Expr::Literal(Value::Nat(5))),
+        right: Box::new(Expr::Literal(Value::Nat64(5))),
     };
 
     validate_group_policy(schema(), &scalar_plan(false), &grouped_spec(), Some(&expr))
@@ -665,7 +665,7 @@ fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
     let having = Expr::Binary {
         op: crate::db::query::plan::expr::BinaryOp::Gt,
         left: Box::new(Expr::Aggregate(crate::db::sum("score"))),
-        right: Box::new(Expr::Literal(Value::Nat(5))),
+        right: Box::new(Expr::Literal(Value::Nat64(5))),
     };
 
     let err = validate_group_structure(schema(), &group, &projection, Some(&having))

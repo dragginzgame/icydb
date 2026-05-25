@@ -10,7 +10,7 @@ use crate::{
         coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
         compare_numeric_order, divide_decimal_terms_checked,
     },
-    types::{Decimal, Float64 as F64, Int},
+    types::{Decimal, Float64 as F64, IntBig},
     value::Value,
 };
 use std::cmp::Ordering;
@@ -18,11 +18,11 @@ use std::cmp::Ordering;
 #[test]
 fn numeric_compare_helpers_follow_numeric_widen_domain() {
     assert_eq!(
-        compare_numeric_order(&Value::Int(2), &Value::Nat(2)),
+        compare_numeric_order(&Value::Int64(2), &Value::Nat64(2)),
         Some(Ordering::Equal)
     );
     assert_eq!(
-        compare_numeric_eq(&Value::Int(2), &Value::Nat(2)),
+        compare_numeric_eq(&Value::Int64(2), &Value::Nat64(2)),
         Some(true)
     );
     assert_eq!(
@@ -34,13 +34,13 @@ fn numeric_compare_helpers_follow_numeric_widen_domain() {
 #[test]
 fn numeric_compare_order_matches_value_numeric_cmp_for_shared_domain() {
     let cases = [
-        (Value::Int(42), Value::Nat(42)),
+        (Value::Int64(42), Value::Nat64(42)),
         (
             Value::Decimal(Decimal::from_i64(10).expect("decimal")),
             Value::Float64(F64::try_new(10.0).expect("finite float")),
         ),
         (
-            Value::Int(9_007_199_254_740_993),
+            Value::Int64(9_007_199_254_740_993),
             Value::Float64(F64::try_new(9_007_199_254_740_992.0).expect("finite float")),
         ),
     ];
@@ -57,7 +57,7 @@ fn numeric_compare_order_matches_value_numeric_cmp_for_shared_domain() {
 #[test]
 fn numeric_compare_order_requires_both_operands_numeric_coercible() {
     assert_eq!(
-        compare_numeric_order(&Value::Int(2), &Value::Text("2".to_string())),
+        compare_numeric_order(&Value::Int64(2), &Value::Text("2".to_string())),
         None
     );
     assert_eq!(
@@ -69,12 +69,12 @@ fn numeric_compare_order_requires_both_operands_numeric_coercible() {
 #[test]
 fn broad_numeric_coercion_matches_value_numeric_decimal_boundary() {
     let cases = [
-        Value::Int(4),
-        Value::Nat(4),
+        Value::Int64(4),
+        Value::Nat64(4),
         Value::Decimal(Decimal::new(40, 1)),
         Value::Float64(F64::try_new(4.0).expect("finite float")),
         Value::Text("x".to_string()),
-        Value::IntBig(Int::from(4i32)),
+        Value::IntBig(IntBig::from(4i32)),
     ];
 
     for value in cases {
@@ -92,7 +92,7 @@ fn broad_numeric_coercion_matches_value_numeric_decimal_boundary() {
 #[test]
 fn numeric_or_strict_compare_prefers_numeric_widen_when_available() {
     assert_eq!(
-        compare_numeric_or_strict_order(&Value::Int(2), &Value::Nat(2)),
+        compare_numeric_or_strict_order(&Value::Int64(2), &Value::Nat64(2)),
         Some(Ordering::Equal)
     );
 }
@@ -100,7 +100,7 @@ fn numeric_or_strict_compare_prefers_numeric_widen_when_available() {
 #[test]
 fn canonical_value_ordering_uses_value_canonical_order() {
     assert_eq!(
-        canonical_value_compare(&Value::Nat(7), &Value::Nat(8)),
+        canonical_value_compare(&Value::Nat64(7), &Value::Nat64(8)),
         Ordering::Less
     );
     assert_eq!(
@@ -112,7 +112,7 @@ fn canonical_value_ordering_uses_value_canonical_order() {
 #[test]
 fn canonical_value_ordering_prefers_shared_numeric_or_strict_authority() {
     assert_eq!(
-        canonical_value_compare(&Value::Int(7), &Value::Nat(7)),
+        canonical_value_compare(&Value::Int64(7), &Value::Nat64(7)),
         Ordering::Equal
     );
 }
@@ -130,14 +130,14 @@ fn numeric_or_strict_compare_falls_back_to_strict_for_non_numeric_values() {
 
 #[test]
 fn numeric_decimal_coercion_rejects_non_coercible_variants() {
-    assert!(coerce_numeric_decimal(&Value::Int(4)).is_some());
+    assert!(coerce_numeric_decimal(&Value::Int64(4)).is_some());
     assert!(coerce_numeric_decimal(&Value::Text("x".to_string())).is_none());
-    assert!(coerce_numeric_decimal(&Value::IntBig(Int::from(4i32))).is_none());
+    assert!(coerce_numeric_decimal(&Value::IntBig(IntBig::from(4i32))).is_none());
 }
 
 #[test]
 fn numeric_arithmetic_promotes_integer_and_decimal_to_decimal_domain() {
-    let left = Value::Int(2);
+    let left = Value::Int64(2);
     let right = Value::Decimal(Decimal::new(15, 1));
 
     let result = apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, &left, &right)
@@ -148,8 +148,8 @@ fn numeric_arithmetic_promotes_integer_and_decimal_to_decimal_domain() {
 
 #[test]
 fn numeric_arithmetic_division_rounds_half_away_from_zero() {
-    let left = Value::Int(-1);
-    let right = Value::Int(6);
+    let left = Value::Int64(-1);
+    let right = Value::Int64(6);
 
     let result = apply_numeric_arithmetic_checked(NumericArithmeticOp::Div, &left, &right)
         .expect("numeric division should produce deterministic decimal output");
@@ -163,7 +163,7 @@ fn numeric_arithmetic_division_rounds_half_away_from_zero() {
 #[test]
 fn numeric_arithmetic_addition_reports_overflow() {
     let left = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
-    let right = Value::Int(1);
+    let right = Value::Int64(1);
 
     let err = apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, &left, &right)
         .expect_err("checked numeric addition should reject overflow");
@@ -174,7 +174,7 @@ fn numeric_arithmetic_addition_reports_overflow() {
 #[test]
 fn checked_numeric_arithmetic_reports_overflow() {
     let left = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
-    let right = Value::Int(1);
+    let right = Value::Int64(1);
 
     let err = apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, &left, &right)
         .expect_err("checked numeric addition should reject overflow");

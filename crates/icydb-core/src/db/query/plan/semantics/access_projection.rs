@@ -468,8 +468,8 @@ mod access_projection_tests {
                 prefix_len,
                 prefix.len(),
             ));
-            assert_eq!(lower, &Bound::Included(Value::Nat(8)));
-            assert_eq!(upper, &Bound::Excluded(Value::Nat(12)));
+            assert_eq!(lower, &Bound::Included(Value::Nat64(8)));
+            assert_eq!(upper, &Bound::Excluded(Value::Nat64(12)));
         }
 
         fn full_scan(&mut self) -> Self::Output {
@@ -498,20 +498,20 @@ mod access_projection_tests {
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         TEST_INDEX,
                     ),
-                values: vec![Value::Nat(7)],
+                values: vec![Value::Nat64(7)],
             }),
             AccessPlan::path(AccessPath::IndexMultiLookup {
                 index:
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         TEST_INDEX,
                     ),
-                values: vec![Value::Nat(7), Value::Nat(9)],
+                values: vec![Value::Nat64(7), Value::Nat64(9)],
             }),
             AccessPlan::path(AccessPath::index_range(
                 TEST_INDEX,
-                vec![Value::Nat(7)],
-                Bound::Included(Value::Nat(8)),
-                Bound::Excluded(Value::Nat(12)),
+                vec![Value::Nat64(7)],
+                Bound::Included(Value::Nat64(8)),
+                Bound::Excluded(Value::Nat64(12)),
             )),
             AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::FullScan),
@@ -571,17 +571,17 @@ mod access_projection_tests {
 
         fn by_key(&mut self, key: &Value) -> Self::Output {
             self.events.push("by_key");
-            assert_eq!(key, &Value::Nat(10));
+            assert_eq!(key, &Value::Nat64(10));
         }
 
         fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
             self.events.push("by_keys");
-            assert_eq!(keys, [Value::Nat(20), Value::Nat(30)].as_slice());
+            assert_eq!(keys, [Value::Nat64(20), Value::Nat64(30)].as_slice());
         }
 
         fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
             self.events.push("key_range");
-            assert_eq!((start, end), (&Value::Nat(40), &Value::Nat(90)));
+            assert_eq!((start, end), (&Value::Nat64(40), &Value::Nat64(90)));
         }
 
         fn index_prefix(
@@ -626,8 +626,8 @@ mod access_projection_tests {
                 prefix_len,
                 prefix.len(),
             ));
-            assert_eq!(lower, &Bound::Included(Value::Nat(8)));
-            assert_eq!(upper, &Bound::Excluded(Value::Nat(12)));
+            assert_eq!(lower, &Bound::Included(Value::Nat64(8)));
+            assert_eq!(upper, &Bound::Excluded(Value::Nat64(12)));
         }
 
         fn full_scan(&mut self) -> Self::Output {
@@ -649,38 +649,38 @@ mod access_projection_tests {
     fn project_explain_access_path_walks_canonical_access_variants() {
         let access = ExplainAccessPath::Union(vec![
             ExplainAccessPath::ByKey {
-                key: Value::Nat(10),
+                key: Value::Nat64(10),
             },
             ExplainAccessPath::ByKeys {
-                keys: vec![Value::Nat(20), Value::Nat(30)],
+                keys: vec![Value::Nat64(20), Value::Nat64(30)],
             },
             ExplainAccessPath::KeyRange {
-                start: Value::Nat(40),
-                end: Value::Nat(90),
+                start: Value::Nat64(40),
+                end: Value::Nat64(90),
             },
             ExplainAccessPath::IndexPrefix {
                 name: TEST_INDEX.name().to_string(),
                 fields: vec!["group".to_string(), "rank".to_string()],
                 prefix_len: 1,
-                values: vec![Value::Nat(7)],
+                values: vec![Value::Nat64(7)],
             },
             ExplainAccessPath::IndexMultiLookup {
                 name: TEST_INDEX.name().to_string(),
                 fields: vec!["group".to_string(), "rank".to_string()],
-                values: vec![Value::Nat(7), Value::Nat(9)],
+                values: vec![Value::Nat64(7), Value::Nat64(9)],
             },
             ExplainAccessPath::IndexRange {
                 name: TEST_INDEX.name().to_string(),
                 fields: vec!["group".to_string(), "rank".to_string()],
                 prefix_len: 1,
-                prefix: vec![Value::Nat(7)],
-                lower: Bound::Included(Value::Nat(8)),
-                upper: Bound::Excluded(Value::Nat(12)),
+                prefix: vec![Value::Nat64(7)],
+                lower: Bound::Included(Value::Nat64(8)),
+                upper: Bound::Excluded(Value::Nat64(12)),
             },
             ExplainAccessPath::Intersection(vec![
                 ExplainAccessPath::FullScan,
                 ExplainAccessPath::ByKey {
-                    key: Value::Nat(10),
+                    key: Value::Nat64(10),
                 },
             ]),
         ]);
@@ -727,7 +727,9 @@ mod access_projection_tests {
     #[test]
     fn explain_access_kind_label_projects_stable_access_codes() {
         assert_eq!(
-            explain_access_kind_label(&ExplainAccessPath::ByKey { key: Value::Nat(1) }),
+            explain_access_kind_label(&ExplainAccessPath::ByKey {
+                key: Value::Nat64(1)
+            }),
             "by_key"
         );
         assert_eq!(

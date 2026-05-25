@@ -98,7 +98,7 @@ fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     )
@@ -128,7 +128,7 @@ fn covering_projection_context_accepts_suffix_index_order() {
                     false,
                 ),
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -171,7 +171,7 @@ fn covering_projection_context_accepts_composite_primary_key_suffix_order() {
                     false,
                 ),
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -210,7 +210,7 @@ fn covering_projection_context_accepts_primary_key_order() {
                     false,
                 ),
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -251,7 +251,7 @@ fn covering_projection_context_rejects_mixed_order_directions() {
                     false,
                 ),
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -284,9 +284,9 @@ fn covering_projection_context_rejects_range_full_order_contract() {
                 &INDEX_FIELDS_GROUP_RANK,
                 false,
             ),
-            vec![Value::Nat(7)],
-            Bound::Included(Value::Nat(1)),
-            Bound::Included(Value::Nat(99)),
+            vec![Value::Nat64(7)],
+            Bound::Included(Value::Nat64(1)),
+            Bound::Included(Value::Nat64(99)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -321,12 +321,12 @@ fn constant_covering_projection_value_from_access_resolves_prefix_binding() {
                 false,
             ),
         ),
-        values: vec![Value::Nat(7), Value::Nat(11)],
+        values: vec![Value::Nat64(7), Value::Nat64(11)],
     };
 
     let value =
         super::constant_covering_projection_value_from_access(&AccessPlan::path(access), "group");
-    assert_eq!(value, Some(Value::Nat(7)));
+    assert_eq!(value, Some(Value::Nat64(7)));
 }
 
 #[test]
@@ -338,14 +338,14 @@ fn constant_covering_projection_value_from_access_uses_range_prefix_components()
             &INDEX_FIELDS_GROUP_RANK,
             false,
         ),
-        vec![Value::Nat(7)],
-        Bound::Included(Value::Nat(1)),
-        Bound::Included(Value::Nat(99)),
+        vec![Value::Nat64(7)],
+        Bound::Included(Value::Nat64(1)),
+        Bound::Included(Value::Nat64(99)),
     );
 
     let value =
         super::constant_covering_projection_value_from_access(&AccessPlan::path(access), "group");
-    assert_eq!(value, Some(Value::Nat(7)));
+    assert_eq!(value, Some(Value::Nat64(7)));
 }
 
 #[test]
@@ -359,7 +359,7 @@ fn constant_covering_projection_value_from_access_returns_none_when_target_unbou
                 false,
             ),
         ),
-        values: vec![Value::Nat(7)],
+        values: vec![Value::Nat64(7)],
     };
 
     let value =
@@ -500,7 +500,7 @@ fn covering_read_plan_accepts_prefix_bound_constant_projection() {
     assert_eq!(covering.fields[0].field_slot.field(), "group");
     assert_eq!(
         covering.fields[0].source,
-        super::CoveringReadFieldSource::Constant(Value::Nat(7))
+        super::CoveringReadFieldSource::Constant(Value::Nat64(7))
     );
 }
 
@@ -517,7 +517,7 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
                     false,
                 ),
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -547,7 +547,7 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
     assert_eq!(covering.fields[1].field_slot.field(), "group");
     assert_eq!(
         covering.fields[1].source,
-        super::CoveringReadFieldSource::Constant(Value::Nat(7))
+        super::CoveringReadFieldSource::Constant(Value::Nat64(7))
     );
 }
 
@@ -564,7 +564,7 @@ fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_ord
                     false,
                 ),
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -668,7 +668,7 @@ fn covering_hybrid_projection_plan_rejects_fully_covering_projection() {
 fn covering_read_plan_requires_strict_predicate_compatibility() {
     let mut plan = covering_read_plan_with_group_prefix();
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
-    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat(7)));
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat64(7)));
 
     assert!(
         covering_read_plan(&plan, "id", false).is_none(),

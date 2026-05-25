@@ -422,10 +422,10 @@ fn decode_scalar_octet_length_value(
     let value = match row_fields.required_scalar(slot)? {
         ScalarSlotValueRef::Null => Value::Null,
         ScalarSlotValueRef::Value(ScalarValueRef::Blob(bytes)) => {
-            Value::Nat(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+            Value::Nat64(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
         }
         ScalarSlotValueRef::Value(ScalarValueRef::Text(text)) => {
-            Value::Nat(u64::try_from(text.len()).unwrap_or(u64::MAX))
+            Value::Nat64(u64::try_from(text.len()).unwrap_or(u64::MAX))
         }
         ScalarSlotValueRef::Value(_) => {
             return Err(InternalError::query_executor_invariant(

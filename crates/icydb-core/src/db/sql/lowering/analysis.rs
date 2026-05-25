@@ -144,10 +144,10 @@ mod tests {
                 function: Function::Round,
                 args: vec![
                     Expr::Aggregate(AggregateExpr::terminal_for_kind(AggregateKind::Count)),
-                    Expr::Literal(Value::Nat(0)),
+                    Expr::Literal(Value::Nat64(0)),
                 ],
             }),
-            right: Box::new(Expr::Literal(Value::Nat(1))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
         };
         let global_shape = Expr::Binary {
             op: BinaryOp::Gt,
@@ -155,10 +155,10 @@ mod tests {
                 function: Function::Round,
                 args: vec![
                     Expr::Aggregate(AggregateExpr::terminal_for_kind(AggregateKind::Count)),
-                    Expr::Literal(Value::Nat(0)),
+                    Expr::Literal(Value::Nat64(0)),
                 ],
             }),
-            right: Box::new(Expr::Literal(Value::Nat(1))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
         };
 
         let grouped = analyze_lowered_expr(&grouped_shape, Some(LoweredExprAnalysisEntity::MODEL));

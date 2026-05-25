@@ -592,7 +592,7 @@ mod tests {
     };
 
     fn literal_nat(value: u64) -> CompiledExpr {
-        CompiledExpr::Literal(Value::Nat(value))
+        CompiledExpr::Literal(Value::Nat64(value))
     }
 
     fn repeated_input_expr() -> CompiledExpr {

@@ -256,7 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// This terminal bypasses query planning and access routing entirely.
     #[must_use]
     pub const fn select_one(&self) -> Value {
-        Value::Int(1)
+        Value::Int64(1)
     }
 
     /// Return one stable, human-readable index listing for the entity schema.

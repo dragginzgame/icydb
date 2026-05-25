@@ -512,7 +512,7 @@ pub(in crate::db) fn decode_duration_field_by_kind_bytes(
 
 /// Encode one direct `int_big` leaf through the canonical structural leaf lane.
 pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
-    value: &crate::types::Int,
+    value: &crate::types::IntBig,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -523,13 +523,13 @@ pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
 pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<crate::types::Int>, FieldDecodeError> {
+) -> Result<Option<crate::types::IntBig>, FieldDecodeError> {
     decode_structural_int_big_field_by_kind_bytes(raw_bytes, kind)
 }
 
 /// Encode one direct `nat_big` leaf through the canonical structural leaf lane.
 pub(in crate::db) fn encode_nat_big_field_by_kind_bytes(
-    value: &crate::types::Nat,
+    value: &crate::types::NatBig,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -540,6 +540,6 @@ pub(in crate::db) fn encode_nat_big_field_by_kind_bytes(
 pub(in crate::db) fn decode_nat_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<crate::types::Nat>, FieldDecodeError> {
+) -> Result<Option<crate::types::NatBig>, FieldDecodeError> {
     decode_structural_nat_big_field_by_kind_bytes(raw_bytes, kind)
 }

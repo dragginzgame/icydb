@@ -31,7 +31,7 @@ fn parse_sql_predicate_parses_expression_without_statement_wrapper() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Gte,
-                Value::Int(21),
+                Value::Int64(21),
                 CoercionId::NumericWiden,
             )),
         ]),
@@ -65,7 +65,7 @@ fn parse_sql_predicate_in_and_not_in_allow_one_trailing_comma() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "age",
             CompareOp::In,
-            Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
+            Value::List(vec![Value::Int64(10), Value::Int64(20), Value::Int64(30)]),
             CoercionId::Strict,
         )),
     );
@@ -74,7 +74,7 @@ fn parse_sql_predicate_in_and_not_in_allow_one_trailing_comma() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "age",
             CompareOp::NotIn,
-            Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
+            Value::List(vec![Value::Int64(10), Value::Int64(20), Value::Int64(30)]),
             CoercionId::Strict,
         )),
     );
@@ -256,13 +256,13 @@ fn parse_sql_predicate_not_between_lowers_to_outside_range_disjunction() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
-                Value::Int(10),
+                Value::Int64(10),
                 CoercionId::NumericWiden,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Gt,
-                Value::Int(20),
+                Value::Int64(20),
                 CoercionId::NumericWiden,
             )),
         ]),
@@ -431,7 +431,7 @@ fn parse_sql_predicate_normalizes_literal_leading_compare_to_field_first() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "age",
             CompareOp::Gt,
-            Value::Int(5),
+            Value::Int64(5),
             CoercionId::NumericWiden,
         )),
     );

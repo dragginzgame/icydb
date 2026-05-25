@@ -80,8 +80,8 @@ fn execute_sql_scalar_field_path_where_matches_expected_rows() {
     seed_session_sql_field_path_entities(
         &session,
         &[
-            ("Adam", profile_rank(Value::Int(5))),
-            ("Beth", profile_rank(Value::Int(7))),
+            ("Adam", profile_rank(Value::Int64(5))),
+            ("Beth", profile_rank(Value::Int64(7))),
             ("Cara", SessionSqlFieldPathProfile::default()),
             ("Dina", profile_rank(Value::Null)),
         ],

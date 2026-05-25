@@ -160,7 +160,7 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Enum(v) => encode_enum_sort_key_into(out, v),
         Value::Float32(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Float64(v) => out.extend_from_slice(&v.to_be_bytes()),
-        Value::Int(v) => out.extend_from_slice(&v.to_be_bytes()),
+        Value::Int64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Int128(v) => out.extend_from_slice(&v.get().to_be_bytes()),
         Value::IntBig(v) => push_bytes_u64(out, &v.to_leb128()),
         Value::List(items) => {
@@ -186,7 +186,7 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Subaccount(v) => push_bytes_u64(out, &v.to_bytes()),
         Value::Text(v) => push_str_u64(out, v),
         Value::Timestamp(v) => out.extend_from_slice(&v.as_millis().to_be_bytes()),
-        Value::Nat(v) => out.extend_from_slice(&v.to_be_bytes()),
+        Value::Nat64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Nat128(v) => out.extend_from_slice(&v.get().to_be_bytes()),
         Value::NatBig(v) => push_bytes_u64(out, &v.to_leb128()),
         Value::Ulid(v) => out.extend_from_slice(&v.to_bytes()),
@@ -380,12 +380,12 @@ mod tests {
     #[test]
     fn predicate_sort_key_normalizes_map_entry_order() {
         let map_a = Value::Map(vec![
-            (Value::Text("z".to_string()), Value::Int(9)),
-            (Value::Text("a".to_string()), Value::Int(1)),
+            (Value::Text("z".to_string()), Value::Int64(9)),
+            (Value::Text("a".to_string()), Value::Int64(1)),
         ]);
         let map_b = Value::Map(vec![
-            (Value::Text("a".to_string()), Value::Int(1)),
-            (Value::Text("z".to_string()), Value::Int(9)),
+            (Value::Text("a".to_string()), Value::Int64(1)),
+            (Value::Text("z".to_string()), Value::Int64(9)),
         ]);
         let predicate_a = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_a));
         let predicate_b = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_b));
@@ -399,12 +399,12 @@ mod tests {
     #[test]
     fn predicate_sort_key_normalizes_duplicate_map_keys_by_value_order() {
         let map_a = Value::Map(vec![
-            (Value::Text("a".to_string()), Value::Int(2)),
-            (Value::Text("a".to_string()), Value::Int(1)),
+            (Value::Text("a".to_string()), Value::Int64(2)),
+            (Value::Text("a".to_string()), Value::Int64(1)),
         ]);
         let map_b = Value::Map(vec![
-            (Value::Text("a".to_string()), Value::Int(1)),
-            (Value::Text("a".to_string()), Value::Int(2)),
+            (Value::Text("a".to_string()), Value::Int64(1)),
+            (Value::Text("a".to_string()), Value::Int64(2)),
         ]);
         let predicate_a = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_a));
         let predicate_b = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_b));
@@ -419,11 +419,11 @@ mod tests {
     fn predicate_sort_key_normalizes_in_list_literal_order() {
         let predicate_a = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(3), Value::Nat(1), Value::Nat(2)],
+            vec![Value::Nat64(3), Value::Nat64(1), Value::Nat64(2)],
         ));
         let predicate_b = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
+            vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
         ));
 
         assert_eq!(
@@ -436,11 +436,16 @@ mod tests {
     fn predicate_sort_key_normalizes_in_list_duplicate_literals() {
         let predicate_a = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(3), Value::Nat(1), Value::Nat(3), Value::Nat(2)],
+            vec![
+                Value::Nat64(3),
+                Value::Nat64(1),
+                Value::Nat64(3),
+                Value::Nat64(2),
+            ],
         ));
         let predicate_b = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
+            vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
         ));
 
         assert_eq!(
@@ -454,7 +459,7 @@ mod tests {
         let predicate_int = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Int(1),
+            Value::Int64(1),
             CoercionId::NumericWiden,
         ));
         let predicate_decimal = Predicate::Compare(ComparePredicate::with_coercion(
@@ -475,7 +480,7 @@ mod tests {
         let predicate_int = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Int(1),
+            Value::Int64(1),
             CoercionId::Strict,
         ));
         let predicate_decimal = Predicate::Compare(ComparePredicate::with_coercion(

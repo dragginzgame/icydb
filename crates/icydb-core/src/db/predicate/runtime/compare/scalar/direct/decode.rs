@@ -49,7 +49,7 @@ pub(in crate::db::predicate::runtime::compare::scalar) const fn scalar_int_from_
     value: &Value,
 ) -> Option<i64> {
     match value {
-        Value::Int(value) => Some(*value),
+        Value::Int64(value) => Some(*value),
         _ => None,
     }
 }
@@ -85,7 +85,7 @@ pub(in crate::db::predicate::runtime::compare::scalar) const fn scalar_nat_from_
     value: &Value,
 ) -> Option<u64> {
     match value {
-        Value::Nat(value) => Some(*value),
+        Value::Nat64(value) => Some(*value),
         _ => None,
     }
 }

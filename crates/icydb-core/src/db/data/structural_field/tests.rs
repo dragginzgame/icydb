@@ -94,8 +94,8 @@ fn accepted_structural_field_encode_matches_generated_recursive_kinds() {
         Value::Text("right".to_string()),
     ]);
     let map_value = Value::Map(vec![
-        (Value::Text("alpha".to_string()), Value::Nat(1)),
-        (Value::Text("beta".to_string()), Value::Nat(2)),
+        (Value::Text("alpha".to_string()), Value::Nat64(1)),
+        (Value::Text("beta".to_string()), Value::Nat64(2)),
     ]);
     let accepted_list_kind =
         PersistedFieldKind::List(Box::new(PersistedFieldKind::Text { max_len: None }));
@@ -176,8 +176,8 @@ fn structural_field_decode_map_bytes_preserves_scalar_entries() {
             value: &FieldKind::Nat64,
         },
         &Value::Map(vec![
-            (Value::Text("alpha".to_string()), Value::Nat(1)),
-            (Value::Text("beta".to_string()), Value::Nat(2)),
+            (Value::Text("alpha".to_string()), Value::Nat64(1)),
+            (Value::Text("beta".to_string()), Value::Nat64(2)),
         ]),
         "entries",
     )
@@ -195,8 +195,8 @@ fn structural_field_decode_map_bytes_preserves_scalar_entries() {
     assert_eq!(
         decoded,
         Value::Map(vec![
-            (Value::Text("alpha".to_string()), Value::Nat(1)),
-            (Value::Text("beta".to_string()), Value::Nat(2)),
+            (Value::Text("alpha".to_string()), Value::Nat64(1)),
+            (Value::Text("beta".to_string()), Value::Nat64(2)),
         ]),
     );
 }
@@ -227,7 +227,7 @@ fn structural_field_decode_value_storage_handles_enum_payload() {
     let value = Value::Enum(
         ValueEnum::new("Active", Some("Status")).with_payload(Value::Map(vec![(
             Value::Text("count".into()),
-            Value::Nat(7),
+            Value::Nat64(7),
         )])),
     );
     let bytes = encode_structural_value_storage_bytes(&value).expect("value bytes should encode");

@@ -12,7 +12,7 @@ const fn runtime_value_kind_label(value: &Value) -> &'static str {
         Value::Enum(_) => "Enum",
         Value::Float32(_) => "Float32",
         Value::Float64(_) => "Float64",
-        Value::Int(_) => "Int",
+        Value::Int64(_) => "Int",
         Value::Int128(_) => "Int128",
         Value::IntBig(_) => "IntBig",
         Value::List(_) => "List",
@@ -22,7 +22,7 @@ const fn runtime_value_kind_label(value: &Value) -> &'static str {
         Value::Subaccount(_) => "Subaccount",
         Value::Text(_) => "Text",
         Value::Timestamp(_) => "Timestamp",
-        Value::Nat(_) => "Nat",
+        Value::Nat64(_) => "Nat",
         Value::Nat128(_) => "Nat128",
         Value::NatBig(_) => "NatBig",
         Value::Ulid(_) => "Ulid",
@@ -38,11 +38,11 @@ const fn runtime_value_kind_label(value: &Value) -> &'static str {
 pub(crate) const fn storage_key_as_runtime_value(key: &StorageKey) -> Value {
     match key {
         StorageKey::Account(v) => Value::Account(*v),
-        StorageKey::Int(v) => Value::Int(*v),
+        StorageKey::Int(v) => Value::Int64(*v),
         StorageKey::Principal(v) => Value::Principal(*v),
         StorageKey::Subaccount(v) => Value::Subaccount(*v),
         StorageKey::Timestamp(v) => Value::Timestamp(*v),
-        StorageKey::Nat(v) => Value::Nat(*v),
+        StorageKey::Nat(v) => Value::Nat64(*v),
         StorageKey::Ulid(v) => Value::Ulid(*v),
         StorageKey::Unit => Value::Unit,
     }
@@ -61,11 +61,11 @@ pub(crate) const fn storage_key_from_runtime_value(
     // This bridge is intentionally separate from typed key ownership.
     match value {
         Value::Account(v) => Ok(StorageKey::Account(*v)),
-        Value::Int(v) => Ok(StorageKey::Int(*v)),
+        Value::Int64(v) => Ok(StorageKey::Int(*v)),
         Value::Principal(v) => Ok(StorageKey::Principal(*v)),
         Value::Subaccount(v) => Ok(StorageKey::Subaccount(*v)),
         Value::Timestamp(v) => Ok(StorageKey::Timestamp(*v)),
-        Value::Nat(v) => Ok(StorageKey::Nat(*v)),
+        Value::Nat64(v) => Ok(StorageKey::Nat(*v)),
         Value::Ulid(v) => Ok(StorageKey::Ulid(*v)),
         Value::Unit => Ok(StorageKey::Unit),
         _ => Err(StorageKeyEncodeError::UnsupportedValueKind {

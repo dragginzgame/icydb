@@ -6,7 +6,7 @@ use crate::{
     error::InternalError,
     traits::PersistedStructuredFieldCodec,
     types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
         Principal, Subaccount, Timestamp, Ulid, Unit,
     },
 };
@@ -274,7 +274,7 @@ impl PersistedStructuredFieldCodec for Nat128 {
     }
 }
 
-impl PersistedStructuredFieldCodec for Int {
+impl PersistedStructuredFieldCodec for IntBig {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         Ok(storage_encode::int(self))
     }
@@ -284,7 +284,7 @@ impl PersistedStructuredFieldCodec for Int {
     }
 }
 
-impl PersistedStructuredFieldCodec for Nat {
+impl PersistedStructuredFieldCodec for NatBig {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         Ok(storage_encode::nat(self))
     }

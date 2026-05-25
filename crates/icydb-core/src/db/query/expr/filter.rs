@@ -48,14 +48,14 @@ impl FilterValue {
             Value::Duration(value) => Self::String(format!("{value:?}")),
             Value::Float32(value) => Self::String(value.to_string()),
             Value::Float64(value) => Self::String(value.to_string()),
-            Value::Int(value) => Self::String(value.to_string()),
+            Value::Int64(value) => Self::String(value.to_string()),
             Value::Int128(value) => Self::String(value.to_string()),
             Value::IntBig(value) => Self::String(value.to_string()),
             Value::Map(value) => Self::String(format!("{value:?}")),
             Value::Principal(value) => Self::String(value.to_string()),
             Value::Subaccount(value) => Self::String(value.to_string()),
             Value::Timestamp(value) => Self::String(value.to_string()),
-            Value::Nat(value) => Self::String(value.to_string()),
+            Value::Nat64(value) => Self::String(value.to_string()),
             Value::Nat128(value) => Self::String(value.to_string()),
             Value::NatBig(value) => Self::String(value.to_string()),
             Value::Ulid(value) => Self::String(value.to_string()),
@@ -907,12 +907,12 @@ mod tests {
                 left: Box::new(Expr::Binary {
                     op: BinaryOp::Eq,
                     left: Box::new(Expr::Field(FieldId::new("rank".to_string()))),
-                    right: Box::new(Expr::Literal(Value::Nat(7))),
+                    right: Box::new(Expr::Literal(Value::Nat64(7))),
                 }),
                 right: Box::new(Expr::Binary {
                     op: BinaryOp::Eq,
                     left: Box::new(Expr::Field(FieldId::new("rank".to_string()))),
-                    right: Box::new(Expr::Literal(Value::Nat(9))),
+                    right: Box::new(Expr::Literal(Value::Nat64(9))),
                 }),
             }
         );

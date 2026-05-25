@@ -827,8 +827,8 @@ fn planner_range_selection_prefers_stronger_bounds_before_lexicographic_tiebreak
             PLANNER_RANGE_STRENGTH_INDEXES[1],
             vec![0usize, 1usize],
             vec![Value::Text("gold".to_string())],
-            Bound::Excluded(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Excluded(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         )),
         "two-sided range bounds should outrank otherwise tied one-sided range candidates before lexicographic fallback",
     );
@@ -1006,7 +1006,7 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Gt,
-            Value::Nat(10),
+            Value::Nat64(10),
             CoercionId::Strict,
         )),
     ]);
@@ -1020,7 +1020,7 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
         ],
         &["tier", "score", "label"],
         &[Value::Text("gold".to_string())],
-        Bound::Excluded(Value::Nat(10)),
+        Bound::Excluded(Value::Nat64(10)),
         Bound::Unbounded,
         "range ranking predicate",
     );
@@ -1038,7 +1038,7 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Gt,
-            Value::Nat(10),
+            Value::Nat64(10),
             CoercionId::Strict,
         )),
     ]);
@@ -1052,7 +1052,7 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
         ],
         &["tier", "score", "label"],
         &[Value::Text("gold".to_string())],
-        Bound::Excluded(Value::Nat(10)),
+        Bound::Excluded(Value::Nat64(10)),
         Bound::Unbounded,
         "descending range ranking predicate",
     );
@@ -1070,7 +1070,7 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Eq,
-            Value::Nat(20),
+            Value::Nat64(20),
             CoercionId::Strict,
         )),
     ]);
@@ -1079,7 +1079,7 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
         &predicate,
         &[("label", OrderDirection::Asc), ("id", OrderDirection::Asc)],
         &["tier", "score", "label"],
-        &[Value::Text("gold".to_string()), Value::Nat(20)],
+        &[Value::Text("gold".to_string()), Value::Nat64(20)],
         "equality-prefix suffix-order predicate",
     );
 }
@@ -1096,7 +1096,7 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Eq,
-            Value::Nat(20),
+            Value::Nat64(20),
             CoercionId::Strict,
         )),
     ]);
@@ -1108,7 +1108,7 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
             ("id", OrderDirection::Desc),
         ],
         &["tier", "score", "label"],
-        &[Value::Text("gold".to_string()), Value::Nat(20)],
+        &[Value::Text("gold".to_string()), Value::Nat64(20)],
         "descending equality-prefix suffix-order predicate",
     );
 }

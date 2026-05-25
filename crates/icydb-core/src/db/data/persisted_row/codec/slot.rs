@@ -9,7 +9,7 @@ use crate::{
     model::field::{DEFAULT_BIG_INT_MAX_BYTES, FieldKind},
     traits::{FieldTypeMeta, PersistedByKindCodec, PersistedFieldSlotCodec},
     types::{
-        Account, Blob, Date, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
+        Account, Blob, Date, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig, Principal,
         Subaccount, Timestamp, Ulid, Unit,
     },
 };
@@ -262,11 +262,11 @@ impl_persisted_field_slot_scalar!(
 
 impl_persisted_field_slot_by_kind!(
     Account => FieldKind::Account,
-    Int => FieldKind::IntBig {
+    IntBig => FieldKind::IntBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
     Int128 => FieldKind::Int128,
-    Nat => FieldKind::NatBig {
+    NatBig => FieldKind::NatBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
     Nat128 => FieldKind::Nat128,
@@ -290,11 +290,11 @@ impl_persisted_field_slot_kind!(
     Duration => FieldKind::Duration,
     Float32 => FieldKind::Float32,
     Float64 => FieldKind::Float64,
-    Int => FieldKind::IntBig {
+    IntBig => FieldKind::IntBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
     Int128 => FieldKind::Int128,
-    Nat => FieldKind::NatBig {
+    NatBig => FieldKind::NatBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
     Nat128 => FieldKind::Nat128,

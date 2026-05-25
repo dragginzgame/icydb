@@ -1,7 +1,7 @@
 use crate::{
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
-        Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
+        Principal, Subaccount, Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
 };
@@ -28,9 +28,10 @@ pub enum OutputValue {
     Enum(OutputValueEnum),
     Float32(Float32),
     Float64(Float64),
-    Int(i64),
+    #[serde(rename = "Int")]
+    Int64(i64),
     Int128(Int128),
-    IntBig(Int),
+    IntBig(IntBig),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Null,
@@ -38,9 +39,10 @@ pub enum OutputValue {
     Subaccount(Subaccount),
     Text(String),
     Timestamp(Timestamp),
-    Nat(u64),
+    #[serde(rename = "Nat")]
+    Nat64(u64),
     Nat128(Nat128),
-    NatBig(Nat),
+    NatBig(NatBig),
     Ulid(Ulid),
     Unit,
 }
@@ -96,7 +98,7 @@ impl From<&Value> for OutputValue {
             Value::Enum(value) => Self::Enum(OutputValueEnum::from(value)),
             Value::Float32(value) => Self::Float32(*value),
             Value::Float64(value) => Self::Float64(*value),
-            Value::Int(value) => Self::Int(*value),
+            Value::Int64(value) => Self::Int64(*value),
             Value::Int128(value) => Self::Int128(*value),
             Value::IntBig(value) => Self::IntBig(value.clone()),
             Value::List(items) => Self::List(items.iter().map(Self::from).collect()),
@@ -111,7 +113,7 @@ impl From<&Value> for OutputValue {
             Value::Subaccount(value) => Self::Subaccount(*value),
             Value::Text(value) => Self::Text(value.clone()),
             Value::Timestamp(value) => Self::Timestamp(*value),
-            Value::Nat(value) => Self::Nat(*value),
+            Value::Nat64(value) => Self::Nat64(*value),
             Value::Nat128(value) => Self::Nat128(*value),
             Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
@@ -149,14 +151,14 @@ mod tests {
     #[test]
     fn output_value_from_runtime_value_keeps_recursive_collection_shape() {
         let runtime = Value::List(vec![
-            Value::Nat(7),
+            Value::Nat64(7),
             Value::Map(vec![(Value::Text("x".to_string()), Value::Bool(true))]),
         ]);
 
         assert_eq!(
             OutputValue::from(runtime),
             OutputValue::List(vec![
-                OutputValue::Nat(7),
+                OutputValue::Nat64(7),
                 OutputValue::Map(vec![(
                     OutputValue::Text("x".to_string()),
                     OutputValue::Bool(true),
@@ -168,14 +170,14 @@ mod tests {
     #[test]
     fn output_value_enum_from_runtime_enum_keeps_payload() {
         let runtime =
-            ValueEnum::new("Example", Some("test::OutputEnum")).with_payload(Value::Nat(9));
+            ValueEnum::new("Example", Some("test::OutputEnum")).with_payload(Value::Nat64(9));
 
         assert_eq!(
             OutputValueEnum::from(runtime),
             OutputValueEnum {
                 variant: "Example".to_string(),
                 path: Some("test::OutputEnum".to_string()),
-                payload: Some(Box::new(OutputValue::Nat(9))),
+                payload: Some(Box::new(OutputValue::Nat64(9))),
             },
         );
     }

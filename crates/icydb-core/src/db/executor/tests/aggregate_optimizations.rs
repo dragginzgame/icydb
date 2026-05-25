@@ -59,7 +59,7 @@ fn u32_eq_predicate_strict(field: &str, value: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
-        Value::Nat(u64::from(value)),
+        Value::Nat64(u64::from(value)),
         CoercionId::Strict,
     ))
 }

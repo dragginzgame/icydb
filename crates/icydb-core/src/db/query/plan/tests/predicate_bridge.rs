@@ -72,13 +72,13 @@ fn predicate_bridge_canonicalizes_equivalent_membership_and_logical_shapes() {
     let unsorted_in = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         crate::db::predicate::CompareOp::In,
-        Value::List(vec![Value::Nat(3), Value::Nat(1), Value::Nat(3)]),
+        Value::List(vec![Value::Nat64(3), Value::Nat64(1), Value::Nat64(3)]),
         CoercionId::Strict,
     ));
     let sorted_in = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         crate::db::predicate::CompareOp::In,
-        Value::List(vec![Value::Nat(1), Value::Nat(3)]),
+        Value::List(vec![Value::Nat64(1), Value::Nat64(3)]),
         CoercionId::Strict,
     ));
     let swapped_eq_fields = Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
@@ -94,15 +94,15 @@ fn predicate_bridge_canonicalizes_equivalent_membership_and_logical_shapes() {
         CoercionId::Strict,
     ));
     let nested_and = Predicate::And(vec![
-        Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+        Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
         Predicate::And(vec![Predicate::Compare(ComparePredicate::eq(
             "a".to_string(),
-            Value::Int(1),
+            Value::Int64(1),
         ))]),
     ]);
     let flat_and = Predicate::And(vec![
-        Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
-        Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+        Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
+        Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
     ]);
 
     assert_eq!(
@@ -340,18 +340,18 @@ fn normalize_bool_expr_canonicalizes_equivalent_and_tree_shapes() {
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
     };
     let nested_right = Expr::Binary {
@@ -359,19 +359,19 @@ fn normalize_bool_expr_canonicalizes_equivalent_and_tree_shapes() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::And,
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
         }),
     };
@@ -396,12 +396,12 @@ fn normalize_bool_expr_collapses_duplicate_and_children() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         }),
     };
 
@@ -412,7 +412,7 @@ fn normalize_bool_expr_collapses_duplicate_and_children() {
         Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         },
         "duplicate AND children should collapse onto one canonical child",
     );
@@ -427,18 +427,18 @@ fn normalize_bool_expr_canonicalizes_equivalent_or_tree_shapes() {
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
     };
     let nested_right = Expr::Binary {
@@ -446,19 +446,19 @@ fn normalize_bool_expr_canonicalizes_equivalent_or_tree_shapes() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Or,
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
         }),
     };
@@ -483,12 +483,12 @@ fn normalize_bool_expr_collapses_duplicate_or_children() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         }),
     };
 
@@ -499,7 +499,7 @@ fn normalize_bool_expr_collapses_duplicate_or_children() {
         Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         },
         "duplicate OR children should collapse onto one canonical child",
     );
@@ -509,13 +509,13 @@ fn normalize_bool_expr_collapses_duplicate_or_children() {
 fn normalize_bool_expr_canonicalizes_literal_left_extractable_compare_shapes() {
     let left = Expr::Binary {
         op: BinaryOp::Eq,
-        left: Box::new(Expr::Literal(Value::Int(20))),
+        left: Box::new(Expr::Literal(Value::Int64(20))),
         right: Box::new(Expr::Field(FieldId::new("age"))),
     };
     let right = Expr::Binary {
         op: BinaryOp::Eq,
         left: Box::new(Expr::Field(FieldId::new("age"))),
-        right: Box::new(Expr::Literal(Value::Int(20))),
+        right: Box::new(Expr::Literal(Value::Int64(20))),
     };
 
     let normalized_left = normalize_bool_expr(left);
@@ -580,18 +580,18 @@ fn compile_bool_expr_to_predicate_flattens_equivalent_and_tree_shapes() {
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
     };
     let right = Expr::Binary {
@@ -599,19 +599,19 @@ fn compile_bool_expr_to_predicate_flattens_equivalent_and_tree_shapes() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::And,
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
         }),
     };
@@ -638,18 +638,18 @@ fn compile_bool_expr_to_predicate_flattens_equivalent_or_tree_shapes() {
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
     };
     let right = Expr::Binary {
@@ -657,19 +657,19 @@ fn compile_bool_expr_to_predicate_flattens_equivalent_or_tree_shapes() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Or,
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
         }),
     };
@@ -696,18 +696,18 @@ fn normalize_bool_expr_canonicalizes_equivalent_mixed_boolean_tree_shapes() {
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
     };
     let right = Expr::Binary {
@@ -715,19 +715,19 @@ fn normalize_bool_expr_canonicalizes_equivalent_mixed_boolean_tree_shapes() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::And,
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
         }),
     };
@@ -753,13 +753,13 @@ fn normalize_bool_expr_is_idempotent_for_mixed_boolean_tree() {
             op: BinaryOp::And,
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
-                left: Box::new(Expr::Literal(Value::Int(2))),
+                left: Box::new(Expr::Literal(Value::Int64(2))),
                 right: Box::new(Expr::Field(FieldId::new("b"))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
         }),
         right: Box::new(Expr::Binary {
@@ -767,11 +767,11 @@ fn normalize_bool_expr_is_idempotent_for_mixed_boolean_tree() {
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
-                left: Box::new(Expr::Literal(Value::Int(2))),
+                left: Box::new(Expr::Literal(Value::Int64(2))),
                 right: Box::new(Expr::Field(FieldId::new("b"))),
             }),
         }),
@@ -793,14 +793,14 @@ fn canonicalize_scalar_where_bool_expr_canonicalizes_boolean_searched_case_to_fi
             Expr::Binary {
                 op: BinaryOp::Gte,
                 left: Box::new(Expr::Field(FieldId::new("age"))),
-                right: Box::new(Expr::Literal(Value::Int(30))),
+                right: Box::new(Expr::Literal(Value::Int64(30))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
         else_expr: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         }),
     };
     let canonical_expr = Expr::Binary {
@@ -811,7 +811,7 @@ fn canonicalize_scalar_where_bool_expr_canonicalizes_boolean_searched_case_to_fi
                 Expr::Binary {
                     op: BinaryOp::Gte,
                     left: Box::new(Expr::Field(FieldId::new("age"))),
-                    right: Box::new(Expr::Literal(Value::Int(30))),
+                    right: Box::new(Expr::Literal(Value::Int64(30))),
                 },
                 Expr::Literal(Value::Bool(false)),
             ],
@@ -826,7 +826,7 @@ fn canonicalize_scalar_where_bool_expr_canonicalizes_boolean_searched_case_to_fi
                         Expr::Binary {
                             op: BinaryOp::Gte,
                             left: Box::new(Expr::Field(FieldId::new("age"))),
-                            right: Box::new(Expr::Literal(Value::Int(30))),
+                            right: Box::new(Expr::Literal(Value::Int64(30))),
                         },
                         Expr::Literal(Value::Bool(false)),
                     ],
@@ -835,7 +835,7 @@ fn canonicalize_scalar_where_bool_expr_canonicalizes_boolean_searched_case_to_fi
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("age"))),
-                right: Box::new(Expr::Literal(Value::Int(20))),
+                right: Box::new(Expr::Literal(Value::Int64(20))),
             }),
         }),
     };
@@ -1087,7 +1087,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_boolean_truth_wrapper_inside_
                 left: Box::new(Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Nat(1))),
+                    right: Box::new(Expr::Literal(Value::Nat64(1))),
                 }),
                 right: Box::new(Expr::Literal(Value::Bool(true))),
             },
@@ -1100,7 +1100,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_boolean_truth_wrapper_inside_
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Nat(1))),
+                right: Box::new(Expr::Literal(Value::Nat64(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -1121,7 +1121,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_false_truth_wrapper_to_not_co
         left: Box::new(Expr::Binary {
             op: BinaryOp::Gt,
             left: Box::new(Expr::Aggregate(crate::db::count())),
-            right: Box::new(Expr::Literal(Value::Nat(1))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
         }),
         right: Box::new(Expr::Literal(Value::Bool(false))),
     };
@@ -1130,7 +1130,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_false_truth_wrapper_to_not_co
         expr: Box::new(Expr::Binary {
             op: BinaryOp::Gt,
             left: Box::new(Expr::Aggregate(crate::db::count())),
-            right: Box::new(Expr::Literal(Value::Nat(1))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
         }),
     };
 
@@ -1148,14 +1148,14 @@ fn canonicalize_scalar_where_bool_expr_is_idempotent() {
             Expr::Binary {
                 op: BinaryOp::Gte,
                 left: Box::new(Expr::Field(FieldId::new("age"))),
-                right: Box::new(Expr::Literal(Value::Int(30))),
+                right: Box::new(Expr::Literal(Value::Int64(30))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
         else_expr: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         }),
     };
 
@@ -1177,7 +1177,7 @@ fn canonicalize_grouped_having_bool_expr_is_idempotent_for_explicit_else_case() 
                 left: Box::new(Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Nat(1))),
+                    right: Box::new(Expr::Literal(Value::Nat64(1))),
                 }),
                 right: Box::new(Expr::Literal(Value::Bool(true))),
             },
@@ -1202,7 +1202,7 @@ fn canonicalize_grouped_having_bool_expr_is_idempotent_for_omitted_else_case() {
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Nat(1))),
+                right: Box::new(Expr::Literal(Value::Nat64(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -1227,18 +1227,18 @@ fn compile_bool_expr_to_predicate_keeps_equivalent_mixed_boolean_tree_shapes_ide
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
     };
     let right = Expr::Binary {
@@ -1246,19 +1246,19 @@ fn compile_bool_expr_to_predicate_keeps_equivalent_mixed_boolean_tree_shapes_ide
         left: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("c"))),
-            right: Box::new(Expr::Literal(Value::Int(3))),
+            right: Box::new(Expr::Literal(Value::Int64(3))),
         }),
         right: Box::new(Expr::Binary {
             op: BinaryOp::And,
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("a"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("b"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             }),
         }),
     };
@@ -1286,7 +1286,7 @@ fn representative_predicates() -> Vec<Predicate> {
         Predicate::True,
         Predicate::False,
         Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq("age".to_string(), Value::Int(5))),
+            Predicate::Compare(ComparePredicate::eq("age".to_string(), Value::Int64(5))),
             Predicate::Not(Box::new(Predicate::IsNull {
                 field: "name".to_string(),
             })),
@@ -1309,19 +1309,19 @@ fn representative_predicates() -> Vec<Predicate> {
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             crate::db::predicate::CompareOp::Lt,
-            Value::Int(10),
+            Value::Int64(10),
             CoercionId::NumericWiden,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             crate::db::predicate::CompareOp::In,
-            Value::List(vec![Value::Nat(3), Value::Nat(1), Value::Nat(3)]),
+            Value::List(vec![Value::Nat64(3), Value::Nat64(1), Value::Nat64(3)]),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             crate::db::predicate::CompareOp::NotIn,
-            Value::List(vec![Value::Nat(7), Value::Nat(2)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(2)]),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
@@ -1455,7 +1455,7 @@ fn predicate_contains_no_membership_compare(predicate: &Predicate) -> bool {
 // known `LENGTH('mage')` result so predicate constructs cannot hide behind a
 // permissive shape-only assertion.
 fn projection_value_contains_no_predicate_constructs(value: &Value) -> bool {
-    matches!(value, Value::Nat(4))
+    matches!(value, Value::Nat64(4))
 }
 
 // Build a compact searched `CASE` expression for canonicalization tests that
@@ -1644,7 +1644,7 @@ fn predicate_bridge_preserves_strict_nat_ordered_compares() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "rank".to_string(),
         crate::db::predicate::CompareOp::Gt,
-        Value::Nat(10),
+        Value::Nat64(10),
         CoercionId::Strict,
     ));
 

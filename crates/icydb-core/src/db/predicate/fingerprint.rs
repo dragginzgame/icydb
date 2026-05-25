@@ -66,12 +66,12 @@ mod tests {
     #[test]
     fn hash_predicate_preserves_raw_and_child_order_before_normalization() {
         let left = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
-            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
         ]);
         let right = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
-            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
         ]);
 
         assert_ne!(digest_structural(&left), digest_structural(&right));
@@ -80,12 +80,12 @@ mod tests {
     #[test]
     fn canonical_hash_is_order_insensitive_for_and() {
         let left = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
-            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
         ]);
         let right = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
-            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
         ]);
 
         assert_eq!(normalize(&left), normalize(&right));
@@ -95,12 +95,12 @@ mod tests {
     #[test]
     fn canonical_hash_is_order_insensitive_for_or() {
         let left = Predicate::Or(vec![
-            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
-            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
         ]);
         let right = Predicate::Or(vec![
-            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
-            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int64(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
         ]);
 
         assert_eq!(normalize(&left), normalize(&right));
@@ -113,26 +113,26 @@ mod tests {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Eq,
-                Value::Nat(3),
+                Value::Nat64(3),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Eq,
-                Value::Nat(1),
+                Value::Nat64(1),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Eq,
-                Value::Nat(3),
+                Value::Nat64(3),
                 CoercionId::Strict,
             )),
         ]);
         let in_list = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::In,
-            Value::List(vec![Value::Nat(1), Value::Nat(3)]),
+            Value::List(vec![Value::Nat64(1), Value::Nat64(3)]),
             CoercionId::Strict,
         ));
 
@@ -144,11 +144,11 @@ mod tests {
     fn canonical_hash_is_order_insensitive_for_in_list_literals() {
         let left = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(3), Value::Nat(1), Value::Nat(2)],
+            vec![Value::Nat64(3), Value::Nat64(1), Value::Nat64(2)],
         ));
         let right = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
+            vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
         ));
 
         assert_ne!(normalize(&left), normalize(&right));
@@ -159,11 +159,16 @@ mod tests {
     fn canonical_hash_normalizes_in_list_duplicate_literals() {
         let left = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(3), Value::Nat(1), Value::Nat(3), Value::Nat(2)],
+            vec![
+                Value::Nat64(3),
+                Value::Nat64(1),
+                Value::Nat64(3),
+                Value::Nat64(2),
+            ],
         ));
         let right = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
+            vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
         ));
 
         assert_ne!(normalize(&left), normalize(&right));
@@ -172,11 +177,11 @@ mod tests {
 
     #[test]
     fn canonical_hash_treats_implicit_and_explicit_strict_coercion_as_equivalent() {
-        let left = Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Int(7)));
+        let left = Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Int64(7)));
         let right = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Int(7),
+            Value::Int64(7),
             CoercionId::Strict,
         ));
 
@@ -189,13 +194,13 @@ mod tests {
         let strict = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Int(7),
+            Value::Int64(7),
             CoercionId::Strict,
         ));
         let numeric_widen = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Int(7),
+            Value::Int64(7),
             CoercionId::NumericWiden,
         ));
 

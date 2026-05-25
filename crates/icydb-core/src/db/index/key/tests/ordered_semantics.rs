@@ -12,8 +12,8 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
-        Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
+        Principal, Subaccount, Timestamp, Ulid,
     },
     value::{StorageKey, Value, ValueEnum, storage_key_as_runtime_value},
 };
@@ -60,7 +60,7 @@ fn decode_int_big_payload(encoded: &[u8]) -> (u8, Vec<u8>) {
     );
     assert_eq!(
         encoded[0],
-        Value::IntBig(Int::from(0)).canonical_tag().to_u8()
+        Value::IntBig(IntBig::from(0)).canonical_tag().to_u8()
     );
 
     let marker = encoded[1];
@@ -104,7 +104,7 @@ fn decode_nat_big_payload(encoded: &[u8]) -> Vec<u8> {
     );
     assert_eq!(
         encoded[0],
-        Value::NatBig(Nat::from(0u64)).canonical_tag().to_u8()
+        Value::NatBig(NatBig::from(0u64)).canonical_tag().to_u8()
     );
 
     let len = usize::from(u16::from_be_bytes([encoded[1], encoded[2]]));
@@ -113,7 +113,7 @@ fn decode_nat_big_payload(encoded: &[u8]) -> Vec<u8> {
     digits
 }
 
-fn decode_int_big_from_ordered_bytes(encoded: &[u8]) -> Int {
+fn decode_int_big_from_ordered_bytes(encoded: &[u8]) -> IntBig {
     let (marker, digits) = decode_int_big_payload(encoded);
     let digits_text = String::from_utf8(digits).expect("int-big digits must be utf8");
 
@@ -126,7 +126,7 @@ fn decode_int_big_from_ordered_bytes(encoded: &[u8]) -> Int {
     text.parse().expect("decoded int-big text should parse")
 }
 
-fn decode_nat_big_from_ordered_bytes(encoded: &[u8]) -> Nat {
+fn decode_nat_big_from_ordered_bytes(encoded: &[u8]) -> NatBig {
     let digits = decode_nat_big_payload(encoded);
     let digits_text = String::from_utf8(digits).expect("nat-big digits must be utf8");
     digits_text
@@ -138,7 +138,7 @@ fn decode_nat_big_from_ordered_bytes(encoded: &[u8]) -> Nat {
 fn canonical_encoder_rejects_non_indexable_and_unsupported_values() {
     assert!(encode_canonical_index_component(&Value::Null).is_err());
     assert!(encode_canonical_index_component(&Value::Blob(vec![1u8, 2u8])).is_err());
-    assert!(encode_canonical_index_component(&Value::List(vec![Value::Int(1)])).is_err());
+    assert!(encode_canonical_index_component(&Value::List(vec![Value::Int64(1)])).is_err());
     assert!(encode_canonical_index_component(&Value::Map(vec![])).is_err());
 }
 
@@ -188,36 +188,36 @@ fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants(
 
 #[test]
 fn canonical_encoder_respects_numeric_order_for_scalars() {
-    assert_encoded_order(Value::Int(-2), Value::Int(7), Ordering::Less);
+    assert_encoded_order(Value::Int64(-2), Value::Int64(7), Ordering::Less);
     assert_encoded_order(
         Value::Int128(Int128::from(-2i128)),
         Value::Int128(Int128::from(7i128)),
         Ordering::Less,
     );
-    assert_encoded_order(Value::Nat(2), Value::Nat(7), Ordering::Less);
+    assert_encoded_order(Value::Nat64(2), Value::Nat64(7), Ordering::Less);
     assert_encoded_order(
         Value::Nat128(Nat128::from(2u128)),
         Value::Nat128(Nat128::from(7u128)),
         Ordering::Less,
     );
     assert_encoded_order(
-        Value::IntBig(Int::from(-20i32)),
-        Value::IntBig(Int::from(-7i32)),
+        Value::IntBig(IntBig::from(-20i32)),
+        Value::IntBig(IntBig::from(-7i32)),
         Ordering::Less,
     );
     assert_encoded_order(
-        Value::NatBig(Nat::from(20u64)),
-        Value::NatBig(Nat::from(700u64)),
+        Value::NatBig(NatBig::from(20u64)),
+        Value::NatBig(NatBig::from(700u64)),
         Ordering::Less,
     );
     assert_encoded_order(
-        Value::IntBig(Int::from(-1i32)),
-        Value::IntBig(Int::from(0i32)),
+        Value::IntBig(IntBig::from(-1i32)),
+        Value::IntBig(IntBig::from(0i32)),
         Ordering::Less,
     );
     assert_encoded_order(
-        Value::IntBig(Int::from(0i32)),
-        Value::IntBig(Int::from(1i32)),
+        Value::IntBig(IntBig::from(0i32)),
+        Value::IntBig(IntBig::from(1i32)),
         Ordering::Less,
     );
 }
@@ -226,15 +226,15 @@ fn canonical_encoder_respects_numeric_order_for_scalars() {
 fn canonical_encoder_value_int_big_and_nat_big_same_value_same_bytes_across_construction_paths() {
     let int_cases = vec![
         (
-            Value::IntBig(Int::from(70i32)),
+            Value::IntBig(IntBig::from(70i32)),
             Value::IntBig("00070".parse().expect("int literal")),
         ),
         (
-            Value::IntBig(Int::from(-70i32)),
+            Value::IntBig(IntBig::from(-70i32)),
             Value::IntBig("-00070".parse().expect("int literal")),
         ),
         (
-            Value::IntBig(Int::from(0i32)),
+            Value::IntBig(IntBig::from(0i32)),
             Value::IntBig("-0".parse().expect("int literal")),
         ),
         (
@@ -254,7 +254,7 @@ fn canonical_encoder_value_int_big_and_nat_big_same_value_same_bytes_across_cons
 
     let nat_cases = vec![
         (
-            Value::NatBig(Nat::from(70u64)),
+            Value::NatBig(NatBig::from(70u64)),
             Value::NatBig("00070".parse().expect("nat literal")),
         ),
         (
@@ -279,7 +279,7 @@ fn canonical_encoder_value_int_big_and_nat_big_same_value_same_bytes_across_cons
 
 #[test]
 fn canonical_encoder_int_big_negative_zero_collapses_to_zero_marker() {
-    let zero = Value::IntBig(Int::from(0i32));
+    let zero = Value::IntBig(IntBig::from(0i32));
     let negative_zero = Value::IntBig("-0".parse().expect("int literal"));
 
     let zero_bytes = encode_canonical_index_component(&zero).expect("zero should encode");
@@ -386,7 +386,7 @@ fn canonical_encoder_value_int_big_roundtrip_stable_for_valid_bytes() {
     ];
 
     for literal in int_literals {
-        let value: Int = literal.parse().expect("int literal");
+        let value: IntBig = literal.parse().expect("int literal");
         let encoded =
             encode_canonical_index_component(&Value::IntBig(value.clone())).expect("encode");
         let decoded = decode_int_big_from_ordered_bytes(&encoded);
@@ -406,7 +406,7 @@ fn canonical_encoder_value_int_big_roundtrip_stable_for_valid_bytes() {
     ];
 
     for literal in nat_literals {
-        let value: Nat = literal.parse().expect("nat literal");
+        let value: NatBig = literal.parse().expect("nat literal");
         let encoded =
             encode_canonical_index_component(&Value::NatBig(value.clone())).expect("encode");
         let decoded = decode_nat_big_from_ordered_bytes(&encoded);
@@ -519,7 +519,7 @@ fn canonical_encoder_respects_enum_order() {
     assert_encoded_order(left, right, Ordering::Less);
 
     let no_payload = Value::Enum(ValueEnum::new("A", Some("Path")));
-    let with_payload = Value::Enum(ValueEnum::new("A", Some("Path")).with_payload(Value::Nat(1)));
+    let with_payload = Value::Enum(ValueEnum::new("A", Some("Path")).with_payload(Value::Nat64(1)));
     assert_encoded_order(no_payload, with_payload, Ordering::Less);
 }
 
@@ -530,12 +530,12 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
         ("Bool(true)", Value::Bool(true), vec![0x03, 0x01]),
         (
             "Int(-1)",
-            Value::Int(-1),
+            Value::Int64(-1),
             vec![0x0A, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         ),
         (
             "Nat(1)",
-            Value::Nat(1),
+            Value::Nat64(1),
             vec![0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
         ),
         (
@@ -565,17 +565,17 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
         ),
         (
             "IntBig(-7)",
-            Value::IntBig(Int::from(-7i32)),
+            Value::IntBig(IntBig::from(-7i32)),
             vec![0x0C, 0x00, 0xFF, 0xFE, 0xC8],
         ),
         (
             "NatBig(70)",
-            Value::NatBig(Nat::from(70u64)),
+            Value::NatBig(NatBig::from(70u64)),
             vec![0x16, 0x00, 0x02, 0x37, 0x30],
         ),
         (
             "Enum(State::MyPath(7))",
-            Value::Enum(ValueEnum::new("State", Some("MyPath")).with_payload(Value::Int(7))),
+            Value::Enum(ValueEnum::new("State", Some("MyPath")).with_payload(Value::Int64(7))),
             vec![
                 0x07, b'S', b't', b'a', b't', b'e', 0x00, 0x00, 0x01, b'M', b'y', b'P', b'a', b't',
                 b'h', 0x00, 0x00, 0x01, 0x00, 0x09, 0x0A, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -622,12 +622,12 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         Value::Float32(Float32::try_new(1.0).expect("finite")),
         Value::Float64(Float64::try_new(-1.0).expect("finite")),
         Value::Float64(Float64::try_new(1.0).expect("finite")),
-        Value::Int(-2),
-        Value::Int(7),
+        Value::Int64(-2),
+        Value::Int64(7),
         Value::Int128(Int128::from(-2i128)),
         Value::Int128(Int128::from(7i128)),
-        Value::IntBig(Int::from(-7i32)),
-        Value::IntBig(Int::from(7i32)),
+        Value::IntBig(IntBig::from(-7i32)),
+        Value::IntBig(IntBig::from(7i32)),
         Value::Principal(Principal::from_slice(&[1u8])),
         Value::Principal(Principal::from_slice(&[2u8])),
         Value::Subaccount(Subaccount::from_array([1; 32])),
@@ -636,12 +636,12 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         Value::Text("b".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),
         Value::Timestamp(Timestamp::from_secs(2)),
-        Value::Nat(1),
-        Value::Nat(2),
+        Value::Nat64(1),
+        Value::Nat64(2),
         Value::Nat128(Nat128::from(1u128)),
         Value::Nat128(Nat128::from(2u128)),
-        Value::NatBig(Nat::from(1u64)),
-        Value::NatBig(Nat::from(2u64)),
+        Value::NatBig(NatBig::from(1u64)),
+        Value::NatBig(NatBig::from(2u64)),
         Value::Ulid(Ulid::from_u128(1)),
         Value::Ulid(Ulid::from_u128(2)),
         Value::Unit,
@@ -662,8 +662,8 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
 
 #[test]
 fn index_component_compare_requires_strict_variant_match_for_numeric_widening() {
-    let left = Value::Int(7);
-    let right = Value::Nat(7);
+    let left = Value::Int64(7);
+    let right = Value::Nat64(7);
 
     assert_eq!(
         compare_index_component_values(&left, &right),
@@ -692,9 +692,17 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
         ("Bool", vec![Value::Bool(false), Value::Bool(true)]),
         (
             "Int",
-            vec![Value::Int(-2), Value::Int(-1), Value::Int(0), Value::Int(7)],
+            vec![
+                Value::Int64(-2),
+                Value::Int64(-1),
+                Value::Int64(0),
+                Value::Int64(7),
+            ],
         ),
-        ("Nat", vec![Value::Nat(0), Value::Nat(1), Value::Nat(7)]),
+        (
+            "Nat",
+            vec![Value::Nat64(0), Value::Nat64(1), Value::Nat64(7)],
+        ),
         (
             "Int128",
             vec![
@@ -714,18 +722,18 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
         (
             "IntBig",
             vec![
-                Value::IntBig(Int::from(-10i32)),
-                Value::IntBig(Int::from(-1i32)),
-                Value::IntBig(Int::from(0i32)),
-                Value::IntBig(Int::from(7i32)),
+                Value::IntBig(IntBig::from(-10i32)),
+                Value::IntBig(IntBig::from(-1i32)),
+                Value::IntBig(IntBig::from(0i32)),
+                Value::IntBig(IntBig::from(7i32)),
             ],
         ),
         (
             "NatBig",
             vec![
-                Value::NatBig(Nat::from(0u64)),
-                Value::NatBig(Nat::from(1u64)),
-                Value::NatBig(Nat::from(70u64)),
+                Value::NatBig(NatBig::from(0u64)),
+                Value::NatBig(NatBig::from(1u64)),
+                Value::NatBig(NatBig::from(70u64)),
             ],
         ),
         (
@@ -897,8 +905,8 @@ proptest! {
     fn int_big_cross_sign_ordered_encoding_property(
         magnitude in non_zero_unsigned_decimal_text_strategy(256),
     ) {
-        let negative: Int = format!("-{magnitude}").parse().expect("negative literal should parse");
-        let positive: Int = magnitude.parse().expect("positive literal should parse");
+        let negative: IntBig = format!("-{magnitude}").parse().expect("negative literal should parse");
+        let positive: IntBig = magnitude.parse().expect("positive literal should parse");
 
         let negative_bytes = encode_canonical_index_component(&Value::IntBig(negative)).expect("negative should encode");
         let positive_bytes = encode_canonical_index_component(&Value::IntBig(positive)).expect("positive should encode");
@@ -911,8 +919,8 @@ proptest! {
         lhs_text in signed_decimal_text_strategy(96),
         rhs_text in signed_decimal_text_strategy(96),
     ) {
-        let lhs: Int = lhs_text.parse().expect("lhs int literal should parse");
-        let rhs: Int = rhs_text.parse().expect("rhs int literal should parse");
+        let lhs: IntBig = lhs_text.parse().expect("lhs int literal should parse");
+        let rhs: IntBig = rhs_text.parse().expect("rhs int literal should parse");
 
         let lhs_value = Value::IntBig(lhs.clone());
         let rhs_value = Value::IntBig(rhs.clone());
@@ -927,8 +935,8 @@ proptest! {
         lhs_text in unsigned_decimal_text_strategy(96),
         rhs_text in unsigned_decimal_text_strategy(96),
     ) {
-        let lhs: Nat = lhs_text.parse().expect("lhs nat literal should parse");
-        let rhs: Nat = rhs_text.parse().expect("rhs nat literal should parse");
+        let lhs: NatBig = lhs_text.parse().expect("lhs nat literal should parse");
+        let rhs: NatBig = rhs_text.parse().expect("rhs nat literal should parse");
 
         let lhs_value = Value::NatBig(lhs.clone());
         let rhs_value = Value::NatBig(rhs.clone());

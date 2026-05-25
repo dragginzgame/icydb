@@ -26,7 +26,7 @@ fn field(name: &str) -> Expr {
 }
 
 fn int(value: i64) -> Expr {
-    Expr::Literal(Value::Int(value))
+    Expr::Literal(Value::Int64(value))
 }
 
 fn function(function: Function, args: Vec<Expr>) -> Expr {

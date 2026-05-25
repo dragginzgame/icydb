@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn index_entry_value_decodes_composite_row_identity_from_raw_key() {
         let composite = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyComponent::Nat(9),
+            PrimaryKeyComponent::Nat64(9),
             PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
         ])
         .expect("composite primary key should build");

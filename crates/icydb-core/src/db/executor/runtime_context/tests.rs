@@ -34,8 +34,8 @@ fn test_key() -> DecodedDataStoreKey {
 
 fn composite_test_key() -> DecodedDataStoreKey {
     let composite = CompositePrimaryKeyValue::try_from_components(&[
-        PrimaryKeyComponent::Nat(41),
-        PrimaryKeyComponent::Nat(7),
+        PrimaryKeyComponent::Nat64(41),
+        PrimaryKeyComponent::Nat64(7),
     ])
     .expect("test composite key should encode");
     DecodedDataStoreKey::new_primary_key_value(

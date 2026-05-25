@@ -265,8 +265,8 @@ fn eval_octet_length_function_call(
 
     match input {
         Value::Null => Ok(Value::Null),
-        Value::Text(text) => Ok(Value::Nat(u64::try_from(text.len()).unwrap_or(u64::MAX))),
-        Value::Blob(bytes) => Ok(Value::Nat(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
+        Value::Text(text) => Ok(Value::Nat64(u64::try_from(text.len()).unwrap_or(u64::MAX))),
+        Value::Blob(bytes) => Ok(Value::Nat64(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
         other => Err(QueryError::unsupported_query(format!(
             "{}(...) requires text or blob input, found {other:?}",
             function.projection_eval_name(),
@@ -638,8 +638,8 @@ fn integer_literal_arg(
         .map_err(ProjectionFunctionEvalError::into_query_error)?
     {
         Value::Null => Ok(None),
-        Value::Int(value) => Ok(Some(*value)),
-        Value::Nat(value) => Ok(Some(i64::try_from(*value).unwrap_or(i64::MAX))),
+        Value::Int64(value) => Ok(Some(*value)),
+        Value::Nat64(value) => Ok(Some(i64::try_from(*value).unwrap_or(i64::MAX))),
         other => Err(QueryError::unsupported_query(format!(
             "{}(...) requires integer or NULL {label}, found {other:?}",
             function.projection_eval_name(),

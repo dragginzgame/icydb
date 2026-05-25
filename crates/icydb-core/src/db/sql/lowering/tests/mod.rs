@@ -170,13 +170,13 @@ fn lowered_field(name: &str) -> Expr {
 // Build one expected planner integer literal for SQL order-lowering parser
 // tests.
 fn lowered_int(value: i64) -> Expr {
-    Expr::Literal(Value::Int(value))
+    Expr::Literal(Value::Int64(value))
 }
 
 // Build one expected planner unsigned integer literal for SQL order-lowering
 // parser tests.
 fn lowered_nat(value: u64) -> Expr {
-    Expr::Literal(Value::Nat(value))
+    Expr::Literal(Value::Nat64(value))
 }
 
 // Build one expected planner scalar function expression for SQL order-lowering
@@ -721,7 +721,7 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
                 left,
                 right,
             }) if left.as_ref() == &Expr::Field(FieldId::new("age"))
-                && right.as_ref() == &Expr::Literal(Value::Nat(21))
+                && right.as_ref() == &Expr::Literal(Value::Nat64(21))
         ),
         "reduced SQL lowering should preserve one planner-owned scalar WHERE expression and keep direct compare literals canonicalized to the resolved field kind",
     );
@@ -1835,7 +1835,7 @@ fn compile_sql_command_select_scalar_add_projection_lowers_to_binary_expr() {
             alias: None,
         } => {
             assert!(matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age"));
-            assert!(matches!(right.as_ref(), Expr::Literal(Value::Int(1))));
+            assert!(matches!(right.as_ref(), Expr::Literal(Value::Int64(1))));
         }
         other @ ProjectionField::Scalar { .. } => {
             panic!("scalar arithmetic projection should lower to one add expression: {other:?}")
@@ -1890,19 +1890,19 @@ fn compile_sql_command_select_scalar_sub_mul_div_projection_lowers_to_binary_exp
         (
             "SELECT age - 1 FROM SqlLowerEntity",
             crate::db::query::plan::expr::BinaryOp::Sub,
-            Value::Int(1),
+            Value::Int64(1),
             "subtraction projection",
         ),
         (
             "SELECT age * 2 FROM SqlLowerEntity",
             crate::db::query::plan::expr::BinaryOp::Mul,
-            Value::Int(2),
+            Value::Int64(2),
             "multiplication projection",
         ),
         (
             "SELECT age / 2 FROM SqlLowerEntity",
             crate::db::query::plan::expr::BinaryOp::Div,
-            Value::Int(2),
+            Value::Int64(2),
             "division projection",
         ),
     ] {
@@ -1951,7 +1951,7 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
         (
             "SELECT ROUND(age, 2) FROM SqlLowerEntity",
             Expr::Field(crate::db::query::plan::expr::FieldId::new("age")),
-            Value::Nat(2),
+            Value::Nat64(2),
             "round over plain field",
         ),
         (
@@ -1961,9 +1961,9 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
                 left: Box::new(Expr::Field(crate::db::query::plan::expr::FieldId::new(
                     "age",
                 ))),
-                right: Box::new(Expr::Literal(Value::Int(3))),
+                right: Box::new(Expr::Literal(Value::Int64(3))),
             },
-            Value::Nat(2),
+            Value::Nat64(2),
             "round over bounded arithmetic expression",
         ),
         (
@@ -1977,7 +1977,7 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
                     "age",
                 ))),
             },
-            Value::Nat(2),
+            Value::Nat64(2),
             "round over bounded field-to-field arithmetic expression",
         ),
     ] {
@@ -2059,8 +2059,8 @@ fn compile_sql_command_select_chained_scalar_projection_lowers_to_nested_binary_
                 && matches!(
                     right.as_ref(),
                     Expr::Binary { op: BinaryOp::Mul, left, right }
-                    if matches!(left.as_ref(), Expr::Literal(Value::Int(1)))
-                        && matches!(right.as_ref(), Expr::Literal(Value::Int(2)))
+                    if matches!(left.as_ref(), Expr::Literal(Value::Int64(1)))
+                        && matches!(right.as_ref(), Expr::Literal(Value::Int64(2)))
                 )
             )
         ),
@@ -2103,7 +2103,7 @@ fn compile_sql_command_select_searched_case_projection_lowers_to_case_expr() {
                         Expr::Binary {
                             op: BinaryOp::Gte,
                             left: Box::new(Expr::Field(FieldId::new("age"))),
-                            right: Box::new(Expr::Literal(Value::Int(21))),
+                            right: Box::new(Expr::Literal(Value::Int64(21))),
                         },
                         Expr::Literal(Value::Text("adult".to_string())),
                     )]
@@ -2158,9 +2158,9 @@ fn compile_sql_command_select_case_text_predicate_preserves_raw_target_expr() {
                                 Expr::Literal(Value::Text("AL".to_string())),
                             ],
                         },
-                        Expr::Literal(Value::Int(1)),
+                        Expr::Literal(Value::Int64(1)),
                     )]
-                        && else_expr.as_ref() == &Expr::Literal(Value::Int(0))
+                        && else_expr.as_ref() == &Expr::Literal(Value::Int64(0))
                 )
         ),
         "non-WHERE expression lowering must preserve the raw text predicate target",
@@ -2281,7 +2281,7 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
                                 Expr::Binary {
                                     op: BinaryOp::Gte,
                                     left: Box::new(Expr::Field(FieldId::new("age"))),
-                                    right: Box::new(Expr::Literal(Value::Int(30))),
+                                    right: Box::new(Expr::Literal(Value::Int64(30))),
                                 },
                                 Expr::Literal(Value::Bool(false)),
                             ]
@@ -2310,7 +2310,7 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
                                                     Expr::Binary {
                                                         op: BinaryOp::Gte,
                                                         left: Box::new(Expr::Field(FieldId::new("age"))),
-                                                        right: Box::new(Expr::Literal(Value::Int(30))),
+                                                        right: Box::new(Expr::Literal(Value::Int64(30))),
                                                     },
                                                     Expr::Literal(Value::Bool(false)),
                                                 ]
@@ -2320,7 +2320,7 @@ fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_fi
                                     == &Expr::Binary {
                                         op: BinaryOp::Eq,
                                         left: Box::new(Expr::Field(FieldId::new("age"))),
-                                        right: Box::new(Expr::Literal(Value::Int(20))),
+                                        right: Box::new(Expr::Literal(Value::Int64(20))),
                                     }
                     )
         ),
@@ -2393,16 +2393,16 @@ fn compile_sql_command_select_where_coalesce_and_nullif_preserves_filter_expr_wi
                             function: Function::NullIf,
                             args: nullif_args,
                         },
-                        Expr::Literal(Value::Int(99)),
+                        Expr::Literal(Value::Int64(99)),
                     ] if matches!(
                         nullif_args.as_slice(),
                         [
                             Expr::Field(field),
-                            Expr::Literal(Value::Int(20)),
+                            Expr::Literal(Value::Int64(20)),
                         ] if *field == FieldId::new("age")
                     )
                 )
-            ) && right.as_ref() == &Expr::Literal(Value::Int(99))
+            ) && right.as_ref() == &Expr::Literal(Value::Int64(99))
         ),
         "COALESCE/NULLIF WHERE should preserve the semantic planner-owned filter expression through SQL lowering",
     );
@@ -4057,7 +4057,7 @@ fn lower_aggregate_call_attaches_filter_expr_to_aggregate_expr() {
         filter_expr: Some(Box::new(SqlExpr::Binary {
             op: SqlExprBinaryOp::Gt,
             left: Box::new(SqlExpr::Field("age".to_string())),
-            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+            right: Box::new(SqlExpr::Literal(Value::Int64(1))),
         })),
         distinct: false,
     })
@@ -4069,7 +4069,7 @@ fn lower_aggregate_call_attaches_filter_expr_to_aggregate_expr() {
         Some(&Expr::Binary {
             op: BinaryOp::Gt,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         }),
     );
 }
@@ -4097,7 +4097,7 @@ fn lower_aggregate_call_preserves_raw_extrema_distinct_marker() {
             input: Some(Box::new(SqlExpr::Binary {
                 op: SqlExprBinaryOp::Add,
                 left: Box::new(SqlExpr::Field("age".to_string())),
-                right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                right: Box::new(SqlExpr::Literal(Value::Int64(1))),
             })),
             filter_expr: None,
             distinct: true,
@@ -4120,7 +4120,7 @@ fn lower_aggregate_call_rejects_distinct_filter_pairing_in_0940() {
         filter_expr: Some(Box::new(SqlExpr::Binary {
             op: SqlExprBinaryOp::Gt,
             left: Box::new(SqlExpr::Field("age".to_string())),
-            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+            right: Box::new(SqlExpr::Literal(Value::Int64(1))),
         })),
         distinct: true,
     })
@@ -4142,7 +4142,7 @@ fn lower_aggregate_call_rejects_aggregate_predicates_inside_filter() {
                 filter_expr: None,
                 distinct: false,
             })),
-            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+            right: Box::new(SqlExpr::Literal(Value::Int64(1))),
         })),
         distinct: false,
     })
@@ -4852,13 +4852,13 @@ fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
         .having_group(
             "age",
             CompareOp::Gte,
-            crate::value::InputValue::from(Value::Int(21)),
+            crate::value::InputValue::from(Value::Int64(21)),
         )
         .expect("fluent grouped HAVING group-field clause should be accepted")
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Int(1)),
+            crate::value::InputValue::from(Value::Int64(1)),
         )
         .expect("fluent grouped HAVING aggregate clause should be accepted")
         .order_term(crate::db::desc("age"))
@@ -4975,10 +4975,10 @@ fn compile_sql_command_select_grouped_searched_case_having_exprs_lowers() {
                 if matches!(
                     left.as_ref(),
                     Expr::Case { else_expr, .. }
-                        if else_expr.as_ref() == &Expr::Literal(Value::Int(0))
+                        if else_expr.as_ref() == &Expr::Literal(Value::Int64(0))
                 ) && matches!(
                     right.as_ref(),
-                    Expr::Literal(Value::Int(1))
+                    Expr::Literal(Value::Int64(1))
                 )
         ),
         "grouped searched CASE HAVING should lower through the shared post-aggregate value seam",
@@ -5013,7 +5013,7 @@ fn compile_sql_command_select_grouped_boolean_searched_case_having_canonicalizes
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -5041,14 +5041,14 @@ fn compile_sql_command_select_where_searched_case_hash_matches_fluent_canonical_
             Expr::Binary {
                 op: BinaryOp::Gte,
                 left: Box::new(Expr::Field(FieldId::new("age"))),
-                right: Box::new(Expr::Literal(Value::Int(30))),
+                right: Box::new(Expr::Literal(Value::Int64(30))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
         else_expr: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Literal(Value::Int64(20))),
         }),
     };
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
@@ -5132,7 +5132,7 @@ fn compile_sql_command_select_grouped_boolean_searched_case_hash_matches_fluent_
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -5192,7 +5192,7 @@ fn compile_sql_command_select_grouped_boolean_searched_case_without_else_canonic
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -6297,7 +6297,7 @@ fn compile_sql_global_aggregate_command_for_model_only_without_else_canonicalize
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -6371,7 +6371,7 @@ fn compile_sql_global_aggregate_having_matches_fluent_global_aggregate_intent() 
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Int(1)),
+            crate::value::InputValue::from(Value::Int64(1)),
         )
         .expect("global aggregate fluent HAVING should append")
         .plan()

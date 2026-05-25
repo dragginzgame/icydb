@@ -205,11 +205,11 @@ fn canonical_raw_key(values: &[Value]) -> RawIndexStoreKey {
 
 fn int_component_strategy() -> impl Strategy<Value = Value> {
     prop_oneof![
-        Just(Value::Int(i64::MIN)),
-        Just(Value::Int(-1_i64)),
-        Just(Value::Int(0_i64)),
-        Just(Value::Int(1_i64)),
-        Just(Value::Int(i64::MAX)),
+        Just(Value::Int64(i64::MIN)),
+        Just(Value::Int64(-1_i64)),
+        Just(Value::Int64(0_i64)),
+        Just(Value::Int64(1_i64)),
+        Just(Value::Int64(i64::MAX)),
     ]
 }
 
@@ -224,10 +224,10 @@ fn text_component_strategy() -> impl Strategy<Value = Value> {
 
 fn nat_component_strategy() -> impl Strategy<Value = Value> {
     prop_oneof![
-        Just(Value::Nat(0_u64)),
-        Just(Value::Nat(1_u64)),
-        Just(Value::Nat(1024_u64)),
-        Just(Value::Nat(u64::MAX)),
+        Just(Value::Nat64(0_u64)),
+        Just(Value::Nat64(1_u64)),
+        Just(Value::Nat64(1024_u64)),
+        Just(Value::Nat64(u64::MAX)),
     ]
 }
 

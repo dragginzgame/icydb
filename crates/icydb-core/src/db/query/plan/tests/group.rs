@@ -184,7 +184,7 @@ fn additive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan
         Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         direction,
     )
@@ -195,7 +195,7 @@ fn subtractive_rank_order_term(direction: OrderDirection) -> crate::db::query::p
         Expr::Binary {
             op: BinaryOp::Sub,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(2))),
+            right: Box::new(Expr::Literal(Value::Int64(2))),
         },
         direction,
     )
@@ -475,7 +475,7 @@ fn grouped_global_distinct_with_having_clause_case() -> AccessPlannedQuery {
             &group,
             0,
             CompareOp::Gt,
-            Value::Nat(1),
+            Value::Nat64(1),
         )),
     )
 }
@@ -658,7 +658,7 @@ fn grouped_having_with_distinct_case() -> AccessPlannedQuery {
             &group,
             0,
             CompareOp::Gt,
-            Value::Nat(0),
+            Value::Nat64(0),
         )),
     )
 }
@@ -1084,7 +1084,7 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
             Some(Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Nat(0))),
+                right: Box::new(Expr::Literal(Value::Nat64(0))),
             }),
         )
     };
@@ -1292,7 +1292,7 @@ fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() 
                 .expect("global DISTINCT grouped HAVING test needs one aggregate"),
         )),
         CompareOp::Gt,
-        Value::Nat(1),
+        Value::Nat64(1),
     );
 
     assert!(
@@ -1363,7 +1363,7 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
         Some(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Aggregate(crate::db::sum("rank"))),
-            right: Box::new(Expr::Literal(Value::Nat(1))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
         }),
     );
 
@@ -1401,13 +1401,13 @@ fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
                 &FieldSlot::resolve(model, "rank")
                     .expect("group field slot should resolve for test"),
                 CompareOp::Gte,
-                Value::Int(1),
+                Value::Int64(1),
             )),
             right: Box::new(aggregate_having_expr(
                 &group,
                 0,
                 CompareOp::Gt,
-                Value::Nat(0),
+                Value::Nat64(0),
             )),
         }),
     );
@@ -1613,7 +1613,7 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
             &group,
             0,
             CompareOp::Gt,
-            Value::Nat(1),
+            Value::Nat64(1),
         )),
     );
 
@@ -1631,7 +1631,7 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
             &group,
             0,
             CompareOp::Gt,
-            Value::Nat(1)
+            Value::Nat64(1)
         )),
     );
 }
@@ -1871,7 +1871,7 @@ fn grouped_projection_expr_compatibility_accepts_group_fields_and_aggregates_wit
             expr: Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             alias: None,
         },
@@ -1947,7 +1947,7 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_proj
                         Expr::Binary {
                             op: BinaryOp::Add,
                             left: Box::new(Expr::Field(FieldId::new("rank"))),
-                            right: Box::new(Expr::Literal(Value::Int(1))),
+                            right: Box::new(Expr::Literal(Value::Int64(1))),
                         },
                     ),
                 )),
@@ -1957,7 +1957,7 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_proj
                         Expr::Binary {
                             op: BinaryOp::Add,
                             left: Box::new(Expr::Field(FieldId::new("rank"))),
-                            right: Box::new(Expr::Literal(Value::Int(1))),
+                            right: Box::new(Expr::Literal(Value::Int64(1))),
                         },
                     ),
                 )),
@@ -1974,7 +1974,7 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_proj
             input_expr: Some(Box::new(Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             })),
             filter_expr: None,
             distinct: false,

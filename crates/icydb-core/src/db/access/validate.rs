@@ -641,13 +641,17 @@ mod tests {
     fn validate_pk_literal_keeps_scalar_key_validation() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&SCALAR_MODEL);
 
-        validate_access_structure_model(schema, &SCALAR_MODEL, &AccessPlan::by_key(Value::Nat(7)))
-            .expect("scalar primary-key literal should validate");
+        validate_access_structure_model(
+            schema,
+            &SCALAR_MODEL,
+            &AccessPlan::by_key(Value::Nat64(7)),
+        )
+        .expect("scalar primary-key literal should validate");
 
         let err = validate_access_structure_model(
             schema,
             &SCALAR_MODEL,
-            &AccessPlan::by_key(Value::List(vec![Value::Nat(7)])),
+            &AccessPlan::by_key(Value::List(vec![Value::Nat64(7)])),
         )
         .expect_err("scalar primary-key validation should reject list literals");
 
@@ -657,7 +661,7 @@ mod tests {
     #[test]
     fn validate_pk_literal_accepts_ordered_composite_key_value_list() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
-        let key = Value::List(vec![Value::Nat(7), Value::Nat(11)]);
+        let key = Value::List(vec![Value::Nat64(7), Value::Nat64(11)]);
 
         validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
             .expect("ordered composite primary-key literal should validate");
@@ -667,8 +671,8 @@ mod tests {
     fn validate_pk_literal_accepts_composite_by_keys() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
         let keys = vec![
-            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
-            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(11)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(12)]),
         ];
 
         validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_keys(keys))
@@ -681,13 +685,13 @@ mod tests {
 
         validate_access_runtime_invariants_with_schema(
             schema,
-            &AccessPlan::by_key(Value::List(vec![Value::Nat(7), Value::Nat(11)])),
+            &AccessPlan::by_key(Value::List(vec![Value::Nat64(7), Value::Nat64(11)])),
         )
         .expect("runtime access validation should accept ordered composite keys");
 
         let err = validate_access_runtime_invariants_with_schema(
             schema,
-            &AccessPlan::by_key(Value::Nat(7)),
+            &AccessPlan::by_key(Value::Nat64(7)),
         )
         .expect_err("runtime access validation should reject scalar value for composite key");
 
@@ -698,15 +702,15 @@ mod tests {
     fn runtime_invariants_validate_composite_by_keys_shape() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
         let valid_keys = vec![
-            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
-            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(11)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(12)]),
         ];
         validate_access_runtime_invariants_with_schema(schema, &AccessPlan::by_keys(valid_keys))
             .expect("runtime access validation should accept ordered composite key lists");
 
         let invalid_keys = vec![
-            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
-            Value::List(vec![Value::Nat(7)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(11)]),
+            Value::List(vec![Value::Nat64(7)]),
         ];
         let err = validate_access_runtime_invariants_with_schema(
             schema,
@@ -720,7 +724,7 @@ mod tests {
     #[test]
     fn validate_pk_literal_rejects_composite_key_with_wrong_arity() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
-        let key = Value::List(vec![Value::Nat(7)]);
+        let key = Value::List(vec![Value::Nat64(7)]);
 
         let err =
             validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
@@ -732,7 +736,7 @@ mod tests {
     #[test]
     fn validate_pk_literal_rejects_composite_key_component_type_mismatch() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
-        let key = Value::List(vec![Value::Nat(7), Value::Text("wrong".to_string())]);
+        let key = Value::List(vec![Value::Nat64(7), Value::Text("wrong".to_string())]);
 
         let err =
             validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
@@ -745,8 +749,8 @@ mod tests {
     fn validate_pk_range_rejects_composite_primary_key_ranges() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
         let range = AccessPlan::key_range(
-            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
-            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(11)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(12)]),
         );
 
         let err = validate_access_structure_model(schema, &COMPOSITE_MODEL, &range)
@@ -762,8 +766,8 @@ mod tests {
     fn runtime_invariants_reject_composite_primary_key_ranges() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
         let range = AccessPlan::key_range(
-            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
-            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(11)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(12)]),
         );
 
         let err = validate_access_runtime_invariants_with_schema(schema, &range)

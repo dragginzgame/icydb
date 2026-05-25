@@ -214,10 +214,10 @@ pub(in crate::db::executor) fn decode_covering_projection_component(
     if tag == ValueTag::Bool.to_u8() {
         return decode_covering_bool(payload);
     }
-    if tag == ValueTag::Int.to_u8() {
+    if tag == ValueTag::Int64.to_u8() {
         return decode_covering_i64(payload);
     }
-    if tag == ValueTag::Nat.to_u8() {
+    if tag == ValueTag::Nat64.to_u8() {
         return decode_covering_u64(payload);
     }
     if tag == ValueTag::Text.to_u8() {
@@ -366,7 +366,7 @@ fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     let unsigned = biased ^ COVERING_I64_SIGN_BIT_BIAS;
     let value = i64::from_be_bytes(unsigned.to_be_bytes());
 
-    Ok(Some(Value::Int(value)))
+    Ok(Some(Value::Int64(value)))
 }
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
@@ -377,7 +377,7 @@ fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);
 
-    Ok(Some(Value::Nat(u64::from_be_bytes(bytes))))
+    Ok(Some(Value::Nat64(u64::from_be_bytes(bytes))))
 }
 
 fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> {

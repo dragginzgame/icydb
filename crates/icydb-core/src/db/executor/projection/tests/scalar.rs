@@ -7,14 +7,14 @@ fn eval_expr_supports_arithmetic_projection() {
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Int(1))),
+        right: Box::new(Expr::Literal(Value::Int64(1))),
     };
 
     let value = eval_scalar_expr_for_row(&expr, &entity)
         .expect("numeric projection expression should evaluate");
 
     assert_eq!(
-        value.cmp_numeric(&Value::Int(8)),
+        value.cmp_numeric(&Value::Int64(8)),
         Some(Ordering::Equal),
         "arithmetic projection must preserve numeric semantics",
     );
@@ -26,13 +26,13 @@ fn scalar_projection_expr_matches_generic_eval_for_arithmetic_projection() {
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Int(1))),
+        right: Box::new(Expr::Literal(Value::Int64(1))),
     };
     let value = eval_scalar_expr_for_row(&expr, &entity)
         .expect("scalar arithmetic projection should evaluate");
 
     assert_eq!(
-        value.cmp_numeric(&Value::Int(42)),
+        value.cmp_numeric(&Value::Int64(42)),
         Some(Ordering::Equal),
         "compiled scalar projection should preserve arithmetic projection semantics",
     );
@@ -81,7 +81,7 @@ fn canonical_scalar_projection_executes_field_path_projection() {
     let value = eval_canonical_scalar_expr_for_row(&expr, &entity)
         .expect("field-path projection should evaluate");
 
-    assert_eq!(value, Value::Int(29));
+    assert_eq!(value, Value::Int64(29));
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn scalar_filter_expr_matches_field_path_value() {
             "profile",
             vec!["rank".to_string()],
         ))),
-        right: Box::new(Expr::Literal(Value::Int(41))),
+        right: Box::new(Expr::Literal(Value::Int64(41))),
     };
 
     let admitted =
@@ -156,7 +156,7 @@ fn scalar_filter_expr_matches_nat_field_path_value() {
             "profile",
             vec!["score".to_string()],
         ))),
-        right: Box::new(Expr::Literal(Value::Nat(41))),
+        right: Box::new(Expr::Literal(Value::Nat64(41))),
     };
 
     let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
@@ -198,7 +198,7 @@ fn scalar_filter_expr_rejects_missing_field_path() {
             "profile",
             vec!["missing".to_string()],
         ))),
-        right: Box::new(Expr::Literal(Value::Int(43))),
+        right: Box::new(Expr::Literal(Value::Int64(43))),
     };
 
     let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
@@ -239,7 +239,7 @@ fn scalar_filter_expr_fails_closed_for_non_map_path_root() {
             "label",
             vec!["rank".to_string()],
         ))),
-        right: Box::new(Expr::Literal(Value::Int(47))),
+        right: Box::new(Expr::Literal(Value::Int64(47))),
     };
 
     let err = eval_scalar_filter_expr_for_row(&expr, &entity)
@@ -286,7 +286,7 @@ fn eval_expr_supports_searched_case_projection() {
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Int(5))),
+                right: Box::new(Expr::Literal(Value::Int64(5))),
             },
             Expr::Literal(Value::Text("high".to_string())),
         )],
@@ -308,7 +308,7 @@ fn eval_expr_keeps_searched_case_branches_lazy() {
             Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("label"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
         )],
         else_expr: Box::new(Expr::Literal(Value::Text("fallback".to_string()))),
@@ -326,7 +326,7 @@ fn eval_expr_supports_numeric_equality_widening() {
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Nat(7))),
+        right: Box::new(Expr::Literal(Value::Nat64(7))),
     };
 
     let value = eval_scalar_expr_for_row(&expr, &entity).expect("numeric equality should widen");
@@ -340,7 +340,7 @@ fn eval_expr_supports_numeric_order_comparison() {
     let expr = Expr::Binary {
         op: BinaryOp::Gt,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Int(5))),
+        right: Box::new(Expr::Literal(Value::Int64(5))),
     };
 
     let value =

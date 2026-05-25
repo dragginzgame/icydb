@@ -1,7 +1,7 @@
 use crate::{
     traits::EntityKey,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Id, Int, Int128, Nat, Nat128,
+        Account, Date, Decimal, Duration, Float32, Float64, Id, Int128, IntBig, Nat128, NatBig,
         Principal, Subaccount, Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
@@ -28,9 +28,10 @@ pub enum InputValue {
     Enum(InputValueEnum),
     Float32(Float32),
     Float64(Float64),
-    Int(i64),
+    #[serde(rename = "Int")]
+    Int64(i64),
     Int128(Int128),
-    IntBig(Int),
+    IntBig(IntBig),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Null,
@@ -38,9 +39,10 @@ pub enum InputValue {
     Subaccount(Subaccount),
     Text(String),
     Timestamp(Timestamp),
-    Nat(u64),
+    #[serde(rename = "Nat")]
+    Nat64(u64),
     Nat128(Nat128),
-    NatBig(Nat),
+    NatBig(NatBig),
     Ulid(Ulid),
     Unit,
 }
@@ -95,7 +97,7 @@ impl From<&Value> for InputValue {
             Value::Enum(value) => Self::Enum(InputValueEnum::from(value)),
             Value::Float32(value) => Self::Float32(*value),
             Value::Float64(value) => Self::Float64(*value),
-            Value::Int(value) => Self::Int(*value),
+            Value::Int64(value) => Self::Int64(*value),
             Value::Int128(value) => Self::Int128(*value),
             Value::IntBig(value) => Self::IntBig(value.clone()),
             Value::List(values) => Self::List(values.iter().map(Self::from).collect()),
@@ -110,7 +112,7 @@ impl From<&Value> for InputValue {
             Value::Subaccount(value) => Self::Subaccount(*value),
             Value::Text(value) => Self::Text(value.clone()),
             Value::Timestamp(value) => Self::Timestamp(*value),
-            Value::Nat(value) => Self::Nat(*value),
+            Value::Nat64(value) => Self::Nat64(*value),
             Value::Nat128(value) => Self::Nat128(*value),
             Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
@@ -137,7 +139,7 @@ impl From<&InputValue> for Value {
             InputValue::Enum(value) => Self::Enum(ValueEnum::from(value)),
             InputValue::Float32(value) => Self::Float32(*value),
             InputValue::Float64(value) => Self::Float64(*value),
-            InputValue::Int(value) => Self::Int(*value),
+            InputValue::Int64(value) => Self::Int64(*value),
             InputValue::Int128(value) => Self::Int128(*value),
             InputValue::IntBig(value) => Self::IntBig(value.clone()),
             InputValue::List(values) => Self::List(values.iter().map(Self::from).collect()),
@@ -152,7 +154,7 @@ impl From<&InputValue> for Value {
             InputValue::Subaccount(value) => Self::Subaccount(*value),
             InputValue::Text(value) => Self::Text(value.clone()),
             InputValue::Timestamp(value) => Self::Timestamp(*value),
-            InputValue::Nat(value) => Self::Nat(*value),
+            InputValue::Nat64(value) => Self::Nat64(*value),
             InputValue::Nat128(value) => Self::Nat128(*value),
             InputValue::NatBig(value) => Self::NatBig(value.clone()),
             InputValue::Ulid(value) => Self::Ulid(*value),
@@ -256,8 +258,8 @@ impl From<Float64> for InputValue {
     }
 }
 
-impl From<Int> for InputValue {
-    fn from(value: Int) -> Self {
+impl From<IntBig> for InputValue {
+    fn from(value: IntBig) -> Self {
         Self::IntBig(value)
     }
 }
@@ -268,8 +270,8 @@ impl From<Int128> for InputValue {
     }
 }
 
-impl From<Nat> for InputValue {
-    fn from(value: Nat) -> Self {
+impl From<NatBig> for InputValue {
+    fn from(value: NatBig) -> Self {
         Self::NatBig(value)
     }
 }
@@ -347,7 +349,7 @@ macro_rules! impl_input_value_int {
         $(
             impl From<$ty> for InputValue {
                 fn from(value: $ty) -> Self {
-                    Self::Int(i64::from(value))
+                    Self::Int64(i64::from(value))
                 }
             }
         )*
@@ -359,7 +361,7 @@ macro_rules! impl_input_value_nat {
         $(
             impl From<$ty> for InputValue {
                 fn from(value: $ty) -> Self {
-                    Self::Nat(u64::from(value))
+                    Self::Nat64(u64::from(value))
                 }
             }
         )*
@@ -380,7 +382,7 @@ mod tests {
     #[test]
     fn input_value_round_trip_keeps_recursive_collection_shape() {
         let runtime = Value::List(vec![
-            Value::Nat(7),
+            Value::Nat64(7),
             Value::Map(vec![(Value::Text("x".to_string()), Value::Bool(true))]),
         ]);
 
@@ -390,14 +392,14 @@ mod tests {
     #[test]
     fn input_value_enum_round_trip_keeps_payload() {
         let runtime =
-            ValueEnum::new("Example", Some("test::InputEnum")).with_payload(Value::Nat(9));
+            ValueEnum::new("Example", Some("test::InputEnum")).with_payload(Value::Nat64(9));
 
         assert_eq!(
             InputValueEnum::from(runtime.clone()),
             InputValueEnum {
                 variant: "Example".to_string(),
                 path: Some("test::InputEnum".to_string()),
-                payload: Some(Box::new(InputValue::Nat(9))),
+                payload: Some(Box::new(InputValue::Nat64(9))),
             },
         );
         assert_eq!(

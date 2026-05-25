@@ -57,7 +57,7 @@ fn expect_projection_metrics<T>(f: impl FnOnce() -> T) -> (T, SqlProjectionMater
 fn sql_projection_materialization_prefers_retained_slot_rows() {
     let row_layout = projection_eval_row_layout_for_materialize_tests();
     let page = StructuralCursorPage::new_with_slot_rows(
-        vec![RetainedSlotRow::new(4, vec![(1, Value::Int(19))])],
+        vec![RetainedSlotRow::new(4, vec![(1, Value::Int64(19))])],
         None,
     );
     let prepared_projection = direct_rank_projection_shape();
@@ -74,7 +74,7 @@ fn sql_projection_materialization_prefers_retained_slot_rows() {
         .expect("slot-row SQL projection materialization should succeed")
         .into_value_rows();
 
-    assert_eq!(payload, vec![vec![Value::Int(19)]]);
+    assert_eq!(payload, vec![vec![Value::Int64(19)]]);
 
     assert_eq!(
         metrics.slot_rows_path_hits, 1,
@@ -115,7 +115,7 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies() {
         .expect("data-row SQL projection materialization should succeed")
         .into_value_rows();
 
-    assert_eq!(payload, vec![vec![Value::Int(19)]]);
+    assert_eq!(payload, vec![vec![Value::Int64(19)]]);
 
     assert_eq!(
         metrics.data_rows_path_hits, 1,
@@ -156,7 +156,7 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies_for_repea
         .expect("repeated data-row SQL projection materialization should succeed")
         .into_value_rows();
 
-    assert_eq!(payload, vec![vec![Value::Int(19), Value::Int(19)]]);
+    assert_eq!(payload, vec![vec![Value::Int64(19), Value::Int64(19)]]);
 
     assert_eq!(
         metrics.data_rows_path_hits, 1,

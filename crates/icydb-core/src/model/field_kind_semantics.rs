@@ -5,7 +5,7 @@
 
 use crate::{
     model::field::FieldKind,
-    types::{Account, Decimal, Float32, Float64, Int, Int128, Nat, Nat128, Principal, Ulid},
+    types::{Account, Decimal, Float32, Float64, Int128, IntBig, Nat128, NatBig, Principal, Ulid},
     value::{Value, ValueEnum},
 };
 use std::str::FromStr;
@@ -362,7 +362,7 @@ fn canonicalize_lossless_field_literal_for_kind(
         },
         FieldKind::IntBig { .. } => match value {
             Value::IntBig(inner) => Some(Value::IntBig(inner.clone())),
-            Value::Text(inner) => Int::from_str(inner).ok().map(Value::IntBig),
+            Value::Text(inner) => IntBig::from_str(inner).ok().map(Value::IntBig),
             _ => None,
         },
         FieldKind::List(inner) | FieldKind::Set(inner) => match value {
@@ -401,7 +401,7 @@ fn canonicalize_lossless_field_literal_for_kind(
         },
         FieldKind::NatBig { .. } => match value {
             Value::NatBig(inner) => Some(Value::NatBig(inner.clone())),
-            Value::Text(inner) => Nat::from_str(inner).ok().map(Value::NatBig),
+            Value::Text(inner) => NatBig::from_str(inner).ok().map(Value::NatBig),
             _ => None,
         },
         FieldKind::Unit => match value {
@@ -419,44 +419,44 @@ fn canonicalize_lossless_field_literal_for_kind(
 
 fn canonicalize_int_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => *inner,
-        Value::Nat(inner) => i64::try_from(*inner).ok()?,
+        Value::Int64(inner) => *inner,
+        Value::Nat64(inner) => i64::try_from(*inner).ok()?,
         Value::Text(inner) => inner.parse::<i64>().ok()?,
         _ => return None,
     };
 
-    (min..=max).contains(&value).then_some(Value::Int(value))
+    (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
 fn canonicalize_nat_literal(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => u64::try_from(*inner).ok()?,
-        Value::Nat(inner) => *inner,
+        Value::Int64(inner) => u64::try_from(*inner).ok()?,
+        Value::Nat64(inner) => *inner,
         Value::Text(inner) => inner.parse::<u64>().ok()?,
         _ => return None,
     };
 
-    (value <= max).then_some(Value::Nat(value))
+    (value <= max).then_some(Value::Nat64(value))
 }
 
 fn canonicalize_int_strict_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => *inner,
-        Value::Nat(inner) => i64::try_from(*inner).ok()?,
+        Value::Int64(inner) => *inner,
+        Value::Nat64(inner) => i64::try_from(*inner).ok()?,
         _ => return None,
     };
 
-    (min..=max).contains(&value).then_some(Value::Int(value))
+    (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
 fn canonicalize_nat_strict_literal(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => u64::try_from(*inner).ok()?,
-        Value::Nat(inner) => *inner,
+        Value::Int64(inner) => u64::try_from(*inner).ok()?,
+        Value::Nat64(inner) => *inner,
         _ => return None,
     };
 
-    (value <= max).then_some(Value::Nat(value))
+    (value <= max).then_some(Value::Nat64(value))
 }
 
 // Keep strict SQL literal canonicalization on its original narrow contract:
@@ -644,10 +644,13 @@ mod tests {
                 key: &TEXT_KIND,
                 value: &NAT_KIND,
             }
-            .accepts_value(&Value::Map(vec![(Value::Text("a".into()), Value::Nat(1))]))
+            .accepts_value(&Value::Map(vec![(
+                Value::Text("a".into()),
+                Value::Nat64(1)
+            )]))
         );
-        assert!(RELATION_KIND.accepts_value(&Value::Nat(9)));
-        assert!(!FieldKind::List(&TEXT_KIND).accepts_value(&Value::List(vec![Value::Nat(1)])));
+        assert!(RELATION_KIND.accepts_value(&Value::Nat64(9)));
+        assert!(!FieldKind::List(&TEXT_KIND).accepts_value(&Value::List(vec![Value::Nat64(1)])));
     }
 
     #[test]
@@ -665,16 +668,16 @@ mod tests {
         assert_eq!(
             canonicalize_grouped_having_numeric_literal_for_field_kind(
                 Some(FieldKind::Int64),
-                &Value::Nat(7),
+                &Value::Nat64(7),
             ),
-            Some(Value::Int(7)),
+            Some(Value::Int64(7)),
         );
         assert_eq!(
             canonicalize_grouped_having_numeric_literal_for_field_kind(
                 Some(RELATION_KIND),
-                &Value::Int(7),
+                &Value::Int64(7),
             ),
-            Some(Value::Nat(7)),
+            Some(Value::Nat64(7)),
         );
         assert_eq!(
             canonicalize_grouped_having_numeric_literal_for_field_kind(
@@ -694,8 +697,8 @@ mod tests {
             Some(Value::Ulid(_)),
         ));
         assert_eq!(
-            canonicalize_strict_sql_literal_for_kind(&FieldKind::Nat64, &Value::Int(4)),
-            Some(Value::Nat(4)),
+            canonicalize_strict_sql_literal_for_kind(&FieldKind::Nat64, &Value::Int64(4)),
+            Some(Value::Nat64(4)),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_kind(

@@ -207,7 +207,7 @@ where
         .unwrap_or_else(|err| panic!("id-returning SQL should succeed: {err}"))
         .into_iter()
         .map(|row| match row.as_slice() {
-            [Value::Nat(id)] => *id,
+            [Value::Nat64(id)] => *id,
             other => panic!("id-returning SQL should emit one nat id column, got {other:?}"),
         })
         .collect()
@@ -314,7 +314,7 @@ fn generated_timestamp_insert_patch(
 ) -> StructuralPatch {
     session
         .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _>([
-            ("id", Value::Nat(id)),
+            ("id", Value::Nat64(id)),
             (
                 "created_on_insert",
                 Value::Timestamp(Timestamp::from_nanos(created_on_insert_nanos)),
@@ -356,9 +356,9 @@ fn execute_sql_write_rejects_unsupported_schema_transition_before_staging() {
     assert_eq!(
         persisted_write_rows(&session),
         vec![vec![
-            Value::Nat(1),
+            Value::Nat64(1),
             Value::Text("Ada".to_string()),
-            Value::Nat(21),
+            Value::Nat64(21),
         ]],
         "unsupported UPDATE transition must fail before mutation staging",
     );
@@ -377,9 +377,9 @@ fn execute_sql_write_rejects_unsupported_schema_transition_before_staging() {
     assert_eq!(
         persisted_write_rows(&session),
         vec![vec![
-            Value::Nat(1),
+            Value::Nat64(1),
             Value::Text("Ada".to_string()),
-            Value::Nat(21),
+            Value::Nat64(21),
         ]],
         "unsupported DELETE transition must fail before delete staging",
     );
@@ -394,7 +394,7 @@ fn session_structural_patch_resolves_fields_through_accepted_schema_descriptor()
     let patch = session
         .structural_patch::<SessionSqlWriteEntity, _, _>([
             ("name", Value::Text("Ari".to_string())),
-            ("age", Value::Nat(31)),
+            ("age", Value::Nat64(31)),
         ])
         .expect("session structural patch should resolve accepted schema fields");
     let updated = session
@@ -406,9 +406,9 @@ fn session_structural_patch_resolves_fields_through_accepted_schema_descriptor()
     assert_eq!(
         persisted_write_rows(&session),
         vec![vec![
-            Value::Nat(1),
+            Value::Nat64(1),
             Value::Text("Ari".to_string()),
-            Value::Nat(31),
+            Value::Nat64(31),
         ]],
     );
 }
@@ -466,7 +466,7 @@ fn assert_insert_select_returning_and_persisted_rows(
         rows[0][1..],
         [
             Value::Text(expected_inserted_name.to_string()),
-            Value::Nat(21)
+            Value::Nat64(21)
         ],
         "{context} should preserve the projected source payload",
     );
@@ -573,16 +573,16 @@ fn execute_sql_insert_update_supports_composite_primary_key_fields() {
          RETURNING tenant_id, local_id, name, age",
         &[
             vec![
-                Value::Nat(1),
-                Value::Nat(10),
+                Value::Nat64(1),
+                Value::Nat64(10),
                 Value::Text("Ada".to_string()),
-                Value::Nat(21),
+                Value::Nat64(21),
             ],
             vec![
-                Value::Nat(1),
-                Value::Nat(11),
+                Value::Nat64(1),
+                Value::Nat64(11),
                 Value::Text("Bea".to_string()),
-                Value::Nat(22),
+                Value::Nat64(22),
             ],
         ],
         "composite primary-key SQL INSERT",
@@ -595,10 +595,10 @@ fn execute_sql_insert_update_supports_composite_primary_key_fields() {
          WHERE tenant_id = 1 AND local_id = 10 \
          RETURNING tenant_id, local_id, name, age",
         &[vec![
-            Value::Nat(1),
-            Value::Nat(10),
+            Value::Nat64(1),
+            Value::Nat64(10),
             Value::Text("Ada".to_string()),
-            Value::Nat(30),
+            Value::Nat64(30),
         ]],
         "composite primary-key SQL UPDATE",
     );
@@ -607,16 +607,16 @@ fn execute_sql_insert_update_supports_composite_primary_key_fields() {
         persisted_composite_write_rows(&session),
         vec![
             vec![
-                Value::Nat(1),
-                Value::Nat(10),
+                Value::Nat64(1),
+                Value::Nat64(10),
                 Value::Text("Ada".to_string()),
-                Value::Nat(30),
+                Value::Nat64(30),
             ],
             vec![
-                Value::Nat(1),
-                Value::Nat(11),
+                Value::Nat64(1),
+                Value::Nat64(11),
                 Value::Text("Bea".to_string()),
-                Value::Nat(22),
+                Value::Nat64(22),
             ],
         ],
     );
@@ -657,10 +657,10 @@ fn fluent_exact_key_paths_support_composite_primary_keys() {
     assert_eq!(
         persisted_composite_write_rows(&session),
         vec![vec![
-            Value::Nat(second_key.tenant_id),
-            Value::Nat(second_key.local_id),
+            Value::Nat64(second_key.tenant_id),
+            Value::Nat64(second_key.local_id),
             Value::Text("Bea".to_string()),
-            Value::Nat(22),
+            Value::Nat64(22),
         ]],
     );
 }
@@ -727,8 +727,8 @@ fn fluent_id_terminals_support_composite_primary_keys() {
             .values_by_with_ids("age")
             .expect("composite values_by_with_ids terminal should succeed"),
         outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![
-            (Id::from_key(first_key), Value::Nat(21)),
-            (Id::from_key(second_key), Value::Nat(22)),
+            (Id::from_key(first_key), Value::Nat64(21)),
+            (Id::from_key(second_key), Value::Nat64(22)),
         ]),
     );
     assert_eq!(
@@ -738,7 +738,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
             .expect("composite top_k_by_with_ids terminal should succeed"),
         outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![(
             Id::from_key(second_key),
-            Value::Nat(22),
+            Value::Nat64(22),
         )]),
     );
     assert_eq!(
@@ -748,7 +748,7 @@ fn fluent_id_terminals_support_composite_primary_keys() {
             .expect("composite bottom_k_by_with_ids terminal should succeed"),
         outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![(
             Id::from_key(first_key),
-            Value::Nat(21),
+            Value::Nat64(21),
         )]),
     );
 }
@@ -860,9 +860,9 @@ fn execute_sql_statement_multi_row_insert_late_failure_is_statement_atomic() {
     assert_eq!(
         persisted_write_rows(&session),
         vec![vec![
-            Value::Nat(2),
+            Value::Nat64(2),
             Value::Text("Existing".to_string()),
-            Value::Nat(20),
+            Value::Nat64(20),
         ]],
         "late INSERT failure must not commit the earlier row",
     );
@@ -931,7 +931,7 @@ fn execute_sql_statement_insert_with_schema_generated_primary_key_matrix_accepts
             rows[0][1..],
             [
                 Value::Text(expected_name.to_string()),
-                Value::Nat(expected_age),
+                Value::Nat64(expected_age),
             ],
         );
 
@@ -945,7 +945,7 @@ fn execute_sql_statement_insert_with_schema_generated_primary_key_matrix_accepts
                 persisted,
                 vec![vec![
                     Value::Text(expected_name.to_string()),
-                    Value::Nat(expected_age)
+                    Value::Nat64(expected_age)
                 ]],
             );
         }
@@ -1092,8 +1092,8 @@ fn execute_sql_statement_insert_synthesizes_schema_generated_fields_matrix() {
             1,
             "{context} positional insert should return one row",
         );
-        assert_eq!(named_rows[0][0], Value::Nat(1));
-        assert_eq!(positional_rows[0][0], Value::Nat(2));
+        assert_eq!(named_rows[0][0], Value::Nat64(1));
+        assert_eq!(positional_rows[0][0], Value::Nat64(2));
         match generated_kind {
             "ulid" => {
                 assert!(
@@ -1242,9 +1242,9 @@ fn execute_sql_statement_single_row_update_matrix_returns_count_without_returnin
             assert_eq!(
                 persisted,
                 vec![vec![
-                    Value::Nat(1),
+                    Value::Nat64(1),
                     Value::Text("Bea".to_string()),
-                    Value::Nat(22),
+                    Value::Nat64(22),
                 ]],
             );
         }
@@ -1325,13 +1325,13 @@ fn execute_sql_statement_signed_numeric_write_matrix_widens_parser_literals() {
             "signed SQL UPDATE",
             Some((1_i64, -5_i64)),
             "UPDATE SessionSqlSignedWriteEntity SET delta = 7 WHERE id = 1",
-            vec![vec![Value::Int(1), Value::Int(7)]],
+            vec![vec![Value::Int64(1), Value::Int64(7)]],
         ),
         (
             "signed SQL INSERT",
             None,
             "INSERT INTO SessionSqlSignedWriteEntity (id, delta) VALUES (2, 9)",
-            vec![vec![Value::Int(2), Value::Int(9)]],
+            vec![vec![Value::Int64(2), Value::Int64(9)]],
         ),
     ];
 
@@ -1382,19 +1382,19 @@ fn execute_sql_statement_update_with_non_primary_key_predicate_updates_matching_
         2,
         &[
             vec![
-                Value::Nat(1),
+                Value::Nat64(1),
                 Value::Text("Ada".to_string()),
-                Value::Nat(22),
+                Value::Nat64(22),
             ],
             vec![
-                Value::Nat(2),
+                Value::Nat64(2),
                 Value::Text("Bea".to_string()),
-                Value::Nat(22),
+                Value::Nat64(22),
             ],
             vec![
-                Value::Nat(3),
+                Value::Nat64(3),
                 Value::Text("Cid".to_string()),
-                Value::Nat(30),
+                Value::Nat64(30),
             ],
         ],
         "SQL UPDATE with non-primary-key predicate",
@@ -1421,24 +1421,24 @@ fn execute_sql_statement_update_with_order_limit_and_offset_updates_one_ordered_
         2,
         &[
             vec![
-                Value::Nat(1),
+                Value::Nat64(1),
                 Value::Text("Ada".to_string()),
-                Value::Nat(21),
+                Value::Nat64(21),
             ],
             vec![
-                Value::Nat(2),
+                Value::Nat64(2),
                 Value::Text("Bea".to_string()),
-                Value::Nat(99),
+                Value::Nat64(99),
             ],
             vec![
-                Value::Nat(3),
+                Value::Nat64(3),
                 Value::Text("Cid".to_string()),
-                Value::Nat(99),
+                Value::Nat64(99),
             ],
             vec![
-                Value::Nat(4),
+                Value::Nat64(4),
                 Value::Text("Dee".to_string()),
-                Value::Nat(40),
+                Value::Nat64(40),
             ],
         ],
         "SQL UPDATE ordered window",
@@ -1457,19 +1457,19 @@ fn execute_sql_statement_update_with_limit_and_offset_uses_primary_key_order_fal
         1,
         &[
             vec![
-                Value::Nat(1),
+                Value::Nat64(1),
                 Value::Text("Ada".to_string()),
-                Value::Nat(21),
+                Value::Nat64(21),
             ],
             vec![
-                Value::Nat(2),
+                Value::Nat64(2),
                 Value::Text("Bea".to_string()),
-                Value::Nat(22),
+                Value::Nat64(22),
             ],
             vec![
-                Value::Nat(3),
+                Value::Nat64(3),
                 Value::Text("Cid".to_string()),
-                Value::Nat(21),
+                Value::Nat64(21),
             ],
         ],
         "SQL UPDATE window without ORDER BY",
@@ -1557,8 +1557,8 @@ fn execute_sql_statement_insert_select_matrix_accepts_supported_source_shapes() 
             "Ada",
             "SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY age ASC LIMIT 10",
             vec![
-                vec![Value::Text("Ada".to_string()), Value::Nat(21)],
-                vec![Value::Text("Ada".to_string()), Value::Nat(21)],
+                vec![Value::Text("Ada".to_string()), Value::Nat64(21)],
+                vec![Value::Text("Ada".to_string()), Value::Nat64(21)],
             ],
             "plain INSERT SELECT",
         ),
@@ -1568,8 +1568,8 @@ fn execute_sql_statement_insert_select_matrix_accepts_supported_source_shapes() 
             "ada",
             "SELECT name, age FROM SessionSqlEntity ORDER BY name ASC LIMIT 10",
             vec![
-                vec![Value::Text("Ada".to_string()), Value::Nat(21)],
-                vec![Value::Text("ada".to_string()), Value::Nat(21)],
+                vec![Value::Text("Ada".to_string()), Value::Nat64(21)],
+                vec![Value::Text("ada".to_string()), Value::Nat64(21)],
             ],
             "computed INSERT SELECT",
         ),
@@ -1609,19 +1609,19 @@ fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
         persisted_write_rows(&session),
         vec![
             vec![
-                Value::Nat(1),
+                Value::Nat64(1),
                 Value::Text("Ada".to_string()),
-                Value::Nat(21),
+                Value::Nat64(21),
             ],
             vec![
-                Value::Nat(2),
+                Value::Nat64(2),
                 Value::Text("Bea".to_string()),
-                Value::Nat(22),
+                Value::Nat64(22),
             ],
             vec![
-                Value::Nat(12),
+                Value::Nat64(12),
                 Value::Text("Existing".to_string()),
-                Value::Nat(32),
+                Value::Nat64(32),
             ],
         ],
         "late INSERT SELECT failure must not commit the earlier projected row",
@@ -1743,8 +1743,8 @@ fn execute_sql_statement_insert_strong_relation_same_statement_target_stays_comm
     assert_eq!(
         persisted,
         vec![
-            vec![Value::Nat(1), Value::Null],
-            vec![Value::Nat(2), Value::Nat(1)],
+            vec![Value::Nat64(1), Value::Null],
+            vec![Value::Nat64(2), Value::Nat64(1)],
         ],
         "same-statement relation failure must not persist the staged parent or child",
     );
@@ -1795,7 +1795,7 @@ fn execute_sql_statement_insert_and_update_returning_projection_matrix() {
     assert_statement_returning_rows::<SessionSqlEntity>(
         &session,
         "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING name, age",
-        &[vec![Value::Text("Ada".to_string()), Value::Nat(21)]],
+        &[vec![Value::Text("Ada".to_string()), Value::Nat64(21)]],
         "SQL INSERT RETURNING field list",
     );
 
@@ -1805,9 +1805,9 @@ fn execute_sql_statement_insert_and_update_returning_projection_matrix() {
         &session,
         "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING *",
         &[vec![
-            Value::Nat(1),
+            Value::Nat64(1),
             Value::Text("Ada".to_string()),
-            Value::Nat(22),
+            Value::Nat64(22),
         ]],
         "SQL UPDATE RETURNING star",
     );

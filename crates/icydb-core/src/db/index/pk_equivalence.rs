@@ -105,11 +105,11 @@ mod tests {
         let cases = [
             (
                 index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Int(-7))),
-                Value::Int(-7),
+                Value::Int64(-7),
             ),
             (
                 index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Nat(42))),
-                Value::Nat(42),
+                Value::Nat64(42),
             ),
             (
                 index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Principal(
@@ -153,12 +153,12 @@ mod tests {
     #[test]
     fn pk_equivalence_matches_composite_anchor_and_boundary_values() {
         let composite = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyComponent::Nat(42),
-            PrimaryKeyComponent::Int(-7),
+            PrimaryKeyComponent::Nat64(42),
+            PrimaryKeyComponent::Int64(-7),
         ])
         .expect("test composite primary key should encode");
         let index_key = index_key_with_primary_key_value(&PrimaryKeyValue::Composite(composite));
-        let boundary = Value::List(vec![Value::Nat(42), Value::Int(-7)]);
+        let boundary = Value::List(vec![Value::Nat64(42), Value::Int64(-7)]);
 
         assert!(
             primary_key_matches_value(&index_key, &boundary)
@@ -185,7 +185,7 @@ mod tests {
             index_key_with_primary_key_value(&PrimaryKeyValue::from(StorageKey::Nat(42)));
 
         assert!(
-            !primary_key_matches_value(&index_key, &Value::Nat(99))
+            !primary_key_matches_value(&index_key, &Value::Nat64(99))
                 .expect("distinct primary keys should still compare cleanly"),
         );
     }

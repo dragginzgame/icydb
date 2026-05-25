@@ -471,9 +471,9 @@ fn explain_grouped_strategy_downgrades_to_hash_for_non_streaming_having_expr() {
             left: Box::new(Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Nat(1))),
+                right: Box::new(Expr::Literal(Value::Nat64(1))),
             }),
-            right: Box::new(Expr::Literal(Value::Nat(5))),
+            right: Box::new(Expr::Literal(Value::Nat64(5))),
         }),
     );
 
@@ -518,7 +518,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
             &group,
             0,
             CompareOp::Gt,
-            Value::Nat(1),
+            Value::Nat64(1),
         )),
     );
 
@@ -555,7 +555,7 @@ fn explain_grouped_having_projection_is_reported() {
                 &group,
                 0,
                 CompareOp::Gt,
-                Value::Nat(1),
+                Value::Nat64(1),
             )),
         );
 
@@ -626,7 +626,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
             &group,
             0,
             CompareOp::Gt,
-            Value::Nat(1),
+            Value::Nat64(1),
         )),
     );
 
@@ -647,7 +647,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                expr: aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Nat(1)),
+                expr: aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Nat64(1)),
             }),
             max_groups: 12,
             max_group_bytes: 4096,
@@ -685,9 +685,9 @@ fn explain_grouped_having_expression_projection_is_reported() {
             left: Box::new(Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Nat(1))),
+                right: Box::new(Expr::Literal(Value::Nat64(1))),
             }),
-            right: Box::new(Expr::Literal(Value::Nat(5))),
+            right: Box::new(Expr::Literal(Value::Nat64(5))),
         }),
     );
 
@@ -713,9 +713,9 @@ fn explain_grouped_having_expression_projection_is_reported() {
                     left: Box::new(Expr::Binary {
                         op: crate::db::query::plan::expr::BinaryOp::Add,
                         left: Box::new(Expr::Aggregate(crate::db::count())),
-                        right: Box::new(Expr::Literal(Value::Nat(1))),
+                        right: Box::new(Expr::Literal(Value::Nat64(1))),
                     }),
-                    right: Box::new(Expr::Literal(Value::Nat(5))),
+                    right: Box::new(Expr::Literal(Value::Nat64(5))),
                 },
             }),
             max_groups: 12,
@@ -749,9 +749,9 @@ fn explain_grouped_having_case_expression_projection_is_reported() {
                         },
                         Expr::Aggregate(crate::db::count()),
                     )],
-                    else_expr: Box::new(Expr::Literal(Value::Nat(0))),
+                    else_expr: Box::new(Expr::Literal(Value::Nat64(0))),
                 }),
-                right: Box::new(Expr::Literal(Value::Nat(5))),
+                right: Box::new(Expr::Literal(Value::Nat64(5))),
             }),
         );
 
@@ -779,9 +779,9 @@ fn explain_grouped_having_case_expression_projection_is_reported() {
                             },
                             Expr::Aggregate(crate::db::count()),
                         )],
-                        else_expr: Box::new(Expr::Literal(Value::Nat(0))),
+                        else_expr: Box::new(Expr::Literal(Value::Nat64(0))),
                     }),
-                    right: Box::new(Expr::Literal(Value::Nat(5))),
+                    right: Box::new(Expr::Literal(Value::Nat64(5))),
                 },
             }),
             max_groups: 12,
@@ -805,7 +805,7 @@ fn explain_grouped_aggregate_input_expression_projection_is_reported() {
                     left: Box::new(crate::db::query::plan::expr::Expr::Field(
                         crate::db::query::plan::expr::FieldId::new("rank"),
                     )),
-                    right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Int(1))),
+                    right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Int64(1))),
                 })),
                 filter_expr: None,
                 distinct: false,
@@ -914,7 +914,7 @@ fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
             &group,
             0,
             CompareOp::Gt,
-            Value::Nat(1),
+            Value::Nat64(1),
         )),
     );
 
@@ -1001,7 +1001,7 @@ fn explain_grouped_plan_snapshot_for_filtered_shape_is_stable() {
                 filter_expr: Some(Box::new(Expr::Binary {
                     op: BinaryOp::Gte,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Nat(10))),
+                    right: Box::new(Expr::Literal(Value::Nat64(10))),
                 })),
                 distinct: false,
             }],

@@ -501,10 +501,10 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
     matches!(
         expr,
         Expr::Literal(
-            Value::Int(_)
+            Value::Int64(_)
                 | Value::Int128(_)
                 | Value::IntBig(_)
-                | Value::Nat(_)
+                | Value::Nat64(_)
                 | Value::Nat128(_)
                 | Value::NatBig(_)
                 | Value::Decimal(_)

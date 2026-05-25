@@ -700,11 +700,11 @@ mod tests {
         let value = Value::Map(vec![
             (
                 Value::Text("alpha".to_string()),
-                Value::List(vec![Value::Nat(1), Value::Nat(2)]),
+                Value::List(vec![Value::Nat64(1), Value::Nat64(2)]),
             ),
             (
                 Value::Text("beta".to_string()),
-                Value::List(vec![Value::Nat(3)]),
+                Value::List(vec![Value::Nat64(3)]),
             ),
         ]);
 
@@ -720,7 +720,7 @@ mod tests {
     fn accepted_kind_decoder_rejects_malformed_nested_lists_like_generated_decoder() {
         let generated_kind = FieldKind::List(&FieldKind::Nat64);
         let accepted_kind = PersistedFieldKind::List(Box::new(PersistedFieldKind::Nat64));
-        let value = Value::List(vec![Value::Nat(1), Value::Nat(2)]);
+        let value = Value::List(vec![Value::Nat64(1), Value::Nat64(2)]);
         let mut malformed =
             encode_structural_field_by_kind_bytes(generated_kind, &value, "numbers")
                 .expect("generated-compatible list payload should encode");
@@ -743,7 +743,7 @@ mod tests {
             key: Box::new(PersistedFieldKind::Text { max_len: None }),
             value: Box::new(PersistedFieldKind::Nat64),
         };
-        let value = Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat(1))]);
+        let value = Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat64(1))]);
         let mut malformed =
             encode_structural_field_by_kind_bytes(generated_kind, &value, "entries")
                 .expect("generated-compatible map payload should encode");
@@ -776,8 +776,9 @@ mod tests {
                 FieldStorageDecode::ByKind,
             )],
         };
-        let value =
-            Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat(9)));
+        let value = Value::Enum(
+            ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat64(9)),
+        );
 
         assert_generated_and_accepted_decode_match(generated_kind, &accepted_kind, &value, "state");
     }

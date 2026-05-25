@@ -23,9 +23,9 @@ fn compare_ranked_keys_and_values_desc_uses_value_then_key_order() {
         "score",
         nat_field_slot(),
         &2_u64,
-        &Value::Nat(9),
+        &Value::Nat64(9),
         &1_u64,
-        &Value::Nat(7),
+        &Value::Nat64(7),
         RankedFieldDirection::Descending,
     )
     .expect("comparison");
@@ -35,9 +35,9 @@ fn compare_ranked_keys_and_values_desc_uses_value_then_key_order() {
         "score",
         nat_field_slot(),
         &1_u64,
-        &Value::Nat(7),
+        &Value::Nat64(7),
         &2_u64,
-        &Value::Nat(7),
+        &Value::Nat64(7),
         RankedFieldDirection::Descending,
     )
     .expect("comparison");
@@ -47,10 +47,10 @@ fn compare_ranked_keys_and_values_desc_uses_value_then_key_order() {
 #[test]
 fn apply_ranked_take_window_keeps_smallest_bottom_k_in_final_order() {
     let mut ranked_rows = vec![
-        ((4_u64, ()), Value::Nat(40)),
-        ((2_u64, ()), Value::Nat(20)),
-        ((3_u64, ()), Value::Nat(30)),
-        ((1_u64, ()), Value::Nat(10)),
+        ((4_u64, ()), Value::Nat64(40)),
+        ((2_u64, ()), Value::Nat64(20)),
+        ((3_u64, ()), Value::Nat64(30)),
+        ((1_u64, ()), Value::Nat64(10)),
     ];
 
     apply_ranked_take_window(
@@ -64,6 +64,9 @@ fn apply_ranked_take_window_keeps_smallest_bottom_k_in_final_order() {
 
     assert_eq!(
         ranked_rows,
-        vec![((1_u64, ()), Value::Nat(10)), ((2_u64, ()), Value::Nat(20))],
+        vec![
+            ((1_u64, ()), Value::Nat64(10)),
+            ((2_u64, ()), Value::Nat64(20))
+        ],
     );
 }

@@ -85,7 +85,7 @@ fn into_value_pairs(
 fn count_rows(rows: &[(Value, Value)]) -> Vec<(Value, u32)> {
     rows.iter()
         .map(|(group_key, output)| {
-            let Value::Nat(count) = output else {
+            let Value::Nat64(count) = output else {
                 panic!("grouped count-state test expects count outputs");
             };
             (

@@ -49,7 +49,7 @@ fn field(name: &str) -> Expr {
 }
 
 fn int(value: i64) -> Expr {
-    Expr::Literal(crate::value::Value::Int(value))
+    Expr::Literal(crate::value::Value::Int64(value))
 }
 
 fn text(value: &str) -> Expr {

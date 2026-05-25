@@ -687,7 +687,7 @@ fn predicate_value_runtime_tokens(value: &CoreValue) -> Result<TokenStream, Darl
                 )
             }
         }
-        CoreValue::Int(value) => quote! { ::icydb::__macro::Value::Int(#value) },
+        CoreValue::Int64(value) => quote! { ::icydb::__macro::Value::Int64(#value) },
         CoreValue::List(values) => {
             let values = values
                 .iter()
@@ -697,7 +697,7 @@ fn predicate_value_runtime_tokens(value: &CoreValue) -> Result<TokenStream, Darl
         }
         CoreValue::Null => quote! { ::icydb::__macro::Value::Null },
         CoreValue::Text(value) => quote! { ::icydb::__macro::Value::Text(#value.to_string()) },
-        CoreValue::Nat(value) => quote! { ::icydb::__macro::Value::Nat(#value) },
+        CoreValue::Nat64(value) => quote! { ::icydb::__macro::Value::Nat64(#value) },
         unexpected => {
             return Err(DarlingError::custom(format!(
                 "generated filtered index predicates do not support literal variant {unexpected:?}",

@@ -854,7 +854,7 @@ fn old_nullable_indexed_raw_row_for_test(id: Ulid, group: u32) -> RawRow {
     let group_payload = encode_runtime_value_into_slot(
         RecoveryNullableIndexedEntity::MODEL,
         1,
-        &Value::Nat(u64::from(group)),
+        &Value::Nat64(u64::from(group)),
     )
     .expect("old nullable indexed group payload should encode");
     let slot_payload =

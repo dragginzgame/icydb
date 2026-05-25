@@ -206,7 +206,7 @@ mod tests {
         let predicate = Predicate::And(vec![
             Predicate::Compare(ComparePredicate::eq(
                 "users.age".to_string(),
-                Value::Int(21),
+                Value::Int64(21),
             )),
             Predicate::Or(vec![
                 Predicate::IsNull {
@@ -222,7 +222,7 @@ mod tests {
         let rewritten = super::rewrite_field_identifiers(predicate, strip_users_prefix);
 
         let expected = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::eq("age".to_string(), Value::Int(21))),
+            Predicate::Compare(ComparePredicate::eq("age".to_string(), Value::Int64(21))),
             Predicate::Or(vec![
                 Predicate::IsNull {
                     field: "deleted_at".to_string(),

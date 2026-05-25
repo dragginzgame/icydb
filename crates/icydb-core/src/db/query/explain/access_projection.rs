@@ -355,14 +355,16 @@ mod tests {
     #[test]
     fn explain_access_strategy_label_projects_stable_render_labels() {
         assert_eq!(
-            explain_access_strategy_label(&ExplainAccessPath::ByKey { key: Value::Nat(1) }),
+            explain_access_strategy_label(&ExplainAccessPath::ByKey {
+                key: Value::Nat64(1)
+            }),
             "ByKey",
         );
         assert_eq!(
             explain_access_strategy_label(&ExplainAccessPath::Union(vec![
                 ExplainAccessPath::FullScan,
                 ExplainAccessPath::ByKeys {
-                    keys: vec![Value::Nat(2)],
+                    keys: vec![Value::Nat64(2)],
                 },
             ])),
             "Union(2)",

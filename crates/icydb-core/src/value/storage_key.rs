@@ -333,7 +333,7 @@ mod tests {
     use super::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
     use crate::{
         types::{
-            Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
+            Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
             Principal, Subaccount, Timestamp, Ulid,
         },
         value::{Value, ValueEnum, storage_key_from_runtime_value},
@@ -371,13 +371,13 @@ mod tests {
             Value::Float64(Float64::try_new(2.5).expect("Float64 sample should be finite"))
         };
         (Int) => {
-            Value::Int(-7)
+            Value::Int64(-7)
         };
         (Int128) => {
             Value::Int128(Int128::from(123i128))
         };
         (IntBig) => {
-            Value::IntBig(Int::from(99i32))
+            Value::IntBig(IntBig::from(99i32))
         };
         (Principal) => {
             Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8]))
@@ -392,13 +392,13 @@ mod tests {
             Value::Timestamp(Timestamp::from_secs(1))
         };
         (Nat) => {
-            Value::Nat(7)
+            Value::Nat64(7)
         };
         (Nat128) => {
             Value::Nat128(Nat128::from(9u128))
         };
         (NatBig) => {
-            Value::NatBig(Nat::from(11u64))
+            Value::NatBig(NatBig::from(11u64))
         };
         (Ulid) => {
             Value::Ulid(Ulid::from_u128(42))
@@ -469,14 +469,14 @@ mod tests {
             storage_key_from_runtime_value(&Value::Unit).expect("Unit is encodable"),
             storage_key_from_runtime_value(&Value::Ulid(Ulid::from_u128(2)))
                 .expect("Ulid is encodable"),
-            storage_key_from_runtime_value(&Value::Nat(2)).expect("Nat is encodable"),
+            storage_key_from_runtime_value(&Value::Nat64(2)).expect("Nat is encodable"),
             storage_key_from_runtime_value(&Value::Timestamp(Timestamp::from_secs(2)))
                 .expect("Timestamp is encodable"),
             storage_key_from_runtime_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
                 .expect("Subaccount is encodable"),
             storage_key_from_runtime_value(&Value::Principal(Principal::from_slice(&[9u8])))
                 .expect("Principal is encodable"),
-            storage_key_from_runtime_value(&Value::Int(-1)).expect("Int is encodable"),
+            storage_key_from_runtime_value(&Value::Int64(-1)).expect("Int is encodable"),
             storage_key_from_runtime_value(&Value::Account(Account::from_parts(
                 Principal::from_slice(&[3]),
                 Some(Subaccount::from_array([3; 32])),

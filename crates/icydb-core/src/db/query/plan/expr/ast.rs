@@ -599,10 +599,10 @@ fn render_supported_order_literal(value: &Value) -> Option<String> {
     Some(match value {
         Value::Null => "NULL".to_string(),
         Value::Text(text) => format!("'{}'", text.replace('\'', "''")),
-        Value::Int(value) => value.to_string(),
+        Value::Int64(value) => value.to_string(),
         Value::Int128(value) => value.to_string(),
         Value::IntBig(value) => value.to_string(),
-        Value::Nat(value) => value.to_string(),
+        Value::Nat64(value) => value.to_string(),
         Value::Nat128(value) => value.to_string(),
         Value::NatBig(value) => value.to_string(),
         Value::Decimal(value) => value.to_string(),

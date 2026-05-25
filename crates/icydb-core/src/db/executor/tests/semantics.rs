@@ -195,7 +195,7 @@ fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .order_term(crate::db::asc("rank"))
@@ -233,13 +233,13 @@ fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Gte,
-                Value::Nat(100),
+                Value::Nat64(100),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Lt,
-                Value::Nat(200),
+                Value::Nat64(200),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -284,7 +284,7 @@ fn query_execution_pipeline_snapshot_for_grouped_aggregate_shape_is_stable() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .group_by("group")
@@ -333,7 +333,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_coverable_pro
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .select_fields(["id", "group"])

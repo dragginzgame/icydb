@@ -307,8 +307,8 @@ fn eval_octet_length_function_call(args: &[Value]) -> Option<Value> {
 
     match input {
         Value::Null => Some(Value::Null),
-        Value::Text(text) => Some(Value::Nat(u64::try_from(text.len()).unwrap_or(u64::MAX))),
-        Value::Blob(bytes) => Some(Value::Nat(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
+        Value::Text(text) => Some(Value::Nat64(u64::try_from(text.len()).unwrap_or(u64::MAX))),
+        Value::Blob(bytes) => Some(Value::Nat64(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
         _ => None,
     }
 }
@@ -486,8 +486,8 @@ const fn text_value(value: &Value) -> Option<NullableTextArg<'_>> {
 fn integer_value(value: &Value) -> Option<NullableIntegerArg> {
     match value {
         Value::Null => Some(NullableIntegerArg::Null),
-        Value::Int(inner) => Some(NullableIntegerArg::Integer(*inner)),
-        Value::Nat(inner) => Some(NullableIntegerArg::Integer(
+        Value::Int64(inner) => Some(NullableIntegerArg::Integer(*inner)),
+        Value::Nat64(inner) => Some(NullableIntegerArg::Integer(
             i64::try_from(*inner).unwrap_or(i64::MAX),
         )),
         _ => None,

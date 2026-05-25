@@ -25,8 +25,8 @@ and `FieldKind::NatBig`.
 
 Runtime algebraic values carry execution payloads:
 
-- `Value::Int`
-- `Value::Nat`
+- `Value::Int64`
+- `Value::Nat64`
 - `Value::Int128`
 - `Value::Nat128`
 - `Value::IntBig`
@@ -36,8 +36,8 @@ These are runtime carriers, not user-facing schema labels. Comments, docs, and
 diagnostics that mention them near schema language should qualify them with
 `Value::`.
 
-`types::Int` and `types::Nat` are arbitrary-precision Rust wrappers used by
-runtime values. When those wrappers cross a schema or storage boundary for
+`types::IntBig` and `types::NatBig` are arbitrary-precision Rust wrappers used
+by runtime values. When those wrappers cross a schema or storage boundary for
 `int_big` or `nat_big`, the field's `max_bytes` bound applies.
 
 ## Planner Vocabulary

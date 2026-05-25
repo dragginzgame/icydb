@@ -66,7 +66,7 @@ fn projection_field_order_preserved_for_multi_field_selection() {
         projected[0].values(),
         &[
             output(Value::Text("label-51".to_string())),
-            output(Value::Int(7)),
+            output(Value::Int64(7)),
             output(Value::Bool(true)),
         ],
         "projection values must preserve declaration order for the first row",
@@ -75,7 +75,7 @@ fn projection_field_order_preserved_for_multi_field_selection() {
         projected[1].values(),
         &[
             output(Value::Text("label-52".to_string())),
-            output(Value::Int(9)),
+            output(Value::Int64(9)),
             output(Value::Bool(false)),
         ],
         "projection values must preserve declaration order for the second row",
@@ -140,7 +140,7 @@ fn field_path_projection_materialization_decodes_nested_values() {
 
     assert_eq!(
         payload,
-        vec![vec![Value::Int(41), Value::Null]],
+        vec![vec![Value::Int64(41), Value::Null]],
         "field-path projection should decode present values and return null for missing paths",
     );
 }
@@ -153,7 +153,7 @@ fn scalar_arithmetic_projection_returns_computed_values() {
         expr: Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: None,
     }]);
@@ -181,7 +181,7 @@ fn ordering_is_preserved_when_projecting_computed_fields() {
         expr: Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(100))),
+            right: Box::new(Expr::Literal(Value::Int64(100))),
         },
         alias: None,
     }]);
@@ -223,7 +223,7 @@ fn expression_projection_column_identity_is_deterministic() {
                 expr: Box::new(Expr::Binary {
                     op: BinaryOp::Add,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(1))),
+                    right: Box::new(Expr::Literal(Value::Int64(1))),
                 }),
                 name: Alias::new("rank_plus_one_internal_a"),
             },
@@ -234,7 +234,7 @@ fn expression_projection_column_identity_is_deterministic() {
                 expr: Box::new(Expr::Binary {
                     op: BinaryOp::Mul,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(2))),
+                    right: Box::new(Expr::Literal(Value::Int64(2))),
                 }),
                 name: Alias::new("rank_times_two_internal_a"),
             },
@@ -247,7 +247,7 @@ fn expression_projection_column_identity_is_deterministic() {
                 expr: Box::new(Expr::Binary {
                     op: BinaryOp::Add,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(1))),
+                    right: Box::new(Expr::Literal(Value::Int64(1))),
                 }),
                 name: Alias::new("rank_plus_one_internal_b"),
             },
@@ -258,7 +258,7 @@ fn expression_projection_column_identity_is_deterministic() {
                 expr: Box::new(Expr::Binary {
                     op: BinaryOp::Mul,
                     left: Box::new(Expr::Field(FieldId::new("rank"))),
-                    right: Box::new(Expr::Literal(Value::Int(2))),
+                    right: Box::new(Expr::Literal(Value::Int64(2))),
                 }),
                 name: Alias::new("rank_times_two_internal_b"),
             },
@@ -322,7 +322,7 @@ fn projection_materialization_exposes_projected_rows_payload() {
     );
     assert_eq!(
         projected_rows[0].values(),
-        &[output(Value::Int(19))],
+        &[output(Value::Int64(19))],
         "projection payload should preserve projection value ordering",
     );
 }
@@ -382,7 +382,7 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
             expr: Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             alias: None,
         },
@@ -390,7 +390,7 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
             expr: Expr::Binary {
                 op: BinaryOp::Mul,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Int(2))),
+                right: Box::new(Expr::Literal(Value::Int64(2))),
             },
             alias: None,
         },
@@ -424,7 +424,7 @@ fn retained_slot_rows_for_materialize_test() -> Vec<RetainedSlotRow> {
         RetainedSlotRow::new(
             5,
             vec![
-                (1, Value::Int(13)),
+                (1, Value::Int64(13)),
                 (2, Value::Bool(true)),
                 (3, Value::Text("label-65".to_string())),
             ],
@@ -432,7 +432,7 @@ fn retained_slot_rows_for_materialize_test() -> Vec<RetainedSlotRow> {
         RetainedSlotRow::new(
             5,
             vec![
-                (1, Value::Int(17)),
+                (1, Value::Int64(17)),
                 (2, Value::Bool(false)),
                 (3, Value::Text("label-66".to_string())),
             ],
@@ -516,7 +516,7 @@ fn direct_slot_row_materialization_preserves_missing_slot_failure() {
         row_layout,
         &prepared_projection,
         StructuralCursorPage::new_with_slot_rows(
-            vec![RetainedSlotRow::new(5, vec![(1, Value::Int(13))])],
+            vec![RetainedSlotRow::new(5, vec![(1, Value::Int64(13))])],
             None,
         ),
         metrics,
@@ -575,14 +575,14 @@ fn wide_scalar_data_row_materialization_visits_borrowed_row_views() {
         vec![
             vec![
                 Value::Text("label-65".to_string()),
-                Value::Int(13),
+                Value::Int64(13),
                 Value::Bool(true),
                 Value::Decimal(crate::types::Decimal::from(14_u64)),
                 Value::Decimal(crate::types::Decimal::from(26_u64)),
             ],
             vec![
                 Value::Text("label-66".to_string()),
-                Value::Int(17),
+                Value::Int64(17),
                 Value::Bool(false),
                 Value::Decimal(crate::types::Decimal::from(18_u64)),
                 Value::Decimal(crate::types::Decimal::from(34_u64)),
@@ -632,14 +632,14 @@ fn wide_scalar_slot_row_materialization_visits_borrowed_row_views() {
         vec![
             vec![
                 Value::Text("label-65".to_string()),
-                Value::Int(13),
+                Value::Int64(13),
                 Value::Bool(true),
                 Value::Decimal(crate::types::Decimal::from(14_u64)),
                 Value::Decimal(crate::types::Decimal::from(26_u64)),
             ],
             vec![
                 Value::Text("label-66".to_string()),
-                Value::Int(17),
+                Value::Int64(17),
                 Value::Bool(false),
                 Value::Decimal(crate::types::Decimal::from(18_u64)),
                 Value::Decimal(crate::types::Decimal::from(34_u64)),

@@ -22,11 +22,11 @@ const fn primary_key_component_from_scalar_ref(
     value: ScalarValueRef<'_>,
 ) -> Option<PrimaryKeyComponent> {
     match value {
-        ScalarValueRef::Int(value) => Some(PrimaryKeyComponent::Int(value)),
+        ScalarValueRef::Int(value) => Some(PrimaryKeyComponent::Int64(value)),
         ScalarValueRef::Principal(value) => Some(PrimaryKeyComponent::Principal(value)),
         ScalarValueRef::Subaccount(value) => Some(PrimaryKeyComponent::Subaccount(value)),
         ScalarValueRef::Timestamp(value) => Some(PrimaryKeyComponent::Timestamp(value)),
-        ScalarValueRef::Nat(value) => Some(PrimaryKeyComponent::Nat(value)),
+        ScalarValueRef::Nat(value) => Some(PrimaryKeyComponent::Nat64(value)),
         ScalarValueRef::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
         ScalarValueRef::Unit => Some(PrimaryKeyComponent::Unit),
         _ => None,
@@ -225,15 +225,15 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_key(
 
     match (field.kind(), expected_key) {
         (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int64(value)),
         (FieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (FieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (FieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
         (FieldKind::Relation { key_kind, .. }, storage_key) => {
@@ -241,15 +241,15 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_key(
         }
         (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat64(value)),
         (FieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (FieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (FieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
@@ -292,15 +292,15 @@ fn materialize_primary_key_value_from_kind(
 ) -> Result<Value, InternalError> {
     match (kind, storage_key) {
         (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int64(value)),
         (FieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (FieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (FieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
         (FieldKind::Relation { key_kind, .. }, storage_key) => {
@@ -308,15 +308,15 @@ fn materialize_primary_key_value_from_kind(
         }
         (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat64(value)),
         (FieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (FieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (FieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
@@ -335,15 +335,15 @@ fn materialize_primary_key_value_from_persisted_kind(
 ) -> Result<Value, String> {
     match (kind, storage_key) {
         (PersistedFieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (PersistedFieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (PersistedFieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int64(value)),
         (PersistedFieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (PersistedFieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (PersistedFieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         (PersistedFieldKind::Principal, StorageKey::Principal(value)) => {
             Ok(Value::Principal(value))
@@ -357,15 +357,15 @@ fn materialize_primary_key_value_from_persisted_kind(
         (PersistedFieldKind::Timestamp, StorageKey::Timestamp(value)) => {
             Ok(Value::Timestamp(value))
         }
-        (PersistedFieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (PersistedFieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat64(value)),
         (PersistedFieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (PersistedFieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (PersistedFieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         (PersistedFieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (PersistedFieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),

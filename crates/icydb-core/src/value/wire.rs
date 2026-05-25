@@ -6,7 +6,6 @@ use crate::{
     types::*,
     value::{VALUE_WIRE_TYPE_NAME, VALUE_WIRE_VARIANT_LABELS, Value, ValueWireVariant},
 };
-use candid::{Int as WrappedInt, Nat as WrappedNat};
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 use serde::{
     Deserialize, Deserializer,
@@ -19,14 +18,14 @@ use std::{fmt, marker::PhantomData};
 /// IntBigWire
 ///
 /// IntBigWire accepts the persisted `Value::IntBig` `(sign, limbs)` payload
-/// shape and rebuilds the public `Int` wrapper without routing through the
+/// shape and rebuilds the public `IntBig` wrapper without routing through the
 /// derived `Deserialize` form of `candid::Int`.
 ///
 
-struct IntBigWire(Int);
+struct IntBigWire(IntBig);
 
 impl IntBigWire {
-    fn into_inner(self) -> Int {
+    fn into_inner(self) -> IntBig {
         self.0
     }
 }
@@ -45,9 +44,9 @@ impl<'de> Deserialize<'de> for IntBigWire {
         };
         let magnitude = BigUint::new(limbs);
 
-        Ok(Self(Int::from(WrappedInt::from(BigInt::from_biguint(
+        Ok(Self(IntBig::from_bigint(BigInt::from_biguint(
             sign, magnitude,
-        )))))
+        ))))
     }
 }
 
@@ -55,14 +54,14 @@ impl<'de> Deserialize<'de> for IntBigWire {
 /// NatBigWire
 ///
 /// NatBigWire accepts the persisted `Value::NatBig` limb payload shape and
-/// rebuilds the public `Nat` wrapper without routing through the derived
+/// rebuilds the public `NatBig` wrapper without routing through the derived
 /// `Deserialize` form of `candid::Nat`.
 ///
 
-struct NatBigWire(Nat);
+struct NatBigWire(NatBig);
 
 impl NatBigWire {
-    fn into_inner(self) -> Nat {
+    fn into_inner(self) -> NatBig {
         self.0
     }
 }
@@ -73,7 +72,7 @@ impl<'de> Deserialize<'de> for NatBigWire {
         D: Deserializer<'de>,
     {
         let limbs: Vec<u32> = Deserialize::deserialize(deserializer)?;
-        Ok(Self(Nat::from(WrappedNat::from(BigUint::new(limbs)))))
+        Ok(Self(NatBig::from_biguint(BigUint::new(limbs))))
     }
 }
 
@@ -127,7 +126,7 @@ impl<'de> Visitor<'de> for ValueWireVisitor {
             ValueWireVariant::Enum => Ok(Value::Enum(payload.newtype_variant()?)),
             ValueWireVariant::Float32 => Ok(Value::Float32(payload.newtype_variant()?)),
             ValueWireVariant::Float64 => Ok(Value::Float64(payload.newtype_variant()?)),
-            ValueWireVariant::Int => Ok(Value::Int(payload.newtype_variant()?)),
+            ValueWireVariant::Int64 => Ok(Value::Int64(payload.newtype_variant()?)),
             ValueWireVariant::Int128 => Ok(Value::Int128(payload.newtype_variant()?)),
             ValueWireVariant::IntBig => Ok(Value::IntBig(
                 payload.newtype_variant::<IntBigWire>()?.into_inner(),
@@ -145,7 +144,7 @@ impl<'de> Visitor<'de> for ValueWireVisitor {
             ValueWireVariant::Subaccount => Ok(Value::Subaccount(payload.newtype_variant()?)),
             ValueWireVariant::Text => Ok(Value::Text(payload.newtype_variant()?)),
             ValueWireVariant::Timestamp => Ok(Value::Timestamp(payload.newtype_variant()?)),
-            ValueWireVariant::Nat => Ok(Value::Nat(payload.newtype_variant()?)),
+            ValueWireVariant::Nat64 => Ok(Value::Nat64(payload.newtype_variant()?)),
             ValueWireVariant::Nat128 => Ok(Value::Nat128(payload.newtype_variant()?)),
             ValueWireVariant::NatBig => Ok(Value::NatBig(
                 payload.newtype_variant::<NatBigWire>()?.into_inner(),

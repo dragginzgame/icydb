@@ -266,7 +266,7 @@ macro_rules! impl_primary_key_codec_signed {
         $(
             impl PrimaryKeyCodec for $ty {
                 fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
-                    Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int(i64::from(*self))))
+                    Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int64(i64::from(*self))))
                 }
             }
         )*
@@ -278,7 +278,7 @@ macro_rules! impl_primary_key_codec_unsigned {
         $(
             impl PrimaryKeyCodec for $ty {
                 fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
-                    Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat(u64::from(*self))))
+                    Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(u64::from(*self))))
                 }
             }
         )*
@@ -306,11 +306,11 @@ macro_rules! impl_primary_key_decode_signed {
         $(
             impl PrimaryKeyDecode for $ty {
                 fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
-                    let PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int(value)) = *key else {
+                    let PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int64(value)) = *key else {
                         return Err(primary_key_variant_decode_failed(
                             ::std::any::type_name::<Self>(),
                             key,
-                            "PrimaryKeyComponent::Int",
+                            "PrimaryKeyComponent::Int64",
                         ));
                     };
 
@@ -328,11 +328,11 @@ macro_rules! impl_primary_key_decode_unsigned {
         $(
             impl PrimaryKeyDecode for $ty {
                 fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
-                    let PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat(value)) = *key else {
+                    let PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) = *key else {
                         return Err(primary_key_variant_decode_failed(
                             ::std::any::type_name::<Self>(),
                             key,
-                            "PrimaryKeyComponent::Nat",
+                            "PrimaryKeyComponent::Nat64",
                         ));
                     };
 
@@ -1456,14 +1456,14 @@ macro_rules! impl_runtime_value {
 }
 
 impl_runtime_value!(
-    i8 => Int,
-    i16 => Int,
-    i32 => Int,
-    i64 => Int,
-    u8 => Nat,
-    u16 => Nat,
-    u32 => Nat,
-    u64 => Nat,
+    i8 => Int64,
+    i16 => Int64,
+    i32 => Int64,
+    i64 => Int64,
+    u8 => Nat64,
+    u16 => Nat64,
+    u32 => Nat64,
+    u64 => Nat64,
     bool => Bool,
 );
 

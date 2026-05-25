@@ -40,12 +40,11 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int, Nat, Principal, Subaccount,
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
         Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
 };
-use candid::{Int as WrappedInt, Nat as WrappedNat};
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 // Borrowed map-entry payload slices returned by the direct structural
@@ -211,7 +210,7 @@ pub(in crate::db) fn decode_nat128(
 }
 
 /// Decode one canonical structural value-storage `Value::IntBig` payload.
-pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<Int, FieldDecodeError> {
+pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<IntBig, FieldDecodeError> {
     let payload =
         decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT_BIG, "Value::IntBig")?;
     let [sign, magnitude] = split_binary_tuple_2(payload, "Value::IntBig tuple")?;
@@ -219,18 +218,16 @@ pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<Int, FieldDecodeErro
     let magnitude = decode_binary_big_integer_magnitude_digits(magnitude)?;
     let sign = decode_binary_int_big_sign(sign)?;
 
-    Ok(Int::from(WrappedInt::from(BigInt::from_biguint(
-        sign, magnitude,
-    ))))
+    Ok(IntBig::from_bigint(BigInt::from_biguint(sign, magnitude)))
 }
 
 /// Decode one canonical structural value-storage `Value::NatBig` payload.
-pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<Nat, FieldDecodeError> {
+pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<NatBig, FieldDecodeError> {
     let payload =
         decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT_BIG, "Value::NatBig")?;
     let digits = decode_binary_big_integer_magnitude_digits(payload)?;
 
-    Ok(Nat::from(WrappedNat::from(digits)))
+    Ok(NatBig::from_biguint(digits))
 }
 
 /// Decode one canonical structural value-storage bytes payload without
@@ -440,10 +437,10 @@ pub(super) fn decode_value_storage_slice(
         TAG_UNIT => Some(Value::Unit),
         TAG_FALSE => Some(Value::Bool(false)),
         TAG_TRUE => Some(Value::Bool(true)),
-        TAG_INT64 => Some(Value::Int(decode_structural_value_storage_i64_bytes(
+        TAG_INT64 => Some(Value::Int64(decode_structural_value_storage_i64_bytes(
             raw_bytes,
         )?)),
-        TAG_NAT64 => Some(Value::Nat(decode_structural_value_storage_u64_bytes(
+        TAG_NAT64 => Some(Value::Nat64(decode_structural_value_storage_u64_bytes(
             raw_bytes,
         )?)),
         TAG_TEXT => Some(Value::Text(decode_value_storage_text(raw_bytes)?)),

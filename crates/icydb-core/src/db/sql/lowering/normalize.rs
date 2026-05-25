@@ -801,12 +801,12 @@ mod tests {
                 left: Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Ne,
                     left: Box::new(SqlExpr::Field("age".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(24))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(24))),
                 }),
                 right: Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Ne,
                     left: Box::new(SqlExpr::Field("age".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(31))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(31))),
                 }),
             }),
             distinct: false,
@@ -890,7 +890,7 @@ mod tests {
             predicate: Some(SqlExpr::Binary {
                 op: SqlExprBinaryOp::Eq,
                 left: Box::new(SqlExpr::Field("PerfAuditUser.age".to_string())),
-                right: Box::new(SqlExpr::Literal(Value::Int(24))),
+                right: Box::new(SqlExpr::Literal(Value::Int64(24))),
             }),
             distinct: false,
             group_by: vec![],
@@ -918,12 +918,12 @@ mod tests {
                 left: Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Eq,
                     left: Box::new(SqlExpr::Field("profile.rank".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(5))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(5))),
                 }),
                 right: Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Eq,
                     left: Box::new(SqlExpr::Field("u.age".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(21))),
                 }),
             }),
             distinct: false,
@@ -947,12 +947,12 @@ mod tests {
                         root: "profile".to_string(),
                         segments: vec!["rank".to_string()],
                     }),
-                    right: Box::new(SqlExpr::Literal(Value::Int(5))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(5))),
                 }),
                 right: Box::new(SqlExpr::Binary {
                     op: SqlExprBinaryOp::Eq,
                     left: Box::new(SqlExpr::Field("age".to_string())),
-                    right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                    right: Box::new(SqlExpr::Literal(Value::Int64(21))),
                 }),
             }),
         );

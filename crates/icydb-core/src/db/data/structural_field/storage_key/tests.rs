@@ -94,7 +94,7 @@ fn storage_key_binary_roundtrips_all_supported_scalar_kinds() {
             StorageKey::Account(account),
             Value::Account(account),
         ),
-        (FieldKind::Int64, StorageKey::Int(-9), Value::Int(-9)),
+        (FieldKind::Int64, StorageKey::Int(-9), Value::Int64(-9)),
         (
             FieldKind::Principal,
             StorageKey::Principal(Principal::from_slice(&[5])),
@@ -110,7 +110,7 @@ fn storage_key_binary_roundtrips_all_supported_scalar_kinds() {
             StorageKey::Timestamp(timestamp),
             Value::Timestamp(timestamp),
         ),
-        (FieldKind::Nat64, StorageKey::Nat(42), Value::Nat(42)),
+        (FieldKind::Nat64, StorageKey::Nat(42), Value::Nat64(42)),
         (FieldKind::Ulid, StorageKey::Ulid(ulid), Value::Ulid(ulid)),
         (FieldKind::Unit, StorageKey::Unit, Value::Unit),
     ];

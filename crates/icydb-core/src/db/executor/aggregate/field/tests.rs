@@ -159,7 +159,7 @@ fn resolve_orderable_target_slot_rejects_non_orderable_field_kind() {
 
 #[test]
 fn compare_orderable_field_values_rejects_mismatched_variants() {
-    let err = compare_orderable_field_values("rank", &Value::Nat(7), &Value::Text("x".into()))
+    let err = compare_orderable_field_values("rank", &Value::Nat64(7), &Value::Text("x".into()))
         .expect_err("mismatched value variants must be rejected");
 
     assert!(matches!(
@@ -170,8 +170,8 @@ fn compare_orderable_field_values_rejects_mismatched_variants() {
 
 #[test]
 fn compare_orderable_field_values_uses_shared_numeric_widen_authority() {
-    let left = Value::Int(7);
-    let right = Value::Nat(7);
+    let left = Value::Int64(7);
+    let right = Value::Nat64(7);
 
     let ordering =
         compare_orderable_field_values("rank", &left, &right).expect("numeric compare should work");

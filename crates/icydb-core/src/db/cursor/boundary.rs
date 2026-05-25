@@ -267,10 +267,10 @@ fn boundary_order_expression_value_matches(
         ExprType::Text => matches!(value, Value::Text(_) | Value::Enum(_)),
         ExprType::Numeric(_) => matches!(
             value,
-            Value::Int(_)
+            Value::Int64(_)
                 | Value::Int128(_)
                 | Value::IntBig(_)
-                | Value::Nat(_)
+                | Value::Nat64(_)
                 | Value::Nat128(_)
                 | Value::NatBig(_)
                 | Value::Decimal(_)
@@ -436,13 +436,13 @@ mod tests {
     fn pk_ordered_boundary_decode_accepts_ordered_composite_primary_key_fields() {
         let boundary = CursorBoundary {
             slots: vec![
-                CursorBoundarySlot::Present(Value::Nat(7)),
-                CursorBoundarySlot::Present(Value::Int(-3)),
+                CursorBoundarySlot::Present(Value::Nat64(7)),
+                CursorBoundarySlot::Present(Value::Int64(-3)),
             ],
         };
         let composite = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyComponent::Nat(7),
-            PrimaryKeyComponent::Int(-3),
+            PrimaryKeyComponent::Nat64(7),
+            PrimaryKeyComponent::Int64(-3),
         ])
         .expect("fixture components should form composite key");
 

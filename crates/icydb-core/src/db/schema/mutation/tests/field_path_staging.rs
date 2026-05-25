@@ -41,8 +41,8 @@ fn field_path_rebuild_key_materializes_composite_primary_key_suffix() {
         values: vec![None, Some(Value::Text("Ada".to_string()))],
     };
     let composite = crate::db::key_taxonomy::CompositePrimaryKeyValue::try_from_components(&[
-        crate::db::key_taxonomy::PrimaryKeyComponent::Nat(42),
-        crate::db::key_taxonomy::PrimaryKeyComponent::Int(-7),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(42),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Int64(-7),
     ])
     .expect("composite primary key should construct");
     let primary_key = crate::db::key_taxonomy::PrimaryKeyValue::Composite(composite);

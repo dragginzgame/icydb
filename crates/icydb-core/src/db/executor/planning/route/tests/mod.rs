@@ -441,8 +441,8 @@ fn field_extrema_index_range_plan(
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(30)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -727,8 +727,8 @@ fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(30)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -755,8 +755,8 @@ fn route_capabilities_index_range_without_order_remains_limit_pushdown_eligible(
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(30)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -774,8 +774,8 @@ fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape(
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(30)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -824,7 +824,7 @@ fn route_capabilities_bound_non_unique_index_prefix_order_is_streaming_safe() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Nat(10)],
+            values: vec![Value::Nat64(10)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -884,8 +884,8 @@ fn route_secondary_order_pushdown_uses_shared_compatibility_fact_for_asc_desc_an
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(30)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1048,8 +1048,8 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1089,8 +1089,8 @@ fn route_matrix_load_index_range_residual_filter_predicate_allows_small_window_p
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1123,8 +1123,8 @@ fn route_matrix_load_index_range_offset_uses_bounded_limit_pushdown() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1168,8 +1168,8 @@ fn route_matrix_load_index_range_desc_offset_uses_bounded_limit_pushdown() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1306,8 +1306,8 @@ fn route_matrix_load_index_range_residual_filter_predicate_large_window_disables
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1339,8 +1339,8 @@ fn route_matrix_load_index_range_incompatible_order_disables_limit_pushdown() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1376,8 +1376,8 @@ fn route_matrix_load_index_range_missing_pk_tie_break_disables_limit_pushdown() 
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1413,8 +1413,8 @@ fn route_matrix_load_index_range_mixed_direction_disables_limit_pushdown() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Nat(10)),
-            Bound::Excluded(Value::Nat(20)),
+            Bound::Included(Value::Nat64(10)),
+            Bound::Excluded(Value::Nat64(20)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1558,7 +1558,7 @@ fn route_matrix_load_bound_non_unique_secondary_order_offset_uses_bounded_top_n_
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
             ),
-            values: vec![Value::Nat(10)],
+            values: vec![Value::Nat64(10)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -1605,7 +1605,7 @@ fn route_matrix_load_bound_non_unique_secondary_order_desc_offset_fails_closed_b
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
             ),
-            values: vec![Value::Nat(10)],
+            values: vec![Value::Nat64(10)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -1802,7 +1802,7 @@ fn route_matrix_load_bound_non_unique_secondary_order_distinct_requires_material
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
             ),
-            values: vec![Value::Nat(10)],
+            values: vec![Value::Nat64(10)],
         },
         MissingRowPolicy::Ignore,
     );

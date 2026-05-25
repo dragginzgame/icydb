@@ -111,13 +111,13 @@ pub(crate) fn encode_canonical_index_component_from_primary_key_value(
         StorageKey::Account(_) => Value::Account(Account::canonical_tag_sentinel())
             .canonical_tag()
             .to_u8(),
-        StorageKey::Int(_) => Value::Int(0).canonical_tag().to_u8(),
+        StorageKey::Int(_) => Value::Int64(0).canonical_tag().to_u8(),
         StorageKey::Principal(_) => Value::Principal(Principal::empty_sentinel())
             .canonical_tag()
             .to_u8(),
         StorageKey::Subaccount(_) => Value::Subaccount(Subaccount::MIN).canonical_tag().to_u8(),
         StorageKey::Timestamp(_) => Value::Timestamp(Timestamp::EPOCH).canonical_tag().to_u8(),
-        StorageKey::Nat(_) => Value::Nat(0).canonical_tag().to_u8(),
+        StorageKey::Nat(_) => Value::Nat64(0).canonical_tag().to_u8(),
         StorageKey::Ulid(_) => Value::Ulid(Ulid::nil()).canonical_tag().to_u8(),
         StorageKey::Unit => Value::Unit.canonical_tag().to_u8(),
     });
@@ -183,7 +183,7 @@ fn encode_component_payload(
             out.extend_from_slice(&semantics::ordered_f64_bytes(v.get()));
             Ok(())
         }
-        Value::Int(v) => {
+        Value::Int64(v) => {
             out.extend_from_slice(&semantics::ordered_i64_bytes(*v));
             Ok(())
         }
@@ -203,7 +203,7 @@ fn encode_component_payload(
             Ok(())
         }
         Value::Timestamp(v) => v.encode_ordered(out),
-        Value::Nat(v) => {
+        Value::Nat64(v) => {
             out.extend_from_slice(&v.to_be_bytes());
             Ok(())
         }

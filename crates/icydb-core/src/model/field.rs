@@ -731,9 +731,9 @@ impl FieldKind {
             | (Self::Enum { .. }, Value::Enum(_))
             | (Self::Float32, Value::Float32(_))
             | (Self::Float64, Value::Float64(_))
-            | (Self::Int64, Value::Int(_))
+            | (Self::Int64, Value::Int64(_))
             | (Self::Int128, Value::Int128(_))
-            | (Self::Nat64, Value::Nat(_))
+            | (Self::Nat64, Value::Nat64(_))
             | (Self::Principal, Value::Principal(_))
             | (Self::Subaccount, Value::Subaccount(_))
             | (Self::Text { .. }, Value::Text(_))
@@ -742,12 +742,12 @@ impl FieldKind {
             | (Self::Ulid, Value::Ulid(_))
             | (Self::Unit, Value::Unit)
             | (Self::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
-            (Self::Int8, Value::Int(value)) => i8::try_from(*value).is_ok(),
-            (Self::Int16, Value::Int(value)) => i16::try_from(*value).is_ok(),
-            (Self::Int32, Value::Int(value)) => i32::try_from(*value).is_ok(),
-            (Self::Nat8, Value::Nat(value)) => u8::try_from(*value).is_ok(),
-            (Self::Nat16, Value::Nat(value)) => u16::try_from(*value).is_ok(),
-            (Self::Nat32, Value::Nat(value)) => u32::try_from(*value).is_ok(),
+            (Self::Int8, Value::Int64(value)) => i8::try_from(*value).is_ok(),
+            (Self::Int16, Value::Int64(value)) => i16::try_from(*value).is_ok(),
+            (Self::Int32, Value::Int64(value)) => i32::try_from(*value).is_ok(),
+            (Self::Nat8, Value::Nat64(value)) => u8::try_from(*value).is_ok(),
+            (Self::Nat16, Value::Nat64(value)) => u16::try_from(*value).is_ok(),
+            (Self::Nat32, Value::Nat64(value)) => u32::try_from(*value).is_ok(),
             (Self::IntBig { max_bytes }, Value::IntBig(value)) => {
                 value.to_leb128().len() <= *max_bytes as usize
             }

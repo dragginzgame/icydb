@@ -212,7 +212,7 @@ fn binary_value_storage_view_resolves_text_keyed_map_child_without_materializing
             Value::Text("name".to_string()),
             Value::Text("Ada".to_string()),
         ),
-        (Value::Text("rank".to_string()), Value::Int(7)),
+        (Value::Text("rank".to_string()), Value::Int64(7)),
     ]);
     let encoded =
         encode_structural_value_storage_bytes(&value).expect("map value bytes should encode");

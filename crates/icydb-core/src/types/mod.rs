@@ -11,8 +11,8 @@ mod decimal;
 mod duration;
 mod float;
 mod identity;
-mod int;
-mod nat;
+mod int_big;
+mod nat_big;
 mod parse;
 mod principal;
 #[cfg(any(test, not(target_arch = "wasm32")))]
@@ -29,8 +29,8 @@ pub use decimal::*;
 pub use duration::*;
 pub use float::*;
 pub use identity::*;
-pub use int::*;
-pub use nat::*;
+pub use int_big::*;
+pub use nat_big::*;
 pub use principal::*;
 pub use subaccount::*;
 pub use timestamp::*;
@@ -42,8 +42,8 @@ pub use unit::*;
 //
 // - Float32 and Float64 normalize their primitive transport form
 //   (finite only, -0.0 -> 0.0).
-// - Timestamp, Principal, Ulid, Blob, Decimal, Nat, Int, and Unit are their
-//   own transport representation.
+// - Timestamp, Principal, Ulid, Blob, Decimal, NatBig, IntBig, and Unit are
+//   their own transport representation.
 //
 // Notes
 // - Display for fixed‑point types prints normalized decimal (human‑readable),

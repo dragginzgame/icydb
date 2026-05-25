@@ -5,7 +5,7 @@ fn grouped_projection_arithmetic_over_group_field_evaluates() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
     let grouped_row = GroupedRowView::new(
-        &[Value::Int(7)],
+        &[Value::Int64(7)],
         &[],
         group_fields.as_slice(),
         aggregate_execution_specs.as_slice(),
@@ -13,12 +13,12 @@ fn grouped_projection_arithmetic_over_group_field_evaluates() {
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Int(2))),
+        right: Box::new(Expr::Literal(Value::Int64(2))),
     };
 
     let value = eval_expr_grouped(&expr, &grouped_row).expect("grouped arithmetic should evaluate");
     assert_eq!(
-        value.cmp_numeric(&Value::Int(9)),
+        value.cmp_numeric(&Value::Int64(9)),
         Some(Ordering::Equal),
         "grouped arithmetic projection should evaluate over grouped keys",
     );
@@ -29,7 +29,7 @@ fn grouped_projection_supports_numeric_equality_widening() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
     let grouped_row = GroupedRowView::new(
-        &[Value::Int(7)],
+        &[Value::Int64(7)],
         &[],
         group_fields.as_slice(),
         aggregate_execution_specs.as_slice(),
@@ -37,7 +37,7 @@ fn grouped_projection_supports_numeric_equality_widening() {
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Nat(7))),
+        right: Box::new(Expr::Literal(Value::Nat64(7))),
     };
 
     let value = eval_expr_grouped(&expr, &grouped_row)
@@ -52,7 +52,7 @@ fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
         FieldSlot::from_parts_for_test(2, "label"),
     ];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
-    let key_values = [Value::Int(7), Value::Text("label-7".to_string())];
+    let key_values = [Value::Int64(7), Value::Text("label-7".to_string())];
     let grouped_row = GroupedRowView::new(
         key_values.as_slice(),
         &[],
@@ -79,21 +79,21 @@ fn grouped_projection_mixing_aggregate_and_arithmetic_evaluates() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([sum("rank")]);
     let grouped_row = GroupedRowView::new(
-        &[Value::Int(7)],
-        &[Value::Int(40)],
+        &[Value::Int64(7)],
+        &[Value::Int64(40)],
         group_fields.as_slice(),
         aggregate_execution_specs.as_slice(),
     );
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Aggregate(sum("rank"))),
-        right: Box::new(Expr::Literal(Value::Int(2))),
+        right: Box::new(Expr::Literal(Value::Int64(2))),
     };
 
     let value = eval_expr_grouped(&expr, &grouped_row)
         .expect("grouped aggregate arithmetic projection should evaluate");
     assert_eq!(
-        value.cmp_numeric(&Value::Int(42)),
+        value.cmp_numeric(&Value::Int64(42)),
         Some(Ordering::Equal),
         "grouped projections must evaluate aggregate+scalar arithmetic deterministically",
     );
@@ -125,21 +125,21 @@ fn grouped_projection_alias_wrapping_is_semantic_no_op() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([sum("rank")]);
     let grouped_row = GroupedRowView::new(
-        &[Value::Int(7)],
-        &[Value::Int(40)],
+        &[Value::Int64(7)],
+        &[Value::Int64(40)],
         group_fields.as_slice(),
         aggregate_execution_specs.as_slice(),
     );
     let plain = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Aggregate(sum("rank"))),
-        right: Box::new(Expr::Literal(Value::Int(2))),
+        right: Box::new(Expr::Literal(Value::Int64(2))),
     };
     let aliased = Expr::Alias {
         expr: Box::new(Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Aggregate(sum("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(2))),
+            right: Box::new(Expr::Literal(Value::Int64(2))),
         }),
         name: Alias::new("sum_plus_two"),
     };
@@ -159,8 +159,8 @@ fn grouped_projection_column_order_is_stable() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([count(), sum("rank")]);
     let grouped_row = GroupedRowView::new(
-        &[Value::Int(7)],
-        &[Value::Nat(3), Value::Int(40)],
+        &[Value::Int64(7)],
+        &[Value::Nat64(3), Value::Int64(40)],
         group_fields.as_slice(),
         aggregate_execution_specs.as_slice(),
     );
@@ -177,7 +177,7 @@ fn grouped_projection_column_order_is_stable() {
             expr: Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Aggregate(count())),
-                right: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
             },
             alias: Some(Alias::new("count_plus_one")),
         },
@@ -198,17 +198,17 @@ fn grouped_projection_column_order_is_stable() {
         "grouped projection must preserve declared field count",
     );
     assert_eq!(
-        values[0].cmp_numeric(&Value::Int(40)),
+        values[0].cmp_numeric(&Value::Int64(40)),
         Some(Ordering::Equal),
         "first grouped projection output must follow projection declaration order",
     );
     assert_eq!(
-        values[1].cmp_numeric(&Value::Nat(3)),
+        values[1].cmp_numeric(&Value::Nat64(3)),
         Some(Ordering::Equal),
         "second grouped projection output must follow projection declaration order",
     );
     assert_eq!(
-        values[2].cmp_numeric(&Value::Int(4)),
+        values[2].cmp_numeric(&Value::Int64(4)),
         Some(Ordering::Equal),
         "third grouped projection output must evaluate computed aggregate expression in order",
     );
@@ -222,14 +222,14 @@ fn grouped_projection_ordering_preserves_input_group_order() {
         expr: Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Aggregate(sum("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
         },
         alias: Some(Alias::new("sum_plus_one")),
     }]);
     let grouped_inputs = vec![
-        (vec![Value::Int(1)], vec![Value::Int(10)]),
-        (vec![Value::Int(2)], vec![Value::Int(20)]),
-        (vec![Value::Int(3)], vec![Value::Int(30)]),
+        (vec![Value::Int64(1)], vec![Value::Int64(10)]),
+        (vec![Value::Int64(2)], vec![Value::Int64(20)]),
+        (vec![Value::Int64(3)], vec![Value::Int64(30)]),
     ];
     let mut observed = Vec::new();
     let compiled = compile_grouped_projection_plan(
@@ -250,7 +250,7 @@ fn grouped_projection_ordering_preserves_input_group_order() {
         observed.push(evaluated[0].clone());
     }
 
-    let expected = [Value::Int(11), Value::Int(21), Value::Int(31)];
+    let expected = [Value::Int64(11), Value::Int64(21), Value::Int64(31)];
     for (actual, expected_value) in observed.into_iter().zip(expected) {
         assert_eq!(
             actual.cmp_numeric(&expected_value),

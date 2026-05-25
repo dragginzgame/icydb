@@ -20,10 +20,9 @@ use crate::db::data::structural_field::{
 use crate::{
     error::InternalError,
     model::field::FieldKind,
-    types::{Date, Decimal, Duration, Int, Nat},
+    types::{Date, Decimal, Duration, IntBig, NatBig},
     value::Value,
 };
-use candid::{Int as WrappedInt, Nat as WrappedNat};
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 /// Decode one non-recursive leaf `ByKind` field payload through the canonical
@@ -186,8 +185,7 @@ fn decode_int_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value,
     let items = split_binary_tuple_items(raw_bytes, 2, "int_big")?;
     let sign = decode_big_integer_sign_payload(items[0])?;
     let magnitude = decode_big_integer_magnitude_payload(items[1])?;
-    let wrapped = WrappedInt::from(BigInt::from_biguint(sign, magnitude));
-    let value = Int::from(wrapped);
+    let value = IntBig::from_bigint(BigInt::from_biguint(sign, magnitude));
     ensure_int_big_max_bytes(&value, max_bytes)?;
 
     Ok(Value::IntBig(value))
@@ -196,9 +194,7 @@ fn decode_int_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value,
 // Decode one bounded unsigned big-integer payload from the canonical limb
 // sequence used by `nat_big`.
 fn decode_nat_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value, FieldDecodeError> {
-    let value = Nat::from(WrappedNat::from(decode_big_integer_magnitude_payload(
-        raw_bytes,
-    )?));
+    let value = NatBig::from_biguint(decode_big_integer_magnitude_payload(raw_bytes)?);
     ensure_nat_big_max_bytes(&value, max_bytes)?;
 
     Ok(Value::NatBig(value))
@@ -306,7 +302,7 @@ fn encode_nat_big_value_bytes(
     Ok(encoded)
 }
 
-fn ensure_int_big_max_bytes(value: &Int, max_bytes: u32) -> Result<(), FieldDecodeError> {
+fn ensure_int_big_max_bytes(value: &IntBig, max_bytes: u32) -> Result<(), FieldDecodeError> {
     let len = value.to_leb128().len();
     if len > max_bytes as usize {
         return Err(FieldDecodeError::new(format!(
@@ -317,7 +313,7 @@ fn ensure_int_big_max_bytes(value: &Int, max_bytes: u32) -> Result<(), FieldDeco
     Ok(())
 }
 
-fn ensure_nat_big_max_bytes(value: &Nat, max_bytes: u32) -> Result<(), FieldDecodeError> {
+fn ensure_nat_big_max_bytes(value: &NatBig, max_bytes: u32) -> Result<(), FieldDecodeError> {
     let len = value.to_leb128().len();
     if len > max_bytes as usize {
         return Err(FieldDecodeError::new(format!(
@@ -621,7 +617,7 @@ pub(super) fn decode_duration_field_by_kind_bytes(
 
 /// Encode one direct `int_big` leaf through the canonical structural leaf lane.
 pub(super) fn encode_int_big_field_by_kind_bytes(
-    value: &Int,
+    value: &IntBig,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -639,7 +635,7 @@ pub(super) fn encode_int_big_field_by_kind_bytes(
 pub(super) fn decode_int_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<Int>, FieldDecodeError> {
+) -> Result<Option<IntBig>, FieldDecodeError> {
     let FieldKind::IntBig { max_bytes } = kind else {
         return Err(FieldDecodeError::new(
             "field kind is not owned by the structural int_big leaf lane",
@@ -656,7 +652,7 @@ pub(super) fn decode_int_big_field_by_kind_bytes(
 
 /// Encode one direct `nat_big` leaf through the canonical structural leaf lane.
 pub(super) fn encode_nat_big_field_by_kind_bytes(
-    value: &Nat,
+    value: &NatBig,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -674,7 +670,7 @@ pub(super) fn encode_nat_big_field_by_kind_bytes(
 pub(super) fn decode_nat_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<Nat>, FieldDecodeError> {
+) -> Result<Option<NatBig>, FieldDecodeError> {
     let FieldKind::NatBig { max_bytes } = kind else {
         return Err(FieldDecodeError::new(
             "field kind is not owned by the structural nat_big leaf lane",
@@ -705,11 +701,9 @@ mod tests {
             binary::push_binary_text, validate_structural_field_by_kind_bytes,
         },
         model::field::{DEFAULT_BIG_INT_MAX_BYTES, FieldKind},
-        types::{Date, Decimal, Duration, Int, Nat},
+        types::{Date, Decimal, Duration, IntBig, NatBig},
         value::Value,
     };
-    use candid::{Int as WrappedInt, Nat as WrappedNat};
-
     #[test]
     fn leaf_field_binary_roundtrips_supported_leaf_wrappers() {
         let cases = vec![
@@ -726,13 +720,13 @@ mod tests {
                 FieldKind::IntBig {
                     max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
                 },
-                Value::IntBig(Int::from(WrappedInt::from(123_456_789_i64))),
+                Value::IntBig(IntBig::from(123_456_789_i64)),
             ),
             (
                 FieldKind::NatBig {
                     max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
                 },
-                Value::NatBig(Nat::from(WrappedNat::from(987_654_321_u64))),
+                Value::NatBig(NatBig::from(987_654_321_u64)),
             ),
             (FieldKind::Structured { queryable: false }, Value::Null),
         ];

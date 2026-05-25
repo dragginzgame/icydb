@@ -78,7 +78,10 @@ mod tests {
         };
         assert_eq!(
             composite.components(),
-            [PrimaryKeyComponent::Nat(11), PrimaryKeyComponent::Nat(22)],
+            [
+                PrimaryKeyComponent::Nat64(11),
+                PrimaryKeyComponent::Nat64(22)
+            ],
         );
         let decoded = <CompositePrimaryKeyEntityKey as PrimaryKeyDecode>::from_primary_key_value(
             &primary_key,

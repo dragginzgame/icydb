@@ -3,12 +3,12 @@ use super::*;
 #[test]
 fn fingerprint_and_signature_are_stable_for_reordered_and_non_canonical_map_predicates() {
     let map_a = Value::Map(vec![
-        (Value::Text("z".to_string()), Value::Int(9)),
-        (Value::Text("a".to_string()), Value::Int(1)),
+        (Value::Text("z".to_string()), Value::Int64(9)),
+        (Value::Text("a".to_string()), Value::Int64(1)),
     ]);
     let map_b = Value::Map(vec![
-        (Value::Text("a".to_string()), Value::Int(1)),
-        (Value::Text("z".to_string()), Value::Int(9)),
+        (Value::Text("a".to_string()), Value::Int64(1)),
+        (Value::Text("z".to_string()), Value::Int64(9)),
     ]);
 
     let predicate_a = Predicate::And(vec![
@@ -61,11 +61,11 @@ fn fingerprint_and_signature_treat_equivalent_decimal_predicate_literals_as_iden
 fn fingerprint_and_signature_treat_equivalent_in_list_predicates_as_identical() {
     let predicate_a = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![Value::Nat(3), Value::Nat(1), Value::Nat(2)],
+        vec![Value::Nat64(3), Value::Nat64(1), Value::Nat64(2)],
     ));
     let predicate_b = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
+        vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
     ));
 
     let mut plan_a: AccessPlannedQuery = full_scan_query();
@@ -87,26 +87,26 @@ fn fingerprint_and_signature_treat_same_field_or_eq_and_in_as_identical() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Nat(3),
+            Value::Nat64(3),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Nat(1),
+            Value::Nat64(1),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Nat(3),
+            Value::Nat64(3),
             CoercionId::Strict,
         )),
     ]);
     let predicate_in = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::In,
-        Value::List(vec![Value::Nat(1), Value::Nat(3)]),
+        Value::List(vec![Value::Nat64(1), Value::Nat64(3)]),
         CoercionId::Strict,
     ));
 
@@ -127,11 +127,16 @@ fn fingerprint_and_signature_treat_same_field_or_eq_and_in_as_identical() {
 fn fingerprint_and_signature_treat_equivalent_in_list_duplicate_literals_as_identical() {
     let predicate_a = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![Value::Nat(3), Value::Nat(1), Value::Nat(3), Value::Nat(2)],
+        vec![
+            Value::Nat64(3),
+            Value::Nat64(1),
+            Value::Nat64(3),
+            Value::Nat64(2),
+        ],
     ));
     let predicate_b = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
+        vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
     ));
 
     let mut plan_a: AccessPlannedQuery = full_scan_query();
@@ -149,11 +154,11 @@ fn fingerprint_and_signature_treat_equivalent_in_list_duplicate_literals_as_iden
 
 #[test]
 fn fingerprint_and_signature_treat_implicit_and_explicit_strict_coercion_as_identical() {
-    let predicate_a = Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Int(7)));
+    let predicate_a = Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Int64(7)));
     let predicate_b = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Eq,
-        Value::Int(7),
+        Value::Int64(7),
         CoercionId::Strict,
     ));
 
@@ -175,13 +180,13 @@ fn fingerprint_and_signature_distinguish_different_coercion_ids() {
     let predicate_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Eq,
-        Value::Int(7),
+        Value::Int64(7),
         CoercionId::Strict,
     ));
     let predicate_numeric_widen = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Eq,
-        Value::Int(7),
+        Value::Int64(7),
         CoercionId::NumericWiden,
     ));
 
@@ -203,7 +208,7 @@ fn fingerprint_and_signature_treat_numeric_widen_equivalent_literal_subtypes_as_
     let predicate_int = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Eq,
-        Value::Int(1),
+        Value::Int64(1),
         CoercionId::NumericWiden,
     ));
     let predicate_decimal = Predicate::Compare(ComparePredicate::with_coercion(
@@ -350,13 +355,13 @@ fn fingerprint_and_signature_distinguish_strict_from_collection_element_coercion
     let predicate_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Eq,
-        Value::Int(7),
+        Value::Int64(7),
         CoercionId::Strict,
     ));
     let predicate_collection_element = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Eq,
-        Value::Int(7),
+        Value::Int64(7),
         CoercionId::CollectionElement,
     ));
 

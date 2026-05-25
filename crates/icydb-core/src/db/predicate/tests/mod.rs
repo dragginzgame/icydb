@@ -38,7 +38,7 @@ fn strict_scalar_compare_is_scalar_safe_and_indexable_when_indexed() {
     let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
         Some(0),
         CompareOp::Eq,
-        Value::Int(7),
+        Value::Int64(7),
         CoercionSpec::new(CoercionId::Strict),
     ));
     let scalar_profile = classify_predicate_capabilities(
@@ -91,7 +91,7 @@ fn mixed_and_tree_is_partially_indexable_but_not_fully_indexable() {
         ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
             Some(0),
             CompareOp::Eq,
-            Value::Int(7),
+            Value::Int64(7),
             CoercionSpec::new(CoercionId::Strict),
         )),
         ExecutablePredicate::TextContainsCi {
@@ -115,13 +115,13 @@ fn index_compare_component_requires_strict_supported_projection() {
     let strict = ExecutableComparePredicate::field_literal(
         Some(0),
         CompareOp::In,
-        Value::List(vec![Value::Int(1), Value::Int(2)]),
+        Value::List(vec![Value::Int64(1), Value::Int64(2)]),
         CoercionSpec::new(CoercionId::Strict),
     );
     let non_strict = ExecutableComparePredicate::field_literal(
         Some(0),
         CompareOp::Eq,
-        Value::Int(7),
+        Value::Int64(7),
         CoercionSpec::new(CoercionId::NumericWiden),
     );
 

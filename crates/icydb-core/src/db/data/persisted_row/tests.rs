@@ -54,7 +54,7 @@ use crate::{
         PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
         Principal, Subaccount, Timestamp, Ulid, Unit,
     },
     value::StorageKey,
@@ -665,9 +665,9 @@ fn representative_value_storage_cases() -> Vec<Value> {
         ),
         Value::Float32(Float32::try_new(1.25).expect("float32 sample should be finite")),
         Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
-        Value::Int(-7),
+        Value::Int64(-7),
         Value::Int128(Int128::from(123i128)),
-        Value::IntBig(Int::from(99i32)),
+        Value::IntBig(IntBig::from(99i32)),
         Value::List(vec![
             Value::Blob(vec![0xCC, 0xDD]),
             Value::Text("nested".to_string()),
@@ -679,9 +679,9 @@ fn representative_value_storage_cases() -> Vec<Value> {
         Value::Subaccount(Subaccount::new([7u8; 32])),
         Value::Text("example".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),
-        Value::Nat(7),
+        Value::Nat64(7),
         Value::Nat128(Nat128::from(9u128)),
-        Value::NatBig(Nat::from(11u64)),
+        Value::NatBig(NatBig::from(11u64)),
         Value::Ulid(Ulid::from_u128(42)),
         Value::Unit,
     ]
@@ -728,14 +728,14 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
             Value::Text("f64".to_string()),
             Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
         ),
-        (Value::Text("i64".to_string()), Value::Int(-7)),
+        (Value::Text("i64".to_string()), Value::Int64(-7)),
         (
             Value::Text("i128".to_string()),
             Value::Int128(Int128::from(123i128)),
         ),
         (
             Value::Text("ibig".to_string()),
-            Value::IntBig(Int::from(99i32)),
+            Value::IntBig(IntBig::from(99i32)),
         ),
         (Value::Text("null".to_string()), Value::Null),
         (
@@ -754,14 +754,14 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
             Value::Text("timestamp".to_string()),
             Value::Timestamp(Timestamp::from_secs(1)),
         ),
-        (Value::Text("u64".to_string()), Value::Nat(7)),
+        (Value::Text("u64".to_string()), Value::Nat64(7)),
         (
             Value::Text("u128".to_string()),
             Value::Nat128(Nat128::from(9u128)),
         ),
         (
             Value::Text("ubig".to_string()),
-            Value::NatBig(Nat::from(11u64)),
+            Value::NatBig(NatBig::from(11u64)),
         ),
         (
             Value::Text("ulid".to_string()),
@@ -1150,8 +1150,8 @@ fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
     assert_direct_persisted_structured_roundtrip(Ulid::from_parts(77, 3));
     assert_direct_persisted_structured_roundtrip(Int128::from(-123_i128));
     assert_direct_persisted_structured_roundtrip(Nat128::from(456_u128));
-    assert_direct_persisted_structured_roundtrip(Int::from(-789_i32));
-    assert_direct_persisted_structured_roundtrip(Nat::from(987_u64));
+    assert_direct_persisted_structured_roundtrip(IntBig::from(-789_i32));
+    assert_direct_persisted_structured_roundtrip(NatBig::from(987_u64));
     assert_direct_persisted_structured_roundtrip(Unit);
     assert_direct_persisted_structured_roundtrip(-5_i8);
     assert_direct_persisted_structured_roundtrip(-6_i16);
@@ -1224,13 +1224,13 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
     assert_direct_persisted_by_kind_roundtrip(Int128::from(-123_i128), FieldKind::Int128);
     assert_direct_persisted_by_kind_roundtrip(Nat128::from(456_u128), FieldKind::Nat128);
     assert_direct_persisted_by_kind_roundtrip(
-        Int::from(candid::Int::from(-789_i32)),
+        IntBig::from(-789_i32),
         FieldKind::IntBig {
             max_bytes: crate::model::field::DEFAULT_BIG_INT_MAX_BYTES,
         },
     );
     assert_direct_persisted_by_kind_roundtrip(
-        Nat::from(candid::Nat::from(987_u64)),
+        NatBig::from(987_u64),
         FieldKind::NatBig {
             max_bytes: crate::model::field::DEFAULT_BIG_INT_MAX_BYTES,
         },
@@ -1484,7 +1484,7 @@ fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
     let payload = encode_runtime_value_into_slot(
         &MAP_MODEL,
         0,
-        &Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat(7))]),
+        &Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat64(7))]),
     )
     .expect("encode map slot");
     let decoded =
@@ -1492,7 +1492,7 @@ fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
 
     assert_eq!(
         decoded,
-        Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat(7))]),
+        Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat64(7))]),
     );
 }
 
@@ -1543,7 +1543,7 @@ fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
     let payload = encode_runtime_value_into_slot(
         &ENUM_MODEL,
         0,
-        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat(7))),
+        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat64(7))),
     )
     .expect("encode enum slot");
     let decoded =
@@ -1551,7 +1551,7 @@ fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
 
     assert_eq!(
         decoded,
-        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat(7,))),
+        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat64(7,))),
     );
 }
 
@@ -1778,7 +1778,7 @@ fn encode_runtime_value_into_slot_rejects_unknown_enum_payload_variants() {
     let err = encode_runtime_value_into_slot(
         &ENUM_MODEL,
         0,
-        &Value::Enum(ValueEnum::new("Unknown", Some("tests::State")).with_payload(Value::Nat(7))),
+        &Value::Enum(ValueEnum::new("Unknown", Some("tests::State")).with_payload(Value::Nat64(7))),
     )
     .expect_err("unknown enum payload should fail closed");
 
@@ -1960,7 +1960,7 @@ fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
         assert_eq!(slot_count, 3);
         assert_eq!(
             reader.get_value(2).expect("accepted defaulted slot"),
-            Some(Value::Nat(99)),
+            Some(Value::Nat64(99)),
         );
     }
 }
@@ -2030,7 +2030,7 @@ fn accepted_row_contract_reads_missing_trailing_defaulted_slots_as_default() {
 
     assert_eq!(
         reader.get_value(2).expect("score slot should materialize"),
-        Some(Value::Nat(99)),
+        Some(Value::Nat64(99)),
     );
 }
 
@@ -2179,7 +2179,7 @@ fn structural_slot_reader_direct_projection_decodes_value_storage_scalar_without
 fn structural_slot_reader_direct_projection_preserves_value_storage_mismatch_fallback() {
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
-    let payload = encode_value_storage_payload(&Value::Int(42));
+    let payload = encode_value_storage_payload(&Value::Int64(42));
     let raw_row = raw_row_from_dense_slot_payloads_for_tests(
         &TEST_MODEL,
         &[name_payload.as_slice(), payload.as_slice()],
@@ -2193,14 +2193,14 @@ fn structural_slot_reader_direct_projection_preserves_value_storage_mismatch_fal
         reader
             .required_direct_projection_value(1)
             .expect("mismatched value-storage scalar should use canonical fallback"),
-        Value::Int(42)
+        Value::Int64(42)
     );
 
     match &reader.cached_values[1] {
         CachedSlotValue::Deferred { materialized } => {
             assert_eq!(
                 materialized.get(),
-                Some(&Value::Int(42)),
+                Some(&Value::Int64(42)),
                 "fallback path should preserve the existing materialized cache behavior",
             );
         }
@@ -2488,7 +2488,7 @@ fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_data
             serialized.entries()[2].payload(),
         )
         .expect("default payload should decode"),
-        Value::Nat(99),
+        Value::Nat64(99),
     );
 }
 

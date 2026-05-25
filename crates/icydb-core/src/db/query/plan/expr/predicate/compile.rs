@@ -729,7 +729,9 @@ impl RuntimePredicateAdmission {
 
 const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
     match value {
-        Value::Text(_) | Value::Nat(_) | Value::Nat128(_) | Value::NatBig(_) => CoercionId::Strict,
+        Value::Text(_) | Value::Nat64(_) | Value::Nat128(_) | Value::NatBig(_) => {
+            CoercionId::Strict
+        }
         Value::Float32(_) | Value::Float64(_) | Value::Decimal(_) => {
             if op.is_ordering_family() {
                 CoercionId::NumericWiden

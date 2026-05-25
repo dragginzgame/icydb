@@ -13,7 +13,7 @@ use crate::{
         schema::{SchemaInfo, ValidateError},
     },
     model::{classify_field_kind, field::FieldKind},
-    types::{Int, Int128, Nat, Nat128},
+    types::{Int128, IntBig, Nat128, NatBig},
     value::{Value, canonicalize_value_set},
 };
 
@@ -370,26 +370,26 @@ fn normalize_numeric_value_for_kind(
         FieldKind::Int64 => value
             .to_numeric_decimal()
             .and_then(<i64 as crate::traits::NumericValue>::try_from_decimal)
-            .map(Value::Int),
+            .map(Value::Int64),
         FieldKind::Int128 => value
             .to_numeric_decimal()
             .and_then(<Int128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Int128),
         FieldKind::IntBig { .. } => value
             .to_numeric_decimal()
-            .and_then(<Int as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<IntBig as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::IntBig),
         FieldKind::Nat64 => value
             .to_numeric_decimal()
             .and_then(<u64 as crate::traits::NumericValue>::try_from_decimal)
-            .map(Value::Nat),
+            .map(Value::Nat64),
         FieldKind::Nat128 => value
             .to_numeric_decimal()
             .and_then(<Nat128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Nat128),
         FieldKind::NatBig { .. } => value
             .to_numeric_decimal()
-            .and_then(<Nat as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<NatBig as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::NatBig),
         _ => None,
     };
@@ -664,15 +664,15 @@ mod tests {
     #[test]
     fn normalize_and_dedups_identical_children_and_collapses_to_singleton() {
         let duplicated = Predicate::And(vec![
-            Predicate::eq("rank".to_string(), Value::Nat(7)),
-            Predicate::eq("rank".to_string(), Value::Nat(7)),
+            Predicate::eq("rank".to_string(), Value::Nat64(7)),
+            Predicate::eq("rank".to_string(), Value::Nat64(7)),
         ]);
 
         let normalized = normalize(&duplicated);
 
         assert_eq!(
             normalized,
-            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat(7))),
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat64(7))),
             "identical AND children should collapse to one predicate",
         );
     }
@@ -680,15 +680,15 @@ mod tests {
     #[test]
     fn normalize_or_dedups_identical_children_and_collapses_to_singleton() {
         let duplicated = Predicate::Or(vec![
-            Predicate::eq("rank".to_string(), Value::Nat(7)),
-            Predicate::eq("rank".to_string(), Value::Nat(7)),
+            Predicate::eq("rank".to_string(), Value::Nat64(7)),
+            Predicate::eq("rank".to_string(), Value::Nat64(7)),
         ]);
 
         let normalized = normalize(&duplicated);
 
         assert_eq!(
             normalized,
-            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat(7))),
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat64(7))),
             "identical OR children should collapse to one predicate",
         );
     }
@@ -700,7 +700,7 @@ mod tests {
                 field: "name".to_string(),
                 value: Value::Text("ada".to_string()),
             },
-            Predicate::eq("rank".to_string(), Value::Nat(7)),
+            Predicate::eq("rank".to_string(), Value::Nat64(7)),
         ]);
 
         let normalized = normalize(&mixed);
@@ -725,8 +725,8 @@ mod tests {
     #[test]
     fn normalize_and_conflicting_eq_literals_collapses_to_false() {
         let predicate = Predicate::And(vec![
-            Predicate::eq("rank".to_string(), Value::Nat(1)),
-            Predicate::eq("rank".to_string(), Value::Nat(2)),
+            Predicate::eq("rank".to_string(), Value::Nat64(1)),
+            Predicate::eq("rank".to_string(), Value::Nat64(2)),
         ]);
 
         let normalized = normalize(&predicate);
@@ -741,15 +741,15 @@ mod tests {
     #[test]
     fn normalize_and_tightens_lower_bounds() {
         let predicate = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat(3))),
-            Predicate::Compare(ComparePredicate::gte("rank".to_string(), Value::Nat(5))),
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat64(3))),
+            Predicate::Compare(ComparePredicate::gte("rank".to_string(), Value::Nat64(5))),
         ]);
 
         let normalized = normalize(&predicate);
 
         assert_eq!(
             normalized,
-            Predicate::Compare(ComparePredicate::gte("rank".to_string(), Value::Nat(5))),
+            Predicate::Compare(ComparePredicate::gte("rank".to_string(), Value::Nat64(5))),
             "conjunction should keep the stricter lower bound",
         );
     }
@@ -757,15 +757,15 @@ mod tests {
     #[test]
     fn normalize_and_tightens_upper_bounds() {
         let predicate = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::lt("rank".to_string(), Value::Nat(9))),
-            Predicate::Compare(ComparePredicate::lte("rank".to_string(), Value::Nat(7))),
+            Predicate::Compare(ComparePredicate::lt("rank".to_string(), Value::Nat64(9))),
+            Predicate::Compare(ComparePredicate::lte("rank".to_string(), Value::Nat64(7))),
         ]);
 
         let normalized = normalize(&predicate);
 
         assert_eq!(
             normalized,
-            Predicate::Compare(ComparePredicate::lte("rank".to_string(), Value::Nat(7))),
+            Predicate::Compare(ComparePredicate::lte("rank".to_string(), Value::Nat64(7))),
             "conjunction should keep the stricter upper bound",
         );
     }
@@ -773,15 +773,15 @@ mod tests {
     #[test]
     fn normalize_and_eq_with_satisfied_bound_collapses_to_eq() {
         let predicate = Predicate::And(vec![
-            Predicate::eq("rank".to_string(), Value::Nat(7)),
-            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat(5))),
+            Predicate::eq("rank".to_string(), Value::Nat64(7)),
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat64(5))),
         ]);
 
         let normalized = normalize(&predicate);
 
         assert_eq!(
             normalized,
-            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat(7))),
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat64(7))),
             "equality should subsume compatible lower-bound constraints",
         );
     }
@@ -789,8 +789,8 @@ mod tests {
     #[test]
     fn normalize_and_eq_with_conflicting_bound_collapses_to_false() {
         let predicate = Predicate::And(vec![
-            Predicate::eq("rank".to_string(), Value::Nat(3)),
-            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat(5))),
+            Predicate::eq("rank".to_string(), Value::Nat64(3)),
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat64(5))),
         ]);
 
         let normalized = normalize(&predicate);
@@ -808,13 +808,13 @@ mod tests {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Gte,
-                Value::Nat(11),
+                Value::Nat64(11),
                 crate::db::predicate::CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Lte,
-                Value::Nat(11),
+                Value::Nat64(11),
                 crate::db::predicate::CoercionId::Strict,
             )),
         ]);
@@ -823,7 +823,7 @@ mod tests {
 
         assert_eq!(
             normalized,
-            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat(11))),
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Nat64(11))),
             "matching inclusive lower/upper bounds should collapse to equality",
         );
     }
@@ -831,8 +831,8 @@ mod tests {
     #[test]
     fn normalize_and_crossed_bounds_collapse_to_false() {
         let predicate = Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat(9))),
-            Predicate::Compare(ComparePredicate::lt("rank".to_string(), Value::Nat(5))),
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat64(9))),
+            Predicate::Compare(ComparePredicate::lt("rank".to_string(), Value::Nat64(5))),
         ]);
 
         let normalized = normalize(&predicate);
@@ -970,10 +970,10 @@ mod tests {
             "rank",
             CompareOp::In,
             &Value::List(vec![
-                Value::Nat(3),
-                Value::Nat(1),
-                Value::Nat(3),
-                Value::Nat(2),
+                Value::Nat64(3),
+                Value::Nat64(1),
+                Value::Nat64(3),
+                Value::Nat64(2),
             ]),
             &FieldKind::Nat64,
             &CoercionSpec::new(CoercionId::Strict),
@@ -982,7 +982,7 @@ mod tests {
 
         assert_eq!(
             normalized,
-            Value::List(vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)]),
+            Value::List(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
             "IN literal normalization should sort and deduplicate members",
         );
     }
@@ -993,10 +993,10 @@ mod tests {
             "rank",
             CompareOp::NotIn,
             &Value::List(vec![
-                Value::Nat(3),
-                Value::Nat(1),
-                Value::Nat(3),
-                Value::Nat(2),
+                Value::Nat64(3),
+                Value::Nat64(1),
+                Value::Nat64(3),
+                Value::Nat64(2),
             ]),
             &FieldKind::Nat64,
             &CoercionSpec::new(CoercionId::Strict),
@@ -1005,7 +1005,7 @@ mod tests {
 
         assert_eq!(
             normalized,
-            Value::List(vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)]),
+            Value::List(vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)]),
             "NOT IN literal normalization should sort and deduplicate members",
         );
     }

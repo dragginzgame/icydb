@@ -13,12 +13,11 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
-        Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
+        Principal, Subaccount, Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
 };
-use candid::{Int as WrappedInt, Nat as WrappedNat};
 use num_bigint::{BigInt, BigUint};
 
 const VALUE_ACCOUNT: u8 = 0;
@@ -123,7 +122,7 @@ pub(in crate::db::cursor::token) fn write_value(
             out.extend_from_slice(&value.to_be_bytes());
             Ok(())
         }
-        Value::Int(value) => {
+        Value::Int64(value) => {
             out.push(VALUE_INT);
             write_i64(out, *value);
             Ok(())
@@ -167,7 +166,7 @@ pub(in crate::db::cursor::token) fn write_value(
             write_i64(out, value.as_millis());
             Ok(())
         }
-        Value::Nat(value) => {
+        Value::Nat64(value) => {
             out.push(VALUE_NAT);
             write_u64(out, *value);
             Ok(())
@@ -271,7 +270,7 @@ pub(in crate::db::cursor::token) fn read_value(
             Float64::try_from_bytes(cursor.read_exact(8)?)
                 .map_err(|err| TokenWireError::decode(err.to_string()))?,
         )),
-        VALUE_INT => Ok(Value::Int(cursor.read_i64()?)),
+        VALUE_INT => Ok(Value::Int64(cursor.read_i64()?)),
         VALUE_INT128 => Ok(Value::Int128(Int128::from(cursor.read_i128()?))),
         VALUE_INT_BIG => Ok(Value::IntBig(read_big_int(cursor)?)),
         VALUE_LIST => Ok(Value::List(read_value_vec(cursor)?)),
@@ -283,7 +282,7 @@ pub(in crate::db::cursor::token) fn read_value(
         ))),
         VALUE_TEXT => Ok(Value::Text(cursor.read_string()?)),
         VALUE_TIMESTAMP => Ok(Value::Timestamp(Timestamp::from_millis(cursor.read_i64()?))),
-        VALUE_NAT => Ok(Value::Nat(cursor.read_u64()?)),
+        VALUE_NAT => Ok(Value::Nat64(cursor.read_u64()?)),
         VALUE_NAT128 => Ok(Value::Nat128(Nat128::from(cursor.read_u128()?))),
         VALUE_NAT_BIG => Ok(Value::NatBig(read_big_nat(cursor)?)),
         VALUE_ULID => Ok(Value::Ulid(Ulid::from_bytes(cursor.read_array()?))),
@@ -359,20 +358,20 @@ fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireEr
     Ok(value)
 }
 
-fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<Int, TokenWireError> {
+fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<IntBig, TokenWireError> {
     let text = cursor.read_string()?;
     let big = BigInt::parse_bytes(text.as_bytes(), 10)
         .ok_or_else(|| TokenWireError::decode("invalid IntBig token payload"))?;
 
-    Ok(Int::from(WrappedInt::from(big)))
+    Ok(IntBig::from_bigint(big))
 }
 
-fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<Nat, TokenWireError> {
+fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<NatBig, TokenWireError> {
     let text = cursor.read_string()?;
     let big = BigUint::parse_bytes(text.as_bytes(), 10)
         .ok_or_else(|| TokenWireError::decode("invalid NatBig token payload"))?;
 
-    Ok(Nat::from(WrappedNat::from(big)))
+    Ok(NatBig::from_biguint(big))
 }
 
 fn read_map_value(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {

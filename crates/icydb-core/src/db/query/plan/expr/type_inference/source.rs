@@ -62,10 +62,10 @@ pub(super) const fn infer_literal_type(value: &Value) -> ExprType {
         Value::Bool(_) => ExprType::Bool,
         Value::Text(_) | Value::Enum(_) => ExprType::Text,
         Value::Blob(_) => ExprType::Blob,
-        Value::Int(_)
+        Value::Int64(_)
         | Value::Int128(_)
         | Value::IntBig(_)
-        | Value::Nat(_)
+        | Value::Nat64(_)
         | Value::Nat128(_)
         | Value::NatBig(_)
         | Value::Duration(_)

@@ -50,8 +50,8 @@ impl CompiledExprValueReader for TestGroupedView {
 fn row_view() -> TestRowView {
     TestRowView {
         slots: vec![
-            Some(Value::Nat(7)),
-            Some(Value::Int(3)),
+            Some(Value::Nat64(7)),
+            Some(Value::Int64(3)),
             Some(Value::Null),
             Some(Value::Text("MiXeD".to_string())),
             Some(Value::Bool(true)),
@@ -62,7 +62,7 @@ fn row_view() -> TestRowView {
 fn grouped_view() -> TestGroupedView {
     TestGroupedView {
         group_keys: vec![Value::Text("fighter".to_string())],
-        aggregates: vec![Value::Nat(2)],
+        aggregates: vec![Value::Nat64(2)],
     }
 }
 
@@ -79,7 +79,7 @@ fn grouped_compiled_expr_reads_slots_without_cloning_contract_drift() {
         field: "age".to_string(),
     };
 
-    assert_eq!(evaluate(&expr), Value::Nat(7));
+    assert_eq!(evaluate(&expr), Value::Nat64(7));
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn grouped_compiled_expr_preserves_slot_arithmetic_semantics() {
     let value = evaluate(&expr);
 
     assert_eq!(
-        value.cmp_numeric(&Value::Int(10)),
+        value.cmp_numeric(&Value::Int64(10)),
         Some(Ordering::Equal),
         "direct slot arithmetic must preserve shared numeric coercion semantics",
     );
@@ -112,7 +112,7 @@ fn grouped_compiled_expr_case_only_true_selects_branch() {
                     op: BinaryOp::Gt,
                     slot: 0,
                     field: "age".to_string(),
-                    literal: Value::Nat(5),
+                    literal: Value::Nat64(5),
                     slot_on_left: true,
                 },
                 result: CompiledExpr::Literal(Value::Text("selected".to_string())),
@@ -151,7 +151,7 @@ fn grouped_compiled_expr_case_slot_literal_selects_without_condition_value() {
         op: BinaryOp::Gt,
         slot: 0,
         field: "age".to_string(),
-        literal: Value::Nat(5),
+        literal: Value::Nat64(5),
         slot_on_left: true,
         then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
         else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),

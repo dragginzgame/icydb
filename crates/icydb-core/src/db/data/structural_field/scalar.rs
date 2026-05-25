@@ -147,32 +147,32 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
         (FieldKind::Float64, Value::Float64(value)) => {
             push_binary_float64(&mut encoded, value.get());
         }
-        (FieldKind::Int64, Value::Int(value)) => {
+        (FieldKind::Int64, Value::Int64(value)) => {
             push_binary_int64(&mut encoded, *value);
         }
-        (FieldKind::Int8, Value::Int(value)) if i8::try_from(*value).is_ok() => {
+        (FieldKind::Int8, Value::Int64(value)) if i8::try_from(*value).is_ok() => {
             push_binary_int64(&mut encoded, *value);
         }
-        (FieldKind::Int16, Value::Int(value)) if i16::try_from(*value).is_ok() => {
+        (FieldKind::Int16, Value::Int64(value)) if i16::try_from(*value).is_ok() => {
             push_binary_int64(&mut encoded, *value);
         }
-        (FieldKind::Int32, Value::Int(value)) if i32::try_from(*value).is_ok() => {
+        (FieldKind::Int32, Value::Int64(value)) if i32::try_from(*value).is_ok() => {
             push_binary_int64(&mut encoded, *value);
         }
         (FieldKind::Int128, Value::Int128(value)) => {
             push_binary_bytes(&mut encoded, &encode_int128_payload_bytes(*value));
         }
         (FieldKind::Text { .. }, Value::Text(value)) => push_binary_text(&mut encoded, value),
-        (FieldKind::Nat64, Value::Nat(value)) => {
+        (FieldKind::Nat64, Value::Nat64(value)) => {
             push_binary_nat64(&mut encoded, *value);
         }
-        (FieldKind::Nat8, Value::Nat(value)) if u8::try_from(*value).is_ok() => {
+        (FieldKind::Nat8, Value::Nat64(value)) if u8::try_from(*value).is_ok() => {
             push_binary_nat64(&mut encoded, *value);
         }
-        (FieldKind::Nat16, Value::Nat(value)) if u16::try_from(*value).is_ok() => {
+        (FieldKind::Nat16, Value::Nat64(value)) if u16::try_from(*value).is_ok() => {
             push_binary_nat64(&mut encoded, *value);
         }
-        (FieldKind::Nat32, Value::Nat(value)) if u32::try_from(*value).is_ok() => {
+        (FieldKind::Nat32, Value::Nat64(value)) if u32::try_from(*value).is_ok() => {
             push_binary_nat64(&mut encoded, *value);
         }
         (FieldKind::Nat128, Value::Nat128(value)) => {
@@ -579,7 +579,7 @@ fn decode_scalar_fast_path_binary_numeric_kind(
                 ));
             }
 
-            Ok(Value::Int(value))
+            Ok(Value::Int64(value))
         }
         FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
             if tag != TAG_NAT64 || len != 8 {
@@ -598,7 +598,7 @@ fn decode_scalar_fast_path_binary_numeric_kind(
                 ));
             }
 
-            Ok(Value::Nat(value))
+            Ok(Value::Nat64(value))
         }
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to binary numeric fast-path helper",

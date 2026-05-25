@@ -83,7 +83,7 @@ fn index_covering_existing_rows_terminal_requires_no_order() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -107,7 +107,7 @@ fn index_covering_existing_rows_terminal_accepts_unordered_no_predicate() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -125,11 +125,11 @@ fn index_covering_existing_rows_terminal_requires_strict_predicate_when_residual
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );
-    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat(7)));
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat64(7)));
 
     assert!(
         !index_covering_existing_rows_terminal_eligible(&plan, false),
@@ -148,7 +148,7 @@ fn covering_read_execution_plan_marks_secondary_load_shapes_as_planner_proven() 
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
-            values: vec![Value::Nat(7)],
+            values: vec![Value::Nat64(7)],
         },
         MissingRowPolicy::Ignore,
     );

@@ -341,11 +341,11 @@ impl DecodedDataStoreKey {
 const fn primary_key_component_from_storage_key(key: StorageKey) -> PrimaryKeyComponent {
     match key {
         StorageKey::Account(value) => PrimaryKeyComponent::Account(value),
-        StorageKey::Int(value) => PrimaryKeyComponent::Int(value),
+        StorageKey::Int(value) => PrimaryKeyComponent::Int64(value),
         StorageKey::Principal(value) => PrimaryKeyComponent::Principal(value),
         StorageKey::Subaccount(value) => PrimaryKeyComponent::Subaccount(value),
         StorageKey::Timestamp(value) => PrimaryKeyComponent::Timestamp(value),
-        StorageKey::Nat(value) => PrimaryKeyComponent::Nat(value),
+        StorageKey::Nat(value) => PrimaryKeyComponent::Nat64(value),
         StorageKey::Ulid(value) => PrimaryKeyComponent::Ulid(value),
         StorageKey::Unit => PrimaryKeyComponent::Unit,
     }
@@ -564,7 +564,7 @@ mod tests {
 
     fn composite_data_key_fixture() -> DecodedDataStoreKey {
         let key = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Nat64(7),
             PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
         ])
         .expect("composite primary key should build");
@@ -638,7 +638,7 @@ mod tests {
 
     fn composite_value_list_fixture() -> Value {
         Value::List(vec![
-            Value::Nat(7),
+            Value::Nat64(7),
             Value::Ulid(Ulid::from_u128(42)),
             Value::Principal(Principal::from_slice(&[1, 2, 3])),
         ])
@@ -646,7 +646,7 @@ mod tests {
 
     fn composite_primary_key_value_fixture() -> PrimaryKeyValue {
         let composite = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Nat64(7),
             PrimaryKeyComponent::Ulid(Ulid::from_u128(42)),
             PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
         ])
@@ -682,7 +682,7 @@ mod tests {
         let mut expected = Vec::new();
         expected.extend_from_slice(&5u64.to_be_bytes());
         expected.push(
-            crate::db::key_taxonomy::PrimaryKeyComponent::Int(-1)
+            crate::db::key_taxonomy::PrimaryKeyComponent::Int64(-1)
                 .kind()
                 .tag(),
         );
@@ -744,7 +744,7 @@ mod tests {
         assert_eq!(
             value,
             Value::List(vec![
-                Value::Nat(7),
+                Value::Nat64(7),
                 Value::Principal(Principal::from_slice(&[1, 2, 3])),
             ]),
         );
@@ -757,7 +757,7 @@ mod tests {
         assert_eq!(
             key.primary_key_component_runtime_value(0)
                 .expect("first composite component should project"),
-            Value::Nat(7),
+            Value::Nat64(7),
         );
         assert_eq!(
             key.primary_key_component_runtime_value(1)
@@ -813,9 +813,9 @@ mod tests {
         let entity = EntityTag::new(21);
         let malformed = [
             Value::List(vec![]),
-            Value::List(vec![Value::Nat(1)]),
-            Value::List(vec![Value::Nat(1), Value::Unit]),
-            Value::List(vec![Value::Nat(1), Value::List(vec![Value::Nat(2)])]),
+            Value::List(vec![Value::Nat64(1)]),
+            Value::List(vec![Value::Nat64(1), Value::Unit]),
+            Value::List(vec![Value::Nat64(1), Value::List(vec![Value::Nat64(2)])]),
         ];
 
         for value in malformed {
@@ -866,7 +866,7 @@ mod tests {
         let unsupported_values = [
             Value::Text("not-a-storage-key".to_string()),
             Value::Bool(true),
-            Value::List(vec![Value::Nat(1)]),
+            Value::List(vec![Value::Nat64(1)]),
             Value::Null,
         ];
 
@@ -904,11 +904,11 @@ mod tests {
                 Principal::from_slice(&[3, 1, 4]),
                 Some(Subaccount::new([1; 32])),
             )),
-            Value::Int(-17),
+            Value::Int64(-17),
             Value::Principal(Principal::from_slice(&[1, 2, 3])),
             Value::Subaccount(Subaccount::new([2; 32])),
             Value::Timestamp(Timestamp::from_secs(7)),
-            Value::Nat(42),
+            Value::Nat64(42),
             Value::Ulid(Ulid::from_u128(99)),
             Value::Unit,
         ];

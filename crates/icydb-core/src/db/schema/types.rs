@@ -7,10 +7,9 @@ use crate::{
     db::schema::PersistedFieldKind,
     model::field::FieldKind,
     traits::RuntimeValueKind,
-    types::{Int, Int128, Nat, Nat128, Ulid},
+    types::{Int128, IntBig, Nat128, NatBig, Ulid},
     value::{CoercionFamily, Value},
 };
-use candid::{Int as WrappedInt, Nat as WrappedNat};
 use std::fmt;
 
 ///
@@ -403,28 +402,28 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
 
 fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => *inner,
-        Value::Nat(inner) => i64::try_from(*inner).ok()?,
+        Value::Int64(inner) => *inner,
+        Value::Nat64(inner) => i64::try_from(*inner).ok()?,
         _ => return None,
     };
 
-    (min..=max).contains(&value).then_some(Value::Int(value))
+    (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
 fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => u64::try_from(*inner).ok()?,
-        Value::Nat(inner) => *inner,
+        Value::Int64(inner) => u64::try_from(*inner).ok()?,
+        Value::Nat64(inner) => *inner,
         _ => return None,
     };
 
-    (value <= max).then_some(Value::Nat(value))
+    (value <= max).then_some(Value::Nat64(value))
 }
 
 fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => i128::from(*inner),
-        Value::Nat(inner) => i128::from(*inner),
+        Value::Int64(inner) => i128::from(*inner),
+        Value::Nat64(inner) => i128::from(*inner),
         Value::Int128(inner) => inner.get(),
         Value::Nat128(inner) => i128::try_from(inner.get()).ok()?,
         Value::IntBig(inner) => inner.to_i128()?,
@@ -438,8 +437,8 @@ fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
 
 fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => u128::try_from(*inner).ok()?,
-        Value::Nat(inner) => u128::from(*inner),
+        Value::Int64(inner) => u128::try_from(*inner).ok()?,
+        Value::Nat64(inner) => u128::from(*inner),
         Value::Int128(inner) => u128::try_from(inner.get()).ok()?,
         Value::Nat128(inner) => inner.get(),
         Value::IntBig(inner) => inner.to_string().parse::<u128>().ok()?,
@@ -453,10 +452,10 @@ fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
 
 fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => Int::from(WrappedInt::from(*inner)),
-        Value::Nat(inner) => Int::from(WrappedInt::from(*inner)),
+        Value::Int64(inner) => IntBig::from(*inner),
+        Value::Nat64(inner) => IntBig::from_bigint((*inner).into()),
         Value::IntBig(inner) => inner.clone(),
-        Value::Text(inner) => inner.parse::<Int>().ok()?,
+        Value::Text(inner) => inner.parse::<IntBig>().ok()?,
         _ => return None,
     };
 
@@ -465,10 +464,10 @@ fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Opti
 
 fn canonicalize_nat_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
-        Value::Int(inner) => Nat::from(WrappedNat::from(u64::try_from(*inner).ok()?)),
-        Value::Nat(inner) => Nat::from(*inner),
+        Value::Int64(inner) => NatBig::from(u64::try_from(*inner).ok()?),
+        Value::Nat64(inner) => NatBig::from(*inner),
         Value::NatBig(inner) => inner.clone(),
-        Value::Text(inner) => inner.parse::<Nat>().ok()?,
+        Value::Text(inner) => inner.parse::<NatBig>().ok()?,
         _ => return None,
     };
 
@@ -498,28 +497,28 @@ mod tests {
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
                 &PersistedFieldKind::Int8,
-                &Value::Int(i64::from(i8::MAX)),
+                &Value::Int64(i64::from(i8::MAX)),
             ),
-            Some(Value::Int(i64::from(i8::MAX))),
+            Some(Value::Int64(i64::from(i8::MAX))),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
                 &PersistedFieldKind::Int8,
-                &Value::Int(i64::from(i8::MAX) + 1),
+                &Value::Int64(i64::from(i8::MAX) + 1),
             ),
             None,
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
                 &PersistedFieldKind::Nat8,
-                &Value::Nat(u64::from(u8::MAX)),
+                &Value::Nat64(u64::from(u8::MAX)),
             ),
-            Some(Value::Nat(u64::from(u8::MAX))),
+            Some(Value::Nat64(u64::from(u8::MAX))),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
                 &PersistedFieldKind::Nat8,
-                &Value::Int(-1),
+                &Value::Int64(-1),
             ),
             None,
         );
@@ -566,7 +565,7 @@ mod tests {
                 &PersistedFieldKind::IntBig { max_bytes: 1 },
                 &Value::Text("0".to_string()),
             ),
-            Some(Value::IntBig(Int::from(WrappedInt::from(0)))),
+            Some(Value::IntBig(IntBig::from(0_i64))),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(

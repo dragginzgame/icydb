@@ -119,13 +119,13 @@ fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
         .having_group(
             "rank",
             CompareOp::Gte,
-            crate::value::InputValue::from(Value::Int(2)),
+            crate::value::InputValue::from(Value::Int64(2)),
         )
         .expect("left grouped query should accept grouped field HAVING")
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Nat(0)),
+            crate::value::InputValue::from(Value::Nat64(0)),
         )
         .expect("left grouped query should accept grouped aggregate HAVING");
     let right = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
@@ -135,13 +135,13 @@ fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Nat(0)),
+            crate::value::InputValue::from(Value::Nat64(0)),
         )
         .expect("right grouped query should accept grouped aggregate HAVING")
         .having_group(
             "rank",
             CompareOp::Gte,
-            crate::value::InputValue::from(Value::Int(2)),
+            crate::value::InputValue::from(Value::Int64(2)),
         )
         .expect("right grouped query should accept grouped field HAVING");
 
@@ -199,7 +199,7 @@ fn grouped_null_and_false_having_families_keep_distinct_plan_hash_surfaces() {
                 Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Nat(1))),
+                    right: Box::new(Expr::Literal(Value::Nat64(1))),
                 },
                 Expr::Literal(Value::Bool(true)),
             )],
@@ -218,7 +218,7 @@ fn grouped_null_and_false_having_families_keep_distinct_plan_hash_surfaces() {
                     Expr::Binary {
                         op: crate::db::query::plan::expr::BinaryOp::Gt,
                         left: Box::new(Expr::Aggregate(crate::db::count())),
-                        right: Box::new(Expr::Literal(Value::Nat(1))),
+                        right: Box::new(Expr::Literal(Value::Nat64(1))),
                     },
                     Expr::Literal(Value::Bool(false)),
                 ],
@@ -571,7 +571,7 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::In,
-            Value::List(vec![Value::Nat(7), Value::Nat(8), Value::Nat(9)]),
+            Value::List(vec![Value::Nat64(7), Value::Nat64(8), Value::Nat64(9)]),
             CoercionId::Strict,
         )))
         .explain()
@@ -589,7 +589,7 @@ fn logical_explain_json_includes_structured_access_decision() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .explain()
@@ -658,7 +658,7 @@ fn logical_explain_json_reports_composite_prefix_binding_detail() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .explain()
@@ -686,13 +686,13 @@ fn logical_explain_json_reports_composite_range_binding_detail() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Nat(7),
+                Value::Nat64(7),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Gte,
-                Value::Nat(3),
+                Value::Nat64(3),
                 CoercionId::Strict,
             )),
         ]))
@@ -731,9 +731,9 @@ fn logical_explain_json_reports_scalar_residual_filter_summary() {
             left: Box::new(Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
-                right: Box::new(Expr::Literal(Value::Nat(1))),
+                right: Box::new(Expr::Literal(Value::Nat64(1))),
             }),
-            right: Box::new(Expr::Literal(Value::Nat(9))),
+            right: Box::new(Expr::Literal(Value::Nat64(9))),
         })
         .explain()
         .expect("index-prefix explain with residual scalar filter should build");
@@ -783,7 +783,7 @@ fn logical_explain_json_reports_range_anchor_residual_predicate_summary() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Gte,
-            Value::Nat(3),
+            Value::Nat64(3),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
@@ -857,7 +857,7 @@ fn fluent_access_requirements_assert_selected_plan_without_reranking() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .explain()
@@ -866,7 +866,7 @@ fn fluent_access_requirements_assert_selected_plan_without_reranking() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .require_index()
@@ -894,7 +894,7 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .require_index_named("missing_idx")
@@ -941,7 +941,7 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Nat(7),
+            Value::Nat64(7),
             CoercionId::Strict,
         )))
         .require_access_path(RequiredAccessPath::IndexRange)
@@ -963,7 +963,7 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Nat(7),
+                Value::Nat64(7),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -993,19 +993,19 @@ fn secondary_or_eq_explain_uses_index_multi_lookup_access_shape() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Nat(8),
+                Value::Nat64(8),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Nat(7),
+                Value::Nat64(7),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Nat(8),
+                Value::Nat64(8),
                 CoercionId::Strict,
             )),
         ]))
