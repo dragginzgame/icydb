@@ -75,8 +75,8 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
     len
 }
 
-/// Signed big-int ordering uses sign bucket + digit length + digit bytes.
-pub(super) fn push_signed_bigint_payload(
+/// `Value::IntBig` ordering uses sign bucket + digit length + digit bytes.
+pub(super) fn push_signed_big_integer_payload(
     out: &mut Vec<u8>,
     value: &Int,
 ) -> Result<(), OrderedValueEncodeError> {
@@ -103,8 +103,8 @@ pub(super) fn push_signed_bigint_payload(
     Ok(())
 }
 
-/// Unsigned big-int ordering is length + digit bytes.
-pub(super) fn push_unsigned_bigint_payload(
+/// `Value::NatBig` ordering is length + digit bytes.
+pub(super) fn push_unsigned_big_integer_payload(
     out: &mut Vec<u8>,
     value: &Nat,
 ) -> Result<(), OrderedValueEncodeError> {

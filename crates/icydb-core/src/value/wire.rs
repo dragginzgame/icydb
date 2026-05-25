@@ -18,9 +18,9 @@ use std::{fmt, marker::PhantomData};
 ///
 /// IntBigWire
 ///
-/// IntBigWire accepts the persisted bigint `(sign, limbs)` payload shape and
-/// rebuilds the public `Int` wrapper without routing through the derived
-/// `Deserialize` form of `candid::Int`.
+/// IntBigWire accepts the persisted `Value::IntBig` `(sign, limbs)` payload
+/// shape and rebuilds the public `Int` wrapper without routing through the
+/// derived `Deserialize` form of `candid::Int`.
 ///
 
 struct IntBigWire(Int);
@@ -41,7 +41,7 @@ impl<'de> Deserialize<'de> for IntBigWire {
             -1 => BigIntSign::Minus,
             0 => BigIntSign::NoSign,
             1 => BigIntSign::Plus,
-            _ => return Err(de::Error::custom(format!("invalid bigint sign {sign}"))),
+            _ => return Err(de::Error::custom(format!("invalid IntBig sign {sign}"))),
         };
         let magnitude = BigUint::new(limbs);
 
@@ -54,9 +54,9 @@ impl<'de> Deserialize<'de> for IntBigWire {
 ///
 /// NatBigWire
 ///
-/// NatBigWire accepts the persisted bignat limb payload shape and rebuilds
-/// the public `Nat` wrapper without routing through the derived `Deserialize`
-/// form of `candid::Nat`.
+/// NatBigWire accepts the persisted `Value::NatBig` limb payload shape and
+/// rebuilds the public `Nat` wrapper without routing through the derived
+/// `Deserialize` form of `candid::Nat`.
 ///
 
 struct NatBigWire(Nat);

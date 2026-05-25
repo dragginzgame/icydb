@@ -139,7 +139,7 @@ pub(in crate::db) fn encode_nat128(value: crate::types::Nat128) -> Vec<u8> {
     encoded
 }
 
-/// Encode one canonical structural value-storage bigint payload.
+/// Encode one canonical structural value-storage `Value::IntBig` payload.
 pub(in crate::db) fn encode_int(value: &Int) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_int_big_payload(&mut encoded, value);
@@ -147,7 +147,7 @@ pub(in crate::db) fn encode_int(value: &Int) -> Vec<u8> {
     encoded
 }
 
-/// Encode one canonical structural value-storage bignat payload.
+/// Encode one canonical structural value-storage `Value::NatBig` payload.
 pub(in crate::db) fn encode_nat(value: &Nat) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_nat_big_payload(&mut encoded, value);

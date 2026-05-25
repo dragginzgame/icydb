@@ -210,25 +210,25 @@ pub(in crate::db) fn decode_nat128(
     decode_nat128_payload_bytes(bytes.as_slice())
 }
 
-/// Decode one canonical structural value-storage bigint payload.
+/// Decode one canonical structural value-storage `Value::IntBig` payload.
 pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<Int, FieldDecodeError> {
     let payload =
-        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT_BIG, "bigint")?;
-    let [sign, magnitude] = split_binary_tuple_2(payload, "bigint tuple")?;
-    let sign = decode_binary_required_i64(sign, "bigint sign")?;
-    let magnitude = decode_binary_bignat_digits(magnitude)?;
-    let sign = decode_binary_bigint_sign(sign)?;
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT_BIG, "Value::IntBig")?;
+    let [sign, magnitude] = split_binary_tuple_2(payload, "Value::IntBig tuple")?;
+    let sign = decode_binary_required_i64(sign, "Value::IntBig sign")?;
+    let magnitude = decode_binary_big_integer_magnitude_digits(magnitude)?;
+    let sign = decode_binary_int_big_sign(sign)?;
 
     Ok(Int::from(WrappedInt::from(BigInt::from_biguint(
         sign, magnitude,
     ))))
 }
 
-/// Decode one canonical structural value-storage bignat payload.
+/// Decode one canonical structural value-storage `Value::NatBig` payload.
 pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<Nat, FieldDecodeError> {
     let payload =
-        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT_BIG, "bignat")?;
-    let digits = decode_binary_bignat_digits(payload)?;
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT_BIG, "Value::NatBig")?;
+    let digits = decode_binary_big_integer_magnitude_digits(payload)?;
 
     Ok(Nat::from(WrappedNat::from(digits)))
 }
@@ -546,16 +546,18 @@ fn decode_value_storage_binary_map_bytes(raw_bytes: &[u8]) -> Result<Value, Fiel
         .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
 }
 
-// Decode one u32-limb sequence into a `BigUint`.
-fn decode_binary_bignat_digits(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
+// Decode one u32-limb magnitude sequence into a `BigUint`.
+fn decode_binary_big_integer_magnitude_digits(
+    raw_bytes: &[u8],
+) -> Result<BigUint, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "structural binary: truncated bignat digits",
+            "structural binary: truncated big-integer magnitude digits",
         ));
     };
     if tag != TAG_LIST {
         return Err(FieldDecodeError::new(
-            "structural binary: expected bignat digit list",
+            "structural binary: expected big-integer magnitude digit list",
         ));
     }
 
@@ -564,29 +566,30 @@ fn decode_binary_bignat_digits(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeE
     for _ in 0..len {
         let start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
-        let digit = decode_binary_required_u64(&raw_bytes[start..cursor], "bignat digit")?;
+        let digit =
+            decode_binary_required_u64(&raw_bytes[start..cursor], "big-integer magnitude digit")?;
         digits.push(u32::try_from(digit).map_err(|_| {
-            FieldDecodeError::new("structural binary: bignat digit out of u32 range")
+            FieldDecodeError::new("structural binary: big-integer magnitude digit out of u32 range")
         })?);
     }
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after bignat digits",
+            "structural binary: trailing bytes after big-integer magnitude digits",
         ));
     }
 
     Ok(BigUint::new(digits))
 }
 
-// Decode one bigint sign marker while preserving the fail-closed signed limb
-// contract shared by direct and runtime `Value` decode paths.
-fn decode_binary_bigint_sign(sign: i64) -> Result<BigIntSign, FieldDecodeError> {
+// Decode one `Value::IntBig` sign marker while preserving the fail-closed
+// signed limb contract shared by direct and runtime `Value` decode paths.
+fn decode_binary_int_big_sign(sign: i64) -> Result<BigIntSign, FieldDecodeError> {
     match sign {
         -1 => Ok(BigIntSign::Minus),
         0 => Ok(BigIntSign::NoSign),
         1 => Ok(BigIntSign::Plus),
         other => Err(FieldDecodeError::new(format!(
-            "structural binary: invalid bigint sign {other}"
+            "structural binary: invalid Value::IntBig sign {other}"
         ))),
     }
 }

@@ -17,6 +17,9 @@ Normative specifications live in:
 - `docs/contracts/QUERY_CONTRACT.md`
 - `docs/contracts/IDENTITY_CONTRACT.md`
 
+Architecture terminology lives in:
+- `docs/architecture/TERMINOLOGY.md`
+
 ---
 
 ## 0. Execution Environment Assumptions

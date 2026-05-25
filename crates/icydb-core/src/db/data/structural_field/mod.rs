@@ -510,8 +510,7 @@ pub(in crate::db) fn decode_duration_field_by_kind_bytes(
     decode_structural_duration_field_by_kind_bytes(raw_bytes, kind)
 }
 
-/// Encode one direct signed-bigint leaf through the canonical structural leaf
-/// lane.
+/// Encode one direct `int_big` leaf through the canonical structural leaf lane.
 pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
     value: &crate::types::Int,
     kind: FieldKind,
@@ -520,8 +519,7 @@ pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
     encode_structural_int_big_field_by_kind_bytes(value, kind, field_name)
 }
 
-/// Decode one direct signed-bigint leaf through the canonical structural leaf
-/// lane.
+/// Decode one direct `int_big` leaf through the canonical structural leaf lane.
 pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
@@ -529,8 +527,7 @@ pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
     decode_structural_int_big_field_by_kind_bytes(raw_bytes, kind)
 }
 
-/// Encode one direct unsigned-bigint leaf through the canonical structural
-/// leaf lane.
+/// Encode one direct `nat_big` leaf through the canonical structural leaf lane.
 pub(in crate::db) fn encode_nat_big_field_by_kind_bytes(
     value: &crate::types::Nat,
     kind: FieldKind,
@@ -539,8 +536,7 @@ pub(in crate::db) fn encode_nat_big_field_by_kind_bytes(
     encode_structural_nat_big_field_by_kind_bytes(value, kind, field_name)
 }
 
-/// Decode one direct unsigned-bigint leaf through the canonical structural
-/// leaf lane.
+/// Decode one direct `nat_big` leaf through the canonical structural leaf lane.
 pub(in crate::db) fn decode_nat_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,

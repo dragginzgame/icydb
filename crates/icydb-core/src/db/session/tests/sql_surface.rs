@@ -2353,7 +2353,7 @@ fn sql_ddl_alter_table_add_big_int_column_binds_max_bytes_contract() {
 
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-            .expect("big-int additive column DDL should bind against accepted schema metadata");
+            .expect("nat_big additive column DDL should bind against accepted schema metadata");
     let BoundSqlDdlStatement::AddColumn(add_column) = bound.statement() else {
         panic!("ALTER TABLE ADD COLUMN should bind to an additive field DDL request");
     };

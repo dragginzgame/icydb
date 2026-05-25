@@ -188,7 +188,7 @@ fn encode_component_payload(
             Ok(())
         }
         Value::Int128(v) => v.encode_ordered(out),
-        Value::IntBig(v) => normalize::push_signed_bigint_payload(out, v),
+        Value::IntBig(v) => normalize::push_signed_big_integer_payload(out, v),
         Value::Null => Err(OrderedValueEncodeError::NullNotIndexable),
         Value::Principal(v) => {
             parts::push_terminated_bytes(out, v.as_slice());
@@ -208,7 +208,7 @@ fn encode_component_payload(
             Ok(())
         }
         Value::Nat128(v) => v.encode_ordered(out),
-        Value::NatBig(v) => normalize::push_unsigned_bigint_payload(out, v),
+        Value::NatBig(v) => normalize::push_unsigned_big_integer_payload(out, v),
         Value::Ulid(v) => {
             out.extend_from_slice(&v.to_bytes());
             Ok(())

@@ -223,7 +223,7 @@ fn canonical_encoder_respects_numeric_order_for_scalars() {
 }
 
 #[test]
-fn canonical_encoder_bigint_same_value_same_bytes_across_construction_paths() {
+fn canonical_encoder_value_int_big_and_nat_big_same_value_same_bytes_across_construction_paths() {
     let int_cases = vec![
         (
             Value::IntBig(Int::from(70i32)),
@@ -246,7 +246,10 @@ fn canonical_encoder_bigint_same_value_same_bytes_across_construction_paths() {
     for (left, right) in int_cases {
         let left_bytes = encode_canonical_index_component(&left).expect("left should encode");
         let right_bytes = encode_canonical_index_component(&right).expect("right should encode");
-        assert_eq!(left_bytes, right_bytes, "int-big canonical bytes diverged");
+        assert_eq!(
+            left_bytes, right_bytes,
+            "Value::IntBig canonical bytes diverged"
+        );
     }
 
     let nat_cases = vec![
@@ -267,7 +270,10 @@ fn canonical_encoder_bigint_same_value_same_bytes_across_construction_paths() {
     for (left, right) in nat_cases {
         let left_bytes = encode_canonical_index_component(&left).expect("left should encode");
         let right_bytes = encode_canonical_index_component(&right).expect("right should encode");
-        assert_eq!(left_bytes, right_bytes, "nat-big canonical bytes diverged");
+        assert_eq!(
+            left_bytes, right_bytes,
+            "Value::NatBig canonical bytes diverged"
+        );
     }
 }
 
@@ -285,7 +291,7 @@ fn canonical_encoder_int_big_negative_zero_collapses_to_zero_marker() {
 }
 
 #[test]
-fn canonical_encoder_bigint_payload_uses_minimal_digits() {
+fn canonical_encoder_value_int_big_and_nat_big_payloads_use_minimal_digits() {
     let int_literals = vec![
         "-000123456789",
         "-18446744073709551616",
@@ -296,7 +302,8 @@ fn canonical_encoder_bigint_payload_uses_minimal_digits() {
 
     for literal in int_literals {
         let value = Value::IntBig(literal.parse().expect("int literal"));
-        let encoded = encode_canonical_index_component(&value).expect("int-big should encode");
+        let encoded =
+            encode_canonical_index_component(&value).expect("Value::IntBig should encode");
         let (_, digits) = decode_int_big_payload(&encoded);
         assert!(digits.iter().all(u8::is_ascii_digit));
 
@@ -305,7 +312,10 @@ fn canonical_encoder_bigint_payload_uses_minimal_digits() {
         assert_eq!(digits, expected_digits.as_bytes());
 
         if digits != b"0" {
-            assert_ne!(digits[0], b'0', "int-big payload must not lead with zero");
+            assert_ne!(
+                digits[0], b'0',
+                "Value::IntBig payload must not lead with zero"
+            );
         }
     }
 
@@ -319,7 +329,8 @@ fn canonical_encoder_bigint_payload_uses_minimal_digits() {
 
     for literal in nat_literals {
         let value = Value::NatBig(literal.parse().expect("nat literal"));
-        let encoded = encode_canonical_index_component(&value).expect("nat-big should encode");
+        let encoded =
+            encode_canonical_index_component(&value).expect("Value::NatBig should encode");
         let digits = decode_nat_big_payload(&encoded);
         assert!(digits.iter().all(u8::is_ascii_digit));
 
@@ -327,13 +338,16 @@ fn canonical_encoder_bigint_payload_uses_minimal_digits() {
         assert_eq!(digits, expected.as_bytes());
 
         if digits != b"0" {
-            assert_ne!(digits[0], b'0', "nat-big payload must not lead with zero");
+            assert_ne!(
+                digits[0], b'0',
+                "Value::NatBig payload must not lead with zero"
+            );
         }
     }
 }
 
 #[test]
-fn canonical_encoder_bigint_limb_boundary_ordering_is_monotonic() {
+fn canonical_encoder_value_int_big_and_nat_big_limb_boundary_ordering_is_monotonic() {
     let one_limb_max = "4294967295";
     let two_limb_min = "4294967296";
     let two_limb_next = "4294967297";
@@ -362,7 +376,7 @@ fn canonical_encoder_bigint_limb_boundary_ordering_is_monotonic() {
 }
 
 #[test]
-fn canonical_encoder_bigint_roundtrip_stable_for_valid_bytes() {
+fn canonical_encoder_value_int_big_roundtrip_stable_for_valid_bytes() {
     let int_literals = vec![
         "-18446744073709551616",
         "-1",
@@ -376,7 +390,7 @@ fn canonical_encoder_bigint_roundtrip_stable_for_valid_bytes() {
         let encoded =
             encode_canonical_index_component(&Value::IntBig(value.clone())).expect("encode");
         let decoded = decode_int_big_from_ordered_bytes(&encoded);
-        assert_eq!(decoded, value, "int-big decode(encode(x)) mismatch");
+        assert_eq!(decoded, value, "Value::IntBig decode(encode(x)) mismatch");
 
         let reencoded =
             encode_canonical_index_component(&Value::IntBig(decoded)).expect("reencode");

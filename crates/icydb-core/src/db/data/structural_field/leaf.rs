@@ -1,7 +1,7 @@
 //! Module: data::structural_field::leaf
 //! Responsibility: typed wrapper and structured leaf decoding that still has fixed payload semantics.
 //! Does not own: scalar primitive fast paths, composite recursion, or `Value` storage envelopes.
-//! Boundary: sibling modules use this file for leaf contracts like decimal, duration, bigint, and date.
+//! Boundary: sibling modules use this file for leaf contracts like decimal, duration, `int_big`, `nat_big`, and date.
 
 use crate::db::data::structural_field::{
     FieldDecodeError,
@@ -180,12 +180,12 @@ fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErr
     )))
 }
 
-// Decode one arbitrary-precision signed integer payload from the canonical
-// `(sign, limbs)` tuple.
+// Decode one bounded signed big-integer payload from the canonical `(sign,
+// limbs)` tuple used by `int_big`.
 fn decode_int_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value, FieldDecodeError> {
-    let items = split_binary_tuple_items(raw_bytes, 2, "bigint")?;
-    let sign = decode_bigint_sign_payload(items[0])?;
-    let magnitude = decode_bignat_payload(items[1])?;
+    let items = split_binary_tuple_items(raw_bytes, 2, "int_big")?;
+    let sign = decode_big_integer_sign_payload(items[0])?;
+    let magnitude = decode_big_integer_magnitude_payload(items[1])?;
     let wrapped = WrappedInt::from(BigInt::from_biguint(sign, magnitude));
     let value = Int::from(wrapped);
     ensure_int_big_max_bytes(&value, max_bytes)?;
@@ -193,10 +193,12 @@ fn decode_int_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value,
     Ok(Value::IntBig(value))
 }
 
-// Decode one arbitrary-precision unsigned integer payload from the canonical
-// limb sequence.
+// Decode one bounded unsigned big-integer payload from the canonical limb
+// sequence used by `nat_big`.
 fn decode_nat_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value, FieldDecodeError> {
-    let value = Nat::from(WrappedNat::from(decode_bignat_payload(raw_bytes)?));
+    let value = Nat::from(WrappedNat::from(decode_big_integer_magnitude_payload(
+        raw_bytes,
+    )?));
     ensure_nat_big_max_bytes(&value, max_bytes)?;
 
     Ok(Value::NatBig(value))
@@ -249,7 +251,7 @@ fn encode_duration_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8
     Ok(encoded)
 }
 
-// Encode one arbitrary-precision signed integer payload as `(sign, limbs)`.
+// Encode one bounded signed big-integer payload as `(sign, limbs)`.
 fn encode_int_big_value_bytes(
     value: &Value,
     max_bytes: u32,
@@ -282,8 +284,7 @@ fn encode_int_big_value_bytes(
     Ok(encoded)
 }
 
-// Encode one arbitrary-precision unsigned integer payload as a canonical limb
-// sequence.
+// Encode one bounded unsigned big-integer payload as a canonical limb sequence.
 fn encode_nat_big_value_bytes(
     value: &Value,
     max_bytes: u32,
@@ -327,7 +328,7 @@ fn ensure_nat_big_max_bytes(value: &Nat, max_bytes: u32) -> Result<(), FieldDeco
     Ok(())
 }
 
-// Emit one canonical bignat limb sequence.
+// Emit one canonical big-integer magnitude limb sequence.
 fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
     push_binary_list_len(out, digits.len());
     for digit in digits {
@@ -335,29 +336,29 @@ fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
     }
 }
 
-// Decode one bigint sign payload serialized as -1, 0, or 1.
-fn decode_bigint_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecodeError> {
-    match decode_required_i64_payload(raw_bytes, "bigint sign")? {
+// Decode one `int_big` sign payload serialized as -1, 0, or 1.
+fn decode_big_integer_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecodeError> {
+    match decode_required_i64_payload(raw_bytes, "int_big sign")? {
         -1 => Ok(BigIntSign::Minus),
         0 => Ok(BigIntSign::NoSign),
         1 => Ok(BigIntSign::Plus),
         other => Err(FieldDecodeError::new(format!(
-            "structural binary: invalid bigint sign {other}"
+            "structural binary: invalid int_big sign {other}"
         ))),
     }
 }
 
-// Decode one bignat payload serialized as a canonical sequence of base-2^32
-// limbs.
-fn decode_bignat_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
+// Decode one big-integer magnitude payload serialized as a canonical sequence
+// of base-2^32 limbs.
+fn decode_big_integer_magnitude_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "structural binary: truncated bignat payload",
+            "structural binary: truncated big-integer magnitude payload",
         ));
     };
     if tag != TAG_LIST {
         return Err(FieldDecodeError::new(
-            "structural binary: expected bignat limb sequence",
+            "structural binary: expected big-integer magnitude limb sequence",
         ));
     }
 
@@ -368,12 +369,12 @@ fn decode_bignat_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> 
         cursor = skip_binary_value(raw_bytes, cursor)?;
         limbs.push(decode_required_u32_payload(
             &raw_bytes[limb_start..cursor],
-            "bignat limb",
+            "big-integer magnitude limb",
         )?);
     }
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after bignat payload",
+            "structural binary: trailing bytes after big-integer magnitude payload",
         ));
     }
 
@@ -618,8 +619,7 @@ pub(super) fn decode_duration_field_by_kind_bytes(
     }
 }
 
-/// Encode one direct signed-bigint leaf through the canonical structural leaf
-/// lane.
+/// Encode one direct `int_big` leaf through the canonical structural leaf lane.
 pub(super) fn encode_int_big_field_by_kind_bytes(
     value: &Int,
     kind: FieldKind,
@@ -628,35 +628,33 @@ pub(super) fn encode_int_big_field_by_kind_bytes(
     let FieldKind::IntBig { max_bytes } = kind else {
         return Err(InternalError::persisted_row_field_encode_failed(
             field_name,
-            format!("field kind {kind:?} does not accept bigint"),
+            format!("field kind {kind:?} does not accept int_big payload"),
         ));
     };
 
     encode_int_big_value_bytes(&Value::IntBig(value.clone()), max_bytes, field_name)
 }
 
-/// Decode one direct signed-bigint leaf through the canonical structural leaf
-/// lane.
+/// Decode one direct `int_big` leaf through the canonical structural leaf lane.
 pub(super) fn decode_int_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Int>, FieldDecodeError> {
     let FieldKind::IntBig { max_bytes } = kind else {
         return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural bigint leaf lane",
+            "field kind is not owned by the structural int_big leaf lane",
         ));
     };
 
     match decode_int_big_value_bytes(raw_bytes, max_bytes)? {
         Value::IntBig(value) => Ok(Some(value)),
         _ => Err(FieldDecodeError::new(
-            "structural bigint leaf unexpectedly decoded as non-bigint value",
+            "structural int_big leaf unexpectedly decoded as non-int_big value",
         )),
     }
 }
 
-/// Encode one direct unsigned-bigint leaf through the canonical structural
-/// leaf lane.
+/// Encode one direct `nat_big` leaf through the canonical structural leaf lane.
 pub(super) fn encode_nat_big_field_by_kind_bytes(
     value: &Nat,
     kind: FieldKind,
@@ -665,29 +663,28 @@ pub(super) fn encode_nat_big_field_by_kind_bytes(
     let FieldKind::NatBig { max_bytes } = kind else {
         return Err(InternalError::persisted_row_field_encode_failed(
             field_name,
-            format!("field kind {kind:?} does not accept bignat"),
+            format!("field kind {kind:?} does not accept nat_big payload"),
         ));
     };
 
     encode_nat_big_value_bytes(&Value::NatBig(value.clone()), max_bytes, field_name)
 }
 
-/// Decode one direct unsigned-bigint leaf through the canonical structural
-/// leaf lane.
+/// Decode one direct `nat_big` leaf through the canonical structural leaf lane.
 pub(super) fn decode_nat_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Nat>, FieldDecodeError> {
     let FieldKind::NatBig { max_bytes } = kind else {
         return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural bignat leaf lane",
+            "field kind is not owned by the structural nat_big leaf lane",
         ));
     };
 
     match decode_nat_big_value_bytes(raw_bytes, max_bytes)? {
         Value::NatBig(value) => Ok(Some(value)),
         _ => Err(FieldDecodeError::new(
-            "structural bignat leaf unexpectedly decoded as non-bignat value",
+            "structural nat_big leaf unexpectedly decoded as non-nat_big value",
         )),
     }
 }
@@ -778,7 +775,7 @@ mod tests {
     }
 
     #[test]
-    fn leaf_field_binary_rejects_invalid_bigint_sign() {
+    fn leaf_field_binary_rejects_invalid_int_big_sign() {
         let mut bytes = Vec::new();
         push_binary_list_len(&mut bytes, 2);
         push_binary_int64(&mut bytes, 2);
@@ -790,12 +787,12 @@ mod tests {
         let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), kind);
         let validate = validate_structural_field_by_kind_bytes(bytes.as_slice(), kind);
 
-        assert!(decode.is_err(), "invalid bigint sign must fail decode");
-        assert!(validate.is_err(), "invalid bigint sign must fail validate");
+        assert!(decode.is_err(), "invalid int_big sign must fail decode");
+        assert!(validate.is_err(), "invalid int_big sign must fail validate");
     }
 
     #[test]
-    fn leaf_field_binary_rejects_non_list_bignat_payload() {
+    fn leaf_field_binary_rejects_non_list_nat_big_payload() {
         let mut bytes = Vec::new();
         push_binary_text(&mut bytes, "not-a-limb-list");
 
@@ -805,10 +802,10 @@ mod tests {
         let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), kind);
         let validate = validate_structural_field_by_kind_bytes(bytes.as_slice(), kind);
 
-        assert!(decode.is_err(), "non-list bignat payload must fail decode");
+        assert!(decode.is_err(), "non-list nat_big payload must fail decode");
         assert!(
             validate.is_err(),
-            "non-list bignat payload must fail validate"
+            "non-list nat_big payload must fail validate"
         );
     }
 

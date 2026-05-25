@@ -406,7 +406,7 @@ fn cmp_numeric_respects_registry_numeric_coercion_flag() {
 }
 
 #[test]
-fn cmp_numeric_rejects_date_and_bigints() {
+fn cmp_numeric_rejects_date_and_value_big_integers() {
     let date = Value::Date(Date::new(2024, 1, 2));
     let int_big = Value::IntBig(Int::from(10i32));
     let nat_big = Value::NatBig(Nat::from(10u64));

@@ -10,7 +10,7 @@ use crate::{
 };
 use std::{borrow::Cow, cmp::Ordering};
 
-/// Default maximum encoded byte length for arbitrary-precision integer fields.
+/// Default `max_bytes` bound for `int_big` and `nat_big` field payloads.
 pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = 256;
 
 ///

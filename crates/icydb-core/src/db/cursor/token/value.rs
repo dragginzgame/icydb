@@ -362,7 +362,7 @@ fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireEr
 fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<Int, TokenWireError> {
     let text = cursor.read_string()?;
     let big = BigInt::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| TokenWireError::decode("invalid bigint token payload"))?;
+        .ok_or_else(|| TokenWireError::decode("invalid IntBig token payload"))?;
 
     Ok(Int::from(WrappedInt::from(big)))
 }
@@ -370,7 +370,7 @@ fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<Int, TokenWireError> {
 fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<Nat, TokenWireError> {
     let text = cursor.read_string()?;
     let big = BigUint::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| TokenWireError::decode("invalid bignat token payload"))?;
+        .ok_or_else(|| TokenWireError::decode("invalid NatBig token payload"))?;
 
     Ok(Nat::from(WrappedNat::from(big)))
 }

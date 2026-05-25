@@ -1959,10 +1959,10 @@ fn parse_alter_table_add_column_statement_accepts_not_null_before_default() {
 }
 
 #[test]
-fn parse_alter_table_add_column_statement_keeps_big_int_max_bytes_type_modifier() {
+fn parse_alter_table_add_column_statement_keeps_nat_big_max_bytes_type_modifier() {
     let statement =
         parse_sql("ALTER TABLE users ADD COLUMN score nat_big(max_bytes = 512) DEFAULT 0")
-            .expect("ALTER TABLE ADD COLUMN with big-int max_bytes modifier should parse");
+            .expect("ALTER TABLE ADD COLUMN with nat_big max_bytes modifier should parse");
 
     assert_eq!(
         statement,
@@ -1979,14 +1979,14 @@ fn parse_alter_table_add_column_statement_keeps_big_int_max_bytes_type_modifier(
 }
 
 #[test]
-fn parse_alter_table_add_column_statement_rejects_malformed_big_int_max_bytes_modifier() {
+fn parse_alter_table_add_column_statement_rejects_malformed_nat_big_max_bytes_modifier() {
     for sql in [
         "ALTER TABLE users ADD COLUMN score nat_big(max_len = 512)",
         "ALTER TABLE users ADD COLUMN score nat_big(max_bytes = -1)",
         "ALTER TABLE users ADD COLUMN score nat_big(max_bytes = 4294967296)",
         "ALTER TABLE users ADD COLUMN score nat_big(max_bytes = 1, max_bytes = 2)",
     ] {
-        parse_sql(sql).expect_err("malformed big-int max_bytes modifier should fail parsing");
+        parse_sql(sql).expect_err("malformed nat_big max_bytes modifier should fail parsing");
     }
 }
 
