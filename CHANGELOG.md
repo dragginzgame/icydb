@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.20` aligns runtime numeric and primary-key taxonomy names with the
+  explicit integer schema hard cut, including `Int64` / `Nat64` and
+  `IntBig` / `NatBig` vocabulary.
+
 - `0.162.19` cleans up post-hard-cut numeric terminology across schema,
   runtime value, planner, and storage vocabulary boundaries.
 
