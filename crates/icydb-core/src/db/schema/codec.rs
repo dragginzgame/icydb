@@ -9,9 +9,10 @@ use crate::{
         PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-        SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
-        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        PersistedRelationEdgeSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
+        SchemaVersion, schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -22,7 +23,7 @@ use crate::{
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
-const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 5;
+const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 6;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -38,6 +39,7 @@ struct PersistedSchemaSnapshotWire {
     row_layout: SchemaRowLayoutWire,
     fields: Vec<PersistedFieldSnapshotWire>,
     indexes: Vec<PersistedIndexSnapshotWire>,
+    relations: Vec<PersistedRelationEdgeSnapshotWire>,
 }
 
 // Candid wire container for schema row-layout identity.
@@ -91,6 +93,14 @@ struct PersistedIndexSnapshotWire {
     origin: PersistedIndexOriginWire,
     key: PersistedIndexKeySnapshotWire,
     predicate_sql: Option<String>,
+}
+
+// Candid wire container for one accepted relation-edge contract.
+#[derive(CandidType, Deserialize)]
+struct PersistedRelationEdgeSnapshotWire {
+    name: String,
+    target_path: String,
+    local_field_ids: Vec<u32>,
 }
 
 // Candid wire enum for accepted index origin.
@@ -334,6 +344,11 @@ impl PersistedSchemaSnapshotWire {
                 .iter()
                 .map(PersistedIndexSnapshotWire::from_index)
                 .collect(),
+            relations: snapshot
+                .relations()
+                .iter()
+                .map(PersistedRelationEdgeSnapshotWire::from_relation)
+                .collect(),
         }
     }
 
@@ -362,6 +377,11 @@ impl PersistedSchemaSnapshotWire {
             .into_iter()
             .map(PersistedIndexSnapshotWire::into_index)
             .collect::<Result<Vec<_>, _>>()?;
+        let relations = self
+            .relations
+            .into_iter()
+            .map(PersistedRelationEdgeSnapshotWire::into_relation)
+            .collect::<Vec<_>>();
         if let Some(detail) = schema_snapshot_integrity_detail(
             "persisted schema snapshot",
             version,
@@ -381,6 +401,15 @@ impl PersistedSchemaSnapshotWire {
             return Err(InternalError::store_corruption(detail));
         }
 
+        if let Some(detail) = schema_snapshot_relation_integrity_detail(
+            "persisted schema snapshot",
+            &row_layout,
+            &fields,
+            &relations,
+        ) {
+            return Err(InternalError::store_corruption(detail));
+        }
+
         Ok(
             PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
                 version,
@@ -390,7 +419,8 @@ impl PersistedSchemaSnapshotWire {
                 row_layout,
                 fields,
                 indexes,
-            ),
+            )
+            .with_relations(relations),
         )
     }
 }
@@ -545,6 +575,28 @@ impl PersistedIndexOriginWire {
             Self::Generated => PersistedIndexOrigin::Generated,
             Self::SqlDdl => PersistedIndexOrigin::SqlDdl,
         }
+    }
+}
+
+impl PersistedRelationEdgeSnapshotWire {
+    fn from_relation(relation: &PersistedRelationEdgeSnapshot) -> Self {
+        Self {
+            name: relation.name().to_string(),
+            target_path: relation.target_path().to_string(),
+            local_field_ids: relation
+                .local_field_ids()
+                .iter()
+                .map(|field_id| field_id.get())
+                .collect(),
+        }
+    }
+
+    fn into_relation(self) -> PersistedRelationEdgeSnapshot {
+        PersistedRelationEdgeSnapshot::new(
+            self.name,
+            self.target_path,
+            self.local_field_ids.into_iter().map(FieldId::new).collect(),
+        )
     }
 }
 
@@ -984,9 +1036,10 @@ mod tests {
             FieldId, PersistedFieldKind, PersistedFieldOrigin, PersistedFieldSnapshot,
             PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
-            SchemaVersion, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+            SchemaRowLayout, SchemaVersion, decode_persisted_schema_snapshot,
+            encode_persisted_schema_snapshot,
         },
         model::field::{
             FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
@@ -1372,6 +1425,66 @@ mod tests {
         assert_eq!(index.key().field_paths()[0].field_id(), FieldId::new(2));
         assert_eq!(index.key().field_paths()[0].slot(), SchemaFieldSlot::new(1));
         assert_eq!(index.key().field_paths()[0].path(), &["email".to_string()]);
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_relation_edges() {
+        let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            SchemaVersion::initial(),
+            "entities::Related".to_string(),
+            "Related".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::none(),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(2),
+                    "owner_id".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::none(),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+            ],
+            Vec::new(),
+        )
+        .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            "owner".to_string(),
+            "entities::Owner".to_string(),
+            vec![FieldId::new(2)],
+        )]);
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode accepted relation contracts");
+
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode accepted relation contracts");
+
+        assert_eq!(decoded.relations().len(), 1);
+        let relation = &decoded.relations()[0];
+        assert_eq!(relation.name(), "owner");
+        assert_eq!(relation.target_path(), "entities::Owner");
+        assert_eq!(relation.local_field_ids(), &[FieldId::new(2)]);
     }
 
     #[test]

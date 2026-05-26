@@ -17,18 +17,26 @@ pub struct Entity {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     indexes: &'static [Index],
 
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    relations: &'static [RelationEdge],
+
     fields: FieldList,
     ty: Type,
 }
 
 impl Entity {
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema entity construction keeps store, key, index, relation, field, and type metadata explicit"
+    )]
     pub const fn new(
         def: Def,
         store: &'static str,
         primary_key: PrimaryKey,
         name: Option<&'static str>,
         indexes: &'static [Index],
+        relations: &'static [RelationEdge],
         fields: FieldList,
         ty: Type,
     ) -> Self {
@@ -38,6 +46,7 @@ impl Entity {
             primary_key,
             name,
             indexes,
+            relations,
             fields,
             ty,
         }
@@ -66,6 +75,11 @@ impl Entity {
     #[must_use]
     pub const fn indexes(&self) -> &'static [Index] {
         self.indexes
+    }
+
+    #[must_use]
+    pub const fn relations(&self) -> &'static [RelationEdge] {
+        self.relations
     }
 
     #[must_use]
@@ -109,6 +123,12 @@ impl ValidateNode for Entity {
             Err(e) => errs.add(e),
         }
 
+        for relation in self.relations() {
+            if let Err(e) = relation.validate_for_source(self) {
+                errs.merge_for(relation.ident(), e);
+            }
+        }
+
         errs.result()
     }
 }
@@ -122,5 +142,166 @@ impl VisitableNode for Entity {
         self.def().accept(v);
         self.fields().accept(v);
         self.ty().accept(v);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build::schema_write;
+
+    fn primitive_item(primitive: Primitive) -> Item {
+        Item::new(
+            ItemTarget::Primitive(primitive),
+            None,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+        )
+    }
+
+    fn field(ident: &'static str, primitive: Primitive) -> Field {
+        Field::new(
+            ident,
+            Value::new(Cardinality::One, primitive_item(primitive)),
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn store(path: &'static str) -> Store {
+        Store::new(
+            Def::new("schema_entity_relation_edge", "Store"),
+            "STORE",
+            "schema_entity_relation_edge_store",
+            path,
+            110,
+            111,
+            112,
+        )
+    }
+
+    fn entity(
+        ident: &'static str,
+        store_path: &'static str,
+        pk_fields: &'static [&'static str],
+        relations: &'static [RelationEdge],
+        fields: &'static [Field],
+    ) -> Entity {
+        Entity::new(
+            Def::new("schema_entity_relation_edge", ident),
+            store_path,
+            PrimaryKey::new(pk_fields, PrimaryKeySource::External),
+            None,
+            &[],
+            relations,
+            FieldList::new(fields),
+            Type::new(&[], &[]),
+        )
+    }
+
+    #[test]
+    fn entity_validation_checks_owned_relation_edges() {
+        let store_path = "schema_entity_relation_edge::Store";
+        schema_write().insert_node(SchemaNode::Store(store(store_path)));
+        let target_fields = Box::leak(
+            vec![
+                field("tenant_id", Primitive::Nat64),
+                field("id", Primitive::Ulid),
+            ]
+            .into_boxed_slice(),
+        );
+        schema_write().insert_node(SchemaNode::Entity(entity(
+            "User",
+            store_path,
+            &["tenant_id", "id"],
+            &[],
+            target_fields,
+        )));
+
+        let source_fields = Box::leak(
+            vec![
+                field("author_tenant_id", Primitive::Nat64),
+                field("author_id", Primitive::Ulid),
+            ]
+            .into_boxed_slice(),
+        );
+        let source_relations = Box::leak(
+            vec![RelationEdge::new(
+                "author",
+                "schema_entity_relation_edge::User",
+                &["author_tenant_id", "author_id"],
+            )]
+            .into_boxed_slice(),
+        );
+        let source = entity(
+            "Post",
+            store_path,
+            &["author_id"],
+            source_relations,
+            source_fields,
+        );
+
+        source
+            .validate()
+            .expect("entity-owned matching relation edge should validate");
+    }
+
+    #[test]
+    fn entity_validation_reports_relation_edge_errors_under_relation_name() {
+        let store_path = "schema_entity_relation_edge_error::Store";
+        schema_write().insert_node(SchemaNode::Store(Store::new(
+            Def::new("schema_entity_relation_edge_error", "Store"),
+            "STORE",
+            "schema_entity_relation_edge_error_store",
+            store_path,
+            113,
+            114,
+            115,
+        )));
+        let target_fields = Box::leak(
+            vec![
+                field("tenant_id", Primitive::Nat64),
+                field("id", Primitive::Ulid),
+            ]
+            .into_boxed_slice(),
+        );
+        schema_write().insert_node(SchemaNode::Entity(entity(
+            "User",
+            store_path,
+            &["tenant_id", "id"],
+            &[],
+            target_fields,
+        )));
+
+        let source_fields = Box::leak(vec![field("author_id", Primitive::Ulid)].into_boxed_slice());
+        let source_relations = Box::leak(
+            vec![RelationEdge::new(
+                "author",
+                "schema_entity_relation_edge_error::User",
+                &["author_id"],
+            )]
+            .into_boxed_slice(),
+        );
+        let source = entity(
+            "BrokenPost",
+            store_path,
+            &["author_id"],
+            source_relations,
+            source_fields,
+        );
+
+        let err = source
+            .validate()
+            .expect_err("entity validation should reject invalid relation edge");
+
+        assert!(
+            err.children().contains_key("author"),
+            "relation edge errors should be nested under relation name: {err}",
+        );
     }
 }

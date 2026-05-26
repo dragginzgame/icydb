@@ -1,3 +1,4 @@
+use super::relation::RelationComponentContract;
 use crate::prelude::*;
 use std::ops::Not;
 
@@ -108,45 +109,6 @@ impl Item {
     }
 }
 
-struct ScalarRelationTarget<'a> {
-    target: &'a ItemTarget,
-    scale: Option<u32>,
-    max_len: Option<u32>,
-    max_bytes: Option<u32>,
-}
-
-impl<'a> ScalarRelationTarget<'a> {
-    const fn from_field(field: &'a Field) -> Self {
-        let item = field.value().item();
-
-        Self {
-            target: item.target(),
-            scale: item.scale(),
-            max_len: item.max_len(),
-            max_bytes: item.max_bytes(),
-        }
-    }
-
-    const fn from_item(item: &'a Item) -> Self {
-        Self {
-            target: item.target(),
-            scale: item.scale(),
-            max_len: item.max_len(),
-            max_bytes: item.max_bytes(),
-        }
-    }
-}
-
-fn scalar_relation_target_mismatch(
-    expected: &ScalarRelationTarget<'_>,
-    actual: &ScalarRelationTarget<'_>,
-) -> bool {
-    expected.target != actual.target
-        || expected.scale != actual.scale
-        || expected.max_len != actual.max_len
-        || expected.max_bytes != actual.max_bytes
-}
-
 impl ValidateNode for Item {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
@@ -175,20 +137,20 @@ impl ValidateNode for Item {
                             entity.primary_key().fields()
                         );
                     } else if let Some(primary_field) = entity.scalar_primary_key_field() {
-                        let expected = ScalarRelationTarget::from_field(primary_field);
-                        let actual = ScalarRelationTarget::from_item(self);
-                        if scalar_relation_target_mismatch(&expected, &actual) {
+                        let expected = RelationComponentContract::from_field(primary_field);
+                        let actual = RelationComponentContract::from_item(self);
+                        if expected.mismatches(actual) {
                             err!(
                                 errs,
                                 "relation target type mismatch: expected ({:?}, scale={:?}, max_len={:?}, max_bytes={:?}), found ({:?}, scale={:?}, max_len={:?}, max_bytes={:?})",
-                                expected.target,
-                                expected.scale,
-                                expected.max_len,
-                                expected.max_bytes,
-                                actual.target,
-                                actual.scale,
-                                actual.max_len,
-                                actual.max_bytes,
+                                expected.target(),
+                                expected.scale(),
+                                expected.max_len(),
+                                expected.max_bytes(),
+                                actual.target(),
+                                actual.scale(),
+                                actual.max_len(),
+                                actual.max_bytes(),
                             );
                         }
                     } else {
@@ -304,6 +266,7 @@ mod tests {
             PrimaryKey::new(pk_fields, PrimaryKeySource::External),
             None,
             &[],
+            &[],
             FieldList::new(fields),
             Type::new(&[], &[]),
         )));
@@ -407,19 +370,10 @@ mod tests {
                 expected_metadata.2,
             );
 
-            let expected = ScalarRelationTarget::from_item(&expected);
-            assert!(!scalar_relation_target_mismatch(
-                &expected,
-                &ScalarRelationTarget::from_item(&same),
-            ));
-            assert!(scalar_relation_target_mismatch(
-                &expected,
-                &ScalarRelationTarget::from_item(&wrong_bounds),
-            ));
-            assert!(scalar_relation_target_mismatch(
-                &expected,
-                &ScalarRelationTarget::from_item(&wrong_target),
-            ));
+            let expected = RelationComponentContract::from_item(&expected);
+            assert!(!expected.mismatches(RelationComponentContract::from_item(&same)));
+            assert!(expected.mismatches(RelationComponentContract::from_item(&wrong_bounds)));
+            assert!(expected.mismatches(RelationComponentContract::from_item(&wrong_target)));
         }
     }
 
@@ -473,10 +427,10 @@ mod tests {
             None,
         );
 
-        let descriptor = ScalarRelationTarget::from_field(&field);
-        assert_eq!(descriptor.target, &ItemTarget::Primitive(Primitive::Text));
-        assert_eq!(descriptor.scale, None);
-        assert_eq!(descriptor.max_len, Some(64));
-        assert_eq!(descriptor.max_bytes, None);
+        let descriptor = RelationComponentContract::from_field(&field);
+        assert_eq!(descriptor.target(), &ItemTarget::Primitive(Primitive::Text));
+        assert_eq!(descriptor.scale(), None);
+        assert_eq!(descriptor.max_len(), Some(64));
+        assert_eq!(descriptor.max_bytes(), None);
     }
 }

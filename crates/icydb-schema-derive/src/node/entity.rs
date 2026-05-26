@@ -22,6 +22,9 @@ pub struct Entity {
     #[darling(multiple, rename = "index")]
     pub(crate) indexes: Vec<Index>,
 
+    #[darling(multiple, rename = "relation")]
+    pub(crate) relations: Vec<Relation>,
+
     #[darling(default, map = "Entity::add_metadata")]
     pub(crate) fields: FieldList,
 
@@ -81,6 +84,7 @@ impl Entity {
     fn validate_indexes(&self, entity_name: &str, def_ident: &Ident) -> Result<(), DarlingError> {
         let canonical_index_terms = self.collect_canonical_index_terms(entity_name, def_ident)?;
         Self::validate_redundant_prefix_indexes(&self.indexes, &canonical_index_terms, def_ident)?;
+        self.validate_relations()?;
 
         Ok(())
     }
@@ -213,6 +217,14 @@ impl Entity {
                     .with_index_or_def_span(right_index, def_ident));
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    fn validate_relations(&self) -> Result<(), DarlingError> {
+        for relation in &self.relations {
+            relation.validate(&self.fields)?;
         }
 
         Ok(())
@@ -381,6 +393,7 @@ impl HasSchemaPart for Entity {
         let primary_key = self.primary_key.schema_part();
         let name = quote_option(self.name.as_ref(), to_str_lit);
         let indexes = quote_slice(&self.indexes, Index::schema_part);
+        let relations = quote_slice(&self.relations, Relation::schema_part);
         let fields = &self.fields.schema_part();
         let ty = &self.ty.schema_part();
 
@@ -388,6 +401,7 @@ impl HasSchemaPart for Entity {
         quote! {
             {
                 const __INDEXES: &'static [::icydb::schema::node::Index] = #indexes;
+                const __RELATIONS: &'static [::icydb::schema::node::RelationEdge] = #relations;
 
                 ::icydb::schema::node::Entity::new(
                     #def,
@@ -395,6 +409,7 @@ impl HasSchemaPart for Entity {
                     #primary_key,
                     #name,
                     __INDEXES,
+                    __RELATIONS,
                     #fields,
                     #ty,
                 )
@@ -825,7 +840,8 @@ impl ToTokens for Entity {
 mod tests {
     use super::{Entity, composite_primary_key_type_part};
     use crate::node::{
-        Def, Field, FieldList, Index, Item, PrimaryKey, PrimaryKeySource, Type, ValidateNode, Value,
+        Def, Field, FieldList, HasSchemaPart, Index, Item, PrimaryKey, PrimaryKeySource, Relation,
+        Type, ValidateNode, Value,
     };
     use darling::{FromMeta, ast::NestedMeta};
     use icydb_schema::types::Primitive;
@@ -909,6 +925,7 @@ mod tests {
             },
             name: None,
             indexes,
+            relations: Vec::new(),
             fields: FieldList { fields },
             ty: Type::default(),
             traits: crate::trait_kind::TraitBuilder::default(),
@@ -1161,6 +1178,66 @@ mod tests {
         assert!(
             node.fields.get(&format_ident!("updated_at")).is_some(),
             "entity lowering should append updated_at metadata field",
+        );
+    }
+
+    #[test]
+    fn from_list_parses_relation_edges() {
+        let args = NestedMeta::parse_meta_list(quote!(
+            store = "UiDataStore",
+            pk(fields = ["id"]),
+            relation(
+                ident = "author",
+                rel = "User",
+                fields = ["author_tenant_id", "author_id"]
+            ),
+            fields(
+                field(ident = "id", value(item(prim = "Ulid"))),
+                field(ident = "author_tenant_id", value(item(prim = "Nat64"))),
+                field(ident = "author_id", value(item(prim = "Ulid")))
+            )
+        ))
+        .expect("entity args should parse");
+
+        let node = Entity::from_list(&args).expect("entity meta should lower");
+
+        assert_eq!(node.relations.len(), 1);
+        assert_eq!(node.relations[0].ident.value(), "author");
+        assert_eq!(
+            node.relations[0]
+                .fields
+                .iter()
+                .map(LitStr::value)
+                .collect::<Vec<_>>(),
+            ["author_tenant_id", "author_id"],
+        );
+    }
+
+    #[test]
+    fn schema_part_emits_relation_edge_metadata() {
+        let mut entity = entity_with_fields_and_indexes(
+            vec![
+                scalar_field("id"),
+                primitive_field("author_tenant_id", Primitive::Nat64),
+                scalar_field("author_id"),
+            ],
+            vec![],
+        );
+        entity.relations.push(Relation {
+            ident: LitStr::new("author", Span::call_site()),
+            target: syn::parse_quote!(User),
+            fields: field_list(&["author_tenant_id", "author_id"]),
+        });
+
+        let tokens = entity.schema_part().to_string();
+
+        assert!(
+            tokens.contains("RelationEdge :: new"),
+            "unexpected schema tokens: {tokens}",
+        );
+        assert!(
+            tokens.contains("const __RELATIONS"),
+            "unexpected schema tokens: {tokens}",
         );
     }
 }

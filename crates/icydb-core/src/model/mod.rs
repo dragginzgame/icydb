@@ -15,7 +15,10 @@ pub(crate) mod field_kind_semantics;
 pub(crate) mod index;
 
 // re-exports
-pub use entity::{EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter, PrimaryKeyModelFields};
+pub use entity::{
+    EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter, PrimaryKeyModelFields,
+    RelationEdgeModel,
+};
 pub use field::{
     DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault, FieldInsertGeneration,
     FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement, RelationStrength,

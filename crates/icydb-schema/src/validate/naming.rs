@@ -96,6 +96,7 @@ mod tests {
             PrimaryKey::new(&["id"], PrimaryKeySource::Internal),
             Some(entity_name),
             &[],
+            &[],
             FieldList::new(&[]),
             Type::new(&[], &[]),
         )));

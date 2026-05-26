@@ -23,6 +23,7 @@ use crate::{
             accepted_relation_target_descriptor_from_kind,
             validate_relation_primary_key_component_kind,
         },
+        schema::OwnedAcceptedRelationEdgeContract,
         schema::{PersistedFieldKind, PersistedRelationStrength},
     },
     error::InternalError,
@@ -405,9 +406,17 @@ pub(in crate::db::relation) fn accepted_strong_relations_for_row_contract(
     source_row_contract: &StructuralRowContract,
     target_path_filter: Option<&str>,
 ) -> Result<Vec<AcceptedStrongRelationInfo>, InternalError> {
-    let mut relations = Vec::new();
+    let mut relations =
+        accepted_strong_relations_from_edges(source_path, source_row_contract, target_path_filter)?;
     for slot in 0..source_row_contract.field_count() {
         if !source_row_contract.has_active_field_slot(slot) {
+            continue;
+        }
+        if source_row_contract
+            .accepted_relation_edges()
+            .iter()
+            .any(|edge| edge.local_field_slots().contains(&slot))
+        {
             continue;
         }
         let field = source_row_contract.required_accepted_field_decode_contract(slot)?;
@@ -426,6 +435,82 @@ pub(in crate::db::relation) fn accepted_strong_relations_for_row_contract(
     }
 
     Ok(relations)
+}
+
+fn accepted_strong_relations_from_edges(
+    source_path: &str,
+    source_row_contract: &StructuralRowContract,
+    target_path_filter: Option<&str>,
+) -> Result<Vec<AcceptedStrongRelationInfo>, InternalError> {
+    let mut relations = Vec::new();
+
+    for edge in source_row_contract.accepted_relation_edges() {
+        let Some(relation) =
+            accepted_strong_relation_from_edge(source_path, source_row_contract, edge)?
+        else {
+            continue;
+        };
+
+        if target_path_filter.is_some_and(|filter| filter != relation.target().path()) {
+            continue;
+        }
+
+        relations.push(relation);
+    }
+
+    Ok(relations)
+}
+
+fn accepted_strong_relation_from_edge(
+    source_path: &str,
+    source_row_contract: &StructuralRowContract,
+    edge: &OwnedAcceptedRelationEdgeContract,
+) -> Result<Option<AcceptedStrongRelationInfo>, InternalError> {
+    let [local_slot] = edge.local_field_slots() else {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{}' requires composite target runtime admission",
+            edge.name(),
+        )));
+    };
+
+    let field = source_row_contract.required_accepted_field_decode_contract(*local_slot)?;
+    let Some(target) = accepted_relation_target_descriptor_from_kind(field.kind()) else {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{}' local field is not a relation: source={} field={}",
+            edge.name(),
+            source_path,
+            field.field_name(),
+        )));
+    };
+    if target.strength != PersistedRelationStrength::Strong {
+        return Ok(None);
+    }
+    if target.target_path != edge.target_path() {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{}' target path mismatch: edge={} field={}",
+            edge.name(),
+            edge.target_path(),
+            target.target_path,
+        )));
+    }
+
+    Ok(Some(AcceptedStrongRelationInfo {
+        local_components: AcceptedStrongRelationLocalComponents::scalar(
+            *local_slot,
+            field.field_name(),
+            field.kind(),
+        ),
+        target: AcceptedStrongRelationTargetIdentity::try_new(
+            source_path,
+            field.field_name(),
+            target.target_path,
+            target.target_entity_name,
+            target.target_entity_tag,
+            target.target_store_path,
+            std::slice::from_ref(target.scalar_target_key_kind),
+        )?,
+        cardinality: target.cardinality,
+    }))
 }
 
 fn accepted_strong_relation_from_field(
@@ -1063,13 +1148,20 @@ mod tests {
     };
     use crate::db::relation::AcceptedRelationCardinality;
     use crate::db::{
+        data::StructuralRowContract,
         index::IndexId,
         key_taxonomy::{
             CompositePrimaryKeyValue, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKeyKind,
             PrimaryKeyComponent, PrimaryKeyValue,
         },
-        schema::{PersistedFieldKind, PersistedRelationStrength},
+        schema::{
+            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, FieldId,
+            PersistedFieldKind, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault,
+            SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        },
     };
+    use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
     use crate::types::EntityTag;
 
     fn relation(field_index: usize, key_kind: PersistedFieldKind) -> AcceptedStrongRelationInfo {
@@ -1179,6 +1271,76 @@ mod tests {
             component.field_kind(),
             PersistedFieldKind::Relation { .. }
         ));
+    }
+
+    #[test]
+    fn accepted_strong_relations_use_persisted_relation_edges_when_present() {
+        let relation_kind = PersistedFieldKind::Relation {
+            target_path: "Target".to_string(),
+            target_entity_name: "Target".to_string(),
+            target_entity_tag: EntityTag::new(77),
+            target_store_path: "TargetStore".to_string(),
+            key_kind: Box::new(PersistedFieldKind::Ulid),
+            strength: PersistedRelationStrength::Strong,
+        };
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "Source".to_string(),
+            "Source".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(4)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "target_id".to_string(),
+                    SchemaFieldSlot::new(4),
+                    relation_kind,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        )
+        .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            "target".to_string(),
+            "Target".to_string(),
+            vec![FieldId::new(2)],
+        )]);
+        let accepted = AcceptedSchemaSnapshot::new(snapshot);
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("accepted relation descriptor should build");
+        let row_contract = StructuralRowContract::from_accepted_decode_contract(
+            "Source",
+            descriptor.row_decode_contract(),
+        );
+
+        let relations =
+            super::accepted_strong_relations_for_row_contract("Source", &row_contract, None)
+                .expect("accepted relation edges should project into runtime relation info");
+
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].field_index(), 4);
+        assert_eq!(relations[0].field_name(), "target_id");
+        assert_eq!(relations[0].target().path(), "Target");
     }
 
     #[test]

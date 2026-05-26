@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)
 
+- `0.164.7` persists relation-edge metadata into accepted schema snapshots and
+  carries it into accepted runtime relation contracts while preserving scalar
+  relation behavior.
+
 - `0.164.6` moves accepted relation diagnostics and save-time scalar target
   preflight onto persisted relation and accepted target primary-key authority.
 

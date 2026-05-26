@@ -54,6 +54,9 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
     let model_fields_ident = model_fields_ident(&ident);
     let primary_key_fields_ident = primary_key_fields_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
+    let relations_ident = relations_ident(&ident);
+    let relation_exprs = relation_model_exprs(node, &model_fields_ident);
+    let relations_len = LitInt::new(&relation_exprs.len().to_string(), Span::call_site());
     let primary_key_field_indexes = primary_key_field_indexes(node);
     let primary_key_fields_len = LitInt::new(
         &primary_key_field_indexes.len().to_string(),
@@ -78,6 +81,10 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
             [&'static ::icydb::model::index::IndexModel; #indexes_len] = [
                 #(&#index_exprs),*
             ];
+        const #relations_ident:
+            [::icydb::model::entity::RelationEdgeModel; #relations_len] = [
+                #(#relation_exprs),*
+            ];
     }
 }
 
@@ -96,10 +103,11 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
     let primary_key_fields_ident = primary_key_fields_ident(&ident);
     let model_ident = model_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
+    let relations_ident = relations_ident(&ident);
 
     quote! {
         const #model_ident: ::icydb::model::entity::EntityModel =
-            ::icydb::model::entity::EntityModel::generated_with_primary_key_model(
+            ::icydb::model::entity::EntityModel::generated_with_primary_key_model_and_relations(
                 <#ident as ::icydb::traits::Path>::PATH,
                 #entity_name,
                 ::icydb::model::entity::PrimaryKeyModel::ordered(
@@ -108,8 +116,39 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
                 #pk_index,
                 &#model_fields_ident,
                 &#indexes_ident,
+                &#relations_ident,
             );
     }
+}
+
+fn relation_model_exprs(node: &Entity, model_fields_ident: &Ident) -> Vec<TokenStream> {
+    node.relations
+        .iter()
+        .map(|relation| {
+            let relation_name = relation.ident.value();
+            let target = quote_one(&relation.target, to_path);
+            let local_field_refs = relation.fields.iter().map(|local_field| {
+                let field_ident = syn::parse_str::<Ident>(local_field.value().as_str())
+                    .expect("relation fields should validate as field identifiers");
+                let index = node
+                    .fields
+                    .iter()
+                    .position(|field| field.ident == field_ident)
+                    .expect("relation local field should be validated before model generation");
+                let index = LitInt::new(&index.to_string(), Span::call_site());
+
+                quote!(&#model_fields_ident[#index])
+            });
+
+            quote! {
+                ::icydb::model::entity::RelationEdgeModel::generated(
+                    #relation_name,
+                    #target,
+                    &[#(#local_field_refs),*],
+                )
+            }
+        })
+        .collect()
 }
 
 fn field_name_const_tokens(node: &Entity) -> TokenStream {
@@ -137,6 +176,11 @@ fn model_fields_ident(ident: &Ident) -> Ident {
 fn indexes_ident(ident: &Ident) -> Ident {
     let ident = ident.to_string().to_ascii_uppercase();
     format_ident!("__{}_ENTITY_INDEXES", ident)
+}
+
+fn relations_ident(ident: &Ident) -> Ident {
+    let ident = ident.to_string().to_ascii_uppercase();
+    format_ident!("__{}_ENTITY_RELATIONS", ident)
 }
 
 fn primary_key_fields_ident(ident: &Ident) -> Ident {

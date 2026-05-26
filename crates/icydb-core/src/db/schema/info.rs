@@ -914,10 +914,11 @@ impl SchemaInfo {
             entity_path: Some(schema.entity_path().to_string()),
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_names,
-            has_any_strong_relations: snapshot
-                .fields()
-                .iter()
-                .any(|field| persisted_kind_has_strong_relation(field.kind())),
+            has_any_strong_relations: !snapshot.relations().is_empty()
+                || snapshot
+                    .fields()
+                    .iter()
+                    .any(|field| persisted_kind_has_strong_relation(field.kind())),
         }
     }
 
@@ -1122,8 +1123,9 @@ mod tests {
             PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-            PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion, literal_matches_type,
+            PersistedRelationEdgeSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
+            literal_matches_type,
         },
         model::{
             entity::EntityModel,
@@ -1614,7 +1616,15 @@ mod tests {
             target_store_path: "schema::info::tests::target_store".to_string(),
             key_kind: Box::new(PersistedFieldKind::Ulid),
             strength: PersistedRelationStrength::Strong,
-        });
+        })
+        .persisted_snapshot()
+        .clone()
+        .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            "name".to_string(),
+            "schema::info::tests::Target".to_string(),
+            vec![FieldId::new(2)],
+        )]);
+        let accepted_relation = AcceptedSchemaSnapshot::new(accepted_relation);
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &accepted_relation);
 
         assert!(!generated.has_any_strong_relations());

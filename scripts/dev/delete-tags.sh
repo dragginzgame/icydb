@@ -38,10 +38,9 @@ if [ -z "$LOCAL_TAGS" ] && [ -z "$REMOTE_TAGS" ]; then
 fi
 
 echo "This deletes matching local tags and remote origin tags."
-echo "Type 'delete ${PREFIX}' to proceed."
-read -r -p "> " CONFIRM
+read -r -p "Proceed? [y/n] " CONFIRM
 
-if [ "$CONFIRM" = "delete ${PREFIX}" ]; then
+if [ "$CONFIRM" = "y" ]; then
   # Delete local tags
   if [ -n "$LOCAL_TAGS" ]; then
     echo "$LOCAL_TAGS" | xargs -r git tag -d
@@ -49,7 +48,7 @@ if [ "$CONFIRM" = "delete ${PREFIX}" ]; then
 
   # Delete remote tags
   if [ -n "$REMOTE_TAGS" ]; then
-    echo "$REMOTE_TAGS" | xargs -r -n 1 git push origin --delete
+    echo "$REMOTE_TAGS" | xargs -r git push --no-verify origin --delete
   fi
 
   echo "Done."

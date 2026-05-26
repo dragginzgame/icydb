@@ -225,6 +225,7 @@ mod tests {
             },
             name: None,
             indexes: vec![],
+            relations: vec![],
             fields: FieldList {
                 fields: vec![
                     field_with_primitive_default(

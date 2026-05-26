@@ -724,6 +724,7 @@ fn merge_generated_indexes_with_extra_accepted_indexes(
         generated.fields().to_vec(),
         indexes,
     )
+    .with_relations(generated.relations().to_vec())
 }
 
 fn sql_ddl_drop_target_index_keys(

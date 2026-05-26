@@ -10,6 +10,7 @@ use crate::{
         schema::{
             AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
             AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
+            OwnedAcceptedRelationEdgeContract,
         },
     },
     error::InternalError,
@@ -202,6 +203,14 @@ impl StructuralRowContract {
             })?
             .required_field_for_slot(self.entity_path(), slot)?
             .decode_contract())
+    }
+
+    /// Borrow accepted relation-edge metadata declared on this source row.
+    #[must_use]
+    pub(in crate::db) fn accepted_relation_edges(&self) -> &[OwnedAcceptedRelationEdgeContract] {
+        self.accepted_decode_contract
+            .as_ref()
+            .map_or(&[], |contract| contract.relation_edges())
     }
 
     /// Return whether a physical slot is active in this row contract.

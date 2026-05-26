@@ -83,8 +83,8 @@ pub struct AppStore {}
 
 #[entity(
     store = "AppStore",
-    pk(fields = ["id"]),
-    index(fields = ["name"]),
+    pk(field = "id"),
+    index(field = "name"),
     index(fields = ["active", "score"]),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),

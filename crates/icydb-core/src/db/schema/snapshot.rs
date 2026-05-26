@@ -9,6 +9,7 @@ use crate::{
         schema::{
             FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
             schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+            schema_snapshot_relation_integrity_detail,
         },
     },
     error::InternalError,
@@ -92,6 +93,15 @@ impl AcceptedSchemaSnapshot {
             snapshot.row_layout(),
             snapshot.fields(),
             snapshot.indexes(),
+        ) {
+            return Err(InternalError::store_invariant(detail));
+        }
+
+        if let Some(detail) = schema_snapshot_relation_integrity_detail(
+            "accepted schema snapshot",
+            snapshot.row_layout(),
+            snapshot.fields(),
+            snapshot.relations(),
         ) {
             return Err(InternalError::store_invariant(detail));
         }
@@ -211,6 +221,7 @@ pub(in crate::db) struct PersistedSchemaSnapshot {
     row_layout: SchemaRowLayout,
     fields: Vec<PersistedFieldSnapshot>,
     indexes: Vec<PersistedIndexSnapshot>,
+    relations: Vec<PersistedRelationEdgeSnapshot>,
 }
 
 pub(in crate::db) trait IntoPrimaryKeyFieldIds {
@@ -298,7 +309,18 @@ impl PersistedSchemaSnapshot {
             row_layout,
             fields,
             indexes,
+            relations: Vec::new(),
         }
+    }
+
+    /// Attach accepted relation-edge contracts to this schema snapshot.
+    #[must_use]
+    pub(in crate::db) fn with_relations(
+        mut self,
+        relations: Vec<PersistedRelationEdgeSnapshot>,
+    ) -> Self {
+        self.relations = relations;
+        self
     }
 
     /// Return the schema version for this snapshot.
@@ -351,6 +373,59 @@ impl PersistedSchemaSnapshot {
     #[must_use]
     pub(in crate::db) const fn indexes(&self) -> &[PersistedIndexSnapshot] {
         self.indexes.as_slice()
+    }
+
+    /// Borrow accepted relation-edge contracts for this schema snapshot.
+    #[must_use]
+    pub(in crate::db) const fn relations(&self) -> &[PersistedRelationEdgeSnapshot] {
+        self.relations.as_slice()
+    }
+}
+
+///
+/// PersistedRelationEdgeSnapshot
+///
+/// Accepted schema metadata for one relation edge declared on the entity.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PersistedRelationEdgeSnapshot {
+    name: String,
+    target_path: String,
+    local_field_ids: Vec<FieldId>,
+}
+
+impl PersistedRelationEdgeSnapshot {
+    /// Build one accepted relation-edge snapshot from already-validated pieces.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        name: String,
+        target_path: String,
+        local_field_ids: Vec<FieldId>,
+    ) -> Self {
+        Self {
+            name,
+            target_path,
+            local_field_ids,
+        }
+    }
+
+    /// Borrow the stable relation-edge name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the target entity path for this relation edge.
+    #[must_use]
+    pub(in crate::db) const fn target_path(&self) -> &str {
+        self.target_path.as_str()
+    }
+
+    /// Borrow ordered accepted local field identities for this relation edge.
+    #[must_use]
+    pub(in crate::db) const fn local_field_ids(&self) -> &[FieldId] {
+        self.local_field_ids.as_slice()
     }
 }
 
@@ -1742,6 +1817,166 @@ mod tests {
             err.message()
                 .contains("accepted schema snapshot index field slot mismatch"),
             "accepted schema construction should reject index slots that diverge from row layout"
+        );
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
+        let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Related".to_string(),
+            "Related".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "owner_id".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+            ],
+            Vec::new(),
+        )
+        .with_relations(vec![
+            PersistedRelationEdgeSnapshot::new(
+                "owner".to_string(),
+                "schema::snapshot::tests::Owner".to_string(),
+                vec![FieldId::new(2)],
+            ),
+            PersistedRelationEdgeSnapshot::new(
+                "owner".to_string(),
+                "schema::snapshot::tests::Owner".to_string(),
+                vec![FieldId::new(2)],
+            ),
+        ]);
+
+        let err = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject invalid relation metadata");
+
+        assert!(
+            err.message()
+                .contains("accepted schema snapshot duplicate relation name"),
+            "accepted schema construction should report invalid relation metadata"
+        );
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_try_new_rejects_relation_missing_local_field() {
+        let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Related".to_string(),
+            "Related".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+            ),
+            vec![PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            )],
+            Vec::new(),
+        )
+        .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            "owner".to_string(),
+            "schema::snapshot::tests::Owner".to_string(),
+            vec![FieldId::new(2)],
+        )]);
+
+        let err = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject invalid relation metadata");
+
+        assert!(
+            err.message()
+                .contains("accepted schema snapshot relation local field missing from row layout"),
+            "accepted schema construction should report missing relation local fields"
+        );
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_exposes_relation_edges() {
+        let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Related".to_string(),
+            "Related".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "owner_id".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+            ],
+            Vec::new(),
+        )
+        .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+            "owner".to_string(),
+            "schema::snapshot::tests::Owner".to_string(),
+            vec![FieldId::new(2)],
+        )]);
+
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect("relation metadata should pass source-local integrity checks");
+
+        assert_eq!(accepted.persisted_snapshot().relations().len(), 1);
+        assert_eq!(accepted.persisted_snapshot().relations()[0].name(), "owner");
+        assert_eq!(
+            accepted.persisted_snapshot().relations()[0].local_field_ids(),
+            &[FieldId::new(2)]
         );
     }
 

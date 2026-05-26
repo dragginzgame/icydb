@@ -6,7 +6,8 @@
 use crate::{
     db::schema::{
         AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedNestedLeafSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaVersion,
+        PersistedRelationEdgeSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+        SchemaVersion,
     },
     error::InternalError,
     model::{
@@ -303,6 +304,63 @@ impl OwnedAcceptedFieldDecodeContract {
 }
 
 ///
+/// OwnedAcceptedRelationEdgeContract
+///
+/// Owned accepted relation-edge metadata carried by row decode contracts.
+/// It gives relation runtime paths source-local relation declarations from
+/// persisted schema authority instead of rediscovering them by scanning fields.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct OwnedAcceptedRelationEdgeContract {
+    name: String,
+    target_path: String,
+    local_field_slots: Vec<usize>,
+}
+
+impl OwnedAcceptedRelationEdgeContract {
+    fn from_runtime_relation_edge(
+        relation: &PersistedRelationEdgeSnapshot,
+        fields: &[AcceptedRowLayoutRuntimeField<'_>],
+    ) -> Result<Self, InternalError> {
+        let mut local_field_slots = Vec::with_capacity(relation.local_field_ids().len());
+        for field_id in relation.local_field_ids() {
+            let Some(field) = fields.iter().find(|field| field.field_id() == *field_id) else {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout runtime descriptor missing relation local field_id={}",
+                    field_id.get(),
+                )));
+            };
+            local_field_slots.push(usize::from(field.slot().get()));
+        }
+
+        Ok(Self {
+            name: relation.name().to_string(),
+            target_path: relation.target_path().to_string(),
+            local_field_slots,
+        })
+    }
+
+    /// Borrow the accepted relation-edge name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the accepted target entity path.
+    #[must_use]
+    pub(in crate::db) const fn target_path(&self) -> &str {
+        self.target_path.as_str()
+    }
+
+    /// Borrow ordered accepted local physical slots for this relation edge.
+    #[must_use]
+    pub(in crate::db) const fn local_field_slots(&self) -> &[usize] {
+        self.local_field_slots.as_slice()
+    }
+}
+
+///
 /// AcceptedRowDecodeContract
 ///
 /// AcceptedRowDecodeContract is the owned, slot-indexed row decode contract
@@ -319,6 +377,7 @@ pub(in crate::db) struct AcceptedRowDecodeContract {
     primary_key_slot_index: usize,
     primary_key_slot_indices: Vec<usize>,
     fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
+    relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
 }
 
 impl AcceptedRowDecodeContract {
@@ -337,6 +396,7 @@ impl AcceptedRowDecodeContract {
             primary_key_slot_index: descriptor.first_primary_key_slot_index(),
             primary_key_slot_indices: descriptor.primary_key_slot_indices().to_vec(),
             fields_by_slot,
+            relation_edges: descriptor.relation_edges().to_vec(),
         }
     }
 
@@ -385,6 +445,12 @@ impl AcceptedRowDecodeContract {
     #[must_use]
     pub(in crate::db) const fn primary_key_slot_indices(&self) -> &[usize] {
         self.primary_key_slot_indices.as_slice()
+    }
+
+    /// Borrow accepted relation-edge contracts declared on this source entity.
+    #[must_use]
+    pub(in crate::db) const fn relation_edges(&self) -> &[OwnedAcceptedRelationEdgeContract] {
+        self.relation_edges.as_slice()
     }
 
     /// Borrow one accepted field decode contract by physical row slot.
@@ -458,6 +524,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     primary_key_kinds: Vec<&'a PersistedFieldKind>,
     primary_key_slot_indices: Vec<usize>,
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
+    relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
 }
 
 impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
@@ -521,6 +588,13 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             primary_key_kinds.push(primary_key_field.kind());
             primary_key_slot_indices.push(usize::from(primary_key_field.slot().get()));
         }
+        let relation_edges = snapshot
+            .relations()
+            .iter()
+            .map(|relation| {
+                OwnedAcceptedRelationEdgeContract::from_runtime_relation_edge(relation, &fields)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
             version: row_layout.version(),
@@ -530,6 +604,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             primary_key_kinds,
             primary_key_slot_indices,
             fields,
+            relation_edges,
         })
     }
 
@@ -629,6 +704,12 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     #[must_use]
     pub(in crate::db) const fn primary_key_slot_indices(&self) -> &[usize] {
         self.primary_key_slot_indices.as_slice()
+    }
+
+    /// Borrow accepted relation-edge contracts for this source entity.
+    #[must_use]
+    pub(in crate::db) const fn relation_edges(&self) -> &[OwnedAcceptedRelationEdgeContract] {
+        self.relation_edges.as_slice()
     }
 
     /// Borrow runtime field facts in accepted snapshot field order.
@@ -871,8 +952,8 @@ mod tests {
             },
             schema::{
                 AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-                SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
+                PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+                SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
                 runtime::{
                     AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract,
                     AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
@@ -1052,6 +1133,19 @@ mod tests {
                 ),
             ],
         ))
+    }
+
+    fn accepted_schema_fixture_with_relation_edge() -> AcceptedSchemaSnapshot {
+        let snapshot = accepted_schema_fixture()
+            .persisted_snapshot()
+            .clone()
+            .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+                "nickname_owner".to_string(),
+                "schema::tests::Owner".to_string(),
+                vec![FieldId::new(2)],
+            )]);
+
+        AcceptedSchemaSnapshot::new(snapshot)
     }
 
     fn generated_slot_compatible_accepted_schema_with_nickname_decode(
@@ -1275,6 +1369,26 @@ mod tests {
             nickname.kind(),
             PersistedFieldKind::Text { max_len: Some(32) },
         ));
+    }
+
+    #[test]
+    fn accepted_row_decode_contract_owns_relation_edge_contracts() {
+        let accepted = accepted_schema_fixture_with_relation_edge();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("accepted runtime descriptor should build");
+
+        assert_eq!(descriptor.relation_edges().len(), 1);
+        assert_eq!(descriptor.relation_edges()[0].name(), "nickname_owner");
+        assert_eq!(
+            descriptor.relation_edges()[0].target_path(),
+            "schema::tests::Owner"
+        );
+        assert_eq!(descriptor.relation_edges()[0].local_field_slots(), &[9]);
+
+        let contract = descriptor.row_decode_contract();
+        assert_eq!(contract.relation_edges().len(), 1);
+        assert_eq!(contract.relation_edges()[0].name(), "nickname_owner");
+        assert_eq!(contract.relation_edges()[0].local_field_slots(), &[9]);
     }
 
     #[test]

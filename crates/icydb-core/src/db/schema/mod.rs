@@ -51,6 +51,7 @@ pub(in crate::db) use info::{
 };
 pub(in crate::db::schema) use integrity::{
     schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+    schema_snapshot_relation_integrity_detail,
 };
 pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 #[cfg(test)]
@@ -105,13 +106,15 @@ pub(in crate::db) use reconcile::{
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedGeneratedCompatibleRowShape,
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
+    OwnedAcceptedRelationEdgeContract,
 };
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldOrigin,
     PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
     PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
     PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-    PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldWritePolicy,
+    PersistedRelationEdgeSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
+    SchemaFieldDefault, SchemaFieldWritePolicy,
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::SchemaStoreCatalogMetadata;

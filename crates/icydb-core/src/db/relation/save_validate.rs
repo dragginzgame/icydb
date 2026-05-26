@@ -13,8 +13,8 @@ use crate::{
             for_each_relation_target_value, validate_relation_primary_key_component_kind,
         },
         schema::{
-            AcceptedRowDecodeContract, PersistedFieldKind, PersistedRelationStrength,
-            ensure_accepted_schema_snapshot,
+            AcceptedRowDecodeContract, OwnedAcceptedRelationEdgeContract, PersistedFieldKind,
+            PersistedRelationStrength, ensure_accepted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -56,7 +56,16 @@ pub(in crate::db) fn validate_save_strong_relations_with_accepted_contract<E>(
 where
     E: EntityKind + EntityValue,
 {
+    validate_save_strong_relations_from_relation_edges(db, entity, accepted_row_decode_contract)?;
+
     for slot in 0..accepted_row_decode_contract.required_slot_count() {
+        if accepted_row_decode_contract
+            .relation_edges()
+            .iter()
+            .any(|edge| edge.local_field_slots().contains(&slot))
+        {
+            continue;
+        }
         let Some(field) = accepted_row_decode_contract.field_for_slot(slot) else {
             continue;
         };
@@ -97,6 +106,108 @@ where
     }
 
     Ok(())
+}
+
+fn validate_save_strong_relations_from_relation_edges<E>(
+    db: &Db<E::Canister>,
+    entity: &E,
+    accepted_row_decode_contract: &AcceptedRowDecodeContract,
+) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    for edge in accepted_row_decode_contract.relation_edges() {
+        let Some(relation) =
+            accepted_save_strong_relation_from_edge::<E>(accepted_row_decode_contract, edge)?
+        else {
+            continue;
+        };
+
+        let value = entity
+            .get_value_by_index(relation.field_index)
+            .ok_or_else(|| {
+                InternalError::executor_invariant(format!(
+                    "entity field missing: {} field={}",
+                    E::PATH,
+                    relation.field_name
+                ))
+            })?;
+
+        let target_hook = relation.validate_target_identity(db, E::PATH)?;
+        let target_store = target_store_for_relation::<E>(db, &relation, &value)?;
+        if let Some(target_hook) = target_hook {
+            validate_target_accepted_scalar_primary_key::<E::Canister>(
+                E::PATH,
+                &relation,
+                target_store,
+                target_hook,
+            )?;
+        }
+
+        for_each_relation_target_value(&value, |item| {
+            validate_save_accepted_relation_value::<E>(&relation, target_store, item)
+        })?;
+    }
+
+    Ok(())
+}
+
+fn accepted_save_strong_relation_from_edge<E>(
+    accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    edge: &OwnedAcceptedRelationEdgeContract,
+) -> Result<Option<AcceptedSaveStrongRelationInfo>, InternalError>
+where
+    E: EntityKind,
+{
+    let [local_slot] = edge.local_field_slots() else {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{}' requires composite target save admission",
+            edge.name(),
+        )));
+    };
+
+    let Some(field) = accepted_row_decode_contract.field_for_slot(*local_slot) else {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{}' local slot missing: source={} slot={}",
+            edge.name(),
+            E::PATH,
+            local_slot,
+        )));
+    };
+    let Some(target) = accepted_relation_target_descriptor_from_kind(field.kind()) else {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{}' local field is not a relation: source={} field={}",
+            edge.name(),
+            E::PATH,
+            field.field_name(),
+        )));
+    };
+    if target.strength != PersistedRelationStrength::Strong {
+        return Ok(None);
+    }
+    if target.target_path != edge.target_path() {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{}' target path mismatch: edge={} field={}",
+            edge.name(),
+            edge.target_path(),
+            target.target_path,
+        )));
+    }
+    validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
+
+    Ok(Some(AcceptedSaveStrongRelationInfo {
+        field_index: *local_slot,
+        field_name: field.field_name().to_string(),
+        target: AcceptedRelationTargetAuthority::try_new(
+            E::PATH,
+            field.field_name(),
+            target.target_path,
+            target.target_entity_name,
+            target.target_entity_tag,
+            target.target_store_path,
+        )?,
+        scalar_target_key_kind: target.scalar_target_key_kind.clone(),
+    }))
 }
 
 fn accepted_save_strong_relation_from_field(

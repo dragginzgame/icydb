@@ -8,11 +8,12 @@ use crate::{
         FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-        SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion, sql_capabilities,
+        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
+        SchemaVersion, sql_capabilities,
     },
     model::{
-        entity::EntityModel,
+        entity::{EntityModel, RelationEdgeModel},
         field::{FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
         index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
@@ -34,6 +35,7 @@ pub(in crate::db) struct CompiledSchemaProposal {
     primary_key_field_ids: Vec<FieldId>,
     fields: Vec<CompiledFieldProposal>,
     indexes: Vec<CompiledIndexProposal>,
+    relations: Vec<CompiledRelationEdgeProposal>,
 }
 
 impl CompiledSchemaProposal {
@@ -74,6 +76,13 @@ impl CompiledSchemaProposal {
         self.indexes.as_slice()
     }
 
+    /// Return generated relation-edge proposals that can be represented as
+    /// accepted source-schema contracts.
+    #[must_use]
+    pub(in crate::db) const fn relations(&self) -> &[CompiledRelationEdgeProposal] {
+        self.relations.as_slice()
+    }
+
     /// Build the initial row layout implied by this compiled proposal.
     ///
     /// This uses proposal-assigned IDs only for first initialization. Once a
@@ -108,6 +117,11 @@ impl CompiledSchemaProposal {
             .iter()
             .map(CompiledIndexProposal::initial_persisted_index_snapshot)
             .collect::<Vec<_>>();
+        let relations = self
+            .relations()
+            .iter()
+            .map(CompiledRelationEdgeProposal::initial_persisted_relation_snapshot)
+            .collect::<Vec<_>>();
 
         PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             SchemaVersion::initial(),
@@ -118,6 +132,7 @@ impl CompiledSchemaProposal {
             fields,
             indexes,
         )
+        .with_relations(relations)
     }
 }
 
@@ -294,6 +309,52 @@ impl CompiledIndexProposal {
 }
 
 ///
+/// CompiledRelationEdgeProposal
+///
+/// One generated relation edge projected into accepted source-schema terms.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct CompiledRelationEdgeProposal {
+    name: &'static str,
+    target_path: &'static str,
+    local_field_ids: Vec<FieldId>,
+}
+
+impl CompiledRelationEdgeProposal {
+    /// Return the generated relation-edge name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Return the generated target entity path.
+    #[must_use]
+    pub(in crate::db) const fn target_path(&self) -> &'static str {
+        self.target_path
+    }
+
+    /// Borrow ordered accepted local field IDs.
+    #[must_use]
+    pub(in crate::db) const fn local_field_ids(&self) -> &[FieldId] {
+        self.local_field_ids.as_slice()
+    }
+
+    /// Build the initial persisted relation-edge snapshot implied by this
+    /// proposal.
+    #[must_use]
+    pub(in crate::db) fn initial_persisted_relation_snapshot(
+        &self,
+    ) -> PersistedRelationEdgeSnapshot {
+        PersistedRelationEdgeSnapshot::new(
+            self.name().to_string(),
+            self.target_path().to_string(),
+            self.local_field_ids().to_vec(),
+        )
+    }
+}
+
+///
 /// CompiledIndexKeyProposal
 ///
 /// Accepted-schema projection of one generated index key. Field-path-only keys
@@ -452,6 +513,11 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
         .iter()
         .filter_map(|index| compiled_index_proposal_from_model_index(index, &fields))
         .collect::<Vec<_>>();
+    let relations = model
+        .relations()
+        .iter()
+        .filter_map(|relation| compiled_relation_proposal_from_model_relation(relation, model))
+        .collect::<Vec<_>>();
 
     let proposal = CompiledSchemaProposal {
         entity_path: model.path(),
@@ -460,6 +526,7 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
         primary_key_field_ids: compiled_primary_key_field_ids(model),
         fields,
         indexes,
+        relations,
     };
 
     debug_assert_compiled_schema_proposal_invariants(model, &proposal);
@@ -519,6 +586,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
     debug_assert_eq!(snapshot.row_layout(), &layout);
     debug_assert_eq!(snapshot.fields().len(), proposal.fields().len());
     debug_assert_eq!(snapshot.indexes().len(), proposal.indexes().len());
+    debug_assert_eq!(snapshot.relations().len(), proposal.relations().len());
 
     for field in snapshot.fields() {
         let _ = (
@@ -575,6 +643,15 @@ fn debug_assert_compiled_schema_proposal_invariants(
             index.key(),
             index.predicate_sql(),
             index.initial_persisted_index_snapshot(),
+        );
+    }
+
+    for relation in proposal.relations() {
+        let _ = (
+            relation.name(),
+            relation.target_path(),
+            relation.local_field_ids(),
+            relation.initial_persisted_relation_snapshot(),
         );
     }
 }
@@ -639,6 +716,29 @@ fn compiled_index_proposal_from_model_index(
         unique: index.is_unique(),
         key,
         predicate_sql: index.predicate(),
+    })
+}
+
+fn compiled_relation_proposal_from_model_relation(
+    relation: &RelationEdgeModel,
+    model: &EntityModel,
+) -> Option<CompiledRelationEdgeProposal> {
+    let local_field_ids = relation
+        .local_fields()
+        .iter()
+        .map(|relation_field| {
+            model
+                .fields()
+                .iter()
+                .position(|field| std::ptr::eq(field, *relation_field))
+                .map(FieldId::from_initial_slot)
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    Some(CompiledRelationEdgeProposal {
+        name: relation.name(),
+        target_path: relation.target_path(),
+        local_field_ids,
     })
 }
 
@@ -812,7 +912,7 @@ mod tests {
             compiled_schema_proposal_for_model,
         },
         model::{
-            entity::{EntityModel, PrimaryKeyModel},
+            entity::{EntityModel, PrimaryKeyModel, RelationEdgeModel},
             field::{
                 FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
                 ScalarCodec,
@@ -865,6 +965,12 @@ mod tests {
         false,
     );
     static INDEXES: [&IndexModel; 3] = [&NAME_INDEX, &PROFILE_NICKNAME_INDEX, &EXPRESSION_INDEX];
+    static RELATION_LOCAL_FIELDS: [&FieldModel; 1] = [&FIELDS[2]];
+    static RELATIONS: [RelationEdgeModel; 1] = [RelationEdgeModel::generated(
+        "score_owner",
+        "schema::proposal::tests::ScoreOwner",
+        &RELATION_LOCAL_FIELDS,
+    )];
     static MODEL: EntityModel = entity_model_from_static(
         "schema::proposal::tests::Entity",
         "Entity",
@@ -873,6 +979,16 @@ mod tests {
         &FIELDS,
         &INDEXES,
     );
+    static RELATION_MODEL: EntityModel =
+        EntityModel::generated_with_primary_key_model_and_relations(
+            "schema::proposal::tests::RelationEntity",
+            "RelationEntity",
+            PrimaryKeyModel::scalar(&FIELDS[0]),
+            0,
+            &FIELDS,
+            &INDEXES,
+            &RELATIONS,
+        );
     static COMPOSITE_PRIMARY_KEY_FIELDS: [&FieldModel; 2] = [&FIELDS[0], &FIELDS[2]];
     static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
         "schema::proposal::tests::CompositeEntity",
@@ -922,6 +1038,34 @@ mod tests {
         assert_eq!(
             proposal.primary_key_field_ids(),
             &[FieldId::new(1), FieldId::new(3)],
+        );
+    }
+
+    #[test]
+    fn compiled_schema_proposal_preserves_generated_relation_edges() {
+        let proposal = compiled_schema_proposal_for_model(&RELATION_MODEL);
+
+        assert_eq!(proposal.relations().len(), 1);
+        assert_eq!(proposal.relations()[0].name(), "score_owner");
+        assert_eq!(
+            proposal.relations()[0].target_path(),
+            "schema::proposal::tests::ScoreOwner"
+        );
+        assert_eq!(
+            proposal.relations()[0].local_field_ids(),
+            &[FieldId::new(3)]
+        );
+
+        let snapshot = proposal.initial_persisted_schema_snapshot();
+        assert_eq!(snapshot.relations().len(), 1);
+        assert_eq!(snapshot.relations()[0].name(), "score_owner");
+        assert_eq!(
+            snapshot.relations()[0].target_path(),
+            "schema::proposal::tests::ScoreOwner"
+        );
+        assert_eq!(
+            snapshot.relations()[0].local_field_ids(),
+            &[FieldId::new(3)]
         );
     }
 

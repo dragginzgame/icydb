@@ -4,6 +4,10 @@ IcyDB uses separate vocabularies for schema contracts, runtime values, planner
 classification, and storage encodings. Do not collapse these names into one
 universal type system.
 
+Architectural role names such as `Plan`, `Contract`, `Facts`, `Context`,
+`Shape`, `Identity`, and helper verbs are governed by `NAMING.md`. This
+document owns domain vocabulary; `NAMING.md` owns role vocabulary.
+
 ## Schema Vocabulary
 
 User-facing persisted field contracts use explicit schema labels:

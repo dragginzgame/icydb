@@ -193,6 +193,82 @@ mod primary_key_model_tests {
 }
 
 ///
+/// RelationEdgeModel
+///
+/// Generated relation-edge proposal metadata. Runtime accepted-schema paths
+/// must still reconcile this into persisted catalog authority before
+/// execution consumes it.
+///
+
+#[derive(Debug)]
+pub struct RelationEdgeModel {
+    name: &'static str,
+    target_path: &'static str,
+    local_fields: &'static [&'static FieldModel],
+}
+
+impl RelationEdgeModel {
+    /// Build one generated relation-edge proposal from ordered local field
+    /// metadata.
+    #[must_use]
+    pub const fn generated(
+        name: &'static str,
+        target_path: &'static str,
+        local_fields: &'static [&'static FieldModel],
+    ) -> Self {
+        Self {
+            name,
+            target_path,
+            local_fields,
+        }
+    }
+
+    /// Borrow the generated relation edge name.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Borrow the declared target entity path.
+    #[must_use]
+    pub const fn target_path(&self) -> &'static str {
+        self.target_path
+    }
+
+    /// Borrow ordered local relation component field metadata.
+    #[must_use]
+    pub const fn local_fields(&self) -> &'static [&'static FieldModel] {
+        self.local_fields
+    }
+}
+
+#[cfg(test)]
+mod relation_edge_model_tests {
+    use super::RelationEdgeModel;
+    use crate::model::{FieldKind, FieldModel};
+
+    static TENANT_FIELD: FieldModel = FieldModel::generated("tenant_id", FieldKind::Nat64);
+    static USER_FIELD: FieldModel = FieldModel::generated("user_id", FieldKind::Ulid);
+    static LOCAL_FIELDS: [&FieldModel; 2] = [&TENANT_FIELD, &USER_FIELD];
+
+    #[test]
+    fn relation_edge_model_preserves_ordered_local_fields() {
+        let relation = RelationEdgeModel::generated("author", "example::User", &LOCAL_FIELDS);
+
+        assert_eq!(relation.name(), "author");
+        assert_eq!(relation.target_path(), "example::User");
+        assert_eq!(
+            relation
+                .local_fields()
+                .iter()
+                .map(|field| field.name())
+                .collect::<Vec<_>>(),
+            ["tenant_id", "user_id"],
+        );
+    }
+}
+
+///
 /// EntityModel
 ///
 /// Macro-generated runtime schema snapshot for a single entity.
@@ -221,6 +297,9 @@ pub struct EntityModel {
 
     /// Index definitions (field order is significant).
     pub(crate) indexes: &'static [&'static IndexModel],
+
+    /// Generated relation-edge proposal metadata.
+    pub(crate) relations: &'static [RelationEdgeModel],
 }
 
 impl EntityModel {
@@ -247,6 +326,7 @@ impl EntityModel {
             primary_key_model: PrimaryKeyModel::scalar(primary_key),
             fields,
             indexes,
+            relations: &[],
         }
     }
 
@@ -262,6 +342,30 @@ impl EntityModel {
         fields: &'static [FieldModel],
         indexes: &'static [&'static IndexModel],
     ) -> Self {
+        Self::generated_with_primary_key_model_and_relations(
+            path,
+            entity_name,
+            primary_key_model,
+            primary_key_slot,
+            fields,
+            indexes,
+            &[],
+        )
+    }
+
+    /// Construct one generated runtime entity descriptor with explicit
+    /// ordered primary-key metadata and relation-edge proposal metadata.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated_with_primary_key_model_and_relations(
+        path: &'static str,
+        entity_name: &'static str,
+        primary_key_model: PrimaryKeyModel,
+        primary_key_slot: usize,
+        fields: &'static [FieldModel],
+        indexes: &'static [&'static IndexModel],
+        relations: &'static [RelationEdgeModel],
+    ) -> Self {
         Self {
             path,
             entity_name,
@@ -270,6 +374,7 @@ impl EntityModel {
             primary_key_model,
             fields,
             indexes,
+            relations,
         }
     }
 
@@ -323,6 +428,12 @@ impl EntityModel {
     #[must_use]
     pub const fn indexes(&self) -> &'static [&'static IndexModel] {
         self.indexes
+    }
+
+    /// Return generated relation-edge proposal metadata.
+    #[must_use]
+    pub const fn relations(&self) -> &'static [RelationEdgeModel] {
+        self.relations
     }
 
     /// Resolve one schema field name into its stable slot index.

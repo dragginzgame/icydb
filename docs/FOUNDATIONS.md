@@ -19,6 +19,7 @@ Normative specifications live in:
 
 Architecture terminology lives in:
 - `docs/architecture/TERMINOLOGY.md`
+- `docs/architecture/NAMING.md`
 
 ---
 
