@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
+
+Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)
+
+- `0.164.0` starts composite relation target support by moving
+  reverse-relation target identity and accepted relation metadata onto
+  full primary-key identity boundaries.
+
 ## [0.163.x] 🧾 - 2026-05-25 - Stable Allocation Metadata
 
 Detailed notes: [docs/changelog/0.163.md](docs/changelog/0.163.md)

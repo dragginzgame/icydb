@@ -9,11 +9,10 @@ mod parts;
 mod semantics;
 
 #[cfg(test)]
+use crate::db::key_taxonomy::PrimaryKeyComponent;
+#[cfg(test)]
 use crate::db::numeric::compare_numeric_or_strict_order;
-use crate::{
-    db::index::key::ordered::semantics::OrderedEncode, db::key_taxonomy::PrimaryKeyComponent,
-    value::Value,
-};
+use crate::{db::index::key::ordered::semantics::OrderedEncode, value::Value};
 #[cfg(test)]
 use std::cmp::Ordering;
 
@@ -102,6 +101,7 @@ pub(crate) fn encode_canonical_index_component(
 
 /// Encode one decoded primary-key value into canonical index-component bytes without
 /// materializing an owned runtime `Value`.
+#[cfg(test)]
 pub(crate) fn encode_canonical_index_component_from_primary_key_value(
     value: PrimaryKeyComponent,
 ) -> Result<Vec<u8>, OrderedValueEncodeError> {

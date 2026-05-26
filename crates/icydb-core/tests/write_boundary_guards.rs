@@ -763,7 +763,7 @@ fn save_preflight_relations_use_accepted_contracts() {
             && relation_save_validate.contains("PrimaryKeyComponent::from_runtime_value(value)")
             && !relation_save_validate.contains("strong_relations_for_model_iter")
             && !relation_save_validate.contains("E::MODEL"),
-        "save relation validation must derive relation metadata from accepted row contracts and fail closed at the scalar-keyed strong-relation target boundary",
+        "save relation validation must derive relation metadata from accepted row contracts and fail closed at the admitted strong-relation target boundary",
     );
 }
 
@@ -778,10 +778,11 @@ fn reverse_relation_runtime_paths_use_accepted_contracts() {
         reverse_index.contains("accepted_strong_relations_for_row_contract(")
             && reverse_index.contains("source_row_contract: StructuralRowContract,")
             && reverse_index.contains("source_key_value: &PrimaryKeyValue,")
-            && reverse_index.contains("relation_target_primary_key_components_for_source_slots(")
+            && reverse_index.contains("relation_target_primary_key_values_for_source_slots(")
+            && reverse_index.contains("target_key_value: &PrimaryKeyValue,")
             && !reverse_index.contains("strong_relations_for_model_iter")
             && !reverse_index.contains("source_model: &'static EntityModel"),
-        "reverse-index mutation preparation must derive relation fields from accepted row contracts and fail closed at the scalar-keyed source identity boundary",
+        "reverse-index mutation preparation must derive relation fields from accepted row contracts and keep source/target identity on PrimaryKeyValue boundaries",
     );
     assert!(
         delete_validate.contains("accepted_strong_relations_for_row_contract(")

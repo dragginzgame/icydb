@@ -15,6 +15,4 @@ mod tests;
 pub(crate) use codec::{IndexKey, IndexKeyKind, RawIndexStoreKey};
 pub(in crate::db) use expression::derive_index_expression_value;
 pub(crate) use id::IndexId;
-pub(crate) use ordered::{
-    EncodedValue, OrderedValueEncodeError, encode_canonical_index_component_from_primary_key_value,
-};
+pub(crate) use ordered::{EncodedValue, OrderedValueEncodeError};

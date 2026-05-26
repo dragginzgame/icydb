@@ -4,7 +4,7 @@
 //! Boundary: enforces relation target/source consistency before destructive operations.
 
 use crate::{
-    db::key_taxonomy::PrimaryKeyComponent,
+    db::key_taxonomy::PrimaryKeyValue,
     db::{
         Db,
         data::{DecodedDataStoreKey, RawDataStoreKey, StructuralRowContract},
@@ -16,8 +16,8 @@ use crate::{
                 AcceptedStrongRelationInfo, ReverseRelationSourceInfo,
                 accepted_strong_relations_for_row_contract, decode_relation_target_data_key,
                 decode_reverse_entry, relation_target_store,
-                reverse_index_key_bounds_for_target_primary_key_component,
-                source_row_references_relation_target,
+                reverse_index_key_bounds_for_target_primary_key_value,
+                source_row_references_relation_target_primary_key_value,
             },
         },
         schema::ensure_accepted_schema_snapshot,
@@ -39,7 +39,7 @@ use std::{collections::BTreeSet, ops::Bound};
 struct BlockedDeleteProof {
     relation: AcceptedStrongRelationInfo,
     source_data_key: DecodedDataStoreKey,
-    target_key: PrimaryKeyComponent,
+    target_key: PrimaryKeyValue,
 }
 
 impl BlockedDeleteProof {
@@ -53,7 +53,7 @@ impl BlockedDeleteProof {
             blocked_delete_diagnostic::<S>(
                 self.relation,
                 self.source_data_key.try_key::<S>()?,
-                self.target_key,
+                &self.target_key,
             ),
         ))
     }
@@ -132,20 +132,13 @@ where
             else {
                 continue;
             };
-            let Some(target_component) = target_data_key.primary_key_value().scalar_component()
-            else {
-                return Err(InternalError::serialize_unsupported(format!(
-                    "strong relation delete validation does not support composite target primary keys yet: source={source_path} field={} target={}",
-                    relation.field_name(),
-                    relation.target().path(),
-                )));
-            };
+            let target_primary_key = target_data_key.primary_key_value();
 
             let Some((reverse_start, reverse_end)) =
-                reverse_index_key_bounds_for_target_primary_key_component(
+                reverse_index_key_bounds_for_target_primary_key_value(
                     source_info,
                     &relation,
-                    target_component,
+                    &target_primary_key,
                 )?
             else {
                 continue;
@@ -186,18 +179,19 @@ where
                                     target.path(),
                                     reverse_key,
                                     format!(
-                                        "reverse index points at missing source row: source_id={source_key:?} key={target_component:?}"
+                                        "reverse index points at missing source row: source_id={source_key:?} key={target_primary_key:?}"
                                     ),
                                 ));
                             };
 
-                            let still_references_target = source_row_references_relation_target(
-                                &source_raw_row,
-                                source_row_contract.clone(),
-                                source_info,
-                                &relation,
-                                target_component,
-                            )?;
+                            let still_references_target =
+                                source_row_references_relation_target_primary_key_value(
+                                    &source_raw_row,
+                                    source_row_contract.clone(),
+                                    source_info,
+                                    &relation,
+                                    &target_primary_key,
+                                )?;
                             if still_references_target {
                                 record(MetricsEvent::RelationValidation {
                                     entity_path: source_path,
@@ -208,7 +202,7 @@ where
                                 blocked = Some(BlockedDeleteProof {
                                     relation: relation.clone(),
                                     source_data_key,
-                                    target_key: target_component,
+                                    target_key: target_primary_key,
                                 });
                                 return Ok(true);
                             }
@@ -250,7 +244,7 @@ where
 fn blocked_delete_diagnostic<S>(
     relation: AcceptedStrongRelationInfo,
     source_key: S::Key,
-    target_key: PrimaryKeyComponent,
+    target_key: &PrimaryKeyValue,
 ) -> String
 where
     S: EntityKind + EntityValue,

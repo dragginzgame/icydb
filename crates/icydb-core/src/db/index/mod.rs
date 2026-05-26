@@ -24,7 +24,6 @@ pub(in crate::db) use envelope::{
 };
 pub(in crate::db) use key::{
     EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, derive_index_expression_value,
-    encode_canonical_index_component_from_primary_key_value,
 };
 #[cfg(test)]
 pub(in crate::db) use pk_equivalence::primary_key_matches_value;
