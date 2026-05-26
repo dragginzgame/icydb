@@ -91,33 +91,142 @@ struct ReverseRelationSourceTransition<'row, 'slots> {
     new_row_fields: Option<&'slots StructuralSlotReader<'row>>,
 }
 
+struct RelationTargetKeys {
+    values: Vec<PrimaryKeyValue>,
+}
+
+impl RelationTargetKeys {
+    const fn none() -> Self {
+        Self { values: Vec::new() }
+    }
+
+    fn one(value: &PrimaryKeyValue) -> Self {
+        Self {
+            values: vec![*value],
+        }
+    }
+
+    const fn from_values(values: Vec<PrimaryKeyValue>) -> Self {
+        Self { values }
+    }
+
+    fn from_scalar_components(components: Vec<PrimaryKeyComponent>) -> Self {
+        Self::from_values(
+            components
+                .into_iter()
+                .map(PrimaryKeyValue::Scalar)
+                .collect(),
+        )
+    }
+
+    fn contains(&self, target_key: &PrimaryKeyValue) -> bool {
+        self.values.iter().any(|key| key == target_key)
+    }
+
+    fn into_values(self) -> Vec<PrimaryKeyValue> {
+        self.values
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::db::relation) struct AcceptedStrongRelationInfo {
-    field_index: usize,
-    field_name: String,
-    field_kind: PersistedFieldKind,
+    local_components: AcceptedStrongRelationLocalComponents,
     target: AcceptedStrongRelationTargetIdentity,
 }
 
 impl AcceptedStrongRelationInfo {
     #[must_use]
-    pub(in crate::db::relation) const fn field_name(&self) -> &str {
-        self.field_name.as_str()
+    pub(in crate::db::relation) fn field_name(&self) -> &str {
+        self.scalar_local_component().field_name()
     }
 
     #[must_use]
-    pub(in crate::db::relation) const fn field_index(&self) -> usize {
-        self.field_index
+    pub(in crate::db::relation) fn field_index(&self) -> usize {
+        self.scalar_local_component().field_index()
     }
 
     #[must_use]
-    const fn field_kind(&self) -> &PersistedFieldKind {
-        &self.field_kind
+    fn field_kind(&self) -> &PersistedFieldKind {
+        self.scalar_local_component().field_kind()
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn local_components(
+        &self,
+    ) -> &AcceptedStrongRelationLocalComponents {
+        &self.local_components
     }
 
     #[must_use]
     pub(in crate::db::relation) const fn target(&self) -> &AcceptedStrongRelationTargetIdentity {
         &self.target
+    }
+
+    fn scalar_local_component(&self) -> &AcceptedStrongRelationLocalComponent {
+        self.local_components
+            .scalar_component()
+            .expect("scalar relation descriptor must carry exactly one local component")
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::db::relation) struct AcceptedStrongRelationLocalComponents {
+    components: Vec<AcceptedStrongRelationLocalComponent>,
+}
+
+impl AcceptedStrongRelationLocalComponents {
+    fn scalar(field_index: usize, field_name: &str, field_kind: &PersistedFieldKind) -> Self {
+        Self {
+            components: vec![AcceptedStrongRelationLocalComponent {
+                index: field_index,
+                name: field_name.to_string(),
+                kind: field_kind.clone(),
+            }],
+        }
+    }
+
+    #[must_use]
+    const fn component_count(&self) -> usize {
+        self.components.len()
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    const fn components(&self) -> &[AcceptedStrongRelationLocalComponent] {
+        self.components.as_slice()
+    }
+
+    #[must_use]
+    fn scalar_component(&self) -> Option<&AcceptedStrongRelationLocalComponent> {
+        let [component] = self.components.as_slice() else {
+            return None;
+        };
+
+        Some(component)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::db::relation) struct AcceptedStrongRelationLocalComponent {
+    index: usize,
+    name: String,
+    kind: PersistedFieldKind,
+}
+
+impl AcceptedStrongRelationLocalComponent {
+    #[must_use]
+    pub(in crate::db::relation) const fn field_index(&self) -> usize {
+        self.index
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn field_name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn field_kind(&self) -> &PersistedFieldKind {
+        &self.kind
     }
 }
 
@@ -138,7 +247,7 @@ impl AcceptedStrongRelationTargetIdentity {
         target_entity_name: &str,
         target_entity_tag: EntityTag,
         target_store_path: &str,
-        key_kind: &PersistedFieldKind,
+        key_kinds: &[PersistedFieldKind],
     ) -> Result<Self, InternalError> {
         let entity_name = EntityName::try_from_str(target_entity_name).map_err(|err| {
             InternalError::strong_relation_target_name_invalid(
@@ -155,7 +264,9 @@ impl AcceptedStrongRelationTargetIdentity {
             entity_name,
             entity_tag: target_entity_tag,
             store_path: target_store_path.to_string(),
-            primary_key: AcceptedStrongRelationTargetPrimaryKey::scalar(key_kind),
+            primary_key: AcceptedStrongRelationTargetPrimaryKey::try_from_component_kinds(
+                key_kinds,
+            )?,
         })
     }
 
@@ -263,10 +374,18 @@ pub(in crate::db::relation) struct AcceptedStrongRelationTargetPrimaryKey {
 }
 
 impl AcceptedStrongRelationTargetPrimaryKey {
-    fn scalar(key_kind: &PersistedFieldKind) -> Self {
-        Self {
-            component_kinds: vec![key_kind.clone()],
+    fn try_from_component_kinds(
+        component_kinds: &[PersistedFieldKind],
+    ) -> Result<Self, InternalError> {
+        if component_kinds.is_empty() {
+            return Err(InternalError::relation_source_row_unsupported_key_kind(
+                component_kinds,
+            ));
         }
+
+        Ok(Self {
+            component_kinds: component_kinds.to_vec(),
+        })
     }
 
     #[must_use]
@@ -275,7 +394,7 @@ impl AcceptedStrongRelationTargetPrimaryKey {
     }
 
     #[must_use]
-    fn scalar_key_kind(&self) -> Option<&PersistedFieldKind> {
+    fn single_component_kind(&self) -> Option<&PersistedFieldKind> {
         let [key_kind] = self.component_kinds.as_slice() else {
             return None;
         };
@@ -366,9 +485,11 @@ fn accepted_strong_relation_from_field(
     }
 
     Ok(Some(AcceptedStrongRelationInfo {
-        field_index,
-        field_name: field_name.to_string(),
-        field_kind: kind.clone(),
+        local_components: AcceptedStrongRelationLocalComponents::scalar(
+            field_index,
+            field_name,
+            kind,
+        ),
         target: AcceptedStrongRelationTargetIdentity::try_new(
             source_path,
             field_name,
@@ -376,7 +497,7 @@ fn accepted_strong_relation_from_field(
             target_entity_name,
             target_entity_tag,
             target_store_path,
-            key_kind,
+            std::slice::from_ref(key_kind),
         )?,
     }))
 }
@@ -518,10 +639,9 @@ fn relation_target_raw_keys_for_source_slots(
     source_info: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
-    let keys =
-        relation_target_primary_key_values_for_source_slots(row_fields, source_info, relation)?;
+    let keys = relation_target_keys_for_source_slots(row_fields, source_info, relation)?;
 
-    relation_target_raw_keys_from_primary_key_values(source_info, relation, keys)
+    relation_target_raw_keys_from_relation_target_keys(source_info, relation, keys)
 }
 
 /// Check whether one persisted source row still references one complete target
@@ -547,10 +667,9 @@ fn source_slots_reference_relation_target(
     relation: &AcceptedStrongRelationInfo,
     target_key: &PrimaryKeyValue,
 ) -> Result<bool, InternalError> {
-    let keys =
-        relation_target_primary_key_values_for_source_slots(row_fields, source_info, relation)?;
+    let keys = relation_target_keys_for_source_slots(row_fields, source_info, relation)?;
 
-    Ok(keys.into_iter().any(|candidate| candidate == *target_key))
+    Ok(keys.contains(target_key))
 }
 
 // Canonicalize reverse-index target keys into deterministic sorted-unique order.
@@ -642,14 +761,14 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
     Ok(Some(target_data_key))
 }
 
-// Convert decoded relation target primary-key values into canonical sorted raw
-// keys.
-fn relation_target_raw_keys_from_primary_key_values(
+// Convert decoded relation target keys into canonical sorted raw keys.
+fn relation_target_raw_keys_from_relation_target_keys(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    keys: Vec<PrimaryKeyValue>,
+    keys: RelationTargetKeys,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let mut keys = keys
+        .into_values()
         .into_iter()
         .map(|value| raw_relation_target_key_from_primary_key_value(source, relation, &value))
         .collect::<Result<Vec<_>, _>>()?;
@@ -658,35 +777,32 @@ fn relation_target_raw_keys_from_primary_key_values(
     Ok(keys)
 }
 
-// Decode one relation field into structural target primary-key values through the
-// shared scalar-fast-path or field-bytes path used by delete validation and
+// Decode one relation field into structural target keys through the shared
+// scalar-fast-path or field-bytes path used by delete validation and
 // reverse-index mutation preparation.
-fn relation_target_primary_key_values_for_source_slots(
+fn relation_target_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Vec<PrimaryKeyValue>, InternalError> {
+) -> Result<RelationTargetKeys, InternalError> {
     // Phase 1: keep single relation slots on the scalar fast path when the
     // persisted field already uses a primary-key-compatible leaf codec.
-    if let Some(keys) =
-        relation_target_primary_key_values_from_scalar_slot(row_fields, source, relation)?
-    {
+    if let Some(keys) = relation_target_keys_from_scalar_slot(row_fields, source, relation)? {
         return Ok(keys);
     }
 
     // Phase 2: decode the declared relation field payload directly into target
-    // primary-key values without rebuilding a runtime `Value` container.
-    relation_target_primary_key_values_from_field_bytes(row_fields, source, relation)
+    // keys without rebuilding a runtime `Value` container.
+    relation_target_keys_from_field_bytes(row_fields, source, relation)
 }
 
 // Decode the one strong-relation field payload needed by structural delete
-// validation directly into relation target primary-key values from the
-// encoded field bytes.
-fn relation_target_primary_key_values_from_field_bytes(
+// validation directly into relation target keys from the encoded field bytes.
+fn relation_target_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Vec<PrimaryKeyValue>, InternalError> {
+) -> Result<RelationTargetKeys, InternalError> {
     validate_relation_field_kind(relation)?;
 
     let bytes = row_fields.required_field_bytes(relation.field_index(), relation.field_name())?;
@@ -701,16 +817,16 @@ fn relation_target_primary_key_values_from_field_bytes(
                 )
             })?;
 
-    Ok(keys.into_iter().map(PrimaryKeyValue::Scalar).collect())
+    Ok(RelationTargetKeys::from_scalar_components(keys))
 }
 
 // Decode one singular strong relation directly from the scalar slot codec when
 // the relation key kind is already primary-key-compatible on the persisted row.
-fn relation_target_primary_key_values_from_scalar_slot(
+fn relation_target_keys_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Option<Vec<PrimaryKeyValue>>, InternalError> {
+) -> Result<Option<RelationTargetKeys>, InternalError> {
     let PersistedFieldKind::Relation { .. } = relation.field_kind() else {
         return Ok(None);
     };
@@ -725,7 +841,7 @@ fn relation_target_primary_key_values_from_scalar_slot(
     }
 
     match row_fields.required_scalar(relation.field_index())? {
-        ScalarSlotValueRef::Null => Ok(Some(Vec::new())),
+        ScalarSlotValueRef::Null => Ok(Some(RelationTargetKeys::none())),
         ScalarSlotValueRef::Value(value) => {
             let primary_key_value =
                 primary_key_value_from_relation_scalar(value).ok_or_else(|| {
@@ -736,7 +852,9 @@ fn relation_target_primary_key_values_from_scalar_slot(
                     )
                 })?;
 
-            Ok(Some(vec![PrimaryKeyValue::Scalar(primary_key_value)]))
+            let key = PrimaryKeyValue::Scalar(primary_key_value);
+
+            Ok(Some(RelationTargetKeys::one(&key)))
         }
     }
 }
@@ -824,7 +942,15 @@ fn validate_relation_field_kind(
 fn validate_relation_target_primary_key_kinds(
     relation: &AcceptedStrongRelationInfo,
 ) -> Result<(), InternalError> {
-    let Some(key_kind) = relation.target().primary_key().scalar_key_kind() else {
+    if relation.local_components().component_count()
+        != relation.target().primary_key().component_kinds().len()
+    {
+        return Err(InternalError::relation_source_row_unsupported_key_kind(
+            relation.target().primary_key().component_kinds(),
+        ));
+    }
+
+    let Some(key_kind) = relation.target().primary_key().single_component_kind() else {
         return Err(InternalError::relation_source_row_unsupported_key_kind(
             relation.target().primary_key().component_kinds(),
         ));
@@ -1039,8 +1165,9 @@ fn relation_target_keys_for_transition_side(
 #[cfg(test)]
 mod tests {
     use super::{
-        AcceptedStrongRelationInfo, AcceptedStrongRelationTargetIdentity,
-        ReverseRelationSourceInfo, relation_scalar_slot_fast_path_key_kind_supported,
+        AcceptedStrongRelationInfo, AcceptedStrongRelationLocalComponents,
+        AcceptedStrongRelationTargetIdentity, RelationTargetKeys, ReverseRelationSourceInfo,
+        relation_scalar_slot_fast_path_key_kind_supported,
         reverse_index_key_bounds_for_target_primary_key_value,
         reverse_index_key_for_target_and_source_primary_key_value,
         validate_relation_target_primary_key_kinds,
@@ -1056,17 +1183,21 @@ mod tests {
     use crate::types::EntityTag;
 
     fn relation(field_index: usize, key_kind: PersistedFieldKind) -> AcceptedStrongRelationInfo {
+        let field_kind = PersistedFieldKind::Relation {
+            target_path: "Target".to_string(),
+            target_entity_name: "Target".to_string(),
+            target_entity_tag: EntityTag::new(77),
+            target_store_path: "TargetStore".to_string(),
+            key_kind: Box::new(key_kind.clone()),
+            strength: PersistedRelationStrength::Strong,
+        };
+
         AcceptedStrongRelationInfo {
-            field_index,
-            field_name: "target_id".to_string(),
-            field_kind: PersistedFieldKind::Relation {
-                target_path: "Target".to_string(),
-                target_entity_name: "Target".to_string(),
-                target_entity_tag: EntityTag::new(77),
-                target_store_path: "TargetStore".to_string(),
-                key_kind: Box::new(key_kind.clone()),
-                strength: PersistedRelationStrength::Strong,
-            },
+            local_components: AcceptedStrongRelationLocalComponents::scalar(
+                field_index,
+                "target_id",
+                &field_kind,
+            ),
             target: AcceptedStrongRelationTargetIdentity::try_new(
                 "Source",
                 "target_id",
@@ -1074,7 +1205,7 @@ mod tests {
                 "Target",
                 EntityTag::new(77),
                 "TargetStore",
-                &key_kind,
+                std::slice::from_ref(&key_kind),
             )
             .expect("target identity should build"),
         }
@@ -1089,6 +1220,106 @@ mod tests {
             &[PersistedFieldKind::Nat64],
             "current scalar relation metadata is represented as a one-component target primary key",
         );
+    }
+
+    #[test]
+    fn accepted_relation_target_identity_can_carry_ordered_composite_metadata() {
+        let target = AcceptedStrongRelationTargetIdentity::try_new(
+            "Source",
+            "target_id",
+            "Target",
+            "Target",
+            EntityTag::new(77),
+            "TargetStore",
+            &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
+        )
+        .expect("target identity should build");
+
+        assert_eq!(
+            target.primary_key().component_kinds(),
+            &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
+        );
+    }
+
+    #[test]
+    fn accepted_relation_target_identity_rejects_empty_primary_key_metadata() {
+        AcceptedStrongRelationTargetIdentity::try_new(
+            "Source",
+            "target_id",
+            "Target",
+            "Target",
+            EntityTag::new(77),
+            "TargetStore",
+            &[],
+        )
+        .expect_err("relation target identity must fail closed without PK metadata");
+    }
+
+    #[test]
+    fn relation_target_keys_make_none_one_and_many_explicit() {
+        assert!(
+            !RelationTargetKeys::none()
+                .contains(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(1),))
+        );
+
+        let key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7));
+        let one = RelationTargetKeys::one(&key);
+        assert!(one.contains(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7))));
+        assert_eq!(one.into_values().len(), 1);
+
+        let many = RelationTargetKeys::from_scalar_components(vec![
+            PrimaryKeyComponent::Nat64(7),
+            PrimaryKeyComponent::Nat64(8),
+        ]);
+        assert!(many.contains(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(8))));
+        assert_eq!(many.into_values().len(), 2);
+    }
+
+    #[test]
+    fn accepted_relation_info_carries_ordered_local_component_metadata() {
+        let relation = relation(3, PersistedFieldKind::Nat64);
+        let [component] = relation.local_components().components() else {
+            panic!("scalar relation descriptor should expose one local component");
+        };
+
+        assert_eq!(component.field_index(), 3);
+        assert_eq!(component.field_name(), "target_id");
+        assert!(matches!(
+            component.field_kind(),
+            PersistedFieldKind::Relation { .. }
+        ));
+    }
+
+    #[test]
+    fn relation_validation_rejects_local_target_component_arity_mismatch() {
+        let field_kind = PersistedFieldKind::Relation {
+            target_path: "Target".to_string(),
+            target_entity_name: "Target".to_string(),
+            target_entity_tag: EntityTag::new(77),
+            target_store_path: "TargetStore".to_string(),
+            key_kind: Box::new(PersistedFieldKind::Nat64),
+            strength: PersistedRelationStrength::Strong,
+        };
+        let relation = AcceptedStrongRelationInfo {
+            local_components: AcceptedStrongRelationLocalComponents::scalar(
+                3,
+                "target_id",
+                &field_kind,
+            ),
+            target: AcceptedStrongRelationTargetIdentity::try_new(
+                "Source",
+                "target_id",
+                "Target",
+                "Target",
+                EntityTag::new(77),
+                "TargetStore",
+                &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
+            )
+            .expect("target identity should build"),
+        };
+
+        validate_relation_target_primary_key_kinds(&relation)
+            .expect_err("single local field must not validate against composite target metadata");
     }
 
     #[test]
