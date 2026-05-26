@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Added strict `field = "..."` scalar shorthand alongside `fields = [...]`
+  for derive primary-key and index declarations, with both forms normalizing
+  to the same ordered field-list model.
+
 ## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)

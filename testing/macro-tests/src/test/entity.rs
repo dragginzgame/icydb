@@ -30,6 +30,20 @@ mod tests {
         assert_entity_key::<Entity>();
     }
 
+    #[test]
+    fn scalar_primary_key_field_shorthand_reaches_entity_model() {
+        assert_eq!(Entity::MODEL.primary_key_names(), ["id"]);
+    }
+
+    #[test]
+    fn scalar_index_field_shorthand_reaches_entity_model() {
+        let [index] = Entity::MODEL.indexes() else {
+            panic!("entity should expose one shorthand-declared index");
+        };
+
+        assert_eq!(index.fields(), ["a"]);
+    }
+
     fn assert_composite_entity_key<T>()
     where
         T: EntityKey<Key = CompositePrimaryKeyEntityKey>,

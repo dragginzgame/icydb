@@ -7,7 +7,8 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    pk(fields = ["id"]),
+    pk(field = "id"),
+    index(field = "a"),
     fields(
         field(
             ident = "id",

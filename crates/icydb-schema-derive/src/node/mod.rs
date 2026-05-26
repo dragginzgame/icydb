@@ -4,6 +4,7 @@ mod def;
 mod entity;
 mod r#enum;
 mod field;
+mod field_list_arg;
 mod index;
 mod item;
 mod list;

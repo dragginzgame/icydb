@@ -1,3 +1,6 @@
+use super::field_list_arg::{
+    field_or_fields_duplicate_message, parse_field_list_arg, parse_scalar_field_arg,
+};
 use crate::prelude::*;
 use darling::ast::NestedMeta;
 use std::collections::HashSet;
@@ -34,26 +37,30 @@ impl FromMeta for PrimaryKey {
         for item in items {
             let NestedMeta::Meta(syn::Meta::NameValue(name_value)) = item else {
                 return Err(DarlingError::custom(
-                    "pk(...) supports only fields = [...] and source = \"...\"",
+                    "pk(...) supports only field = \"...\", fields = [...], and source = \"...\"",
                 ));
             };
 
             if name_value.path.is_ident("field") {
-                return Err(DarlingError::custom(
-                    "pk(field = ...) was removed; use pk(fields = [\"id\"])",
-                )
-                .with_span(&name_value.path));
+                let field = parse_scalar_field_arg("pk", &name_value.value)?;
+                if fields.replace(vec![field]).is_some() {
+                    return Err(
+                        DarlingError::custom(field_or_fields_duplicate_message("pk"))
+                            .with_span(&name_value.path),
+                    );
+                }
+                continue;
             }
 
             if name_value.path.is_ident("fields") {
                 if fields
-                    .replace(parse_primary_key_fields(&name_value.value)?)
+                    .replace(parse_field_list_arg("pk", &name_value.value)?)
                     .is_some()
                 {
-                    return Err(DarlingError::custom(
-                        "pk(...) accepts only one fields = [...] argument",
-                    )
-                    .with_span(&name_value.path));
+                    return Err(
+                        DarlingError::custom(field_or_fields_duplicate_message("pk"))
+                            .with_span(&name_value.path),
+                    );
                 }
                 continue;
             }
@@ -72,13 +79,15 @@ impl FromMeta for PrimaryKey {
             }
 
             return Err(DarlingError::custom(
-                "pk(...) supports only fields = [...] and source = \"...\"",
+                "pk(...) supports only field = \"...\", fields = [...], and source = \"...\"",
             )
             .with_span(&name_value.path));
         }
 
         let Some(fields) = fields else {
-            return Err(DarlingError::custom("pk(...) requires fields = [\"id\"]"));
+            return Err(DarlingError::custom(
+                "pk(...) requires field = \"id\" or fields = [\"id\"]",
+            ));
         };
 
         if fields.is_empty() {
@@ -137,40 +146,6 @@ impl HasSchemaPart for PrimaryKey {
         quote! {
             ::icydb::schema::node::PrimaryKey::new(#fields, #source)
         }
-    }
-}
-
-fn parse_primary_key_fields(expr: &syn::Expr) -> Result<Vec<LitStr>, DarlingError> {
-    match expr {
-        syn::Expr::Array(array) => array
-            .elems
-            .iter()
-            .map(|element| {
-                let syn::Expr::Lit(expr_lit) = element else {
-                    return Err(DarlingError::custom(
-                        "pk(fields = [...]) requires string literal field names",
-                    )
-                    .with_span(element));
-                };
-                let syn::Lit::Str(literal) = &expr_lit.lit else {
-                    return Err(DarlingError::custom(
-                        "pk(fields = [...]) requires string literal field names",
-                    )
-                    .with_span(element));
-                };
-                Ok(literal.clone())
-            })
-            .collect(),
-        syn::Expr::Lit(expr_lit) if matches!(expr_lit.lit, syn::Lit::Str(_)) => {
-            Err(DarlingError::custom(
-                "pk(fields = ...) must be a Rust array literal of string literals, not a comma-string",
-            )
-            .with_span(expr))
-        }
-        _ => Err(DarlingError::custom(
-            "pk(fields = ...) must be a Rust array literal of string literals",
-        )
-        .with_span(expr)),
     }
 }
 
@@ -254,13 +229,24 @@ mod tests {
     }
 
     #[test]
-    fn from_list_rejects_removed_field_syntax() {
-        let err = parse_primary_key(quote!(field = "id"))
-            .expect_err("old primary-key field syntax should reject");
+    fn from_list_parses_scalar_field_shorthand() {
+        let primary_key = parse_primary_key(quote!(field = "id"))
+            .expect("scalar primary-key field shorthand should parse");
+
+        assert_eq!(primary_key.scalar_field().to_string(), "id");
+        assert_eq!(primary_key.fields().len(), 1);
+        assert_eq!(primary_key.source, PrimaryKeySource::Internal);
+    }
+
+    #[test]
+    fn from_list_rejects_mixed_field_and_fields_syntax() {
+        let err = parse_primary_key(quote!(field = "id", fields = ["tenant_id", "id"]))
+            .expect_err("primary-key field and fields syntax should be mutually exclusive");
 
         assert!(
-            err.to_string()
-                .contains("pk(field = ...) was removed; use pk(fields = [\"id\"])"),
+            err.to_string().contains(
+                "pk(...) accepts either one field = \"...\" argument or one fields = [...] argument"
+            ),
             "unexpected error: {err}",
         );
     }

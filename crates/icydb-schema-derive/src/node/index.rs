@@ -1,4 +1,13 @@
-use crate::{node::Entity, prelude::*};
+use crate::{
+    node::{
+        Entity,
+        field_list_arg::{
+            field_or_fields_duplicate_message, parse_field_list_arg, parse_scalar_field_arg,
+        },
+    },
+    prelude::*,
+};
+use darling::ast::NestedMeta;
 use icydb_core::{
     db::{
         CoercionId as CoreCoercionId, CompareFieldsPredicate as CoreCompareFieldsPredicate,
@@ -18,17 +27,155 @@ use icydb_core::{
 /// Index
 ///
 
-#[derive(Debug, FromMeta)]
+#[derive(Debug)]
 pub struct Index {
     pub(crate) fields: Vec<LitStr>,
 
-    #[darling(default)]
     pub(crate) unique: bool,
 
-    #[darling(default)]
     // Raw SQL predicate text is accepted at the derive boundary and lowered
     // into canonical predicate semantics during macro expansion.
     pub(crate) predicate: Option<String>,
+}
+
+impl FromMeta for Index {
+    fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
+        let mut fields = None;
+        let mut unique = false;
+        let mut unique_seen = false;
+        let mut predicate = None;
+
+        for item in items {
+            match item {
+                NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("unique") => {
+                    if unique_seen {
+                        return Err(DarlingError::custom(
+                            "index(...) accepts only one unique argument",
+                        )
+                        .with_span(path));
+                    }
+                    unique = true;
+                    unique_seen = true;
+                }
+                NestedMeta::Meta(syn::Meta::NameValue(name_value)) => {
+                    if name_value.path.is_ident("field") {
+                        let field = parse_scalar_field_arg("index", &name_value.value)?;
+                        if fields.replace(vec![field]).is_some() {
+                            return Err(DarlingError::custom(field_or_fields_duplicate_message(
+                                "index",
+                            ))
+                            .with_span(&name_value.path));
+                        }
+                        continue;
+                    }
+
+                    if name_value.path.is_ident("fields") {
+                        if fields
+                            .replace(parse_field_list_arg("index", &name_value.value)?)
+                            .is_some()
+                        {
+                            return Err(DarlingError::custom(field_or_fields_duplicate_message(
+                                "index",
+                            ))
+                            .with_span(&name_value.path));
+                        }
+                        continue;
+                    }
+
+                    if name_value.path.is_ident("unique") {
+                        if unique_seen {
+                            return Err(DarlingError::custom(
+                                "index(...) accepts only one unique argument",
+                            )
+                            .with_span(&name_value.path));
+                        }
+                        unique = parse_index_bool_arg(&name_value.value)?;
+                        unique_seen = true;
+                        continue;
+                    }
+
+                    if name_value.path.is_ident("predicate") {
+                        if predicate
+                            .replace(parse_index_string_arg(&name_value.value)?)
+                            .is_some()
+                        {
+                            return Err(DarlingError::custom(
+                                "index(...) accepts only one predicate = \"...\" argument",
+                            )
+                            .with_span(&name_value.path));
+                        }
+                        continue;
+                    }
+
+                    return Err(DarlingError::custom(
+                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                    )
+                    .with_span(&name_value.path));
+                }
+                NestedMeta::Meta(syn::Meta::Path(path)) => {
+                    return Err(DarlingError::custom(
+                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                    )
+                    .with_span(path));
+                }
+                _ => {
+                    return Err(DarlingError::custom(
+                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                    ));
+                }
+            }
+        }
+
+        let Some(fields) = fields else {
+            return Err(DarlingError::custom(
+                "index(...) requires field = \"...\" or fields = [...]",
+            ));
+        };
+
+        if fields.is_empty() {
+            return Err(DarlingError::custom(
+                "index(fields = []) must contain at least one field",
+            ));
+        }
+
+        Ok(Self {
+            fields,
+            unique,
+            predicate,
+        })
+    }
+}
+
+fn parse_index_string_arg(expr: &syn::Expr) -> Result<String, DarlingError> {
+    let syn::Expr::Lit(expr_lit) = expr else {
+        return Err(
+            DarlingError::custom("index(predicate = ...) requires a string literal")
+                .with_span(expr),
+        );
+    };
+    let syn::Lit::Str(literal) = &expr_lit.lit else {
+        return Err(
+            DarlingError::custom("index(predicate = ...) requires a string literal")
+                .with_span(expr),
+        );
+    };
+
+    Ok(literal.value())
+}
+
+fn parse_index_bool_arg(expr: &syn::Expr) -> Result<bool, DarlingError> {
+    let syn::Expr::Lit(expr_lit) = expr else {
+        return Err(
+            DarlingError::custom("index(unique = ...) requires true or false").with_span(expr),
+        );
+    };
+    let syn::Lit::Bool(literal) = &expr_lit.lit else {
+        return Err(
+            DarlingError::custom("index(unique = ...) requires true or false").with_span(expr),
+        );
+    };
+
+    Ok(literal.value)
 }
 
 impl HasSchemaPart for Index {
@@ -817,7 +964,9 @@ fn parse_index_field_ident(field: &str, literal: &LitStr) -> Result<Ident, Darli
 #[cfg(test)]
 mod tests {
     use crate::node::index::{Index, IndexExpressionSpec, IndexKeyItemSpec};
+    use darling::{FromMeta, ast::NestedMeta};
     use proc_macro2::Span;
+    use quote::quote;
     use syn::LitStr;
 
     fn field_list(values: &[&str]) -> Vec<LitStr> {
@@ -825,6 +974,65 @@ mod tests {
             .iter()
             .map(|value| LitStr::new(value, Span::call_site()))
             .collect()
+    }
+
+    fn parse_index(tokens: proc_macro2::TokenStream) -> Result<Index, darling::Error> {
+        let args = NestedMeta::parse_meta_list(tokens).expect("test meta should parse");
+        Index::from_list(&args)
+    }
+
+    #[test]
+    fn from_list_parses_scalar_field_shorthand() {
+        let index =
+            parse_index(quote!(field = "email")).expect("scalar index shorthand should parse");
+
+        assert_eq!(
+            index.fields.iter().map(LitStr::value).collect::<Vec<_>>(),
+            ["email"],
+        );
+        assert!(!index.unique);
+        assert_eq!(index.predicate, None);
+    }
+
+    #[test]
+    fn from_list_parses_fields_unique_and_predicate() {
+        let index = parse_index(quote!(
+            fields = ["tenant_id", "LOWER(email)"],
+            unique,
+            predicate = "active = true"
+        ))
+        .expect("index fields syntax should parse");
+
+        assert_eq!(
+            index.fields.iter().map(LitStr::value).collect::<Vec<_>>(),
+            ["tenant_id", "LOWER(email)"],
+        );
+        assert!(index.unique);
+        assert_eq!(index.predicate.as_deref(), Some("active = true"));
+    }
+
+    #[test]
+    fn from_list_rejects_mixed_field_and_fields_syntax() {
+        let err = parse_index(quote!(field = "email", fields = ["tenant_id", "email"]))
+            .expect_err("index field and fields syntax should be mutually exclusive");
+
+        assert!(
+            err.to_string().contains(
+                "index(...) accepts either one field = \"...\" argument or one fields = [...] argument"
+            ),
+            "unexpected error: {err}",
+        );
+    }
+
+    #[test]
+    fn from_list_rejects_comma_string_fields() {
+        let err = parse_index(quote!(fields = "tenant_id, email"))
+            .expect_err("index fields should reject comma strings");
+
+        assert!(
+            err.to_string().contains("not a comma-string"),
+            "unexpected error: {err}",
+        );
     }
 
     #[test]
