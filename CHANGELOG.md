@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Moved relation target extraction onto an explicit none/one/many target-key
-  domain so scalar and collection relation payloads no longer communicate
-  cardinality through raw vector length.
-
 ## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)
+
+- `0.164.2` moves relation target extraction onto an explicit target-key
+  domain so scalar and collection relation payloads no longer communicate
+  cardinality through raw vector length.
 
 - `0.164.1` adds 128-bit scalar relation key lane coverage and moves
   accepted strong-relation source metadata onto ordered local component

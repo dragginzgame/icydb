@@ -778,7 +778,7 @@ fn reverse_relation_runtime_paths_use_accepted_contracts() {
         reverse_index.contains("accepted_strong_relations_for_row_contract(")
             && reverse_index.contains("source_row_contract: StructuralRowContract,")
             && reverse_index.contains("source_key_value: &PrimaryKeyValue,")
-            && reverse_index.contains("relation_target_primary_key_values_for_source_slots(")
+            && reverse_index.contains("relation_target_keys_for_source_slots(")
             && reverse_index.contains("target_key_value: &PrimaryKeyValue,")
             && !reverse_index.contains("strong_relations_for_model_iter")
             && !reverse_index.contains("source_model: &'static EntityModel"),
