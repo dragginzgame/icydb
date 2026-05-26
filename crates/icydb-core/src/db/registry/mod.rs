@@ -12,4 +12,5 @@ mod tests;
 
 pub(crate) use error::StoreRegistryError;
 pub(crate) use handle::StoreHandle;
+pub use handle::{StoreAllocationIdentities, StoreAllocationIdentity};
 pub use registry::StoreRegistry;

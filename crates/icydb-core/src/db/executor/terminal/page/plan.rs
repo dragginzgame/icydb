@@ -473,16 +473,15 @@ fn resolve_direct_data_row_path<'a>(
     // Phase 3: non-route-ordered direct lanes are only valid when an
     // in-memory order window can run on raw data rows after scan-time
     // residual filtering has already been settled.
-    let materialized_order_direct_eligible = logical
-        .order
-        .as_ref()
-        .is_some_and(|order| !order.fields.is_empty())
-        && retained_slot_layout.is_some()
-        && (matches!(residual_filter_scan_mode, ResidualFilterScanMode::Absent)
-            || (matches!(
-                residual_filter_scan_mode,
-                ResidualFilterScanMode::AppliedDuringScan
-            ) && residual_filter_program.is_some()));
+    let materialized_order_direct_eligible = materialized_order_direct_eligible(
+        logical
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty()),
+        retained_slot_layout,
+        residual_filter_program,
+        residual_filter_scan_mode,
+    );
     if !materialized_order_direct_eligible {
         return Ok(None);
     }
@@ -493,6 +492,26 @@ fn resolve_direct_data_row_path<'a>(
         filter_program: residual_filter_program,
         retained_slot_layout,
     }))
+}
+
+// Return whether an unordered route may still use the direct raw-row
+// materialized-order lane. Unfiltered scans can sort directly from `DataRow`
+// payloads; scan-time residual filtering needs retained slots so the filter
+// can run before ordering.
+const fn materialized_order_direct_eligible(
+    has_order_fields: bool,
+    retained_slot_layout: Option<&RetainedSlotLayout>,
+    residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
+    residual_filter_scan_mode: ResidualFilterScanMode,
+) -> bool {
+    has_order_fields
+        && match residual_filter_scan_mode {
+            ResidualFilterScanMode::Absent => true,
+            ResidualFilterScanMode::AppliedDuringScan => {
+                residual_filter_program.is_some() && retained_slot_layout.is_some()
+            }
+            ResidualFilterScanMode::DeferredPostAccess => false,
+        }
 }
 
 // Resolve one concrete kernel-row scan strategy from the payload mode and
@@ -680,4 +699,39 @@ const fn select_cursorless_short_path_payload_mode(
         cursor_boundary.is_none(),
         retained_slot_layout,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ResidualFilterScanMode, materialized_order_direct_eligible};
+
+    #[test]
+    fn unfiltered_materialized_order_direct_path_does_not_require_retained_slots() {
+        assert!(materialized_order_direct_eligible(
+            true,
+            None,
+            None,
+            ResidualFilterScanMode::Absent,
+        ));
+    }
+
+    #[test]
+    fn scan_time_filtered_materialized_order_direct_path_requires_retained_slots() {
+        assert!(!materialized_order_direct_eligible(
+            true,
+            None,
+            None,
+            ResidualFilterScanMode::AppliedDuringScan,
+        ));
+    }
+
+    #[test]
+    fn direct_materialized_order_path_requires_order_fields() {
+        assert!(!materialized_order_direct_eligible(
+            false,
+            None,
+            None,
+            ResidualFilterScanMode::Absent,
+        ));
+    }
 }

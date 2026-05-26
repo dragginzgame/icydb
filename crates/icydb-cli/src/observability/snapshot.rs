@@ -4,7 +4,7 @@
 //! Boundary: exposes the snapshot command and test-covered report rendering through observability.
 
 use candid::Decode;
-use icydb::db::StorageReport;
+use icydb::db::{DataStoreSnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport};
 
 use crate::{
     cli::CanisterTarget,
@@ -57,33 +57,17 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     let data_rows = report
         .storage_data()
         .iter()
-        .map(|row| data_store_row(row.path(), row.entries(), row.memory_bytes()))
+        .map(data_store_row)
         .collect::<Vec<_>>();
     let index_rows = report
         .storage_index()
         .iter()
-        .map(|row| {
-            index_store_row(
-                row.path(),
-                row.entries(),
-                row.user_entries(),
-                row.system_entries(),
-                row.memory_bytes(),
-                format!("{:?}", row.state()),
-            )
-        })
+        .map(index_store_row)
         .collect::<Vec<_>>();
     let schema_rows = report
         .schema_storage()
         .iter()
-        .map(|row| {
-            schema_store_row(
-                row.path(),
-                row.schema_version(),
-                row.schema_fingerprint(),
-                row.entity_count(),
-            )
-        })
+        .map(schema_store_row)
         .collect::<Vec<_>>();
     let entity_rows = report
         .entity_storage()
@@ -116,44 +100,43 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     output
 }
 
-fn data_store_row(path: &str, entries: u64, memory_bytes: u64) -> [String; 3] {
+fn data_store_row(row: &DataStoreSnapshot) -> [String; 5] {
     [
-        path.to_string(),
-        entries.to_string(),
-        memory_bytes.to_string(),
+        row.path().to_string(),
+        format_optional_u8(row.memory_id()),
+        row.stable_key().unwrap_or("-").to_string(),
+        row.entries().to_string(),
+        row.memory_bytes().to_string(),
     ]
 }
 
-fn index_store_row(
-    path: &str,
-    entries: u64,
-    user_entries: u64,
-    system_entries: u64,
-    memory_bytes: u64,
-    state: String,
-) -> [String; 6] {
+fn index_store_row(row: &IndexStoreSnapshot) -> [String; 8] {
     [
-        path.to_string(),
-        entries.to_string(),
-        user_entries.to_string(),
-        system_entries.to_string(),
-        memory_bytes.to_string(),
-        state,
+        row.path().to_string(),
+        format_optional_u8(row.memory_id()),
+        row.stable_key().unwrap_or("-").to_string(),
+        row.entries().to_string(),
+        row.user_entries().to_string(),
+        row.system_entries().to_string(),
+        row.memory_bytes().to_string(),
+        format!("{:?}", row.state()),
     ]
 }
 
-fn schema_store_row(
-    path: &str,
-    schema_version: Option<u32>,
-    schema_fingerprint: Option<&str>,
-    entity_count: u64,
-) -> [String; 4] {
+fn schema_store_row(row: &SchemaStoreSnapshot) -> [String; 6] {
     [
-        path.to_string(),
-        schema_version.map_or_else(|| "-".to_string(), |version| version.to_string()),
-        schema_fingerprint.unwrap_or("-").to_string(),
-        entity_count.to_string(),
+        row.path().to_string(),
+        format_optional_u8(row.memory_id()),
+        row.stable_key().unwrap_or("-").to_string(),
+        row.schema_version()
+            .map_or_else(|| "-".to_string(), |version| version.to_string()),
+        row.schema_fingerprint().unwrap_or("-").to_string(),
+        row.entity_count().to_string(),
     ]
+}
+
+fn format_optional_u8(value: Option<u8>) -> String {
+    value.map_or_else(|| "-".to_string(), |value| value.to_string())
 }
 
 fn entity_storage_row(path: &str, store: &str, entries: u64, memory_bytes: u64) -> [String; 4] {
@@ -165,23 +148,40 @@ fn entity_storage_row(path: &str, store: &str, entries: u64, memory_bytes: u64) 
     ]
 }
 
-fn append_data_store_table(output: &mut String, rows: &[[String; 3]]) {
+fn append_data_store_table(output: &mut String, rows: &[[String; 5]]) {
     append_snapshot_table(
         output,
         "data stores",
-        &["path", "entries", "bytes"],
+        &["path", "mem", "stable key", "entries", "bytes"],
         rows,
-        &[ColumnAlign::Left, ColumnAlign::Right, ColumnAlign::Right],
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+        ],
     );
 }
 
-fn append_index_store_table(output: &mut String, rows: &[[String; 6]]) {
+fn append_index_store_table(output: &mut String, rows: &[[String; 8]]) {
     append_snapshot_table(
         output,
         "index stores",
-        &["path", "entries", "user", "system", "bytes", "state"],
+        &[
+            "path",
+            "mem",
+            "stable key",
+            "entries",
+            "user",
+            "system",
+            "bytes",
+            "state",
+        ],
         rows,
         &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
             ColumnAlign::Left,
             ColumnAlign::Right,
             ColumnAlign::Right,
@@ -192,13 +192,22 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 6]]) {
     );
 }
 
-fn append_schema_store_table(output: &mut String, rows: &[[String; 4]]) {
+fn append_schema_store_table(output: &mut String, rows: &[[String; 6]]) {
     append_snapshot_table(
         output,
         "schema stores",
-        &["path", "version", "fingerprint", "entities"],
+        &[
+            "path",
+            "mem",
+            "stable key",
+            "version",
+            "fingerprint",
+            "entities",
+        ],
         rows,
         &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
             ColumnAlign::Left,
             ColumnAlign::Right,
             ColumnAlign::Left,

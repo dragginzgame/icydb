@@ -165,7 +165,8 @@ pub mod __macro {
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
         DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, PersistedRow,
-        PrimaryKeyComponent, PrimaryKeyValue, SchemaStore, SlotReader, SlotWriter, StoreRegistry,
+        PrimaryKeyComponent, PrimaryKeyValue, SchemaStore, SlotReader, SlotWriter,
+        StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{

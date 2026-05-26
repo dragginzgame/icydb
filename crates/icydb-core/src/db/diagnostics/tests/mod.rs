@@ -27,7 +27,7 @@ use crate::{
             RawIndexStoreKey,
         },
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
-        registry::StoreRegistry,
+        registry::{StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
             AcceptedSchemaSnapshot, SchemaStore, accepted_commit_schema_fingerprint,
@@ -158,7 +158,17 @@ thread_local! {
             .register_store(STORE_Z_PATH, &STORE_Z_DATA, &STORE_Z_INDEX, &STORE_Z_SCHEMA)
             .expect("diagnostics test z-store registration should succeed");
         registry
-            .register_store(STORE_A_PATH, &STORE_A_DATA, &STORE_A_INDEX, &STORE_A_SCHEMA)
+            .register_store_with_allocations(
+                STORE_A_PATH,
+                &STORE_A_DATA,
+                &STORE_A_INDEX,
+                &STORE_A_SCHEMA,
+                StoreAllocationIdentities::new(
+                    StoreAllocationIdentity::new(155, "icydb.test.store_a.data.v1"),
+                    StoreAllocationIdentity::new(156, "icydb.test.store_a.index.v1"),
+                    StoreAllocationIdentity::new(158, "icydb.test.store_a.schema.v1"),
+                ),
+            )
             .expect("diagnostics test a-store registration should succeed");
         registry
     };
@@ -506,11 +516,33 @@ fn storage_report_empty_store_snapshot() {
             .all(|snapshot| snapshot.entries() == 0)
     );
 
+    let data_a = report
+        .storage_data()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_A_PATH)
+        .expect("data snapshot should contain store A");
+    let index_a = report
+        .storage_index()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_A_PATH)
+        .expect("index snapshot should contain store A");
+    assert_eq!(data_a.memory_id(), Some(155));
+    assert_eq!(data_a.stable_key(), Some("icydb.test.store_a.data.v1"));
+    assert_eq!(index_a.memory_id(), Some(156));
+    assert_eq!(index_a.stable_key(), Some("icydb.test.store_a.index.v1"));
+
     let populated_schema = schema_snapshot(&report, STORE_A_PATH);
     let empty_schema = schema_snapshot(&report, STORE_Z_PATH);
+    assert_eq!(populated_schema.memory_id(), Some(158));
+    assert_eq!(
+        populated_schema.stable_key(),
+        Some("icydb.test.store_a.schema.v1")
+    );
     assert_eq!(populated_schema.schema_version(), Some(1));
     assert!(populated_schema.schema_fingerprint().is_some());
     assert!(populated_schema.entity_count() > 0);
+    assert_eq!(empty_schema.memory_id(), None);
+    assert_eq!(empty_schema.stable_key(), None);
     assert_eq!(empty_schema.schema_version(), None);
     assert_eq!(empty_schema.schema_fingerprint(), None);
     assert_eq!(empty_schema.entity_count(), 0);
@@ -899,7 +931,7 @@ fn storage_report_candid_shape_is_stable() {
 fn data_store_snapshot_candid_shape_is_stable() {
     let fields = expect_record_fields(DataStoreSnapshot::ty());
 
-    for field in ["path", "entries", "memory_bytes"] {
+    for field in ["path", "memory_id", "stable_key", "entries", "memory_bytes"] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "DataStoreSnapshot must keep `{field}` as Candid field key",
@@ -913,6 +945,8 @@ fn index_store_snapshot_candid_shape_is_stable() {
 
     for field in [
         "path",
+        "memory_id",
+        "stable_key",
         "entries",
         "user_entries",
         "system_entries",
@@ -932,6 +966,8 @@ fn schema_store_snapshot_candid_shape_is_stable() {
 
     for field in [
         "path",
+        "memory_id",
+        "stable_key",
         "schema_version",
         "schema_fingerprint",
         "entity_count",

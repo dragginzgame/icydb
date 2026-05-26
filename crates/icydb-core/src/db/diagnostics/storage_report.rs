@@ -10,9 +10,10 @@ use crate::{
         data::DecodedDataStoreKey,
         diagnostics::{
             DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot,
-            StorageReport,
+            StorageReport, StoreSnapshotAllocationIdentity,
         },
         index::IndexKey,
+        registry::StoreAllocationIdentity,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -81,6 +82,15 @@ fn storage_report_default_name_for_entity_tag<C: CanisterKind>(
     db.runtime_hook_for_entity_tag(entity_tag).ok().map_or_else(
         || format!("#{}", entity_tag.value()),
         |hooks| hooks.entity_path.to_string(),
+    )
+}
+
+fn snapshot_allocation_identity(
+    allocation: StoreAllocationIdentity,
+) -> StoreSnapshotAllocationIdentity {
+    StoreSnapshotAllocationIdentity::new(
+        allocation.memory_id(),
+        allocation.stable_key().to_string(),
     )
 }
 
@@ -265,10 +275,15 @@ fn build_storage_report<C: CanisterKind>(
         stores.sort_by_key(|(path, _)| *path);
 
         for (path, store_handle) in stores {
+            let data_allocation = store_handle.data_allocation();
+            let index_allocation = store_handle.index_allocation();
+            let schema_allocation = store_handle.schema_allocation();
+
             // Phase 1: collect data-store snapshots and per-entity stats.
             store_handle.with_data(|store| {
                 data.push(DataStoreSnapshot::new(
                     path.to_string(),
+                    data_allocation.map(snapshot_allocation_identity),
                     store.len(),
                     store.memory_bytes(),
                 ));
@@ -314,6 +329,7 @@ fn build_storage_report<C: CanisterKind>(
 
                 index.push(IndexStoreSnapshot::new(
                     path.to_string(),
+                    index_allocation.map(snapshot_allocation_identity),
                     store.len(),
                     user_entries,
                     system_entries,
@@ -328,11 +344,18 @@ fn build_storage_report<C: CanisterKind>(
                 schema.push(match metadata {
                     Some(metadata) => SchemaStoreSnapshot::new(
                         path.to_string(),
+                        schema_allocation.map(snapshot_allocation_identity),
                         Some(metadata.schema_version().get()),
                         Some(encode_hex_lower(&metadata.schema_fingerprint())),
                         metadata.entity_count(),
                     ),
-                    None => SchemaStoreSnapshot::new(path.to_string(), None, None, 0),
+                    None => SchemaStoreSnapshot::new(
+                        path.to_string(),
+                        schema_allocation.map(snapshot_allocation_identity),
+                        None,
+                        None,
+                        0,
+                    ),
                 });
             });
         }

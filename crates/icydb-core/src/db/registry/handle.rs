@@ -19,6 +19,100 @@ pub struct StoreHandle {
     data: &'static LocalKey<RefCell<DataStore>>,
     index: &'static LocalKey<RefCell<IndexStore>>,
     schema: &'static LocalKey<RefCell<SchemaStore>>,
+    allocations: StoreAllocationIdentities,
+}
+
+///
+/// StoreAllocationIdentity
+///
+/// Durable allocation identity for one physical stable-memory role.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StoreAllocationIdentity {
+    memory_id: u8,
+    stable_key: &'static str,
+}
+
+impl StoreAllocationIdentity {
+    /// Build one stable allocation identity descriptor.
+    #[must_use]
+    pub const fn new(memory_id: u8, stable_key: &'static str) -> Self {
+        Self {
+            memory_id,
+            stable_key,
+        }
+    }
+
+    /// Stable-memory manager ID.
+    #[must_use]
+    pub const fn memory_id(self) -> u8 {
+        self.memory_id
+    }
+
+    /// Durable stable-memory key.
+    #[must_use]
+    pub const fn stable_key(self) -> &'static str {
+        self.stable_key
+    }
+}
+
+///
+/// StoreAllocationIdentities
+///
+/// Durable allocation identities for one logical store's data, index, and
+/// schema memories.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StoreAllocationIdentities {
+    data: Option<StoreAllocationIdentity>,
+    index: Option<StoreAllocationIdentity>,
+    schema: Option<StoreAllocationIdentity>,
+}
+
+impl StoreAllocationIdentities {
+    /// Build an absent allocation identity bundle.
+    #[must_use]
+    pub const fn absent() -> Self {
+        Self {
+            data: None,
+            index: None,
+            schema: None,
+        }
+    }
+
+    /// Build one allocation identity bundle.
+    #[must_use]
+    pub const fn new(
+        data: StoreAllocationIdentity,
+        index: StoreAllocationIdentity,
+        schema: StoreAllocationIdentity,
+    ) -> Self {
+        Self {
+            data: Some(data),
+            index: Some(index),
+            schema: Some(schema),
+        }
+    }
+
+    /// Return data-memory allocation identity.
+    #[must_use]
+    pub const fn data(self) -> Option<StoreAllocationIdentity> {
+        self.data
+    }
+
+    /// Return index-memory allocation identity.
+    #[must_use]
+    pub const fn index(self) -> Option<StoreAllocationIdentity> {
+        self.index
+    }
+
+    /// Return schema-memory allocation identity.
+    #[must_use]
+    pub const fn schema(self) -> Option<StoreAllocationIdentity> {
+        self.schema
+    }
 }
 
 impl StoreHandle {
@@ -29,10 +123,22 @@ impl StoreHandle {
         index: &'static LocalKey<RefCell<IndexStore>>,
         schema: &'static LocalKey<RefCell<SchemaStore>>,
     ) -> Self {
+        Self::new_with_allocations(data, index, schema, StoreAllocationIdentities::absent())
+    }
+
+    /// Build a store handle with stable allocation identities.
+    #[must_use]
+    pub const fn new_with_allocations(
+        data: &'static LocalKey<RefCell<DataStore>>,
+        index: &'static LocalKey<RefCell<IndexStore>>,
+        schema: &'static LocalKey<RefCell<SchemaStore>>,
+        allocations: StoreAllocationIdentities,
+    ) -> Self {
         Self {
             data,
             index,
             schema,
+            allocations,
         }
     }
 
@@ -118,5 +224,26 @@ impl StoreHandle {
     #[must_use]
     pub const fn schema_store(&self) -> &'static LocalKey<RefCell<SchemaStore>> {
         self.schema
+    }
+
+    /// Return the data-memory allocation identity when generated wiring
+    /// supplied it.
+    #[must_use]
+    pub const fn data_allocation(&self) -> Option<StoreAllocationIdentity> {
+        self.allocations.data()
+    }
+
+    /// Return the index-memory allocation identity when generated wiring
+    /// supplied it.
+    #[must_use]
+    pub const fn index_allocation(&self) -> Option<StoreAllocationIdentity> {
+        self.allocations.index()
+    }
+
+    /// Return the schema-memory allocation identity when generated wiring
+    /// supplied it.
+    #[must_use]
+    pub const fn schema_allocation(&self) -> Option<StoreAllocationIdentity> {
+        self.allocations.schema()
     }
 }

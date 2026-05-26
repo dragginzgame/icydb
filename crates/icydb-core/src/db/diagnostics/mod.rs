@@ -20,6 +20,7 @@ pub(in crate::db) use integrity::integrity_report_after_recovery;
 pub(in crate::db) use local_instructions::measure_local_instruction_delta;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use local_instructions::read_local_instruction_counter;
+pub(crate) use model::StoreSnapshotAllocationIdentity;
 pub use model::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
     IntegrityTotals, SchemaStoreSnapshot, StorageReport,

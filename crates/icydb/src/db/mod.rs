@@ -20,12 +20,12 @@ pub use session::{
 
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{
-    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+    DataStoreSnapshot, EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
     EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
     ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource, QueryTracePlan, Row, SchemaStoreSnapshot, StorageReport,
-    TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
+    ExplainExecutionOrderingSource, IndexStoreSnapshot, QueryTracePlan, Row, SchemaStoreSnapshot,
+    StorageReport, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

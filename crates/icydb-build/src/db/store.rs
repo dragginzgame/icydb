@@ -138,8 +138,27 @@ fn store_registry_entry_tokens(
         }
     };
     let store_init = quote! {
-        reg.register_store(#store_path, &#data_cell_ident, &#index_cell_ident, &#schema_cell_ident)
-            .expect("store registration should succeed");
+        reg.register_store_with_allocations(
+            #store_path,
+            &#data_cell_ident,
+            &#index_cell_ident,
+            &#schema_cell_ident,
+            ::icydb::__macro::StoreAllocationIdentities::new(
+                ::icydb::__macro::StoreAllocationIdentity::new(
+                    #data_memory_id,
+                    #data_stable_key,
+                ),
+                ::icydb::__macro::StoreAllocationIdentity::new(
+                    #index_memory_id,
+                    #index_stable_key,
+                ),
+                ::icydb::__macro::StoreAllocationIdentity::new(
+                    #schema_memory_id,
+                    #schema_stable_key,
+                ),
+            ),
+        )
+        .expect("store registration should succeed");
     };
 
     (data_def, index_def, schema_def, store_init)

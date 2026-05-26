@@ -788,6 +788,8 @@ mod tests {
         title: Text,
         tags: Vec<Text>,
         portrait: Blob,
+        x: u64,
+        y: u64,
     }
 
     crate::test_entity_schema! {
@@ -802,6 +804,8 @@ mod tests {
             ("title", FieldKind::Text { max_len: None }),
             ("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
             ("portrait", FieldKind::Blob { max_len: None }),
+            ("x", FieldKind::Nat64),
+            ("y", FieldKind::Nat64),
         ],
         indexes = [],
         store = OrderWindowStore,
@@ -857,12 +861,16 @@ mod tests {
             title: "alpha".to_string(),
             tags: vec!["one".to_string(), "two".to_string()],
             portrait: Blob::from(vec![0x10, 0x20, 0x30]),
+            x: 0,
+            y: 0,
         };
         let beta = OrderWindowEntity {
             id: Ulid::from_u128(2),
             title: "beta".to_string(),
             tags: vec!["three".to_string()],
             portrait: Blob::from(vec![0x40, 0x50, 0x60]),
+            x: 0,
+            y: 0,
         };
         let mut rows = vec![direct_data_row(&beta), direct_data_row(&alpha)];
 
@@ -903,5 +911,60 @@ mod tests {
             "direct-field ordering should leave untouched non-scalar slots unmaterialized",
         );
         assert_eq!(metrics.rows_without_lazy_non_scalar_materializations, 2);
+    }
+
+    #[test]
+    fn direct_data_row_order_window_respects_mixed_field_directions() {
+        let low = OrderWindowEntity {
+            id: Ulid::from_u128(11),
+            title: "low".to_string(),
+            tags: Vec::new(),
+            portrait: Blob::from(Vec::new()),
+            x: 0,
+            y: 0,
+        };
+        let high = OrderWindowEntity {
+            id: Ulid::from_u128(12),
+            title: "high".to_string(),
+            tags: Vec::new(),
+            portrait: Blob::from(Vec::new()),
+            x: 0,
+            y: 2,
+        };
+        let next = OrderWindowEntity {
+            id: Ulid::from_u128(13),
+            title: "next".to_string(),
+            tags: Vec::new(),
+            portrait: Blob::from(Vec::new()),
+            x: 1,
+            y: 1,
+        };
+        let mut rows = vec![
+            direct_data_row(&low),
+            direct_data_row(&high),
+            direct_data_row(&next),
+        ];
+
+        apply_structural_order_window_to_data_rows(
+            &mut rows,
+            RowLayout::from_generated_model_for_test(OrderWindowEntity::MODEL),
+            &resolved_order(&[(4, OrderDirection::Asc), (5, OrderDirection::Desc)]),
+            Some(2),
+        )
+        .expect("mixed direct data-row order should sort");
+
+        let ordered = rows
+            .iter()
+            .map(|(_, row)| {
+                row.try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+                    .unwrap()
+                    .title
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ordered,
+            vec!["high".to_string(), "low".to_string()],
+            "ORDER BY x ASC, y DESC must not collapse to raw x/y ascending row-key order",
+        );
     }
 }

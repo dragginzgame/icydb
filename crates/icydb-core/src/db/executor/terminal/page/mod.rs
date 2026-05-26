@@ -126,6 +126,13 @@ impl KernelRow {
         }
     }
 
+    /// Return whether this row carries decoded slot values for slot-aware
+    /// post-access phases such as in-memory ordering and cursor boundaries.
+    #[must_use]
+    pub(in crate::db::executor) const fn has_materialized_slots(&self) -> bool {
+        !matches!(self.slots, KernelRowSlots::NotMaterialized)
+    }
+
     #[cfg(test)]
     pub(in crate::db) fn slot(&self, slot: usize) -> Option<Value> {
         self.slot_ref(slot).cloned()
@@ -186,7 +193,7 @@ impl OrderReadableRow for KernelRow {
     }
 
     fn order_slots_are_borrowed(&self) -> bool {
-        !matches!(self.slots, KernelRowSlots::NotMaterialized)
+        self.has_materialized_slots()
     }
 }
 

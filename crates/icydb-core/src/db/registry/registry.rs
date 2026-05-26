@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::DataStore,
         index::IndexStore,
-        registry::{StoreHandle, StoreRegistryError},
+        registry::{StoreAllocationIdentities, StoreHandle, StoreRegistryError},
         schema::SchemaStore,
     },
     error::InternalError,
@@ -47,6 +47,25 @@ impl StoreRegistry {
         index: &'static LocalKey<RefCell<IndexStore>>,
         schema: &'static LocalKey<RefCell<SchemaStore>>,
     ) -> Result<(), InternalError> {
+        self.register_store_with_allocations(
+            name,
+            data,
+            index,
+            schema,
+            StoreAllocationIdentities::absent(),
+        )
+    }
+
+    /// Register a `Store` path to its row/index/schema store triplet with
+    /// durable allocation identity descriptors.
+    pub fn register_store_with_allocations(
+        &mut self,
+        name: &'static str,
+        data: &'static LocalKey<RefCell<DataStore>>,
+        index: &'static LocalKey<RefCell<IndexStore>>,
+        schema: &'static LocalKey<RefCell<SchemaStore>>,
+        allocations: StoreAllocationIdentities,
+    ) -> Result<(), InternalError> {
         if self
             .stores
             .iter()
@@ -74,8 +93,10 @@ impl StoreRegistry {
             .into());
         }
 
-        self.stores
-            .push((name, StoreHandle::new(data, index, schema)));
+        self.stores.push((
+            name,
+            StoreHandle::new_with_allocations(data, index, schema, allocations),
+        ));
 
         Ok(())
     }

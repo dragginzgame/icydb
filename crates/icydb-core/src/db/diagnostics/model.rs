@@ -317,22 +317,53 @@ impl StorageReport {
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct SchemaStoreSnapshot {
     pub(crate) path: String,
+    pub(crate) memory_id: Option<u8>,
+    pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
     pub(crate) schema_fingerprint: Option<String>,
     pub(crate) entity_count: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StoreSnapshotAllocationIdentity {
+    memory_id: u8,
+    stable_key: String,
+}
+
+impl StoreSnapshotAllocationIdentity {
+    pub(crate) const fn new(memory_id: u8, stable_key: String) -> Self {
+        Self {
+            memory_id,
+            stable_key,
+        }
+    }
+
+    const fn memory_id(&self) -> u8 {
+        self.memory_id
+    }
+}
+
 impl SchemaStoreSnapshot {
     /// Construct one schema-store diagnostic row.
     #[must_use]
-    pub(crate) const fn new(
+    pub(crate) fn new(
         path: String,
+        allocation: Option<StoreSnapshotAllocationIdentity>,
         schema_version: Option<u32>,
         schema_fingerprint: Option<String>,
         entity_count: u64,
     ) -> Self {
+        let memory_id = allocation
+            .as_ref()
+            .map(StoreSnapshotAllocationIdentity::memory_id);
+        let stable_key = match allocation {
+            Some(allocation) => Some(allocation.stable_key),
+            None => None,
+        };
         Self {
             path,
+            memory_id,
+            stable_key,
             schema_version,
             schema_fingerprint,
             entity_count,
@@ -343,6 +374,21 @@ impl SchemaStoreSnapshot {
     #[must_use]
     pub const fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    /// Return stable-memory manager ID, when generated wiring supplied it.
+    #[must_use]
+    pub const fn memory_id(&self) -> Option<u8> {
+        self.memory_id
+    }
+
+    /// Return durable stable-memory key, when generated wiring supplied it.
+    #[must_use]
+    pub const fn stable_key(&self) -> Option<&str> {
+        match &self.stable_key {
+            Some(value) => Some(value.as_str()),
+            None => None,
+        }
     }
 
     /// Return accepted schema/catalog version, when known.
@@ -371,6 +417,8 @@ impl SchemaStoreSnapshot {
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct DataStoreSnapshot {
     pub(crate) path: String,
+    pub(crate) memory_id: Option<u8>,
+    pub(crate) stable_key: Option<String>,
     pub(crate) entries: u64,
     pub(crate) memory_bytes: u64,
 }
@@ -378,9 +426,23 @@ pub struct DataStoreSnapshot {
 impl DataStoreSnapshot {
     /// Construct one data-store snapshot row.
     #[must_use]
-    pub(crate) const fn new(path: String, entries: u64, memory_bytes: u64) -> Self {
+    pub(crate) fn new(
+        path: String,
+        allocation: Option<StoreSnapshotAllocationIdentity>,
+        entries: u64,
+        memory_bytes: u64,
+    ) -> Self {
+        let memory_id = allocation
+            .as_ref()
+            .map(StoreSnapshotAllocationIdentity::memory_id);
+        let stable_key = match allocation {
+            Some(allocation) => Some(allocation.stable_key),
+            None => None,
+        };
         Self {
             path,
+            memory_id,
+            stable_key,
             entries,
             memory_bytes,
         }
@@ -390,6 +452,21 @@ impl DataStoreSnapshot {
     #[must_use]
     pub const fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    /// Return stable-memory manager ID, when generated wiring supplied it.
+    #[must_use]
+    pub const fn memory_id(&self) -> Option<u8> {
+        self.memory_id
+    }
+
+    /// Return durable stable-memory key, when generated wiring supplied it.
+    #[must_use]
+    pub const fn stable_key(&self) -> Option<&str> {
+        match &self.stable_key {
+            Some(value) => Some(value.as_str()),
+            None => None,
+        }
     }
 
     /// Return row count.
@@ -409,6 +486,8 @@ impl DataStoreSnapshot {
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IndexStoreSnapshot {
     pub(crate) path: String,
+    pub(crate) memory_id: Option<u8>,
+    pub(crate) stable_key: Option<String>,
     pub(crate) entries: u64,
     pub(crate) user_entries: u64,
     pub(crate) system_entries: u64,
@@ -419,16 +498,26 @@ pub struct IndexStoreSnapshot {
 impl IndexStoreSnapshot {
     /// Construct one index-store snapshot row.
     #[must_use]
-    pub(crate) const fn new(
+    pub(crate) fn new(
         path: String,
+        allocation: Option<StoreSnapshotAllocationIdentity>,
         entries: u64,
         user_entries: u64,
         system_entries: u64,
         memory_bytes: u64,
         state: IndexState,
     ) -> Self {
+        let memory_id = allocation
+            .as_ref()
+            .map(StoreSnapshotAllocationIdentity::memory_id);
+        let stable_key = match allocation {
+            Some(allocation) => Some(allocation.stable_key),
+            None => None,
+        };
         Self {
             path,
+            memory_id,
+            stable_key,
             entries,
             user_entries,
             system_entries,
@@ -441,6 +530,21 @@ impl IndexStoreSnapshot {
     #[must_use]
     pub const fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    /// Return stable-memory manager ID, when generated wiring supplied it.
+    #[must_use]
+    pub const fn memory_id(&self) -> Option<u8> {
+        self.memory_id
+    }
+
+    /// Return durable stable-memory key, when generated wiring supplied it.
+    #[must_use]
+    pub const fn stable_key(&self) -> Option<&str> {
+        match &self.stable_key {
+            Some(value) => Some(value.as_str()),
+            None => None,
+        }
     }
 
     /// Return total entry count.

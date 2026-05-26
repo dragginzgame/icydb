@@ -3,6 +3,7 @@
 //! Does not own: storage policy, endpoint generation, or public IC crate facades.
 //! Boundary: internal core modules -> runtime -> IC/system clock APIs.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::SystemTime;
 
 /// Read the current IC local performance counter when diagnostics run on wasm.
