@@ -9,7 +9,7 @@ use crate::{
         Db,
         relation::{
             AcceptedRelationTargetAuthority, accepted_relation_target_descriptor_from_kind,
-            for_each_relation_target_value,
+            for_each_relation_target_value, validate_relation_primary_key_component_kind,
         },
         schema::{AcceptedRowDecodeContract, PersistedFieldKind, PersistedRelationStrength},
     },
@@ -96,6 +96,7 @@ fn accepted_save_strong_relation_from_field(
     if target.strength != PersistedRelationStrength::Strong {
         return Ok(None);
     }
+    validate_relation_primary_key_component_kind(target.target_key_kind)?;
 
     Ok(Some(AcceptedSaveStrongRelationInfo {
         field_index,

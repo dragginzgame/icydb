@@ -21,6 +21,7 @@ use crate::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
             accepted_relation_target_descriptor_from_kind,
+            validate_relation_primary_key_component_kind,
         },
         schema::{PersistedFieldKind, PersistedRelationStrength},
     },
@@ -184,13 +185,33 @@ pub(in crate::db::relation) struct AcceptedStrongRelationLocalComponents {
 
 impl AcceptedStrongRelationLocalComponents {
     fn scalar(field_index: usize, field_name: &str, field_kind: &PersistedFieldKind) -> Self {
-        Self {
-            components: vec![AcceptedStrongRelationLocalComponent {
-                index: field_index,
-                name: field_name.to_string(),
-                kind: field_kind.clone(),
-            }],
+        Self::try_from_component_specs(&[AcceptedStrongRelationLocalComponentSpec {
+            index: field_index,
+            name: field_name,
+            kind: field_kind,
+        }])
+        .expect("scalar relation descriptor must carry one local component")
+    }
+
+    fn try_from_component_specs(
+        components: &[AcceptedStrongRelationLocalComponentSpec<'_>],
+    ) -> Result<Self, InternalError> {
+        if components.is_empty() {
+            return Err(InternalError::relation_source_row_unsupported_key_kind(
+                components,
+            ));
         }
+
+        Ok(Self {
+            components: components
+                .iter()
+                .map(|component| AcceptedStrongRelationLocalComponent {
+                    index: component.index,
+                    name: component.name.to_string(),
+                    kind: component.kind.clone(),
+                })
+                .collect(),
+        })
     }
 
     #[must_use]
@@ -212,6 +233,13 @@ impl AcceptedStrongRelationLocalComponents {
 
         Some(component)
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AcceptedStrongRelationLocalComponentSpec<'a> {
+    index: usize,
+    name: &'a str,
+    kind: &'a PersistedFieldKind,
 }
 
 #[derive(Clone, Debug)]
@@ -814,13 +842,16 @@ fn validate_relation_field_kind(
     match relation.cardinality() {
         AcceptedRelationCardinality::Single
         | AcceptedRelationCardinality::List
-        | AcceptedRelationCardinality::Set => validate_relation_target_primary_key_kinds(relation),
+        | AcceptedRelationCardinality::Set => {
+            validate_scalar_relation_target_primary_key_kind(relation)
+        }
     }
 }
 
-// Enforce the accepted primary-key-compatible relation target key kinds
-// supported by the raw relation target-key builder.
-fn validate_relation_target_primary_key_kinds(
+// Enforce the current scalar relation-field target shape supported by the
+// raw relation target-key builder. Composite relation targets will need a
+// relation-edge descriptor instead of this single-component gate.
+fn validate_scalar_relation_target_primary_key_kind(
     relation: &AcceptedStrongRelationInfo,
 ) -> Result<(), InternalError> {
     if relation.local_components().component_count()
@@ -837,32 +868,7 @@ fn validate_relation_target_primary_key_kinds(
         ));
     };
 
-    validate_relation_key_kind(key_kind)
-}
-
-fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), InternalError> {
-    match key_kind {
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => Ok(()),
-        PersistedFieldKind::Relation { key_kind, .. } => validate_relation_key_kind(key_kind),
-        other => Err(InternalError::relation_source_row_unsupported_key_kind(
-            other,
-        )),
-    }
+    validate_relation_primary_key_component_kind(key_kind)
 }
 
 /// Build one reverse-index mutation for one touched target key.
@@ -1046,12 +1052,13 @@ fn relation_target_keys_for_transition_side(
 #[cfg(test)]
 mod tests {
     use super::{
-        AcceptedStrongRelationInfo, AcceptedStrongRelationLocalComponents,
-        AcceptedStrongRelationTargetIdentity, RelationTargetKeys, ReverseRelationSourceInfo,
+        AcceptedStrongRelationInfo, AcceptedStrongRelationLocalComponentSpec,
+        AcceptedStrongRelationLocalComponents, AcceptedStrongRelationTargetIdentity,
+        RelationTargetKeys, ReverseRelationSourceInfo,
         relation_scalar_slot_fast_path_key_kind_supported,
         reverse_index_key_bounds_for_target_primary_key_value,
         reverse_index_key_for_target_and_source_primary_key_value,
-        validate_relation_target_primary_key_kinds,
+        validate_scalar_relation_target_primary_key_kind,
     };
     use crate::db::relation::AcceptedRelationCardinality;
     use crate::db::{
@@ -1174,6 +1181,42 @@ mod tests {
     }
 
     #[test]
+    fn accepted_relation_local_components_can_carry_ordered_tuple_metadata() {
+        let tenant_kind = PersistedFieldKind::Nat64;
+        let local_kind = PersistedFieldKind::Ulid;
+
+        let components = AcceptedStrongRelationLocalComponents::try_from_component_specs(&[
+            AcceptedStrongRelationLocalComponentSpec {
+                index: 2,
+                name: "tenant_id",
+                kind: &tenant_kind,
+            },
+            AcceptedStrongRelationLocalComponentSpec {
+                index: 4,
+                name: "local_id",
+                kind: &local_kind,
+            },
+        ])
+        .expect("ordered local component tuple should build");
+
+        let [tenant, local] = components.components() else {
+            panic!("tuple relation descriptor should expose both local components");
+        };
+        assert_eq!(tenant.field_index(), 2);
+        assert_eq!(tenant.field_name(), "tenant_id");
+        assert_eq!(tenant.field_kind(), &PersistedFieldKind::Nat64);
+        assert_eq!(local.field_index(), 4);
+        assert_eq!(local.field_name(), "local_id");
+        assert_eq!(local.field_kind(), &PersistedFieldKind::Ulid);
+    }
+
+    #[test]
+    fn accepted_relation_local_components_reject_empty_metadata() {
+        AcceptedStrongRelationLocalComponents::try_from_component_specs(&[])
+            .expect_err("relation local component metadata must fail closed when empty");
+    }
+
+    #[test]
     fn relation_validation_rejects_local_target_component_arity_mismatch() {
         let field_kind = PersistedFieldKind::Relation {
             target_path: "Target".to_string(),
@@ -1202,7 +1245,7 @@ mod tests {
             cardinality: AcceptedRelationCardinality::Single,
         };
 
-        validate_relation_target_primary_key_kinds(&relation)
+        validate_scalar_relation_target_primary_key_kind(&relation)
             .expect_err("single local field must not validate against composite target metadata");
     }
 
@@ -1211,7 +1254,7 @@ mod tests {
         for key_kind in [PersistedFieldKind::Int128, PersistedFieldKind::Nat128] {
             let relation = relation(3, key_kind);
 
-            validate_relation_target_primary_key_kinds(&relation)
+            validate_scalar_relation_target_primary_key_kind(&relation)
                 .expect("128-bit scalar relation target key kinds should validate");
         }
     }

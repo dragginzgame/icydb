@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)
 
+- `0.164.4` centralizes relation key-kind and scalar compatibility gates while
+  lowering scalar declarations through tuple-capable accepted relation
+  metadata.
+
 - `0.164.3` centralizes accepted relation-target metadata and identity
   validation so save validation and reverse-index preparation share one
   named relation-domain boundary.

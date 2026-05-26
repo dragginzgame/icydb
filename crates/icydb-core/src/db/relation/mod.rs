@@ -136,6 +136,35 @@ fn accepted_relation_target_descriptor_from_kind(
     }
 }
 
+fn validate_relation_primary_key_component_kind(
+    key_kind: &PersistedFieldKind,
+) -> Result<(), InternalError> {
+    match key_kind {
+        PersistedFieldKind::Account
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
+        | PersistedFieldKind::Int128
+        | PersistedFieldKind::Principal
+        | PersistedFieldKind::Subaccount
+        | PersistedFieldKind::Timestamp
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
+        | PersistedFieldKind::Nat128
+        | PersistedFieldKind::Ulid
+        | PersistedFieldKind::Unit => Ok(()),
+        PersistedFieldKind::Relation { key_kind, .. } => {
+            validate_relation_primary_key_component_kind(key_kind)
+        }
+        other => Err(InternalError::relation_source_row_unsupported_key_kind(
+            other,
+        )),
+    }
+}
+
 #[derive(Clone, Debug)]
 struct AcceptedRelationTargetAuthority {
     path: String,
@@ -352,4 +381,64 @@ pub(super) fn for_each_relation_target_value(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_relation_primary_key_component_kind;
+    use crate::{
+        db::schema::{PersistedFieldKind, PersistedRelationStrength},
+        types::EntityTag,
+    };
+
+    fn relation_key_kind(key_kind: PersistedFieldKind) -> PersistedFieldKind {
+        PersistedFieldKind::Relation {
+            target_path: "Target".to_string(),
+            target_entity_name: "Target".to_string(),
+            target_entity_tag: EntityTag::new(11),
+            target_store_path: "TargetStore".to_string(),
+            key_kind: Box::new(key_kind),
+            strength: PersistedRelationStrength::Strong,
+        }
+    }
+
+    #[test]
+    fn relation_primary_key_component_kind_accepts_admitted_scalar_lanes() {
+        for kind in [
+            PersistedFieldKind::Account,
+            PersistedFieldKind::Int64,
+            PersistedFieldKind::Int128,
+            PersistedFieldKind::Nat64,
+            PersistedFieldKind::Nat128,
+            PersistedFieldKind::Principal,
+            PersistedFieldKind::Subaccount,
+            PersistedFieldKind::Timestamp,
+            PersistedFieldKind::Ulid,
+            PersistedFieldKind::Unit,
+        ] {
+            validate_relation_primary_key_component_kind(&kind)
+                .expect("admitted relation primary-key component kind should validate");
+        }
+    }
+
+    #[test]
+    fn relation_primary_key_component_kind_unwraps_relation_key_kind() {
+        let kind = relation_key_kind(PersistedFieldKind::Nat128);
+
+        validate_relation_primary_key_component_kind(&kind)
+            .expect("relation field wrapper should validate through its key kind");
+    }
+
+    #[test]
+    fn relation_primary_key_component_kind_rejects_non_admitted_bigints() {
+        for kind in [
+            PersistedFieldKind::IntBig { max_bytes: 32 },
+            PersistedFieldKind::NatBig { max_bytes: 32 },
+            relation_key_kind(PersistedFieldKind::IntBig { max_bytes: 32 }),
+            relation_key_kind(PersistedFieldKind::NatBig { max_bytes: 32 }),
+        ] {
+            validate_relation_primary_key_component_kind(&kind)
+                .expect_err("big integer relation primary-key components must reject");
+        }
+    }
 }
