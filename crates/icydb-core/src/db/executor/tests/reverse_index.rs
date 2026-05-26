@@ -232,6 +232,197 @@ fn delete_blocks_composite_relation_target_with_strong_referrer() {
 }
 
 #[test]
+fn save_optional_composite_relation_target_accepts_empty_tuple_without_reverse_entry() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    SaveExecutor::<OptionalCompositeRelationSourceEntity>::new(REL_DB, false)
+        .insert(OptionalCompositeRelationSourceEntity {
+            id: Ulid::from_u128(9_081),
+            target_tenant_id: None,
+            target_local_id: None,
+        })
+        .expect("all-null optional composite relation tuple should be accepted");
+
+    let reverse_rows = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows, 0,
+        "all-null optional composite relation tuple must not create reverse-index membership"
+    );
+}
+
+#[test]
+fn save_optional_composite_relation_target_rejects_partial_tuple() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    SaveExecutor::<OptionalCompositeRelationSourceEntity>::new(REL_DB, false)
+        .insert(OptionalCompositeRelationSourceEntity {
+            id: Ulid::from_u128(9_082),
+            target_tenant_id: Some(17),
+            target_local_id: None,
+        })
+        .expect_err("partial optional composite relation tuple should reject");
+}
+
+#[test]
+fn delete_blocks_composite_relation_target_with_composite_source_key_referrer() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_key = CompositeRelationTargetKey {
+        tenant_id: 33,
+        local_id: 88,
+    };
+    let source_key = CompositePkRelationSourceKey {
+        tenant_id: 44,
+        source_local_id: 99,
+    };
+
+    SaveExecutor::<CompositeRelationTargetEntity>::new(REL_DB, false)
+        .insert(CompositeRelationTargetEntity {
+            tenant_id: target_key.tenant_id,
+            local_id: target_key.local_id,
+            label: "target".to_string(),
+        })
+        .expect("composite target save should succeed");
+    SaveExecutor::<CompositePkRelationSourceEntity>::new(REL_DB, false)
+        .insert(CompositePkRelationSourceEntity {
+            tenant: source_key.tenant_id,
+            source_local: source_key.source_local_id,
+            target_tenant: target_key.tenant_id,
+            target_local: target_key.local_id,
+        })
+        .expect("composite source save should validate composite target tuple");
+
+    let reverse_rows = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows, 1,
+        "composite source and composite target should create one reverse-index entry"
+    );
+
+    let delete_plan = Query::<CompositeRelationTargetEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(target_key)
+        .plan()
+        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .expect("composite target delete plan should build");
+    let err = DeleteExecutor::<CompositeRelationTargetEntity>::new(REL_DB)
+        .execute(delete_plan)
+        .expect_err("target delete should be blocked by composite source key relation");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "blocked composite source relation delete should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Executor,
+        "blocked composite source relation delete should originate from executor validation",
+    );
+}
+
+fn assert_composite_relation_target_identity_does_not_collide(
+    unreferenced_target: CompositeRelationTargetKey,
+    referenced_target: CompositeRelationTargetKey,
+    source_id: Ulid,
+) {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    for target in [unreferenced_target, referenced_target] {
+        SaveExecutor::<CompositeRelationTargetEntity>::new(REL_DB, false)
+            .insert(CompositeRelationTargetEntity {
+                tenant_id: target.tenant_id,
+                local_id: target.local_id,
+                label: "target".to_string(),
+            })
+            .expect("composite target save should succeed");
+    }
+
+    SaveExecutor::<CompositeRelationSourceEntity>::new(REL_DB, false)
+        .insert(CompositeRelationSourceEntity {
+            id: source_id,
+            target_tenant_id: referenced_target.tenant_id,
+            target_local_id: referenced_target.local_id,
+        })
+        .expect("source save should validate referenced composite target tuple");
+
+    let unreferenced_delete_plan =
+        Query::<CompositeRelationTargetEntity>::new(MissingRowPolicy::Ignore)
+            .delete()
+            .by_id(unreferenced_target)
+            .plan()
+            .map(crate::db::executor::PreparedExecutionPlan::from)
+            .expect("unreferenced composite target delete plan should build");
+    let deleted = DeleteExecutor::<CompositeRelationTargetEntity>::new(REL_DB)
+        .execute(unreferenced_delete_plan)
+        .expect("unreferenced composite target should delete without reverse-index collision");
+    assert_eq!(
+        deleted.len(),
+        1,
+        "unreferenced target sharing one component with a referenced target should not be blocked"
+    );
+
+    let referenced_delete_plan =
+        Query::<CompositeRelationTargetEntity>::new(MissingRowPolicy::Ignore)
+            .delete()
+            .by_id(referenced_target)
+            .plan()
+            .map(crate::db::executor::PreparedExecutionPlan::from)
+            .expect("referenced composite target delete plan should build");
+    let err = DeleteExecutor::<CompositeRelationTargetEntity>::new(REL_DB)
+        .execute(referenced_delete_plan)
+        .expect_err("referenced composite target should still be blocked");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "blocked referenced composite target should classify as unsupported",
+    );
+}
+
+#[test]
+fn delete_does_not_collide_composite_targets_sharing_later_component() {
+    assert_composite_relation_target_identity_does_not_collide(
+        CompositeRelationTargetKey {
+            tenant_id: 41,
+            local_id: 7,
+        },
+        CompositeRelationTargetKey {
+            tenant_id: 42,
+            local_id: 7,
+        },
+        Ulid::from_u128(9_083),
+    );
+}
+
+#[test]
+fn delete_does_not_collide_composite_targets_sharing_first_component() {
+    assert_composite_relation_target_identity_does_not_collide(
+        CompositeRelationTargetKey {
+            tenant_id: 51,
+            local_id: 7,
+        },
+        CompositeRelationTargetKey {
+            tenant_id: 51,
+            local_id: 8,
+        },
+        Ulid::from_u128(9_084),
+    );
+}
+
+#[test]
 fn delete_target_succeeds_after_strong_referrer_is_removed() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();

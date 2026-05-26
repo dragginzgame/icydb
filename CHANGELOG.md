@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)
 
+- `0.164.9` closes composite relation target support with explicit
+  collection-target deferral, reverse-index collision coverage, and
+  storage-shape evidence for full tuple identity.
+
 - `0.164.8` moves save validation and reverse-index mutation preparation onto
   ordered accepted relation-edge tuples so composite target identity is built
   as full `PrimaryKeyValue` row identity at runtime.

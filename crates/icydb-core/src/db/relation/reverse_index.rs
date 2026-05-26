@@ -1349,7 +1349,7 @@ mod tests {
     use crate::db::{
         Db,
         data::StructuralRowContract,
-        index::IndexId,
+        index::{IndexEntryValue, IndexId},
         key_taxonomy::{
             CompositePrimaryKeyValue, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKeyKind,
             PrimaryKeyComponent, PrimaryKeyValue,
@@ -1802,6 +1802,73 @@ mod tests {
         assert!(
             raw.as_bytes() >= bounds.0.as_bytes() && raw.as_bytes() < bounds.1.as_bytes(),
             "reverse bounds should cover the full composite target identity"
+        );
+    }
+
+    #[test]
+    fn reverse_relation_key_size_evidence_is_linear_in_source_and_target_identity() {
+        let source = ReverseRelationSourceInfo {
+            path: "Source",
+            entity_tag: EntityTag::new(9),
+        };
+        let relation = relation(5, PersistedFieldKind::Nat64);
+        let scalar_target = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7));
+        let scalar_source = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
+        let composite_target = PrimaryKeyValue::Composite(
+            CompositePrimaryKeyValue::try_from_components(&[
+                PrimaryKeyComponent::Nat64(7),
+                PrimaryKeyComponent::Nat64(8),
+            ])
+            .expect("composite target key should build"),
+        );
+        let composite_source = PrimaryKeyValue::Composite(
+            CompositePrimaryKeyValue::try_from_components(&[
+                PrimaryKeyComponent::Nat64(44),
+                PrimaryKeyComponent::Nat64(45),
+            ])
+            .expect("composite source key should build"),
+        );
+        let int128_target = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int128(i128::MIN + 91));
+
+        let raw_len = |target: &PrimaryKeyValue, source_key: &PrimaryKeyValue| {
+            reverse_index_key_for_target_and_source_primary_key_value(
+                source, &relation, target, source_key,
+            )
+            .expect("reverse key should build")
+            .expect("relation target key should encode")
+            .as_bytes()
+            .len()
+        };
+
+        assert_eq!(
+            raw_len(&scalar_target, &scalar_source),
+            34,
+            "scalar target plus scalar source reverse key shape should stay compact"
+        );
+        assert_eq!(
+            raw_len(&composite_target, &scalar_source),
+            45,
+            "composite target overhead should equal its encoded PK width"
+        );
+        assert_eq!(
+            raw_len(&scalar_target, &composite_source),
+            45,
+            "composite source overhead should equal its encoded PK suffix width"
+        );
+        assert_eq!(
+            raw_len(&composite_target, &composite_source),
+            56,
+            "composite target/source overhead should remain additive"
+        );
+        assert_eq!(
+            raw_len(&int128_target, &scalar_source),
+            42,
+            "fixed 128-bit target lanes should add their fixed encoded width"
+        );
+        assert_eq!(
+            IndexEntryValue::presence().len(),
+            1,
+            "reverse-index entry values remain presence witnesses; row identity stays key-owned"
         );
     }
 }
