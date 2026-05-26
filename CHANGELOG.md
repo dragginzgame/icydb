@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Fixed scalar `int128` / `nat128` relation target key validation so accepted
+  strong-relation structural paths admit the same 128-bit key lanes as the
+  relation payload codec.
+
 ## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)

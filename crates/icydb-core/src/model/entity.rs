@@ -57,9 +57,13 @@ impl PrimaryKeyModel {
         self.len() == 1
     }
 
-    /// Return the scalar/current-runtime primary-key field projection.
+    /// Return the first primary-key field.
+    ///
+    /// Composite-aware code should consume `fields()` when it needs full row
+    /// identity. This helper exists only for metadata surfaces that still carry
+    /// one primary-key field pointer alongside ordered primary-key metadata.
     #[must_use]
-    pub const fn scalar_field(&self) -> &'static FieldModel {
+    pub const fn first_field(&self) -> &'static FieldModel {
         match self.fields {
             PrimaryKeyModelFields::Scalar(field) => field,
             PrimaryKeyModelFields::Ordered(fields) => fields[0],
@@ -158,7 +162,7 @@ mod primary_key_model_tests {
 
         assert_eq!(model.len(), 1);
         assert!(model.is_scalar());
-        assert_eq!(model.scalar_field().name(), "id");
+        assert_eq!(model.first_field().name(), "id");
         assert_eq!(
             model
                 .fields()
@@ -175,7 +179,7 @@ mod primary_key_model_tests {
 
         assert_eq!(model.len(), 2);
         assert!(!model.is_scalar());
-        assert_eq!(model.scalar_field().name(), "id");
+        assert_eq!(model.first_field().name(), "id");
         assert_eq!(
             model
                 .fields()
@@ -261,7 +265,7 @@ impl EntityModel {
         Self {
             path,
             entity_name,
-            primary_key: primary_key_model.scalar_field(),
+            primary_key: primary_key_model.first_field(),
             primary_key_slot,
             primary_key_model,
             fields,

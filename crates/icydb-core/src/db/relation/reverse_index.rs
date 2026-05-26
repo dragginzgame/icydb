@@ -22,6 +22,7 @@ use crate::{
         schema::{PersistedFieldKind, PersistedRelationStrength},
     },
     error::InternalError,
+    model::field::LeafCodec,
     traits::{CanisterKind, EntityKind},
     types::EntityTag,
 };
@@ -713,6 +714,15 @@ fn relation_target_primary_key_values_from_scalar_slot(
     let PersistedFieldKind::Relation { .. } = relation.field_kind() else {
         return Ok(None);
     };
+    if !relation_scalar_slot_fast_path_key_kind_supported(relation.field_kind()) {
+        return Ok(None);
+    }
+    if !matches!(
+        row_fields.field_leaf_codec(relation.field_index())?,
+        LeafCodec::Scalar(_)
+    ) {
+        return Ok(None);
+    }
 
     match row_fields.required_scalar(relation.field_index())? {
         ScalarSlotValueRef::Null => Ok(Some(Vec::new())),
@@ -729,6 +739,29 @@ fn relation_target_primary_key_values_from_scalar_slot(
             Ok(Some(vec![PrimaryKeyValue::Scalar(primary_key_value)]))
         }
     }
+}
+
+fn relation_scalar_slot_fast_path_key_kind_supported(kind: &PersistedFieldKind) -> bool {
+    let PersistedFieldKind::Relation { key_kind, .. } = kind else {
+        return false;
+    };
+
+    matches!(
+        key_kind.as_ref(),
+        PersistedFieldKind::Int8
+            | PersistedFieldKind::Int16
+            | PersistedFieldKind::Int32
+            | PersistedFieldKind::Int64
+            | PersistedFieldKind::Principal
+            | PersistedFieldKind::Subaccount
+            | PersistedFieldKind::Timestamp
+            | PersistedFieldKind::Nat8
+            | PersistedFieldKind::Nat16
+            | PersistedFieldKind::Nat32
+            | PersistedFieldKind::Nat64
+            | PersistedFieldKind::Ulid
+            | PersistedFieldKind::Unit
+    )
 }
 
 // Convert one scalar relation payload into the decoded primary-key
@@ -807,6 +840,7 @@ fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), Inter
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64
+        | PersistedFieldKind::Int128
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Timestamp
@@ -814,6 +848,7 @@ fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), Inter
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64
+        | PersistedFieldKind::Nat128
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => Ok(()),
         PersistedFieldKind::Relation { key_kind, .. } => validate_relation_key_kind(key_kind),
@@ -1005,8 +1040,10 @@ fn relation_target_keys_for_transition_side(
 mod tests {
     use super::{
         AcceptedStrongRelationInfo, AcceptedStrongRelationTargetIdentity,
-        ReverseRelationSourceInfo, reverse_index_key_bounds_for_target_primary_key_value,
+        ReverseRelationSourceInfo, relation_scalar_slot_fast_path_key_kind_supported,
+        reverse_index_key_bounds_for_target_primary_key_value,
         reverse_index_key_for_target_and_source_primary_key_value,
+        validate_relation_target_primary_key_kinds,
     };
     use crate::db::{
         index::IndexId,
@@ -1052,6 +1089,39 @@ mod tests {
             &[PersistedFieldKind::Nat64],
             "current scalar relation metadata is represented as a one-component target primary key",
         );
+    }
+
+    #[test]
+    fn relation_target_key_kind_validation_accepts_128_bit_scalar_lanes() {
+        for key_kind in [PersistedFieldKind::Int128, PersistedFieldKind::Nat128] {
+            let relation = relation(3, key_kind);
+
+            validate_relation_target_primary_key_kinds(&relation)
+                .expect("128-bit scalar relation target key kinds should validate");
+        }
+    }
+
+    #[test]
+    fn relation_scalar_slot_fast_path_excludes_structural_128_bit_lanes() {
+        for key_kind in [
+            PersistedFieldKind::Int64,
+            PersistedFieldKind::Nat64,
+            PersistedFieldKind::Ulid,
+        ] {
+            let relation = relation(3, key_kind);
+            assert!(
+                relation_scalar_slot_fast_path_key_kind_supported(relation.field_kind()),
+                "scalar-slot relation key kinds should stay on the fast path",
+            );
+        }
+
+        for key_kind in [PersistedFieldKind::Int128, PersistedFieldKind::Nat128] {
+            let relation = relation(3, key_kind);
+            assert!(
+                !relation_scalar_slot_fast_path_key_kind_supported(relation.field_kind()),
+                "128-bit relation key kinds use structural field-bytes decoding",
+            );
+        }
     }
 
     #[test]

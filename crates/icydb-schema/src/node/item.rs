@@ -132,7 +132,7 @@ impl ValidateNode for Item {
                     if entity.primary_key().fields().len() != 1 {
                         err!(
                             errs,
-                            "relation entity '{relation}' uses composite primary key fields {:?}; relation targets require a scalar primary key in 0.162",
+                            "relation entity '{relation}' uses composite primary key fields {:?}; single-field relation targets require a scalar primary key; use ordered relation tuple metadata for composite targets",
                             entity.primary_key().fields()
                         );
                     } else if let Some(primary_field) = entity.scalar_primary_key_field() {
@@ -198,4 +198,118 @@ impl VisitableNode for Item {
 pub enum ItemTarget {
     Is(&'static str),
     Primitive(Primitive),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build::schema_write;
+
+    fn primitive_item(primitive: Primitive) -> Item {
+        Item::new(
+            ItemTarget::Primitive(primitive),
+            None,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+        )
+    }
+
+    fn relation_item(target_path: &'static str, primitive: Primitive) -> Item {
+        Item::new(
+            ItemTarget::Primitive(primitive),
+            Some(target_path),
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+        )
+    }
+
+    fn field(ident: &'static str, primitive: Primitive) -> Field {
+        Field::new(
+            ident,
+            Value::new(Cardinality::One, primitive_item(primitive)),
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn insert_entity(
+        module: &'static str,
+        ident: &'static str,
+        pk_fields: &'static [&'static str],
+        fields: &'static [Field],
+    ) -> &'static str {
+        let path = Box::leak(format!("{module}::{ident}").into_boxed_str());
+        schema_write().insert_node(SchemaNode::Entity(Entity::new(
+            Def::new(module, ident),
+            "SchemaItemRelationStore",
+            PrimaryKey::new(pk_fields, PrimaryKeySource::External),
+            None,
+            &[],
+            FieldList::new(fields),
+            Type::new(&[], &[]),
+        )));
+        path
+    }
+
+    #[test]
+    fn relation_to_composite_target_rejects_even_when_first_component_matches() {
+        let fields = Box::leak(
+            vec![
+                field("tenant_id", Primitive::Nat64),
+                field("local_id", Primitive::Nat64),
+            ]
+            .into_boxed_slice(),
+        );
+        let target_path = insert_entity(
+            "schema_item_relation_composite_target",
+            "CompositeTarget",
+            &["tenant_id", "local_id"],
+            fields,
+        );
+
+        let err = relation_item(target_path, Primitive::Nat64)
+            .validate()
+            .expect_err("relation to composite target must fail before first-field matching");
+
+        assert!(
+            err.messages().iter().any(|message| {
+                message.contains("uses composite primary key fields")
+                    && message
+                        .contains("single-field relation targets require a scalar primary key")
+            }),
+            "unexpected relation validation errors: {err}",
+        );
+    }
+
+    #[test]
+    fn scalar_128_bit_relation_targets_validate_at_schema_node_boundary() {
+        for (module, ident, primitive) in [
+            (
+                "schema_item_relation_int128_target",
+                "Int128Target",
+                Primitive::Int128,
+            ),
+            (
+                "schema_item_relation_nat128_target",
+                "Nat128Target",
+                Primitive::Nat128,
+            ),
+        ] {
+            let fields = Box::leak(vec![field("id", primitive)].into_boxed_slice());
+            let target_path = insert_entity(module, ident, &["id"], fields);
+
+            relation_item(target_path, primitive)
+                .validate()
+                .expect("scalar 128-bit relation target should validate");
+        }
+    }
 }
