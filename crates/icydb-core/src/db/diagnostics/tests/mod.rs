@@ -528,8 +528,12 @@ fn storage_report_empty_store_snapshot() {
         .expect("index snapshot should contain store A");
     assert_eq!(data_a.memory_id(), Some(155));
     assert_eq!(data_a.stable_key(), Some("icydb.test.store_a.data.v1"));
+    assert_eq!(data_a.schema_version(), Some(1));
+    assert!(data_a.schema_fingerprint().is_some());
     assert_eq!(index_a.memory_id(), Some(156));
     assert_eq!(index_a.stable_key(), Some("icydb.test.store_a.index.v1"));
+    assert_eq!(index_a.schema_version(), Some(1));
+    assert!(index_a.schema_fingerprint().is_some());
 
     let populated_schema = schema_snapshot(&report, STORE_A_PATH);
     let empty_schema = schema_snapshot(&report, STORE_Z_PATH);
@@ -541,11 +545,41 @@ fn storage_report_empty_store_snapshot() {
     assert_eq!(populated_schema.schema_version(), Some(1));
     assert!(populated_schema.schema_fingerprint().is_some());
     assert!(populated_schema.entity_count() > 0);
+    assert_ne!(
+        data_a.schema_fingerprint(),
+        index_a.schema_fingerprint(),
+        "data and index snapshots should use role-specific schema metadata"
+    );
+    assert_ne!(
+        data_a.schema_fingerprint(),
+        populated_schema.schema_fingerprint(),
+        "data and schema snapshots should use role-specific schema metadata"
+    );
+    assert_ne!(
+        index_a.schema_fingerprint(),
+        populated_schema.schema_fingerprint(),
+        "index and schema snapshots should use role-specific schema metadata"
+    );
     assert_eq!(empty_schema.memory_id(), None);
     assert_eq!(empty_schema.stable_key(), None);
     assert_eq!(empty_schema.schema_version(), None);
     assert_eq!(empty_schema.schema_fingerprint(), None);
     assert_eq!(empty_schema.entity_count(), 0);
+
+    let data_z = report
+        .storage_data()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_Z_PATH)
+        .expect("data snapshot should contain store Z");
+    let index_z = report
+        .storage_index()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_Z_PATH)
+        .expect("index snapshot should contain store Z");
+    assert_eq!(data_z.schema_version(), None);
+    assert_eq!(data_z.schema_fingerprint(), None);
+    assert_eq!(index_z.schema_version(), None);
+    assert_eq!(index_z.schema_fingerprint(), None);
 }
 
 #[test]
@@ -931,7 +965,15 @@ fn storage_report_candid_shape_is_stable() {
 fn data_store_snapshot_candid_shape_is_stable() {
     let fields = expect_record_fields(DataStoreSnapshot::ty());
 
-    for field in ["path", "memory_id", "stable_key", "entries", "memory_bytes"] {
+    for field in [
+        "path",
+        "memory_id",
+        "stable_key",
+        "schema_version",
+        "schema_fingerprint",
+        "entries",
+        "memory_bytes",
+    ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "DataStoreSnapshot must keep `{field}` as Candid field key",
@@ -947,6 +989,8 @@ fn index_store_snapshot_candid_shape_is_stable() {
         "path",
         "memory_id",
         "stable_key",
+        "schema_version",
+        "schema_fingerprint",
         "entries",
         "user_entries",
         "system_entries",

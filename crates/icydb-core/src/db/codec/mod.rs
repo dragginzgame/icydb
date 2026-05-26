@@ -16,8 +16,8 @@ use crate::error::InternalError;
 use std::borrow::Cow;
 
 pub(in crate::db) use hash_stream::{
-    finalize_hash_sha256, new_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32,
-    write_hash_tag_u8, write_hash_u32, write_hash_u64,
+    finalize_hash_sha256, new_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32,
+    write_hash_str_u32, write_hash_tag_u8, write_hash_u32, write_hash_u64,
 };
 
 /// Max serialized bytes for a single row (protocol-level limit).

@@ -100,21 +100,25 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     output
 }
 
-fn data_store_row(row: &DataStoreSnapshot) -> [String; 5] {
+fn data_store_row(row: &DataStoreSnapshot) -> [String; 7] {
     [
         row.path().to_string(),
         format_optional_u8(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
+        format_optional_u32(row.schema_version()),
+        row.schema_fingerprint().unwrap_or("-").to_string(),
         row.entries().to_string(),
         row.memory_bytes().to_string(),
     ]
 }
 
-fn index_store_row(row: &IndexStoreSnapshot) -> [String; 8] {
+fn index_store_row(row: &IndexStoreSnapshot) -> [String; 10] {
     [
         row.path().to_string(),
         format_optional_u8(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
+        format_optional_u32(row.schema_version()),
+        row.schema_fingerprint().unwrap_or("-").to_string(),
         row.entries().to_string(),
         row.user_entries().to_string(),
         row.system_entries().to_string(),
@@ -135,6 +139,10 @@ fn schema_store_row(row: &SchemaStoreSnapshot) -> [String; 6] {
     ]
 }
 
+fn format_optional_u32(value: Option<u32>) -> String {
+    value.map_or_else(|| "-".to_string(), |value| value.to_string())
+}
+
 fn format_optional_u8(value: Option<u8>) -> String {
     value.map_or_else(|| "-".to_string(), |value| value.to_string())
 }
@@ -148,13 +156,23 @@ fn entity_storage_row(path: &str, store: &str, entries: u64, memory_bytes: u64) 
     ]
 }
 
-fn append_data_store_table(output: &mut String, rows: &[[String; 5]]) {
+fn append_data_store_table(output: &mut String, rows: &[[String; 7]]) {
     append_snapshot_table(
         output,
         "data stores",
-        &["path", "mem", "stable key", "entries", "bytes"],
+        &[
+            "path",
+            "mem",
+            "stable key",
+            "version",
+            "fingerprint",
+            "entries",
+            "bytes",
+        ],
         rows,
         &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
             ColumnAlign::Left,
             ColumnAlign::Right,
             ColumnAlign::Left,
@@ -164,7 +182,7 @@ fn append_data_store_table(output: &mut String, rows: &[[String; 5]]) {
     );
 }
 
-fn append_index_store_table(output: &mut String, rows: &[[String; 8]]) {
+fn append_index_store_table(output: &mut String, rows: &[[String; 10]]) {
     append_snapshot_table(
         output,
         "index stores",
@@ -172,6 +190,8 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 8]]) {
             "path",
             "mem",
             "stable key",
+            "version",
+            "fingerprint",
             "entries",
             "user",
             "system",
@@ -180,6 +200,8 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 8]]) {
         ],
         rows,
         &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
             ColumnAlign::Left,
             ColumnAlign::Right,
             ColumnAlign::Left,

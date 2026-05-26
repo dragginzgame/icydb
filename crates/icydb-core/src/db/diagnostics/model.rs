@@ -343,14 +343,70 @@ impl StoreSnapshotAllocationIdentity {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct StoreSnapshotSchemaMetadata {
+    schema_version: Option<u32>,
+    schema_fingerprint: Option<String>,
+}
+
+impl StoreSnapshotSchemaMetadata {
+    pub(crate) const fn absent() -> Self {
+        Self {
+            schema_version: None,
+            schema_fingerprint: None,
+        }
+    }
+
+    pub(crate) const fn new(schema_version: u32, schema_fingerprint: String) -> Self {
+        Self {
+            schema_version: Some(schema_version),
+            schema_fingerprint: Some(schema_fingerprint),
+        }
+    }
+
+    const fn schema_version(&self) -> Option<u32> {
+        self.schema_version
+    }
+
+    fn schema_fingerprint(&self) -> Option<String> {
+        self.schema_fingerprint.clone()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct IndexStoreSnapshotStats {
+    entries: u64,
+    user_entries: u64,
+    system_entries: u64,
+    memory_bytes: u64,
+    state: IndexState,
+}
+
+impl IndexStoreSnapshotStats {
+    pub(crate) const fn new(
+        entries: u64,
+        user_entries: u64,
+        system_entries: u64,
+        memory_bytes: u64,
+        state: IndexState,
+    ) -> Self {
+        Self {
+            entries,
+            user_entries,
+            system_entries,
+            memory_bytes,
+            state,
+        }
+    }
+}
+
 impl SchemaStoreSnapshot {
     /// Construct one schema-store diagnostic row.
     #[must_use]
     pub(crate) fn new(
         path: String,
         allocation: Option<StoreSnapshotAllocationIdentity>,
-        schema_version: Option<u32>,
-        schema_fingerprint: Option<String>,
+        schema_metadata: StoreSnapshotSchemaMetadata,
         entity_count: u64,
     ) -> Self {
         let memory_id = allocation
@@ -364,8 +420,8 @@ impl SchemaStoreSnapshot {
             path,
             memory_id,
             stable_key,
-            schema_version,
-            schema_fingerprint,
+            schema_version: schema_metadata.schema_version(),
+            schema_fingerprint: schema_metadata.schema_fingerprint(),
             entity_count,
         }
     }
@@ -419,6 +475,8 @@ pub struct DataStoreSnapshot {
     pub(crate) path: String,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
+    pub(crate) schema_version: Option<u32>,
+    pub(crate) schema_fingerprint: Option<String>,
     pub(crate) entries: u64,
     pub(crate) memory_bytes: u64,
 }
@@ -429,6 +487,7 @@ impl DataStoreSnapshot {
     pub(crate) fn new(
         path: String,
         allocation: Option<StoreSnapshotAllocationIdentity>,
+        schema_metadata: StoreSnapshotSchemaMetadata,
         entries: u64,
         memory_bytes: u64,
     ) -> Self {
@@ -443,6 +502,8 @@ impl DataStoreSnapshot {
             path,
             memory_id,
             stable_key,
+            schema_version: schema_metadata.schema_version(),
+            schema_fingerprint: schema_metadata.schema_fingerprint(),
             entries,
             memory_bytes,
         }
@@ -469,6 +530,21 @@ impl DataStoreSnapshot {
         }
     }
 
+    /// Return accepted schema/catalog version, when known.
+    #[must_use]
+    pub const fn schema_version(&self) -> Option<u32> {
+        self.schema_version
+    }
+
+    /// Return accepted schema/catalog fingerprint, when known.
+    #[must_use]
+    pub const fn schema_fingerprint(&self) -> Option<&str> {
+        match &self.schema_fingerprint {
+            Some(value) => Some(value.as_str()),
+            None => None,
+        }
+    }
+
     /// Return row count.
     #[must_use]
     pub const fn entries(&self) -> u64 {
@@ -488,6 +564,8 @@ pub struct IndexStoreSnapshot {
     pub(crate) path: String,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
+    pub(crate) schema_version: Option<u32>,
+    pub(crate) schema_fingerprint: Option<String>,
     pub(crate) entries: u64,
     pub(crate) user_entries: u64,
     pub(crate) system_entries: u64,
@@ -501,11 +579,8 @@ impl IndexStoreSnapshot {
     pub(crate) fn new(
         path: String,
         allocation: Option<StoreSnapshotAllocationIdentity>,
-        entries: u64,
-        user_entries: u64,
-        system_entries: u64,
-        memory_bytes: u64,
-        state: IndexState,
+        schema_metadata: StoreSnapshotSchemaMetadata,
+        stats: IndexStoreSnapshotStats,
     ) -> Self {
         let memory_id = allocation
             .as_ref()
@@ -518,11 +593,13 @@ impl IndexStoreSnapshot {
             path,
             memory_id,
             stable_key,
-            entries,
-            user_entries,
-            system_entries,
-            memory_bytes,
-            state,
+            schema_version: schema_metadata.schema_version(),
+            schema_fingerprint: schema_metadata.schema_fingerprint(),
+            entries: stats.entries,
+            user_entries: stats.user_entries,
+            system_entries: stats.system_entries,
+            memory_bytes: stats.memory_bytes,
+            state: stats.state,
         }
     }
 
@@ -542,6 +619,21 @@ impl IndexStoreSnapshot {
     #[must_use]
     pub const fn stable_key(&self) -> Option<&str> {
         match &self.stable_key {
+            Some(value) => Some(value.as_str()),
+            None => None,
+        }
+    }
+
+    /// Return accepted schema/catalog version, when known.
+    #[must_use]
+    pub const fn schema_version(&self) -> Option<u32> {
+        self.schema_version
+    }
+
+    /// Return accepted schema/catalog fingerprint, when known.
+    #[must_use]
+    pub const fn schema_fingerprint(&self) -> Option<&str> {
+        match &self.schema_fingerprint {
             Some(value) => Some(value.as_str()),
             None => None,
         }

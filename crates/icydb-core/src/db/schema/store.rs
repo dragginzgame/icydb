@@ -5,9 +5,13 @@
 
 use crate::{
     db::{
-        codec::{finalize_hash_sha256, new_hash_sha256},
+        codec::{
+            finalize_hash_sha256, new_hash_sha256, write_hash_len_u32, write_hash_str_u32,
+            write_hash_tag_u8, write_hash_u32, write_hash_u64,
+        },
         commit::CommitSchemaFingerprint,
         schema::{
+            PersistedFieldKind, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
             PersistedSchemaSnapshot, SchemaVersion, decode_persisted_schema_snapshot,
             encode_persisted_schema_snapshot, schema_snapshot_integrity_detail,
         },
@@ -26,6 +30,8 @@ const SCHEMA_KEY_BYTES_USIZE: usize = 12;
 const SCHEMA_KEY_BYTES: u32 = 12;
 const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 const SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION: u8 = 1;
+const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION: u8 = 2;
+const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION: u8 = 3;
 
 ///
 /// RawSchemaKey
@@ -247,6 +253,57 @@ impl SchemaStoreCatalogMetadata {
     }
 }
 
+///
+/// SchemaStoreAllocationMetadata
+///
+/// Role-specific allocation metadata derived from latest accepted schema-store
+/// snapshots. These fingerprints describe the accepted contract that owns each
+/// allocation role; they are diagnostics, not allocation identity.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaStoreAllocationMetadata {
+    data: SchemaStoreCatalogMetadata,
+    index: SchemaStoreCatalogMetadata,
+    schema: SchemaStoreCatalogMetadata,
+}
+
+impl SchemaStoreAllocationMetadata {
+    /// Build one role-specific metadata set from already-derived accepted
+    /// schema facts.
+    #[must_use]
+    const fn new(
+        data: SchemaStoreCatalogMetadata,
+        index: SchemaStoreCatalogMetadata,
+        schema: SchemaStoreCatalogMetadata,
+    ) -> Self {
+        Self {
+            data,
+            index,
+            schema,
+        }
+    }
+
+    /// Return accepted row-layout allocation metadata for data memory.
+    #[must_use]
+    pub(in crate::db) const fn data(self) -> SchemaStoreCatalogMetadata {
+        self.data
+    }
+
+    /// Return accepted index-catalog allocation metadata for index memory.
+    #[must_use]
+    pub(in crate::db) const fn index(self) -> SchemaStoreCatalogMetadata {
+        self.index
+    }
+
+    /// Return accepted full schema-catalog allocation metadata for schema
+    /// memory.
+    #[must_use]
+    pub(in crate::db) const fn schema(self) -> SchemaStoreCatalogMetadata {
+        self.schema
+    }
+}
+
 impl SchemaStoreFootprint {
     /// Build one schema-store footprint from already-counted raw payload facts.
     #[must_use]
@@ -388,59 +445,33 @@ impl SchemaStore {
     /// This function intentionally reads only the persisted schema store. It
     /// does not reconstruct metadata from generated models when the store has
     /// no accepted snapshots.
+    #[cfg(test)]
     pub(in crate::db) fn catalog_metadata(
         &self,
     ) -> Result<Option<SchemaStoreCatalogMetadata>, InternalError> {
-        let mut latest_by_entity =
-            StdBTreeMap::<EntityTag, (SchemaVersion, RawSchemaSnapshot)>::new();
+        Ok(self
+            .allocation_metadata()?
+            .map(SchemaStoreAllocationMetadata::schema))
+    }
 
-        for entry in self.map.iter() {
-            let (key, snapshot) = entry.into_pair();
-            let version = SchemaVersion::new(key.version());
-            match latest_by_entity.get_mut(&key.entity_tag()) {
-                Some((latest_version, latest_snapshot)) if version > *latest_version => {
-                    *latest_version = version;
-                    *latest_snapshot = snapshot;
-                }
-                None => {
-                    latest_by_entity.insert(key.entity_tag(), (version, snapshot));
-                }
-                Some(_) => {}
-            }
-        }
-
+    /// Derive role-specific allocation metadata from latest persisted schema
+    /// snapshots.
+    ///
+    /// This function intentionally reads only accepted schema-store payloads.
+    /// It never reconstructs metadata from generated models when the store has
+    /// no accepted snapshots.
+    pub(in crate::db) fn allocation_metadata(
+        &self,
+    ) -> Result<Option<SchemaStoreAllocationMetadata>, InternalError> {
+        let latest_by_entity = self.latest_raw_snapshots_by_entity();
         if latest_by_entity.is_empty() {
             return Ok(None);
         }
 
-        let mut max_version = SchemaVersion::initial();
-        let mut hasher = new_hash_sha256();
-        hasher.update([SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION]);
-
-        for (entity, (version, snapshot)) in &latest_by_entity {
-            let persisted = snapshot.decode_persisted_snapshot()?;
-            if persisted.version() > max_version {
-                max_version = persisted.version();
-            }
-
-            hasher.update(entity.value().to_be_bytes());
-            hasher.update(version.get().to_be_bytes());
-            hasher.update(
-                u64::try_from(snapshot.as_bytes().len())
-                    .unwrap_or(u64::MAX)
-                    .to_be_bytes(),
-            );
-            hasher.update(snapshot.as_bytes());
-        }
-
-        let digest = finalize_hash_sha256(hasher);
-        let mut schema_fingerprint = [0u8; 16];
-        schema_fingerprint.copy_from_slice(&digest[..16]);
-
-        Ok(Some(SchemaStoreCatalogMetadata::new(
-            max_version,
-            schema_fingerprint,
-            u64::try_from(latest_by_entity.len()).unwrap_or(u64::MAX),
+        Ok(Some(SchemaStoreAllocationMetadata::new(
+            derive_data_allocation_metadata(&latest_by_entity)?,
+            derive_index_allocation_metadata(&latest_by_entity)?,
+            derive_schema_catalog_metadata(&latest_by_entity)?,
         )))
     }
 
@@ -486,6 +517,351 @@ impl SchemaStore {
     pub(in crate::db) fn clear(&mut self) {
         self.map.clear_new();
     }
+
+    fn latest_raw_snapshots_by_entity(
+        &self,
+    ) -> StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)> {
+        let mut latest_by_entity =
+            StdBTreeMap::<EntityTag, (SchemaVersion, RawSchemaSnapshot)>::new();
+
+        for entry in self.map.iter() {
+            let (key, snapshot) = entry.into_pair();
+            let version = SchemaVersion::new(key.version());
+            match latest_by_entity.get_mut(&key.entity_tag()) {
+                Some((latest_version, latest_snapshot)) if version > *latest_version => {
+                    *latest_version = version;
+                    *latest_snapshot = snapshot;
+                }
+                None => {
+                    latest_by_entity.insert(key.entity_tag(), (version, snapshot));
+                }
+                Some(_) => {}
+            }
+        }
+
+        latest_by_entity
+    }
+}
+
+fn derive_data_allocation_metadata(
+    latest_by_entity: &StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)>,
+) -> Result<SchemaStoreCatalogMetadata, InternalError> {
+    let mut max_version = SchemaVersion::initial();
+    let mut hasher = new_hash_sha256();
+    write_hash_tag_u8(
+        &mut hasher,
+        SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
+    );
+
+    for (entity, (_, snapshot)) in latest_by_entity {
+        let persisted = snapshot.decode_persisted_snapshot()?;
+        if persisted.version() > max_version {
+            max_version = persisted.version();
+        }
+
+        let data_projection = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            persisted.version(),
+            persisted.entity_path().to_string(),
+            persisted.entity_name().to_string(),
+            persisted.primary_key_field_ids().to_vec(),
+            persisted.row_layout().clone(),
+            persisted.fields().to_vec(),
+            Vec::new(),
+        );
+        let encoded = encode_persisted_schema_snapshot(&data_projection)?;
+
+        write_hash_u64(&mut hasher, entity.value());
+        write_hash_u32(&mut hasher, persisted.version().get());
+        write_hash_len_u32(&mut hasher, encoded.len());
+        hasher.update(encoded);
+    }
+
+    Ok(finalize_schema_metadata(
+        max_version,
+        hasher,
+        latest_by_entity.len(),
+    ))
+}
+
+fn derive_index_allocation_metadata(
+    latest_by_entity: &StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)>,
+) -> Result<SchemaStoreCatalogMetadata, InternalError> {
+    let mut max_version = SchemaVersion::initial();
+    let mut hasher = new_hash_sha256();
+    write_hash_tag_u8(
+        &mut hasher,
+        SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION,
+    );
+
+    for (entity, (_, snapshot)) in latest_by_entity {
+        let persisted = snapshot.decode_persisted_snapshot()?;
+        if persisted.version() > max_version {
+            max_version = persisted.version();
+        }
+
+        write_hash_u64(&mut hasher, entity.value());
+        write_hash_u32(&mut hasher, persisted.version().get());
+        write_hash_len_u32(&mut hasher, persisted.indexes().len());
+        for index in persisted.indexes() {
+            write_hash_u32(&mut hasher, u32::from(index.ordinal()));
+            write_hash_str_u32(&mut hasher, index.name());
+            write_hash_str_u32(&mut hasher, index.store());
+            write_hash_tag_u8(&mut hasher, u8::from(index.unique()));
+            write_hash_str_u32(&mut hasher, persisted_index_origin_name(index.origin()));
+            match index.predicate_sql() {
+                Some(predicate_sql) => {
+                    write_hash_tag_u8(&mut hasher, 1);
+                    write_hash_str_u32(&mut hasher, predicate_sql);
+                }
+                None => write_hash_tag_u8(&mut hasher, 0),
+            }
+            hash_persisted_index_key(&mut hasher, index.key());
+        }
+    }
+
+    Ok(finalize_schema_metadata(
+        max_version,
+        hasher,
+        latest_by_entity.len(),
+    ))
+}
+
+fn derive_schema_catalog_metadata(
+    latest_by_entity: &StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)>,
+) -> Result<SchemaStoreCatalogMetadata, InternalError> {
+    let mut max_version = SchemaVersion::initial();
+    let mut hasher = new_hash_sha256();
+    write_hash_tag_u8(&mut hasher, SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION);
+
+    for (entity, (version, snapshot)) in latest_by_entity {
+        let persisted = snapshot.decode_persisted_snapshot()?;
+        if persisted.version() > max_version {
+            max_version = persisted.version();
+        }
+
+        write_hash_u64(&mut hasher, entity.value());
+        write_hash_u32(&mut hasher, version.get());
+        write_hash_len_u32(&mut hasher, snapshot.as_bytes().len());
+        hasher.update(snapshot.as_bytes());
+    }
+
+    Ok(finalize_schema_metadata(
+        max_version,
+        hasher,
+        latest_by_entity.len(),
+    ))
+}
+
+fn finalize_schema_metadata(
+    schema_version: SchemaVersion,
+    hasher: sha2::Sha256,
+    entity_count: usize,
+) -> SchemaStoreCatalogMetadata {
+    let digest = finalize_hash_sha256(hasher);
+    let mut schema_fingerprint = [0u8; 16];
+    schema_fingerprint.copy_from_slice(&digest[..16]);
+
+    SchemaStoreCatalogMetadata::new(
+        schema_version,
+        schema_fingerprint,
+        u64::try_from(entity_count).unwrap_or(u64::MAX),
+    )
+}
+
+fn hash_persisted_index_key(hasher: &mut sha2::Sha256, key: &PersistedIndexKeySnapshot) {
+    match key {
+        PersistedIndexKeySnapshot::FieldPath(paths) => {
+            write_hash_tag_u8(hasher, 1);
+            write_hash_len_u32(hasher, paths.len());
+            for path in paths {
+                hash_persisted_index_field_path(hasher, path);
+            }
+        }
+        PersistedIndexKeySnapshot::Items(items) => {
+            write_hash_tag_u8(hasher, 2);
+            write_hash_len_u32(hasher, items.len());
+            for item in items {
+                match item {
+                    PersistedIndexKeyItemSnapshot::FieldPath(path) => {
+                        write_hash_tag_u8(hasher, 1);
+                        hash_persisted_index_field_path(hasher, path);
+                    }
+                    PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                        write_hash_tag_u8(hasher, 2);
+                        write_hash_str_u32(hasher, persisted_expression_op_name(expression.op()));
+                        hash_persisted_index_field_path(hasher, expression.source());
+                        hash_persisted_field_kind(hasher, expression.input_kind());
+                        hash_persisted_field_kind(hasher, expression.output_kind());
+                        write_hash_str_u32(hasher, expression.canonical_text());
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn hash_persisted_index_field_path(
+    hasher: &mut sha2::Sha256,
+    path: &crate::db::schema::PersistedIndexFieldPathSnapshot,
+) {
+    write_hash_u32(hasher, path.field_id().get());
+    write_hash_u32(hasher, u32::from(path.slot().get()));
+    write_hash_len_u32(hasher, path.path().len());
+    for segment in path.path() {
+        write_hash_str_u32(hasher, segment);
+    }
+    hash_persisted_field_kind(hasher, path.kind());
+    write_hash_tag_u8(hasher, u8::from(path.nullable()));
+}
+
+fn hash_persisted_field_kind(hasher: &mut sha2::Sha256, kind: &PersistedFieldKind) {
+    match kind {
+        PersistedFieldKind::Account => write_hash_tag_u8(hasher, 1),
+        PersistedFieldKind::Blob { max_len } => {
+            write_hash_tag_u8(hasher, 2);
+            hash_optional_u32(hasher, *max_len);
+        }
+        PersistedFieldKind::Bool => write_hash_tag_u8(hasher, 3),
+        PersistedFieldKind::Date => write_hash_tag_u8(hasher, 4),
+        PersistedFieldKind::Decimal { scale } => {
+            write_hash_tag_u8(hasher, 5);
+            write_hash_u32(hasher, *scale);
+        }
+        PersistedFieldKind::Duration => write_hash_tag_u8(hasher, 6),
+        PersistedFieldKind::Enum { path, variants } => {
+            write_hash_tag_u8(hasher, 7);
+            write_hash_str_u32(hasher, path);
+            write_hash_len_u32(hasher, variants.len());
+            for variant in variants {
+                write_hash_str_u32(hasher, variant.ident());
+                match variant.payload_kind() {
+                    Some(payload_kind) => {
+                        write_hash_tag_u8(hasher, 1);
+                        hash_persisted_field_kind(hasher, payload_kind);
+                    }
+                    None => write_hash_tag_u8(hasher, 0),
+                }
+                write_hash_str_u32(
+                    hasher,
+                    field_storage_decode_name(variant.payload_storage_decode()),
+                );
+            }
+        }
+        PersistedFieldKind::Float32 => write_hash_tag_u8(hasher, 8),
+        PersistedFieldKind::Float64 => write_hash_tag_u8(hasher, 9),
+        PersistedFieldKind::Int8 => write_hash_tag_u8(hasher, 10),
+        PersistedFieldKind::Int16 => write_hash_tag_u8(hasher, 11),
+        PersistedFieldKind::Int32 => write_hash_tag_u8(hasher, 12),
+        PersistedFieldKind::Int64 => write_hash_tag_u8(hasher, 13),
+        PersistedFieldKind::Int128 => write_hash_tag_u8(hasher, 14),
+        PersistedFieldKind::IntBig { max_bytes } => {
+            write_hash_tag_u8(hasher, 15);
+            write_hash_u32(hasher, *max_bytes);
+        }
+        PersistedFieldKind::Principal => write_hash_tag_u8(hasher, 16),
+        PersistedFieldKind::Subaccount => write_hash_tag_u8(hasher, 17),
+        PersistedFieldKind::Text { max_len } => {
+            write_hash_tag_u8(hasher, 18);
+            hash_optional_u32(hasher, *max_len);
+        }
+        PersistedFieldKind::Timestamp => write_hash_tag_u8(hasher, 19),
+        PersistedFieldKind::Nat8 => write_hash_tag_u8(hasher, 20),
+        PersistedFieldKind::Nat16 => write_hash_tag_u8(hasher, 21),
+        PersistedFieldKind::Nat32 => write_hash_tag_u8(hasher, 22),
+        PersistedFieldKind::Nat64 => write_hash_tag_u8(hasher, 23),
+        PersistedFieldKind::Nat128 => write_hash_tag_u8(hasher, 24),
+        PersistedFieldKind::NatBig { max_bytes } => {
+            write_hash_tag_u8(hasher, 25);
+            write_hash_u32(hasher, *max_bytes);
+        }
+        PersistedFieldKind::Ulid => write_hash_tag_u8(hasher, 26),
+        PersistedFieldKind::Unit => write_hash_tag_u8(hasher, 27),
+        PersistedFieldKind::Relation {
+            target_path,
+            target_entity_name,
+            target_entity_tag,
+            target_store_path,
+            key_kind,
+            strength,
+        } => {
+            write_hash_tag_u8(hasher, 28);
+            write_hash_str_u32(hasher, target_path);
+            write_hash_str_u32(hasher, target_entity_name);
+            write_hash_u64(hasher, target_entity_tag.value());
+            write_hash_str_u32(hasher, target_store_path);
+            hash_persisted_field_kind(hasher, key_kind);
+            write_hash_str_u32(hasher, persisted_relation_strength_name(*strength));
+        }
+        PersistedFieldKind::List(inner) => {
+            write_hash_tag_u8(hasher, 29);
+            hash_persisted_field_kind(hasher, inner);
+        }
+        PersistedFieldKind::Set(inner) => {
+            write_hash_tag_u8(hasher, 30);
+            hash_persisted_field_kind(hasher, inner);
+        }
+        PersistedFieldKind::Map { key, value } => {
+            write_hash_tag_u8(hasher, 31);
+            hash_persisted_field_kind(hasher, key);
+            hash_persisted_field_kind(hasher, value);
+        }
+        PersistedFieldKind::Structured { queryable } => {
+            write_hash_tag_u8(hasher, 32);
+            write_hash_tag_u8(hasher, u8::from(*queryable));
+        }
+    }
+}
+
+fn hash_optional_u32(hasher: &mut sha2::Sha256, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            write_hash_tag_u8(hasher, 1);
+            write_hash_u32(hasher, value);
+        }
+        None => write_hash_tag_u8(hasher, 0),
+    }
+}
+
+const fn persisted_index_origin_name(
+    origin: crate::db::schema::PersistedIndexOrigin,
+) -> &'static str {
+    match origin {
+        crate::db::schema::PersistedIndexOrigin::Generated => "generated",
+        crate::db::schema::PersistedIndexOrigin::SqlDdl => "sql_ddl",
+    }
+}
+
+const fn persisted_expression_op_name(
+    op: crate::db::schema::PersistedIndexExpressionOp,
+) -> &'static str {
+    match op {
+        crate::db::schema::PersistedIndexExpressionOp::Lower => "lower",
+        crate::db::schema::PersistedIndexExpressionOp::Upper => "upper",
+        crate::db::schema::PersistedIndexExpressionOp::Trim => "trim",
+        crate::db::schema::PersistedIndexExpressionOp::LowerTrim => "lower_trim",
+        crate::db::schema::PersistedIndexExpressionOp::Date => "date",
+        crate::db::schema::PersistedIndexExpressionOp::Year => "year",
+        crate::db::schema::PersistedIndexExpressionOp::Month => "month",
+        crate::db::schema::PersistedIndexExpressionOp::Day => "day",
+    }
+}
+
+const fn persisted_relation_strength_name(
+    strength: crate::db::schema::PersistedRelationStrength,
+) -> &'static str {
+    match strength {
+        crate::db::schema::PersistedRelationStrength::Strong => "strong",
+        crate::db::schema::PersistedRelationStrength::Weak => "weak",
+    }
+}
+
+const fn field_storage_decode_name(
+    decode: crate::model::field::FieldStorageDecode,
+) -> &'static str {
+    match decode {
+        crate::model::field::FieldStorageDecode::ByKind => "by_kind",
+        crate::model::field::FieldStorageDecode::Value => "value",
+    }
 }
 
 ///
@@ -497,7 +873,8 @@ mod tests {
     use super::{RawSchemaKey, RawSchemaSnapshot, SchemaStore};
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
+            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
             PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
             SchemaVersion, encode_persisted_schema_snapshot,
         },
@@ -679,6 +1056,60 @@ mod tests {
             .expect("right schema catalog metadata should derive");
 
         assert_eq!(left_metadata, right_metadata);
+    }
+
+    #[test]
+    fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
+        let without_index =
+            persisted_schema_snapshot_for_test(SchemaVersion::initial(), "RoleSpecific");
+        let with_index = persisted_schema_snapshot_with_index_for_test(
+            SchemaVersion::initial(),
+            "RoleSpecific",
+            "payload_idx",
+        );
+
+        let mut base = SchemaStore::init(test_memory(237));
+        base.insert_persisted_snapshot(EntityTag::new(93), &without_index)
+            .expect("base schema snapshot should encode");
+        let base_metadata = base
+            .allocation_metadata()
+            .expect("base allocation metadata should derive")
+            .expect("base allocation metadata should be present");
+
+        let mut indexed = SchemaStore::init(test_memory(236));
+        indexed
+            .insert_persisted_snapshot(EntityTag::new(93), &with_index)
+            .expect("indexed schema snapshot should encode");
+        let indexed_metadata = indexed
+            .allocation_metadata()
+            .expect("indexed allocation metadata should derive")
+            .expect("indexed allocation metadata should be present");
+
+        assert_eq!(
+            base_metadata.data().schema_fingerprint(),
+            indexed_metadata.data().schema_fingerprint(),
+            "data allocation metadata should ignore accepted index catalog changes"
+        );
+        assert_ne!(
+            base_metadata.index().schema_fingerprint(),
+            indexed_metadata.index().schema_fingerprint(),
+            "index allocation metadata should change when accepted index catalog changes"
+        );
+        assert_ne!(
+            base_metadata.schema().schema_fingerprint(),
+            indexed_metadata.schema().schema_fingerprint(),
+            "schema allocation metadata should change when full accepted catalog changes"
+        );
+        assert_ne!(
+            indexed_metadata.data().schema_fingerprint(),
+            indexed_metadata.index().schema_fingerprint(),
+            "data and index allocation metadata should have distinct role fingerprints"
+        );
+        assert_ne!(
+            indexed_metadata.index().schema_fingerprint(),
+            indexed_metadata.schema().schema_fingerprint(),
+            "index and schema allocation metadata should have distinct role fingerprints"
+        );
     }
 
     #[test]
@@ -1039,6 +1470,37 @@ mod tests {
         entity_name: &str,
     ) -> PersistedSchemaSnapshot {
         persisted_schema_snapshot_with_layout_version_for_test(version, version, entity_name)
+    }
+
+    fn persisted_schema_snapshot_with_index_for_test(
+        version: SchemaVersion,
+        entity_name: &str,
+        index_name: &str,
+    ) -> PersistedSchemaSnapshot {
+        let base = persisted_schema_snapshot_for_test(version, entity_name);
+
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            base.version(),
+            base.entity_path().to_string(),
+            base.entity_name().to_string(),
+            base.primary_key_field_ids().to_vec(),
+            base.row_layout().clone(),
+            base.fields().to_vec(),
+            vec![PersistedIndexSnapshot::new(
+                0,
+                index_name.to_string(),
+                "RoleSpecificStore".to_string(),
+                false,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(1),
+                    SchemaFieldSlot::new(0),
+                    vec!["id".to_string()],
+                    PersistedFieldKind::Ulid,
+                    false,
+                )]),
+                None,
+            )],
+        )
     }
 
     // Build one typed schema snapshot with independently selectable snapshot

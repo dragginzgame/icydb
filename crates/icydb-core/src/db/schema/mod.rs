@@ -114,6 +114,7 @@ pub(in crate::db) use snapshot::{
     PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldWritePolicy,
 };
 pub use store::SchemaStore;
+pub(in crate::db) use store::SchemaStoreCatalogMetadata;
 pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };

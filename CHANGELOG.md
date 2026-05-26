@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.163.md](docs/changelog/0.163.md)
 
+- `0.163.2` adds role-specific accepted schema metadata to data, index, and
+  schema storage snapshots while preserving allocation identity as memory ID
+  plus stable key.
+
 - `0.163.1` carries generated stable-memory allocation identity into storage
   snapshots and fixes mixed-direction ordered loads over composite-key row
   streams.

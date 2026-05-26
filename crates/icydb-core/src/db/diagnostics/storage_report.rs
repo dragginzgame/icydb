@@ -9,8 +9,9 @@ use crate::{
         codec::hex::encode_hex_lower,
         data::DecodedDataStoreKey,
         diagnostics::{
-            DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot,
-            StorageReport, StoreSnapshotAllocationIdentity,
+            DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IndexStoreSnapshotStats,
+            SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
+            StoreSnapshotSchemaMetadata,
         },
         index::IndexKey,
         registry::StoreAllocationIdentity,
@@ -91,6 +92,15 @@ fn snapshot_allocation_identity(
     StoreSnapshotAllocationIdentity::new(
         allocation.memory_id(),
         allocation.stable_key().to_string(),
+    )
+}
+
+fn snapshot_schema_metadata(
+    metadata: crate::db::schema::SchemaStoreCatalogMetadata,
+) -> StoreSnapshotSchemaMetadata {
+    StoreSnapshotSchemaMetadata::new(
+        metadata.schema_version().get(),
+        encode_hex_lower(&metadata.schema_fingerprint()),
     )
 }
 
@@ -278,12 +288,33 @@ fn build_storage_report<C: CanisterKind>(
             let data_allocation = store_handle.data_allocation();
             let index_allocation = store_handle.index_allocation();
             let schema_allocation = store_handle.schema_allocation();
+            let allocation_metadata =
+                store_handle.with_schema(crate::db::schema::SchemaStore::allocation_metadata);
+            let (data_metadata, index_metadata, schema_metadata, schema_entity_count) =
+                allocation_metadata.ok().flatten().map_or(
+                    (
+                        StoreSnapshotSchemaMetadata::absent(),
+                        StoreSnapshotSchemaMetadata::absent(),
+                        StoreSnapshotSchemaMetadata::absent(),
+                        0,
+                    ),
+                    |metadata| {
+                        let schema = metadata.schema();
+                        (
+                            snapshot_schema_metadata(metadata.data()),
+                            snapshot_schema_metadata(metadata.index()),
+                            snapshot_schema_metadata(schema),
+                            schema.entity_count(),
+                        )
+                    },
+                );
 
             // Phase 1: collect data-store snapshots and per-entity stats.
             store_handle.with_data(|store| {
                 data.push(DataStoreSnapshot::new(
                     path.to_string(),
                     data_allocation.map(snapshot_allocation_identity),
+                    data_metadata,
                     store.len(),
                     store.memory_bytes(),
                 ));
@@ -330,34 +361,24 @@ fn build_storage_report<C: CanisterKind>(
                 index.push(IndexStoreSnapshot::new(
                     path.to_string(),
                     index_allocation.map(snapshot_allocation_identity),
-                    store.len(),
-                    user_entries,
-                    system_entries,
-                    store.memory_bytes(),
-                    store.state(),
+                    index_metadata,
+                    IndexStoreSnapshotStats::new(
+                        store.len(),
+                        user_entries,
+                        system_entries,
+                        store.memory_bytes(),
+                        store.state(),
+                    ),
                 ));
             });
 
             // Phase 3: collect schema-store allocation metadata diagnostics.
-            store_handle.with_schema(|store| {
-                let metadata = store.catalog_metadata().ok().flatten();
-                schema.push(match metadata {
-                    Some(metadata) => SchemaStoreSnapshot::new(
-                        path.to_string(),
-                        schema_allocation.map(snapshot_allocation_identity),
-                        Some(metadata.schema_version().get()),
-                        Some(encode_hex_lower(&metadata.schema_fingerprint())),
-                        metadata.entity_count(),
-                    ),
-                    None => SchemaStoreSnapshot::new(
-                        path.to_string(),
-                        schema_allocation.map(snapshot_allocation_identity),
-                        None,
-                        None,
-                        0,
-                    ),
-                });
-            });
+            schema.push(SchemaStoreSnapshot::new(
+                path.to_string(),
+                schema_allocation.map(snapshot_allocation_identity),
+                schema_metadata,
+                schema_entity_count,
+            ));
         }
     });
 
