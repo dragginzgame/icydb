@@ -1,7 +1,7 @@
 //! Module: data::structural_field::primary_key_component::scalar::account
-//! Responsibility: account storage-key scalar decode.
+//! Responsibility: account primary-key-component scalar decode.
 //! Does not own: generic scalar dispatch, relation traversal, or row decode.
-//! Boundary: decodes the account-specific storage-key payload after callers select this scalar lane.
+//! Boundary: decodes the account-specific primary-key-component payload after callers select this scalar lane.
 
 use crate::{
     db::data::structural_field::{

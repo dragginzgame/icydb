@@ -603,9 +603,9 @@ impl SchemaInfo {
 
     /// Return whether this entity has any strong relation checks.
     ///
-    /// Relation metadata is still generated-model authority, but save
-    /// orchestration reads the reduced boolean from `SchemaInfo` so it does not
-    /// reopen `E::MODEL` at every write entrypoint.
+    /// Accepted schema views source this from persisted relation field
+    /// contracts. Generated schema views source it from generated model
+    /// metadata only for proposal/model-only callers.
     #[must_use]
     pub(in crate::db) const fn has_any_strong_relations(&self) -> bool {
         self.has_any_strong_relations

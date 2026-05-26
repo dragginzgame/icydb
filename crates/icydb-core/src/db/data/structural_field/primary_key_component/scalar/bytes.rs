@@ -1,7 +1,7 @@
 //! Module: data::structural_field::primary_key_component::scalar::bytes
-//! Responsibility: byte-backed storage-key scalar decode for principal, subaccount, and ULID.
+//! Responsibility: byte-backed primary-key-component scalar decode for principal, subaccount, and ULID.
 //! Does not own: generic scalar dispatch, relation traversal, or row decode.
-//! Boundary: decodes byte-backed storage-key payloads after callers select this scalar lane.
+//! Boundary: decodes byte-backed primary-key-component payloads after callers select this scalar lane.
 
 use crate::{
     db::data::structural_field::{

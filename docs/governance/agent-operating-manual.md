@@ -33,7 +33,8 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Fast CI gate: `make check && make clippy`.
 - Release: `make security-check && make release`.
 - Hooks path: `.githooks`; common Make targets auto-configure `core.hooksPath`.
-- Hook tools: `make install-dev` installs `cargo-sort` and `cargo-sort-derives`.
+- Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
+  in `INSTALLING.md`.
 - CI uses Rust `1.95.0`, `rustfmt`, `clippy -D warnings`, `cargo test`, and release builds.
 
 ## Concurrent Editing

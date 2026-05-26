@@ -1,7 +1,7 @@
 //! Module: data::structural_field::primary_key_component::scalar
-//! Responsibility: storage-key scalar codec module wiring.
+//! Responsibility: primary-key-component scalar codec module wiring.
 //! Does not own: relation collection traversal, value-storage envelopes, or row policy.
-//! Boundary: re-exports scalar helpers only to the storage-key owner.
+//! Boundary: re-exports scalar helpers only to the relation primary-key-component owner.
 
 mod account;
 mod bytes;

@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Added strict `field = "..."` scalar shorthand alongside `fields = [...]`
-  for derive primary-key and index declarations, with both forms normalizing
-  to the same ordered field-list model.
-
 ## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)
+
+- `0.164.6` moves accepted relation diagnostics and save-time scalar target
+  preflight onto persisted relation and accepted target primary-key authority.
+
+- `0.164.5` adds strict scalar `field = "..."` shorthand for derive primary-key
+  and index declarations while keeping both forms normalized to ordered field
+  lists.
 
 - `0.164.4` centralizes relation key-kind and scalar compatibility gates while
   lowering scalar declarations through tuple-capable accepted relation

@@ -38,12 +38,10 @@ The crate root establishes stable top-level namespaces such as:
 
 ```rust
 pub mod db;
-mod error;
-pub use error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind};
+pub mod error;
 pub mod metrics;
 pub mod model;
 pub mod sanitize;
-pub mod serialize;
 pub mod traits;
 pub mod types;
 pub mod validate;
@@ -65,7 +63,9 @@ This does **not** mean every descendant of those namespaces is public API.
 The crate root should not become an indiscriminate type dump.
 
 Rare root-level re-exports are acceptable only when they are intentional and
-documented as part of the crate surface.
+documented as part of the crate surface. The current core crate primarily keeps
+subsystem vocabulary under module namespaces instead of flattening it at the
+crate root.
 
 Correct:
 

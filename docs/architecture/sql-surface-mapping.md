@@ -49,6 +49,10 @@ Operational SQL surfaces are the explicit exception:
 * `SHOW ...`
 * `EXPLAIN ...`
 
+Schema-catalog DDL is also an explicit exception. SQL DDL is a frontend over
+accepted schema/catalog mutation, not a typed/fluent row query or row mutation
+surface.
+
 Operational retrieval differences are also explicit exceptions:
 
 * typed cursor pagination
@@ -66,11 +70,12 @@ Legend:
   or a narrower helper contract.
 - `no` means the surface does not expose that family.
 
-| surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | `EXPLAIN` | `DESCRIBE` / `SHOW` |
-|---|---|---|---|---|---|---|---|---|---|
-| `execute_sql_query::<E>` | yes | yes | yes | yes | no | no | no | yes | yes |
-| `execute_sql_update::<E>` | no | no | no | no | yes | yes | yes | no | no |
-| typed/fluent writes | no | no | no | no | yes | yes | yes | no | no |
+| surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | DDL | `EXPLAIN` | `DESCRIBE` / `SHOW` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `execute_sql_query::<E>` | yes | yes | yes | yes | no | no | no | no | yes | yes |
+| `execute_sql_update::<E>` | no | no | no | no | yes | yes | yes | no | no | no |
+| `execute_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
+| typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
 
 ## What Is Already Stable
 
@@ -96,10 +101,11 @@ query/runtime model with multiple frontends.
 The strongest public SQL execution split is now:
 
 - `execute_sql_query::<E>(...)` for read, explain, and introspection SQL
-- `execute_sql_update::<E>(...)` for state-changing SQL
+- `execute_sql_update::<E>(...)` for row-mutation SQL
+- `execute_sql_ddl::<E>(...)` for accepted-catalog DDL SQL
 
-Both stay single-entity and SQL-shaped, but neither one widens into the
-other's statement family.
+All three stay single-entity and SQL-shaped, but none widens into the other
+statement families.
 
 The strongest row-returning convergence exists on typed/fluent mutation APIs:
 
@@ -218,6 +224,22 @@ entrypoint:
 That means typed write helpers remain an ergonomic owner, not a missing SQL
 mutation capability.
 
+## DDL Boundary
+
+SQL DDL has its own public entrypoint:
+
+- `execute_sql_ddl::<E>(...)`
+
+DDL owns accepted-catalog schema mutation for admitted `CREATE INDEX`,
+`DROP INDEX`, and `ALTER TABLE` shapes. It is not represented as a fluent row
+mutation API because it changes schema/catalog state rather than entity rows.
+
+Representative evidence:
+
+- `crates/icydb-core/src/db/session/sql/mod.rs`
+- `crates/icydb-core/src/db/session/tests/sql_surface.rs`
+- `crates/icydb-core/src/db/sql/parser/tests/mod.rs`
+
 ## Introspection Boundary
 
 SQL parsing still owns route metadata for:
@@ -282,5 +304,6 @@ the following remain true:
 - the live public SQL surface stays frozen to:
   - `execute_sql_query::<E>(...)`
   - `execute_sql_update::<E>(...)`
+  - `execute_sql_ddl::<E>(...)`
 - every admitted family has direct tests on the live surface rather than only
   transitive proof through older internal helpers

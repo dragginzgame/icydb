@@ -10,7 +10,7 @@ mod validate;
 
 use crate::{
     db::{
-        Db,
+        Db, EntityRuntimeHooks,
         data::RawDataStoreKey,
         identity::EntityName,
         schema::{PersistedFieldKind, PersistedRelationStrength},
@@ -84,7 +84,7 @@ struct AcceptedRelationTargetDescriptor<'a> {
     target_entity_name: &'a str,
     target_entity_tag: EntityTag,
     target_store_path: &'a str,
-    target_key_kind: &'a PersistedFieldKind,
+    scalar_target_key_kind: &'a PersistedFieldKind,
     strength: PersistedRelationStrength,
     cardinality: AcceptedRelationCardinality,
 }
@@ -113,7 +113,7 @@ fn accepted_relation_target_descriptor_from_kind(
             target_entity_name,
             target_entity_tag: *target_entity_tag,
             target_store_path,
-            target_key_kind: key_kind.as_ref(),
+            scalar_target_key_kind: key_kind.as_ref(),
             strength: *strength,
             cardinality,
         })
@@ -220,17 +220,17 @@ impl AcceptedRelationTargetAuthority {
         self.store_path.as_str()
     }
 
-    fn validate_against_db<C>(
+    fn validate_against_db<'db, C>(
         &self,
-        db: &Db<C>,
+        db: &'db Db<C>,
         source_path: &str,
         field_name: &str,
-    ) -> Result<(), InternalError>
+    ) -> Result<Option<&'db EntityRuntimeHooks<C>>, InternalError>
     where
         C: CanisterKind,
     {
         if !db.has_runtime_hooks() {
-            return Ok(());
+            return Ok(None);
         }
 
         let hook = db
@@ -289,7 +289,7 @@ impl AcceptedRelationTargetAuthority {
             ));
         }
 
-        Ok(())
+        Ok(Some(hook))
     }
 }
 

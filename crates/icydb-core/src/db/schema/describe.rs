@@ -411,7 +411,7 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
         primary_key_fields,
         fields,
         describe_entity_indexes_from_model(model),
-        model,
+        describe_entity_relations_from_model(model),
     )
 }
 
@@ -443,13 +443,14 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
         primary_key_fields,
         fields,
         describe_entity_indexes_with_persisted_schema(schema),
-        model,
+        describe_entity_relations_with_persisted_schema(schema),
     )
 }
 
 // Assemble the common DESCRIBE payload once field rows have already been built.
-// This lets accepted-schema callers supply persisted field and index metadata
-// while relation descriptions remain generated-model owned for this phase.
+// Callers project relation descriptions from the same authority as their field
+// and index rows, so accepted DESCRIBE output does not fall back to generated
+// relation metadata.
 fn describe_entity_model_with_parts(
     entity_path: &str,
     entity_name: &str,
@@ -457,12 +458,8 @@ fn describe_entity_model_with_parts(
     primary_key_fields: Vec<String>,
     fields: Vec<EntityFieldDescription>,
     indexes: Vec<EntityIndexDescription>,
-    model: &EntityModel,
+    relations: Vec<EntityRelationDescription>,
 ) -> EntitySchemaDescription {
-    let relations = relation_descriptors_for_model_iter(model)
-        .map(relation_description_from_descriptor)
-        .collect();
-
     EntitySchemaDescription::new_with_primary_key_fields(
         entity_path.to_string(),
         entity_name.to_string(),
@@ -472,6 +469,12 @@ fn describe_entity_model_with_parts(
         indexes,
         relations,
     )
+}
+
+fn describe_entity_relations_from_model(model: &EntityModel) -> Vec<EntityRelationDescription> {
+    relation_descriptors_for_model_iter(model)
+        .map(relation_description_from_descriptor)
+        .collect()
 }
 
 fn primary_key_field_names_from_model(model: &EntityModel) -> Vec<String> {
@@ -767,6 +770,88 @@ fn field_origin_label(generated: bool) -> String {
         "generated".to_string()
     } else {
         "ddl".to_string()
+    }
+}
+
+fn describe_entity_relations_with_persisted_schema(
+    schema: &AcceptedSchemaSnapshot,
+) -> Vec<EntityRelationDescription> {
+    schema
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .filter_map(relation_description_from_persisted_field)
+        .collect()
+}
+
+fn relation_description_from_persisted_field(
+    field: &crate::db::schema::PersistedFieldSnapshot,
+) -> Option<EntityRelationDescription> {
+    let relation = persisted_relation_description_parts(field.kind())?;
+
+    Some(EntityRelationDescription::new(
+        field.name().to_string(),
+        relation.target_path.to_string(),
+        relation.target_entity_name.to_string(),
+        relation.target_store_path.to_string(),
+        relation.strength,
+        relation.cardinality,
+    ))
+}
+
+struct PersistedRelationDescriptionParts<'a> {
+    target_path: &'a str,
+    target_entity_name: &'a str,
+    target_store_path: &'a str,
+    strength: EntityRelationStrength,
+    cardinality: EntityRelationCardinality,
+}
+
+fn persisted_relation_description_parts(
+    kind: &PersistedFieldKind,
+) -> Option<PersistedRelationDescriptionParts<'_>> {
+    const fn from_relation_kind(
+        kind: &PersistedFieldKind,
+        cardinality: EntityRelationCardinality,
+    ) -> Option<PersistedRelationDescriptionParts<'_>> {
+        let PersistedFieldKind::Relation {
+            target_path,
+            target_entity_name,
+            target_store_path,
+            strength,
+            ..
+        } = kind
+        else {
+            return None;
+        };
+
+        Some(PersistedRelationDescriptionParts {
+            target_path: target_path.as_str(),
+            target_entity_name: target_entity_name.as_str(),
+            target_store_path: target_store_path.as_str(),
+            strength: entity_relation_strength_from_persisted(*strength),
+            cardinality,
+        })
+    }
+
+    match kind {
+        PersistedFieldKind::Relation { .. } => {
+            from_relation_kind(kind, EntityRelationCardinality::Single)
+        }
+        PersistedFieldKind::List(inner) => {
+            from_relation_kind(inner, EntityRelationCardinality::List)
+        }
+        PersistedFieldKind::Set(inner) => from_relation_kind(inner, EntityRelationCardinality::Set),
+        _ => None,
+    }
+}
+
+const fn entity_relation_strength_from_persisted(
+    strength: PersistedRelationStrength,
+) -> EntityRelationStrength {
+    match strength {
+        PersistedRelationStrength::Strong => EntityRelationStrength::Strong,
+        PersistedRelationStrength::Weak => EntityRelationStrength::Weak,
     }
 }
 
@@ -1176,9 +1261,12 @@ mod tests {
             relation::{RelationDescriptorCardinality, relation_descriptors_for_model_iter},
             schema::{
                 AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-                PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-                SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-                describe::{describe_entity_fields_with_persisted_schema, describe_entity_model},
+                PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
+                SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+                describe::{
+                    describe_entity_fields_with_persisted_schema, describe_entity_model,
+                    describe_entity_model_with_persisted_schema,
+                },
             },
         },
         model::{
@@ -1469,6 +1557,73 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn accepted_schema_describe_relations_use_persisted_relation_authority() {
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::AcceptedSource".to_string(),
+            "AcceptedSource".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "accepted_targets".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Set(Box::new(PersistedFieldKind::Relation {
+                        target_path: "accepted::Target".to_string(),
+                        target_entity_name: "AcceptedTarget".to_string(),
+                        target_entity_tag: EntityTag::new(0xD0A1),
+                        target_store_path: "accepted::TargetStore".to_string(),
+                        key_kind: Box::new(PersistedFieldKind::Nat128),
+                        strength: PersistedRelationStrength::Strong,
+                    })),
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+
+        let described =
+            describe_entity_model_with_persisted_schema(&DESCRIBE_RELATION_MODEL, &snapshot);
+
+        assert_eq!(described.entity_path(), "entities::AcceptedSource");
+        assert_eq!(described.entity_name(), "AcceptedSource");
+        assert_eq!(
+            described.primary_key_fields(),
+            ["id".to_string()].as_slice()
+        );
+        assert_eq!(described.relations().len(), 1);
+
+        let relation = &described.relations()[0];
+        assert_eq!(relation.field(), "accepted_targets");
+        assert_eq!(relation.target_path(), "accepted::Target");
+        assert_eq!(relation.target_entity_name(), "AcceptedTarget");
+        assert_eq!(relation.target_store_path(), "accepted::TargetStore");
+        assert_eq!(relation.strength(), EntityRelationStrength::Strong);
+        assert_eq!(relation.cardinality(), EntityRelationCardinality::Set);
     }
 
     #[test]

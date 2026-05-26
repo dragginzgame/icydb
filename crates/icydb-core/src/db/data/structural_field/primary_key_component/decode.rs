@@ -305,7 +305,7 @@ fn decode_accepted_relation_primary_key_component_binary_list_bytes(
 }
 
 // Decode one relation-compatible scalar field payload from Structural Binary
-// v1 into its storage-key form.
+// v1 into its primary-key-component form.
 fn decode_relation_primary_key_component_binary_scalar_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
@@ -314,7 +314,7 @@ fn decode_relation_primary_key_component_binary_scalar_bytes(
 }
 
 // Decode one accepted relation-compatible scalar field payload from Structural
-// Binary v1 into its storage-key form.
+// Binary v1 into its primary-key-component form.
 fn decode_accepted_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     kind: &PersistedFieldKind,
@@ -350,7 +350,7 @@ fn decode_accepted_primary_key_component_field_binary_bytes(
         PersistedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
         PersistedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(
-            "unsupported accepted storage-key field kind during structural binary key decode: {other:?}"
+            "unsupported accepted primary-key-component field kind during structural binary key decode: {other:?}"
         ))),
     }
 }

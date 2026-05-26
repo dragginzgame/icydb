@@ -40,6 +40,13 @@ Then fetch locked dependencies and check the local prerequisite surface:
 make update-dev
 ```
 
+Formatting and lint-oriented Make targets expect the Cargo helper binaries used
+by the repository:
+
+```bash
+cargo install cargo-sort cargo-sort-derives --locked
+```
+
 ## ICP And Canister Tools
 
 Local ICP workflows require the current Canic ICP tools with `icp` on `PATH`.
@@ -58,8 +65,8 @@ Cargo-installed wasm helper tools can be installed with:
 make install-canister-deps
 ```
 
-That target installs the pinned wasm target plus `candid-extractor`, `ic-wasm`,
-and `twiggy`.
+That target installs the pinned Rust toolchain, the wasm target,
+`candid-extractor`, `ic-wasm`, and `twiggy`.
 
 ## Common Commands
 
@@ -68,8 +75,15 @@ make check      # type-check workspace
 make clippy     # lint with warnings denied
 make test       # unit + integration tests
 make fmt        # format workspace
-make build      # release build
+make build      # release workspace build; requires a clean worktree
 ```
+
+## Generated Endpoint Config
+
+Local canisters load generated endpoint switches from `icydb.toml` through
+`icydb-config-build`. Generated canister glue uses fixed `__icydb_*`
+Rust/export names, and the CLI checks the config before calling endpoint
+families.
 
 Install the local CLI binary:
 
@@ -97,6 +111,100 @@ icydb config init --canister demo_rpg --all --force
 `--start-dir <path>` when running from a canister subdirectory or from outside
 the workspace. Readonly SQL is enabled by default; pass `--no-readonly` only for
 canisters that should not expose `__icydb_query`.
+
+Example generated endpoint config:
+
+```toml
+[canisters.demo_rpg.sql]
+readonly = true
+ddl = true
+fixtures = true
+
+[canisters.demo_rpg.metrics]
+enabled = true
+reset = true
+
+[canisters.demo_rpg.snapshot]
+enabled = true
+
+[canisters.demo_rpg.schema]
+enabled = true
+```
+
+Current generated surfaces:
+
+- `__icydb_query` for controller-gated read SQL
+- `__icydb_ddl` for supported accepted-catalog SQL DDL
+- `__icydb_fixtures_reset` and `__icydb_fixtures_load` for local fixture flows
+- `__icydb_snapshot` for storage inventory and stable allocation metadata
+- `__icydb_schema` and `__icydb_schema_check` for accepted schema diagnostics
+- `__icydb_metrics` and `__icydb_metrics_reset` for runtime metrics
+
+Fixture loading calls a plain non-exported user hook when present:
+
+```rust
+fn icydb_fixtures_load() -> Result<(), icydb::Error> {
+    Ok(())
+}
+```
+
+## Local SQL Demo
+
+The repository includes a demo RPG canister with SQL-visible `character` and
+`grid` entities. `character` has a scalar primary key; `grid` uses a composite
+`(x, y)` primary key.
+
+```bash
+scripts/dev/sql-start-demo
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT x, y, terrain FROM grid ORDER BY danger_level DESC LIMIT 5"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "CREATE INDEX IF NOT EXISTS character_renown_idx ON character (renown)"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX IF EXISTS character_renown_idx ON character"
+```
+
+`sql` keeps an explicit `--canister/-c` flag because it also accepts trailing
+SQL text. Target-style commands such as `snapshot`, `schema show`,
+`schema check`, `metrics`, and `canister refresh` take the canister as a
+required positional argument.
+
+All canister-targeting commands default the ICP environment to `demo`, or use
+`ICP_ENVIRONMENT` when it is set:
+
+```bash
+cargo run -q -p icydb-cli -- canister list
+cargo run -q -p icydb-cli -- canister list --environment test
+```
+
+`icydb sql` only queries the current canister state. It does not create or load
+demo data automatically. Use `canister refresh` for the destructive local reset
+flow for the selected ICP canister; it clears that canister's stable memory,
+then calls `__icydb_fixtures_load` when the fixture endpoint is configured.
+
+## CLI Command Shapes
+
+```bash
+icydb config init --canister demo_rpg --all
+icydb config show --environment demo
+icydb config check --environment demo
+
+icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
+icydb sql -e test -c demo_rpg --sql "SHOW TABLES"
+
+icydb canister list
+icydb canister deploy demo_rpg
+icydb canister refresh demo_rpg
+icydb canister upgrade demo_rpg
+icydb canister status demo_rpg
+
+icydb snapshot demo_rpg
+icydb schema show demo_rpg
+icydb schema check demo_rpg
+icydb metrics demo_rpg
+icydb metrics demo_rpg --window-start-ms <timestamp>
+icydb metrics demo_rpg --reset
+```
 
 Opt into repository git hooks:
 
@@ -163,6 +271,14 @@ Ubuntu, `python3` plus `python-is-python3` provides the expected shape.
 ### `make update-dev` says `rg` is missing
 
 Install `ripgrep` with your system package manager.
+
+### `make fmt` or `make check` cannot find `cargo sort`
+
+Install the repository's formatting helper binaries:
+
+```bash
+cargo install cargo-sort cargo-sort-derives --locked
+```
 
 ### `make test` cannot find the IC testkit runner
 

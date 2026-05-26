@@ -1,5 +1,5 @@
 //! Module: data::structural_field::primary_key_component::scalar::encode
-//! Responsibility: storage-key scalar payload encode dispatch.
+//! Responsibility: primary-key-component scalar payload encode dispatch.
 //! Does not own: full relation collection framing, accepted-schema routing, or row encode.
 //! Boundary: writes one primary-key-component scalar payload for a selected field kind.
 
@@ -96,7 +96,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
         }
         (other, key) => Err(InternalError::persisted_row_field_encode_failed(
             field_name,
-            format!("field kind {other:?} does not accept storage key {key:?}"),
+            format!("field kind {other:?} does not accept primary-key component {key:?}"),
         )),
     }
 }

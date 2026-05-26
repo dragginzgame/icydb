@@ -54,9 +54,7 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.164.5", d
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs` and use a build
-script to generate actor glue with `icydb::build::BuildOptions`. Local
-canisters in this repository load those switches from `icydb.toml` through
-`icydb-config-build`.
+script to generate actor glue with `icydb::build::BuildOptions`.
 
 ## Minimal Schema
 
@@ -97,22 +95,11 @@ pub struct AppStore {}
 )]
 pub struct User {}
 
-#[entity(
-    store = "AppStore",
-    pk(fields = ["tenant_id", "local_id"]),
-    index(fields = ["status"]),
-    fields(
-        field(ident = "tenant_id", value(item(prim = "Text", max_len = 64))),
-        field(ident = "local_id", value(item(prim = "Nat64"))),
-        field(ident = "status", value(item(prim = "Text", max_len = 32)))
-    )
-)]
-pub struct Account {}
 ```
 
 The main branch also accepts strict scalar shorthand such as `pk(field = "id")`
-and `index(field = "name")`; both forms normalize to the same ordered
-field-list model.
+and `index(field = "name")`. Composite keys use ordered field lists such as
+`pk(fields = ["tenant_id", "local_id"])`.
 
 ## Query From Rust
 
@@ -183,117 +170,11 @@ matching.
 
 Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
 
-## Generated Endpoints
+## Local Development
 
-Generated canister glue uses fixed `__icydb_*` Rust/export names. Endpoint
-families are enabled through `icydb.toml` and checked by the CLI before calls:
-
-```toml
-[canisters.demo_rpg.sql]
-readonly = true
-ddl = true
-fixtures = true
-
-[canisters.demo_rpg.metrics]
-enabled = true
-reset = true
-
-[canisters.demo_rpg.snapshot]
-enabled = true
-
-[canisters.demo_rpg.schema]
-enabled = true
-```
-
-Current generated surfaces:
-
-- `__icydb_query` for controller-gated read SQL
-- `__icydb_ddl` for supported accepted-catalog SQL DDL
-- `__icydb_fixtures_reset` and `__icydb_fixtures_load` for local fixture flows
-- `__icydb_snapshot` for storage inventory and stable allocation metadata
-- `__icydb_schema` and `__icydb_schema_check` for accepted schema diagnostics
-- `__icydb_metrics` and `__icydb_metrics_reset` for runtime metrics
-
-Fixture loading calls a plain non-exported user hook when present:
-
-```rust
-fn icydb_fixtures_load() -> Result<(), icydb::Error> {
-    Ok(())
-}
-```
-
-## Local SQL Demo
-
-The repository includes a demo RPG canister with SQL-visible `character` and
-`grid` entities. `character` has a scalar primary key; `grid` uses a composite
-`(x, y)` primary key.
-
-```bash
-scripts/dev/sql-start-demo
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT x, y, terrain FROM grid ORDER BY danger_level DESC LIMIT 5"
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "CREATE INDEX IF NOT EXISTS character_renown_idx ON character (renown)"
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX IF EXISTS character_renown_idx ON character"
-```
-
-`sql` keeps an explicit `--canister/-c` flag because it also accepts trailing
-SQL text. Target-style commands such as `snapshot`, `schema show`,
-`schema check`, `metrics`, and `canister refresh` take the canister as a
-required positional argument.
-
-All canister-targeting commands default the ICP environment to `demo`, or use
-`ICP_ENVIRONMENT` when it is set:
-
-```bash
-cargo run -q -p icydb-cli -- canister list
-cargo run -q -p icydb-cli -- canister list --environment test
-```
-
-`icydb sql` only queries the current canister state. It does not create or load
-demo data automatically. Use `canister refresh` for the destructive local reset
-flow for the selected ICP canister; it clears that canister's stable memory,
-then calls `__icydb_fixtures_load` when the fixture endpoint is configured.
-
-## CLI Commands
-
-Install the local CLI:
-
-```bash
-make install
-```
-
-Common command shapes:
-
-```bash
-icydb config init --canister demo_rpg --all
-icydb config show --environment demo
-icydb config check --environment demo
-
-icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
-icydb sql -e test -c demo_rpg --sql "SHOW TABLES"
-
-icydb canister list
-icydb canister deploy demo_rpg
-icydb canister refresh demo_rpg
-icydb canister upgrade demo_rpg
-icydb canister status demo_rpg
-
-icydb snapshot demo_rpg
-icydb schema show demo_rpg
-icydb schema check demo_rpg
-icydb metrics demo_rpg
-icydb metrics demo_rpg --window-start-ms <timestamp>
-icydb metrics demo_rpg --reset
-```
-
-`config init` writes `icydb.toml` at the visible workspace root by default.
-Readonly SQL is enabled unless `--no-readonly` is passed; `--all` enables every
-currently supported generated endpoint family. `config show` prints the
-resolved config visible from the current directory. Add `--environment <name>`
-to compare configured canister names with the local ICP environment, and use
-`config check --environment <name>` in scripts when that mismatch should fail.
+Repository setup, local SQL demo commands, generated endpoint config, CLI
+usage, IC test prerequisites, and wasm report commands live in
+[INSTALLING.md](INSTALLING.md).
 
 ## Repository Map
 

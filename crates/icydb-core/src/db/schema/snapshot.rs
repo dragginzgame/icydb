@@ -152,6 +152,15 @@ impl AcceptedSchemaSnapshot {
             .collect()
     }
 
+    /// Return accepted primary-key field kinds in key order.
+    #[must_use]
+    pub(in crate::db) fn primary_key_field_kinds(&self) -> Vec<&PersistedFieldKind> {
+        self.primary_key_fields()
+            .iter()
+            .map(|field| field.kind())
+            .collect()
+    }
+
     /// Borrow one accepted field snapshot by its persisted field name.
     #[must_use]
     #[cfg(test)]

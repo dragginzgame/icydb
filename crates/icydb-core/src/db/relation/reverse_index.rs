@@ -333,6 +333,7 @@ impl AcceptedStrongRelationTargetIdentity {
     {
         self.authority
             .validate_against_db(db, source_path, field_name)
+            .map(|_| ())
     }
 }
 
@@ -457,7 +458,7 @@ fn accepted_strong_relation_from_field(
             target.target_entity_name,
             target.target_entity_tag,
             target.target_store_path,
-            std::slice::from_ref(target.target_key_kind),
+            std::slice::from_ref(target.scalar_target_key_kind),
         )?,
         cardinality: target.cardinality,
     }))
@@ -1250,7 +1251,7 @@ mod tests {
     }
 
     #[test]
-    fn relation_target_key_kind_validation_accepts_128_bit_scalar_lanes() {
+    fn scalar_relation_target_key_kind_validation_accepts_128_bit_lanes() {
         for key_kind in [PersistedFieldKind::Int128, PersistedFieldKind::Nat128] {
             let relation = relation(3, key_kind);
 
