@@ -27,6 +27,7 @@ pub(in crate::db::executor::tests) use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::{
+        entity::{PrimaryKeyModel, RelationEdgeModel},
         field::{FieldKind, RelationStrength},
         index::IndexModel,
     },
@@ -484,6 +485,22 @@ pub(in crate::db::executor::tests) static REL_ENTITY_RUNTIME_HOOKS: &[EntityRunt
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
+        CompositeRelationTargetEntity::ENTITY_TAG,
+        <CompositeRelationTargetEntity as crate::traits::EntitySchema>::MODEL,
+        CompositeRelationTargetEntity::PATH,
+        RelationTargetStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<CompositeRelationTargetEntity>,
+        validate_delete_strong_relations_for_source::<CompositeRelationTargetEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        CompositeRelationSourceEntity::ENTITY_TAG,
+        <CompositeRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        CompositeRelationSourceEntity::PATH,
+        RelationSourceStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<CompositeRelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<CompositeRelationSourceEntity>,
+    ),
+    EntityRuntimeHooks::new(
         WeakSingleRelationSourceEntity::ENTITY_TAG,
         <WeakSingleRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         WeakSingleRelationSourceEntity::PATH,
@@ -569,6 +586,218 @@ crate::test_entity_schema! {
     indexes = [],
     store = RelationSourceStore,
     canister = RelationTestCanister,
+}
+
+///
+/// CompositeRelationTargetKey
+///
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::db::executor::tests) struct CompositeRelationTargetKey {
+    pub(in crate::db::executor::tests) tenant_id: u64,
+    pub(in crate::db::executor::tests) local_id: u64,
+}
+
+impl crate::traits::KeyValueCodec for CompositeRelationTargetKey {
+    fn to_key_value(&self) -> crate::value::Value {
+        crate::value::Value::List(vec![
+            crate::value::Value::Nat64(self.tenant_id),
+            crate::value::Value::Nat64(self.local_id),
+        ])
+    }
+
+    fn from_key_value(value: &crate::value::Value) -> Option<Self> {
+        let crate::value::Value::List(values) = value else {
+            return None;
+        };
+        let [
+            crate::value::Value::Nat64(tenant_id),
+            crate::value::Value::Nat64(local_id),
+        ] = values.as_slice()
+        else {
+            return None;
+        };
+
+        Some(Self {
+            tenant_id: *tenant_id,
+            local_id: *local_id,
+        })
+    }
+}
+
+impl crate::traits::PrimaryKeyCodec for CompositeRelationTargetKey {
+    fn to_primary_key_value(
+        &self,
+    ) -> Result<crate::db::PrimaryKeyValue, crate::traits::PrimaryKeyEncodeError> {
+        let composite = crate::db::CompositePrimaryKeyValue::try_from_components(&[
+            crate::db::PrimaryKeyComponent::Nat64(self.tenant_id),
+            crate::db::PrimaryKeyComponent::Nat64(self.local_id),
+        ])?;
+
+        Ok(crate::db::PrimaryKeyValue::Composite(composite))
+    }
+}
+
+impl crate::traits::PrimaryKeyDecode for CompositeRelationTargetKey {
+    fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
+        let crate::db::PrimaryKeyValue::Composite(composite) = key else {
+            return Err(InternalError::store_corruption(
+                "composite relation target key decode expected composite primary key",
+            ));
+        };
+        let [
+            crate::db::PrimaryKeyComponent::Nat64(tenant_id),
+            crate::db::PrimaryKeyComponent::Nat64(local_id),
+        ] = composite.components()
+        else {
+            return Err(InternalError::store_corruption(
+                "composite relation target key decode expected two nat components",
+            ));
+        };
+
+        Ok(Self {
+            tenant_id: *tenant_id,
+            local_id: *local_id,
+        })
+    }
+}
+
+impl crate::traits::EntityKeyBytes for CompositeRelationTargetKey {
+    const BYTE_LEN: usize = 16;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        out[..8].copy_from_slice(&self.tenant_id.to_be_bytes());
+        out[8..16].copy_from_slice(&self.local_id.to_be_bytes());
+    }
+}
+
+///
+/// CompositeRelationTargetEntity
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+pub(in crate::db::executor::tests) struct CompositeRelationTargetEntity {
+    pub(in crate::db::executor::tests) tenant_id: u64,
+    pub(in crate::db::executor::tests) local_id: u64,
+    pub(in crate::db::executor::tests) label: String,
+}
+
+crate::impl_test_entity_markers!(CompositeRelationTargetEntity);
+
+impl CompositeRelationTargetEntity {
+    const FIELD_MODELS: [crate::model::field::FieldModel; 3] = [
+        crate::model::field::FieldModel::generated("tenant_id", FieldKind::Nat64),
+        crate::model::field::FieldModel::generated("local_id", FieldKind::Nat64),
+        crate::model::field::FieldModel::generated("label", FieldKind::Text { max_len: None }),
+    ];
+    const PRIMARY_KEY_FIELDS: [&'static crate::model::field::FieldModel; 2] =
+        [&Self::FIELD_MODELS[0], &Self::FIELD_MODELS[1]];
+    const INDEXES_DEF: [&'static IndexModel; 0] = [];
+    const MODEL_DEF: crate::model::entity::EntityModel =
+        crate::model::entity::EntityModel::generated_with_primary_key_model(
+            concat!(
+                module_path!(),
+                "::",
+                stringify!(CompositeRelationTargetEntity)
+            ),
+            "CompositeRelationTargetEntity",
+            PrimaryKeyModel::ordered(&Self::PRIMARY_KEY_FIELDS),
+            0,
+            &Self::FIELD_MODELS,
+            &Self::INDEXES_DEF,
+        );
+}
+
+crate::impl_test_entity_runtime_surface!(
+    CompositeRelationTargetEntity,
+    CompositeRelationTargetKey,
+    "CompositeRelationTargetEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for CompositeRelationTargetEntity {
+    type Store = RelationTargetStore;
+    type Canister = RelationTestCanister;
+}
+
+impl crate::traits::EntityKind for CompositeRelationTargetEntity {
+    const ENTITY_TAG: crate::types::EntityTag =
+        crate::testing::COMPOSITE_RELATION_TARGET_ENTITY_TAG;
+}
+
+impl crate::traits::EntityValue for CompositeRelationTargetEntity {
+    fn id(&self) -> crate::types::Id<Self> {
+        crate::types::Id::from_key(CompositeRelationTargetKey {
+            tenant_id: self.tenant_id,
+            local_id: self.local_id,
+        })
+    }
+}
+
+///
+/// CompositeRelationSourceEntity
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+pub(in crate::db::executor::tests) struct CompositeRelationSourceEntity {
+    pub(in crate::db::executor::tests) id: Ulid,
+    pub(in crate::db::executor::tests) target_tenant_id: u64,
+    pub(in crate::db::executor::tests) target_local_id: u64,
+}
+
+crate::impl_test_entity_markers!(CompositeRelationSourceEntity);
+
+impl CompositeRelationSourceEntity {
+    const FIELD_MODELS: [crate::model::field::FieldModel; 3] = [
+        crate::model::field::FieldModel::generated("id", FieldKind::Ulid),
+        crate::model::field::FieldModel::generated("target_tenant_id", FieldKind::Nat64),
+        crate::model::field::FieldModel::generated("target_local_id", FieldKind::Nat64),
+    ];
+    const LOCAL_RELATION_FIELDS: [&'static crate::model::field::FieldModel; 2] =
+        [&Self::FIELD_MODELS[1], &Self::FIELD_MODELS[2]];
+    const INDEXES_DEF: [&'static IndexModel; 0] = [];
+    const RELATIONS_DEF: [RelationEdgeModel; 1] = [RelationEdgeModel::generated(
+        "target",
+        CompositeRelationTargetEntity::PATH,
+        &Self::LOCAL_RELATION_FIELDS,
+    )];
+    const MODEL_DEF: crate::model::entity::EntityModel =
+        crate::model::entity::EntityModel::generated_with_primary_key_model_and_relations(
+            concat!(
+                module_path!(),
+                "::",
+                stringify!(CompositeRelationSourceEntity)
+            ),
+            "CompositeRelationSourceEntity",
+            PrimaryKeyModel::scalar(&Self::FIELD_MODELS[0]),
+            0,
+            &Self::FIELD_MODELS,
+            &Self::INDEXES_DEF,
+            &Self::RELATIONS_DEF,
+        );
+}
+
+crate::impl_test_entity_runtime_surface!(
+    CompositeRelationSourceEntity,
+    Ulid,
+    "CompositeRelationSourceEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for CompositeRelationSourceEntity {
+    type Store = RelationSourceStore;
+    type Canister = RelationTestCanister;
+}
+
+impl crate::traits::EntityKind for CompositeRelationSourceEntity {
+    const ENTITY_TAG: crate::types::EntityTag =
+        crate::testing::COMPOSITE_RELATION_SOURCE_ENTITY_TAG;
+}
+
+impl crate::traits::EntityValue for CompositeRelationSourceEntity {
+    fn id(&self) -> crate::types::Id<Self> {
+        crate::types::Id::from_key(self.id)
+    }
 }
 
 ///

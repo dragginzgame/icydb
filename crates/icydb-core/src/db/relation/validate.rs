@@ -78,6 +78,7 @@ where
     let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
     let source_row_contract = accepted_source_row_contract::<S>(source_store)?;
     let relations = accepted_strong_relations_for_row_contract(
+        db,
         S::PATH,
         &source_row_contract,
         Some(target_path),

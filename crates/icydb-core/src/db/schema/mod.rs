@@ -106,7 +106,7 @@ pub(in crate::db) use reconcile::{
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedGeneratedCompatibleRowShape,
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
-    OwnedAcceptedRelationEdgeContract,
+    OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
 };
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldOrigin,

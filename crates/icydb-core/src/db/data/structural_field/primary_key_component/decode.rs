@@ -63,11 +63,9 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bina
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     match kind {
         PersistedFieldKind::Relation { key_kind, .. } => Ok(
-            decode_optional_accepted_relation_primary_key_component_binary_bytes(
-                raw_bytes, key_kind,
-            )?
-            .into_iter()
-            .collect(),
+            decode_optional_accepted_primary_key_component_field_binary_bytes(raw_bytes, key_kind)?
+                .into_iter()
+                .collect(),
         ),
         PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner)
             if matches!(inner.as_ref(), PersistedFieldKind::Relation { .. }) =>
@@ -218,7 +216,7 @@ fn decode_optional_relation_primary_key_component_binary_bytes(
 
 // Decode one accepted singular relation payload from Structural Binary v1,
 // treating explicit null as "no target".
-fn decode_optional_accepted_relation_primary_key_component_binary_bytes(
+pub(in crate::db) fn decode_optional_accepted_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     key_kind: &PersistedFieldKind,
 ) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
@@ -385,7 +383,7 @@ fn push_accepted_relation_primary_key_component_binary_item(
 ) -> Result<(), FieldDecodeError> {
     let state = unsafe { &mut *context.cast::<AcceptedRelationKeyDecodeState<'_>>() };
     if let Some(value) =
-        decode_optional_accepted_relation_primary_key_component_binary_bytes(item_bytes, state.1)?
+        decode_optional_accepted_primary_key_component_field_binary_bytes(item_bytes, state.1)?
     {
         state.0.push(value);
     }

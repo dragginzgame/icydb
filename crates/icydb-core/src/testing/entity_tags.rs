@@ -67,6 +67,8 @@ pub(crate) const BOUNDED_TEXT_ENTITY_TAG: EntityTag = EntityTag::new(0x1054);
 pub(crate) const SELF_RELATION_ENTITY_TAG: EntityTag = EntityTag::new(0x1055);
 pub(crate) const SESSION_SQL_FIELD_PATH_ENTITY_TAG: EntityTag = EntityTag::new(0x1056);
 pub(crate) const DATABASE_DEFAULT_WRITE_ENTITY_TAG: EntityTag = EntityTag::new(0x1057);
+pub(crate) const COMPOSITE_RELATION_TARGET_ENTITY_TAG: EntityTag = EntityTag::new(0x105A);
+pub(crate) const COMPOSITE_RELATION_SOURCE_ENTITY_TAG: EntityTag = EntityTag::new(0x105B);
 pub(crate) const DIAGNOSTICS_UNKNOWN_ENTITY_TAG: EntityTag = EntityTag::new(0x1FFF);
 
 const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
@@ -129,6 +131,8 @@ const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
     SELF_RELATION_ENTITY_TAG,
     SESSION_SQL_FIELD_PATH_ENTITY_TAG,
     DATABASE_DEFAULT_WRITE_ENTITY_TAG,
+    COMPOSITE_RELATION_TARGET_ENTITY_TAG,
+    COMPOSITE_RELATION_SOURCE_ENTITY_TAG,
     DIAGNOSTICS_UNKNOWN_ENTITY_TAG,
 ];
 

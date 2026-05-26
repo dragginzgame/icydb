@@ -121,6 +121,117 @@ fn delete_blocks_when_target_has_strong_referrer() {
 }
 
 #[test]
+fn save_composite_relation_target_validates_existing_target_tuple() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_key = CompositeRelationTargetKey {
+        tenant_id: 17,
+        local_id: 42,
+    };
+    let source_id = Ulid::from_u128(9_051);
+
+    SaveExecutor::<CompositeRelationTargetEntity>::new(REL_DB, false)
+        .insert(CompositeRelationTargetEntity {
+            tenant_id: target_key.tenant_id,
+            local_id: target_key.local_id,
+            label: "target".to_string(),
+        })
+        .expect("composite target save should succeed");
+
+    SaveExecutor::<CompositeRelationSourceEntity>::new(REL_DB, false)
+        .insert(CompositeRelationSourceEntity {
+            id: source_id,
+            target_tenant_id: target_key.tenant_id,
+            target_local_id: target_key.local_id,
+        })
+        .expect("source save should validate existing composite target tuple");
+
+    let reverse_rows = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows, 1,
+        "composite relation source should create one reverse-index entry"
+    );
+}
+
+#[test]
+fn save_composite_relation_target_rejects_missing_target_tuple() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let err = SaveExecutor::<CompositeRelationSourceEntity>::new(REL_DB, false)
+        .insert(CompositeRelationSourceEntity {
+            id: Ulid::from_u128(9_061),
+            target_tenant_id: 17,
+            target_local_id: 404,
+        })
+        .expect_err("source save should reject missing composite target tuple");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "missing composite relation target should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Executor,
+        "missing composite relation target should originate from executor validation",
+    );
+}
+
+#[test]
+fn delete_blocks_composite_relation_target_with_strong_referrer() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_key = CompositeRelationTargetKey {
+        tenant_id: 22,
+        local_id: 77,
+    };
+
+    SaveExecutor::<CompositeRelationTargetEntity>::new(REL_DB, false)
+        .insert(CompositeRelationTargetEntity {
+            tenant_id: target_key.tenant_id,
+            local_id: target_key.local_id,
+            label: "target".to_string(),
+        })
+        .expect("composite target save should succeed");
+    SaveExecutor::<CompositeRelationSourceEntity>::new(REL_DB, false)
+        .insert(CompositeRelationSourceEntity {
+            id: Ulid::from_u128(9_071),
+            target_tenant_id: target_key.tenant_id,
+            target_local_id: target_key.local_id,
+        })
+        .expect("source save should validate composite target tuple");
+
+    let delete_plan = Query::<CompositeRelationTargetEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(target_key)
+        .plan()
+        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .expect("composite target delete plan should build");
+    let err = DeleteExecutor::<CompositeRelationTargetEntity>::new(REL_DB)
+        .execute(delete_plan)
+        .expect_err("target delete should be blocked by composite strong relation");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "blocked composite relation delete should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Executor,
+        "blocked composite relation delete should originate from executor validation",
+    );
+}
+
+#[test]
 fn delete_target_succeeds_after_strong_referrer_is_removed() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
