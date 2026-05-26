@@ -3,14 +3,9 @@
 //! Does not own: diagnostics response formatting or execution routing policy.
 //! Boundary: records optional per-query stats while executor operators run.
 
-use std::{
-    cell::RefCell,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::cell::RefCell;
 
 use crate::db::diagnostics::ExecutionStats;
-
-static EXECUTION_STATS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 std::thread_local! {
     static EXECUTION_STATS: RefCell<Option<ExecutionProfileStats>> = const {
@@ -104,10 +99,8 @@ pub(in crate::db::executor) fn with_execution_stats_capture<T>(
         );
         *stats.borrow_mut() = Some(ExecutionProfileStats::default());
     });
-    EXECUTION_STATS_ACTIVE.store(true, Ordering::Relaxed);
 
     let result = run();
-    EXECUTION_STATS_ACTIVE.store(false, Ordering::Relaxed);
     let stats = EXECUTION_STATS.with(|stats| stats.borrow_mut().take());
 
     (result, stats)
@@ -177,10 +170,6 @@ pub(in crate::db::executor) fn record_aggregation(elapsed_micros: u64) {
 }
 
 fn update_execution_stats(update: impl FnOnce(&mut ExecutionProfileStats)) {
-    if !EXECUTION_STATS_ACTIVE.load(Ordering::Relaxed) {
-        return;
-    }
-
     EXECUTION_STATS.with(|stats| {
         let mut stats = stats.borrow_mut();
         let Some(stats) = stats.as_mut() else {
