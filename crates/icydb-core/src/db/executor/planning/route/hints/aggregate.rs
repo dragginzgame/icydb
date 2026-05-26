@@ -9,7 +9,7 @@ use crate::db::{
     executor::{
         aggregate::field_target_is_tie_free_probe_target,
         route::{
-            AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilities,
+            AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilityFacts,
             direction_allows_physical_fetch_hint,
         },
     },
@@ -18,9 +18,9 @@ use crate::db::{
 
 pub(in crate::db::executor::planning::route) const fn count_pushdown_fetch_hint(
     access_window: AccessWindow,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
 ) -> Option<usize> {
-    if capabilities.bounded_probe_hint_safe {
+    if capability_facts.bounded_probe_hint_safe {
         crate::db::executor::planning::route::hints::load::bounded_window_fetch_hint(access_window)
     } else {
         None
@@ -32,15 +32,15 @@ pub(in crate::db::executor::planning::route) fn aggregate_probe_fetch_hint(
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
     desc_physical_reverse_supported: bool,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
     access_window: AccessWindow,
 ) -> Option<usize> {
     let kind = aggregate.kind();
-    aggregate_probe_shape_supported(plan, aggregate, direction, capabilities).then_some(())?;
+    aggregate_probe_shape_supported(plan, aggregate, direction, capability_facts).then_some(())?;
 
     (kind.supports_bounded_probe_hint()
         && direction_allows_physical_fetch_hint(direction, desc_physical_reverse_supported)
-        && capabilities.bounded_probe_hint_safe)
+        && capability_facts.bounded_probe_hint_safe)
         .then_some(())?;
 
     aggregate_probe_window_fetch_hint(kind, direction, access_window)
@@ -61,18 +61,20 @@ pub(in crate::db::executor::planning::route) fn aggregate_seek_spec_from_probe_f
     })
 }
 
-// Apply the route capability snapshot to the aggregate probe shape before the
+// Apply the route capability facts to the aggregate probe shape before the
 // bounded fetch-hint layer interprets the access window.
 fn aggregate_probe_shape_supported(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
 ) -> bool {
     match (aggregate.target_field(), aggregate.kind(), direction) {
-        (Some(_), AggregateKind::Min, Direction::Asc) => capabilities.field_min_fast_path_eligible,
+        (Some(_), AggregateKind::Min, Direction::Asc) => {
+            capability_facts.field_min_fast_path_eligible
+        }
         (Some(_), AggregateKind::Max, Direction::Desc) => {
-            capabilities.field_max_fast_path_eligible
+            capability_facts.field_max_fast_path_eligible
                 && field_target_max_probe_shape_is_tie_free(plan, aggregate)
         }
         (Some(_), _, _) => false,

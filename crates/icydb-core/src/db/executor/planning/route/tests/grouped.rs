@@ -249,7 +249,7 @@ fn route_plan_grouped_wrapper_projects_top_k_group_strategy_for_aggregate_order(
             GroupedPlanStrategy::top_k_group_with_aggregate_family(
                 GroupedPlanAggregateFamily::FieldTargetRows,
             ),
-            GroupedExecutionModeProjection::from_route_inputs(Direction::Desc, false, false),
+            GroupedExecutionModeContext::from_route_inputs(Direction::Desc, false, false),
         ),
         GroupedExecutionMode::HashMaterialized,
         "aggregate grouped ORDER BY should reserve the Top-K planner lane while route execution remains materialized hash-grouped until heap execution lands",
@@ -1084,8 +1084,8 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
 }
 
 #[test]
-fn grouped_execution_mode_projection_contract_is_stable() {
-    let direct_caps = RouteCapabilities {
+fn grouped_execution_mode_context_is_stable() {
+    let direct_facts = RouteCapabilityFacts {
         load_order_route_decision: LoadOrderRouteDecision::direct_streaming(),
         pk_order_fast_path_eligible: false,
         count_pushdown_shape_supported: false,
@@ -1097,20 +1097,20 @@ fn grouped_execution_mode_projection_contract_is_stable() {
         field_min_fast_path_ineligibility_reason: None,
         field_max_fast_path_ineligibility_reason: None,
     };
-    let materialized_caps = RouteCapabilities {
+    let materialized_facts = RouteCapabilityFacts {
         load_order_route_decision: LoadOrderRouteDecision::materialized_fallback(
             LoadOrderRouteReason::RequiresMaterializedSort,
         ),
-        ..direct_caps
+        ..direct_facts
     };
     assert_eq!(
         GroupedExecutionMode::from_planner_strategy(
             GroupedPlanStrategy::ordered_group(),
-            GroupedExecutionModeProjection::from_route_inputs(
+            GroupedExecutionModeContext::from_route_inputs(
                 Direction::Asc,
                 true,
-                direct_caps
-                    .load_order_route_contract()
+                direct_facts
+                    .load_order_route_mode()
                     .allows_ordered_group_projection(),
             ),
         ),
@@ -1120,11 +1120,11 @@ fn grouped_execution_mode_projection_contract_is_stable() {
     assert_eq!(
         GroupedExecutionMode::from_planner_strategy(
             GroupedPlanStrategy::ordered_group(),
-            GroupedExecutionModeProjection::from_route_inputs(
+            GroupedExecutionModeContext::from_route_inputs(
                 Direction::Desc,
                 false,
-                direct_caps
-                    .load_order_route_contract()
+                direct_facts
+                    .load_order_route_mode()
                     .allows_ordered_group_projection(),
             ),
         ),
@@ -1134,11 +1134,11 @@ fn grouped_execution_mode_projection_contract_is_stable() {
     assert_eq!(
         GroupedExecutionMode::from_planner_strategy(
             GroupedPlanStrategy::ordered_group(),
-            GroupedExecutionModeProjection::from_route_inputs(
+            GroupedExecutionModeContext::from_route_inputs(
                 Direction::Asc,
                 true,
-                materialized_caps
-                    .load_order_route_contract()
+                materialized_facts
+                    .load_order_route_mode()
                     .allows_ordered_group_projection(),
             ),
         ),
@@ -1148,11 +1148,11 @@ fn grouped_execution_mode_projection_contract_is_stable() {
     assert_eq!(
         GroupedExecutionMode::from_planner_strategy(
             GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::HavingBlocksGroupedOrder),
-            GroupedExecutionModeProjection::from_route_inputs(
+            GroupedExecutionModeContext::from_route_inputs(
                 Direction::Asc,
                 true,
-                direct_caps
-                    .load_order_route_contract()
+                direct_facts
+                    .load_order_route_mode()
                     .allows_ordered_group_projection(),
             ),
         ),

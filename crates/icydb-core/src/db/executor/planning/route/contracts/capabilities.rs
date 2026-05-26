@@ -1,11 +1,11 @@
 //! Module: db::executor::planning::route::contracts::capabilities
-//! Defines the execution capabilities attached to planned executor routes.
+//! Defines execution capability facts attached to planned executor routes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::executor::{
     aggregate::capability::AggregateFieldExtremaIneligibilityReason,
-    route::{LoadOrderRouteContract, LoadOrderRouteDecision, LoadOrderRouteReason},
+    route::{LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason},
 };
 
 ///
@@ -19,16 +19,16 @@ pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
     AggregateFieldExtremaIneligibilityReason;
 
 ///
-/// RouteCapabilities
+/// RouteCapabilityFacts
 ///
-/// Canonical derived capability snapshot for one logical plan and direction.
+/// Canonical derived capability-fact snapshot for one logical plan and direction.
 /// Route planning derives this once, then consumes it for eligibility and hint
 /// decisions to reduce drift across helpers.
 ///
 
 #[expect(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct RouteCapabilities {
+pub(in crate::db::executor) struct RouteCapabilityFacts {
     pub(in crate::db::executor) load_order_route_decision: LoadOrderRouteDecision,
     pub(in crate::db::executor) pk_order_fast_path_eligible: bool,
     pub(in crate::db::executor) count_pushdown_shape_supported: bool,
@@ -43,10 +43,10 @@ pub(in crate::db::executor) struct RouteCapabilities {
         Option<FieldExtremaIneligibilityReason>,
 }
 
-impl RouteCapabilities {
+impl RouteCapabilityFacts {
     #[must_use]
-    pub(in crate::db::executor) const fn load_order_route_contract(self) -> LoadOrderRouteContract {
-        self.load_order_route_decision.contract()
+    pub(in crate::db::executor) const fn load_order_route_mode(self) -> LoadOrderRouteMode {
+        self.load_order_route_decision.mode()
     }
 
     #[must_use]

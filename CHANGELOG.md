@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.165.x] 🧭 - 2026-05-26 - Naming Hard Cut And Role Alignment
+
+Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
+
+- `0.165.0` starts the naming hard cut with role-family governance and
+  route/access selection terminology aligned around modes, decisions,
+  contexts, and facts.
+
 ## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)

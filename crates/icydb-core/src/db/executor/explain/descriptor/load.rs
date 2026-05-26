@@ -98,7 +98,7 @@ struct LoadVerbosePreparation {
 
 impl LoadVerbosePreparation {
     // Build the verbose-only projection bundle from the logical plan and the
-    // already derived route contract so diagnostics remain a direct projection
+    // already derived route plan so diagnostics remain a direct projection
     // of planner and route state.
     fn from_route_plan(plan: &AccessPlannedQuery, route_plan: &ExecutionRoutePlan) -> Self {
         let access_choice = plan.access_choice().clone();
@@ -141,7 +141,7 @@ pub(in crate::db) struct LoadExecutionRouteFacts {
 ///
 
 struct LoadOrderRouteObservability {
-    contract: &'static str,
+    mode: &'static str,
     reason: &'static str,
 }
 
@@ -220,10 +220,8 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         );
     annotate_access_root_node_properties(&mut root, route_plan);
     let order_observability = load_order_route_observability(route_plan);
-    root.node_properties.insert(
-        "ord_route_contract",
-        Value::from(order_observability.contract),
-    );
+    root.node_properties
+        .insert("ord_route_mode", Value::from(order_observability.mode));
     root.node_properties
         .insert("ord_route_reason", Value::from(order_observability.reason));
     annotate_access_choice_node_properties(&mut root, plan.access_choice());
@@ -387,8 +385,8 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
     ));
     let load_order_observability = load_order_route_observability(route_plan);
     lines.push(descriptor_route_property_line(
-        "diag.r.load_order_route_contract",
-        load_order_observability.contract,
+        "diag.r.load_order_route_mode",
+        load_order_observability.mode,
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.load_order_route_reason",
@@ -674,7 +672,7 @@ const fn load_order_route_observability(
     route_plan: &ExecutionRoutePlan,
 ) -> LoadOrderRouteObservability {
     LoadOrderRouteObservability {
-        contract: route_plan.load_order_route_contract().code(),
+        mode: route_plan.load_order_route_mode().code(),
         reason: route_plan.load_order_route_reason().code(),
     }
 }

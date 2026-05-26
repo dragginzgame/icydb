@@ -53,7 +53,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
             plan: self.inputs.plan(),
             residual_filter_program: self.inputs.residual_filter_program(),
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-            load_order_route_contract: route_plan.load_order_route_contract(),
+            load_order_route_mode: route_plan.load_order_route_mode(),
             validate_projection: self.inputs.validate_projection(),
             retain_slot_rows: self.inputs.retain_slot_rows(),
             retained_slot_layout: self.inputs.retained_slot_layout(),

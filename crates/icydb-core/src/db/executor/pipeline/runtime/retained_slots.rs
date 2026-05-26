@@ -8,7 +8,7 @@ use crate::{
         executor::{
             EntityAuthority,
             pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
-            route::access_order_satisfied_by_route_contract,
+            route::access_order_satisfied_by_route_mode,
             terminal::{RetainedSlotLayout, RetainedSlotValueMode, RowLayout},
         },
         predicate::IndexCompileTarget,
@@ -99,7 +99,7 @@ fn compile_retained_slot_layout(
         && let Some(order_slots) = plan.order_referenced_slots()
     {
         let route_needs_order_slots =
-            !access_order_satisfied_by_route_contract(plan) || cursor_emission.enabled();
+            !access_order_satisfied_by_route_mode(plan) || cursor_emission.enabled();
 
         if route_needs_order_slots {
             required_slots.mark_slots(order_slots.iter().copied());

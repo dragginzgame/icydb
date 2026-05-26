@@ -10,8 +10,8 @@ use crate::db::{
         planning::route::planner::execution::derive_route_execution_stage,
         route::{
             AggregateRouteShape, AggregateSeekSpec, ExecutionRoutePlan, FastPathOrder,
-            GroupedExecutionMode, GroupedExecutionModeProjection, IndexRangeLimitSpec,
-            LoadTerminalFastPathContract, PushdownApplicability, RouteCapabilities,
+            GroupedExecutionMode, GroupedExecutionModeContext, IndexRangeLimitSpec,
+            LoadTerminalFastPathContract, PushdownApplicability, RouteCapabilityFacts,
             RouteContinuationPlan, RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
         },
     },
@@ -22,13 +22,13 @@ use crate::db::{
 /// RouteDerivationContext
 ///
 /// Immutable route-owned derivation bundle for one validated plan + intent.
-/// Keeps direction, capability snapshot, scan hints, and secondary-order
+/// Keeps direction, capability facts, scan hints, and secondary-order
 /// pushdown applicability aligned under one boundary.
 ///
 
 pub(super) struct RouteDerivationContext {
     pub(super) direction: Direction,
-    pub(super) capabilities: RouteCapabilities,
+    pub(super) capability_facts: RouteCapabilityFacts,
     pub(super) support: RouteDerivationSupport,
     pub(super) count_pushdown: RouteCountPushdownState,
     pub(super) secondary_pushdown_applicability: PushdownApplicability,
@@ -93,7 +93,7 @@ impl RouteIntentStage<'_> {
 /// RouteFeasibilityStage
 ///
 /// Immutable route feasibility derivation stage.
-/// Captures continuation/window policy, capability snapshot, scan hints, and
+/// Captures continuation/window policy, capability facts, scan hints, and
 /// index-range limit feasibility before execution-mode resolution.
 ///
 
@@ -133,12 +133,12 @@ fn debug_assert_grouped_route_plan_alignment(
             derivation.grouped_execution_mode
                 == Some(GroupedExecutionMode::from_planner_strategy(
                     grouped_plan_strategy,
-                    GroupedExecutionModeProjection::from_route_inputs(
+                    GroupedExecutionModeContext::from_route_inputs(
                         derivation.direction,
                         derivation.support.desc_physical_reverse_supported,
                         derivation
-                            .capabilities
-                            .load_order_route_contract()
+                            .capability_facts
+                            .load_order_route_mode()
                             .allows_ordered_group_projection(),
                     ),
                 )),
@@ -171,7 +171,7 @@ pub(super) fn assemble_execution_route_plan(
         desc_physical_reverse_supported: derivation.support.desc_physical_reverse_supported,
         secondary_pushdown_applicability: derivation.secondary_pushdown_applicability,
         index_range_limit_spec: execution_stage.index_range_limit_spec,
-        capabilities: derivation.capabilities,
+        capability_facts: derivation.capability_facts,
         fast_path_order: intent_stage.fast_path_order,
         top_n_seek_spec: derivation.top_n_seek_spec,
         aggregate_seek_spec: derivation.aggregate_seek_spec,

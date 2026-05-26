@@ -11,11 +11,11 @@ use crate::db::{
         route::{
             LoadTerminalFastPathContract, PushdownApplicability,
             contracts::{
-                RouteCapabilities, RouteContinuationPlan,
+                RouteCapabilityFacts, RouteContinuationPlan,
                 execution::{
                     AggregateSeekSpec, GroupedExecutionMode, GroupedRouteDecisionOutcome,
                     GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
-                    LoadOrderRouteContract, LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan,
+                    LoadOrderRouteMode, LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan,
                     TopNSeekSpec,
                 },
                 shape::{FastPathOrder, RouteShapeKind},
@@ -43,7 +43,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) desc_physical_reverse_supported: bool,
     pub(in crate::db::executor) secondary_pushdown_applicability: PushdownApplicability,
     pub(in crate::db::executor) index_range_limit_spec: Option<IndexRangeLimitSpec>,
-    pub(in crate::db::executor::planning::route) capabilities: RouteCapabilities,
+    pub(in crate::db::executor::planning::route) capability_facts: RouteCapabilityFacts,
     pub(in crate::db::executor) fast_path_order: &'static [FastPathOrder],
     pub(in crate::db::executor) top_n_seek_spec: Option<TopNSeekSpec>,
     pub(in crate::db::executor) aggregate_seek_spec: Option<AggregateSeekSpec>,
@@ -68,7 +68,7 @@ impl ExecutionRoutePlan {
             desc_physical_reverse_supported: false,
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
             index_range_limit_spec: None,
-            capabilities: RouteCapabilities {
+            capability_facts: RouteCapabilityFacts {
                 load_order_route_decision:
                     crate::db::executor::route::LoadOrderRouteDecision::materialized_fallback(
                         LoadOrderRouteReason::None,
@@ -190,20 +190,18 @@ impl ExecutionRoutePlan {
 
     // True when the plan shape supports direct PK ordered streaming fast path.
     pub(in crate::db::executor) const fn pk_order_fast_path_eligible(&self) -> bool {
-        self.capabilities.pk_order_fast_path_eligible
+        self.capability_facts.pk_order_fast_path_eligible
     }
 
     // True when access shape is streaming-safe for final order semantics.
-    pub(in crate::db::executor) const fn load_order_route_contract(
-        &self,
-    ) -> LoadOrderRouteContract {
-        self.capabilities.load_order_route_contract()
+    pub(in crate::db::executor) const fn load_order_route_mode(&self) -> LoadOrderRouteMode {
+        self.capability_facts.load_order_route_mode()
     }
 
     // Route-owned explanation for why one ordered load shape stayed direct or
     // materialized at the current boundary.
     pub(in crate::db::executor) const fn load_order_route_reason(&self) -> LoadOrderRouteReason {
-        self.capabilities.load_order_route_reason()
+        self.capability_facts.load_order_route_reason()
     }
 
     // True when index-range limit pushdown is enabled for this route.
@@ -213,17 +211,17 @@ impl ExecutionRoutePlan {
 
     // True when composite aggregate fast-path execution is shape-safe.
     pub(in crate::db::executor) const fn composite_aggregate_fast_path_eligible(&self) -> bool {
-        self.capabilities.composite_aggregate_fast_path_eligible
+        self.capability_facts.composite_aggregate_fast_path_eligible
     }
 
     // True when route permits a future `min(field)` fast path.
     pub(in crate::db::executor) const fn field_min_fast_path_eligible(&self) -> bool {
-        self.capabilities.field_min_fast_path_eligible
+        self.capability_facts.field_min_fast_path_eligible
     }
 
     // True when route permits a future `max(field)` fast path.
     pub(in crate::db::executor) const fn field_max_fast_path_eligible(&self) -> bool {
-        self.capabilities.field_max_fast_path_eligible
+        self.capability_facts.field_max_fast_path_eligible
     }
 
     // Route-owned fast-path dispatch order. Executors must dispatch using this

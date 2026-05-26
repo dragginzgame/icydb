@@ -41,7 +41,7 @@ pub(super) fn build_execution_stage_for_aggregate_count(
     let aggregate_fold_mode = match (
         feasibility_stage
             .derivation
-            .capabilities
+            .capability_facts
             .count_pushdown_shape_supported,
         feasibility_stage
             .derivation

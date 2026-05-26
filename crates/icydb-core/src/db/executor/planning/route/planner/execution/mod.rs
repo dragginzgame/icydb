@@ -43,7 +43,7 @@ fn debug_assert_probe_hint_contract(feasibility_stage: &RouteFeasibilityStage) {
     debug_assert!(
         feasibility_stage
             .derivation
-            .capabilities
+            .capability_facts
             .bounded_probe_hint_safe
             || feasibility_stage
                 .derivation

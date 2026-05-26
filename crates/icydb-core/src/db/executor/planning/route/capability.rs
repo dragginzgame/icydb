@@ -1,5 +1,5 @@
 //! Module: db::executor::planning::route::capability
-//! Responsibility: derive route capability snapshots from executable plans.
+//! Responsibility: derive route capability facts from executable plans.
 //! Does not own: fast-path execution dispatch or post-access kernel behavior.
 //! Boundary: capability and eligibility helpers for route planning.
 
@@ -10,7 +10,7 @@ use crate::db::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
         route::{
             AggregateRouteShape, LoadOrderRouteDecision, LoadOrderRouteReason,
-            LoadTerminalFastPathContract, access_order_satisfied_by_route_contract,
+            LoadTerminalFastPathContract, access_order_satisfied_by_route_mode,
             bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported,
             secondary_order_contract_active,
         },
@@ -19,9 +19,9 @@ use crate::db::{
 };
 
 use crate::db::executor::planning::route::{
-    ExecutionRoutePlan, RouteCapabilities,
+    ExecutionRoutePlan, RouteCapabilityFacts,
     index_range_limit_pushdown_shape_supported_for_order_contract,
-    pushdown::access_order_satisfied_by_route_contract_with_capabilities,
+    pushdown::access_order_satisfied_by_route_mode_with_capabilities,
 };
 
 /// Return whether this access path can produce an ordered key-stream window directly.
@@ -147,7 +147,7 @@ impl LoadRouteCapabilityFacts {
         let residual_filter_present =
             plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
         let access_order_satisfied_by_path =
-            access_order_satisfied_by_route_contract_with_capabilities(plan, access_capabilities);
+            access_order_satisfied_by_route_mode_with_capabilities(plan, access_capabilities);
         let has_order = logical
             .order
             .as_ref()
@@ -197,7 +197,7 @@ impl LoadRouteCapabilityFacts {
     }
 }
 
-// Derive the shared load-capability fact snapshot once so route capability and
+// Derive the shared load-capability fact snapshot once so route capability-fact and
 // load-hint helpers do not re-derive the same plan facts independently.
 fn derive_load_route_capability_facts_for_model(
     plan: &AccessPlannedQuery,
@@ -241,15 +241,15 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
 }
 
 // Resolve the narrower EXPLAIN-visible access-order satisfaction signal from
-// the route-owned order contract plus any selected load fast path. EXPLAIN
+// the route-owned order mode plus any selected load fast path. EXPLAIN
 // still needs to distinguish access-preserved ordering from shapes that rely
-// on the shared materialized boundary even when the generic route contract
+// on the shared materialized boundary even when the generic route mode
 // proves the broader ordered-load capability.
 pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
 ) -> bool {
-    if !access_order_satisfied_by_route_contract(plan) {
+    if !access_order_satisfied_by_route_mode(plan) {
         return false;
     }
 
@@ -309,12 +309,12 @@ impl ExecutionRoutePlan {
     }
 }
 
-pub(super) fn derive_execution_capabilities_for_model(
+pub(super) fn derive_execution_capability_facts_for_model(
     plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     access_capabilities: &AccessCapabilities,
-) -> RouteCapabilities {
+) -> RouteCapabilityFacts {
     let load_route_capability_facts =
         derive_load_route_capability_facts_for_model(plan, access_capabilities);
     let aggregate_execution_policy = derive_aggregate_execution_policy(
@@ -329,7 +329,7 @@ pub(super) fn derive_execution_capabilities_for_model(
     let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
     let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
-    RouteCapabilities {
+    RouteCapabilityFacts {
         load_order_route_decision: load_route_capability_facts.load_order_route_decision(),
         pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported(plan),
         count_pushdown_shape_supported: aggregate_execution_policy.count_pushdown_shape_supported(),

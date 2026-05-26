@@ -92,7 +92,10 @@ classification snapshots.
 ### `*Contract`
 
 Use `*Contract` for proof or admission surfaces, cross-layer guarantees, and
-reusable shape agreements.
+reusable shape agreements with invariants attached.
+
+Do not use `*Contract` for plain parameter bundles, convenience DTOs, or values
+that only happen to cross a function boundary.
 
 Do not use `*Contract` for final chosen outcomes when the value also carries
 fallback state or decision reason.
@@ -107,10 +110,15 @@ or `FieldKind` when those are the actual domain concepts.
 Use `*Decision` for final chosen outcome objects, especially structures that
 pair a selected mode, route, or payload with its reason.
 
+Do not use `*Decision` for a bare boolean, capability set, or predicate answer.
+
 ### `*Facts`
 
-Use `*Facts` for frozen classification snapshots and derived supporting inputs
-reused by more than one downstream helper.
+Use `*Facts` for reusable derived read-only snapshots and supporting inputs
+consumed by more than one downstream decision or helper.
+
+Do not use `*Facts` for owner-local temporary traversal inputs; use
+`*Context` when the value is local and short-lived.
 
 ### `*Context`
 
@@ -120,12 +128,46 @@ execution or derivation inputs.
 Do not use `*Context` for reusable classification records when `*Facts` would
 state the role more clearly.
 
+Do not use `*Context` for values that are stored, cached, or returned as
+architectural outputs.
+
 ### `*Shape`
 
 Use `*Shape` for compact structural families, usually enum-like or
-admitted/rejected forms.
+admitted/rejected forms, and usually identity/cache relevant.
 
-Do not use `*Shape` for phase outputs that are already execution payloads.
+Do not use `*Shape` for full lowered payloads, executable plans, runtime
+bundles, or phase outputs that are already execution payloads.
+
+### `*Descriptor`
+
+Use `*Descriptor` for renderable or observable descriptions.
+
+Do not use `*Descriptor` for execution authority, execution instructions, or
+planner-selected objects.
+
+### `*Parts`
+
+Use `*Parts` only for temporary construction or handoff decomposition.
+
+Do not use `*Parts` for stable architectural types.
+
+### `*Core`
+
+Use `*Core` only for a genuine invariant payload shared by wrappers.
+
+Do not use `*Core` as a historical bucket for miscellaneous fields.
+
+### `Shared*` / `*Shared`
+
+Use `Shared*` or `*Shared` only when the name states one of these meanings from
+context:
+
+- shared ownership
+- generic-free shared shell
+- cache-resident state
+
+Do not use `Shared` as a vague synonym for reused, cloned, or common.
 
 ### `*Identity`
 
@@ -198,6 +240,15 @@ Do not use it for arbitrary validation, lookup, or shaping.
 
 Rename by concept, not by isolated symbol.
 
+A naming audit does not need to rename every suspicious name. High-value names
+may be kept when their current vocabulary is correct, and deferred candidates
+should name the trigger or owner milestone.
+
+Accepted internal renames are hard cuts before 1.0. Do not keep deprecated
+aliases, compatibility wrappers, forwarding modules, duplicate old/new helper
+names, or active docs that teach both names unless a separate design explicitly
+approves compatibility.
+
 When an accepted rename changes architectural vocabulary, update the owning
 surface consistently:
 
@@ -212,6 +263,11 @@ After the patch, scan for the old stem, plural, and compound forms. Remaining
 hits should be intentional behavior vocabulary, archive text, generated
 artifact text, or explicitly accepted residual vocabulary.
 
+Unclassified live old-name hits block the rename from closing.
+
 Do not rename stable public names just because they are slightly awkward. Public
 surface renames require a higher bar: the new name must remove real ambiguity
 or prevent likely misuse.
+
+Any accepted public rename must include a changelog note and migration wording,
+even before 1.0.

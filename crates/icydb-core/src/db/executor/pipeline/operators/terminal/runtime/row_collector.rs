@@ -30,7 +30,7 @@ impl ExecutionKernel {
         let RowCollectorMaterializationRequest {
             plan,
             scan_budget_hint,
-            load_order_route_contract,
+            load_order_route_mode,
             continuation,
             cursor_boundary,
             capabilities,
@@ -45,7 +45,7 @@ impl ExecutionKernel {
 
         // Phase 2: validate the shared continuation/budget contract once
         // before the short path builds its canonical scan request.
-        continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
+        continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
         // Phase 3: derive the shared scan contract from plan-owned
         // consistency only, then let the resolved short-path plan build the

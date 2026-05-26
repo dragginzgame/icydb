@@ -5,7 +5,7 @@ use crate::{
             OrderedKeyStreamBox, ScalarContinuationContext, exact_output_key_count_hint,
             key_stream_budget_is_redundant, measure_execution_stats_phase,
             record_key_stream_micros, record_key_stream_yield,
-            route::LoadOrderRouteContract,
+            route::LoadOrderRouteMode,
             terminal::page::{
                 KernelRow, KernelRowScanStrategy, ResidualFilterScanMode, RetainedSlotLayout,
                 ScalarRowRuntimeHandle,
@@ -49,7 +49,7 @@ pub(super) struct DirectDataRowScanResult {
 pub(super) struct ScalarPageKernelRequest<'a, 'r> {
     pub(super) key_stream: &'a mut OrderedKeyStreamBox,
     pub(super) scan_budget_hint: Option<usize>,
-    pub(super) load_order_route_contract: LoadOrderRouteContract,
+    pub(super) load_order_route_mode: LoadOrderRouteMode,
     pub(super) consistency: MissingRowPolicy,
     pub(super) scan_strategy: KernelRowScanStrategy<'a>,
     pub(super) continuation: &'a ScalarContinuationContext,
@@ -233,7 +233,7 @@ pub(super) fn execute_scalar_page_kernel_dyn(
     let ScalarPageKernelRequest {
         key_stream,
         scan_budget_hint,
-        load_order_route_contract,
+        load_order_route_mode,
         consistency,
         scan_strategy,
         continuation,
@@ -241,7 +241,7 @@ pub(super) fn execute_scalar_page_kernel_dyn(
     } = request;
 
     // Phase 1: continuation-owned budget hints remain validated centrally.
-    continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
+    continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
     execute_kernel_row_scan(KernelRowScanRequest {
         key_stream,

@@ -6,7 +6,7 @@ use crate::{
             ExecutionKernel, apply_offset_limit_window as apply_delete_window,
             apply_structural_order_window, compare_orderable_row_with_boundary,
             projection::eval_effective_runtime_filter_program_with_value_ref_reader,
-            record_rows_after_predicate, route::access_order_satisfied_by_route_contract,
+            record_rows_after_predicate, route::access_order_satisfied_by_route_mode,
             terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
@@ -59,7 +59,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
         }
 
         ordered = true;
-        if !access_order_satisfied_by_route_contract(plan) {
+        if !access_order_satisfied_by_route_mode(plan) {
             let resolved_order = plan.require_resolved_order()?;
             let ordered_total = rows.len();
 

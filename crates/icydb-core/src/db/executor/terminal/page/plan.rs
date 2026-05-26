@@ -8,7 +8,7 @@ use crate::{
                 ScalarMaterializationCapabilities,
             },
             projection::PreparedSlotProjectionValidation,
-            route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
+            route::{LoadOrderRouteMode, access_order_satisfied_by_route_mode},
             terminal::page::{
                 KernelRow, KernelRowPayloadMode, ResidualFilterScanMode, RetainedSlotLayout,
                 ScalarRowRuntimeHandle,
@@ -56,7 +56,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
         &self,
         key_stream: &'a mut OrderedKeyStreamBox,
         scan_budget_hint: Option<usize>,
-        load_order_route_contract: LoadOrderRouteContract,
+        load_order_route_mode: LoadOrderRouteMode,
         consistency: MissingRowPolicy,
         continuation: &'a ScalarContinuationContext,
         row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
@@ -64,7 +64,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
         ScalarPageKernelRequest {
             key_stream,
             scan_budget_hint,
-            load_order_route_contract,
+            load_order_route_mode,
             consistency,
             scan_strategy: self.kernel_row_scan_strategy,
             continuation,
@@ -264,7 +264,7 @@ pub(in crate::db::executor) fn resolve_cursorless_short_path_plan<'a>(
         && capabilities.retain_slot_rows
         && cursor_boundary.is_none()
         && !logical.distinct
-        && (logical.order.is_none() || access_order_satisfied_by_route_contract(plan));
+        && (logical.order.is_none() || access_order_satisfied_by_route_mode(plan));
     if !(generic_short_path || retained_slot_short_path) {
         return Ok(None);
     }
@@ -450,7 +450,7 @@ fn resolve_direct_data_row_path<'a>(
 
     // Phase 2: route-ordered paths can stay direct only when scan-time
     // residual timing and retained-layout availability already match.
-    if access_order_satisfied_by_route_contract(plan) {
+    if access_order_satisfied_by_route_mode(plan) {
         return Ok(match residual_filter_scan_mode {
             ResidualFilterScanMode::Absent if retained_slot_layout.is_none() => {
                 Some(DirectDataRowPath::Plain {

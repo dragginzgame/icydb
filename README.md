@@ -30,9 +30,9 @@ For local development setup, test prerequisites, and troubleshooting, see
   catalogs, schema reconciliation, SQL DDL, and observability.
 - Primary keys can be scalar or composite. Composite keys use ordered
   components and generated key structs.
-- Strong relations are explicit and validated at write time. Relation runtime
-  metadata is moving toward composite target support, but user-facing composite
-  relation declarations are still in progress.
+- Strong relations are explicit and validated at write time. Scalar and
+  composite target identities use full accepted primary-key metadata; collection
+  relations to composite targets remain intentionally deferred.
 - SQL is intentionally single-entity. It is useful for canister-local reads,
   writes, aggregates, introspection, and accepted-catalog DDL, not joins or
   general relational workloads.

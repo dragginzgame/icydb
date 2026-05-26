@@ -331,7 +331,7 @@ impl Entity {
         }
 
         if pk_field.value.item.is_relation() {
-            // PK relation fields must declare the storage key type explicitly.
+            // PK relation fields must declare the primitive key component explicitly.
             if pk_field.value.item.primitive.is_none() {
                 errors.push(syn::Error::new_spanned(
                     pk_ident,

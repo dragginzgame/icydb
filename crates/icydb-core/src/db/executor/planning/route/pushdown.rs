@@ -177,15 +177,15 @@ pub(super) const fn secondary_order_contract_active(
 
 /// Return whether access traversal already satisfies the logical `ORDER BY`
 /// contract under planner-owned pushdown eligibility decisions.
-pub(in crate::db::executor) fn access_order_satisfied_by_route_contract(
+pub(in crate::db::executor) fn access_order_satisfied_by_route_mode(
     plan: &AccessPlannedQuery,
 ) -> bool {
     let access_capabilities = plan.access_capabilities();
 
-    access_order_satisfied_by_route_contract_with_capabilities(plan, &access_capabilities)
+    access_order_satisfied_by_route_mode_with_capabilities(plan, &access_capabilities)
 }
 
-pub(super) fn access_order_satisfied_by_route_contract_with_capabilities(
+pub(super) fn access_order_satisfied_by_route_mode_with_capabilities(
     plan: &AccessPlannedQuery,
     access_capabilities: &AccessCapabilities,
 ) -> bool {

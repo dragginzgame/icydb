@@ -19,7 +19,7 @@ pub(super) const fn derive_execution_mode_for_aggregate_non_count(
 ) -> RouteExecutionMode {
     let streaming_allowed = aggregate_non_count_streaming_allowed(
         intent_stage.aggregate_shape,
-        feasibility_stage.derivation.capabilities,
+        feasibility_stage.derivation.capability_facts,
         feasibility_stage
             .derivation
             .secondary_pushdown_applicability

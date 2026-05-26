@@ -21,7 +21,7 @@ mod terminal;
 #[cfg(test)]
 mod tests;
 
-use capability::derive_execution_capabilities_for_model;
+use capability::derive_execution_capability_facts_for_model;
 use capability::direction_allows_physical_fetch_hint;
 pub(in crate::db::executor) use capability::explain_access_order_satisfied_for_model;
 pub(in crate::db::executor) use capability::{
@@ -48,7 +48,7 @@ use mode::{aggregate_non_count_streaming_allowed, load_streaming_allowed};
 use mode::{derive_aggregate_route_direction, derive_load_route_direction};
 pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPushdownRejection};
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
-pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
+pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_mode;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
 use pushdown::secondary_order_contract_active;

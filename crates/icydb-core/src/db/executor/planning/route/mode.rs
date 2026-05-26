@@ -8,14 +8,14 @@ use crate::db::{
     query::plan::{AccessPlannedQuery, ExecutionOrderContract},
 };
 
-use crate::db::executor::planning::route::{AggregateRouteShape, RouteCapabilities};
+use crate::db::executor::planning::route::{AggregateRouteShape, RouteCapabilityFacts};
 
 // Route-owned aggregate non-count streaming gate.
 // Field-target extrema uses route capability flags directly; non-target
 // terminals use the shared streaming-safe/pushdown/index-range route gates.
 pub(super) const fn aggregate_non_count_streaming_allowed(
     aggregate_shape: Option<AggregateRouteShape<'_>>,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
     secondary_pushdown_eligible: bool,
     index_range_limit_enabled: bool,
 ) -> bool {
@@ -23,8 +23,8 @@ pub(super) const fn aggregate_non_count_streaming_allowed(
         && aggregate.target_field().is_some()
     {
         return match aggregate.kind().extrema_direction() {
-            Some(Direction::Asc) => capabilities.field_min_fast_path_eligible,
-            Some(Direction::Desc) => capabilities.field_max_fast_path_eligible,
+            Some(Direction::Asc) => capability_facts.field_min_fast_path_eligible,
+            Some(Direction::Desc) => capability_facts.field_max_fast_path_eligible,
             None => false,
         };
     }
@@ -32,8 +32,8 @@ pub(super) const fn aggregate_non_count_streaming_allowed(
     if index_range_limit_enabled {
         return true;
     }
-    if capabilities
-        .load_order_route_contract()
+    if capability_facts
+        .load_order_route_mode()
         .allows_streaming_load()
         && !secondary_pushdown_eligible
     {
@@ -53,11 +53,11 @@ pub(super) const fn aggregate_non_count_streaming_allowed(
 // Load execution remains streaming when canonical streaming-safe shapes
 // apply or when route enabled index-range limit pushdown.
 pub(super) const fn load_streaming_allowed(
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
     index_range_limit_enabled: bool,
 ) -> bool {
-    capabilities
-        .load_order_route_contract()
+    capability_facts
+        .load_order_route_mode()
         .allows_streaming_load()
         || index_range_limit_enabled
 }

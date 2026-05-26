@@ -28,13 +28,13 @@ fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
     assert!(max_route.field_max_fast_path_eligible());
     assert_eq!(
         min_route
-            .capabilities
+            .capability_facts
             .field_min_fast_path_ineligibility_reason,
         None
     );
     assert_eq!(
         max_route
-            .capabilities
+            .capability_facts
             .field_max_fast_path_ineligibility_reason,
         None
     );
@@ -66,7 +66,9 @@ fn route_matrix_field_extrema_capability_rejects_unknown_target_field() {
     assert!(!route.field_min_fast_path_eligible());
     assert!(!route.field_max_fast_path_eligible());
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         Some(AggregateFieldExtremaIneligibilityReason::UnknownTargetField)
     );
 }
@@ -77,7 +79,9 @@ fn route_matrix_field_extrema_reason_rejects_unsupported_field_type() {
     let route = build_aggregate_spec_route(&plan, aggregate_builder::min_by("scores"));
 
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         Some(AggregateFieldExtremaIneligibilityReason::UnsupportedFieldType)
     );
 }
@@ -88,7 +92,9 @@ fn route_matrix_field_extrema_reason_rejects_distinct_shape() {
     let route = build_aggregate_spec_route(&plan, aggregate_builder::min_by("rank"));
 
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         Some(AggregateFieldExtremaIneligibilityReason::DistinctNotSupported)
     );
 }
@@ -123,7 +129,9 @@ fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() 
         "strict index-covered predicate shapes should remain eligible for field-extrema streaming",
     );
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         None
     );
 }
@@ -134,7 +142,9 @@ fn route_matrix_field_extrema_reason_rejects_offset_shape() {
     let route = build_aggregate_spec_route(&plan, aggregate_builder::min_by("rank"));
 
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         Some(AggregateFieldExtremaIneligibilityReason::OffsetNotSupported)
     );
 }
@@ -167,7 +177,9 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
     let route = build_aggregate_spec_route(&plan, aggregate_builder::min_by("rank"));
 
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         Some(AggregateFieldExtremaIneligibilityReason::CompositePathNotSupported)
     );
 }
@@ -189,7 +201,9 @@ fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
     let route = build_aggregate_spec_route(&plan, aggregate_builder::min_by("rank"));
 
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         Some(AggregateFieldExtremaIneligibilityReason::NoMatchingIndex)
     );
 }
@@ -211,7 +225,9 @@ fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
     let route = build_aggregate_spec_route(&plan, aggregate_builder::min_by("id"));
 
     assert_eq!(
-        route.capabilities.field_min_fast_path_ineligibility_reason,
+        route
+            .capability_facts
+            .field_min_fast_path_ineligibility_reason,
         Some(AggregateFieldExtremaIneligibilityReason::PageLimitNotSupported)
     );
 }

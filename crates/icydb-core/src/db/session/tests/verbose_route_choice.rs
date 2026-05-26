@@ -325,9 +325,9 @@ fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_comp
             let diagnostics = session_verbose_diagnostics_map(&verbose);
 
             assert_eq!(
-                diagnostics.get("diag.r.load_order_route_contract"),
+                diagnostics.get("diag.r.load_order_route_mode"),
                 Some(&"materialized_boundary".to_string()),
-                "session descending verbose explain must expose the materialized-boundary route contract for descending non-unique equality-prefix suffix-order shapes",
+                "session descending verbose explain must expose the materialized-boundary route mode for descending non-unique equality-prefix suffix-order shapes",
             );
             assert_eq!(
                 diagnostics.get("diag.r.load_order_route_reason"),
@@ -358,9 +358,9 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
     let diagnostics = session_verbose_diagnostics_map(&verbose);
 
     assert_eq!(
-        diagnostics.get("diag.r.load_order_route_contract"),
+        diagnostics.get("diag.r.load_order_route_mode"),
         Some(&"direct_streaming".to_string()),
-        "session fluent verbose explain must expose the direct ordered-load route contract for admitted order-only fallback shapes",
+        "session fluent verbose explain must expose the direct ordered-load route mode for admitted order-only fallback shapes",
     );
     assert_eq!(
         diagnostics.get("diag.r.load_order_route_reason"),

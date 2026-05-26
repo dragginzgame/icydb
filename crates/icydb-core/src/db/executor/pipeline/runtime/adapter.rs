@@ -49,8 +49,8 @@ pub(in crate::db::executor) struct ExecutionMaterializationContract<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) load_order_route_contract:
-        crate::db::executor::route::LoadOrderRouteContract,
+    pub(in crate::db::executor) load_order_route_mode:
+        crate::db::executor::route::LoadOrderRouteMode,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
@@ -110,7 +110,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
         RowCollectorMaterializationRequest {
             plan: self.plan,
             scan_budget_hint: self.scan_budget_hint,
-            load_order_route_contract: self.load_order_route_contract,
+            load_order_route_mode: self.load_order_route_mode,
             continuation,
             cursor_boundary: continuation.cursor_boundary(),
             capabilities: ScalarMaterializationCapabilities {
@@ -139,7 +139,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
             plan: self.plan,
             key_stream,
             scan_budget_hint: self.scan_budget_hint,
-            load_order_route_contract: self.load_order_route_contract,
+            load_order_route_mode: self.load_order_route_mode,
             capabilities: ScalarMaterializationCapabilities {
                 residual_filter_program: self.residual_filter_program,
                 validate_projection: self.validate_projection,
@@ -395,7 +395,7 @@ impl ExecutionRuntimeAdapter {
                     plan: request.plan,
                     key_stream: request.key_stream,
                     scan_budget_hint: request.scan_budget_hint,
-                    load_order_route_contract: request.load_order_route_contract,
+                    load_order_route_mode: request.load_order_route_mode,
                     capabilities: request.capabilities,
                     consistency: request.consistency,
                     continuation: request.continuation,
@@ -420,7 +420,7 @@ impl ExecutionRuntimeAdapter {
                     plan: request.plan,
                     key_stream: request.key_stream,
                     scan_budget_hint: request.scan_budget_hint,
-                    load_order_route_contract: request.load_order_route_contract,
+                    load_order_route_mode: request.load_order_route_mode,
                     capabilities: request.capabilities,
                     consistency: request.consistency,
                     continuation: request.continuation,

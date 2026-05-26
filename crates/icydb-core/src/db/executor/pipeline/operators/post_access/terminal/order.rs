@@ -11,7 +11,7 @@ use crate::db::{
             apply_resolved_order as apply_post_access_resolved_order,
             apply_resolved_order_bounded as apply_post_access_resolved_order_bounded,
         },
-        route::access_order_satisfied_by_route_contract,
+        route::access_order_satisfied_by_route_mode,
     },
     query::plan::AccessPlannedQuery,
 };
@@ -38,7 +38,7 @@ where
 
         // If access traversal already satisfies requested ORDER BY
         // semantics, preserve stream order and skip in-memory sorting.
-        if access_order_satisfied_by_route_contract(plan) {
+        if access_order_satisfied_by_route_mode(plan) {
             return Ok((true, rows.len()));
         }
 

@@ -14,11 +14,11 @@ pub(in crate::db::executor) use observability::{
 pub(in crate::db::executor) use plan::ExecutionRoutePlan;
 
 ///
-/// LoadOrderRouteContract
+/// LoadOrderRouteMode
 ///
-/// Canonical route-owned load ordering contract for one executable load shape.
+/// Canonical route-owned load ordering mode for one executable load shape.
 /// `DirectStreaming` means the access path already preserves the final order
-/// contract and the route may derive bounded streaming hints directly.
+/// and the route may derive bounded streaming hints directly.
 /// `MaterializedBoundary` means access order is still meaningful, but the
 /// shared materialized boundary must own the final windowing/sort behavior.
 /// `MaterializedFallback` means the route must fail closed and materialize
@@ -26,13 +26,13 @@ pub(in crate::db::executor) use plan::ExecutionRoutePlan;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum LoadOrderRouteContract {
+pub(in crate::db::executor) enum LoadOrderRouteMode {
     DirectStreaming,
     MaterializedBoundary,
     MaterializedFallback,
 }
 
-impl LoadOrderRouteContract {
+impl LoadOrderRouteMode {
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
@@ -59,21 +59,21 @@ impl LoadOrderRouteContract {
 }
 
 ///
-/// GroupedExecutionModeProjection
+/// GroupedExecutionModeContext
 ///
 /// Route-owned capability bundle for projecting planner-owned grouped strategy
 /// into one canonical grouped execution mode. This keeps grouped execution-mode
-/// selection on one explicit route contract instead of loose booleans.
+/// selection on one explicit route input bundle instead of loose booleans.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct GroupedExecutionModeProjection {
+pub(in crate::db::executor) struct GroupedExecutionModeContext {
     direction: Direction,
     desc_physical_reverse_supported: bool,
     ordered_group_projection_safe: bool,
 }
 
-impl GroupedExecutionModeProjection {
+impl GroupedExecutionModeContext {
     #[must_use]
     pub(in crate::db::executor) const fn from_route_inputs(
         direction: Direction,
@@ -124,13 +124,13 @@ impl LoadOrderRouteReason {
 /// LoadOrderRouteDecision
 ///
 /// Route-owned paired load-order decision payload.
-/// This keeps the chosen load-order contract and its explanation code under
+/// This keeps the chosen load-order mode and its explanation code under
 /// one owner so route capability derivation and observability cannot drift.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct LoadOrderRouteDecision {
-    contract: LoadOrderRouteContract,
+    mode: LoadOrderRouteMode,
     reason: LoadOrderRouteReason,
 }
 
@@ -138,7 +138,7 @@ impl LoadOrderRouteDecision {
     #[must_use]
     pub(in crate::db::executor) const fn direct_streaming() -> Self {
         Self {
-            contract: LoadOrderRouteContract::DirectStreaming,
+            mode: LoadOrderRouteMode::DirectStreaming,
             reason: LoadOrderRouteReason::None,
         }
     }
@@ -148,7 +148,7 @@ impl LoadOrderRouteDecision {
         reason: LoadOrderRouteReason,
     ) -> Self {
         Self {
-            contract: LoadOrderRouteContract::MaterializedBoundary,
+            mode: LoadOrderRouteMode::MaterializedBoundary,
             reason,
         }
     }
@@ -158,14 +158,14 @@ impl LoadOrderRouteDecision {
         reason: LoadOrderRouteReason,
     ) -> Self {
         Self {
-            contract: LoadOrderRouteContract::MaterializedFallback,
+            mode: LoadOrderRouteMode::MaterializedFallback,
             reason,
         }
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn contract(self) -> LoadOrderRouteContract {
-        self.contract
+    pub(in crate::db::executor) const fn mode(self) -> LoadOrderRouteMode {
+        self.mode
     }
 
     #[must_use]
@@ -206,7 +206,7 @@ impl GroupedExecutionMode {
     #[must_use]
     pub(in crate::db::executor) const fn from_planner_strategy(
         plan_strategy: GroupedPlanStrategy,
-        projection: GroupedExecutionModeProjection,
+        projection: GroupedExecutionModeContext,
     ) -> Self {
         if plan_strategy.is_top_k_group() {
             return Self::HashMaterialized;

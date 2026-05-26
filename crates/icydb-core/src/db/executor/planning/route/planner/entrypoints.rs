@@ -20,7 +20,7 @@ use crate::{
             },
             route::{
                 AggregateRouteShape, LoadTerminalFastPathContract, PushdownApplicability,
-                RouteContinuationPlan, ScanHintPlan, derive_execution_capabilities_for_model,
+                RouteContinuationPlan, ScanHintPlan, derive_execution_capability_facts_for_model,
                 derive_load_terminal_fast_path_contract_for_plan,
                 pk_order_stream_fast_path_shape_supported,
             },
@@ -137,13 +137,17 @@ fn build_mutation_execution_route_plan(
     // borrowing load scan-hint or continuation-window semantics.
     let continuation = RouteContinuationPlan::initial_for_mutation();
     let access_capabilities = plan.access_capabilities();
-    let capabilities =
-        derive_execution_capabilities_for_model(plan, Direction::Asc, None, &access_capabilities);
+    let capability_facts = derive_execution_capability_facts_for_model(
+        plan,
+        Direction::Asc,
+        None,
+        &access_capabilities,
+    );
     let feasibility_stage = RouteFeasibilityStage {
         continuation,
         derivation: RouteDerivationContext {
             direction: Direction::Asc,
-            capabilities,
+            capability_facts,
             support: RouteDerivationSupport {
                 desc_physical_reverse_supported: false,
                 index_range_limit_pushdown_shape_supported: false,

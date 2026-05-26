@@ -16,7 +16,7 @@ pub(super) const fn derive_execution_mode_for_load(
     feasibility_stage: &RouteFeasibilityStage,
 ) -> RouteExecutionMode {
     if load_streaming_allowed(
-        feasibility_stage.derivation.capabilities,
+        feasibility_stage.derivation.capability_facts,
         feasibility_stage.index_range_limit_spec.is_some(),
     ) {
         RouteExecutionMode::Streaming

@@ -4,7 +4,7 @@ use crate::{
             ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
             apply_structural_order_window_to_data_rows,
             pipeline::contracts::{MaterializedExecutionPayload, StructuralCursorPage},
-            route::LoadOrderRouteContract,
+            route::LoadOrderRouteMode,
         },
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
@@ -39,13 +39,13 @@ pub(super) fn execute_direct_data_row_path(
     plan: &AccessPlannedQuery,
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
-    load_order_route_contract: LoadOrderRouteContract,
+    load_order_route_mode: LoadOrderRouteMode,
     consistency: MissingRowPolicy,
     continuation: &ScalarContinuationContext,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     direct_data_row_path: DirectDataRowPath<'_>,
 ) -> Result<(MaterializedExecutionPayload, usize, usize), InternalError> {
-    continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
+    continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_mode)?;
 
     // Phase 1: record the chosen direct-lane family once before scan.
     #[cfg(any(test, feature = "diagnostics"))]

@@ -1,5 +1,5 @@
 //! Module: db::executor::planning::route::contracts
-//! Responsibility: route-owned contracts, capability snapshots, and precedence constants.
+//! Responsibility: route-owned contracts, capability facts, and precedence constants.
 //! Does not own: capability derivation algorithms or route planning flow.
 //! Boundary: shared immutable route types consumed by route submodules and executor runtime.
 
@@ -10,13 +10,13 @@ mod shape;
 pub(in crate::db::executor) use crate::db::executor::{
     AccessWindow, ContinuationMode, RouteContinuationPlan,
 };
-pub(in crate::db::executor) use capabilities::RouteCapabilities;
+pub(in crate::db::executor) use capabilities::RouteCapabilityFacts;
 #[cfg(test)]
 pub(in crate::db::executor) use execution::GroupedRouteDecisionOutcome;
 pub use execution::RouteExecutionMode;
 pub(in crate::db::executor) use execution::{
-    AggregateSeekSpec, ExecutionRoutePlan, GroupedExecutionMode, GroupedExecutionModeProjection,
-    IndexRangeLimitSpec, LoadOrderRouteContract, LoadOrderRouteDecision, LoadOrderRouteReason,
+    AggregateSeekSpec, ExecutionRoutePlan, GroupedExecutionMode, GroupedExecutionModeContext,
+    IndexRangeLimitSpec, LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason,
     ScanHintPlan, TopNSeekSpec,
 };
 pub(in crate::db) use shape::AggregateRouteShape;

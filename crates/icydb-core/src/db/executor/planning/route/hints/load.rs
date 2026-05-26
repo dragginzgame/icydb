@@ -8,7 +8,7 @@ use crate::db::{
     executor::{
         ExecutionKernel,
         planning::route::{
-            AccessWindow, IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan,
+            AccessWindow, IndexRangeLimitSpec, RouteCapabilityFacts, RouteContinuationPlan,
             TopNSeekSpec, secondary_order_contract_active,
         },
     },
@@ -20,7 +20,7 @@ pub(in crate::db::executor::planning::route) fn assess_index_range_limit_pushdow
     continuation: RouteContinuationPlan,
     probe_fetch_hint: Option<usize>,
     index_range_limit_pushdown_shape_supported: bool,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
 ) -> Option<IndexRangeLimitSpec> {
     let access_window = *continuation.fetch_access_window();
     index_range_limit_pushdown_shape_supported.then_some(())?;
@@ -29,7 +29,7 @@ pub(in crate::db::executor::planning::route) fn assess_index_range_limit_pushdow
         .then_some(())?;
     let fetch = probe_fetch_hint.or_else(|| bounded_window_fetch_hint(access_window))?;
 
-    (!capabilities.residual_filter_present()
+    (!capability_facts.residual_filter_present()
         || residual_filter_predicate_pushdown_fetch_is_safe(fetch))
     .then_some(IndexRangeLimitSpec { fetch })
 }
@@ -37,16 +37,16 @@ pub(in crate::db::executor::planning::route) fn assess_index_range_limit_pushdow
 /// Shared load-page scan-budget hint gate.
 pub(in crate::db::executor::planning::route) fn load_scan_budget_hint(
     continuation: RouteContinuationPlan,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
 ) -> Option<usize> {
-    bounded_streaming_load_window_fetch_hint(continuation, capabilities)
+    bounded_streaming_load_window_fetch_hint(continuation, capability_facts)
 }
 
 /// Build an explicit top-N seek contract from the already-derived load scan budget.
 pub(in crate::db::executor::planning::route) fn top_n_seek_spec_for_model(
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
     load_scan_budget_hint: Option<usize>,
 ) -> Option<TopNSeekSpec> {
     let logical = plan.scalar_plan();
@@ -58,8 +58,8 @@ pub(in crate::db::executor::planning::route) fn top_n_seek_spec_for_model(
     secondary_order_contract_active(planner_route_profile.logical_pushdown_eligibility())
         .then_some(())?;
     planner_route_profile.secondary_order_contract()?;
-    capabilities
-        .load_order_route_contract()
+    capability_facts
+        .load_order_route_mode()
         .allows_top_n_seek()
         .then_some(())?;
 
@@ -71,11 +71,11 @@ pub(in crate::db::executor::planning::route) fn top_n_seek_spec_for_model(
 // bounded seek shell that needs the same fetch.
 fn bounded_streaming_load_window_fetch_hint(
     continuation: RouteContinuationPlan,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
 ) -> Option<usize> {
     (!continuation.applied()).then_some(())?;
-    capabilities
-        .load_order_route_contract()
+    capability_facts
+        .load_order_route_mode()
         .allows_streaming_load()
         .then_some(())?;
 

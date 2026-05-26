@@ -8,7 +8,7 @@ use crate::db::{
     executor::{
         EntityAuthority, OrderedKeyStreamBox, ScalarContinuationContext,
         pipeline::contracts::CursorEmissionMode, projection::PreparedSlotProjectionValidation,
-        route::LoadOrderRouteContract, terminal::RetainedSlotLayout,
+        route::LoadOrderRouteMode, terminal::RetainedSlotLayout,
     },
     predicate::MissingRowPolicy,
     query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
@@ -48,7 +48,7 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
+    pub(in crate::db::executor) load_order_route_mode: LoadOrderRouteMode,
     pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,

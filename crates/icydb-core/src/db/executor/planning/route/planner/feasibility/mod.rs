@@ -13,7 +13,7 @@ use crate::db::{
         planning::continuation::ScalarContinuationContext,
         route::{
             AggregateRouteShape, AggregateSeekSpec, GroupedExecutionMode,
-            GroupedExecutionModeProjection, RouteCapabilities, RouteContinuationPlan, ScanHintPlan,
+            GroupedExecutionModeContext, RouteCapabilityFacts, RouteContinuationPlan, ScanHintPlan,
             TopNSeekSpec, aggregate_probe_fetch_hint, aggregate_seek_spec_from_probe_fetch,
             assess_index_range_limit_pushdown_for_model,
             capability::{
@@ -22,7 +22,7 @@ use crate::db::{
                 index_range_limit_pushdown_shape_supported_for_model,
             },
             count_pushdown_fetch_hint, derive_aggregate_route_direction,
-            derive_execution_capabilities_for_model, derive_load_route_direction,
+            derive_execution_capability_facts_for_model, derive_load_route_direction,
             load_scan_budget_hint,
             planner::{
                 RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage,
@@ -66,7 +66,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
                 derivation
                     .support
                     .index_range_limit_pushdown_shape_supported,
-                derivation.capabilities,
+                derivation.capability_facts,
             )
         })
         .flatten();
@@ -89,7 +89,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
     debug_assert!(
         !derivation.count_pushdown.eligible
             || kind.is_some_and(AggregateKind::is_count)
-                && (derivation.capabilities.count_pushdown_shape_supported
+                && (derivation.capability_facts.count_pushdown_shape_supported
                     || derivation.count_pushdown.existing_rows_shape_supported),
         "route invariant: COUNT pushdown eligibility must match COUNT-safe capability set",
     );
@@ -98,7 +98,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
         .inspect(|()| {
             debug_assert_eq!(
                 derivation.scan_hints.load_scan_budget_hint,
-                load_scan_budget_hint(route_continuation, derivation.capabilities),
+                load_scan_budget_hint(route_continuation, derivation.capability_facts),
                 "route invariant: load scan-budget hints must match route hint contract",
             );
         });
@@ -133,7 +133,7 @@ pub(super) fn derive_route_derivation_context_for_model(
     continuation: RouteContinuationPlan,
     probe_fetch_hint: Option<usize>,
 ) -> RouteDerivationContext {
-    // Derive the invariant route shape and capability snapshot first so the
+    // Derive the invariant route shape and capability facts first so the
     // later scan-hint and grouped-mode phases can stay focused on one concern.
     let aggregate_shape = intent_stage.aggregate_shape;
     let grouped = intent_stage.grouped;
@@ -149,7 +149,7 @@ pub(super) fn derive_route_derivation_context_for_model(
         || derive_load_route_direction(plan),
         |aggregate| derive_aggregate_route_direction(plan, aggregate),
     );
-    let (capabilities, support, count_pushdown) = derive_route_capability_state_for_model(
+    let (capability_facts, support, count_pushdown) = derive_route_capability_state_for_model(
         plan,
         planner_route_profile,
         direction,
@@ -170,7 +170,7 @@ pub(super) fn derive_route_derivation_context_for_model(
             access_window,
             load_scan_hints_enabled,
             direction,
-            capabilities,
+            capability_facts,
             support: &support,
             count_pushdown: &count_pushdown,
         });
@@ -179,13 +179,13 @@ pub(super) fn derive_route_derivation_context_for_model(
         grouped_plan_strategy,
         logical_pushdown_eligibility.grouped_aggregate_allowed(),
         direction,
-        capabilities,
+        capability_facts,
         support.desc_physical_reverse_supported,
     );
 
     RouteDerivationContext {
         direction,
-        capabilities,
+        capability_facts,
         support,
         count_pushdown,
         secondary_pushdown_applicability,
@@ -206,7 +206,7 @@ fn derive_route_capability_state_for_model(
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     access_capabilities: &crate::db::access::AccessCapabilities,
 ) -> (
-    RouteCapabilities,
+    RouteCapabilityFacts,
     RouteDerivationSupport,
     RouteCountPushdownState,
 ) {
@@ -224,7 +224,7 @@ fn derive_route_capability_state_for_model(
                 access_capabilities,
             ),
     };
-    let capabilities = derive_execution_capabilities_for_model(
+    let capability_facts = derive_execution_capability_facts_for_model(
         plan,
         direction,
         aggregate_shape,
@@ -236,12 +236,12 @@ fn derive_route_capability_state_for_model(
             .map(AggregateRouteShape::kind)
             .is_some_and(|aggregate_kind| {
                 aggregate_kind.is_count()
-                    && (capabilities.count_pushdown_shape_supported
+                    && (capability_facts.count_pushdown_shape_supported
                         || existing_rows_shape_supported)
             }),
     };
 
-    (capabilities, support, count_pushdown)
+    (capability_facts, support, count_pushdown)
 }
 
 // Route scan hints and seek specs are derived together because they share the
@@ -257,7 +257,7 @@ fn derive_route_scan_hints_for_model(
     let count_pushdown_probe_fetch_hint = inputs
         .count_pushdown
         .eligible
-        .then(|| count_pushdown_fetch_hint(inputs.access_window, inputs.capabilities))
+        .then(|| count_pushdown_fetch_hint(inputs.access_window, inputs.capability_facts))
         .flatten();
     let aggregate_terminal_probe_fetch_hint = inputs.aggregate_shape.and_then(|aggregate| {
         aggregate_probe_fetch_hint(
@@ -265,7 +265,7 @@ fn derive_route_scan_hints_for_model(
             aggregate,
             inputs.direction,
             inputs.support.desc_physical_reverse_supported,
-            inputs.capabilities,
+            inputs.capability_facts,
             inputs.access_window,
         )
     });
@@ -280,7 +280,7 @@ fn derive_route_scan_hints_for_model(
         count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
     let load_scan_budget_hint = inputs
         .load_scan_hints_enabled
-        .then(|| load_scan_budget_hint(inputs.continuation, inputs.capabilities))
+        .then(|| load_scan_budget_hint(inputs.continuation, inputs.capability_facts))
         .flatten();
     let top_n_seek_spec = inputs
         .load_scan_hints_enabled
@@ -288,7 +288,7 @@ fn derive_route_scan_hints_for_model(
             top_n_seek_spec_for_model(
                 inputs.plan,
                 inputs.planner_route_profile,
-                inputs.capabilities,
+                inputs.capability_facts,
                 load_scan_budget_hint,
             )
         })
@@ -329,7 +329,7 @@ struct RouteScanHintInputs<'a> {
     access_window: AccessWindow,
     load_scan_hints_enabled: bool,
     direction: Direction,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
     support: &'a RouteDerivationSupport,
     count_pushdown: &'a RouteCountPushdownState,
 }
@@ -341,7 +341,7 @@ fn derive_grouped_execution_mode_for_intent(
     grouped_plan_strategy: Option<GroupedPlanStrategy>,
     grouped_aggregate_allowed: bool,
     direction: Direction,
-    capabilities: RouteCapabilities,
+    capability_facts: RouteCapabilityFacts,
     desc_physical_reverse_supported: bool,
 ) -> Option<GroupedExecutionMode> {
     grouped.then(|| {
@@ -358,11 +358,11 @@ fn derive_grouped_execution_mode_for_intent(
 
         GroupedExecutionMode::from_planner_strategy(
             planner_grouped_strategy,
-            GroupedExecutionModeProjection::from_route_inputs(
+            GroupedExecutionModeContext::from_route_inputs(
                 direction,
                 desc_physical_reverse_supported,
-                capabilities
-                    .load_order_route_contract()
+                capability_facts
+                    .load_order_route_mode()
                     .allows_ordered_group_projection(),
             ),
         )
