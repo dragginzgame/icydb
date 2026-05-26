@@ -12,13 +12,16 @@ use crate::{
             ScalarValueRef, StructuralRowContract, StructuralSlotReader,
             decode_accepted_relation_target_primary_key_components_bytes,
         },
-        identity::EntityName,
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexRowIdentity, IndexStore,
             RawIndexStoreKey, raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue},
-        relation::{RelationTargetDecodeContext, RelationTargetMismatchPolicy},
+        relation::{
+            AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
+            RelationTargetDecodeContext, RelationTargetMismatchPolicy,
+            accepted_relation_target_descriptor_from_kind,
+        },
         schema::{PersistedFieldKind, PersistedRelationStrength},
     },
     error::InternalError,
@@ -132,6 +135,7 @@ impl RelationTargetKeys {
 pub(in crate::db::relation) struct AcceptedStrongRelationInfo {
     local_components: AcceptedStrongRelationLocalComponents,
     target: AcceptedStrongRelationTargetIdentity,
+    cardinality: AcceptedRelationCardinality,
 }
 
 impl AcceptedStrongRelationInfo {
@@ -160,6 +164,10 @@ impl AcceptedStrongRelationInfo {
     #[must_use]
     pub(in crate::db::relation) const fn target(&self) -> &AcceptedStrongRelationTargetIdentity {
         &self.target
+    }
+
+    const fn cardinality(&self) -> AcceptedRelationCardinality {
+        self.cardinality
     }
 
     fn scalar_local_component(&self) -> &AcceptedStrongRelationLocalComponent {
@@ -232,10 +240,7 @@ impl AcceptedStrongRelationLocalComponent {
 
 #[derive(Clone, Debug)]
 pub(in crate::db::relation) struct AcceptedStrongRelationTargetIdentity {
-    path: String,
-    entity_name: EntityName,
-    entity_tag: EntityTag,
-    store_path: String,
+    authority: AcceptedRelationTargetAuthority,
     primary_key: AcceptedStrongRelationTargetPrimaryKey,
 }
 
@@ -249,21 +254,15 @@ impl AcceptedStrongRelationTargetIdentity {
         target_store_path: &str,
         key_kinds: &[PersistedFieldKind],
     ) -> Result<Self, InternalError> {
-        let entity_name = EntityName::try_from_str(target_entity_name).map_err(|err| {
-            InternalError::strong_relation_target_name_invalid(
+        Ok(Self {
+            authority: AcceptedRelationTargetAuthority::try_new(
                 source_path,
                 field_name,
                 target_path,
                 target_entity_name,
-                err,
-            )
-        })?;
-
-        Ok(Self {
-            path: target_path.to_string(),
-            entity_name,
-            entity_tag: target_entity_tag,
-            store_path: target_store_path.to_string(),
+                target_entity_tag,
+                target_store_path,
+            )?,
             primary_key: AcceptedStrongRelationTargetPrimaryKey::try_from_component_kinds(
                 key_kinds,
             )?,
@@ -272,22 +271,22 @@ impl AcceptedStrongRelationTargetIdentity {
 
     #[must_use]
     pub(in crate::db::relation) const fn path(&self) -> &str {
-        self.path.as_str()
+        self.authority.path()
     }
 
     #[must_use]
-    pub(in crate::db::relation) const fn entity_name(&self) -> EntityName {
-        self.entity_name
+    pub(in crate::db::relation) const fn entity_name(&self) -> crate::db::identity::EntityName {
+        self.authority.entity_name()
     }
 
     #[must_use]
     pub(in crate::db::relation) const fn entity_tag(&self) -> EntityTag {
-        self.entity_tag
+        self.authority.entity_tag()
     }
 
     #[must_use]
     const fn store_path(&self) -> &str {
-        self.store_path.as_str()
+        self.authority.store_path()
     }
 
     #[must_use]
@@ -304,67 +303,8 @@ impl AcceptedStrongRelationTargetIdentity {
     where
         C: CanisterKind,
     {
-        if !db.has_runtime_hooks() {
-            return Ok(());
-        }
-
-        let hook = db
-            .runtime_hook_for_entity_tag(self.entity_tag)
-            .map_err(|err| {
-                InternalError::strong_relation_target_identity_mismatch(
-                    source_path,
-                    field_name,
-                    self.path.as_str(),
-                    format!(
-                        "target_entity_tag={} is not registered: {err}",
-                        self.entity_tag.value()
-                    ),
-                )
-            })?;
-
-        if hook.entity_path != self.path {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                self.path.as_str(),
-                format!(
-                    "target_entity_tag={} resolves to entity_path={} but relation declares {}",
-                    self.entity_tag.value(),
-                    hook.entity_path,
-                    self.path
-                ),
-            ));
-        }
-
-        if hook.model.name() != self.entity_name.as_str() {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                self.path.as_str(),
-                format!(
-                    "target_entity_tag={} resolves to entity_name={} but relation declares {}",
-                    self.entity_tag.value(),
-                    hook.model.name(),
-                    self.entity_name.as_str(),
-                ),
-            ));
-        }
-
-        if hook.store_path != self.store_path {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                self.path.as_str(),
-                format!(
-                    "target_store_path={} does not match runtime store {} for target_entity_tag={}",
-                    self.store_path,
-                    hook.store_path,
-                    self.entity_tag.value(),
-                ),
-            ));
-        }
-
-        Ok(())
+        self.authority
+            .validate_against_db(db, source_path, field_name)
     }
 }
 
@@ -466,21 +406,13 @@ fn accepted_strong_relation_from_field(
     kind: &PersistedFieldKind,
     target_path_filter: Option<&str>,
 ) -> Result<Option<AcceptedStrongRelationInfo>, InternalError> {
-    let Some((
-        target_path,
-        target_entity_name,
-        target_entity_tag,
-        target_store_path,
-        key_kind,
-        strength,
-    )) = accepted_relation_target_from_kind(kind)
-    else {
+    let Some(target) = accepted_relation_target_descriptor_from_kind(kind) else {
         return Ok(None);
     };
-    if strength != PersistedRelationStrength::Strong {
+    if target.strength != PersistedRelationStrength::Strong {
         return Ok(None);
     }
-    if target_path_filter.is_some_and(|filter| filter != target_path) {
+    if target_path_filter.is_some_and(|filter| filter != target.target_path) {
         return Ok(None);
     }
 
@@ -493,64 +425,14 @@ fn accepted_strong_relation_from_field(
         target: AcceptedStrongRelationTargetIdentity::try_new(
             source_path,
             field_name,
-            target_path,
-            target_entity_name,
-            target_entity_tag,
-            target_store_path,
-            std::slice::from_ref(key_kind),
+            target.target_path,
+            target.target_entity_name,
+            target.target_entity_tag,
+            target.target_store_path,
+            std::slice::from_ref(target.target_key_kind),
         )?,
+        cardinality: target.cardinality,
     }))
-}
-
-fn accepted_relation_target_from_kind(
-    kind: &PersistedFieldKind,
-) -> Option<(
-    &str,
-    &str,
-    EntityTag,
-    &str,
-    &PersistedFieldKind,
-    PersistedRelationStrength,
-)> {
-    fn relation_target(
-        kind: &PersistedFieldKind,
-    ) -> Option<(
-        &str,
-        &str,
-        EntityTag,
-        &str,
-        &PersistedFieldKind,
-        PersistedRelationStrength,
-    )> {
-        let PersistedFieldKind::Relation {
-            target_path,
-            target_entity_name,
-            target_entity_tag,
-            target_store_path,
-            key_kind,
-            strength,
-        } = kind
-        else {
-            return None;
-        };
-
-        Some((
-            target_path.as_str(),
-            target_entity_name.as_str(),
-            *target_entity_tag,
-            target_store_path.as_str(),
-            key_kind.as_ref(),
-            *strength,
-        ))
-    }
-
-    match kind {
-        PersistedFieldKind::Relation { .. } => relation_target(kind),
-        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
-            relation_target(inner.as_ref())
-        }
-        _ => None,
-    }
 }
 
 /// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
@@ -929,11 +811,10 @@ fn raw_relation_target_key_from_primary_key_value(
 fn validate_relation_field_kind(
     relation: &AcceptedStrongRelationInfo,
 ) -> Result<(), InternalError> {
-    match relation.field_kind() {
-        PersistedFieldKind::Relation { .. }
-        | PersistedFieldKind::List(_)
-        | PersistedFieldKind::Set(_) => validate_relation_target_primary_key_kinds(relation),
-        other => Err(InternalError::relation_source_row_invalid_field_kind(other)),
+    match relation.cardinality() {
+        AcceptedRelationCardinality::Single
+        | AcceptedRelationCardinality::List
+        | AcceptedRelationCardinality::Set => validate_relation_target_primary_key_kinds(relation),
     }
 }
 
@@ -1172,6 +1053,7 @@ mod tests {
         reverse_index_key_for_target_and_source_primary_key_value,
         validate_relation_target_primary_key_kinds,
     };
+    use crate::db::relation::AcceptedRelationCardinality;
     use crate::db::{
         index::IndexId,
         key_taxonomy::{
@@ -1208,6 +1090,7 @@ mod tests {
                 std::slice::from_ref(&key_kind),
             )
             .expect("target identity should build"),
+            cardinality: AcceptedRelationCardinality::Single,
         }
     }
 
@@ -1316,6 +1199,7 @@ mod tests {
                 &[PersistedFieldKind::Nat64, PersistedFieldKind::Ulid],
             )
             .expect("target identity should build"),
+            cardinality: AcceptedRelationCardinality::Single,
         };
 
         validate_relation_target_primary_key_kinds(&relation)

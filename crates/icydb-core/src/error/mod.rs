@@ -1239,13 +1239,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical invalid strong-relation field-kind corruption error.
-    pub(crate) fn relation_source_row_invalid_field_kind(field_kind: impl fmt::Debug) -> Self {
-        Self::serialize_corruption(format!(
-            "invalid strong relation field kind during structural decode: {field_kind:?}"
-        ))
-    }
-
     /// Construct the canonical unsupported strong-relation key-kind corruption error.
     pub(crate) fn relation_source_row_unsupported_key_kind(field_kind: impl fmt::Debug) -> Self {
         Self::serialize_corruption(format!(

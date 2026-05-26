@@ -9,8 +9,15 @@ mod save_validate;
 mod validate;
 
 use crate::{
-    db::{Db, data::RawDataStoreKey},
+    db::{
+        Db,
+        data::RawDataStoreKey,
+        identity::EntityName,
+        schema::{PersistedFieldKind, PersistedRelationStrength},
+    },
     error::InternalError,
+    traits::CanisterKind,
+    types::EntityTag,
     value::Value,
 };
 use std::{collections::BTreeSet, fmt::Display};
@@ -53,6 +60,208 @@ enum RelationTargetDecodeContext {
 enum RelationTargetMismatchPolicy {
     Skip,
     Reject,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AcceptedRelationCardinality {
+    Single,
+    List,
+    Set,
+}
+
+///
+/// AcceptedRelationTargetDescriptor
+///
+/// Accepted-schema relation target metadata projected from a relation field
+/// or a supported collection wrapper. This is intentionally field-shape
+/// metadata only; save validation and reverse-index preparation add their
+/// own execution-specific source slot context.
+///
+
+#[derive(Clone, Copy)]
+struct AcceptedRelationTargetDescriptor<'a> {
+    target_path: &'a str,
+    target_entity_name: &'a str,
+    target_entity_tag: EntityTag,
+    target_store_path: &'a str,
+    target_key_kind: &'a PersistedFieldKind,
+    strength: PersistedRelationStrength,
+    cardinality: AcceptedRelationCardinality,
+}
+
+fn accepted_relation_target_descriptor_from_kind(
+    kind: &PersistedFieldKind,
+) -> Option<AcceptedRelationTargetDescriptor<'_>> {
+    fn relation_target(
+        kind: &PersistedFieldKind,
+        cardinality: AcceptedRelationCardinality,
+    ) -> Option<AcceptedRelationTargetDescriptor<'_>> {
+        let PersistedFieldKind::Relation {
+            target_path,
+            target_entity_name,
+            target_entity_tag,
+            target_store_path,
+            key_kind,
+            strength,
+        } = kind
+        else {
+            return None;
+        };
+
+        Some(AcceptedRelationTargetDescriptor {
+            target_path,
+            target_entity_name,
+            target_entity_tag: *target_entity_tag,
+            target_store_path,
+            target_key_kind: key_kind.as_ref(),
+            strength: *strength,
+            cardinality,
+        })
+    }
+
+    match kind {
+        PersistedFieldKind::Relation { .. } => {
+            relation_target(kind, AcceptedRelationCardinality::Single)
+        }
+        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+            let cardinality = match kind {
+                PersistedFieldKind::List(_) => AcceptedRelationCardinality::List,
+                PersistedFieldKind::Set(_) => AcceptedRelationCardinality::Set,
+                _ => unreachable!("outer relation collection shape was already matched"),
+            };
+
+            relation_target(inner.as_ref(), cardinality)
+        }
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug)]
+struct AcceptedRelationTargetAuthority {
+    path: String,
+    entity_name: EntityName,
+    entity_tag: EntityTag,
+    store_path: String,
+}
+
+impl AcceptedRelationTargetAuthority {
+    fn try_new(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        target_entity_name: &str,
+        target_entity_tag: EntityTag,
+        target_store_path: &str,
+    ) -> Result<Self, InternalError> {
+        let entity_name = EntityName::try_from_str(target_entity_name).map_err(|err| {
+            InternalError::strong_relation_target_name_invalid(
+                source_path,
+                field_name,
+                target_path,
+                target_entity_name,
+                err,
+            )
+        })?;
+
+        Ok(Self {
+            path: target_path.to_string(),
+            entity_name,
+            entity_tag: target_entity_tag,
+            store_path: target_store_path.to_string(),
+        })
+    }
+
+    #[must_use]
+    const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    #[must_use]
+    const fn entity_name(&self) -> EntityName {
+        self.entity_name
+    }
+
+    #[must_use]
+    const fn entity_tag(&self) -> EntityTag {
+        self.entity_tag
+    }
+
+    #[must_use]
+    const fn store_path(&self) -> &str {
+        self.store_path.as_str()
+    }
+
+    fn validate_against_db<C>(
+        &self,
+        db: &Db<C>,
+        source_path: &str,
+        field_name: &str,
+    ) -> Result<(), InternalError>
+    where
+        C: CanisterKind,
+    {
+        if !db.has_runtime_hooks() {
+            return Ok(());
+        }
+
+        let hook = db
+            .runtime_hook_for_entity_tag(self.entity_tag)
+            .map_err(|err| {
+                InternalError::strong_relation_target_identity_mismatch(
+                    source_path,
+                    field_name,
+                    self.path.as_str(),
+                    format!(
+                        "target_entity_tag={} is not registered: {err}",
+                        self.entity_tag.value()
+                    ),
+                )
+            })?;
+
+        if hook.entity_path != self.path {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                field_name,
+                self.path.as_str(),
+                format!(
+                    "target_entity_tag={} resolves to entity_path={} but relation declares {}",
+                    self.entity_tag.value(),
+                    hook.entity_path,
+                    self.path
+                ),
+            ));
+        }
+
+        if hook.model.name() != self.entity_name.as_str() {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                field_name,
+                self.path.as_str(),
+                format!(
+                    "target_entity_tag={} resolves to entity_name={} but relation declares {}",
+                    self.entity_tag.value(),
+                    hook.model.name(),
+                    self.entity_name.as_str(),
+                ),
+            ));
+        }
+
+        if hook.store_path != self.store_path {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                field_name,
+                self.path.as_str(),
+                format!(
+                    "target_store_path={} does not match runtime store {} for target_entity_tag={}",
+                    self.store_path,
+                    hook.store_path,
+                    self.entity_tag.value(),
+                ),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 impl InternalError {

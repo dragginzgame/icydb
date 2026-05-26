@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.164.md](docs/changelog/0.164.md)
 
+- `0.164.3` centralizes accepted relation-target metadata and identity
+  validation so save validation and reverse-index preparation share one
+  named relation-domain boundary.
+
 - `0.164.2` moves relation target extraction onto an explicit target-key
   domain so scalar and collection relation payloads no longer communicate
   cardinality through raw vector length.
