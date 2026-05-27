@@ -29,11 +29,11 @@ pub(in crate::db::sql::lowering) fn expr_references_global_direct_fields(expr: &
     analyze_lowered_expr(expr, None).references_direct_fields()
 }
 
-pub(in crate::db::sql::lowering::aggregate) fn resolve_having_global_aggregate_terminal_index(
+pub(in crate::db::sql::lowering::aggregate) fn intern_having_global_aggregate_terminal_index(
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
     aggregate_expr: &AggregateExpr,
 ) -> Result<usize, SqlLoweringError> {
-    resolve_or_insert_global_aggregate_terminal(terminals, aggregate_expr)
+    intern_global_aggregate_terminal(terminals, aggregate_expr)
 }
 
 // Collect every aggregate leaf referenced by one global post-aggregate output
@@ -60,7 +60,7 @@ fn collect_global_aggregate_terminals_with_mode(
 ) -> Result<Option<usize>, SqlLoweringError> {
     let mut direct_terminal_index = None;
     expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
-        let unique_index = resolve_or_insert_global_aggregate_terminal(terminals, aggregate_expr)?;
+        let unique_index = intern_global_aggregate_terminal(terminals, aggregate_expr)?;
         if direct_terminal_index.is_none()
             && matches!(mode, GlobalAggregateTerminalCollectionMode::Direct)
         {
@@ -73,7 +73,7 @@ fn collect_global_aggregate_terminals_with_mode(
     Ok(direct_terminal_index)
 }
 
-fn resolve_or_insert_global_aggregate_terminal(
+fn intern_global_aggregate_terminal(
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
     aggregate_expr: &AggregateExpr,
 ) -> Result<usize, SqlLoweringError> {

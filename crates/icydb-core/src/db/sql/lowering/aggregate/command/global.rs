@@ -4,7 +4,7 @@ use crate::db::{
         lowering::{
             LoweredBaseQueryShape, LoweredSqlFilter, SqlLoweringError,
             aggregate::projection::{
-                LoweredSqlGlobalAggregateTerminals, resolve_having_global_aggregate_terminal_index,
+                LoweredSqlGlobalAggregateTerminals, intern_having_global_aggregate_terminal_index,
                 strip_inert_global_aggregate_output_order_terms,
             },
             predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
@@ -68,7 +68,7 @@ impl LoweredSqlGlobalAggregateCommand {
             LoweredSqlGlobalAggregateTerminals::from_projection(projection, &projection_aliases)?;
         let having =
             lower_global_aggregate_having_expr(having, &projection_for_having, |aggregate| {
-                resolve_having_global_aggregate_terminal_index(
+                intern_having_global_aggregate_terminal_index(
                     &mut lowered_terminals.terminals,
                     aggregate,
                 )

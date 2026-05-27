@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.3` continues the naming hard cut with SQL aggregate helper-verb
+  cleanup, public-surface keep decisions, and a residual vocabulary sweep that
+  found no accepted old-name hits in live code.
+
+  ```text
+  resolve_or_insert_global_aggregate_terminal -> intern_global_aggregate_terminal
+  resolve_having_global_aggregate_terminal_index -> intern_having_global_aggregate_terminal_index
+  QueryResponse / ProjectionResponse -> kept public response facade vocabulary
+  SqlQueryResult / SqlQueryRowsOutput / SqlGroupedRowsOutput -> kept public SQL endpoint vocabulary
+  accepted old names under crates/** -> no live-code hits
+  ```
+
 - `0.165.2` continues the naming hard cut by removing duplicate SQL scalar
   aggregate descriptor-shape vocabulary in favor of plan-fragment terminology
   and by separating aggregate semantic-key identity from aggregate semantics.
