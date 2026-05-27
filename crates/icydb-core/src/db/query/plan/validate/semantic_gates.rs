@@ -1,5 +1,5 @@
-//! Module: query::plan::validate::core
-//! Responsibility: core planner semantic validation orchestration for scalar/grouped plans.
+//! Module: query::plan::validate::semantic_gates
+//! Responsibility: planner semantic gate orchestration for scalar/grouped plans.
 //! Does not own: executor defensive runtime checks or cursor token protocol concerns.
 //! Boundary: coordinates planner validation gates into typed plan errors.
 
@@ -56,7 +56,7 @@ pub(in crate::db::query) fn validate_query_semantics(
     let logical = plan.scalar_plan();
     let projection = plan.projection_spec(model);
 
-    validate_plan_core(
+    validate_scalar_plan_semantic_gates(
         schema,
         model,
         logical,
@@ -94,7 +94,7 @@ pub(in crate::db::query) fn validate_group_query_semantics(
     };
     let projection = plan.projection_spec(model);
 
-    validate_plan_core(
+    validate_scalar_plan_semantic_gates(
         schema,
         model,
         logical,
@@ -111,8 +111,8 @@ pub(in crate::db::query) fn validate_group_query_semantics(
     Ok(())
 }
 
-// Shared logical plan validation core owned by planner semantics.
-fn validate_plan_core<FOrder, FAccess>(
+// Shared scalar-plan semantic gates owned by planner validation.
+fn validate_scalar_plan_semantic_gates<FOrder, FAccess>(
     schema: &SchemaInfo,
     model: &EntityModel,
     logical: &ScalarPlan,

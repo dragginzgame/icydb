@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.25` continues the naming hard cut by moving query-plan validation
+  orchestration away from broad core vocabulary and into semantic-gate
+  vocabulary.
+
+  ```text
+  query::plan::validate::core -> query::plan::validate::semantic_gates
+  validate_plan_core(...) -> validate_scalar_plan_semantic_gates(...)
+  validate::core comments -> semantic gate ownership comments
+  ```
+
 - `0.165.24` continues the naming hard cut by moving aggregate value reducer
   helpers away from broad core vocabulary.
 

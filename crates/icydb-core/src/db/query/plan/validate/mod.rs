@@ -12,7 +12,6 @@
 //! Future rule changes must declare a semantic owner. Defensive re-check layers may mirror
 //! rules, but must not reinterpret semantics or error class intent.
 
-mod core;
 mod cursor_policy;
 mod errors;
 mod fluent_policy;
@@ -20,11 +19,11 @@ pub(in crate::db::query) mod grouped;
 mod intent_policy;
 mod order;
 mod plan_shape;
+mod semantic_gates;
 mod symbols;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db::query) use core::{validate_group_query_semantics, validate_query_semantics};
 pub(in crate::db) use cursor_policy::validate_cursor_order_plan_shape;
 #[cfg(test)]
 pub(in crate::db::query) use cursor_policy::validate_cursor_paging_requirements;
@@ -45,6 +44,9 @@ pub(in crate::db::query) use intent_policy::{
     validate_intent_key_access_policy, validate_intent_plan_shape,
 };
 pub(in crate::db::query) use plan_shape::{has_explicit_order, validate_plan_shape};
+pub(in crate::db::query) use semantic_gates::{
+    validate_group_query_semantics, validate_query_semantics,
+};
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
 pub(in crate::db) use symbols::{
     resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot,
