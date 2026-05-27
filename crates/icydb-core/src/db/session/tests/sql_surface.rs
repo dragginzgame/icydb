@@ -979,6 +979,10 @@ fn execute_sql_query_rejects_unsupported_sql_families() {
             "byte-metric diagnostics should stay outside the SQL surface",
         ),
         (
+            "SELECT CAST(age AS text) FROM SessionSqlEntity",
+            "casts should stay outside the SQL surface",
+        ),
+        (
             "SELECT CASE age WHEN 20 THEN 'adult' ELSE 'other' END FROM SessionSqlEntity",
             "simple CASE should stay outside the SQL surface",
         ),

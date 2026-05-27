@@ -89,6 +89,7 @@ Supported `SELECT` families are:
 - global aggregate loads with one or more aggregate projection terminals and no
   `GROUP BY`
 - grouped aggregate loads
+- aggregate `DISTINCT` terminals and aggregate `FILTER (WHERE ...)` modifiers
 - narrow computed projection loads, including admitted bounded arithmetic,
   numeric scalar functions, text-function projection forms, and searched `CASE`
 
@@ -288,6 +289,9 @@ Supported scalar projection forms are:
 Supported aggregate projection forms are:
 
 - one or more aggregate terminals with no `GROUP BY`
+- aggregate terminals with admitted input expressions
+- aggregate terminals with `DISTINCT`
+- aggregate terminals with `FILTER (WHERE predicate)`
 - grouped projection where grouped key items come first and aggregate or
   post-aggregate computed items come after them
 

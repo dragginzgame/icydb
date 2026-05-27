@@ -2004,6 +2004,10 @@ fn execute_sql_update_rejects_unsupported_sql_without_mutation() {
             "subquery UPDATE should fail before updating",
         ),
         (
+            "UPDATE SessionSqlWriteEntity SET age = CAST(22 AS nat64) WHERE id = 1",
+            "cast UPDATE should fail before updating",
+        ),
+        (
             "DELETE FROM SessionSqlWriteEntity \
              WHERE id IN (SELECT id FROM SessionSqlWriteEntity)",
             "subquery DELETE should fail before deleting",

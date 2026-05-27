@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.2` adds explicit public-entrypoint fail-closed proof for SQL casts and
+  tightens aggregate expression-input, `DISTINCT`, and `FILTER` contract
+  evidence.
+
 - `0.166.1` reconciles the SQL subset contract, 1.0 TODO list, and
   implementation-facing SQL mapping around the public-entrypoint proof matrix,
   while fixing composite primary-key component ordering to preserve declared
