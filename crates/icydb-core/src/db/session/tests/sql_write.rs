@@ -1814,6 +1814,92 @@ fn execute_sql_statement_insert_and_update_returning_projection_matrix() {
 }
 
 #[test]
+fn execute_sql_update_returning_star_public_entrypoint_projects_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let insert = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+             VALUES (1, 'Ada', 21) RETURNING *",
+        )
+        .expect("public SQL update entrypoint should admit INSERT RETURNING *");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = insert
+    else {
+        panic!("INSERT RETURNING * should return a projection payload");
+    };
+    assert_eq!(columns, ["id", "name", "age"]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(1)),
+            output(Value::Text("Ada".to_string())),
+            output(Value::Nat64(21)),
+        ]],
+    );
+    assert_eq!(row_count, 1);
+
+    let update = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING *",
+        )
+        .expect("public SQL update entrypoint should admit UPDATE RETURNING *");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = update
+    else {
+        panic!("UPDATE RETURNING * should return a projection payload");
+    };
+    assert_eq!(columns, ["id", "name", "age"]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(1)),
+            output(Value::Text("Ada".to_string())),
+            output(Value::Nat64(22)),
+        ]],
+    );
+    assert_eq!(row_count, 1);
+
+    let delete = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING *",
+        )
+        .expect("public SQL update entrypoint should admit DELETE RETURNING *");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = delete
+    else {
+        panic!("DELETE RETURNING * should return a projection payload");
+    };
+    assert_eq!(columns, ["id", "name", "age"]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(1)),
+            output(Value::Text("Ada".to_string())),
+            output(Value::Nat64(22)),
+        ]],
+    );
+    assert_eq!(row_count, 1);
+    assert!(
+        persisted_write_rows(&session).is_empty(),
+        "DELETE RETURNING * should still remove the matched row",
+    );
+}
+
+#[test]
 fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix() {
     reset_session_sql_store();
     for (entity_kind, sql) in [
@@ -1843,6 +1929,63 @@ fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix()
                 "SQL function namespace beyond supported aggregate or scalar function forms"
             ),
             "{entity_kind} RETURNING should preserve the parser-owned unsupported feature detail",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_update_rejects_unsupported_sql_without_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+    let baseline = persisted_write_rows(&session);
+
+    let cases = [
+        (
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (2, 'Bob', 22) \
+             RETURNING LOWER(name)",
+            "computed INSERT RETURNING should fail before inserting",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING LOWER(name)",
+            "computed UPDATE RETURNING should fail before updating",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING COUNT(*)",
+            "aggregate UPDATE RETURNING should fail before updating",
+        ),
+        (
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING LOWER(name)",
+            "computed DELETE RETURNING should fail before deleting",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 \
+             WHERE id IN (SELECT id FROM SessionSqlWriteEntity)",
+            "subquery UPDATE should fail before updating",
+        ),
+        (
+            "DELETE FROM SessionSqlWriteEntity \
+             WHERE id IN (SELECT id FROM SessionSqlWriteEntity)",
+            "subquery DELETE should fail before deleting",
+        ),
+        (
+            "WITH selected AS (SELECT * FROM SessionSqlWriteEntity) \
+             UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+            "CTE UPDATE should fail before updating",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        assert!(
+            session
+                .execute_sql_update::<SessionSqlWriteEntity>(sql)
+                .is_err(),
+            "{context}",
+        );
+        assert_eq!(
+            persisted_write_rows(&session),
+            baseline,
+            "{context}: rows should remain unchanged",
         );
     }
 }

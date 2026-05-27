@@ -614,6 +614,58 @@ fn sql_metadata_surfaces_match_typed_payloads() {
     );
 }
 
+#[test]
+fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let SqlStatementResult::Describe(describe) = session
+        .execute_sql_query::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
+        .expect("DESCRIBE should execute through public SQL query entrypoint")
+    else {
+        panic!("DESCRIBE should return a describe payload");
+    };
+    assert_eq!(
+        describe,
+        session.describe_entity::<SessionSqlEntity>(),
+        "DESCRIBE should expose the same public payload as the typed metadata surface",
+    );
+
+    let SqlStatementResult::ShowColumns(columns) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
+        .expect("SHOW COLUMNS should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW COLUMNS should return a column metadata payload");
+    };
+    assert_eq!(
+        columns,
+        session.show_columns::<SessionSqlEntity>(),
+        "SHOW COLUMNS should expose the same public payload as the typed metadata surface",
+    );
+
+    let SqlStatementResult::ShowEntities(show_entities) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW ENTITIES")
+        .expect("SHOW ENTITIES should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW ENTITIES should return an entity metadata payload");
+    };
+    let SqlStatementResult::ShowEntities(show_tables) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW TABLES")
+        .expect("SHOW TABLES should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW TABLES should return an entity metadata payload");
+    };
+    assert_eq!(
+        show_entities,
+        session.show_entities(),
+        "SHOW ENTITIES should expose the same public payload as the typed metadata surface",
+    );
+    assert_eq!(
+        show_tables, show_entities,
+        "SHOW TABLES should stay a direct SQL alias of SHOW ENTITIES",
+    );
+}
+
 // This metadata/explain matrix keeps every non-owned statement rejection on
 // one outward surface contract instead of splitting the statement families.
 #[expect(
@@ -865,6 +917,103 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
             .to_string()
             .contains("grouped SELECT helper rejects DELETE"),
         "grouped SQL surface should preserve its own lane boundary before RETURNING guidance",
+    );
+}
+
+#[test]
+fn execute_sql_query_rejects_unsupported_sql_families() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
+        (
+            "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
+            "JOIN should stay outside the single-entity SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE age IN (SELECT age FROM SessionSqlEntity)",
+            "subqueries should stay outside the SQL surface",
+        ),
+        (
+            "WITH recent AS (SELECT * FROM SessionSqlEntity) SELECT * FROM recent",
+            "CTEs should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity UNION SELECT * FROM SessionSqlEntity",
+            "UNION should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity INTERSECT SELECT * FROM SessionSqlEntity",
+            "INTERSECT should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity EXCEPT SELECT * FROM SessionSqlEntity",
+            "EXCEPT should stay outside the SQL surface",
+        ),
+        (
+            "SELECT ROW_NUMBER() OVER (ORDER BY age) FROM SessionSqlEntity",
+            "window functions should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity CURSOR 'abc'",
+            "cursor-token syntax should stay outside the scalar SQL surface",
+        ),
+        (
+            "BEGIN",
+            "transaction control should stay outside the SQL surface",
+        ),
+        (
+            "COMMIT",
+            "transaction control should stay outside the SQL surface",
+        ),
+        (
+            "ROLLBACK",
+            "transaction control should stay outside the SQL surface",
+        ),
+        (
+            "SELECT bytes(age) FROM SessionSqlEntity",
+            "byte-metric diagnostics should stay outside the SQL surface",
+        ),
+        (
+            "SELECT bytes_by(age) FROM SessionSqlEntity",
+            "byte-metric diagnostics should stay outside the SQL surface",
+        ),
+        (
+            "SELECT CASE age WHEN 20 THEN 'adult' ELSE 'other' END FROM SessionSqlEntity",
+            "simple CASE should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE name LIKE '%a%'",
+            "non-prefix LIKE should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE name ILIKE '%a%'",
+            "non-prefix ILIKE should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE name LIKE 'a_'",
+            "single-character LIKE wildcards should stay outside the SQL surface",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE name ILIKE 'a_'",
+            "single-character ILIKE wildcards should stay outside the SQL surface",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(
+            session.execute_sql_query::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
+
+    assert!(
+        session
+            .execute_sql_query::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age HAVING name LIKE 'A%'",
+            )
+            .is_err(),
+        "grouped row-field text predicates should fail closed through the query surface",
     );
 }
 

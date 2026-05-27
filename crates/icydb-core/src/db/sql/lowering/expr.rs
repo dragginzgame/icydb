@@ -144,7 +144,7 @@ fn lower_sql_like_expr(
     casefold: bool,
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
-    let Some(prefix) = pattern.strip_suffix('%') else {
+    let Some(prefix) = sql_like_prefix_from_pattern(pattern) else {
         return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
             "LIKE patterns beyond trailing '%' prefix form",
         )
@@ -165,6 +165,19 @@ fn lower_sql_like_expr(
     } else {
         expr
     })
+}
+
+fn sql_like_prefix_from_pattern(pattern: &str) -> Option<&str> {
+    if !pattern.ends_with('%') {
+        return None;
+    }
+
+    let prefix = &pattern[..pattern.len() - 1];
+    if prefix.contains('%') || prefix.contains('_') {
+        return None;
+    }
+
+    Some(prefix)
 }
 
 fn lower_sql_like_target_expr(

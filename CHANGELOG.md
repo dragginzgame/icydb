@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.166.x] 🧾 - 2026-05-27 - SQL Surface Contract Proof Audit
+
+Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
+
+- Starts the SQL surface contract proof audit with a durable public-entrypoint
+  proof matrix for query, update, DDL, introspection, and fail-closed SQL
+  behavior.
+
 ## [0.165.x] 🧭 - 2026-05-26 - Naming Hard Cut And Role Alignment
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
+
+- `0.165.30` closes the naming-audit design-doc shape by folding per-family
+  notes into one durable 0.165 design document and removing the extra leaf
+  files.
 
 - `0.165.25`–`0.165.29` continue the naming hard cut by removing broad
   `core` and `parts` vocabulary from validation, persisted-row reading, SQL

@@ -313,6 +313,46 @@ fn sql_insert_values_writes_multiple_large_hex_blob_literals() {
 }
 
 #[test]
+fn sql_blob_literals_fail_closed_through_public_update_entrypoint() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, context) in [
+        (
+            "INSERT INTO SessionSqlBlobEntity (label, bucket, thumbnail, chunk) \
+             VALUES ('odd-hex', 1, X'ABC', X'00')",
+            "odd-length blob literal",
+        ),
+        (
+            "INSERT INTO SessionSqlBlobEntity (label, bucket, thumbnail, chunk) \
+             VALUES ('non-hex', 1, X'GG', X'00')",
+            "non-hex blob literal",
+        ),
+    ] {
+        assert!(
+            session
+                .execute_sql_update::<SessionSqlBlobEntity>(sql)
+                .is_err(),
+            "{context} should fail before mutation",
+        );
+    }
+
+    let oversized_hex = "00".repeat(1_048_577);
+    let oversized_sql = format!(
+        "INSERT INTO SessionSqlBlobEntity (label, bucket, thumbnail, chunk) \
+         VALUES ('oversized', 1, X'{oversized_hex}', X'00')"
+    );
+    session
+        .execute_sql_update::<SessionSqlBlobEntity>(oversized_sql.as_str())
+        .expect_err("oversized blob literal should fail before mutation");
+
+    assert!(
+        select_blob_rows(&session, "").is_empty(),
+        "malformed or oversized blob literals must not partially mutate rows",
+    );
+}
+
+#[test]
 fn sql_update_metadata_preserves_large_blob_payloads() {
     reset_session_sql_store();
     let session = sql_session();
