@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.9` continues the naming hard cut by moving prepared executor boundary
+  payloads and runtime adapter constructors away from generic parts vocabulary.
+
+  ```text
+  prepared_execution_plan::parts -> prepared_execution_plan::handoff
+  PreparedScalarRuntimeParts -> PreparedScalarRuntimeHandoff
+  PreparedAccessPlanParts -> PreparedAccessPlanHandoff
+  PreparedAggregateStreamingPlanParts -> PreparedAggregateStreamingPlanHandoff
+  SharedPreparedProjectionRuntimeParts -> SharedPreparedProjectionRuntimeHandoff
+  ```
+
 - `0.165.8` continues the naming hard cut by moving private accepted relation
   DESCRIBE metadata and SQL projection payload unpacking away from generic
   parts vocabulary.

@@ -175,7 +175,7 @@ pub(in crate::db::executor) struct ExecutionRuntimeAdapter {
 
 impl ExecutionRuntimeAdapter {
     /// Build one structural runtime adapter for scalar execution paths.
-    pub(in crate::db::executor) fn from_scalar_runtime_parts(
+    pub(in crate::db::executor) fn from_scalar_runtime(
         runtime: TraversalRuntime,
         store: StoreHandle,
         authority: EntityAuthority,
@@ -191,9 +191,7 @@ impl ExecutionRuntimeAdapter {
 
     /// Build one stream-only runtime adapter for key-stream resolution paths
     /// that never materialize scalar rows.
-    pub(in crate::db::executor) const fn from_stream_runtime_parts(
-        runtime: TraversalRuntime,
-    ) -> Self {
+    pub(in crate::db::executor) const fn from_stream_runtime(runtime: TraversalRuntime) -> Self {
         Self {
             runtime,
             authority: None,

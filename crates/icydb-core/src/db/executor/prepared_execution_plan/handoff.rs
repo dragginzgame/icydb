@@ -11,7 +11,7 @@ use crate::db::{
 use std::sync::Arc;
 
 ///
-/// PreparedScalarRuntimeParts
+/// PreparedScalarRuntimeHandoff
 ///
 /// Structural scalar runtime handoff extracted from one prepared load plan.
 /// Scalar entrypoints use this bundle to consume the authority, projection,
@@ -19,7 +19,7 @@ use std::sync::Arc;
 /// same wrapper sequence before route/runtime assembly.
 ///
 
-pub(in crate::db::executor) struct PreparedScalarRuntimeParts {
+pub(in crate::db::executor) struct PreparedScalarRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
     pub(in crate::db::executor) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
@@ -27,7 +27,7 @@ pub(in crate::db::executor) struct PreparedScalarRuntimeParts {
     pub(in crate::db::executor) plan_core: PreparedScalarPlanCore,
 }
 
-impl PreparedScalarRuntimeParts {
+impl PreparedScalarRuntimeHandoff {
     /// Rebuild this scalar runtime handoff with scalar pagination removed from
     /// the execution plan while preserving prepared projection/layout residents.
     ///
@@ -65,20 +65,20 @@ impl PreparedScalarRuntimeParts {
 }
 
 ///
-/// PreparedGroupedRuntimeParts
+/// PreparedGroupedRuntimeHandoff
 ///
 /// Grouped runtime residents cloned from one prepared load plan.
 /// Grouped entrypoints use this pair as one explicit handoff so the grouped
 /// runtime boundary does not expose two separate clone-only wrappers.
 ///
 
-pub(in crate::db::executor) struct PreparedGroupedRuntimeParts {
+pub(in crate::db::executor) struct PreparedGroupedRuntimeHandoff {
     pub(in crate::db::executor) execution_preparation: Option<ExecutionPreparation>,
     pub(in crate::db::executor) grouped_slot_layout: Option<RetainedSlotLayout>,
 }
 
 ///
-/// PreparedAccessPlanParts
+/// PreparedAccessPlanHandoff
 ///
 /// Structural prepared-plan payload consumed by delete and grouped/scalar
 /// structural entrypoints. It keeps the logical plan and lowered access specs
@@ -86,7 +86,7 @@ pub(in crate::db::executor) struct PreparedGroupedRuntimeParts {
 /// through parallel wrappers.
 ///
 
-pub(in crate::db::executor) struct PreparedAccessPlanParts {
+pub(in crate::db::executor) struct PreparedAccessPlanHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
@@ -94,14 +94,14 @@ pub(in crate::db::executor) struct PreparedAccessPlanParts {
 }
 
 ///
-/// PreparedAggregateStreamingPlanParts
+/// PreparedAggregateStreamingPlanHandoff
 ///
 /// Prepared aggregate access residents moved together when aggregate execution
 /// leaves the generic prepared-plan shell. Keeping these fields bundled avoids
 /// tuple-shaped handoffs and makes the shared `Arc` ownership boundary explicit.
 ///
 
-pub(in crate::db::executor) struct PreparedAggregateStreamingPlanParts {
+pub(in crate::db::executor) struct PreparedAggregateStreamingPlanHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) logical_plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor) schema_fingerprint: Option<CommitSchemaFingerprint>,
@@ -110,7 +110,7 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingPlanParts {
 }
 
 ///
-/// SharedPreparedProjectionRuntimeParts
+/// SharedPreparedProjectionRuntimeHandoff
 ///
 /// Structural shared-prepared payload needed by projection runtime adapters.
 /// Projection adapters consume this bundle directly so they do not restate the
@@ -118,8 +118,8 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingPlanParts {
 /// accessor calls.
 ///
 
-pub(in crate::db::executor) struct SharedPreparedProjectionRuntimeParts {
+pub(in crate::db::executor) struct SharedPreparedProjectionRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
-    pub(in crate::db::executor) scalar_runtime: PreparedScalarRuntimeParts,
+    pub(in crate::db::executor) scalar_runtime: PreparedScalarRuntimeHandoff,
 }

@@ -257,7 +257,7 @@ impl ExecutionKernel {
         spec: &FieldExtremaFoldSpec<'_>,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         let row_layout = prepared.authority.row_layout();
-        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
+        let runtime = ExecutionRuntimeAdapter::from_stream_runtime(
             crate::db::executor::TraversalRuntime::new(
                 prepared.store,
                 prepared.authority.entity_tag(),

@@ -176,7 +176,7 @@ impl GroupedPathRuntimeContext {
         execution_preparation: ExecutionPreparation,
         grouped_slot_layout: RetainedSlotLayout,
     ) -> Result<GroupedStreamStage, InternalError> {
-        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(self.traversal_runtime);
+        let runtime = ExecutionRuntimeAdapter::from_stream_runtime(self.traversal_runtime);
         build_grouped_stream_with_runtime(
             self.authority.entity_path(),
             route,
@@ -253,15 +253,15 @@ where
     C: CanisterKind,
 {
     let authority = plan.authority();
-    let prepared_runtime_parts = plan.cloned_grouped_runtime_parts();
+    let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff();
     let route = resolve_grouped_route_for_plan(plan, cursor, debug)?;
     let store = db.recovered_store(authority.store_path())?;
 
     Ok(PreparedGroupedRouteRuntime::new(
         route,
         GroupedPathRuntimeContext::from_store(store, authority),
-        prepared_runtime_parts.execution_preparation,
-        prepared_runtime_parts.grouped_slot_layout,
+        prepared_runtime_handoff.execution_preparation,
+        prepared_runtime_handoff.grouped_slot_layout,
     ))
 }
 
@@ -509,14 +509,14 @@ where
             ));
         };
 
-        let prepared_runtime_parts = plan.cloned_grouped_runtime_parts();
+        let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff();
         let authority = plan.authority();
         let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
         let prepared = self.prepare_grouped_route_runtime(
             route,
             authority,
-            prepared_runtime_parts.execution_preparation,
-            prepared_runtime_parts.grouped_slot_layout,
+            prepared_runtime_handoff.execution_preparation,
+            prepared_runtime_handoff.grouped_slot_layout,
         )?;
 
         execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)

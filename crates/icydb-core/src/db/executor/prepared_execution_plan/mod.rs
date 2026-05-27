@@ -6,8 +6,8 @@
 mod aggregate_plan;
 mod bytes_projection;
 mod core;
+mod handoff;
 mod load_plan;
-mod parts;
 mod shared_plan;
 #[cfg(test)]
 mod snapshot;
@@ -42,11 +42,12 @@ pub(in crate::db::executor::prepared_execution_plan) use core::{
     build_prepared_execution_plan_core_with_schema_fingerprint,
     build_prepared_execution_plan_core_with_shared_lowered_access,
 };
-pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
-pub(in crate::db::executor) use parts::{
-    PreparedAccessPlanParts, PreparedAggregateStreamingPlanParts, PreparedGroupedRuntimeParts,
-    PreparedScalarRuntimeParts, SharedPreparedProjectionRuntimeParts,
+pub(in crate::db::executor) use handoff::{
+    PreparedAccessPlanHandoff, PreparedAggregateStreamingPlanHandoff,
+    PreparedGroupedRuntimeHandoff, PreparedScalarRuntimeHandoff,
+    SharedPreparedProjectionRuntimeHandoff,
 };
+pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
 pub(in crate::db) use shared_plan::SharedPreparedExecutionPlan;
 
 ///
@@ -204,9 +205,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     // Collapse the typed prepared shell into the structural logical plan plus
     // lowered access specs together so structural consumers do not peel those
     // three prepared artifacts back out through separate wrappers.
-    pub(in crate::db::executor) fn into_access_plan_parts(
+    pub(in crate::db::executor) fn into_access_plan_handoff(
         self,
-    ) -> Result<PreparedAccessPlanParts, InternalError> {
+    ) -> Result<PreparedAccessPlanHandoff, InternalError> {
         let Self {
             authority,
             core,
@@ -223,7 +224,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(PreparedAccessPlanParts {
+        Ok(PreparedAccessPlanHandoff {
             authority,
             plan: residents.plan,
             index_prefix_specs: residents.index_prefix_specs,

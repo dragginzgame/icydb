@@ -75,6 +75,75 @@ Role proof:
   module
 - Hard-cut rule: remove the old type and comment vocabulary from live code
 
+### Prepared Runtime `*Parts` -> Prepared Runtime `*Handoff`
+
+Role proof:
+
+- Owning module: `db::executor::prepared_execution_plan::handoff`
+- Payload: prepared-plan runtime handoff values that move accepted authority,
+  prepared execution residents, lowered access specs, retained-slot layout, and
+  prepared projection shape across executor entrypoint boundaries
+- Main consumers: scalar and grouped entrypoints, delete runtime preparation,
+  aggregate streaming setup, and structural projection adapters
+- Chosen family: `*Handoff`
+- Rejected alternatives:
+  - `*Parts`: allowed only for temporary decomposition, but these values have
+    become named executor boundary payloads
+  - `*Inputs`: too generic because some values are consumed after planning as
+    prepared runtime residents, not only constructor input bundles
+  - `*Payload`: too broad and less precise than the existing executor handoff
+    wording around these boundaries
+- Public-surface impact: none; visibility remains executor-internal
+- Hard-cut rule: remove the old type, helper, module, and active-doc vocabulary
+  from live code
+
+Accepted code examples:
+
+```text
+prepared_execution_plan::parts -> prepared_execution_plan::handoff
+PreparedScalarRuntimeParts -> PreparedScalarRuntimeHandoff
+PreparedAccessPlanParts -> PreparedAccessPlanHandoff
+PreparedAggregateStreamingPlanParts -> PreparedAggregateStreamingPlanHandoff
+SharedPreparedProjectionRuntimeParts -> SharedPreparedProjectionRuntimeHandoff
+```
+
+Companion helper renames:
+
+```text
+into_scalar_runtime_parts(...) -> into_scalar_runtime_handoff(...)
+cloned_grouped_runtime_parts(...) -> cloned_grouped_runtime_handoff(...)
+into_access_plan_parts(...) -> into_access_plan_handoff(...)
+into_streaming_parts(...) -> into_streaming_handoff(...)
+into_projection_runtime_parts(...) -> into_projection_runtime_handoff(...)
+```
+
+### Runtime Adapter Constructor `*Parts` Helpers -> Runtime Constructors
+
+Role proof:
+
+- Owning module: `db::executor::pipeline::runtime`
+- Payload: constructors for one monomorphic execution runtime adapter from
+  already resolved traversal/scalar runtime handles
+- Main consumers: scalar materialized execution, scalar aggregate row sinks,
+  grouped execution, delete key-stream resolution, and aggregate streaming
+  execution
+- Chosen family: direct runtime constructor verbs
+- Rejected alternatives:
+  - `from_*_runtime_parts`: inaccurate because the helpers do not consume a
+    named parts payload
+  - `from_*_runtime_handoff`: overstates the role because these helpers build
+    an adapter from concrete runtime handles rather than moving prepared-plan
+    handoff values
+- Public-surface impact: none; visibility remains executor-internal
+- Hard-cut rule: remove the old helper names from live code
+
+Accepted code examples:
+
+```text
+ExecutionRuntimeAdapter::from_scalar_runtime_parts(...) -> from_scalar_runtime(...)
+ExecutionRuntimeAdapter::from_stream_runtime_parts(...) -> from_stream_runtime(...)
+```
+
 ## Kept Names
 
 ### `PreparedExecutionPlanCore`
@@ -104,18 +173,6 @@ Rejected alternatives:
 - `PreparedProjectionPlan`: too narrow because scalar aggregate terminals also
   consume the shell
 
-### `Prepared*RuntimeParts`
-
-Kept for this slice because these are temporary runtime handoff decompositions
-created at prepared-plan boundaries. That is an allowed `Parts` use under the
-0.165 ambiguous-stem policy.
-
-Deferred trigger:
-
-- Rename the family together only if the executor adopts a single `*Handoff` or
-  `*Inputs` vocabulary for all prepared boundary payloads. Do not rename one
-  `Parts` type at a time.
-
 ## Old-Vocabulary Scan Terms
 
 Live-code scans for this slice:
@@ -123,7 +180,8 @@ Live-code scans for this slice:
 ```bash
 rg -n "PreparedExecutionPlanCoreShared|CoreShared|into_shared|core\\.shared\\b|self\\.shared\\b" crates/icydb-core/src/db/executor/prepared_execution_plan
 rg -n "PreparedExecutionPlanResidents|into_residents|core\\.residents|self\\.residents" crates/icydb-core/src/db/executor/prepared_execution_plan
-rg -n "PreparedScalarRuntimeParts|PreparedGroupedRuntimeParts|PreparedAccessPlanParts|PreparedAggregateStreamingPlanParts|SharedPreparedProjectionRuntimeParts" crates/icydb-core/src/db/executor/prepared_execution_plan crates/icydb-core/src/db/executor
+rg -n "PreparedScalarRuntimeParts|PreparedGroupedRuntimeParts|PreparedAccessPlanParts|PreparedAggregateStreamingPlanParts|SharedPreparedProjectionRuntimeParts|from_valid_shared_parts|into_scalar_runtime_parts|cloned_grouped_runtime_parts|into_access_plan_parts|into_streaming_parts|into_projection_runtime_parts|execute_initial_scalar_retained_slot_page_from_runtime_parts|prepared_execution_plan::parts|from_scalar_runtime_parts|from_stream_runtime_parts" crates/icydb-core/src docs/design/0.165-naming-audit-and-role-alignment
+rg -n "PreparedScalarRuntimeHandoff|PreparedGroupedRuntimeHandoff|PreparedAccessPlanHandoff|PreparedAggregateStreamingPlanHandoff|SharedPreparedProjectionRuntimeHandoff" crates/icydb-core/src/db/executor/prepared_execution_plan crates/icydb-core/src/db/executor
 rg -n "PreparedExecutionInputParts|PreparedExecutionInputContext" crates/icydb-core/src/db/executor
 rg -n "GroupedPathRuntimeCore|GroupedPathRuntimeContext" crates/icydb-core/src/db/executor/pipeline/entrypoints/grouped.rs
 ```

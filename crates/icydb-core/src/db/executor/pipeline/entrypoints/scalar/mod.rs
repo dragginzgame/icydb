@@ -21,7 +21,7 @@ pub(in crate::db::executor) use entrypoints::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use entrypoints::{
-    execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister,
+    execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
     execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
 };
 pub(in crate::db::executor) use materialized::execute_prepared_scalar_route_runtime;

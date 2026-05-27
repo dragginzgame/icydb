@@ -82,7 +82,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
         debug,
     } = prepared;
     let entity_path = authority.entity_path();
-    let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
+    let runtime = ExecutionRuntimeAdapter::from_scalar_runtime(
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority,

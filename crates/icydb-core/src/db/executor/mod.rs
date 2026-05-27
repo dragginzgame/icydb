@@ -102,8 +102,8 @@ pub use prepared_execution_plan::ExecutionFamily;
 pub(in crate::db) use prepared_execution_plan::PreparedExecutionPlan;
 pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
 pub(in crate::db::executor) use prepared_execution_plan::{
-    PreparedAggregatePlan, PreparedAggregateStreamingPlanParts, PreparedLoadPlan,
-    PreparedScalarPlanCore, PreparedScalarRuntimeParts, SharedPreparedProjectionRuntimeParts,
+    PreparedAggregatePlan, PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
+    PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, SharedPreparedProjectionRuntimeHandoff,
     classify_bytes_by_projection_mode,
 };
 pub(in crate::db::executor) use profiling::{

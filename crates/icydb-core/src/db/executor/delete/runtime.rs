@@ -74,7 +74,7 @@ where
 {
     validate_delete_plan_shape(&plan)?;
 
-    let prepared = plan.into_access_plan_parts()?;
+    let prepared = plan.into_access_plan_handoff()?;
     let accepted_schema = {
         let store = db.recovered_store(E::Store::PATH)?;
         store.with_schema_mut(|schema_store| {
@@ -105,7 +105,7 @@ pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows_as<T>(
 ) -> Result<(Vec<T>, usize), InternalError> {
     // Phase 1: assemble the same execution-input snapshot consumed by scalar
     // runtime key-stream resolution, but suppress row materialization concerns.
-    let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(TraversalRuntime::new(
+    let runtime = ExecutionRuntimeAdapter::from_stream_runtime(TraversalRuntime::new(
         store,
         prepared.authority.entity.entity_tag(),
     ));

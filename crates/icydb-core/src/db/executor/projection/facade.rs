@@ -8,8 +8,8 @@ use crate::{
         Db,
         executor::{
             CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
-            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
-            pipeline::execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister,
+            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
+            pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             projection::{
                 MaterializedProjectionRows, ProjectionDistinctWindow, project, project_distinct,
                 try_execute_covering_projection_rows_for_canister,
@@ -108,11 +108,11 @@ where
         covering_metrics,
         materialization_metrics,
     } = request;
-    let SharedPreparedProjectionRuntimeParts {
+    let SharedPreparedProjectionRuntimeHandoff {
         authority,
         prepared_projection_shape,
         scalar_runtime,
-    } = prepared_plan.into_projection_runtime_parts()?;
+    } = prepared_plan.into_projection_runtime_handoff()?;
     let distinct = scalar_runtime.plan_core.plan().scalar_plan().distinct;
     let distinct_window = distinct.then(|| {
         ProjectionDistinctWindow::from_page(
@@ -151,7 +151,7 @@ where
             "structural projection runtime requires one frozen projection shape",
         )
     })?;
-    let page = execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister(
+    let page = execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
         db,
         debug,
         scalar_runtime,

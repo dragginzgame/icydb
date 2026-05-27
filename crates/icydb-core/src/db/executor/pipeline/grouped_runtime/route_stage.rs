@@ -79,7 +79,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     );
     let (grouped_aggregate_execution_specs, projection_layout, grouped_distinct_execution_strategy) =
         grouped_handoff.into_route_stage_residents();
-    let prepared = plan.into_access_plan_parts()?;
+    let prepared = plan.into_access_plan_handoff()?;
 
     Ok(GroupedRouteStage {
         planner_payload: GroupedPlannerPayload {

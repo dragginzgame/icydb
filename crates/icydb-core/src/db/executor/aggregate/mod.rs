@@ -25,7 +25,7 @@ use crate::{
         data::DataRow,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
-            PreparedAggregatePlan, PreparedAggregateStreamingPlanParts,
+            PreparedAggregatePlan, PreparedAggregateStreamingPlanHandoff,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
                 PreparedExecutionInputContext, PreparedExecutionProjection,
@@ -145,13 +145,13 @@ impl ExecutionKernel {
 
         // Move the prepared aggregate plan into one structural runtime payload
         // once so aggregate execution does not clone lowered index specs.
-        let PreparedAggregateStreamingPlanParts {
+        let PreparedAggregateStreamingPlanHandoff {
             authority,
             logical_plan,
             schema_fingerprint,
             index_prefix_specs,
             index_range_specs,
-        } = plan.into_streaming_parts()?;
+        } = plan.into_streaming_handoff()?;
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan_for_authority(&authority, &logical_plan)?;
@@ -294,7 +294,7 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
-        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
+        let runtime = ExecutionRuntimeAdapter::from_stream_runtime(
             crate::db::executor::TraversalRuntime::new(prepared.store, authority.entity_tag()),
         );
         let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {

@@ -4,10 +4,11 @@ use crate::{
         cursor::{ContinuationSignature, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutorPlanError, GroupedPaginationWindow, PreparedScalarPlanCore,
-            PreparedScalarRuntimeParts,
+            PreparedScalarRuntimeHandoff,
             pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
             prepared_execution_plan::{
-                PreparedAccessPlanParts, PreparedExecutionPlanCore, PreparedGroupedRuntimeParts,
+                PreparedAccessPlanHandoff, PreparedExecutionPlanCore,
+                PreparedGroupedRuntimeHandoff,
                 build_prepared_execution_plan_core_with_shared_lowered_access,
             },
             terminal::RetainedSlotLayout,
@@ -41,7 +42,7 @@ impl PreparedLoadPlan {
     /// load continuation contract against the current logical plan shape.
     ///
     #[must_use]
-    pub(in crate::db::executor) fn from_valid_shared_parts(
+    pub(in crate::db::executor) fn from_valid_shared_residents(
         authority: EntityAuthority,
         plan: Arc<AccessPlannedQuery>,
         schema_fingerprint: Option<CommitSchemaFingerprint>,
@@ -141,39 +142,39 @@ impl PreparedLoadPlan {
     // Collapse the scalar runtime handoff into one structural extraction so
     // callers do not restate the same authority/projection/layout/index/plan
     // unpacking sequence at every scalar entrypoint.
-    pub(in crate::db::executor) fn into_scalar_runtime_parts(
+    pub(in crate::db::executor) fn into_scalar_runtime_handoff(
         self,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
-    ) -> Result<PreparedScalarRuntimeParts, InternalError> {
-        self.into_scalar_runtime_parts_with_layout_override(
+    ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
+        self.into_scalar_runtime_handoff_with_layout_override(
             projection_materialization,
             cursor_emission,
             None,
         )
     }
 
-    /// Consume one typed prepared execution plan into scalar runtime parts
+    /// Consume one typed prepared execution plan into scalar runtime handoff
     /// while using a caller-owned retained-slot layout for this execution only.
-    pub(in crate::db::executor) fn into_scalar_runtime_parts_with_retained_slot_layout(
+    pub(in crate::db::executor) fn into_scalar_runtime_handoff_with_retained_slot_layout(
         self,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
         retained_slot_layout: RetainedSlotLayout,
-    ) -> Result<PreparedScalarRuntimeParts, InternalError> {
-        self.into_scalar_runtime_parts_with_layout_override(
+    ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
+        self.into_scalar_runtime_handoff_with_layout_override(
             projection_materialization,
             cursor_emission,
             Some(retained_slot_layout),
         )
     }
 
-    fn into_scalar_runtime_parts_with_layout_override(
+    fn into_scalar_runtime_handoff_with_layout_override(
         self,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
         retained_slot_layout_override: Option<RetainedSlotLayout>,
-    ) -> Result<PreparedScalarRuntimeParts, InternalError> {
+    ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
         let prepared_projection_shape = if projection_materialization.validate_projection()
             && !core.plan().projection_is_model_identity()
@@ -199,7 +200,7 @@ impl PreparedLoadPlan {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(PreparedScalarRuntimeParts {
+        Ok(PreparedScalarRuntimeHandoff {
             authority,
             execution_preparation,
             prepared_projection_shape,
@@ -209,28 +210,28 @@ impl PreparedLoadPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) fn cloned_grouped_runtime_parts(
+    pub(in crate::db::executor) fn cloned_grouped_runtime_handoff(
         &self,
-    ) -> PreparedGroupedRuntimeParts {
+    ) -> PreparedGroupedRuntimeHandoff {
         let Some(residents) = self
             .core
             .get_or_init_grouped_runtime_residents(self.authority.clone())
         else {
-            return PreparedGroupedRuntimeParts {
+            return PreparedGroupedRuntimeHandoff {
                 execution_preparation: None,
                 grouped_slot_layout: None,
             };
         };
 
-        PreparedGroupedRuntimeParts {
+        PreparedGroupedRuntimeHandoff {
             execution_preparation: Some(residents.execution_preparation()),
             grouped_slot_layout: Some(residents.grouped_slot_layout()),
         }
     }
 
-    pub(in crate::db::executor) fn into_access_plan_parts(
+    pub(in crate::db::executor) fn into_access_plan_handoff(
         self,
-    ) -> Result<PreparedAccessPlanParts, InternalError> {
+    ) -> Result<PreparedAccessPlanHandoff, InternalError> {
         let Self { authority, core } = self;
         let residents = core.into_residents();
 
@@ -243,7 +244,7 @@ impl PreparedLoadPlan {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(PreparedAccessPlanParts {
+        Ok(PreparedAccessPlanHandoff {
             authority,
             plan: residents.plan,
             index_prefix_specs: residents.index_prefix_specs,

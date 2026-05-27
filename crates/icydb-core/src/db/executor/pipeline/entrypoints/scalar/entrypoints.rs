@@ -8,7 +8,7 @@ use crate::{
         Db, PersistedRow,
         cursor::ValidatedCursor,
         executor::{
-            EntityAuthority, LoadCursorInput, PreparedLoadPlan, PreparedScalarRuntimeParts,
+            EntityAuthority, LoadCursorInput, PreparedLoadPlan, PreparedScalarRuntimeHandoff,
             ScalarContinuationContext, StoreResolver,
             aggregate::PreparedAggregateStreamingInputs,
             pipeline::{
@@ -166,7 +166,7 @@ where
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
     let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let prepared = plan.into_scalar_runtime_parts(
+    let prepared = plan.into_scalar_runtime_handoff(
         ScalarProjectionRuntimeMode::None,
         CursorEmissionMode::Suppress,
     )?;
@@ -217,7 +217,7 @@ where
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
     let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let prepared = plan.into_scalar_runtime_parts(
+    let prepared = plan.into_scalar_runtime_handoff(
         ScalarProjectionRuntimeMode::None,
         CursorEmissionMode::Suppress,
     )?;
@@ -255,7 +255,7 @@ where
     Ok((page, phase_attribution))
 }
 
-/// Execute one retained-slot initial scalar rows path from prepared runtime parts.
+/// Execute one retained-slot initial scalar rows path from prepared runtime handoff.
 ///
 /// This entrypoint keeps SQL scalar projection execution inside the prepared
 /// plan resident boundary. It consumes the scalar preparation, retained-slot
@@ -263,12 +263,12 @@ where
 /// `SharedPreparedExecutionPlan` instead of rebuilding them from a raw
 /// `AccessPlannedQuery`.
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister<
+pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister<
     C,
 >(
     db: &Db<C>,
     debug: bool,
-    prepared: PreparedScalarRuntimeParts,
+    prepared: PreparedScalarRuntimeHandoff,
     suppress_route_scan_hints: bool,
 ) -> Result<StructuralCursorPage, InternalError>
 where
@@ -307,7 +307,7 @@ where
         prepared.retained_slot_layout
     };
 
-    // Phase 1: prepare the scalar route runtime from plan-resident parts.
+    // Phase 1: prepare the scalar route runtime from plan-resident handoff.
     let prepared = prepare_scalar_route_runtime_from_parts(
         db,
         debug,
@@ -348,7 +348,7 @@ where
     // Phase 1: preserve the prepared scalar access/window plan while replacing
     // only the retained-slot decode layout for this terminal-owned execution.
     let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let prepared = plan.into_scalar_runtime_parts_with_retained_slot_layout(
+    let prepared = plan.into_scalar_runtime_handoff_with_retained_slot_layout(
         ScalarProjectionRuntimeMode::RetainSlotRows,
         CursorEmissionMode::Suppress,
         retained_slot_layout,
@@ -398,7 +398,7 @@ where
     E: EntityKind + EntityValue,
 {
     let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let prepared = plan.into_scalar_runtime_parts(
+    let prepared = plan.into_scalar_runtime_handoff(
         ScalarProjectionRuntimeMode::None,
         CursorEmissionMode::Suppress,
     )?;
@@ -475,7 +475,7 @@ where
         continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
     ) -> Result<PreparedScalarRouteRuntime, InternalError> {
-        let prepared = plan.into_scalar_runtime_parts(
+        let prepared = plan.into_scalar_runtime_handoff(
             ScalarProjectionRuntimeMode::SharedValidation,
             CursorEmissionMode::Emit,
         )?;
@@ -507,7 +507,7 @@ where
         &self,
         prepared: PreparedAggregateStreamingInputs<'_>,
     ) -> Result<StructuralCursorPage, InternalError> {
-        let plan = PreparedLoadPlan::from_valid_shared_parts(
+        let plan = PreparedLoadPlan::from_valid_shared_residents(
             prepared.authority,
             prepared.logical_plan,
             prepared.schema_fingerprint,

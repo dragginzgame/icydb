@@ -2,7 +2,7 @@ use crate::{
     db::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError,
-            PreparedAggregateStreamingPlanParts, PreparedLoadPlan,
+            PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
             prepared_execution_plan::{
                 PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
             },
@@ -38,9 +38,9 @@ impl PreparedAggregatePlan {
         self.core.get_or_init_aggregate_execution_preparation()
     }
 
-    pub(in crate::db::executor) fn into_streaming_parts(
+    pub(in crate::db::executor) fn into_streaming_handoff(
         self,
-    ) -> Result<PreparedAggregateStreamingPlanParts, InternalError> {
+    ) -> Result<PreparedAggregateStreamingPlanHandoff, InternalError> {
         let Self { authority, core } = self;
         let residents = core.into_residents();
 
@@ -53,7 +53,7 @@ impl PreparedAggregatePlan {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(PreparedAggregateStreamingPlanParts {
+        Ok(PreparedAggregateStreamingPlanHandoff {
             authority,
             logical_plan: residents.plan,
             schema_fingerprint: residents.schema_fingerprint,

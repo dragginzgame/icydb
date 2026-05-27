@@ -2,11 +2,12 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         executor::{
-            EntityAuthority, ExecutorPlanError, PreparedScalarPlanCore, PreparedScalarRuntimeParts,
+            EntityAuthority, ExecutorPlanError, PreparedScalarPlanCore,
+            PreparedScalarRuntimeHandoff,
             pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
             prepared_execution_plan::{
                 PreparedExecutionPlan, PreparedExecutionPlanCore,
-                SharedPreparedProjectionRuntimeParts,
+                SharedPreparedProjectionRuntimeHandoff,
                 build_prepared_execution_plan_core_with_schema_fingerprint,
             },
         },
@@ -75,9 +76,9 @@ impl SharedPreparedExecutionPlan {
     // Projection runtime adapters consume these three shared prepared residents
     // together, so hand them off as one bundle instead of re-reading the same
     // plan shell through parallel field-level accessors.
-    pub(in crate::db::executor) fn into_projection_runtime_parts(
+    pub(in crate::db::executor) fn into_projection_runtime_handoff(
         self,
-    ) -> Result<SharedPreparedProjectionRuntimeParts, InternalError> {
+    ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
         let prepared_projection_shape = core.get_or_init_projection_shape(authority.clone());
         let retained_slot_layout = core.get_or_init_scalar_layout(
@@ -94,7 +95,7 @@ impl SharedPreparedExecutionPlan {
         if core.residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
-        let scalar_runtime = PreparedScalarRuntimeParts {
+        let scalar_runtime = PreparedScalarRuntimeHandoff {
             authority: authority.clone(),
             execution_preparation,
             prepared_projection_shape: prepared_projection_shape.clone(),
@@ -102,7 +103,7 @@ impl SharedPreparedExecutionPlan {
             plan_core: PreparedScalarPlanCore { core },
         };
 
-        Ok(SharedPreparedProjectionRuntimeParts {
+        Ok(SharedPreparedProjectionRuntimeHandoff {
             authority,
             prepared_projection_shape,
             scalar_runtime,
