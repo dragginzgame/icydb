@@ -62,6 +62,27 @@ SqlProjectionPayload::into_parts() -> into_components()
 SqlProjectionContract::into_parts() -> into_components()
 ```
 
+### `describe_entity_model_with_parts` -> `describe_entity_model_from_description_rows`
+
+Role proof:
+
+- Owning module: `db::schema::describe`
+- Payload: private DESCRIBE assembler that consumes completed field, index, and
+  relation description rows from either generated-model or accepted persisted
+  schema authority
+- Main consumers: generated-model DESCRIBE and accepted-schema DESCRIBE
+  construction
+- Chosen family: description-row assembly vocabulary
+- Rejected alternatives:
+  - `with_parts`: too weak because the helper assembles public DESCRIBE output
+    from already built row descriptions, not arbitrary parts
+  - `from_metadata`: too broad because fields, indexes, and relations are
+    renderable description rows by this point
+  - `from_context`: wrong because no owner-local traversal context is passed
+- Public-surface impact: none; `EntitySchemaDescription` is unchanged
+- Hard-cut rule: remove the old private helper name from live schema describe
+  code
+
 No public names are renamed in this family. Public names audited here already
 match user-facing database or diagnostics vocabulary closely enough to keep.
 0.165 does not rename public facade/result DTOs for internal consistency alone.
@@ -158,6 +179,7 @@ rg -n "QueryResponse|ProjectionResponse|MutationResult|MutationMode|SqlProjectio
 rg -n "Response|Result|Output|Attribution|Descriptor|PropertyMap" crates/icydb/src crates/icydb-core/src/db docs/design/0.165-naming-audit-and-role-alignment
 rg -n "PersistedRelationDescriptionParts|persisted_relation_description_parts|PersistedRelationDescriptionMetadata|persisted_relation_description_metadata" crates/icydb-core/src/db/schema/describe.rs docs/design/0.165-naming-audit-and-role-alignment
 rg -n "SqlProjectionPayloadParts|SqlProjectionPayloadComponents|SqlProjectionPayload::into_parts|SqlProjectionContract::into_parts|into_components\\(" crates/icydb-core/src/db/session/sql docs/design/0.165-naming-audit-and-role-alignment
+rg -n "describe_entity_model_with_parts|describe_entity_model_from_description_rows" crates/icydb-core/src/db/schema/describe.rs docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining hits are intentional public/facade vocabulary, active 0.165 audit

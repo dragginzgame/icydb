@@ -338,10 +338,14 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
     let AccessPlannedQuery {
         logical,
         access,
-        projection_selection: _projection_selection,
+        projection_selection,
         ..
     } = model_plan;
-    let typed_plan = AccessPlannedQuery::from_parts(logical, access);
+    let typed_plan = AccessPlannedQuery::from_logical_access_and_projection(
+        logical,
+        access,
+        projection_selection,
+    );
 
     assert!(
         typed_plan.scalar_plan().predicate.is_none(),
@@ -377,10 +381,14 @@ fn by_keys_access_strips_redundant_primary_key_in_predicate() {
     let AccessPlannedQuery {
         logical,
         access,
-        projection_selection: _projection_selection,
+        projection_selection,
         ..
     } = model_plan;
-    let typed_plan = AccessPlannedQuery::from_parts(logical, access);
+    let typed_plan = AccessPlannedQuery::from_logical_access_and_projection(
+        logical,
+        access,
+        projection_selection,
+    );
 
     assert!(
         typed_plan.scalar_plan().predicate.is_none(),
@@ -424,10 +432,14 @@ fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
     let AccessPlannedQuery {
         logical,
         access,
-        projection_selection: _projection_selection,
+        projection_selection,
         ..
     } = model_plan;
-    let typed_plan = AccessPlannedQuery::from_parts(logical, access);
+    let typed_plan = AccessPlannedQuery::from_logical_access_and_projection(
+        logical,
+        access,
+        projection_selection,
+    );
 
     assert!(
         typed_plan.scalar_plan().predicate.is_none(),

@@ -127,7 +127,8 @@ where
         access_order,
         key_access_override,
     )?;
-    let (access_plan_value, planned_non_index_reason) = access_selection.into_parts();
+    let (access_plan_value, planned_non_index_reason) =
+        access_selection.into_access_and_non_index_reason();
     let logical_inputs = query.planning_logical_inputs();
     let redundant_primary_key_filter = normalized_predicate.as_ref().is_some_and(|predicate| {
         scalar_primary_key_name(&schema_info).is_some_and(|primary_key_name| {
@@ -153,7 +154,7 @@ where
         query.consistency(),
     );
     let logical = build_logical_plan(&schema_info, logical_query);
-    let mut plan = AccessPlannedQuery::from_planned_parts_with_projection(
+    let mut plan = AccessPlannedQuery::from_planned_access_with_projection(
         logical,
         access_plan_value,
         query.scalar_projection_selection().clone(),
@@ -176,7 +177,7 @@ where
         )
     };
     if let Some(preferred_access) = preferred_access {
-        plan = AccessPlannedQuery::from_planned_parts_with_projection(
+        plan = AccessPlannedQuery::from_planned_access_with_projection(
             plan.logical.clone(),
             preferred_access,
             plan.projection_selection.clone(),
@@ -246,7 +247,7 @@ where
     let logical_query =
         logical_query_from_logical_inputs(logical_inputs, None, query.consistency());
     let logical = build_logical_plan(&schema_info, logical_query);
-    let mut plan = AccessPlannedQuery::from_planned_parts_with_projection(
+    let mut plan = AccessPlannedQuery::from_planned_access_with_projection(
         logical,
         AccessPlan::<Value>::full_scan(),
         query.scalar_projection_selection().clone(),

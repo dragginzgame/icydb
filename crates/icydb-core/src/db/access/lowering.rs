@@ -50,7 +50,7 @@ impl<'a, K> LoweredAccess<'a, K> {
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(
+    pub(in crate::db) fn into_executable_and_index_specs(
         self,
     ) -> (
         ExecutableAccessPlan<'a, K>,

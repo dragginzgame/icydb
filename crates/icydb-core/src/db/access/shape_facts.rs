@@ -216,7 +216,7 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
     }
 }
 
-fn derive_single_path_access_shape_facts_from_parts(
+fn derive_single_path_access_shape_facts_from_inputs(
     kind: AccessPathKind,
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
@@ -253,7 +253,7 @@ fn derive_access_path_shape_facts<K>(
     let index_prefix_details = path.index_prefix_details();
     let index_range_details = path.index_range_details();
 
-    derive_single_path_access_shape_facts_from_parts(
+    derive_single_path_access_shape_facts_from_inputs(
         kind,
         is_by_keys_empty_from_payload(path),
         index_prefix_details,

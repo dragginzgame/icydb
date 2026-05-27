@@ -33,7 +33,7 @@ fn build_structural_aggregate_terminal_from_sql_strategy(
     strategy: PreparedSqlScalarAggregateStrategy,
 ) -> Result<StructuralAggregateTerminal, &'static str> {
     let (descriptor, target_slot, input_expr, filter_expr, distinct_input) =
-        strategy.into_aggregate_plan_parts();
+        strategy.into_structural_terminal_inputs();
 
     let kind = match descriptor {
         PreparedSqlScalarAggregatePlanFragment::CountRows => {
@@ -80,7 +80,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (query, strategies, projection, having) = command.into_execution_parts();
+        let (query, strategies, projection, having) = command.into_execution_inputs();
         let columns = projection_labels_from_projection_spec(&projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
         let schema_info = self

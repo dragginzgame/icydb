@@ -75,7 +75,7 @@ impl PlannedAccessSelection {
 
     /// Consume the selection into its access plan and optional non-index reason.
     #[must_use]
-    pub(in crate::db::query) fn into_parts(
+    pub(in crate::db::query) fn into_access_and_non_index_reason(
         self,
     ) -> (AccessPlan<Value>, Option<PlannedNonIndexAccessReason>) {
         (self.access, self.planned_non_index_reason)
@@ -305,7 +305,7 @@ fn plan_access_selection_with_order_from_authority(
         order,
         grouped,
     )?;
-    let (access, planned_non_index_reason) = selection.into_parts();
+    let (access, planned_non_index_reason) = selection.into_access_and_non_index_reason();
     let plan = normalize_access_plan_value(access);
     if !plan.is_single_full_scan() {
         return Ok(PlannedAccessSelection::new(plan, planned_non_index_reason));

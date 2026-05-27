@@ -144,6 +144,30 @@ ExecutionRuntimeAdapter::from_scalar_runtime_parts(...) -> from_scalar_runtime(.
 ExecutionRuntimeAdapter::from_stream_runtime_parts(...) -> from_stream_runtime(...)
 ```
 
+### Lowered Access Handoff Unpacking
+
+Role proof:
+
+- Owning module: `db::access::lowering`
+- Payload: lowered executable access tree plus raw index prefix/range specs
+  retained by prepared execution
+- Main consumers: prepared execution plan resident construction
+- Chosen family: explicit executable/index-spec extraction
+- Rejected alternatives:
+  - `into_parts`: too weak because `LoweredAccess` is a named access-lowering
+    handoff, not an arbitrary decomposition
+  - `into_components`: still broad and less useful than naming the extracted
+    executable/index-spec payload
+- Public-surface impact: none
+- Hard-cut rule: remove the old private `into_parts` helper from live lowered
+  access code
+
+Accepted code example:
+
+```text
+LoweredAccess::into_parts() -> into_executable_and_index_specs()
+```
+
 ## Kept Names
 
 ### `PreparedExecutionPlanCore`
@@ -184,6 +208,7 @@ rg -n "PreparedScalarRuntimeParts|PreparedGroupedRuntimeParts|PreparedAccessPlan
 rg -n "PreparedScalarRuntimeHandoff|PreparedGroupedRuntimeHandoff|PreparedAccessPlanHandoff|PreparedAggregateStreamingPlanHandoff|SharedPreparedProjectionRuntimeHandoff" crates/icydb-core/src/db/executor/prepared_execution_plan crates/icydb-core/src/db/executor
 rg -n "PreparedExecutionInputParts|PreparedExecutionInputContext" crates/icydb-core/src/db/executor
 rg -n "GroupedPathRuntimeCore|GroupedPathRuntimeContext" crates/icydb-core/src/db/executor/pipeline/entrypoints/grouped.rs
+rg -n "LoweredAccess::into_parts|into_executable_and_index_specs|lowered\\.into_parts\\(" crates/icydb-core/src/db/access crates/icydb-core/src/db/executor docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

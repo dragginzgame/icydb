@@ -177,13 +177,13 @@ impl PreparedSqlScalarAggregateStrategy {
         }
     }
 
-    /// Split the prepared strategy into executor-neutral aggregate plan parts.
+    /// Split the prepared strategy into executor-neutral terminal inputs.
     ///
     /// SQL lowering owns the semantic projection into this compact plan
     /// fragment, but it does not construct executor terminal DTOs. Session
     /// SQL execution performs that final adaptation at the query -> executor
     /// boundary.
-    pub(in crate::db) fn into_aggregate_plan_parts(
+    pub(in crate::db) fn into_structural_terminal_inputs(
         self,
     ) -> (
         PreparedSqlScalarAggregatePlanFragment,

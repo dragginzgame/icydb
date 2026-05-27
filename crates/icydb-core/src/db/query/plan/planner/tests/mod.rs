@@ -419,7 +419,7 @@ fn plan_access_for_test_with_order(
         schema,
         logical_query_from_logical_inputs(logical_inputs, normalized, MissingRowPolicy::Ignore),
     );
-    let plan = AccessPlannedQuery::from_parts_with_projection(
+    let plan = AccessPlannedQuery::from_logical_access_and_projection(
         logical,
         access.clone(),
         ProjectionSelection::All,
@@ -720,7 +720,7 @@ fn planner_conflicting_primary_key_children_outrank_broader_secondary_range_cand
         None,
     )
     .expect("conflicting primary-key children plus secondary range predicate should plan")
-    .into_parts();
+    .into_access_and_non_index_reason();
 
     assert_eq!(
         plan,

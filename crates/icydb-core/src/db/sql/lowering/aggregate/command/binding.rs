@@ -116,9 +116,9 @@ impl StructuralSqlGlobalAggregateCommand {
         self.strategies.as_slice()
     }
 
-    /// Move the structural aggregate execution parts out of this command.
+    /// Move the structural aggregate execution inputs out of this command.
     #[must_use]
-    pub(in crate::db) fn into_execution_parts(
+    pub(in crate::db) fn into_execution_inputs(
         self,
     ) -> (
         StructuralQuery,

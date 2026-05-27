@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.11` continues the naming hard cut by moving private access, cache,
+  DESCRIBE, planner, and SQL aggregate handoff helpers away from generic parts
+  vocabulary.
+
+  ```text
+  derive_single_path_access_shape_facts_from_parts(...) -> derive_single_path_access_shape_facts_from_inputs(...)
+  QueryPlanCacheKey::from_authority_parts(...) -> from_authority_cache_inputs(...)
+  describe_entity_model_with_parts(...) -> describe_entity_model_from_description_rows(...)
+  AccessPlannedQuery::from_planned_parts_with_projection(...) -> from_planned_access_with_projection(...)
+  StructuralSqlGlobalAggregateCommand::into_execution_parts() -> into_execution_inputs()
+  ```
+
 - `0.165.10` continues the naming hard cut by moving grouped continuation
   window construction away from projection vocabulary.
 

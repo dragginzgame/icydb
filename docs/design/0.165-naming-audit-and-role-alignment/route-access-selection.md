@@ -72,6 +72,35 @@ Companion module renames:
 These module names now match the accepted route capability-facts role instead
 of preserving the broad capability/capabilities vocabulary as live structure.
 
+### Planner Access Selection Helper Renames
+
+Role proof:
+
+- Owning modules: `db::query::plan::planner`, `db::query::plan::access_plan`,
+  and query-plan pipeline helpers
+- Payload: private planner access-selection values and constructors that carry
+  selected access plans, projection selection, and non-index winner reasons
+- Main consumers: scalar/grouped planning, candidate reranking, and planner
+  tests
+- Chosen family: explicit access-selection and projection vocabulary
+- Rejected alternatives:
+  - `*Parts`: too weak because these helpers assemble or unpack planner
+    access-selection payloads rather than temporary decompositions
+  - `*Context`: wrong because these values are returned selection state, not
+    owner-local traversal inputs
+  - `*Descriptor`: wrong because the values drive planning and explain
+    snapshots rather than rendering descriptions
+- Public-surface impact: none
+- Hard-cut rule: remove the old private helper names from live code
+
+Accepted code examples:
+
+```text
+PlannedAccessSelection::into_parts() -> into_access_and_non_index_reason()
+AccessPlannedQuery::from_parts_with_projection(...) -> from_logical_access_and_projection(...)
+AccessPlannedQuery::from_planned_parts_with_projection(...) -> from_planned_access_with_projection(...)
+```
+
 ## Kept Names
 
 ### `LoadOrderRouteDecision`
@@ -98,6 +127,7 @@ rg -n "LoadOrderRouteContract|load_order_route_contract|access_order_satisfied_b
 rg -n "LoadOrderRouteMode|load_order_route_mode|access_order_satisfied_by_route_mode|GroupedExecutionModeContext" crates/icydb-core/src
 rg -n "RouteCapabilities|derive_execution_capabilities_for_model|route_capabilities|route::capability\\b|route::contracts::capabilities|mod capability;|mod capabilities;" crates/icydb-core/src
 rg -n "RouteCapabilityFacts|derive_execution_capability_facts_for_model|route_capability_facts|route::capability_facts|route::contracts::capability_facts|mod capability_facts;" crates/icydb-core/src
+rg -n "PlannedAccessSelection::into_parts|from_parts_with_projection|from_planned_parts_with_projection|into_access_and_non_index_reason|from_logical_access_and_projection|from_planned_access_with_projection" crates/icydb-core/src/db/query/plan docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Generic `route contract` wording remains valid where it names broader

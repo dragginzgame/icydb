@@ -500,7 +500,7 @@ fn candidate_plan_with_access(
     plan: &AccessPlannedQuery,
     access: AccessPlan<Value>,
 ) -> AccessPlannedQuery {
-    AccessPlannedQuery::from_parts_with_projection(
+    AccessPlannedQuery::from_logical_access_and_projection(
         plan.logical.clone(),
         access,
         plan.projection_selection.clone(),

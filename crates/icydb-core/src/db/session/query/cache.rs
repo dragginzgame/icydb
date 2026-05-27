@@ -489,7 +489,7 @@ impl QueryPlanCacheKey {
     // Assemble the canonical cache-key shell once so the test and
     // normalized-predicate constructors only decide which structural query key
     // they feed into the shared session cache identity.
-    fn from_authority_parts(
+    fn from_authority_cache_inputs(
         authority: EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
@@ -513,7 +513,7 @@ impl QueryPlanCacheKey {
         query: &StructuralQuery,
         cache_method_version: u8,
     ) -> Self {
-        Self::from_authority_parts(
+        Self::from_authority_cache_inputs(
             authority,
             schema_fingerprint,
             visibility,
@@ -530,7 +530,7 @@ impl QueryPlanCacheKey {
         normalized_predicate_fingerprint: Option<[u8; 32]>,
         cache_method_version: u8,
     ) -> Self {
-        Self::from_authority_parts(
+        Self::from_authority_cache_inputs(
             authority,
             schema_fingerprint,
             visibility,

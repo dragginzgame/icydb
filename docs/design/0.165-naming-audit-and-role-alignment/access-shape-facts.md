@@ -57,6 +57,23 @@ Role proof:
 - Public-surface impact: none
 - Hard-cut rule: remove the old module name from live code
 
+### `derive_single_path_access_shape_facts_from_parts` -> `derive_single_path_access_shape_facts_from_inputs`
+
+Role proof:
+
+- Owning module: `db::access::shape_facts`
+- Payload: private constructor that derives one `SinglePathAccessShapeFacts`
+  value from already named access-path inputs
+- Main consumers: access-path shape-fact derivation
+- Chosen family: input vocabulary for constructor arguments
+- Rejected alternatives:
+  - `*Parts`: too weak because the helper does not consume a temporary
+    decomposition; it consumes named access-shape inputs
+  - `*Context`: wrong because no reusable traversal context is passed
+  - `*Payload`: wrong because the arguments are separate facts, not one payload
+- Public-surface impact: none
+- Hard-cut rule: remove the old private helper name from live code
+
 ## Kept Names
 
 ### `IndexShapeDetails`
@@ -78,6 +95,7 @@ Live-code scans for this slice:
 ```bash
 rg -n "AccessCapabilities|SinglePathAccessCapabilities|access::capabilities|access_capabilities|single_path_capabilities|\\.capabilities\\(\\)" crates/icydb-core/src/db/access crates/icydb-core/src/db/executor crates/icydb-core/src/db/query
 rg -n "AccessShapeFacts|SinglePathAccessShapeFacts|access::shape_facts|access_shape_facts|single_path_facts|\\.shape_facts\\(\\)" crates/icydb-core/src/db/access crates/icydb-core/src/db/executor crates/icydb-core/src/db/query
+rg -n "derive_single_path_access_shape_facts_from_parts|derive_single_path_access_shape_facts_from_inputs" crates/icydb-core/src/db/access docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining `capability` wording outside this family is retained where it names

@@ -61,6 +61,35 @@ Companion helper rename:
 - `compile_sql_global_aggregate_command_core_from_prepared_with_schema(...)` ->
   `compile_structural_sql_global_aggregate_command_from_prepared_with_schema(...)`
 
+### SQL Aggregate Execution Handoff Helpers
+
+Role proof:
+
+- Owning modules: `db::sql::lowering::aggregate` and
+  `db::session::sql::execute::global_aggregate`
+- Payload: private handoff helpers that move structural aggregate command
+  inputs and executor-neutral scalar aggregate terminal inputs into SQL session
+  execution
+- Main consumers: SQL global aggregate execution
+- Chosen family: execution/terminal input vocabulary
+- Rejected alternatives:
+  - `into_execution_parts`: too weak because the command owns named execution
+    inputs, not arbitrary parts
+  - `into_aggregate_plan_parts`: too weak because the strategy yields terminal
+    construction inputs, not a durable plan parts object
+  - `*Descriptor`: wrong because these helpers feed execution, not observable
+    render output
+- Public-surface impact: none
+- Hard-cut rule: remove the old private helper names from live SQL aggregate
+  code
+
+Accepted code examples:
+
+```text
+StructuralSqlGlobalAggregateCommand::into_execution_parts() -> into_execution_inputs()
+PreparedSqlScalarAggregateStrategy::into_aggregate_plan_parts() -> into_structural_terminal_inputs()
+```
+
 ## Kept Names
 
 ### `LoweredSelectShape`
@@ -98,6 +127,7 @@ rg -n "PreparedSqlScalarAggregateDescriptorShape|descriptor_shape|prepared_descr
 rg -n "PreparedSqlScalarAggregatePlanFragment|plan_fragment|prepared_plan_fragment" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql
 rg -n "LoweredSelectShape|LoweredBaseQueryShape|LoweredExprAnalysis|LoweredSqlAggregateShape" crates/icydb-core/src/db/sql/lowering
 rg -n "SqlGlobalAggregateCommandCore|compile_sql_global_aggregate_command_core_from_prepared_with_schema|StructuralSqlGlobalAggregateCommand|compile_structural_sql_global_aggregate_command_from_prepared_with_schema" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql
+rg -n "into_execution_parts|into_execution_inputs|into_aggregate_plan_parts|into_structural_terminal_inputs" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql/execute docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

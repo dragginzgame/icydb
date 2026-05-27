@@ -404,7 +404,7 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
     let primary_key_fields = primary_key_field_names_from_model(model);
     let primary_key = render_primary_key_fields(primary_key_fields.as_slice());
 
-    describe_entity_model_with_parts(
+    describe_entity_model_from_description_rows(
         model.path,
         model.entity_name,
         primary_key.as_str(),
@@ -436,7 +436,7 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     };
     let primary_key = render_primary_key_fields(primary_key_fields.as_slice());
 
-    describe_entity_model_with_parts(
+    describe_entity_model_from_description_rows(
         schema.entity_path(),
         schema.entity_name(),
         primary_key.as_str(),
@@ -451,7 +451,7 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
 // Callers project relation descriptions from the same authority as their field
 // and index rows, so accepted DESCRIBE output does not fall back to generated
 // relation metadata.
-fn describe_entity_model_with_parts(
+fn describe_entity_model_from_description_rows(
     entity_path: &str,
     entity_name: &str,
     primary_key: &str,

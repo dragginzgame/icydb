@@ -260,7 +260,7 @@ fn finalized_static_shape_carries_explicit_expression_only_residual_filter_state
 #[test]
 fn non_index_access_choice_seed_survives_finalize_access_choice_with_indexes() {
     let model = model_with_index();
-    let mut plan = AccessPlannedQuery::from_parts_with_projection(
+    let mut plan = AccessPlannedQuery::from_logical_access_and_projection(
         LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,

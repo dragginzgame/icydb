@@ -603,7 +603,8 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         index_range_spec_invalid,
     ) = match lower_access(authority.entity_tag(), &plan.access) {
         Ok(lowered) => {
-            let (_, index_prefix_specs, index_range_specs) = lowered.into_parts();
+            let (_, index_prefix_specs, index_range_specs) =
+                lowered.into_executable_and_index_specs();
 
             (
                 Arc::from(index_prefix_specs),
