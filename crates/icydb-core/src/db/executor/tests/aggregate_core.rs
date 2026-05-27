@@ -240,7 +240,7 @@ where
     E: EntityKind + EntityValue,
 {
     plan.explain_load_execution_node_descriptor()
-        .expect("aggregate execution descriptor should build")
+        .expect("aggregate EXPLAIN descriptor should build")
         .node_type()
 }
 

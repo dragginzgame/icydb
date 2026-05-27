@@ -57,7 +57,7 @@ pub(in crate::db::executor) use contracts::{
     execute_scalar_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{
-    AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateExecutionState,
+    AggregateExecutionDispatch, AggregateFastPathInputs, PreparedAggregateExecutionState,
     PreparedAggregateSpec, PreparedAggregateStreamingInputs, PreparedAggregateTargetField,
     PreparedCoveringDistinctStrategy, PreparedFieldOrderSensitiveTerminalOp,
     PreparedOrderSensitiveTerminalBoundary, PreparedOrderSensitiveTerminalOp,
@@ -104,7 +104,7 @@ where
 }
 
 impl ExecutionKernel {
-    // Build one canonical aggregate descriptor from already-prepared aggregate
+    // Build one canonical aggregate dispatch state from already-prepared aggregate
     // inputs so execution no longer reconstructs `PreparedExecutionPlan<E>` shells.
     pub(in crate::db::executor::aggregate) fn prepare_aggregate_execution_state_from_prepared(
         prepared: PreparedAggregateStreamingInputs<'_>,
@@ -123,7 +123,7 @@ impl ExecutionKernel {
         let direction = route_plan.direction();
 
         PreparedAggregateExecutionState {
-            descriptor: AggregateExecutionDescriptor {
+            dispatch: AggregateExecutionDispatch {
                 aggregate,
                 direction,
                 route_plan,
@@ -235,36 +235,36 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let kind = state.descriptor.aggregate.kind();
-        let descriptor = state.descriptor;
+        let kind = state.dispatch.aggregate.kind();
+        let dispatch = state.dispatch;
         let prepared = state.prepared;
 
-        // Phase 1: let eager reducers consume their owned descriptor directly
-        // so aggregate execution does not clone descriptor state just to
+        // Phase 1: let eager reducers consume their owned dispatch state directly
+        // so aggregate execution does not clone route state just to
         // decide whether it can skip canonical streaming fold execution.
-        if descriptor.route_plan.is_materialized() {
+        if dispatch.route_plan.is_materialized() {
             return Self::execute_materialized_aggregate_spec(
                 executor,
                 prepared,
-                &descriptor.aggregate,
+                &dispatch.aggregate,
             );
         }
-        if let Some(target_field) = descriptor.aggregate.target_field() {
+        if let Some(target_field) = dispatch.aggregate.target_field() {
             return Self::execute_field_target_extrema_aggregate(
                 &prepared,
                 kind,
                 target_field.target_field_name(),
                 target_field.field_slot(),
-                descriptor.direction,
-                &descriptor.route_plan,
+                dispatch.direction,
+                &dispatch.route_plan,
             );
         }
         let scalar_terminal_kind = ScalarTerminalKind::try_from_aggregate_kind(kind)?;
 
         // Phase 2: continue through the canonical aggregate streaming fold
-        // with the original prepared descriptor and prepared aggregate inputs.
-        let fold_mode = descriptor.route_plan.aggregate_fold_mode;
-        let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
+        // with the original prepared dispatch state and prepared aggregate inputs.
+        let fold_mode = dispatch.route_plan.aggregate_fold_mode;
+        let physical_fetch_hint = dispatch.route_plan.scan_hints.physical_fetch_hint;
         let authority = prepared.authority.clone();
         let lowered_access = prepared.lowered_access()?;
 
@@ -273,11 +273,11 @@ impl ExecutionKernel {
             executable_access: lowered_access.executable(),
             authority: authority.clone(),
             store: prepared.store,
-            route_plan: &descriptor.route_plan,
+            route_plan: &dispatch.route_plan,
             index_prefix_specs: prepared.index_prefix_specs.as_ref(),
             index_range_specs: prepared.index_range_specs.as_ref(),
             index_predicate_program: prepared.execution_preparation.strict_mode(),
-            direction: descriptor.direction,
+            direction: dispatch.direction,
             physical_fetch_hint,
             kind: scalar_terminal_kind,
             fold_mode,
@@ -304,7 +304,7 @@ impl ExecutionKernel {
             stream_bindings: AccessStreamBindings {
                 index_prefix_specs: prepared.index_prefix_specs.as_ref(),
                 index_range_specs: prepared.index_range_specs.as_ref(),
-                continuation: AccessScanContinuationInput::new(None, descriptor.direction),
+                continuation: AccessScanContinuationInput::new(None, dispatch.direction),
             },
             execution_preparation: &prepared.execution_preparation,
             projection_materialization: ProjectionMaterializationMode::SharedValidation,
@@ -315,7 +315,7 @@ impl ExecutionKernel {
         // Resolve the ordered key stream using canonical routing logic.
         let mut resolved = ExecutionAttemptKernel::new(&execution_inputs)
             .resolve_execution_key_stream(
-                &descriptor.route_plan,
+                &dispatch.route_plan,
                 IndexCompilePolicy::StrictAllOrNone,
             )?;
 
@@ -325,7 +325,7 @@ impl ExecutionKernel {
             prepared.store,
             &prepared.logical_plan,
             scalar_terminal_kind,
-            descriptor.direction,
+            dispatch.direction,
             fold_mode,
             resolved.key_stream_mut(),
         )?;

@@ -90,7 +90,7 @@ fn field_model_with_index<'a>(
 ///
 /// FieldSlot
 ///
-/// Stable aggregate field projection descriptor resolved once at setup.
+/// Stable aggregate field projection slot resolved once at setup.
 ///
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db::executor) struct FieldSlot {

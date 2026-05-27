@@ -67,7 +67,7 @@ impl AggregateExplainPreparation {
     }
 }
 
-// Assemble one canonical scalar aggregate execution descriptor through one
+// Assemble one canonical scalar aggregate EXPLAIN descriptor through one
 // planner-owned aggregate route-shape boundary.
 #[inline(never)]
 pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor(
@@ -84,7 +84,7 @@ pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor(
     )
 }
 
-// Assemble one canonical scalar aggregate execution descriptor from one
+// Assemble one canonical scalar aggregate EXPLAIN descriptor from one
 // aggregate shape plus preselected aggregation semantics.
 #[inline(never)]
 pub(in crate::db) fn assemble_scalar_aggregate_execution_descriptor_with_projection(

@@ -1,5 +1,5 @@
 //! Module: executor::aggregate::execution
-//! Responsibility: aggregate execution descriptor/input payload contracts.
+//! Responsibility: aggregate execution dispatch/input payload contracts.
 //! Does not own: aggregate execution branching logic.
 //! Boundary: shared immutable payloads between aggregate orchestration helpers.
 
@@ -61,7 +61,7 @@ impl AggregateFastPathInputs<'_> {
 
 /// PreparedAggregateTargetField
 ///
-/// PreparedAggregateTargetField freezes one field-target aggregate descriptor.
+/// PreparedAggregateTargetField freezes one field-target aggregate metadata row.
 /// It carries the runtime field label, resolved field slot, and route-facing
 /// target-field flags needed by aggregate execution without reopening
 /// planner or field-table semantics during execution.
@@ -77,10 +77,10 @@ pub(in crate::db::executor) struct PreparedAggregateTargetField {
 }
 
 impl PreparedAggregateTargetField {
-    /// Construct one field-target aggregate descriptor from prepared metadata.
+    /// Construct one field-target aggregate metadata row from prepared inputs.
     #[expect(
         clippy::missing_const_for_fn,
-        reason = "constructs one owned String-backed descriptor for runtime handoff"
+        reason = "constructs one owned String-backed metadata row for runtime handoff"
     )]
     #[must_use]
     pub(in crate::db::executor) fn new(
@@ -121,7 +121,7 @@ impl PreparedAggregateTargetField {
 ///
 /// PreparedAggregateSpec is the immutable aggregate execution request carried
 /// through runtime after typed boundary preparation.
-/// It freezes kind plus any field-target descriptor so aggregate routing and
+/// It freezes kind plus any field-target metadata so aggregate routing and
 /// execution can consume prepared metadata without rebuilding `AggregateExpr`
 /// or revalidating target fields against schema authority.
 ///
@@ -160,7 +160,7 @@ impl PreparedAggregateSpec {
         self.kind
     }
 
-    /// Borrow the prepared target-field descriptor, if any.
+    /// Borrow the prepared target-field metadata, if any.
     #[must_use]
     pub(in crate::db::executor) const fn target_field(
         &self,
@@ -186,14 +186,14 @@ impl PreparedAggregateSpec {
 }
 
 ///
-/// AggregateExecutionDescriptor
+/// AggregateExecutionDispatch
 ///
-/// Canonical aggregate execution descriptor constructed once from one
-/// prepared aggregate spec and validated plan shape before execution branching.
+/// Canonical aggregate execution dispatch state constructed once from one
+/// prepared aggregate spec and validated route plan before execution branching.
 ///
 
 #[derive(Clone)]
-pub(in crate::db::executor) struct AggregateExecutionDescriptor {
+pub(in crate::db::executor) struct AggregateExecutionDispatch {
     pub(in crate::db::executor) aggregate: PreparedAggregateSpec,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_plan: ExecutionPlan,
@@ -204,12 +204,12 @@ pub(in crate::db::executor) struct AggregateExecutionDescriptor {
 ///
 /// PreparedAggregateExecutionState is the canonical scalar aggregate execution
 /// payload after the typed boundary has consumed `PreparedExecutionPlan<E>`.
-/// It keeps aggregate descriptor state together with prepared logical/runtime
+/// It keeps aggregate dispatch state together with prepared logical/runtime
 /// inputs so downstream execution no longer reconstructs typed plan shells.
 ///
 
 pub(in crate::db::executor) struct PreparedAggregateExecutionState<'ctx> {
-    pub(in crate::db::executor) descriptor: AggregateExecutionDescriptor,
+    pub(in crate::db::executor) dispatch: AggregateExecutionDispatch,
     pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.21` continues the naming hard cut by moving private aggregate
+  execution state away from descriptor vocabulary and into dispatch vocabulary.
+
+  ```text
+  AggregateExecutionDescriptor -> AggregateExecutionDispatch
+  PreparedAggregateExecutionState::descriptor -> dispatch
+  aggregate execution descriptor comments -> dispatch/metadata comments
+  ```
+
 - `0.165.20` continues the naming hard cut by replacing residual storage
   payload and parser helper `parts` names with concrete table/field/segment
   vocabulary.
