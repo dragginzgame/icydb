@@ -121,7 +121,7 @@ fn prepared_row_write_payloads_stay_canonical() {
 fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
     let structural_row = read_source("src/db/data/structural_row.rs");
     let structural_row_compact = compact_source(&structural_row);
-    let row_reader = read_source("src/db/data/persisted_row/reader/core.rs");
+    let row_reader = read_source("src/db/data/persisted_row/reader/structural_slot_reader.rs");
     let row_reader_compact = compact_source(&row_reader);
     let persisted_patch = read_source("src/db/data/persisted_row/patch.rs");
     let persisted_patch_compact = compact_source(&persisted_patch);
@@ -225,7 +225,7 @@ fn generated_persisted_row_bridge_helpers_are_named_test_only() {
     let persisted_patch_compact = compact_source(&persisted_patch);
     let data_row = read_source("src/db/data/row.rs");
     let data_row_compact = compact_source(&data_row);
-    let row_reader = read_source("src/db/data/persisted_row/reader/core.rs");
+    let row_reader = read_source("src/db/data/persisted_row/reader/structural_slot_reader.rs");
     let row_reader_compact = compact_source(&row_reader);
     let patch_writer = read_source("src/db/data/persisted_row/writer.rs");
     let patch_writer_compact = compact_source(&patch_writer);
@@ -1663,18 +1663,19 @@ fn generated_row_contract_runtime_fallbacks_are_test_only() {
 
 #[test]
 fn sql_command_lowering_uses_accepted_schema_for_runtime_explain() {
-    let sql_compile_core = read_source("src/db/session/sql/compile/core.rs");
+    let sql_semantic_compiler = read_source("src/db/session/sql/compile/semantic_compiler.rs");
     let sql_lowering_prepare = read_source("src/db/sql/lowering/prepare.rs");
     let sql_lowering_select = read_source("src/db/sql/lowering/select/mod.rs");
     let sql_global_aggregate_binding =
         read_source("src/db/sql/lowering/aggregate/command/binding.rs");
 
     assert!(
-        sql_compile_core.contains("Self::compile_explain(statement, entity_name, model, schema)",)
-            && sql_compile_core.contains(
+        sql_semantic_compiler
+            .contains("Self::compile_explain(statement, entity_name, model, schema)",)
+            && sql_semantic_compiler.contains(
                 "lower_sql_command_from_prepared_statement_with_schema(prepared, model, schema)",
             )
-            && !sql_compile_core
+            && !sql_semantic_compiler
                 .contains("lower_sql_command_from_prepared_statement(prepared, model)"),
         "runtime SQL EXPLAIN compilation must lower with accepted SchemaInfo instead of generated model schema fallback",
     );
@@ -1921,7 +1922,7 @@ fn fluent_terminal_field_slots_use_accepted_schema_info() {
     let sql_select = read_source("src/db/sql/lowering/select/mod.rs");
     let sql_select_aggregate = read_source("src/db/sql/lowering/select/aggregate.rs");
     let sql_prepare = read_source("src/db/sql/lowering/prepare.rs");
-    let session_sql_compile = read_source("src/db/session/sql/compile/core.rs");
+    let session_sql_compile = read_source("src/db/session/sql/compile/semantic_compiler.rs");
     let session_mod = read_source("src/db/session/mod.rs");
     let symbols = read_source("src/db/query/plan/validate/symbols.rs");
     let query_plan_group = read_source("src/db/query/plan/group.rs");

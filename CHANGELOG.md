@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.26` continues the naming hard cut by moving persisted-row reader and
+  SQL semantic compiler ownership away from broad core vocabulary.
+
+  ```text
+  persisted_row::reader::core -> persisted_row::reader::structural_slot_reader
+  session::sql::compile::core -> session::sql::compile::semantic_compiler
+  compile_sql_statement_core(...) -> compile_sql_statement_semantic_artifacts(...)
+  ```
+
 - `0.165.25` continues the naming hard cut by moving query-plan validation
   orchestration away from broad core vocabulary and into semantic-gate
   vocabulary.

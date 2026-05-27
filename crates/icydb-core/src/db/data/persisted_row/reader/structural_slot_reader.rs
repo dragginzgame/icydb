@@ -1,3 +1,9 @@
+//! Persisted-row structural slot reader.
+//!
+//! This module owns the concrete `StructuralSlotReader` adapter over raw
+//! persisted row bytes. It is the slot-reader boundary, not a generic row
+//! reader core.
+
 #[cfg(any(test, feature = "diagnostics"))]
 use crate::db::data::persisted_row::reader::metrics;
 #[cfg(test)]

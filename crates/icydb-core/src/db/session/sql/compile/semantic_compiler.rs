@@ -1,4 +1,4 @@
-//! Module: db::session::sql::compile::core
+//! Module: db::session::sql::compile::semantic_compiler
 //! Responsibility: cache-independent semantic compilation of parsed SQL
 //! statements.
 //! Does not own: SQL text parsing, compiled-command cache lookup, or execution.
@@ -36,7 +36,7 @@ use crate::{
 impl<C: CanisterKind> DbSession<C> {
     // Compile one parsed SQL statement into the generic-free session-owned
     // semantic command artifact for one resolved authority.
-    fn compile_sql_statement_core(
+    fn compile_sql_statement_semantic_artifacts(
         statement: &SqlStatement,
         authority: EntityAuthority,
         schema: &SchemaInfo,
@@ -376,11 +376,11 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlCompileArtifacts, QueryError> {
         Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
 
-        Self::compile_sql_statement_core(statement, authority, schema)
+        Self::compile_sql_statement_semantic_artifacts(statement, authority, schema)
     }
 
     // Wrap the complete compile entrypoint with the attribution shape used by
-    // callers. The core artifact remains the single authority for command
+    // callers. The semantic artifact remains the single authority for command
     // output and stage-local compile counters.
     pub(in crate::db::session::sql) fn compile_sql_statement_measured(
         statement: &SqlStatement,

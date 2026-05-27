@@ -5,7 +5,7 @@
 //! Boundary: compiles parsed SQL statements into session-owned command artifacts.
 
 mod artifacts;
-mod core;
+mod semantic_compiler;
 
 pub(in crate::db::session::sql::compile) use artifacts::SqlQueryShape;
 pub(in crate::db::session::sql) use artifacts::{
