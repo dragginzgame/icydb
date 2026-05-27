@@ -13,7 +13,7 @@ use crate::{
             covering_read_execution_plan_with_schema_info,
         },
         schema::{
-            AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract,
+            AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
             AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, SchemaInfo,
         },
     },
@@ -84,7 +84,7 @@ impl EntityAuthority {
         E: EntityKind,
     {
         let authority = Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH);
-        let (accepted_row_layout, row_shape) =
+        let (accepted_row_layout, row_proof) =
             AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
                 accepted_schema,
                 authority.model(),
@@ -95,7 +95,7 @@ impl EntityAuthority {
 
         Ok(
             authority.with_accepted_row_decode_contract(
-                row_shape,
+                row_proof,
                 row_decode_contract,
                 schema_info,
             ),
@@ -110,13 +110,13 @@ impl EntityAuthority {
     #[must_use]
     pub(in crate::db) fn with_accepted_row_decode_contract(
         self,
-        row_shape: AcceptedGeneratedCompatibleRowShape,
+        row_proof: AcceptedGeneratedRowCompatibilityProof,
         accepted_decode_contract: AcceptedRowDecodeContract,
         accepted_schema_info: SchemaInfo,
     ) -> Self {
         let row_layout = RowLayout::from_generated_compatible_accepted_decode_contract(
             self.model.path(),
-            row_shape,
+            row_proof,
             accepted_decode_contract,
         );
 

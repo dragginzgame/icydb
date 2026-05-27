@@ -127,12 +127,12 @@ fn accepted_row_decode_layout_for_model(
     model: &'static EntityModel,
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
 ) -> Result<RowLayout, InternalError> {
-    let row_shape = descriptor.generated_compatible_row_shape_for_model(model)?;
+    let row_proof = descriptor.generated_row_compatibility_proof_for_model(model)?;
 
     Ok(
         RowLayout::from_generated_compatible_accepted_decode_contract(
             model.path(),
-            row_shape,
+            row_proof,
             descriptor.row_decode_contract(),
         ),
     )

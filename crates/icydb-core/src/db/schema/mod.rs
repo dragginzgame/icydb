@@ -104,8 +104,9 @@ pub(in crate::db) use reconcile::{
     execute_sql_ddl_secondary_index_drop, reconcile_runtime_schemas,
 };
 pub(in crate::db) use runtime::{
-    AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedGeneratedCompatibleRowShape,
-    AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
+    AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract,
+    AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
+    AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
     OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
 };
 pub(in crate::db) use snapshot::{

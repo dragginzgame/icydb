@@ -476,21 +476,21 @@ impl AcceptedRowDecodeContract {
 }
 
 ///
-/// AcceptedGeneratedCompatibleRowShape
+/// AcceptedGeneratedRowCompatibilityProof
 ///
-/// AcceptedGeneratedCompatibleRowShape is the schema-runtime proof that one
+/// AcceptedGeneratedRowCompatibilityProof is the schema-runtime proof that one
 /// accepted row layout can still be decoded by generated field codecs.
-/// Row decode consumes this small shape instead of recombining descriptor
+/// Row decode consumes this small proof instead of recombining descriptor
 /// fields after compatibility validation has already succeeded.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AcceptedGeneratedCompatibleRowShape {
+pub(in crate::db) struct AcceptedGeneratedRowCompatibilityProof {
     required_slot_count: usize,
     primary_key_slot_index: usize,
 }
 
-impl AcceptedGeneratedCompatibleRowShape {
+impl AcceptedGeneratedRowCompatibilityProof {
     /// Return the accepted physical slot count proven generated-compatible.
     #[must_use]
     #[cfg(test)]
@@ -617,11 +617,11 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     pub(in crate::db) fn from_generated_compatible_schema(
         accepted: &'a AcceptedSchemaSnapshot,
         model: &'static EntityModel,
-    ) -> Result<(Self, AcceptedGeneratedCompatibleRowShape), InternalError> {
+    ) -> Result<(Self, AcceptedGeneratedRowCompatibilityProof), InternalError> {
         let descriptor = Self::from_accepted_schema(accepted)?;
-        let row_shape = descriptor.generated_compatible_row_shape_for_model(model)?;
+        let row_proof = descriptor.generated_row_compatibility_proof_for_model(model)?;
 
-        Ok((descriptor, row_shape))
+        Ok((descriptor, row_proof))
     }
 
     /// Return the accepted schema version backing this runtime layout.
@@ -786,18 +786,18 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         AcceptedRowDecodeContract::from_descriptor(self)
     }
 
-    /// Return the row shape when this accepted layout can still use generated field codecs.
+    /// Return the proof that this accepted layout can still use generated field codecs.
     ///
     /// Accepted-field decoders now own runtime payload interpretation, but
     /// typed materialization still needs proof that the accepted layout can be
-    /// bridged back to generated field codecs. Keeping this check and shape
-    /// projection in the descriptor owner makes generated compatibility a
+    /// bridged back to generated field codecs. Keeping this compatibility
+    /// proof in the descriptor owner makes generated compatibility a
     /// schema-runtime contract instead of an executor side calculation.
-    pub(in crate::db) fn generated_compatible_row_shape_for_model(
+    pub(in crate::db) fn generated_row_compatibility_proof_for_model(
         &self,
         model: &'static EntityModel,
-    ) -> Result<AcceptedGeneratedCompatibleRowShape, InternalError> {
-        // Phase 1: require primary-key identity and the accepted row shape to
+    ) -> Result<AcceptedGeneratedRowCompatibilityProof, InternalError> {
+        // Phase 1: require primary-key identity and the accepted row layout to
         // match the generated decoder contract.
         let generated_primary_key_names = model
             .primary_key_model()
@@ -813,7 +813,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             )));
         }
 
-        // Phase 2: require the accepted row shape to cover every generated
+        // Phase 2: require the accepted row layout to cover every generated
         // slot. Extra trailing DDL-owned slots may exist after SQL ADD COLUMN;
         // they remain accepted-runtime fields and are not exposed through the
         // generated typed materializer.
@@ -869,7 +869,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             }
         }
 
-        Ok(AcceptedGeneratedCompatibleRowShape {
+        Ok(AcceptedGeneratedRowCompatibilityProof {
             required_slot_count: self.required_slot_count(),
             primary_key_slot_index: self.first_primary_key_slot_index(),
         })
@@ -1418,27 +1418,27 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_projects_generated_compatible_shape() {
+    fn accepted_row_layout_runtime_descriptor_projects_generated_compatibility_proof() {
         let accepted = generated_compatible_accepted_schema_fixture();
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
             .expect("generated-compatible schema should build descriptor");
 
-        let shape = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
-            .expect("matching generated model should produce row shape proof");
+        let proof = descriptor
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect("matching generated model should produce row compatibility proof");
 
-        assert_eq!(shape.required_slot_count(), 2);
-        assert_eq!(shape.first_primary_key_slot_index(), 0);
+        assert_eq!(proof.required_slot_count(), 2);
+        assert_eq!(proof.first_primary_key_slot_index(), 0);
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_builds_descriptor_and_row_shape_proof() {
+    fn accepted_row_layout_runtime_descriptor_builds_descriptor_and_row_compatibility_proof() {
         let accepted = generated_compatible_accepted_schema_fixture();
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
             .expect("accepted schema should build descriptor");
-        let shape = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
-            .expect("generated-compatible schema should build row shape proof");
+        let proof = descriptor
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect("generated-compatible schema should build row compatibility proof");
 
         assert_eq!(descriptor.required_slot_count(), 2);
         assert_eq!(descriptor.first_primary_key_slot_index(), 0);
@@ -1448,8 +1448,8 @@ mod tests {
             descriptor.first_primary_key_kind(),
             &PersistedFieldKind::Ulid
         );
-        assert_eq!(shape.required_slot_count(), 2);
-        assert_eq!(shape.first_primary_key_slot_index(), 0);
+        assert_eq!(proof.required_slot_count(), 2);
+        assert_eq!(proof.first_primary_key_slot_index(), 0);
         assert_eq!(
             descriptor.field_slot_index_by_name("nickname"),
             Some(1),
@@ -1479,13 +1479,13 @@ mod tests {
             .expect("accepted composite primary-key schema should build descriptor");
 
         let err = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
             .expect_err("generated-compatible bridge should reject composite/scalar drift");
 
         assert!(
             err.message
                 .contains("accepted row layout primary key is not generated-compatible"),
-            "unexpected generated-compatible shape error: {}",
+            "unexpected generated-compatible proof error: {}",
             err.message,
         );
     }
@@ -1526,7 +1526,7 @@ mod tests {
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
             .expect("write-policy accepted schema should build descriptor");
         descriptor
-            .generated_compatible_row_shape_for_model(&WRITE_POLICY_ENTITY_MODEL)
+            .generated_row_compatibility_proof_for_model(&WRITE_POLICY_ENTITY_MODEL)
             .expect("write-policy schema should remain generated-compatible");
 
         let token_field = descriptor
@@ -1551,25 +1551,25 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_non_generated_compatible_shape() {
+    fn accepted_row_layout_runtime_descriptor_rejects_non_generated_compatible_layout() {
         let accepted = accepted_schema_fixture();
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
             .expect("slot-expanded accepted schema should build descriptor");
 
         let err = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
-            .expect_err("slot-expanded schema must not produce generated-compatible shape proof");
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("slot-expanded schema must not produce generated-compatible row proof");
 
         assert!(
             err.message
                 .contains("accepted row layout slot is not generated-compatible"),
-            "unexpected generated-compatible shape error: {}",
+            "unexpected generated-compatible proof error: {}",
             err.message,
         );
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_extra_generated_field_shape() {
+    fn accepted_row_layout_runtime_descriptor_rejects_extra_generated_field_layout() {
         let mut snapshot = generated_compatible_accepted_schema_fixture()
             .persisted_snapshot()
             .clone();
@@ -1605,13 +1605,13 @@ mod tests {
             .expect("extra generated accepted schema should build descriptor");
 
         let err = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
-            .expect_err("extra generated field must not produce generated-compatible shape proof");
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("extra generated field must not produce generated-compatible row proof");
 
         assert!(
             err.message
                 .contains("accepted row layout has generated field outside generated model"),
-            "unexpected generated-compatible shape error: {}",
+            "unexpected generated-compatible proof error: {}",
             err.message,
         );
     }
@@ -1627,7 +1627,7 @@ mod tests {
             .expect("slot-compatible accepted schema should build descriptor");
 
         let err = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
             .expect_err("storage decode drift must reject generated decoder bridge");
 
         assert!(
@@ -1649,7 +1649,7 @@ mod tests {
             .expect("slot-compatible accepted schema should build descriptor");
 
         let err = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
             .expect_err("leaf codec drift must reject generated decoder bridge");
 
         assert!(
@@ -1671,7 +1671,7 @@ mod tests {
             .expect("slot-compatible accepted schema should build descriptor");
 
         let err = descriptor
-            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
             .expect_err("nullability drift must reject generated decoder bridge");
 
         assert!(

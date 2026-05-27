@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.16` continues the naming hard cut by renaming the schema-runtime
+  generated-compatibility row shape to proof vocabulary.
+
+  ```text
+  AcceptedGeneratedCompatibleRowShape -> AcceptedGeneratedRowCompatibilityProof
+  generated_compatible_row_shape_for_model(...) -> generated_row_compatibility_proof_for_model(...)
+  ```
+
 - `0.165.15` continues the naming hard cut by removing active assertion and
   rustdoc wording that still taught generic parts vocabulary.
 
