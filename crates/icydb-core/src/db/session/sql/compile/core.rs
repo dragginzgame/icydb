@@ -20,7 +20,7 @@ use crate::{
             lowering::{
                 PreparedSqlStatement, bind_lowered_sql_delete_query_structural_with_schema,
                 bind_lowered_sql_select_query_structural_with_schema,
-                compile_sql_global_aggregate_command_core_from_prepared_with_schema,
+                compile_structural_sql_global_aggregate_command_from_prepared_with_schema,
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement,
                 lower_prepared_sql_select_statement_with_schema,
@@ -124,7 +124,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepare_local_instructions: u64,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (lower_local_instructions, command) = measured(|| {
-            compile_sql_global_aggregate_command_core_from_prepared_with_schema(
+            compile_structural_sql_global_aggregate_command_from_prepared_with_schema(
                 prepared,
                 model,
                 MissingRowPolicy::Ignore,

@@ -32,7 +32,7 @@ use crate::{
 use thiserror::Error as ThisError;
 
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
-pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared_with_schema;
+pub(in crate::db) use aggregate::compile_structural_sql_global_aggregate_command_from_prepared_with_schema;
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
 };
@@ -41,7 +41,8 @@ pub(crate) use aggregate::{
     SqlGlobalAggregateCommand, compile_sql_global_aggregate_command_for_model_only,
 };
 pub(crate) use aggregate::{
-    SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural_with_schema,
+    StructuralSqlGlobalAggregateCommand,
+    bind_lowered_sql_explain_global_aggregate_structural_with_schema,
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
 #[cfg(test)]

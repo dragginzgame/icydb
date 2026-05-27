@@ -33,6 +33,34 @@ Companion helper cleanup:
 - `prepared_descriptor_shape()` was replaced by
   `prepared_plan_fragment()`.
 
+### `SqlGlobalAggregateCommandCore` -> `StructuralSqlGlobalAggregateCommand`
+
+Role proof:
+
+- Owning module: `db::sql::lowering::aggregate::command`
+- Payload: generic-free SQL global-aggregate command bound onto a
+  `StructuralQuery`, prepared scalar aggregate strategies, projection, and
+  HAVING expression
+- Main consumers: session SQL compile cache, SQL global-aggregate execution,
+  and EXPLAIN global-aggregate rendering
+- Chosen family: conventional SQL command vocabulary with a `Structural*`
+  prefix
+- Rejected alternatives:
+  - `*Core`: too vague because this value is not an invariant payload shared by
+    wrappers; it is the structural command variant of the aggregate SQL command
+  - `SqlGlobalAggregateStructuralCommand`: less consistent with the existing
+    `StructuralQuery` naming at the command payload boundary
+  - `SqlGlobalAggregateCommandPayload`: too broad and does not name the
+    structural query surface
+- Public-surface impact: none; visibility remains crate-internal
+- Hard-cut rule: remove the old type and `command_core` helper vocabulary from
+  live code
+
+Companion helper rename:
+
+- `compile_sql_global_aggregate_command_core_from_prepared_with_schema(...)` ->
+  `compile_structural_sql_global_aggregate_command_from_prepared_with_schema(...)`
+
 ## Kept Names
 
 ### `LoweredSelectShape`
@@ -69,6 +97,7 @@ Live-code scans for this slice:
 rg -n "PreparedSqlScalarAggregateDescriptorShape|descriptor_shape|prepared_descriptor_shape" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql crates/icydb-core/src/db/session/tests
 rg -n "PreparedSqlScalarAggregatePlanFragment|plan_fragment|prepared_plan_fragment" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql
 rg -n "LoweredSelectShape|LoweredBaseQueryShape|LoweredExprAnalysis|LoweredSqlAggregateShape" crates/icydb-core/src/db/sql/lowering
+rg -n "SqlGlobalAggregateCommandCore|compile_sql_global_aggregate_command_core_from_prepared_with_schema|StructuralSqlGlobalAggregateCommand|compile_structural_sql_global_aggregate_command_from_prepared_with_schema" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

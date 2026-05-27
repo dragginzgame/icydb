@@ -21,7 +21,7 @@ use crate::{
         },
         sql::lowering::{
             PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
-            SqlGlobalAggregateCommandCore,
+            StructuralSqlGlobalAggregateCommand,
         },
     },
     traits::{CanisterKind, EntityValue},
@@ -75,7 +75,7 @@ impl<C: CanisterKind> DbSession<C> {
     // SQL projection payload.
     pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement<E>(
         &self,
-        command: SqlGlobalAggregateCommandCore,
+        command: StructuralSqlGlobalAggregateCommand,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,

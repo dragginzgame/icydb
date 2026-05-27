@@ -6,7 +6,7 @@
 use crate::db::{
     query::intent::StructuralQuery,
     sql::{
-        lowering::{LoweredSqlCommand, SqlGlobalAggregateCommandCore},
+        lowering::{LoweredSqlCommand, StructuralSqlGlobalAggregateCommand},
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
@@ -30,7 +30,7 @@ pub(in crate::db) enum CompiledSqlCommand {
         returning: Option<SqlReturningProjection>,
     },
     GlobalAggregate {
-        command: Box<SqlGlobalAggregateCommandCore>,
+        command: Box<StructuralSqlGlobalAggregateCommand>,
     },
     Explain(Box<LoweredSqlCommand>),
     Insert(SqlInsertStatement),

@@ -56,6 +56,25 @@ Role proof:
 - Public-surface impact: none; visibility remains executor-internal
 - Hard-cut rule: remove the old type and import vocabulary from live code
 
+### `GroupedPathRuntimeCore` -> `GroupedPathRuntimeContext`
+
+Role proof:
+
+- Owning module: `db::executor::pipeline::entrypoints::grouped`
+- Payload: owner-local grouped runtime context containing traversal runtime,
+  row store, accepted entity authority, and output observer bindings
+- Main consumers: grouped path preparation, grouped stream build, grouped fold
+  execution, and grouped output finalization inside one entrypoint module
+- Chosen family: `*Context`
+- Rejected alternatives:
+  - `*Core`: too strong because this private value is not an invariant payload
+    shared by wrappers; it is the grouped entrypoint's local runtime context
+  - `*Parts`: too weak because the value is not just a decomposition result
+  - `*Runtime`: too broad and loses the owner-local context role
+- Public-surface impact: none; the type is private to the grouped entrypoint
+  module
+- Hard-cut rule: remove the old type and comment vocabulary from live code
+
 ## Kept Names
 
 ### `PreparedExecutionPlanCore`
@@ -106,6 +125,7 @@ rg -n "PreparedExecutionPlanCoreShared|CoreShared|into_shared|core\\.shared\\b|s
 rg -n "PreparedExecutionPlanResidents|into_residents|core\\.residents|self\\.residents" crates/icydb-core/src/db/executor/prepared_execution_plan
 rg -n "PreparedScalarRuntimeParts|PreparedGroupedRuntimeParts|PreparedAccessPlanParts|PreparedAggregateStreamingPlanParts|SharedPreparedProjectionRuntimeParts" crates/icydb-core/src/db/executor/prepared_execution_plan crates/icydb-core/src/db/executor
 rg -n "PreparedExecutionInputParts|PreparedExecutionInputContext" crates/icydb-core/src/db/executor
+rg -n "GroupedPathRuntimeCore|GroupedPathRuntimeContext" crates/icydb-core/src/db/executor/pipeline/entrypoints/grouped.rs
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

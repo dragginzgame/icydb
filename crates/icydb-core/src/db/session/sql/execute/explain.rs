@@ -24,7 +24,7 @@ use crate::{
         },
         sql::{
             lowering::{
-                LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
+                LoweredSqlCommand, LoweredSqlLaneKind, StructuralSqlGlobalAggregateCommand,
                 bind_lowered_sql_explain_global_aggregate_structural_with_schema,
                 bind_lowered_sql_query_structural_with_schema, lowered_sql_command_lane,
             },
@@ -306,7 +306,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
-        command: &SqlGlobalAggregateCommandCore,
+        command: &StructuralSqlGlobalAggregateCommand,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
         let (mapped, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
@@ -326,7 +326,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         mode: SqlExplainMode,
         verbose: bool,
-        command: SqlGlobalAggregateCommandCore,
+        command: StructuralSqlGlobalAggregateCommand,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<String, QueryError> {

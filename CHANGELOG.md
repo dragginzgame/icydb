@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.6` continues the naming hard cut by moving grouped entrypoint runtime
+  and SQL global-aggregate command payloads out of broad core vocabulary.
+
+  ```text
+  GroupedPathRuntimeCore -> GroupedPathRuntimeContext
+  GroupedPathRuntimeCore::from_store(...) -> GroupedPathRuntimeContext::from_store(...)
+  SqlGlobalAggregateCommandCore -> StructuralSqlGlobalAggregateCommand
+  compile_sql_global_aggregate_command_core_from_prepared_with_schema(...) -> compile_structural_sql_global_aggregate_command_from_prepared_with_schema(...)
+  ```
+
 - `0.165.5` continues the naming hard cut by moving the prepared execution
   constructor payload from generic parts vocabulary to an explicit input
   context.

@@ -6,7 +6,7 @@ use crate::{
             lowering::{
                 LoweredSqlCommand, LoweredSqlCommandInner, SqlLoweringError,
                 aggregate::command::{
-                    SqlGlobalAggregateCommandCore,
+                    StructuralSqlGlobalAggregateCommand,
                     binding::bind_lowered_sql_global_aggregate_command_structural,
                 },
             },
@@ -23,7 +23,7 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural_with_schema(
     model: &'static EntityModel,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
-) -> Result<Option<(SqlExplainMode, bool, SqlGlobalAggregateCommandCore)>, SqlLoweringError> {
+) -> Result<Option<(SqlExplainMode, bool, StructuralSqlGlobalAggregateCommand)>, SqlLoweringError> {
     let LoweredSqlCommandInner::ExplainGlobalAggregate {
         mode,
         verbose,

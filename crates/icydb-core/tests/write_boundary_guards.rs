@@ -1706,8 +1706,9 @@ fn sql_command_lowering_uses_accepted_schema_for_runtime_explain() {
                 .contains("compile_sql_global_aggregate_command_from_prepared_for_model_only")
             && sql_global_aggregate_binding
                 .contains("bind_lowered_sql_global_aggregate_command_for_model_only")
-            && sql_global_aggregate_binding
-                .contains("compile_sql_global_aggregate_command_core_from_prepared_with_schema")
+            && sql_global_aggregate_binding.contains(
+                "compile_structural_sql_global_aggregate_command_from_prepared_with_schema"
+            )
             && !sql_global_aggregate_binding.contains("fn into_typed<E:")
             && !sql_global_aggregate_binding
                 .contains("pub(crate) fn compile_sql_global_aggregate_command<E:")

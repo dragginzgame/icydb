@@ -5481,7 +5481,7 @@ fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_fie
         accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
 
     let err =
-        crate::db::sql::lowering::compile_sql_global_aggregate_command_core_from_prepared_with_schema(
+        crate::db::sql::lowering::compile_structural_sql_global_aggregate_command_from_prepared_with_schema(
             prepared,
             SqlLowerEntity::MODEL,
             MissingRowPolicy::Ignore,

@@ -40,16 +40,16 @@ use crate::{
 };
 
 ///
-/// GroupedPathRuntimeCore
+/// GroupedPathRuntimeContext
 ///
-/// GroupedPathRuntimeCore bundles the structural runtime pieces needed by the
+/// GroupedPathRuntimeContext is the owner-local runtime context needed by the
 /// grouped execution spine after the typed boundary resolves model/store
 /// authority.
 /// Shared grouped entrypoint orchestration stays monomorphic by driving this
-/// structural bundle instead of `LoadExecutor<E>` directly.
+/// structural context instead of `LoadExecutor<E>` directly.
 ///
 
-struct GroupedPathRuntimeCore {
+struct GroupedPathRuntimeContext {
     traversal_runtime: TraversalRuntime,
     row_store: StoreHandle,
     authority: EntityAuthority,
@@ -68,7 +68,7 @@ struct GroupedPathRuntimeCore {
 
 pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
     route: GroupedRouteStage,
-    runtime: GroupedPathRuntimeCore,
+    runtime: GroupedPathRuntimeContext,
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
 }
@@ -154,7 +154,7 @@ pub(in crate::db) struct GroupedExecutePhaseAttribution {
     pub(in crate::db) grouped_count: GroupedCountAttribution,
 }
 
-impl GroupedPathRuntimeCore {
+impl GroupedPathRuntimeContext {
     // Build the grouped runtime spine once from one recovered store handle and
     // its resolved structural entity authority.
     const fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
@@ -211,7 +211,7 @@ impl PreparedGroupedRouteRuntime {
     // one structural grouped runtime core without duplicating plan prep logic.
     fn new(
         route: GroupedRouteStage,
-        runtime: GroupedPathRuntimeCore,
+        runtime: GroupedPathRuntimeContext,
         prepared_execution_preparation: Option<ExecutionPreparation>,
         prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
     ) -> Self {
@@ -259,7 +259,7 @@ where
 
     Ok(PreparedGroupedRouteRuntime::new(
         route,
-        GroupedPathRuntimeCore::from_store(store, authority),
+        GroupedPathRuntimeContext::from_store(store, authority),
         prepared_runtime_parts.execution_preparation,
         prepared_runtime_parts.grouped_slot_layout,
     ))
@@ -269,7 +269,7 @@ where
 // runtime spine. The grouped route/stream/page contracts are already structural,
 // so this orchestration can stay monomorphic.
 fn execute_grouped_route_path(
-    runtime: &GroupedPathRuntimeCore,
+    runtime: &GroupedPathRuntimeContext,
     mut route: GroupedRouteStage,
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
@@ -445,10 +445,10 @@ where
     fn grouped_path_runtime(
         &self,
         authority: EntityAuthority,
-    ) -> Result<GroupedPathRuntimeCore, InternalError> {
+    ) -> Result<GroupedPathRuntimeContext, InternalError> {
         let store = self.db.recovered_store(authority.store_path())?;
 
-        Ok(GroupedPathRuntimeCore::from_store(store, authority))
+        Ok(GroupedPathRuntimeContext::from_store(store, authority))
     }
 
     // Resolve grouped route metadata and structural runtime authority once at
