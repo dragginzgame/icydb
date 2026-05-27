@@ -380,9 +380,9 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
     seed_session_sql_entities(
         &session,
         &[
-            ("reducer-core-a", 20),
-            ("reducer-core-b", 20),
-            ("reducer-core-c", 20),
+            ("value-reducer-a", 20),
+            ("value-reducer-b", 20),
+            ("value-reducer-c", 20),
         ],
     );
 
@@ -421,7 +421,7 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
     assert_eq!(
         grouped_values.as_slice(),
         global_values.as_slice(),
-        "grouped and global SQL value aggregates should share reducer-core semantics",
+        "grouped and global SQL value aggregates should share value-reducer semantics",
     );
 
     // Phase 3: lock the public fluent scalar terminals that expose field-value

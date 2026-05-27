@@ -15,7 +15,7 @@ use crate::{
                     resolve_any_aggregate_target_slot_from_planner_slot,
                     resolve_numeric_aggregate_target_slot_from_planner_slot,
                 },
-                reducer_core::finalize_count,
+                value_reducer::finalize_count,
             },
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::ResolvedExecutionKeyStream,

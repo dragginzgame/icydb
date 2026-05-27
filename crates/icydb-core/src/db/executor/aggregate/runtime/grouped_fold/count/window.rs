@@ -10,7 +10,6 @@ use crate::{
         executor::{
             RuntimeGroupedRow,
             aggregate::{
-                reducer_core::finalize_count,
                 runtime::{
                     group_matches_having_expr,
                     grouped_fold::{
@@ -19,6 +18,7 @@ use crate::{
                     },
                     grouped_output::project_grouped_rows_from_projection,
                 },
+                value_reducer::finalize_count,
             },
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},

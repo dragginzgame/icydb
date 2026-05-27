@@ -1,4 +1,4 @@
-//! Module: executor::aggregate::reducer_core
+//! Module: executor::aggregate::value_reducer
 //! Responsibility: shared value aggregate reducer semantics.
 //! Does not own: row access, DISTINCT admission, grouped keys, or execution routing.
 //! Boundary: allocation-free COUNT(value), SUM, AVG, MIN, and MAX state transitions.

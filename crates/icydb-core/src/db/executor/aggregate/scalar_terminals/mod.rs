@@ -15,7 +15,6 @@ use crate::{
         executor::{
             PreparedExecutionPlan, SharedPreparedExecutionPlan,
             aggregate::{
-                reducer_core::finalize_count,
                 scalar_terminals::{
                     reducer::ScalarAggregateReducerRuntime,
                     request::CompiledStructuralAggregateRequest,
@@ -24,6 +23,7 @@ use crate::{
                         compile_structural_scalar_aggregate_terminal,
                     },
                 },
+                value_reducer::finalize_count,
             },
             pipeline::{
                 contracts::LoadExecutor,

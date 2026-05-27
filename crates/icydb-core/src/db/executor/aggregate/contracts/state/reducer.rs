@@ -1,7 +1,7 @@
 use crate::{
     db::executor::aggregate::{
         contracts::spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind},
-        reducer_core::{ValueReducerState, finalize_count},
+        value_reducer::{ValueReducerState, finalize_count},
     },
     db::key_taxonomy::PrimaryKeyValue,
     db::numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},

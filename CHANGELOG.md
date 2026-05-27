@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.24` continues the naming hard cut by moving aggregate value reducer
+  helpers away from broad core vocabulary.
+
+  ```text
+  executor::aggregate::reducer_core -> executor::aggregate::value_reducer
+  reducer_core::ValueReducerState -> value_reducer::ValueReducerState
+  reducer_core::finalize_count(...) -> value_reducer::finalize_count(...)
+  ```
+
 - `0.165.23` continues the naming hard cut by replacing ambiguous public
   primitive `from_parts` constructors with role-specific input names.
 

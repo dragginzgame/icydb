@@ -245,7 +245,7 @@ where
 }
 
 // Keep the secondary-index ordered aggregate cases owner-local to the live
-// aggregate-core suite instead of depending on the stale aggregate path helper.
+// aggregate execution suite instead of depending on the stale aggregate path helper.
 fn secondary_group_rank_order_plan(
     consistency: MissingRowPolicy,
     direction: OrderDirection,

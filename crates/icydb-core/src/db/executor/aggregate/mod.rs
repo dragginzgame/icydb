@@ -14,11 +14,11 @@ mod helpers;
 mod materialized_distinct;
 mod numeric;
 mod projection;
-pub(in crate::db::executor::aggregate) mod reducer_core;
 pub(in crate::db::executor) mod runtime;
 #[cfg(feature = "sql")]
 mod scalar_terminals;
 mod terminals;
+pub(in crate::db::executor::aggregate) mod value_reducer;
 
 use crate::{
     db::{

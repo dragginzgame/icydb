@@ -5,7 +5,6 @@
 use crate::{
     db::executor::{
         aggregate::{
-            reducer_core::ValueReducerState,
             scalar_terminals::{
                 expr_cache::ScalarTerminalExprCache,
                 terminal::{
@@ -13,6 +12,7 @@ use crate::{
                     PreparedScalarAggregateTerminalSet, ScalarAggregateTerminalKind,
                 },
             },
+            value_reducer::ValueReducerState,
         },
         projection::ProjectionEvalError,
         terminal::KernelRow,
