@@ -132,7 +132,7 @@ impl CursorPlanError {
         pk_field: &str,
     ) -> Self {
         Self::invalid_continuation_cursor_payload(format!(
-            "order specification must end with primary key '{pk_field}' as deterministic tie-break"
+            "order specification must include primary key '{pk_field}' as deterministic tie-break"
         ))
     }
 

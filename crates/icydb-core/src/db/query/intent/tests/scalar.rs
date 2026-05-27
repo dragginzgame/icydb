@@ -173,12 +173,12 @@ fn ordered_plan_appends_primary_key_tie_break() {
             crate::db::query::plan::OrderTerm::field("name", OrderDirection::Asc),
             crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
-        "canonical order should append primary key as terminal tie-break"
+        "canonical order should append missing primary key tie-break components"
     );
 }
 
 #[test]
-fn ordered_plan_moves_primary_key_to_terminal_position() {
+fn ordered_plan_preserves_explicit_primary_key_position() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("id"))
         .order_term(crate::db::asc("name"))
@@ -194,10 +194,10 @@ fn ordered_plan_moves_primary_key_to_terminal_position() {
     assert_eq!(
         order.fields,
         vec![
-            crate::db::query::plan::OrderTerm::field("name", OrderDirection::Asc),
             crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("name", OrderDirection::Asc),
         ],
-        "canonical order must keep exactly one terminal PK tie-break with requested direction"
+        "canonical order must preserve explicit primary-key order terms in declared position"
     );
 }
 

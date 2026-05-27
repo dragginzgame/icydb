@@ -623,6 +623,46 @@ fn execute_sql_insert_update_supports_composite_primary_key_fields() {
 }
 
 #[test]
+fn execute_sql_select_order_by_composite_primary_key_component_preserves_declared_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_statement_count::<SessionSqlCompositeWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlCompositeWriteEntity \
+         (tenant_id, local_id, name, age) \
+         VALUES \
+         (1, 1, 'Ada', 21), \
+         (2, 1, 'Bea', 22), \
+         (1, 2, 'Cy', 23), \
+         (2, 2, 'Dee', 24), \
+         (1, 3, 'Eli', 25), \
+         (2, 3, 'Fay', 26)",
+        6,
+        "composite primary-key SQL ordering fixture",
+    );
+
+    let rows = statement_projection_rows::<SessionSqlCompositeWriteEntity>(
+        &session,
+        "SELECT tenant_id, local_id FROM SessionSqlCompositeWriteEntity ORDER BY local_id DESC",
+    )
+    .expect("composite primary-key component ORDER BY should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Nat64(1), Value::Nat64(3)],
+            vec![Value::Nat64(2), Value::Nat64(3)],
+            vec![Value::Nat64(1), Value::Nat64(2)],
+            vec![Value::Nat64(2), Value::Nat64(2)],
+            vec![Value::Nat64(1), Value::Nat64(1)],
+            vec![Value::Nat64(2), Value::Nat64(1)],
+        ],
+        "ORDER BY over a composite primary-key component must not be rewritten as full primary-key order",
+    );
+}
+
+#[test]
 fn fluent_exact_key_paths_support_composite_primary_keys() {
     reset_session_sql_store();
     let session = sql_session();

@@ -1142,7 +1142,43 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
             crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
             crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
-        "planner must append primary key as deterministic terminal tie-break",
+        "planner must append missing primary key tie-break components",
+    );
+}
+
+#[test]
+fn planner_build_logical_plan_preserves_composite_primary_key_order_component() {
+    let model = super::model_with_composite_primary_key();
+    let inputs = LogicalPlanningInputs::new(
+        QueryMode::Load(LoadSpec::new()),
+        None,
+        false,
+        Some(OrderSpec {
+            fields: vec![crate::db::query::plan::OrderTerm::field(
+                "local_id",
+                OrderDirection::Desc,
+            )],
+        }),
+        false,
+        None,
+        None,
+    );
+    let logical_query = logical_query_from_logical_inputs(inputs, None, MissingRowPolicy::Ignore);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
+    let logical_plan = build_logical_plan(schema, logical_query);
+    let order = logical_plan
+        .scalar_semantics()
+        .order
+        .as_ref()
+        .expect("logical plan should carry canonicalized order");
+
+    assert_eq!(
+        order.fields,
+        vec![
+            crate::db::query::plan::OrderTerm::field("local_id", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("tenant_id", OrderDirection::Asc),
+        ],
+        "planner must preserve explicit composite primary-key order terms before appending missing tie-break components",
     );
 }
 
@@ -1223,7 +1259,7 @@ fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
 }
 
 #[test]
-fn plan_rejects_order_without_terminal_primary_key_tie_break() {
+fn plan_rejects_order_without_primary_key_tie_break() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {

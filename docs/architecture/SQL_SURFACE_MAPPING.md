@@ -6,6 +6,14 @@ public APIs.
 `docs/contracts/SQL_SUBSET.md` is the normative contract.
 This file is intentionally implementation-facing.
 
+The current public-entrypoint proof ledger is:
+
+- `docs/design/0.166-sql-surface-contract-proof-audit/sql-surface-matrix.md`
+
+That matrix is the release-audit artifact for mapping each documented SQL
+claim to `execute_sql_query::<E>(...)`, `execute_sql_update::<E>(...)`, or
+`execute_sql_ddl::<E>(...)` coverage.
+
 ## Why This File Exists
 
 IcyDB still supports reduced SQL parsing and execution, but it no longer keeps
@@ -78,6 +86,11 @@ Legend:
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
 
 ## What Is Already Stable
+
+The 0.166 SQL surface proof matrix is the canonical checklist for public
+entrypoint evidence. The implementation references below are supporting
+evidence for architecture and convergence, not replacements for public-surface
+tests.
 
 The strongest SQL-to-typed convergence exists for the shared query lane:
 

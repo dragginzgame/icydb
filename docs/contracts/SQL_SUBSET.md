@@ -295,6 +295,7 @@ Supported grouped projection examples:
 
 - `SELECT age, COUNT(*) FROM Customer GROUP BY age`
 - `SELECT name, COUNT(*), SUM(age) FROM Customer GROUP BY name`
+- `SELECT TRIM(name), COUNT(*) FROM Customer GROUP BY name`
 - `SELECT age, ROUND(AVG(age), 2) FROM Customer GROUP BY age`
 - `SELECT age, AVG(age + 1) + AVG(age + 1) FROM Customer GROUP BY age`
 - `SELECT age, CASE WHEN COUNT(*) > 1 THEN 'multi' ELSE 'single' END FROM Customer GROUP BY age`
@@ -305,7 +306,8 @@ Unsupported grouped projection examples:
 - grouped keys appearing after aggregate outputs
 - grouped projection terms that reference non-group fields outside the admitted
   grouped key and aggregate output authority
-- bounded text functions inside grouped projection
+- bounded text functions inside grouped projection when they reference raw
+  non-group fields instead of grouped key values
 
 ## Shared SQL Expression Family
 

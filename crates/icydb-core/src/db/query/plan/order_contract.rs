@@ -491,16 +491,6 @@ impl OrderSpec {
             .then_some(direction)
     }
 
-    /// Return true when ORDER BY has exactly the ordered primary-key fields as
-    /// the terminal deterministic tie-break.
-    #[must_use]
-    pub(in crate::db) fn has_exact_primary_key_tie_break_fields(
-        &self,
-        primary_key_names: &[&str],
-    ) -> bool {
-        has_exact_ordered_primary_key_tie_break_fields(self.fields.as_slice(), primary_key_names)
-    }
-
     /// Return the normalized deterministic `..., primary_key` order contract,
     /// if one exists for this ORDER BY shape.
     #[must_use]

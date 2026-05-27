@@ -183,7 +183,7 @@ pub(in crate::db::query) fn build_logical_plan(
 /// Normalize one ORDER BY shape while respecting the grouped/scalar
 /// determinism split.
 ///
-/// Scalar row ordering still requires one terminal primary-key tie-break so
+/// Scalar row ordering still requires primary-key tie-break components so
 /// result order stays total and resumable. Grouped ordering does not use the
 /// row-level primary key contract, so explicit grouped `ORDER BY` terms must
 /// remain unchanged.
@@ -196,9 +196,9 @@ pub(in crate::db::query) fn canonicalize_order_spec_for_grouping(
     canonicalize_order_spec_with_primary_key_tie_break(schema, order, !grouped)
 }
 
-// Normalize one ORDER BY shape into the planner-owned deterministic form, with
-// the scalar row-level primary-key tie-break appended only when that contract
-// is actually required by the calling plan family.
+// Normalize one ORDER BY shape into the planner-owned deterministic form. The
+// scalar row-level primary-key tie-break appends only missing key components so
+// user-declared ordering remains the primary semantic order.
 fn canonicalize_order_spec_with_primary_key_tie_break(
     schema: &SchemaInfo,
     order: Option<OrderSpec>,
@@ -214,26 +214,21 @@ fn canonicalize_order_spec_with_primary_key_tie_break(
         .iter()
         .map(String::as_str)
         .collect();
-    let mut pk_direction = None;
 
-    order.fields.retain(|term| {
-        if term
-            .direct_field()
-            .is_some_and(|field| primary_key_names.contains(&field))
-        {
-            pk_direction.get_or_insert_with(|| term.direction());
-            false
-        } else {
-            true
+    for primary_key_name in primary_key_names {
+        let already_ordered = order
+            .fields
+            .iter()
+            .any(|term| term.direct_field() == Some(primary_key_name));
+        if already_ordered {
+            continue;
         }
-    });
 
-    let direction = pk_direction.unwrap_or(OrderDirection::Asc);
-    order.fields.extend(
-        primary_key_names
-            .into_iter()
-            .map(|field| crate::db::query::plan::OrderTerm::field(field, direction)),
-    );
+        order.fields.push(crate::db::query::plan::OrderTerm::field(
+            primary_key_name,
+            OrderDirection::Asc,
+        ));
+    }
 
     Some(order)
 }

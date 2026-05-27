@@ -108,8 +108,10 @@ pub(in crate::db::query::plan::validate) fn validate_no_duplicate_non_pk_order_f
     Ok(())
 }
 
-// Ordered plans must include exactly one terminal primary-key field so ordering is total and
-// deterministic across explain, fingerprint, and executor comparison paths.
+// Ordered scalar plans must include every primary-key component somewhere in
+// the order tuple so ordering is total and deterministic across explain,
+// fingerprint, and executor comparison paths. The canonicalizer appends only
+// missing components; explicit user order terms keep their declared positions.
 pub(in crate::db::query::plan::validate) fn validate_primary_key_tie_break(
     schema: &SchemaInfo,
     order: &OrderSpec,
@@ -119,17 +121,23 @@ pub(in crate::db::query::plan::validate) fn validate_primary_key_tie_break(
             let primary_key_names = schema.primary_key_names();
             let primary_key_name_refs: Vec<&str> =
                 primary_key_names.iter().map(String::as_str).collect();
-            order
-                .has_exact_primary_key_tie_break_fields(primary_key_name_refs.as_slice())
-                .then_some(())
-                .ok_or_else(|| {
-                    PlanError::from(OrderPlanError::missing_primary_key_tie_break(
-                        primary_key_name_refs
-                            .first()
-                            .copied()
-                            .unwrap_or("<missing>"),
-                    ))
-                })
+            if let Some(missing_primary_key_name) =
+                primary_key_name_refs
+                    .iter()
+                    .copied()
+                    .find(|primary_key_name| {
+                        !order
+                            .fields
+                            .iter()
+                            .any(|term| term.direct_field() == Some(*primary_key_name))
+                    })
+            {
+                return Err(PlanError::from(
+                    OrderPlanError::missing_primary_key_tie_break(missing_primary_key_name),
+                ));
+            }
+
+            Ok(())
         },
         |()| Ok(()),
     )
@@ -214,6 +222,11 @@ mod tests {
             .expect("ordered composite primary-key suffix should satisfy deterministic tie-break");
 
         validate_primary_key_tie_break(schema(), &order(&["rank", "local_id", "tenant_id"]))
-            .expect_err("wrong composite primary-key suffix order should reject");
+            .expect(
+                "composite primary-key fields can be declared before canonical suffix position",
+            );
+
+        validate_primary_key_tie_break(schema(), &order(&["rank", "local_id"]))
+            .expect_err("missing composite primary-key components should reject");
     }
 }

@@ -107,8 +107,8 @@ pub enum OrderPlanError {
     #[error("order field '{field}' appears multiple times")]
     DuplicateOrderField { field: String },
 
-    /// Ordered plans must terminate with the primary-key tie-break.
-    #[error("order specification must end with primary key '{field}' as deterministic tie-break")]
+    /// Ordered plans must include every primary-key tie-break component.
+    #[error("order specification must include primary key '{field}' as deterministic tie-break")]
     MissingPrimaryKeyTieBreak { field: String },
 }
 

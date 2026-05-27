@@ -11,9 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
-- Starts the SQL surface contract proof audit with a durable public-entrypoint
-  proof matrix for query, update, DDL, introspection, and fail-closed SQL
-  behavior.
+- `0.166.1` reconciles the SQL subset contract, 1.0 TODO list, and
+  implementation-facing SQL mapping around the public-entrypoint proof matrix,
+  while fixing composite primary-key component ordering to preserve declared
+  SQL `ORDER BY` semantics.
+
+- `0.166.0` starts the SQL surface contract proof audit with a durable
+  public-entrypoint proof matrix for query, update, DDL, introspection, and
+  fail-closed SQL behavior.
 
 ## [0.165.x] 🧭 - 2026-05-26 - Naming Hard Cut And Role Alignment
 
