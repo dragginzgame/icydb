@@ -77,6 +77,33 @@ GroupedTokenParts -> DecodedGroupedTokenPayload
 GroupedContinuationToken::into_parts() -> into_components()
 ```
 
+### `GroupedWindowProjection` -> `GroupedContinuationWindowDraft`
+
+Role proof:
+
+- Owning module: `db::query::plan::continuation`
+- Payload: private grouped continuation window draft assembled from one
+  planner-owned continuation contract and one validated grouped cursor
+- Main consumers: `PlannedContinuationContract::project_grouped_paging_window`
+- Chosen family: `*Draft`
+- Rejected alternatives:
+  - `*Projection`: misleading because this value is not SQL projection or
+    output projection; it is intermediate grouped paging-window state
+  - `*Parts`: too weak because the value is a named local construction step,
+    not only tuple decomposition
+  - `*Context`: wrong because the value is finalized into an outward DTO rather
+    than used as owner-local traversal context
+- Public-surface impact: none; the type remains private to continuation
+  planning
+- Hard-cut rule: remove the old private type and comment vocabulary from live
+  code
+
+Accepted rename:
+
+```text
+GroupedWindowProjection -> GroupedContinuationWindowDraft
+```
+
 ## Kept Names
 
 ### `PlannedContinuationContract`
@@ -108,12 +135,6 @@ Deferred trigger:
 Kept because it is the outward grouped paging-window contract returned from
 `PlannedContinuationContract`. It is not a cursor token and not a planner route.
 
-### `GroupedWindowProjection`
-
-Kept as a private construction decomposition. The name is local and temporary,
-but a future cleanup may prefer `GroupedContinuationWindowDraft` if nearby
-window construction vocabulary moves away from `Projection`.
-
 ## Old-Vocabulary Scan Terms
 
 Live-code scans for this slice:
@@ -121,7 +142,7 @@ Live-code scans for this slice:
 ```bash
 rg -n "PlannedCursor|GroupedPlannedCursor|validate_planned_cursor|planned_cursor|mod planned|planned::|cursor::planned" crates/icydb-core/src docs/design/0.165-naming-audit-and-role-alignment
 rg -n "ValidatedCursor|ValidatedGroupedCursor|validate_cursor_token|validate_cursor_state|mod validated" crates/icydb-core/src/db
-rg -n "PlannedContinuationContract|ScalarAccessWindowPlan|GroupedContinuationWindow|GroupedWindowProjection|RouteContinuationPlan" crates/icydb-core/src/db/query/plan crates/icydb-core/src/db/executor/planning/continuation
+rg -n "PlannedContinuationContract|ScalarAccessWindowPlan|GroupedContinuationWindow|GroupedWindowProjection|GroupedContinuationWindowDraft|RouteContinuationPlan" crates/icydb-core/src/db/query/plan crates/icydb-core/src/db/executor/planning/continuation
 rg -n "ScalarTokenParts|GroupedTokenParts|GroupedContinuationToken::into_parts|\\.into_parts\\(\\)" crates/icydb-core/src/db/cursor docs/design/0.165-naming-audit-and-role-alignment
 rg -n "DecodedScalarTokenPayload|DecodedGroupedTokenPayload|into_components" crates/icydb-core/src/db/cursor
 ```

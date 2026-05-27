@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.10` continues the naming hard cut by moving grouped continuation
+  window construction away from projection vocabulary.
+
+  ```text
+  GroupedWindowProjection -> GroupedContinuationWindowDraft
+  ```
+
 - `0.165.9` continues the naming hard cut by moving prepared executor boundary
   payloads and runtime adapter constructors away from generic parts vocabulary.
 

@@ -94,15 +94,15 @@ impl GroupedContinuationWindow {
 }
 
 ///
-/// GroupedWindowProjection
+/// GroupedContinuationWindowDraft
 ///
-/// Internal grouped paging-window projection assembled from one planned
+/// Internal grouped paging-window draft assembled from one planned
 /// continuation contract plus validated grouped cursor state.
 /// This keeps grouped resume arithmetic in one local phase instead of spreading
 /// it across the outward `GroupedContinuationWindow` construction path.
 ///
 
-struct GroupedWindowProjection {
+struct GroupedContinuationWindowDraft {
     limit: Option<usize>,
     initial_offset_for_page: usize,
     selection_bound: Option<usize>,
@@ -110,7 +110,7 @@ struct GroupedWindowProjection {
     resume_boundary: Option<Value>,
 }
 
-impl GroupedWindowProjection {
+impl GroupedContinuationWindowDraft {
     // Project grouped window arithmetic from planner-owned continuation state.
     fn from_contract_and_cursor(
         contract: &PlannedContinuationContract,
@@ -466,7 +466,7 @@ impl PlannedContinuationContract {
             !cursor.is_empty(),
         )?;
 
-        Ok(GroupedWindowProjection::from_contract_and_cursor(self, cursor).into_window())
+        Ok(GroupedContinuationWindowDraft::from_contract_and_cursor(self, cursor).into_window())
     }
 
     // Enforce grouped continuation ownership once for all grouped cursor entrypoints.
