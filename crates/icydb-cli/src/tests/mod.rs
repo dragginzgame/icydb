@@ -47,8 +47,8 @@ use crate::{
         finalize_successful_command_output, interactive_start_message, is_shell_help_command,
         normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
         render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
-        shell_help_text, shell_perf_attribution, sql_config_parts, sql_error_with_recovery_hint,
-        sql_shell_call_kind,
+        shell_help_text, shell_perf_attribution, sql_error_with_recovery_hint, sql_shell_call_kind,
+        sql_shell_config_inputs,
     },
 };
 
@@ -371,7 +371,7 @@ fn cli_args_preserve_trailing_sql_convenience_form() {
     let CliCommand::Sql(sql_args) = args.into_command() else {
         panic!("expected sql command");
     };
-    let (canister, environment, _, sql) = sql_config_parts(sql_args);
+    let (canister, environment, _, sql) = sql_shell_config_inputs(sql_args);
 
     assert_eq!(canister, "test_sql");
     assert_eq!(environment, DEFAULT_ENVIRONMENT);
@@ -394,7 +394,7 @@ fn cli_args_accept_explicit_sql_option() {
     let CliCommand::Sql(sql_args) = args.into_command() else {
         panic!("expected sql command");
     };
-    let (_, environment, history_file, sql) = sql_config_parts(sql_args);
+    let (_, environment, history_file, sql) = sql_shell_config_inputs(sql_args);
 
     assert_eq!(history_file, Path::new(".cache/custom_history"));
     assert_eq!(environment, DEFAULT_ENVIRONMENT);
@@ -427,7 +427,7 @@ fn cli_args_accept_explicit_icp_environment() {
     let CliCommand::Sql(sql_args) = args.into_command() else {
         panic!("expected sql command");
     };
-    let (_, environment, _, sql) = sql_config_parts(sql_args);
+    let (_, environment, _, sql) = sql_shell_config_inputs(sql_args);
 
     assert_eq!(environment, "test");
     assert_eq!(sql.as_deref(), Some("SELECT * FROM character;"));

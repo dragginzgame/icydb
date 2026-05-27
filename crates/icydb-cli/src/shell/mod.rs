@@ -149,7 +149,7 @@ fn render_sql_error(err: icydb::Error, environment: &str, canister: &str) -> Str
 pub(crate) mod test_support {
     pub(crate) use super::{perf::ShellPerfAttribution, route::SqlShellCallKind};
 
-    pub(crate) type SqlConfigParts = (String, String, std::path::PathBuf, Option<String>);
+    pub(crate) type SqlShellConfigInputs = (String, String, std::path::PathBuf, Option<String>);
 
     pub(crate) fn drain_complete_shell_statements(
         statement: &mut String,
@@ -241,7 +241,7 @@ pub(crate) mod test_support {
         super::render::render_projection_shell_text(rows, attribution, None)
     }
 
-    pub(crate) fn sql_config_parts(args: super::SqlArgs) -> SqlConfigParts {
+    pub(crate) fn sql_shell_config_inputs(args: super::SqlArgs) -> SqlShellConfigInputs {
         let config = super::ShellConfig::from_sql_args(args);
 
         (

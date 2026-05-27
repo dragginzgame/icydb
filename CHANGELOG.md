@@ -11,267 +11,76 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
-- `0.165.27` continues the naming hard cut by moving aggregate executor test
-  coverage away from broad core vocabulary and into aggregate-execution
-  vocabulary.
-
-  ```text
-  executor::tests::aggregate_core -> executor::tests::aggregate_execution
-  mod aggregate_core; -> mod aggregate_execution;
-  aggregate_core_* tests -> aggregate_execution_* tests
-  ```
-
-- `0.165.26` continues the naming hard cut by moving persisted-row reader and
-  SQL semantic compiler ownership away from broad core vocabulary.
-
-  ```text
-  persisted_row::reader::core -> persisted_row::reader::structural_slot_reader
-  session::sql::compile::core -> session::sql::compile::semantic_compiler
-  compile_sql_statement_core(...) -> compile_sql_statement_semantic_artifacts(...)
-  ```
-
-- `0.165.25` continues the naming hard cut by moving query-plan validation
-  orchestration away from broad core vocabulary and into semantic-gate
-  vocabulary.
+- `0.165.25`–`0.165.28` continue the naming hard cut by removing broad
+  `core` and `parts` vocabulary from validation, persisted-row reading, SQL
+  compilation, aggregate execution tests, and CLI shell config test support.
 
   ```text
   query::plan::validate::core -> query::plan::validate::semantic_gates
-  validate_plan_core(...) -> validate_scalar_plan_semantic_gates(...)
-  validate::core comments -> semantic gate ownership comments
+  persisted_row::reader::core -> persisted_row::reader::structural_slot_reader
+  session::sql::compile::core -> session::sql::compile::semantic_compiler
+  executor::tests::aggregate_core -> executor::tests::aggregate_execution
+  sql_config_parts(...) -> sql_shell_config_inputs(...)
   ```
 
-- `0.165.24` continues the naming hard cut by moving aggregate value reducer
-  helpers away from broad core vocabulary.
-
-  ```text
-  executor::aggregate::reducer_core -> executor::aggregate::value_reducer
-  reducer_core::ValueReducerState -> value_reducer::ValueReducerState
-  reducer_core::finalize_count(...) -> value_reducer::finalize_count(...)
-  ```
-
-- `0.165.23` continues the naming hard cut by replacing ambiguous public
-  primitive `from_parts` constructors with role-specific input names.
-
-  ```text
-  Account::from_parts(...) -> Account::from_owner_and_subaccount(...)
-  Ulid::from_parts(...) -> Ulid::from_timestamp_and_randomness(...)
-  render_table_row parts -> padded_cells
-  ```
-
-- `0.165.22` continues the naming hard cut by renaming ordered index-key
-  helper parts to byte-segment vocabulary.
-
-  ```text
-  index::key::ordered::parts -> index::key::ordered::segments
-  parts::push_terminated_bytes(...) -> segments::push_terminated_bytes(...)
-  parts::encode_segment_len(...) -> segments::encode_segment_len(...)
-  ```
-
-- `0.165.21` continues the naming hard cut by moving private aggregate
-  execution state away from descriptor vocabulary and into dispatch vocabulary.
-
-  ```text
-  AggregateExecutionDescriptor -> AggregateExecutionDispatch
-  PreparedAggregateExecutionState::descriptor -> dispatch
-  aggregate execution descriptor comments -> dispatch/metadata comments
-  ```
-
-- `0.165.20` continues the naming hard cut by replacing residual storage
-  payload and parser helper `parts` names with concrete table/field/segment
-  vocabulary.
+- `0.165.20`–`0.165.24` continue the naming hard cut across payload helpers,
+  aggregate execution state, ordered index-key segments, public primitive
+  constructors, and aggregate value reducers.
 
   ```text
   encode_slot_payload_from_parts(...) -> encode_slot_payload_from_table_and_bytes(...)
-  encode_test_single_row_payload_from_parts(...) -> encode_test_single_row_payload_from_fields(...)
-  sql_field_expr_from_parts(...) -> sql_field_expr_from_segments(...)
+  AggregateExecutionDescriptor -> AggregateExecutionDispatch
+  index::key::ordered::parts -> index::key::ordered::segments
+  Account::from_parts(...) -> Account::from_owner_and_subaccount(...)
+  executor::aggregate::reducer_core -> executor::aggregate::value_reducer
   ```
 
-- `0.165.19` continues the naming hard cut by renaming query fingerprint hash
-  parts to section vocabulary.
-
-  ```text
-  query::fingerprint::hash_parts -> query::fingerprint::hash_sections
-  hash_parts::ExplainHashProfile -> hash_sections::ExplainHashProfile
-  hash_parts::hash_explain_plan_profile(...) -> hash_sections::hash_explain_plan_profile(...)
-  ```
-
-- `0.165.18` continues the naming hard cut by renaming index identity
-  constructors away from generic parts vocabulary.
-
-  ```text
-  IndexName::try_from_parts(...) -> IndexName::try_from_entity_fields(...)
-  IndexName::try_unique_from_parts(...) -> IndexName::try_unique_from_entity_fields(...)
-  try_from_parts_with_prefix(...) -> try_from_entity_fields_with_prefix(...)
-  ```
-
-- `0.165.17` continues the naming hard cut by moving relation model and
-  accepted target metadata away from descriptor vocabulary.
-
-  ```text
-  RelationDescriptor -> RelationFieldMetadata
-  RelationDescriptorCardinality -> RelationFieldCardinality
-  AcceptedRelationTargetDescriptor -> AcceptedRelationTargetMetadata
-  ```
-
-- `0.165.16` continues the naming hard cut by renaming the schema-runtime
-  generated-compatibility row shape to proof vocabulary.
-
-  ```text
-  AcceptedGeneratedCompatibleRowShape -> AcceptedGeneratedRowCompatibilityProof
-  generated_compatible_row_shape_for_model(...) -> generated_row_compatibility_proof_for_model(...)
-  ```
-
-- `0.165.15` continues the naming hard cut by removing active assertion and
-  rustdoc wording that still taught generic parts vocabulary.
+- `0.165.15`–`0.165.19` continue the naming hard cut by replacing stale
+  parts, shape, descriptor, and hash-parts vocabulary with role-specific proof,
+  metadata, identity, and section names.
 
   ```text
   "valid parts" -> "valid entity and primary-key inputs"
-  "runtime parts" -> "runtime path"
-  "semantic parts" -> "aggregate inputs"
+  AcceptedGeneratedCompatibleRowShape -> AcceptedGeneratedRowCompatibilityProof
+  RelationDescriptor -> RelationFieldMetadata
+  IndexName::try_from_parts(...) -> IndexName::try_from_entity_fields(...)
+  query::fingerprint::hash_parts -> query::fingerprint::hash_sections
   ```
 
-- `0.165.14` continues the naming hard cut by moving projection test,
-  staged schema publication, public response, and metrics ratio helpers away
-  from generic parts vocabulary.
-
-  ```text
-  PreparedProjectionShape::from_test_parts(...) -> from_test_inputs(...)
-  Row::into_parts() -> into_id_and_entity()
-  MetricRatio::into_parts() -> into_numerator_and_denominator()
-  ```
-
-- `0.165.13` continues the naming hard cut by moving grouped runtime payload,
-  continuation window, test construction, and private execution handoff helpers
-  away from generic parts vocabulary.
-
-  ```text
-  RuntimeGroupedRow::into_parts() -> into_group_key_and_aggregate_values()
-  ResolvedExecutionKeyStream::into_parts() -> into_stream_resolution_fields()
-  StructuralCursorPage::into_parts() -> into_data_rows_and_cursor()
-  ```
-
-- `0.165.12` continues the naming hard cut by moving aggregate semantic and
-  grouped planning helpers away from generic parts vocabulary.
-
-  ```text
-  AggregateIdentity::from_parts(...) -> from_kind_input_and_distinct(...)
-  AggregateSemanticKey::into_parts() -> into_identity_and_filter()
-  GroupedAggregateExecutionSpec::from_uncompiled_parts(...) -> from_uncompiled_inputs(...)
-  ```
-
-- `0.165.11` continues the naming hard cut by moving private access, cache,
-  DESCRIBE, planner, SQL aggregate, and executor runtime helpers away from
-  generic parts vocabulary.
-
-  ```text
-  derive_single_path_access_shape_facts_from_parts(...) -> derive_single_path_access_shape_facts_from_inputs(...)
-  QueryPlanCacheKey::from_authority_parts(...) -> from_authority_cache_inputs(...)
-  describe_entity_model_with_parts(...) -> describe_entity_model_from_description_rows(...)
-  ```
-
-- `0.165.10` continues the naming hard cut by moving grouped continuation
-  window construction away from projection vocabulary.
+- `0.165.10`–`0.165.14` continue the naming hard cut across grouped windows,
+  cache/describe/planner helpers, aggregate semantic helpers, grouped runtime
+  payloads, and public/facade unpackers.
 
   ```text
   GroupedWindowProjection -> GroupedContinuationWindowDraft
+  QueryPlanCacheKey::from_authority_parts(...) -> from_authority_cache_inputs(...)
+  AggregateIdentity::from_parts(...) -> from_kind_input_and_distinct(...)
+  RuntimeGroupedRow::into_parts() -> into_group_key_and_aggregate_values()
+  Row::into_parts() -> into_id_and_entity()
   ```
 
-- `0.165.9` continues the naming hard cut by moving prepared executor boundary
-  payloads and runtime adapter constructors away from generic parts vocabulary.
-
-  ```text
-  prepared_execution_plan::parts -> prepared_execution_plan::handoff
-  PreparedScalarRuntimeParts -> PreparedScalarRuntimeHandoff
-  PreparedAccessPlanParts -> PreparedAccessPlanHandoff
-  ```
-
-- `0.165.8` continues the naming hard cut by moving private accepted relation
-  DESCRIBE metadata and SQL projection payload unpacking away from generic
-  parts vocabulary.
-
-  ```text
-  PersistedRelationDescriptionParts -> PersistedRelationDescriptionMetadata
-  persisted_relation_description_parts(...) -> persisted_relation_description_metadata(...)
-  SqlProjectionPayloadParts -> SqlProjectionPayloadComponents
-  ```
-
-- `0.165.7` continues the naming hard cut by moving cursor-token decode
-  handoff values from generic parts vocabulary to decoded payload/component
-  vocabulary.
-
-  ```text
-  ScalarTokenParts -> DecodedScalarTokenPayload
-  GroupedTokenParts -> DecodedGroupedTokenPayload
-  GroupedContinuationToken::into_parts() -> into_components()
-  ```
-
-- `0.165.6` continues the naming hard cut by moving grouped entrypoint runtime
-  and SQL global-aggregate command payloads out of broad core vocabulary.
-
-  ```text
-  GroupedPathRuntimeCore -> GroupedPathRuntimeContext
-  GroupedPathRuntimeCore::from_store(...) -> GroupedPathRuntimeContext::from_store(...)
-  SqlGlobalAggregateCommandCore -> StructuralSqlGlobalAggregateCommand
-  ```
-
-- `0.165.5` continues the naming hard cut by moving the prepared execution
-  constructor payload from generic parts vocabulary to an explicit input
-  context.
+- `0.165.5`–`0.165.9` continue the naming hard cut by moving prepared
+  execution, grouped runtime, cursor token, relation DESCRIBE, SQL projection,
+  and runtime handoff values away from generic parts/core wording.
 
   ```text
   PreparedExecutionInputParts -> PreparedExecutionInputContext
-  ExecutionInputs::new_prepared(parts) -> new_prepared(context)
+  GroupedPathRuntimeCore -> GroupedPathRuntimeContext
+  ScalarTokenParts -> DecodedScalarTokenPayload
+  PersistedRelationDescriptionParts -> PersistedRelationDescriptionMetadata
+  prepared_execution_plan::parts -> prepared_execution_plan::handoff
   ```
 
-- `0.165.4` continues the naming hard cut by moving access-layer capability
-  vocabulary onto access-shape facts and aligning route capability-facts module
-  names so route and aggregate policy consume derived fact surfaces instead of
-  vague capability sets.
-
-  ```text
-  access::capabilities -> access::shape_facts
-  route::capability -> route::capability_facts
-  AccessCapabilities -> AccessShapeFacts
-  ```
-
-- `0.165.3` continues the naming hard cut with SQL aggregate helper-verb
-  cleanup, public-surface keep decisions, and a residual vocabulary sweep that
-  found no accepted old-name hits in live code.
-
-  ```text
-  resolve_or_insert_global_aggregate_terminal -> intern_global_aggregate_terminal
-  resolve_having_global_aggregate_terminal_index -> intern_having_global_aggregate_terminal_index
-  QueryResponse / ProjectionResponse -> kept public response facade vocabulary
-  ```
-
-- `0.165.2` continues the naming hard cut by removing duplicate SQL scalar
-  aggregate descriptor-shape vocabulary in favor of plan-fragment terminology
-  and by separating aggregate semantic-key identity from aggregate semantics.
-
-  ```text
-  PreparedSqlScalarAggregateDescriptorShape -> PreparedSqlScalarAggregatePlanFragment
-  PreparedSqlScalarAggregateStrategy::descriptor_shape() -> plan_fragment()
-  prepared_descriptor_shape() -> prepared_plan_fragment()
-  ```
-
-- `0.165.1` continues the naming hard cut with covering-read facts,
-  prepared-plan residents, and validated cursor terminology aligned to their
-  planner/executor roles.
-
-  ```text
-  CoveringProjectionContext -> CoveringProjectionFacts
-  CoveringAccessMetadata -> IndexCoveringAccessFacts
-  PreparedExecutionPlanCoreShared -> PreparedExecutionPlanResidents
-  ```
-
-- `0.165.0` starts the naming hard cut with role-family governance and
-  route/access selection terminology aligned around modes, decisions,
-  contexts, and facts.
+- `0.165.0`–`0.165.4` start the naming hard cut with the role-family policy,
+  route/access terminology, SQL aggregate helper verbs, public-surface keep
+  decisions, and the first residual vocabulary sweep.
 
   ```text
   LoadOrderRouteContract -> LoadOrderRouteMode
   GroupedExecutionModeProjection -> GroupedExecutionModeContext
-  RouteCapabilities -> RouteCapabilityFacts
+  PreparedSqlScalarAggregateDescriptorShape -> PreparedSqlScalarAggregatePlanFragment
+  resolve_or_insert_global_aggregate_terminal -> intern_global_aggregate_terminal
+  AccessCapabilities -> AccessShapeFacts
   ```
 
 ## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
