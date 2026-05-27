@@ -3,7 +3,7 @@ use crate::{
         access::AccessPlan,
         query::{
             explain::ExplainAccessPath,
-            fingerprint::hash_parts::{
+            fingerprint::hash_sections::{
                 ACCESS_TAG_BY_KEY, ACCESS_TAG_BY_KEYS, ACCESS_TAG_FULL_SCAN,
                 ACCESS_TAG_INDEX_MULTI_LOOKUP, ACCESS_TAG_INDEX_PREFIX, ACCESS_TAG_INDEX_RANGE,
                 ACCESS_TAG_INTERSECTION, ACCESS_TAG_KEY_RANGE, ACCESS_TAG_UNION, write_str,

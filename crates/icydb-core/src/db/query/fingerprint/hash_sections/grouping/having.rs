@@ -1,7 +1,7 @@
 use crate::db::query::{
     builder::scalar_projection::render_scalar_projection_expr_plan_label,
     explain::{ExplainGroupAggregate, ExplainGroupField},
-    fingerprint::hash_parts::{
+    fingerprint::hash_sections::{
         GROUP_HAVING_ABSENT_TAG, GROUP_HAVING_AND_TAG, GROUP_HAVING_COMPARE_TAG,
         GROUP_HAVING_PRESENT_TAG, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG,
         GROUP_HAVING_VALUE_BINARY_TAG, GROUP_HAVING_VALUE_CASE_ARM_TAG,

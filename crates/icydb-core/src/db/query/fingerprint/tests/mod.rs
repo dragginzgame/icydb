@@ -18,7 +18,7 @@ use crate::{
             builder::sum,
             explain::ExplainGrouping,
             fingerprint::{
-                finalize_sha256_digest, hash_parts, new_continuation_signature_hasher,
+                finalize_sha256_digest, hash_sections, new_continuation_signature_hasher,
                 new_plan_fingerprint_hasher,
             },
             intent::{KeyAccess, build_access_plan_from_keys},
@@ -46,7 +46,7 @@ fn fingerprint_with_projection(plan: &AccessPlannedQuery, projection: &Projectio
     hash_explain_plan_profile_with_projection(
         &mut hasher,
         &explain,
-        hash_parts::ExplainHashProfile::Fingerprint,
+        hash_sections::ExplainHashProfile::Fingerprint,
         projection,
     );
 
@@ -56,10 +56,10 @@ fn fingerprint_with_projection(plan: &AccessPlannedQuery, projection: &Projectio
 fn hash_explain_plan_profile_with_projection(
     hasher: &mut Sha256,
     plan: &crate::db::query::explain::ExplainPlan,
-    profile: hash_parts::ExplainHashProfile<'_>,
+    profile: hash_sections::ExplainHashProfile<'_>,
     projection: &ProjectionSpec,
 ) {
-    hash_parts::hash_explain_plan_profile_internal(hasher, plan, profile, Some(projection));
+    hash_sections::hash_explain_plan_profile_internal(hasher, plan, profile, Some(projection));
 }
 
 fn full_scan_query() -> AccessPlannedQuery {

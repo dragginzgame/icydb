@@ -5,7 +5,7 @@
 
 mod aggregate_hash;
 mod fingerprint;
-mod hash_parts;
+mod hash_sections;
 mod projection_hash;
 mod shape_signature;
 #[cfg(test)]

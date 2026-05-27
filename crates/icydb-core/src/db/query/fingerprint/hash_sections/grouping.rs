@@ -7,7 +7,7 @@ use crate::db::{
         explain::ExplainGrouping,
         fingerprint::{
             aggregate_hash::{AggregateHashShape, hash_group_aggregate_structural_fingerprint},
-            hash_parts::{
+            hash_sections::{
                 GROUPING_NONE_TAG, GROUPING_PRESENT_TAG, GROUPING_STRATEGY_HASH_TAG,
                 GROUPING_STRATEGY_ORDERED_TAG, write_str, write_tag, write_u32,
             },
@@ -21,7 +21,7 @@ use crate::db::{
 };
 use sha2::Sha256;
 
-use crate::db::query::fingerprint::hash_parts::grouping::having::{
+use crate::db::query::fingerprint::hash_sections::grouping::having::{
     GroupHavingFingerprintSource, hash_group_having_projection,
 };
 

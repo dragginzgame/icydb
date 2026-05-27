@@ -19,7 +19,9 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             explain::ExplainGrouping,
-            fingerprint::{finalize_sha256_digest, hash_parts, new_continuation_signature_hasher},
+            fingerprint::{
+                finalize_sha256_digest, hash_sections, new_continuation_signature_hasher,
+            },
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::{
                 AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupSpec,
@@ -42,10 +44,10 @@ fn continuation_signature_with_projection(
     projection: &ProjectionSpec,
 ) -> ContinuationSignature {
     let mut hasher = new_continuation_signature_hasher();
-    hash_parts::hash_explain_plan_profile_internal(
+    hash_sections::hash_explain_plan_profile_internal(
         &mut hasher,
         explain,
-        hash_parts::ExplainHashProfile::Continuation { entity_path },
+        hash_sections::ExplainHashProfile::Continuation { entity_path },
         Some(projection),
     );
 

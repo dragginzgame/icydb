@@ -9,11 +9,11 @@ use crate::db::codec::new_hash_sha256;
 use crate::db::numeric::coerce_numeric_decimal;
 #[cfg(all(test, feature = "sql"))]
 use crate::db::query::fingerprint::finalize_sha256_digest;
-use crate::db::query::fingerprint::hash_parts::write_value;
+use crate::db::query::fingerprint::hash_sections::write_value;
 use crate::db::query::plan::expr::UnaryOp;
 use crate::db::query::{
     builder::aggregate::AggregateExpr,
-    fingerprint::hash_parts::{write_str, write_tag, write_u32},
+    fingerprint::hash_sections::{write_str, write_tag, write_u32},
     plan::{
         AggregateIdentity,
         expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},

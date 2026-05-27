@@ -1,4 +1,4 @@
-use crate::db::query::fingerprint::hash_parts::{
+use crate::db::query::fingerprint::hash_sections::{
     CONTINUATION_SECTION_ACCESS_TAG, CONTINUATION_SECTION_DISTINCT_TAG,
     CONTINUATION_SECTION_ENTITY_PATH_TAG, CONTINUATION_SECTION_GROUPING_SHAPE_TAG,
     CONTINUATION_SECTION_MODE_TAG, CONTINUATION_SECTION_ORDER_TAG,
@@ -31,7 +31,7 @@ pub(in crate::db::query) enum ExplainHashProfile<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query::fingerprint::hash_parts) enum ExplainHashField {
+pub(in crate::db::query::fingerprint::hash_sections) enum ExplainHashField {
     EntityPath,
     Mode,
     Access,
@@ -60,17 +60,17 @@ enum ExplainHashSource<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query::fingerprint::hash_parts) struct ExplainHashStep {
+pub(in crate::db::query::fingerprint::hash_sections) struct ExplainHashStep {
     pub(super) section_tag: u8,
     pub(super) field: ExplainHashField,
 }
 
-pub(in crate::db::query::fingerprint::hash_parts) struct ExplainHashProfileSpec<'a> {
+pub(in crate::db::query::fingerprint::hash_sections) struct ExplainHashProfileSpec<'a> {
     pub(super) entity_path: Option<&'a str>,
     pub(super) steps: &'static [ExplainHashStep],
 }
 
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_STEPS: [ExplainHashStep; 9] = [
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_STEPS: [ExplainHashStep; 9] = [
     ExplainHashStep {
         section_tag: FINGERPRINT_SECTION_ACCESS_TAG,
         field: ExplainHashField::Access,
@@ -109,7 +109,8 @@ pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_STEPS: [Expl
     },
 ];
 
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_STEPS: [ExplainHashStep; 8] = [
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_STEPS: [ExplainHashStep;
+    8] = [
     ExplainHashStep {
         section_tag: CONTINUATION_SECTION_ENTITY_PATH_TAG,
         field: ExplainHashField::EntityPath,
@@ -145,7 +146,7 @@ pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_STEPS: [Exp
 ];
 
 impl<'a> ExplainHashProfile<'a> {
-    pub(in crate::db::query::fingerprint::hash_parts) const fn spec(
+    pub(in crate::db::query::fingerprint::hash_sections) const fn spec(
         self,
     ) -> ExplainHashProfileSpec<'a> {
         match self {

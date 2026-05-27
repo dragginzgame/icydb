@@ -1,4 +1,4 @@
-//! Module: query::fingerprint::hash_parts
+//! Module: query::fingerprint::hash_sections
 //! Responsibility: canonical field/tag encoding for plan-hash profiles.
 //! Does not own: plan explain projection or token transport.
 //! Boundary: reusable hash primitives for fingerprints and continuation signatures.
@@ -89,32 +89,36 @@ const OPTIONAL_VALUE_PRESENT_TAG: u8 = 0x01;
 const ORDER_DIRECTION_ASC_TAG: u8 = 0x01;
 const ORDER_DIRECTION_DESC_TAG: u8 = 0x02;
 
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_ACCESS_TAG: u8 = 0x01;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_PREDICATE_TAG: u8 =
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_ACCESS_TAG: u8 =
+    0x01;
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_PREDICATE_TAG: u8 =
     0x02;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_ORDER_TAG: u8 = 0x03;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_DISTINCT_TAG: u8 = 0x04;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_PAGE_TAG: u8 = 0x05;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_DELETE_LIMIT_TAG: u8 =
-    0x06;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_CONSISTENCY_TAG: u8 =
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_ORDER_TAG: u8 = 0x03;
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_DISTINCT_TAG: u8 =
+    0x04;
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_PAGE_TAG: u8 = 0x05;
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_DELETE_LIMIT_TAG:
+    u8 = 0x06;
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_CONSISTENCY_TAG: u8 =
     0x07;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_MODE_TAG: u8 = 0x08;
-pub(in crate::db::query::fingerprint::hash_parts) const FINGERPRINT_SECTION_PROJECTION_SPEC_TAG:
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_MODE_TAG: u8 = 0x08;
+pub(in crate::db::query::fingerprint::hash_sections) const FINGERPRINT_SECTION_PROJECTION_SPEC_TAG:
     u8 = 0x09;
 
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_ENTITY_PATH_TAG: u8 =
-    0x01;
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_MODE_TAG: u8 = 0x02;
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_ACCESS_TAG: u8 = 0x03;
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_PREDICATE_TAG: u8 =
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_ENTITY_PATH_TAG:
+    u8 = 0x01;
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_MODE_TAG: u8 = 0x02;
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_ACCESS_TAG: u8 =
+    0x03;
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_PREDICATE_TAG: u8 =
     0x04;
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_ORDER_TAG: u8 = 0x05;
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_DISTINCT_TAG: u8 =
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_ORDER_TAG: u8 =
+    0x05;
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_DISTINCT_TAG: u8 =
     0x06;
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_GROUPING_SHAPE_TAG:
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_GROUPING_SHAPE_TAG:
     u8 = 0x07;
-pub(in crate::db::query::fingerprint::hash_parts) const CONTINUATION_SECTION_PROJECTION_SPEC_TAG:
+pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_PROJECTION_SPEC_TAG:
     u8 = 0x08;
 
 ///

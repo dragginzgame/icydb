@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.19` continues the naming hard cut by renaming query fingerprint hash
+  parts to section vocabulary.
+
+  ```text
+  query::fingerprint::hash_parts -> query::fingerprint::hash_sections
+  hash_parts::ExplainHashProfile -> hash_sections::ExplainHashProfile
+  hash_parts::hash_explain_plan_profile(...) -> hash_sections::hash_explain_plan_profile(...)
+  ```
+
 - `0.165.18` continues the naming hard cut by renaming index identity
   constructors away from generic parts vocabulary.
 

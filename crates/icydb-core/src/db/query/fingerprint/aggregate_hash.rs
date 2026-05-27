@@ -4,7 +4,7 @@
 //! Boundary: semantic grouped aggregate hash bytes independent from explain-only metadata.
 
 use crate::db::query::{
-    fingerprint::hash_parts::{write_str, write_tag},
+    fingerprint::hash_sections::{write_str, write_tag},
     plan::{AggregateIdentity, AggregateKind},
 };
 use sha2::Sha256;
