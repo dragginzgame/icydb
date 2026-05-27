@@ -235,7 +235,7 @@ fn insert_data_row(
     let entity = diagnostics_entity_tag(entity_name);
     let raw_key = DecodedDataStoreKey::new(entity, &key.into())
         .to_raw()
-        .expect("diagnostics test data key should encode from valid parts");
+        .expect("diagnostics test data key should encode from valid entity and primary-key inputs");
     insert_raw_data_row(path, raw_key, row_len);
 }
 
@@ -249,7 +249,7 @@ fn insert_composite_data_row(
     let primary_key = PrimaryKeyValue::Composite(*key);
     let raw_key = DecodedDataStoreKey::new_primary_key_value(entity, &primary_key)
         .to_raw()
-        .expect("diagnostics test composite data key should encode from valid parts");
+        .expect("diagnostics test composite data key should encode from valid entity and primary-key inputs");
     insert_raw_data_row(path, raw_key, row_len);
 }
 

@@ -62,7 +62,7 @@ pub(in crate::db) struct StructuralAggregateRequest {
 }
 
 impl StructuralAggregateRequest {
-    /// Build one structural aggregate request from lowered semantic parts.
+    /// Build one structural aggregate request from lowered aggregate inputs.
     #[must_use]
     pub(in crate::db) const fn new(
         terminals: Vec<StructuralAggregateTerminal>,

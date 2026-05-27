@@ -1840,7 +1840,7 @@ fn execute_sql_projection_retained_slot_index_route_matches_prepared_plan() {
     );
     assert!(
         metrics.slot_rows_path_hits > 0,
-        "DISTINCT projection should execute through retained-slot scalar runtime parts",
+        "DISTINCT projection should execute through the retained-slot scalar runtime path",
     );
 }
 

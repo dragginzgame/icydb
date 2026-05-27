@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.15` continues the naming hard cut by removing active assertion and
+  rustdoc wording that still taught generic parts vocabulary.
+
+  ```text
+  "valid parts" -> "valid entity and primary-key inputs"
+  "runtime parts" -> "runtime path"
+  "semantic parts" -> "aggregate inputs"
+  ```
+
 - `0.165.14` continues the naming hard cut by moving projection test,
   staged schema publication, public response, and metrics ratio helpers away
   from generic parts vocabulary.
