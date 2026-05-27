@@ -5,7 +5,7 @@
 //! Boundary: wires the executor owner `tests/` suite and keeps support
 //! fixtures in a dedicated support module.
 
-mod aggregate_core;
+mod aggregate_execution;
 mod aggregate_numeric;
 mod aggregate_optimizations;
 mod aggregate_path;

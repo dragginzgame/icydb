@@ -1,5 +1,5 @@
-//! Module: db::executor::tests::aggregate_core
-//! Covers core aggregate execution behavior across scalar and grouped routes.
+//! Module: db::executor::tests::aggregate_execution
+//! Covers aggregate execution behavior across scalar and grouped routes.
 //! Does not own: production aggregate behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 
@@ -960,7 +960,8 @@ fn ranked_k_one_cases() -> [RankedKOneCase; 6] {
 }
 
 #[test]
-fn aggregate_core_field_target_non_extrema_is_executor_invariant_only_when_planner_is_bypassed() {
+fn aggregate_execution_field_target_non_extrema_is_executor_invariant_only_when_planner_is_bypassed()
+ {
     seed_pushdown_entities(&[(8_021, 7, 10), (8_022, 7, 20), (8_023, 7, 30)]);
 
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
@@ -986,7 +987,7 @@ fn aggregate_core_field_target_non_extrema_is_executor_invariant_only_when_plann
 }
 
 #[test]
-fn aggregate_core_unknown_field_target_fails_without_scan_when_planner_is_bypassed() {
+fn aggregate_execution_unknown_field_target_fails_without_scan_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_041, 7, 10), (8_042, 7, 20), (8_043, 7, 30)]);
 
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
@@ -1011,7 +1012,7 @@ fn aggregate_core_unknown_field_target_fails_without_scan_when_planner_is_bypass
 }
 
 #[test]
-fn aggregate_core_non_orderable_field_target_fails_without_scan_when_planner_is_bypassed() {
+fn aggregate_execution_non_orderable_field_target_fails_without_scan_when_planner_is_bypassed() {
     seed_phase_entities(&[(8_051, 10), (8_052, 20), (8_053, 30)]);
 
     let (result, scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
@@ -1036,7 +1037,7 @@ fn aggregate_core_non_orderable_field_target_fails_without_scan_when_planner_is_
 }
 
 #[test]
-fn aggregate_core_unknown_rank_targets_fail_without_scan() {
+fn aggregate_execution_unknown_rank_targets_fail_without_scan() {
     seed_pushdown_entities(&[(8_1981, 7, 10), (8_1982, 7, 20), (8_1983, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
@@ -1127,7 +1128,7 @@ fn aggregate_core_unknown_rank_targets_fail_without_scan() {
 }
 
 #[test]
-fn aggregate_core_non_orderable_rank_targets_fail_without_scan() {
+fn aggregate_execution_non_orderable_rank_targets_fail_without_scan() {
     seed_phase_entities(&[(8_1991, 10), (8_1992, 20), (8_1993, 30)]);
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let build_plan = || {
@@ -1171,7 +1172,7 @@ fn aggregate_core_non_orderable_rank_targets_fail_without_scan() {
 }
 
 #[test]
-fn aggregate_core_field_target_extrema_select_deterministic_ids() {
+fn aggregate_execution_field_target_extrema_select_deterministic_ids() {
     seed_pushdown_entities(&[
         (8_031, 7, 20),
         (8_032, 7, 10),
@@ -1221,7 +1222,7 @@ fn aggregate_core_field_target_extrema_select_deterministic_ids() {
 }
 
 #[test]
-fn aggregate_core_field_target_tie_breaks_on_primary_key_ascending() {
+fn aggregate_execution_field_target_tie_breaks_on_primary_key_ascending() {
     seed_pushdown_entities(&[
         (8_061, 7, 10),
         (8_062, 7, 10),
@@ -1266,7 +1267,7 @@ fn aggregate_core_field_target_tie_breaks_on_primary_key_ascending() {
 }
 
 #[test]
-fn aggregate_core_secondary_index_min_uses_index_leading_order() {
+fn aggregate_execution_secondary_index_min_uses_index_leading_order() {
     seed_pushdown_entities(&[
         (8_071, 7, 30),
         (8_072, 7, 10),
@@ -1288,7 +1289,7 @@ fn aggregate_core_secondary_index_min_uses_index_leading_order() {
 }
 
 #[test]
-fn aggregate_core_secondary_index_max_tie_breaks_primary_key_ascending() {
+fn aggregate_execution_secondary_index_max_tie_breaks_primary_key_ascending() {
     seed_pushdown_entities(&[
         (8_081, 7, 20),
         (8_082, 7, 40),
@@ -1311,7 +1312,7 @@ fn aggregate_core_secondary_index_max_tie_breaks_primary_key_ascending() {
 }
 
 #[test]
-fn aggregate_core_secondary_index_extrema_strict_single_step_scans_offset_plus_one() {
+fn aggregate_execution_secondary_index_extrema_strict_single_step_scans_offset_plus_one() {
     assert_secondary_id_extrema_single_step(
         &SECONDARY_SINGLE_STEP_STRICT_ROWS,
         MissingRowPolicy::Error,
@@ -1322,7 +1323,8 @@ fn aggregate_core_secondary_index_extrema_strict_single_step_scans_offset_plus_o
 }
 
 #[test]
-fn aggregate_core_secondary_index_extrema_missing_ok_clean_single_step_scans_offset_plus_one() {
+fn aggregate_execution_secondary_index_extrema_missing_ok_clean_single_step_scans_offset_plus_one()
+{
     assert_secondary_id_extrema_single_step(
         &SECONDARY_SINGLE_STEP_MISSING_OK_ROWS,
         MissingRowPolicy::Ignore,
@@ -1333,7 +1335,7 @@ fn aggregate_core_secondary_index_extrema_missing_ok_clean_single_step_scans_off
 }
 
 #[test]
-fn aggregate_core_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back() {
+fn aggregate_execution_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back() {
     assert_secondary_id_extrema_missing_ok_stale_fallback(
         &SECONDARY_STALE_ID_ROWS,
         &[8_851, 8_854],
@@ -1341,12 +1343,12 @@ fn aggregate_core_secondary_index_extrema_missing_ok_stale_leading_probe_falls_b
 }
 
 #[test]
-fn aggregate_core_secondary_index_extrema_strict_stale_leading_surfaces_corruption_error() {
+fn aggregate_execution_secondary_index_extrema_strict_stale_leading_surfaces_corruption_error() {
     assert_secondary_id_extrema_strict_stale_corruption(&SECONDARY_STALE_ID_ROWS, &[8_851, 8_854]);
 }
 
 #[test]
-fn aggregate_core_field_extrema_missing_ok_stale_leading_probe_falls_back() {
+fn aggregate_execution_field_extrema_missing_ok_stale_leading_probe_falls_back() {
     assert_secondary_field_extrema_missing_ok_stale_fallback(
         &SECONDARY_STALE_FIELD_ROWS,
         &[8_261, 8_264],
@@ -1355,7 +1357,7 @@ fn aggregate_core_field_extrema_missing_ok_stale_leading_probe_falls_back() {
 }
 
 #[test]
-fn aggregate_core_field_extrema_strict_stale_leading_surfaces_corruption_error() {
+fn aggregate_execution_field_extrema_strict_stale_leading_surfaces_corruption_error() {
     assert_secondary_field_extrema_strict_stale_corruption(
         &SECONDARY_STALE_FIELD_ROWS,
         &[8_261, 8_264],
@@ -1364,7 +1366,7 @@ fn aggregate_core_field_extrema_strict_stale_leading_surfaces_corruption_error()
 }
 
 #[test]
-fn aggregate_core_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
+fn aggregate_execution_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
     seed_pushdown_entities(&[
         (8_281, 7, 10),
         (8_282, 7, 20),
@@ -1413,7 +1415,7 @@ fn aggregate_core_field_extrema_secondary_index_eligible_shape_locks_scan_budget
 }
 
 #[test]
-fn aggregate_core_field_extrema_index_leading_min_uses_one_key_probe_hint() {
+fn aggregate_execution_field_extrema_index_leading_min_uses_one_key_probe_hint() {
     seed_indexed_metrics_rows(&[(8_511, 10, "a"), (8_512, 10, "b"), (8_513, 30, "c")]);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
 
@@ -1439,7 +1441,7 @@ fn aggregate_core_field_extrema_index_leading_min_uses_one_key_probe_hint() {
 }
 
 #[test]
-fn aggregate_core_field_extrema_unique_index_leading_max_uses_one_key_probe_hint() {
+fn aggregate_execution_field_extrema_unique_index_leading_max_uses_one_key_probe_hint() {
     seed_unique_index_range_entities(&[(8_531, 10), (8_532, 20), (8_533, 30)]);
     let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
     let mut logical_plan = AccessPlannedQuery::new(
@@ -1481,7 +1483,7 @@ fn aggregate_core_field_extrema_unique_index_leading_max_uses_one_key_probe_hint
 }
 
 #[test]
-fn aggregate_core_field_extrema_index_leading_min_ignore_stale_probe_retries_unbounded() {
+fn aggregate_execution_field_extrema_index_leading_min_ignore_stale_probe_retries_unbounded() {
     seed_indexed_metrics_rows(&[(8_521, 10, "a"), (8_522, 20, "b"), (8_523, 30, "c")]);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
     remove_indexed_metrics_row_data(8_521);
@@ -1508,7 +1510,8 @@ fn aggregate_core_field_extrema_index_leading_min_ignore_stale_probe_retries_unb
 }
 
 #[test]
-fn aggregate_core_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single_step_probe() {
+fn aggregate_execution_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single_step_probe()
+ {
     seed_pushdown_entities(&[
         (8_301, 7, 10),
         (8_302, 7, 20),
@@ -1572,7 +1575,7 @@ fn aggregate_core_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_s
 
 #[test]
 #[expect(clippy::too_many_lines)]
-fn aggregate_core_field_terminal_error_classification_matrix() {
+fn aggregate_execution_field_terminal_error_classification_matrix() {
     seed_pushdown_entities(&[(8_291, 7, 10), (8_292, 7, 20), (8_293, 7, 30)]);
     let pushdown_load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let unknown_field_min_error = execute_min_by_slot_terminal(
@@ -1748,7 +1751,7 @@ fn aggregate_core_field_terminal_error_classification_matrix() {
 }
 
 #[test]
-fn aggregate_core_sum_distinct_uses_grouped_global_distinct_path() {
+fn aggregate_execution_sum_distinct_uses_grouped_global_distinct_path() {
     seed_pushdown_entities(&[
         (8_0991, 7, 10),
         (8_0992, 7, 20),
@@ -1779,7 +1782,7 @@ fn aggregate_core_sum_distinct_uses_grouped_global_distinct_path() {
 }
 
 #[test]
-fn aggregate_core_avg_distinct_uses_grouped_global_distinct_path() {
+fn aggregate_execution_avg_distinct_uses_grouped_global_distinct_path() {
     seed_pushdown_entities(&[
         (8_1091, 7, 10),
         (8_1092, 7, 20),
@@ -1810,7 +1813,7 @@ fn aggregate_core_avg_distinct_uses_grouped_global_distinct_path() {
 }
 
 #[test]
-fn aggregate_core_sum_distinct_is_insertion_order_invariant() {
+fn aggregate_execution_sum_distinct_is_insertion_order_invariant() {
     seed_pushdown_entities(&[
         (809_911, 7, 10),
         (809_912, 7, 20),
@@ -1854,7 +1857,7 @@ fn aggregate_core_sum_distinct_is_insertion_order_invariant() {
 }
 
 #[test]
-fn aggregate_core_sum_distinct_handles_large_values_without_wrap() {
+fn aggregate_execution_sum_distinct_handles_large_values_without_wrap() {
     seed_pushdown_entities(&[
         (809_921, 7, u32::MAX),
         (809_922, 7, u32::MAX - 1),
@@ -1887,7 +1890,7 @@ fn aggregate_core_sum_distinct_handles_large_values_without_wrap() {
 }
 
 #[test]
-fn aggregate_core_sum_distinct_preserves_decimal_integer_canonical_scale() {
+fn aggregate_execution_sum_distinct_preserves_decimal_integer_canonical_scale() {
     seed_pushdown_entities(&[
         (809_931, 7, 10),
         (809_932, 7, 20),
@@ -1919,7 +1922,7 @@ fn aggregate_core_sum_distinct_preserves_decimal_integer_canonical_scale() {
 }
 
 #[test]
-fn aggregate_core_grouped_having_supported_operator_executes_through_planner_shape() {
+fn aggregate_execution_grouped_having_supported_operator_executes_through_planner_shape() {
     seed_pushdown_entities(&[(8_1201, 7, 10), (8_1202, 7, 20), (8_1203, 7, 30)]);
     let session = crate::db::DbSession::new(DB);
 
@@ -1946,7 +1949,7 @@ fn aggregate_core_grouped_having_supported_operator_executes_through_planner_sha
 }
 
 #[test]
-fn aggregate_core_grouped_having_non_boolean_expr_fails_closed_when_planner_is_bypassed() {
+fn aggregate_execution_grouped_having_non_boolean_expr_fails_closed_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_1211, 7, 10), (8_1212, 7, 20), (8_1213, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
@@ -1994,7 +1997,7 @@ fn aggregate_core_grouped_having_non_boolean_expr_fails_closed_when_planner_is_b
 }
 
 #[test]
-fn aggregate_core_grouped_global_distinct_unsupported_kind_fails_without_scan() {
+fn aggregate_execution_grouped_global_distinct_unsupported_kind_fails_without_scan() {
     seed_pushdown_entities(&[(8_1221, 7, 10), (8_1222, 7, 20), (8_1223, 7, 30)]);
     let mut grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(crate::db::query::plan::GroupSpec {
@@ -2030,7 +2033,7 @@ fn aggregate_core_grouped_global_distinct_unsupported_kind_fails_without_scan() 
 }
 
 #[test]
-fn aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan() {
+fn aggregate_execution_grouped_scalar_distinct_policy_violation_fails_without_scan() {
     seed_pushdown_entities(&[(8_1231, 7, 10), (8_1232, 7, 20), (8_1233, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let mut grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
@@ -2077,7 +2080,7 @@ fn aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan() 
 }
 
 #[test]
-fn aggregate_core_grouped_field_target_aggregate_fails_without_scan() {
+fn aggregate_execution_grouped_field_target_aggregate_fails_without_scan() {
     seed_pushdown_entities(&[(8_1241, 7, 10), (8_1242, 7, 20), (8_1243, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
@@ -2124,7 +2127,7 @@ fn aggregate_core_grouped_field_target_aggregate_fails_without_scan() {
 }
 
 #[test]
-fn aggregate_core_nth_by_rank_selects_deterministic_positions() {
+fn aggregate_execution_nth_by_rank_selects_deterministic_positions() {
     seed_pushdown_entities(&[
         (8_142, 7, 10),
         (8_141, 7, 10),
@@ -2204,7 +2207,7 @@ fn aggregate_core_nth_by_rank_selects_deterministic_positions() {
 }
 
 #[test]
-fn aggregate_core_nth_boundary_matrix_respects_window_and_out_of_range() {
+fn aggregate_execution_nth_boundary_matrix_respects_window_and_out_of_range() {
     seed_pushdown_entities(&[
         (8_171, 7, 10),
         (8_172, 7, 10),
@@ -2269,7 +2272,7 @@ fn aggregate_core_nth_boundary_matrix_respects_window_and_out_of_range() {
 }
 
 #[test]
-fn aggregate_core_nth_unknown_and_non_orderable_targets_fail_without_scan() {
+fn aggregate_execution_nth_unknown_and_non_orderable_targets_fail_without_scan() {
     seed_pushdown_entities(&[(8_151, 7, 10), (8_152, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let unknown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -2318,7 +2321,7 @@ fn aggregate_core_nth_unknown_and_non_orderable_targets_fail_without_scan() {
 }
 
 #[test]
-fn aggregate_core_median_even_window_uses_lower_policy() {
+fn aggregate_execution_median_even_window_uses_lower_policy() {
     seed_pushdown_entities(&[
         (8_181, 7, 10),
         (8_182, 7, 20),
@@ -2352,7 +2355,7 @@ fn aggregate_core_median_even_window_uses_lower_policy() {
 }
 
 #[test]
-fn aggregate_core_median_order_direction_invariant_on_same_window() {
+fn aggregate_execution_median_order_direction_invariant_on_same_window() {
     seed_pushdown_entities(&[
         (8_2051, 7, 10),
         (8_2052, 7, 20),
@@ -2392,7 +2395,7 @@ fn aggregate_core_median_order_direction_invariant_on_same_window() {
 }
 
 #[test]
-fn aggregate_core_median_and_min_max_unknown_field_fail_without_scan() {
+fn aggregate_execution_median_and_min_max_unknown_field_fail_without_scan() {
     seed_pushdown_entities(&[(8_1981, 7, 10), (8_1982, 7, 20), (8_1983, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
@@ -2435,7 +2438,7 @@ fn aggregate_core_median_and_min_max_unknown_field_fail_without_scan() {
 }
 
 #[test]
-fn aggregate_core_min_max_matches_individual_extrema() {
+fn aggregate_execution_min_max_matches_individual_extrema() {
     seed_pushdown_entities(&[
         (8_2011, 7, 10),
         (8_2012, 7, 10),
@@ -2491,7 +2494,7 @@ fn aggregate_core_min_max_matches_individual_extrema() {
 }
 
 #[test]
-fn aggregate_core_min_max_metamorphic_matrix_matches_individual_extrema() {
+fn aggregate_execution_min_max_metamorphic_matrix_matches_individual_extrema() {
     seed_pushdown_entities(&[
         (8_2021, 7, 10),
         (8_2022, 7, 10),
@@ -2572,7 +2575,7 @@ fn aggregate_core_min_max_metamorphic_matrix_matches_individual_extrema() {
 }
 
 #[test]
-fn aggregate_core_min_max_empty_window_returns_none() {
+fn aggregate_execution_min_max_empty_window_returns_none() {
     seed_pushdown_entities(&[(8_2031, 7, 10), (8_2032, 7, 20), (8_2033, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
@@ -2594,7 +2597,7 @@ fn aggregate_core_min_max_empty_window_returns_none() {
 }
 
 #[test]
-fn aggregate_core_min_max_single_row_returns_same_id_pair() {
+fn aggregate_execution_min_max_single_row_returns_same_id_pair() {
     seed_pushdown_entities(&[(8_2041, 7, 10), (8_2042, 7, 20), (8_2043, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
@@ -2620,7 +2623,7 @@ fn aggregate_core_min_max_single_row_returns_same_id_pair() {
 }
 
 #[test]
-fn aggregate_core_numeric_field_unknown_target_fails_without_scan() {
+fn aggregate_execution_numeric_field_unknown_target_fails_without_scan() {
     seed_pushdown_entities(&[(8_101, 7, 10), (8_102, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -2645,7 +2648,7 @@ fn aggregate_core_numeric_field_unknown_target_fails_without_scan() {
 }
 
 #[test]
-fn aggregate_core_numeric_field_non_numeric_target_fails_without_scan() {
+fn aggregate_execution_numeric_field_non_numeric_target_fails_without_scan() {
     seed_pushdown_entities(&[(8_111, 7, 10), (8_112, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -2670,7 +2673,7 @@ fn aggregate_core_numeric_field_non_numeric_target_fails_without_scan() {
 }
 
 #[test]
-fn aggregate_core_top_k_by_direction_invariance_across_forced_access_shapes() {
+fn aggregate_execution_top_k_by_direction_invariance_across_forced_access_shapes() {
     // Phase 1: force a full-scan shape and assert ASC/DESC base-order invariance.
     seed_simple_entities(&[8_3941, 8_3942, 8_3943, 8_3944, 8_3945, 8_3946]);
     let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
@@ -2750,7 +2753,7 @@ fn aggregate_core_top_k_by_direction_invariance_across_forced_access_shapes() {
 }
 
 #[test]
-fn aggregate_core_rank_k_one_extrema_equivalence_matrix() {
+fn aggregate_execution_rank_k_one_extrema_equivalence_matrix() {
     for case in ranked_k_one_cases() {
         seed_pushdown_entities(case.rows);
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
@@ -2805,7 +2808,7 @@ fn aggregate_core_rank_k_one_extrema_equivalence_matrix() {
 }
 
 #[test]
-fn aggregate_core_rank_k_one_extrema_equivalence_matrix_covers_all_projection_forms() {
+fn aggregate_execution_rank_k_one_extrema_equivalence_matrix_covers_all_projection_forms() {
     let labels = ranked_k_one_cases().map(|case| case.label);
     assert_eq!(
         labels,
@@ -2823,7 +2826,7 @@ fn aggregate_core_rank_k_one_extrema_equivalence_matrix_covers_all_projection_fo
 
 #[test]
 #[expect(clippy::too_many_lines)]
-fn aggregate_core_take_and_rank_terminals_k_zero_return_empty_with_execute_scan_parity() {
+fn aggregate_execution_take_and_rank_terminals_k_zero_return_empty_with_execute_scan_parity() {
     seed_pushdown_entities(&[
         (8_3761, 7, 10),
         (8_3762, 7, 20),

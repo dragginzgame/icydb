@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.27` continues the naming hard cut by moving aggregate executor test
+  coverage away from broad core vocabulary and into aggregate-execution
+  vocabulary.
+
+  ```text
+  executor::tests::aggregate_core -> executor::tests::aggregate_execution
+  mod aggregate_core; -> mod aggregate_execution;
+  aggregate_core_* tests -> aggregate_execution_* tests
+  ```
+
 - `0.165.26` continues the naming hard cut by moving persisted-row reader and
   SQL semantic compiler ownership away from broad core vocabulary.
 
