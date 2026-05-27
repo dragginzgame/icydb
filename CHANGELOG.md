@@ -15,9 +15,23 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   prepared-plan residents, and validated cursor terminology aligned to their
   planner/executor roles.
 
+  ```text
+  CoveringProjectionContext -> CoveringProjectionFacts
+  CoveringAccessMetadata -> IndexCoveringAccessFacts
+  PreparedExecutionPlanCoreShared -> PreparedExecutionPlanResidents
+  PlannedCursor -> ValidatedCursor
+  GroupedPlannedCursor -> ValidatedGroupedCursor
+  ```
+
 - `0.165.0` starts the naming hard cut with role-family governance and
   route/access selection terminology aligned around modes, decisions,
   contexts, and facts.
+
+  ```text
+  LoadOrderRouteContract -> LoadOrderRouteMode
+  GroupedExecutionModeProjection -> GroupedExecutionModeContext
+  RouteCapabilities -> RouteCapabilityFacts
+  ```
 
 ## [0.164.x] 🔗 - 2026-05-26 - Composite Relation Targets
 
