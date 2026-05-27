@@ -57,9 +57,9 @@ impl MetricRatio {
         self.denominator
     }
 
-    /// Returns the raw ratio pair.
+    /// Returns the raw numerator and denominator pair.
     #[must_use]
-    pub const fn into_parts(self) -> (u64, u64) {
+    pub const fn into_numerator_and_denominator(self) -> (u64, u64) {
         (self.numerator, self.denominator)
     }
 }

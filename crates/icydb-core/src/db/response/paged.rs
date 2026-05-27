@@ -41,9 +41,9 @@ impl<E: EntityKind> PagedLoadExecution<E> {
         self.continuation_cursor.as_deref()
     }
 
-    /// Consume this payload and return `(response, continuation_cursor)`.
+    /// Consume this payload and return response rows plus continuation cursor.
     #[must_use]
-    pub fn into_parts(self) -> (EntityResponse<E>, Option<Vec<u8>>) {
+    pub fn into_response_and_cursor(self) -> (EntityResponse<E>, Option<Vec<u8>>) {
         (self.response, self.continuation_cursor)
     }
 }
@@ -123,9 +123,11 @@ impl<E: EntityKind> PagedLoadExecutionWithTrace<E> {
         }
     }
 
-    /// Consume this payload and return `(response, continuation_cursor, trace)`.
+    /// Consume this payload and return response rows, continuation cursor, and trace.
     #[must_use]
-    pub fn into_parts(self) -> (EntityResponse<E>, Option<Vec<u8>>, Option<ExecutionTrace>) {
+    pub fn into_response_cursor_and_trace(
+        self,
+    ) -> (EntityResponse<E>, Option<Vec<u8>>, Option<ExecutionTrace>) {
         (
             self.response,
             self.continuation_cursor,

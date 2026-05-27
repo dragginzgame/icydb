@@ -106,10 +106,10 @@ impl PreparedProjectionShape {
         self.projected_slot_mask.as_slice()
     }
 
-    /// Build one projection shape directly from test-owned prepared parts.
+    /// Build one projection shape directly from test-owned prepared inputs.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_test_parts(
+    pub(in crate::db) const fn from_test_inputs(
         projection: ProjectionSpec,
         prepared: PreparedProjectionPlan,
         projection_is_model_identity: bool,

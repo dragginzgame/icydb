@@ -110,7 +110,7 @@ fn field_path_projection_materialization_decodes_nested_values() {
             CompiledExpr::compile(&scalar)
         })
         .collect();
-    let prepared_projection = PreparedProjectionShape::from_test_parts(
+    let prepared_projection = PreparedProjectionShape::from_test_inputs(
         projection,
         PreparedProjectionPlan::Scalar(prepared_fields),
         false,
@@ -329,7 +329,7 @@ fn projection_materialization_exposes_projected_rows_payload() {
 
 #[cfg(feature = "sql")]
 fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_parts(
+    PreparedProjectionShape::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Field(FieldId::new("rank")),
             alias: None,
@@ -344,7 +344,7 @@ fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShap
 
 #[cfg(feature = "sql")]
 fn repeated_direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_parts(
+    PreparedProjectionShape::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![
             ProjectionField::Scalar {
                 expr: Expr::Field(FieldId::new("rank")),
@@ -408,7 +408,7 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
         })
         .collect();
 
-    PreparedProjectionShape::from_test_parts(
+    PreparedProjectionShape::from_test_inputs(
         projection,
         PreparedProjectionPlan::Scalar(prepared_fields),
         false,

@@ -692,7 +692,7 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     pub(in crate::db::schema) fn from_overlay_validation(
         validation: &SchemaFieldPathIndexStagedStoreOverlayValidation,
     ) -> Self {
-        Self::from_validated_parts(
+        Self::from_validation_inputs(
             validation.store(),
             validation.entry_count(),
             validation.store_visibility(),
@@ -704,7 +704,7 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     pub(in crate::db::schema) fn from_isolated_index_store_validation(
         validation: &SchemaFieldPathIndexIsolatedIndexStoreValidation,
     ) -> Self {
-        Self::from_validated_parts(
+        Self::from_validation_inputs(
             validation.store(),
             validation.entry_count(),
             validation.store_visibility(),
@@ -716,7 +716,7 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     fn from_runtime_invalidation_report(
         report: &SchemaFieldPathIndexRuntimeInvalidationReport,
     ) -> Self {
-        Self::from_validated_parts(
+        Self::from_validation_inputs(
             report.store(),
             report.entry_count(),
             report.store_visibility(),
@@ -728,7 +728,7 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     fn from_snapshot_publication_report(
         report: &SchemaFieldPathIndexSnapshotPublicationReport,
     ) -> Self {
-        Self::from_validated_parts(
+        Self::from_validation_inputs(
             report.store(),
             report.entry_count(),
             report.store_visibility(),
@@ -738,7 +738,7 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
 
     #[must_use]
     fn from_published_store_report(report: &SchemaFieldPathIndexPublishedStoreReport) -> Self {
-        Self::from_validated_parts(
+        Self::from_validation_inputs(
             report.store(),
             report.entry_count(),
             report.store_visibility(),
@@ -747,7 +747,7 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     }
 
     #[must_use]
-    fn from_validated_parts(
+    fn from_validation_inputs(
         store: &str,
         entry_count: usize,
         store_visibility: SchemaMutationStoreVisibility,

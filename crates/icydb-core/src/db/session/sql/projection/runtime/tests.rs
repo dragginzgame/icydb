@@ -16,7 +16,7 @@ use crate::{
 };
 
 fn direct_rank_projection_shape() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_parts(
+    PreparedProjectionShape::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Field(FieldId::new("rank")),
             alias: None,
@@ -30,7 +30,7 @@ fn direct_rank_projection_shape() -> PreparedProjectionShape {
 }
 
 fn repeated_direct_rank_projection_shape() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_parts(
+    PreparedProjectionShape::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![
             ProjectionField::Scalar {
                 expr: Expr::Field(FieldId::new("rank")),

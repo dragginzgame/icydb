@@ -46,9 +46,9 @@ impl SqlProjectionRows {
         self.row_count
     }
 
-    /// Consume and return projection row parts.
+    /// Consume and return projection columns, rendered rows, and row count.
     #[must_use]
-    pub fn into_parts(self) -> (Vec<String>, Vec<Vec<String>>, u32) {
+    pub fn into_columns_rows_and_count(self) -> (Vec<String>, Vec<Vec<String>>, u32) {
         (self.columns, self.rows, self.row_count)
     }
 }
@@ -66,7 +66,7 @@ impl SqlQueryRowsOutput {
     /// Build one endpoint-friendly rows payload from one projection result.
     #[must_use]
     pub fn from_projection(entity: String, projection: SqlProjectionRows) -> Self {
-        let (columns, rows, row_count) = projection.into_parts();
+        let (columns, rows, row_count) = projection.into_columns_rows_and_count();
 
         Self {
             entity,

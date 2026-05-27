@@ -77,9 +77,9 @@ impl<E: EntityKind> Row<E> {
         &self.entity
     }
 
-    /// Consume and return `(id, entity)` parts.
+    /// Consume and return row identity plus entity payload.
     #[must_use]
-    pub fn into_parts(self) -> (Id<E>, E) {
+    pub fn into_id_and_entity(self) -> (Id<E>, E) {
         (self.id, self.entity)
     }
 }
@@ -133,9 +133,9 @@ impl<E: EntityKind> ProjectedRow<E> {
         self.values.as_slice()
     }
 
-    /// Consume and return `(id, projected_values)`.
+    /// Consume and return source row identity plus projected values.
     #[must_use]
-    pub fn into_parts(self) -> (Id<E>, Vec<OutputValue>) {
+    pub fn into_id_and_values(self) -> (Id<E>, Vec<OutputValue>) {
         (self.id, self.values)
     }
 }

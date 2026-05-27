@@ -62,6 +62,70 @@ SqlProjectionPayload::into_parts() -> into_components()
 SqlProjectionContract::into_parts() -> into_components()
 ```
 
+### Public Response Unpackers
+
+Role proof:
+
+- Owning modules: `icydb_core::db::response`, `icydb_core::db::response::paged`,
+  `icydb_core::db::response::grouped`, and `icydb::db::sql::types`
+- Payload: public/facade response DTO unpackers that consume row, projection,
+  page, grouped-page, traced-page, or SQL projection payloads
+- Main consumers: fluent query response adapters, SQL execution response
+  shaping, and public/session tests
+- Chosen family: explicit payload-field vocabulary
+- Rejected alternatives:
+  - `into_parts`: too weak for public API because callers need to know whether
+    they receive row identity, entity payload, projection values, cursor bytes,
+    trace metadata, or SQL rendered row counts
+  - `into_components`: still hides the public response fields being returned
+  - keeping aliases: rejected by the 0.165 pre-1.0 hard-cut rule
+- Public-surface impact: yes; this is a pre-1.0 public API rename and is
+  documented in the changelog with migration wording
+- Hard-cut rule: remove old public helper names rather than keeping forwarding
+  aliases or compatibility shims
+
+Accepted renames:
+
+```text
+Row::into_parts() -> into_id_and_entity()
+PagedLoadExecution::into_parts() -> into_response_and_cursor()
+PagedGroupedExecutionWithTrace::into_parts() -> into_rows_cursor_and_trace()
+```
+
+Additional public/facade helper renames:
+
+```text
+ProjectedRow::into_parts() -> into_id_and_values()
+PagedLoadExecutionWithTrace::into_parts() -> into_response_cursor_and_trace()
+SqlProjectionRows::into_parts() -> into_columns_rows_and_count()
+```
+
+### `MetricRatio::into_parts` -> `into_numerator_and_denominator`
+
+Role proof:
+
+- Owning module: `metrics::state`
+- Payload: public metrics ratio DTO unpacker that consumes one exact numerator
+  and denominator pair
+- Main consumers: metrics assertions and downstream metrics rendering code that
+  wants exact ratio inputs
+- Chosen family: explicit numeric-field vocabulary
+- Rejected alternatives:
+  - `into_parts`: too weak for public API because callers need to know the
+    returned pair is ordered as numerator then denominator
+  - `into_pair`: still hides the meaning and order of the two values
+  - keeping aliases: rejected by the 0.165 pre-1.0 hard-cut rule
+- Public-surface impact: yes; this is a pre-1.0 public API rename and is
+  documented in the changelog with migration wording
+- Hard-cut rule: remove the old public helper name rather than keeping a
+  forwarding alias or compatibility shim
+
+Accepted rename:
+
+```text
+MetricRatio::into_parts() -> into_numerator_and_denominator()
+```
+
 ### `describe_entity_model_with_parts` -> `describe_entity_model_from_description_rows`
 
 Role proof:
@@ -83,9 +147,9 @@ Role proof:
 - Hard-cut rule: remove the old private helper name from live schema describe
   code
 
-No public names are renamed in this family. Public names audited here already
-match user-facing database or diagnostics vocabulary closely enough to keep.
-0.165 does not rename public facade/result DTOs for internal consistency alone.
+Public type names audited here already match user-facing database or diagnostics
+vocabulary closely enough to keep. 0.165 renames only public unpacker helpers
+whose old `into_parts` names concealed the returned response fields.
 
 ## Kept Names
 
@@ -166,7 +230,7 @@ deterministic order without exposing a `BTreeMap` implementation detail.
 
 None for 0.165.
 
-If a future public API cleanup proposes a rename, it needs a user-facing
+If a future public API cleanup proposes another rename, it needs a user-facing
 benefit, migration wording, and changelog entry. Internal naming consistency is
 not enough justification for public surface churn.
 
@@ -180,6 +244,8 @@ rg -n "Response|Result|Output|Attribution|Descriptor|PropertyMap" crates/icydb/s
 rg -n "PersistedRelationDescriptionParts|persisted_relation_description_parts|PersistedRelationDescriptionMetadata|persisted_relation_description_metadata" crates/icydb-core/src/db/schema/describe.rs docs/design/0.165-naming-audit-and-role-alignment
 rg -n "SqlProjectionPayloadParts|SqlProjectionPayloadComponents|SqlProjectionPayload::into_parts|SqlProjectionContract::into_parts|into_components\\(" crates/icydb-core/src/db/session/sql docs/design/0.165-naming-audit-and-role-alignment
 rg -n "describe_entity_model_with_parts|describe_entity_model_from_description_rows" crates/icydb-core/src/db/schema/describe.rs docs/design/0.165-naming-audit-and-role-alignment
+rg -n "Row::into_parts|ProjectedRow::into_parts|PagedLoadExecution::into_parts|PagedLoadExecutionWithTrace::into_parts|PagedGroupedExecution::into_parts|PagedGroupedExecutionWithTrace::into_parts|SqlProjectionRows::into_parts|\\.into_parts\\(" crates/icydb-core/src/db/response crates/icydb-core/src/db/session crates/icydb/src/db
+rg -n "MetricRatio::into_parts|MetricRatio::into_numerator_and_denominator|into_numerator_and_denominator" crates/icydb-core/src/metrics docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining hits are intentional public/facade vocabulary, active 0.165 audit

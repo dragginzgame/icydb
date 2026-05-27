@@ -25,7 +25,8 @@ impl<E: EntityKind> QueryResponse<E> {
         match inner {
             CoreLoadQueryResult::Rows(rows) => Self::Rows(Response::from_core(rows)),
             CoreLoadQueryResult::Grouped(grouped) => {
-                let (rows, continuation_cursor, execution_trace) = grouped.into_parts();
+                let (rows, continuation_cursor, execution_trace) =
+                    grouped.into_rows_cursor_and_trace();
                 let next_cursor = continuation_cursor
                     .as_deref()
                     .map(icydb_core::db::encode_cursor);

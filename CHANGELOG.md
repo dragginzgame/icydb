@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.14` continues the naming hard cut by moving projection test,
+  staged schema publication, public response, and metrics ratio helpers away
+  from generic parts vocabulary.
+
+  ```text
+  PreparedProjectionShape::from_test_parts(...) -> from_test_inputs(...)
+  Row::into_parts() -> into_id_and_entity()
+  MetricRatio::into_parts() -> into_numerator_and_denominator()
+  ```
+
 - `0.165.13` continues the naming hard cut by moving grouped runtime payload,
   continuation window, test construction, and private execution handoff helpers
   away from generic parts vocabulary.

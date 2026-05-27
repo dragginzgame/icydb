@@ -825,34 +825,38 @@ fn derived_ratio_helpers_use_raw_counter_totals_without_changing_report_shape() 
     };
 
     assert_eq!(
-        ops.load_selectivity_ratio().map(MetricRatio::into_parts),
+        ops.load_selectivity_ratio()
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((4, 16))
     );
     assert_eq!(
-        ops.load_filter_ratio().map(MetricRatio::into_parts),
+        ops.load_filter_ratio()
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((12, 16))
     );
     assert_eq!(
-        ops.sql_write_mutation_ratio().map(MetricRatio::into_parts),
+        ops.sql_write_mutation_ratio()
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((4, 8))
     );
     assert_eq!(
-        ops.sql_write_returning_ratio().map(MetricRatio::into_parts),
+        ops.sql_write_returning_ratio()
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((2, 4))
     );
     assert_eq!(
         ops.write_index_entries_per_row()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((8, 4))
     );
     assert_eq!(
         ops.write_reverse_index_entries_per_row()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((6, 4)),
     );
     assert_eq!(
         ops.write_relation_checks_per_row()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((2, 4))
     );
 
@@ -1352,41 +1356,43 @@ fn entity_summary_derived_ratio_helpers_use_projected_counter_totals() {
     assert_eq!(
         summary
             .load_selectivity_ratio()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((10, 20)),
     );
     assert_eq!(
-        summary.load_filter_ratio().map(MetricRatio::into_parts),
+        summary
+            .load_filter_ratio()
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((5, 20)),
     );
     assert_eq!(
         summary
             .sql_write_mutation_ratio()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((6, 8)),
     );
     assert_eq!(
         summary
             .sql_write_returning_ratio()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((3, 6)),
     );
     assert_eq!(
         summary
             .write_index_entries_per_row()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((2, 4)),
     );
     assert_eq!(
         summary
             .write_reverse_index_entries_per_row()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((8, 4)),
     );
     assert_eq!(
         summary
             .write_relation_checks_per_row()
-            .map(MetricRatio::into_parts),
+            .map(MetricRatio::into_numerator_and_denominator),
         Some((1, 4)),
     );
 }

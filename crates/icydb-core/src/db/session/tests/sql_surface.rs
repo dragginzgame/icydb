@@ -1290,7 +1290,7 @@ fn fluent_load_reads_old_rows_after_nullable_additive_schema_transition() {
         .rows();
     let [(row_id, entity)] = rows
         .into_iter()
-        .map(Row::into_parts)
+        .map(Row::into_id_and_entity)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|rows: Vec<_>| {
@@ -1320,7 +1320,7 @@ fn fluent_take_reads_old_rows_after_nullable_additive_schema_transition() {
         .rows();
     let [(row_id, entity)] = rows
         .into_iter()
-        .map(Row::into_parts)
+        .map(Row::into_id_and_entity)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|rows: Vec<_>| {
@@ -1351,11 +1351,11 @@ fn fluent_paged_load_reads_old_rows_after_nullable_additive_schema_transition() 
         .expect(
             "fluent paged load should accept old row after nullable append-only schema transition",
         )
-        .into_parts();
+        .into_response_and_cursor();
     let [(row_id, entity)] = response
         .rows()
         .into_iter()
-        .map(Row::into_parts)
+        .map(Row::into_id_and_entity)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|rows: Vec<_>| {
@@ -1386,7 +1386,7 @@ fn fluent_top_k_reads_old_rows_after_nullable_additive_schema_transition() {
         .rows();
     let [(row_id, entity)] = rows
         .into_iter()
-        .map(Row::into_parts)
+        .map(Row::into_id_and_entity)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|rows: Vec<_>| {
@@ -1419,7 +1419,7 @@ fn fluent_delete_returns_old_rows_after_nullable_additive_schema_transition() {
         .rows();
     let [(row_id, entity)] = rows
         .into_iter()
-        .map(Row::into_parts)
+        .map(Row::into_id_and_entity)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|rows: Vec<_>| {

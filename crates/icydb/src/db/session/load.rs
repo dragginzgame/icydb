@@ -754,7 +754,7 @@ impl<E: Entity> PagedLoadQuery<'_, E> {
         E: Entity,
     {
         let execution = self.inner.execute()?;
-        let (response, continuation_cursor) = execution.into_parts();
+        let (response, continuation_cursor) = execution.into_response_and_cursor();
         let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
 
         Ok(PagedResponse::new(response.entities(), next_cursor))

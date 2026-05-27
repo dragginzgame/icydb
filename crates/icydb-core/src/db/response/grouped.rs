@@ -78,7 +78,7 @@ impl PagedGroupedExecution {
 
     /// Consume into grouped rows and continuation cursor bytes.
     #[must_use]
-    pub fn into_parts(self) -> (Vec<GroupedRow>, Option<Vec<u8>>) {
+    pub fn into_rows_and_cursor(self) -> (Vec<GroupedRow>, Option<Vec<u8>>) {
         (self.rows, self.continuation_cursor)
     }
 }
@@ -146,7 +146,9 @@ impl PagedGroupedExecutionWithTrace {
 
     /// Consume into grouped rows, continuation cursor bytes, and optional trace.
     #[must_use]
-    pub fn into_parts(self) -> (Vec<GroupedRow>, Option<Vec<u8>>, Option<ExecutionTrace>) {
+    pub fn into_rows_cursor_and_trace(
+        self,
+    ) -> (Vec<GroupedRow>, Option<Vec<u8>>, Option<ExecutionTrace>) {
         (self.rows, self.continuation_cursor, self.execution_trace)
     }
 }
