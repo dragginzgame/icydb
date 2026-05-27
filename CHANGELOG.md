@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.8` continues the naming hard cut by moving private accepted relation
+  DESCRIBE metadata and SQL projection payload unpacking away from generic
+  parts vocabulary.
+
+  ```text
+  PersistedRelationDescriptionParts -> PersistedRelationDescriptionMetadata
+  persisted_relation_description_parts(...) -> persisted_relation_description_metadata(...)
+  SqlProjectionPayloadParts -> SqlProjectionPayloadComponents
+  SqlProjectionPayload::into_parts() -> into_components()
+  SqlProjectionContract::into_parts() -> into_components()
+  ```
+
 - `0.165.7` continues the naming hard cut by moving cursor-token decode
   handoff values from generic parts vocabulary to decoded payload/component
   vocabulary.

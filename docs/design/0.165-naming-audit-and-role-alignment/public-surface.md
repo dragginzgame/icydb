@@ -6,11 +6,65 @@ Complete.
 
 ## Accepted Renames
 
-None.
+### `PersistedRelationDescriptionParts` -> `PersistedRelationDescriptionMetadata`
 
-Public names audited in this family already match user-facing database or
-diagnostics vocabulary closely enough to keep. 0.165 does not rename public
-facade/result DTOs for internal consistency alone.
+Role proof:
+
+- Owning module: `db::schema::describe`
+- Payload: private metadata view extracted from persisted accepted relation
+  field contracts while building public DESCRIBE relation rows
+- Main consumers: accepted-schema DESCRIBE relation rendering
+- Chosen family: `*Metadata`
+- Rejected alternatives:
+  - `*Parts`: too weak because the value is not a general decomposition; it is
+    the persisted relation metadata needed for one describe row
+  - `*Context`: wrong because it is returned metadata, not owner-local
+    traversal/input state
+  - `*Descriptor`: wrong because the public renderable row is
+    `EntityRelationDescription`; this private value only feeds that description
+- Public-surface impact: none; the public `EntityRelationDescription` surface
+  is unchanged
+- Hard-cut rule: remove the old private type and helper vocabulary from live
+  schema describe code
+
+Companion helper rename:
+
+- `persisted_relation_description_parts(...)` ->
+  `persisted_relation_description_metadata(...)`
+
+### SQL Projection Payload Components
+
+Role proof:
+
+- Owning modules: `db::session::sql::compiled` and
+  `db::session::sql::projection::payload`
+- Payload: private component unpacking for SQL projection contracts and
+  projection payloads crossing SQL execution/write boundaries
+- Main consumers: SQL SELECT, diagnostics response shaping, INSERT SELECT, and
+  UPDATE selector execution
+- Chosen family: component vocabulary for explicit unpacking helpers
+- Rejected alternatives:
+  - `*Parts`: too weak because these are stable SQL projection boundary
+    components, not ad hoc decompositions
+  - `*Context`: wrong because the values are returned/unpacked payload
+    components, not owner-local traversal state
+  - `*Descriptor`: wrong because these values are execution payloads, not
+    renderable descriptions
+- Public-surface impact: none; visibility remains session-internal
+- Hard-cut rule: remove the private `Parts` alias and `into_parts` helper names
+  from live SQL projection payload/contract code
+
+Accepted renames:
+
+```text
+SqlProjectionPayloadParts -> SqlProjectionPayloadComponents
+SqlProjectionPayload::into_parts() -> into_components()
+SqlProjectionContract::into_parts() -> into_components()
+```
+
+No public names are renamed in this family. Public names audited here already
+match user-facing database or diagnostics vocabulary closely enough to keep.
+0.165 does not rename public facade/result DTOs for internal consistency alone.
 
 ## Kept Names
 
@@ -102,6 +156,8 @@ Live-code scans for this slice:
 ```bash
 rg -n "QueryResponse|ProjectionResponse|MutationResult|MutationMode|SqlProjectionRows|SqlQueryRowsOutput|SqlGroupedRowsOutput|SqlQueryResult|QueryExecutionAttribution|SqlQueryExecutionAttribution|ExplainExecutionDescriptor|ExplainPropertyMap" crates docs
 rg -n "Response|Result|Output|Attribution|Descriptor|PropertyMap" crates/icydb/src crates/icydb-core/src/db docs/design/0.165-naming-audit-and-role-alignment
+rg -n "PersistedRelationDescriptionParts|persisted_relation_description_parts|PersistedRelationDescriptionMetadata|persisted_relation_description_metadata" crates/icydb-core/src/db/schema/describe.rs docs/design/0.165-naming-audit-and-role-alignment
+rg -n "SqlProjectionPayloadParts|SqlProjectionPayloadComponents|SqlProjectionPayload::into_parts|SqlProjectionContract::into_parts|into_components\\(" crates/icydb-core/src/db/session/sql docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining hits are intentional public/facade vocabulary, active 0.165 audit

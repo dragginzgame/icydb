@@ -9,7 +9,7 @@ use crate::{
     value::{OutputValue, Value},
 };
 
-type SqlProjectionPayloadParts = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Value>>, u32);
+type SqlProjectionPayloadComponents = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Value>>, u32);
 
 ///
 /// SqlProjectionPayload
@@ -44,7 +44,7 @@ impl SqlProjectionPayload {
     }
 
     #[must_use]
-    pub(in crate::db::session::sql) fn into_parts(self) -> SqlProjectionPayloadParts {
+    pub(in crate::db::session::sql) fn into_components(self) -> SqlProjectionPayloadComponents {
         (self.columns, self.fixed_scales, self.rows, self.row_count)
     }
 

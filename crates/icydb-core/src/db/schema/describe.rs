@@ -787,7 +787,7 @@ fn describe_entity_relations_with_persisted_schema(
 fn relation_description_from_persisted_field(
     field: &crate::db::schema::PersistedFieldSnapshot,
 ) -> Option<EntityRelationDescription> {
-    let relation = persisted_relation_description_parts(field.kind())?;
+    let relation = persisted_relation_description_metadata(field.kind())?;
 
     Some(EntityRelationDescription::new(
         field.name().to_string(),
@@ -799,7 +799,7 @@ fn relation_description_from_persisted_field(
     ))
 }
 
-struct PersistedRelationDescriptionParts<'a> {
+struct PersistedRelationDescriptionMetadata<'a> {
     target_path: &'a str,
     target_entity_name: &'a str,
     target_store_path: &'a str,
@@ -807,13 +807,13 @@ struct PersistedRelationDescriptionParts<'a> {
     cardinality: EntityRelationCardinality,
 }
 
-fn persisted_relation_description_parts(
+fn persisted_relation_description_metadata(
     kind: &PersistedFieldKind,
-) -> Option<PersistedRelationDescriptionParts<'_>> {
+) -> Option<PersistedRelationDescriptionMetadata<'_>> {
     const fn from_relation_kind(
         kind: &PersistedFieldKind,
         cardinality: EntityRelationCardinality,
-    ) -> Option<PersistedRelationDescriptionParts<'_>> {
+    ) -> Option<PersistedRelationDescriptionMetadata<'_>> {
         let PersistedFieldKind::Relation {
             target_path,
             target_entity_name,
@@ -825,7 +825,7 @@ fn persisted_relation_description_parts(
             return None;
         };
 
-        Some(PersistedRelationDescriptionParts {
+        Some(PersistedRelationDescriptionMetadata {
             target_path: target_path.as_str(),
             target_entity_name: target_entity_name.as_str(),
             target_store_path: target_store_path.as_str(),

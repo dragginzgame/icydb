@@ -65,7 +65,7 @@ impl SqlProjectionContract {
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<String>, Vec<Option<u32>>) {
+    pub(in crate::db) fn into_components(self) -> (Vec<String>, Vec<Option<u32>>) {
         (self.columns, self.fixed_scales)
     }
 }

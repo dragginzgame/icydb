@@ -184,7 +184,7 @@ impl<C: CanisterKind> DbSession<C> {
         projection: crate::db::session::sql::SqlProjectionContract,
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (columns, fixed_scales) = projection.into_parts();
+        let (columns, fixed_scales) = projection.into_components();
         let (rows, row_count) =
             execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
                 .map_err(QueryError::execute)?;
@@ -229,7 +229,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
             -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T), QueryError> {
-        let (columns, fixed_scales) = projection.into_parts();
+        let (columns, fixed_scales) = projection.into_components();
         let (result, extra) = execute_grouped(self, prepared_plan)?;
         let statement_result = if let Some(diagnostics) = diagnostics {
             diagnostics.finalize_grouped_sql_statement::<C>(columns, fixed_scales, result)?

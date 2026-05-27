@@ -628,7 +628,7 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 query, authority, schema,
             )?;
-        let (_, _, projected_rows, _) = payload.into_parts();
+        let (_, _, projected_rows, _) = payload.into_components();
         rows.reserve(projected_rows.len());
         for row in projected_rows {
             if row.len() != columns.len() {
@@ -771,7 +771,7 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 selector, authority, &schema,
             )?;
-        let (_, _, projected_rows, _) = payload.into_parts();
+        let (_, _, projected_rows, _) = payload.into_components();
         let matched_rows = usize_to_u64_saturating(projected_rows.len());
         let mut rows = Vec::with_capacity(projected_rows.len());
 
