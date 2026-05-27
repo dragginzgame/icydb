@@ -44,7 +44,7 @@ fn index_name_max_len_matches_limits() {
     }
     assert_eq!(fields.len(), MAX_INDEX_FIELDS);
 
-    let name = IndexName::try_unique_from_parts(&entity, &fields).unwrap();
+    let name = IndexName::try_unique_from_entity_fields(&entity, &fields).unwrap();
     assert_eq!(name.as_bytes().len(), MAX_INDEX_NAME_LEN);
 }
 
@@ -62,8 +62,8 @@ fn index_name_max_size_roundtrip_and_ordering() {
     ];
     let fields_b = [FIELD_64_B, FIELD_64_B, FIELD_64_B, FIELD_64_B];
 
-    let idx_a = IndexName::try_from_parts(&entity_a, &fields_a).unwrap();
-    let idx_b = IndexName::try_from_parts(&entity_b, &fields_b).unwrap();
+    let idx_a = IndexName::try_from_entity_fields(&entity_a, &fields_a).unwrap();
+    let idx_b = IndexName::try_from_entity_fields(&entity_b, &fields_b).unwrap();
 
     let decoded = IndexName::from_bytes(&idx_a.to_bytes()).unwrap();
     assert_eq!(idx_a, decoded);
@@ -76,7 +76,7 @@ fn rejects_too_many_index_fields() {
     let entity = EntityName::try_from_str("entity").unwrap();
     let fields = ["a", "b", "c", "d", "e"];
 
-    let err = IndexName::try_from_parts(&entity, &fields).unwrap_err();
+    let err = IndexName::try_from_entity_fields(&entity, &fields).unwrap_err();
     assert!(matches!(err, IndexNameError::TooManyFields { .. }));
 }
 
@@ -84,7 +84,7 @@ fn rejects_too_many_index_fields() {
 fn rejects_index_with_no_fields() {
     let entity = EntityName::try_from_str("entity").unwrap();
 
-    let err = IndexName::try_from_parts(&entity, &[]).unwrap_err();
+    let err = IndexName::try_from_entity_fields(&entity, &[]).unwrap_err();
     assert!(matches!(err, IndexNameError::NoFields));
 }
 
@@ -92,7 +92,7 @@ fn rejects_index_with_no_fields() {
 fn rejects_empty_index_field_segment() {
     let entity = EntityName::try_from_str("entity").unwrap();
 
-    let err = IndexName::try_from_parts(&entity, &[""]).unwrap_err();
+    let err = IndexName::try_from_entity_fields(&entity, &[""]).unwrap_err();
     assert!(matches!(err, IndexNameError::FieldEmpty));
 }
 
@@ -101,7 +101,7 @@ fn rejects_index_field_over_len() {
     let entity = EntityName::try_from_str("entity").unwrap();
     let long_field = "a".repeat(MAX_INDEX_FIELD_NAME_LEN + 1);
 
-    let err = IndexName::try_from_parts(&entity, &[long_field.as_str()]).unwrap_err();
+    let err = IndexName::try_from_entity_fields(&entity, &[long_field.as_str()]).unwrap_err();
     assert!(matches!(err, IndexNameError::FieldTooLong { .. }));
 }
 
@@ -120,7 +120,7 @@ fn rejects_index_field_delimiter_that_would_alias_segments() {
     assert_eq!(legacy_join("E", &["a|b"]), legacy_join("E", &["a", "b"]));
 
     let entity = EntityName::try_from_str("E").unwrap();
-    let err = IndexName::try_from_parts(&entity, &["a|b"]).unwrap_err();
+    let err = IndexName::try_from_entity_fields(&entity, &["a|b"]).unwrap_err();
     assert!(matches!(err, IndexNameError::FieldDelimiter { .. }));
 }
 
@@ -263,7 +263,7 @@ fn entity_ordering_is_not_lexicographic() {
 #[test]
 fn index_single_field_format() {
     let entity = EntityName::try_from_str("user").unwrap();
-    let idx = IndexName::try_from_parts(&entity, &["email"]).unwrap();
+    let idx = IndexName::try_from_entity_fields(&entity, &["email"]).unwrap();
 
     assert_eq!(idx.as_str(), "idx_user__email");
 }
@@ -271,7 +271,7 @@ fn index_single_field_format() {
 #[test]
 fn unique_index_single_field_format() {
     let entity = EntityName::try_from_str("user").unwrap();
-    let idx = IndexName::try_unique_from_parts(&entity, &["email"]).unwrap();
+    let idx = IndexName::try_unique_from_entity_fields(&entity, &["email"]).unwrap();
 
     assert_eq!(idx.as_str(), "uniq_user__email");
 }
@@ -279,7 +279,7 @@ fn unique_index_single_field_format() {
 #[test]
 fn index_field_order_is_preserved() {
     let entity = EntityName::try_from_str("user").unwrap();
-    let idx = IndexName::try_from_parts(&entity, &["a", "b", "c"]).unwrap();
+    let idx = IndexName::try_from_entity_fields(&entity, &["a", "b", "c"]).unwrap();
 
     assert_eq!(idx.as_str(), "idx_user__a_b_c");
 }
@@ -287,7 +287,8 @@ fn index_field_order_is_preserved() {
 #[test]
 fn index_name_slugs_entity_and_expression_key_items() {
     let entity = EntityName::try_from_str("UserAccount").unwrap();
-    let idx = IndexName::try_from_parts(&entity, &["LOWER(email)", "profile.nickname"]).unwrap();
+    let idx =
+        IndexName::try_from_entity_fields(&entity, &["LOWER(email)", "profile.nickname"]).unwrap();
 
     assert_eq!(
         idx.as_str(),
@@ -298,7 +299,7 @@ fn index_name_slugs_entity_and_expression_key_items() {
 #[test]
 fn index_storage_roundtrip() {
     let entity = EntityName::try_from_str("user").unwrap();
-    let idx = IndexName::try_from_parts(&entity, &["a", "b"]).unwrap();
+    let idx = IndexName::try_from_entity_fields(&entity, &["a", "b"]).unwrap();
 
     let bytes = idx.to_bytes();
     let decoded = IndexName::from_bytes(&bytes).unwrap();
@@ -341,7 +342,7 @@ fn index_max_width_fixture_covers_every_accepted_ascii_byte() {
             field_name.as_str(),
             field_name.as_str(),
         ];
-        let index = IndexName::try_from_parts(&entity, &fields).unwrap();
+        let index = IndexName::try_from_entity_fields(&entity, &fields).unwrap();
 
         assert!(
             index <= max,
@@ -415,7 +416,7 @@ fn fuzz_index_name_roundtrip_and_ordering() {
         }
 
         let field_refs: Vec<&str> = fields.iter().map(String::as_str).collect();
-        let idx = IndexName::try_from_parts(&entity, &field_refs).unwrap();
+        let idx = IndexName::try_from_entity_fields(&entity, &field_refs).unwrap();
 
         let bytes = idx.to_bytes();
         let decoded = IndexName::from_bytes(&bytes).unwrap();

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.18` continues the naming hard cut by renaming index identity
+  constructors away from generic parts vocabulary.
+
+  ```text
+  IndexName::try_from_parts(...) -> IndexName::try_from_entity_fields(...)
+  IndexName::try_unique_from_parts(...) -> IndexName::try_unique_from_entity_fields(...)
+  try_from_parts_with_prefix(...) -> try_from_entity_fields_with_prefix(...)
+  ```
+
 - `0.165.17` continues the naming hard cut by moving relation model and
   accepted target metadata away from descriptor vocabulary.
 

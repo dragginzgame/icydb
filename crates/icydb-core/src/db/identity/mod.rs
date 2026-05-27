@@ -268,20 +268,23 @@ impl IndexName {
 
     /// Validate and construct one non-unique index identity from an entity +
     /// field list.
-    pub fn try_from_parts(entity: &EntityName, fields: &[&str]) -> Result<Self, IndexNameError> {
-        Self::try_from_parts_with_prefix("idx", entity, fields)
+    pub fn try_from_entity_fields(
+        entity: &EntityName,
+        fields: &[&str],
+    ) -> Result<Self, IndexNameError> {
+        Self::try_from_entity_fields_with_prefix("idx", entity, fields)
     }
 
     /// Validate and construct one unique index identity from an entity + field
     /// list.
-    pub fn try_unique_from_parts(
+    pub fn try_unique_from_entity_fields(
         entity: &EntityName,
         fields: &[&str],
     ) -> Result<Self, IndexNameError> {
-        Self::try_from_parts_with_prefix("uniq", entity, fields)
+        Self::try_from_entity_fields_with_prefix("uniq", entity, fields)
     }
 
-    fn try_from_parts_with_prefix(
+    fn try_from_entity_fields_with_prefix(
         prefix: &str,
         entity: &EntityName,
         fields: &[&str],
@@ -389,7 +392,7 @@ impl IndexName {
     ///
     /// This validates the canonical fixed-width byte envelope only. It does not
     /// reconstruct field segments or prove the bytes were produced by
-    /// `try_from_parts`; callers must ensure persisted bytes originate from a
+    /// `try_from_entity_fields`; callers must ensure persisted bytes originate from a
     /// previously validated `IndexName`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, IdentityDecodeError> {
         // Phase 1: validate layout and payload bounds.

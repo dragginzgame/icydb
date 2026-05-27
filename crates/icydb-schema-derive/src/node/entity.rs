@@ -170,9 +170,9 @@ impl Entity {
         let segments = index.generated_name_segments();
         let segment_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
         let index_name = if index.unique {
-            IndexName::try_unique_from_parts(&entity, segment_refs.as_slice())
+            IndexName::try_unique_from_entity_fields(&entity, segment_refs.as_slice())
         } else {
-            IndexName::try_from_parts(&entity, segment_refs.as_slice())
+            IndexName::try_from_entity_fields(&entity, segment_refs.as_slice())
         }
         .map_err(|err| {
             DarlingError::custom(format!("invalid index name for '{entity_name}': {err}"))

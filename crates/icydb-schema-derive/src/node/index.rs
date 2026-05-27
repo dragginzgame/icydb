@@ -215,9 +215,9 @@ impl Index {
         let segments = self.generated_name_segments();
         let segment_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
         let name = if self.unique {
-            IndexName::try_unique_from_parts(&entity, segment_refs.as_slice())
+            IndexName::try_unique_from_entity_fields(&entity, segment_refs.as_slice())
         } else {
-            IndexName::try_from_parts(&entity, segment_refs.as_slice())
+            IndexName::try_from_entity_fields(&entity, segment_refs.as_slice())
         }
         .expect("validated index key items should build canonical index name");
 
