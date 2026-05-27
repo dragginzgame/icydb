@@ -22,9 +22,9 @@ use crate::{
         },
         sql::{
             lowering::{
-                PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregatePlanFragment,
-                PreparedSqlScalarAggregateStrategy, SqlCommand, SqlLoweringError,
-                compile_sql_command, compile_sql_global_aggregate_command_for_model_only,
+                PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
+                SqlCommand, SqlLoweringError, compile_sql_command,
+                compile_sql_global_aggregate_command_for_model_only,
                 lower_grouped_post_aggregate_order_expr_text,
                 lower_sql_command_from_prepared_statement_for_model_only,
                 lower_supported_order_expr_text, prepare_sql_statement,
@@ -5865,8 +5865,8 @@ fn compile_sql_global_aggregate_command_for_model_only_accepts_case_input_expres
 
 fn assert_count_rows_strategy(strategy: &PreparedSqlScalarAggregateStrategy) {
     assert_eq!(
-        strategy.descriptor_shape(),
-        PreparedSqlScalarAggregateDescriptorShape::CountRows,
+        strategy.plan_fragment(),
+        PreparedSqlScalarAggregatePlanFragment::CountRows,
         "COUNT(*) should lower to the dedicated count-rows prepared strategy",
     );
     assert_eq!(
@@ -5953,14 +5953,13 @@ fn compile_prepared_sql_scalar_strategy(sql: &str) -> PreparedSqlScalarAggregate
 /// ExpectedPreparedSqlScalarAggregateStrategy
 ///
 /// Test-only expectation bundle for prepared SQL scalar aggregate strategy
-/// assertions. This keeps the descriptor/domain/runtime contract checks on one
+/// assertions. This keeps the fragment/domain/runtime contract checks on one
 /// helper seam instead of repeating the same assertion block per aggregate kind.
 ///
 
 struct ExpectedPreparedSqlScalarAggregateStrategy {
     sql: &'static str,
     aggregate_kind: AggregateKind,
-    descriptor_shape: PreparedSqlScalarAggregateDescriptorShape,
     plan_fragment: PreparedSqlScalarAggregatePlanFragment,
     target_field: Option<&'static str>,
     distinct: bool,
@@ -5973,12 +5972,6 @@ fn assert_prepared_sql_scalar_strategy(expected: &ExpectedPreparedSqlScalarAggre
         strategy.aggregate_kind(),
         expected.aggregate_kind,
         "prepared aggregate strategy should preserve aggregate kind: {}",
-        expected.sql,
-    );
-    assert_eq!(
-        strategy.descriptor_shape(),
-        expected.descriptor_shape,
-        "prepared aggregate strategy should preserve descriptor shape: {}",
         expected.sql,
     );
     assert_eq!(
@@ -6030,7 +6023,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(*) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountRows,
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::CountRows,
             target_field: None,
             distinct: false,
@@ -6038,7 +6030,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::CountField,
             target_field: Some("age"),
             distinct: false,
@@ -6046,9 +6037,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT SUM(age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Sum,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
-                kind: AggregateKind::Sum,
-            },
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::NumericField {
                 kind: AggregateKind::Sum,
             },
@@ -6058,9 +6046,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT MIN(age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Min,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
-                kind: AggregateKind::Min,
-            },
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },
@@ -6079,7 +6064,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::CountField,
             target_field: Some("age"),
             distinct: true,
@@ -6087,9 +6071,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT SUM(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Sum,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
-                kind: AggregateKind::Sum,
-            },
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::NumericField {
                 kind: AggregateKind::Sum,
             },
@@ -6099,9 +6080,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT AVG(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Avg,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
-                kind: AggregateKind::Avg,
-            },
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::NumericField {
                 kind: AggregateKind::Avg,
             },
@@ -6111,9 +6089,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT MIN(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Min,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
-                kind: AggregateKind::Min,
-            },
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },
@@ -6123,9 +6098,6 @@ fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategie
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT MAX(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Max,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
-                kind: AggregateKind::Max,
-            },
             plan_fragment: PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                 kind: AggregateKind::Max,
             },

@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.2` continues the naming hard cut by removing duplicate SQL scalar
+  aggregate descriptor-shape vocabulary in favor of plan-fragment terminology
+  and by separating aggregate semantic-key identity from aggregate semantics.
+
+  ```text
+  PreparedSqlScalarAggregateDescriptorShape -> PreparedSqlScalarAggregatePlanFragment
+  PreparedSqlScalarAggregateStrategy::descriptor_shape() -> plan_fragment()
+  prepared_descriptor_shape() -> prepared_plan_fragment()
+  AggregateTerminalSemantics -> AggregateTerminalSemanticKey
+  ```
+
 - `0.165.1` continues the naming hard cut with covering-read facts,
   prepared-plan residents, and validated cursor terminology aligned to their
   planner/executor roles.

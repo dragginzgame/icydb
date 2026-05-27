@@ -9,7 +9,7 @@ use crate::{
             aggregate::{
                 lowering::validate_model_bound_scalar_expr,
                 semantics::{
-                    AggregateTerminalSemantics, PreparedAggregateSemantics,
+                    AggregateTerminalSemanticKey, PreparedAggregateSemantics,
                     PreparedAggregateTarget, aggregate_input_from_semantics,
                 },
                 terminal::{AggregateInput, SqlGlobalAggregateTerminal},
@@ -36,23 +36,13 @@ pub(crate) enum PreparedSqlScalarAggregatePlanFragment {
     ExtremalWinnerField { kind: AggregateKind },
 }
 
-pub(crate) type PreparedSqlScalarAggregateDescriptorShape = PreparedSqlScalarAggregatePlanFragment;
-
-impl PreparedSqlScalarAggregatePlanFragment {
-    /// Return the stable query-facing plan fragment for this descriptor shape.
-    #[must_use]
-    pub(crate) const fn plan_fragment(self) -> Self {
-        self
-    }
-}
-
 ///
 /// PreparedSqlScalarAggregateStrategy
 ///
 /// PreparedSqlScalarAggregateStrategy is the single typed SQL scalar aggregate
 /// binding boundary after SQL aggregate semantics have been normalized.
-/// It resolves descriptor shape and target-slot ownership once so session
-/// execution and EXPLAIN do not re-derive that shape from raw SQL
+/// It resolves plan-fragment and target-slot ownership once so session
+/// execution and EXPLAIN do not re-derive that fragment from raw SQL
 /// terminal variants.
 /// Explain-visible aggregate expressions are projected on demand from this
 /// prepared strategy instead of being carried as owned metadata.
@@ -85,7 +75,7 @@ impl PreparedSqlScalarAggregateStrategy {
         terminal: SqlGlobalAggregateTerminal,
     ) -> Result<Self, SqlLoweringError> {
         let (semantic_identity, filter_expr) =
-            AggregateTerminalSemantics::from_owned_terminal(terminal).into_parts();
+            AggregateTerminalSemanticKey::from_owned_terminal(terminal).into_parts();
         let kind = semantic_identity.kind();
         let distinct_input = semantic_identity.distinct();
         let target = match aggregate_input_from_semantics(semantic_identity) {
@@ -140,18 +130,11 @@ impl PreparedSqlScalarAggregateStrategy {
         self.semantics.distinct_input()
     }
 
-    /// Return the stable descriptor shape label for this prepared strategy.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) const fn descriptor_shape(&self) -> PreparedSqlScalarAggregateDescriptorShape {
-        self.prepared_descriptor_shape()
-    }
-
     /// Return the stable query-facing plan fragment for this prepared SQL
     /// scalar aggregate strategy.
     #[must_use]
     pub(crate) const fn plan_fragment(&self) -> PreparedSqlScalarAggregatePlanFragment {
-        self.prepared_descriptor_shape().plan_fragment()
+        self.prepared_plan_fragment()
     }
 
     /// Return the canonical aggregate kind for this prepared SQL scalar strategy.
@@ -162,32 +145,32 @@ impl PreparedSqlScalarAggregateStrategy {
 
     // Project the aggregate semantics shape onto the compact plan fragment
     // consumed at the SQL session boundary.
-    const fn prepared_descriptor_shape(&self) -> PreparedSqlScalarAggregateDescriptorShape {
+    const fn prepared_plan_fragment(&self) -> PreparedSqlScalarAggregatePlanFragment {
         match &self.semantics {
             PreparedAggregateSemantics::Count {
                 target: PreparedAggregateTarget::Rows,
                 ..
-            } => PreparedSqlScalarAggregateDescriptorShape::CountRows,
+            } => PreparedSqlScalarAggregatePlanFragment::CountRows,
             PreparedAggregateSemantics::Count { .. } => {
-                PreparedSqlScalarAggregateDescriptorShape::CountField
+                PreparedSqlScalarAggregatePlanFragment::CountField
             }
             PreparedAggregateSemantics::Sum { .. } => {
-                PreparedSqlScalarAggregateDescriptorShape::NumericField {
+                PreparedSqlScalarAggregatePlanFragment::NumericField {
                     kind: AggregateKind::Sum,
                 }
             }
             PreparedAggregateSemantics::Avg { .. } => {
-                PreparedSqlScalarAggregateDescriptorShape::NumericField {
+                PreparedSqlScalarAggregatePlanFragment::NumericField {
                     kind: AggregateKind::Avg,
                 }
             }
             PreparedAggregateSemantics::Min { .. } => {
-                PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
+                PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                     kind: AggregateKind::Min,
                 }
             }
             PreparedAggregateSemantics::Max { .. } => {
-                PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
+                PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                     kind: AggregateKind::Max,
                 }
             }

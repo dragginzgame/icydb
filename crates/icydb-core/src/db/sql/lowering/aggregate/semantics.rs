@@ -27,19 +27,19 @@ fn semantic_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> Agg
 }
 
 ///
-/// AggregateTerminalSemantics
+/// AggregateTerminalSemanticKey
 ///
-/// AggregateTerminalSemantics is the executable semantic key used while
+/// AggregateTerminalSemanticKey is the executable semantic key used while
 /// collecting unique global aggregate terminals. It combines canonical
 /// aggregate meaning with the optional filter so filtered and unfiltered
 /// aggregates do not alias during projection remapping.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering::aggregate) struct AggregateTerminalSemantics {
+pub(in crate::db::sql::lowering::aggregate) struct AggregateTerminalSemanticKey {
     semantic_key: AggregateSemanticKey,
 }
 
-impl AggregateTerminalSemantics {
+impl AggregateTerminalSemanticKey {
     // Build a canonical executable semantic key from a raw syntactic terminal
     // without consuming it. This lets projection dedup compare aggregate meaning
     // before deciding whether to retain the raw first-seen terminal.
