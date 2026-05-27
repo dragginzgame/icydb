@@ -57,11 +57,11 @@ pub(in crate::db) use continuation::{
 #[cfg(test)]
 pub(in crate::db) use covering::covering_read_execution_plan_from_fields;
 pub(in crate::db) use covering::{
-    CoveringExistingRowMode, CoveringProjectionContext, CoveringProjectionOrder,
+    CoveringExistingRowMode, CoveringProjectionFacts, CoveringProjectionOrder,
     CoveringReadExecutionPlan, CoveringReadField, CoveringReadFieldSource, CoveringReadPlan,
     constant_covering_projection_value_from_access,
     covering_hybrid_projection_plan_with_schema_info, covering_index_adjacent_distinct_eligible,
-    covering_index_projection_context_with_primary_key_names,
+    covering_index_projection_facts_with_primary_key_names,
     covering_read_execution_plan_from_fields_with_primary_key_names,
     covering_read_execution_plan_with_schema_info, covering_read_reason_code_for_load_plan,
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,

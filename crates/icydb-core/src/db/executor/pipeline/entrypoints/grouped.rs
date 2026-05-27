@@ -11,7 +11,7 @@ use crate::db::executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metri
 use crate::db::registry::StoreHandle;
 use crate::{
     db::{
-        cursor::GroupedPlannedCursor,
+        cursor::ValidatedGroupedCursor,
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
             PreparedLoadPlan, RetainedSlotLayout,
@@ -247,7 +247,7 @@ pub(in crate::db::executor) fn prepare_grouped_route_runtime_for_load_plan<C>(
     db: &crate::db::Db<C>,
     debug: bool,
     plan: PreparedLoadPlan,
-    cursor: GroupedPlannedCursor,
+    cursor: ValidatedGroupedCursor,
 ) -> Result<PreparedGroupedRouteRuntime, InternalError>
 where
     C: CanisterKind,

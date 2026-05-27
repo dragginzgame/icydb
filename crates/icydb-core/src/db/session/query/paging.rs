@@ -8,7 +8,7 @@ use crate::{
         DbSession, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace, PersistedRow,
         Query, QueryError,
         cursor::{
-            GroupedPlannedCursor, decode_optional_cursor_token,
+            ValidatedGroupedCursor, decode_optional_cursor_token,
             decode_optional_grouped_cursor_token,
         },
         diagnostics::ExecutionTrace,
@@ -90,7 +90,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(
             LoadExecutor<E>,
             PreparedExecutionPlan<E>,
-            GroupedPlannedCursor,
+            ValidatedGroupedCursor,
         ) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where

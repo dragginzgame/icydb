@@ -9,7 +9,7 @@
 
 use crate::{
     db::{
-        cursor::GroupedPlannedCursor,
+        cursor::ValidatedGroupedCursor,
         executor::{
             EntityAuthority, PreparedAggregatePlan,
             aggregate::AggregateKind,
@@ -121,7 +121,7 @@ where
 
         resolve_grouped_route_for_plan(
             plan.into_grouped_load_plan(grouped_shape),
-            GroupedPlannedCursor::none(),
+            ValidatedGroupedCursor::none(),
             self.debug,
         )
     }

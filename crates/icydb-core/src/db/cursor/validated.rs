@@ -1,5 +1,5 @@
-//! Module: cursor::planned
-//! Responsibility: executor-facing planned cursor state after validation.
+//! Module: cursor::validated
+//! Responsibility: executor-facing validated cursor state after validation.
 //! Does not own: cursor validation policy derivation or token wire encoding.
 //! Boundary: carries validated cursor boundary/anchor/offset state into runtime execution.
 
@@ -7,19 +7,19 @@ use crate::db::cursor::{CursorBoundary, ValidatedInEnvelopeIndexRangeCursorAncho
 use crate::value::Value;
 
 ///
-/// PlannedCursor
+/// ValidatedCursor
 ///
 /// Executor-facing continuation state produced after cursor validation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct PlannedCursor {
+pub(in crate::db) struct ValidatedCursor {
     boundary: Option<CursorBoundary>,
     index_range_anchor: Option<ValidatedInEnvelopeIndexRangeCursorAnchor>,
     initial_offset: u32,
 }
 
-impl PlannedCursor {
+impl ValidatedCursor {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {
@@ -73,18 +73,18 @@ impl PlannedCursor {
 }
 
 ///
-/// GroupedPlannedCursor
+/// ValidatedGroupedCursor
 ///
 /// Executor-facing grouped continuation state produced after grouped cursor
 /// validation for grouped pagination.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct GroupedPlannedCursor {
+pub(in crate::db) struct ValidatedGroupedCursor {
     last_group_key: Option<Vec<Value>>,
     initial_offset: u32,
 }
 
-impl GroupedPlannedCursor {
+impl ValidatedGroupedCursor {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {
@@ -96,7 +96,7 @@ impl GroupedPlannedCursor {
     /// Construct grouped executor cursor state after grouped cursor validation.
     ///
     /// This constructor is the grouped counterpart to
-    /// `PlannedCursor::new_validated(...)`; normal grouped cursor input should
+    /// `ValidatedCursor::new_validated(...)`; normal grouped cursor input should
     /// flow through grouped cursor preparation before this state reaches the
     /// executor.
     #[must_use]

@@ -6,26 +6,26 @@
 use crate::db::{
     access::AccessPlan,
     query::plan::{
-        CoveringProjectionContext, OrderSpec,
+        CoveringProjectionFacts, OrderSpec,
         covering_index_adjacent_distinct_eligible as plan_adjacent,
-        covering_index_projection_context_with_primary_key_names as plan_covering_context,
+        covering_index_projection_facts_with_primary_key_names as plan_covering_facts,
     },
 };
 
-// Derive one planner-owned covering projection context from executor plan
+// Derive one planner-owned covering projection fact bundle from executor plan
 // contracts without duplicating order-shape interpretation in executor code.
-pub(super) fn covering_index_projection_context<K>(
+pub(super) fn covering_index_projection_facts<K>(
     access: &AccessPlan<K>,
     order: Option<&OrderSpec>,
     target_field: &str,
     primary_key_names: &[&str],
-) -> Option<CoveringProjectionContext> {
-    plan_covering_context(access, order, target_field, primary_key_names)
+) -> Option<CoveringProjectionFacts> {
+    plan_covering_facts(access, order, target_field, primary_key_names)
 }
 
-// Return whether adjacent dedupe is safe for one covering context.
+// Return whether adjacent dedupe is safe for one covering fact bundle.
 pub(super) const fn covering_index_adjacent_distinct_eligible(
-    context: CoveringProjectionContext,
+    facts: CoveringProjectionFacts,
 ) -> bool {
-    plan_adjacent(context)
+    plan_adjacent(facts)
 }

@@ -8,7 +8,7 @@ including reduced SQL writes and alias support. For the current SQL contract,
 see:
 
 - `docs/contracts/SQL_SUBSET.md`
-- `docs/architecture/sql-surface-mapping.md`
+- `docs/architecture/SQL_SURFACE_MAPPING.md`
 
 Date: 2026-03-16  
 Scope: current checkout only (`workspace.version=0.56.1` in `Cargo.toml`)

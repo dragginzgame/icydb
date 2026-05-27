@@ -3,7 +3,7 @@ use crate::model::field::FieldModel;
 use crate::{
     db::{
         access::{SemanticIndexRangeSpec, validate_access_runtime_invariants_with_schema},
-        cursor::{CursorPlanError, PlannedCursor},
+        cursor::{CursorPlanError, ValidatedCursor},
         executor::{planning::route::AggregateRouteShape, terminal::RowLayout},
         index::IndexKey,
         key_taxonomy::PrimaryKeyValue,
@@ -272,7 +272,7 @@ impl EntityAuthority {
         &self,
         contract: &PlannedContinuationContract,
         bytes: Option<&[u8]>,
-    ) -> Result<PlannedCursor, CursorPlanError> {
+    ) -> Result<ValidatedCursor, CursorPlanError> {
         let schema_info = self.cursor_schema_info()?;
 
         contract.prepare_scalar_cursor(self.entity_path(), self.entity_tag, schema_info, bytes)
@@ -282,8 +282,8 @@ impl EntityAuthority {
     pub(in crate::db::executor) fn revalidate_scalar_cursor(
         &self,
         contract: &PlannedContinuationContract,
-        cursor: PlannedCursor,
-    ) -> Result<PlannedCursor, CursorPlanError> {
+        cursor: ValidatedCursor,
+    ) -> Result<ValidatedCursor, CursorPlanError> {
         let schema_info = self.cursor_schema_info()?;
 
         contract.revalidate_scalar_cursor(self.entity_tag, schema_info, cursor)

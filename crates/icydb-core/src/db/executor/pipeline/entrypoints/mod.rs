@@ -12,7 +12,7 @@ use crate::db::executor::pipeline::entrypoints::scalar::execute_prepared_scalar_
 use crate::{
     db::{
         PersistedRow,
-        cursor::{GroupedPlannedCursor, PlannedCursor},
+        cursor::{ValidatedCursor, ValidatedGroupedCursor},
         executor::{
             CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
             pipeline::{
@@ -174,7 +174,7 @@ where
     pub(in crate::db) fn execute_paged_with_cursor_traced(
         &self,
         plan: PreparedExecutionPlan<E>,
-        cursor: PlannedCursor,
+        cursor: ValidatedCursor,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         self.execute_load_scalar_page_with_trace(
             plan.into_prepared_load_plan(),
@@ -187,7 +187,7 @@ where
     pub(in crate::db) fn execute_paged_with_cursor(
         &self,
         plan: PreparedExecutionPlan<E>,
-        cursor: PlannedCursor,
+        cursor: ValidatedCursor,
     ) -> Result<CursorPage<E>, InternalError> {
         let (page, _) = self.execute_paged_with_cursor_traced(plan, cursor)?;
 
@@ -198,7 +198,7 @@ where
     pub(in crate::db) fn execute_grouped_paged_with_cursor_traced(
         &self,
         plan: PreparedExecutionPlan<E>,
-        cursor: impl Into<GroupedPlannedCursor>,
+        cursor: impl Into<ValidatedGroupedCursor>,
     ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), InternalError> {
         let (page, trace) = self.execute_load_grouped_page_with_trace(
             plan.into_prepared_load_plan(),
@@ -214,7 +214,7 @@ where
     pub(in crate::db) fn execute_grouped_paged_with_cursor_traced_with_phase_attribution(
         &self,
         plan: PreparedExecutionPlan<E>,
-        cursor: impl Into<GroupedPlannedCursor>,
+        cursor: impl Into<ValidatedGroupedCursor>,
     ) -> Result<
         (
             StructuralGroupedProjectionResult,

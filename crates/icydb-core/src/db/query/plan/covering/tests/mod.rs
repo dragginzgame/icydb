@@ -1,5 +1,5 @@
 //! Module: db::query::plan::covering::tests
-//! Covers covering-plan derivation, ordering, and projection-context behavior.
+//! Covers covering-plan derivation, ordering, and projection-facts behavior.
 //! Does not own: production covering-plan behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 
@@ -117,7 +117,7 @@ fn lower_label_order_term(direction: OrderDirection) -> crate::db::query::plan::
 }
 
 #[test]
-fn covering_projection_context_accepts_suffix_index_order() {
+fn covering_projection_facts_accepts_suffix_index_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
@@ -139,28 +139,28 @@ fn covering_projection_context_accepts_suffix_index_order() {
         ],
     });
 
-    let context = super::covering_index_projection_context(
+    let facts = super::covering_index_projection_facts(
         &plan.access,
         plan.scalar_plan().order.as_ref(),
         "rank",
         "id",
     )
-    .expect("suffix index order should project one covering context");
+    .expect("suffix index order should project one covering fact bundle");
 
-    assert_eq!(context.component_index, 1);
-    assert_eq!(context.prefix_len, 1);
+    assert_eq!(facts.component_index, 1);
+    assert_eq!(facts.prefix_len, 1);
     assert_eq!(
-        context.order_contract,
+        facts.order_contract,
         super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
     );
     assert!(
-        super::covering_index_adjacent_distinct_eligible(context),
+        super::covering_index_adjacent_distinct_eligible(facts),
         "first unbound component under index order should allow adjacent distinct dedupe",
     );
 }
 
 #[test]
-fn covering_projection_context_accepts_composite_primary_key_suffix_order() {
+fn covering_projection_facts_accepts_composite_primary_key_suffix_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
@@ -183,7 +183,7 @@ fn covering_projection_context_accepts_composite_primary_key_suffix_order() {
         ],
     });
 
-    let context = super::covering_index_projection_context_with_primary_key_names(
+    let facts = super::covering_index_projection_facts_with_primary_key_names(
         &plan.access,
         plan.scalar_plan().order.as_ref(),
         "rank",
@@ -191,15 +191,15 @@ fn covering_projection_context_accepts_composite_primary_key_suffix_order() {
     )
     .expect("composite primary-key suffix should satisfy deterministic index order");
 
-    assert_eq!(context.component_index, 1);
+    assert_eq!(facts.component_index, 1);
     assert_eq!(
-        context.order_contract,
+        facts.order_contract,
         super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
     );
 }
 
 #[test]
-fn covering_projection_context_accepts_primary_key_order() {
+fn covering_projection_facts_accepts_primary_key_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
@@ -221,26 +221,26 @@ fn covering_projection_context_accepts_primary_key_order() {
         )],
     });
 
-    let context = super::covering_index_projection_context(
+    let facts = super::covering_index_projection_facts(
         &plan.access,
         plan.scalar_plan().order.as_ref(),
         "rank",
         "id",
     )
-    .expect("primary-key order should project one covering context");
+    .expect("primary-key order should project one covering fact bundle");
 
     assert_eq!(
-        context.order_contract,
+        facts.order_contract,
         super::CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc)
     );
     assert!(
-        !super::covering_index_adjacent_distinct_eligible(context),
+        !super::covering_index_adjacent_distinct_eligible(facts),
         "primary-key reorder must not use adjacent distinct dedupe",
     );
 }
 
 #[test]
-fn covering_projection_context_rejects_mixed_order_directions() {
+fn covering_projection_facts_rejects_mixed_order_directions() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
@@ -262,20 +262,20 @@ fn covering_projection_context_rejects_mixed_order_directions() {
         ],
     });
 
-    let context = super::covering_index_projection_context(
+    let facts = super::covering_index_projection_facts(
         &plan.access,
         plan.scalar_plan().order.as_ref(),
         "rank",
         "id",
     );
     assert!(
-        context.is_none(),
-        "mixed order directions must reject covering projection contexts",
+        facts.is_none(),
+        "mixed order directions must reject covering projection fact bundles",
     );
 }
 
 #[test]
-fn covering_projection_context_rejects_range_full_order_contract() {
+fn covering_projection_facts_rejects_range_full_order_contract() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::index_range(
             crate::model::index::IndexModel::generated(
@@ -298,15 +298,15 @@ fn covering_projection_context_rejects_range_full_order_contract() {
         ],
     });
 
-    let context = super::covering_index_projection_context(
+    let facts = super::covering_index_projection_facts(
         &plan.access,
         plan.scalar_plan().order.as_ref(),
         "rank",
         "id",
     );
     assert!(
-        context.is_none(),
-        "index-range covering contexts must reject full-index order contracts",
+        facts.is_none(),
+        "index-range covering fact bundles must reject full-index order contracts",
     );
 }
 

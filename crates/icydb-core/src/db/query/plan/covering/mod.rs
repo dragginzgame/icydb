@@ -39,15 +39,15 @@ pub(in crate::db) enum CoveringProjectionOrder {
 }
 
 ///
-/// CoveringProjectionContext
+/// CoveringProjectionFacts
 ///
-/// Planner-owned covering projection context contract.
+/// Planner-owned covering projection facts.
 /// Captures projection component position, bound-prefix arity, and output-order
 /// interpretation for one index-backed access shape.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct CoveringProjectionContext {
+pub(in crate::db) struct CoveringProjectionFacts {
     pub(in crate::db) component_index: usize,
     pub(in crate::db) prefix_len: usize,
     pub(in crate::db) order_contract: CoveringProjectionOrder,
@@ -393,19 +393,19 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
     Some(covering_read_execution_plan(covering, existing_row_mode))
 }
 
-/// Derive one covering projection context from one access shape + scalar order
+/// Derive one covering projection fact bundle from one access shape + scalar order
 /// contract and target field.
 #[must_use]
 #[cfg(test)]
-pub(in crate::db) fn covering_index_projection_context<K>(
+pub(in crate::db) fn covering_index_projection_facts<K>(
     access: &AccessPlan<K>,
     order: Option<&OrderSpec>,
     target_field: &str,
     primary_key_name: &'static str,
-) -> Option<CoveringProjectionContext> {
+) -> Option<CoveringProjectionFacts> {
     let primary_key_names = [primary_key_name];
 
-    covering_index_projection_context_with_primary_key_names(
+    covering_index_projection_facts_with_primary_key_names(
         access,
         order,
         target_field,
@@ -413,32 +413,32 @@ pub(in crate::db) fn covering_index_projection_context<K>(
     )
 }
 
-/// Derive one covering projection context from one access shape + scalar order
+/// Derive one covering projection fact bundle from one access shape + scalar order
 /// contract, target field, and ordered primary-key field list.
 #[must_use]
-pub(in crate::db) fn covering_index_projection_context_with_primary_key_names<K>(
+pub(in crate::db) fn covering_index_projection_facts_with_primary_key_names<K>(
     access: &AccessPlan<K>,
     order: Option<&OrderSpec>,
     target_field: &str,
     primary_key_names: &[&str],
-) -> Option<CoveringProjectionContext> {
-    let metadata = covering_access_metadata(access)?;
-    let order_terms = metadata.order_terms();
-    let component_index = metadata
+) -> Option<CoveringProjectionFacts> {
+    let index_facts = index_covering_access_facts(access)?;
+    let order_terms = index_facts.order_terms();
+    let component_index = index_facts
         .coverable_component_fields
         .iter()
         .position(|field| field.as_deref().is_some_and(|field| field == target_field))?;
     let order_contract = covering_projection_order_contract(
         order,
         order_terms.as_slice(),
-        metadata.prefix_len,
+        index_facts.prefix_len,
         primary_key_names,
-        metadata.path_kind_is_range,
+        index_facts.path_kind_is_range,
     )?;
 
-    Some(CoveringProjectionContext {
+    Some(CoveringProjectionFacts {
         component_index,
-        prefix_len: metadata.prefix_len,
+        prefix_len: index_facts.prefix_len,
         order_contract,
     })
 }
@@ -450,28 +450,26 @@ pub(in crate::db) fn constant_covering_projection_value_from_access<K>(
     access: &AccessPlan<K>,
     target_field: &str,
 ) -> Option<Value> {
-    let metadata = covering_access_metadata(access)?;
+    let index_facts = index_covering_access_facts(access)?;
 
     constant_covering_projection_value_from_prefix(
-        metadata.coverable_component_fields.as_slice(),
-        metadata.prefix_values,
+        index_facts.coverable_component_fields.as_slice(),
+        index_facts.prefix_values,
         target_field,
     )
 }
 
-/// Return whether adjacent dedupe is safe for one covering projection context.
+/// Return whether adjacent dedupe is safe for one covering projection fact bundle.
 ///
 /// Safety contract:
 /// - output order remains index traversal order (no primary-key reorder),
 /// - target field is the first unbound index component.
 #[must_use]
 pub(in crate::db) const fn covering_index_adjacent_distinct_eligible(
-    context: CoveringProjectionContext,
+    facts: CoveringProjectionFacts,
 ) -> bool {
-    matches!(
-        context.order_contract,
-        CoveringProjectionOrder::IndexOrder(_)
-    ) && context.component_index == context.prefix_len
+    matches!(facts.order_contract, CoveringProjectionOrder::IndexOrder(_))
+        && facts.component_index == facts.prefix_len
 }
 
 // Resolve one covering projection order contract from scalar ORDER BY shape.
@@ -635,14 +633,14 @@ fn constant_covering_projection_value_from_prefix(
 }
 
 ///
-/// CoveringAccessMetadata
+/// IndexCoveringAccessFacts
 ///
-/// Shared planner covering-access metadata for index-backed access shapes.
+/// Shared planner index-covering access facts for index-backed access shapes.
 /// This keeps prefix/range covering bookkeeping under one authority instead of
-/// re-deriving the same index-field and prefix metadata in each helper.
+/// re-deriving the same index-field and prefix facts in each helper.
 ///
 
-struct CoveringAccessMetadata<'a> {
+struct IndexCoveringAccessFacts<'a> {
     order_terms: Vec<String>,
     coverable_component_fields: Vec<Option<String>>,
     prefix_values: &'a [Value],
@@ -650,10 +648,10 @@ struct CoveringAccessMetadata<'a> {
     path_kind_is_range: bool,
 }
 
-// Project one immutable covering-access metadata bundle from one access shape.
-fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessMetadata<'_>> {
+// Project one immutable index-covering access fact bundle from one access shape.
+fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoveringAccessFacts<'_>> {
     if let Some((index, values)) = access.as_index_prefix_contract_path() {
-        return Some(CoveringAccessMetadata {
+        return Some(IndexCoveringAccessFacts {
             order_terms: index_key_item_order_terms(index.key_items()),
             coverable_component_fields: coverable_component_fields_for_contract(index),
             prefix_values: values,
@@ -663,7 +661,7 @@ fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessM
     }
     if let Some(spec) = access.as_index_range_path() {
         let index = spec.index();
-        return Some(CoveringAccessMetadata {
+        return Some(IndexCoveringAccessFacts {
             order_terms: index_key_item_order_terms(index.key_items()),
             coverable_component_fields: coverable_component_fields_for_contract(index),
             prefix_values: spec.prefix_values(),
@@ -675,7 +673,7 @@ fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessM
     None
 }
 
-impl CoveringAccessMetadata<'_> {
+impl IndexCoveringAccessFacts<'_> {
     // Borrow the canonical order terms as string slices so planner-owned order
     // matching uses expression-aware key-item text instead of raw field names.
     fn order_terms(&self) -> Vec<&str> {
@@ -689,7 +687,7 @@ fn prepare_covering_index_projection_plan<'a>(
     plan: &'a AccessPlannedQuery,
     primary_key_names: &[&str],
     residual_filter_predicate_supported: bool,
-) -> Option<(CoveringAccessMetadata<'a>, CoveringProjectionOrder)> {
+) -> Option<(IndexCoveringAccessFacts<'a>, CoveringProjectionOrder)> {
     if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
         return None;
     }
@@ -700,17 +698,17 @@ fn prepare_covering_index_projection_plan<'a>(
         return None;
     }
 
-    let metadata = covering_access_metadata(&plan.access)?;
-    let order_terms = metadata.order_terms();
+    let index_facts = index_covering_access_facts(&plan.access)?;
+    let order_terms = index_facts.order_terms();
     let order_contract = covering_projection_order_contract(
         plan.scalar_plan().order.as_ref(),
         order_terms.as_slice(),
-        metadata.prefix_len,
+        index_facts.prefix_len,
         primary_key_names,
-        metadata.path_kind_is_range,
+        index_facts.path_kind_is_range,
     )?;
 
-    Some((metadata, order_contract))
+    Some((index_facts, order_contract))
 }
 
 // Derive one index-backed covering plan from the shared access/order contract
@@ -725,7 +723,7 @@ fn covering_index_projection_plan(
 ) -> Option<CoveringReadPlan> {
     // Phase 1: reject unsupported plan shapes and freeze the shared
     // index-backed covering contract once for the whole projection.
-    let (metadata, order_contract) = prepare_covering_index_projection_plan(
+    let (index_facts, order_contract) = prepare_covering_index_projection_plan(
         plan,
         primary_key_names,
         residual_filter_predicate_supported,
@@ -735,8 +733,8 @@ fn covering_index_projection_plan(
     // projection order and keep hybrid admission fail-closed on at least one
     // explicit row-backed field when requested.
     let source_context = CoveringProjectionSourceContext {
-        coverable_component_fields: metadata.coverable_component_fields.as_slice(),
-        prefix_values: metadata.prefix_values,
+        coverable_component_fields: index_facts.coverable_component_fields.as_slice(),
+        prefix_values: index_facts.prefix_values,
         primary_key_names,
         source_policy,
     };
@@ -758,7 +756,7 @@ fn covering_index_projection_plan(
 
     Some(CoveringReadPlan {
         fields,
-        prefix_len: metadata.prefix_len,
+        prefix_len: index_facts.prefix_len,
         order_contract,
     })
 }

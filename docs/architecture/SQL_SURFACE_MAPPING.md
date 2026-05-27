@@ -142,8 +142,8 @@ It is an operational retrieval contract:
 
 ### Computed Text Projection
 
-Computed text projection is shipped and now lowers through one canonical
-`Expr::FunctionCall` path with executor-owned evaluation.
+Computed text projection is shipped and lowers through the shared SQL expression
+family and executor projection runtime.
 
 It also has one canonical fluent representation through the shared
 `TextProjectionExpr` builder plus fluent projection terminals such as:
@@ -154,14 +154,14 @@ It also has one canonical fluent representation through the shared
 
 What is still true is that this remains a narrower projection-terminal family
 rather than one broad row-returning `execute()` projection model.
-Grouped computed text projection is still intentionally rejected in the
-current grouped SQL slice.
+Grouped post-aggregate computed projection is admitted by `SQL_SUBSET.md`, but
+bounded text functions remain intentionally excluded from grouped projection.
 
 Representative evidence:
 
 - `crates/icydb-core/src/db/query/builder/text_projection.rs`
-- `crates/icydb-core/src/db/sql/lowering/select.rs`
-- `crates/icydb-core/src/db/executor/projection/eval/text_function.rs`
+- `crates/icydb-core/src/db/sql/lowering/select/`
+- `crates/icydb-core/src/db/executor/projection/eval/scalar.rs`
 - `crates/icydb-core/src/db/query/fluent/load/terminals.rs`
 - `crates/icydb-core/src/db/session/tests/sql_surface.rs`
 - `crates/icydb-core/src/db/session/tests/sql_projection.rs`
@@ -188,6 +188,7 @@ and `BETWEEN` when those forms are already admitted for that clause family.
 Still intentionally excluded:
 
 - simple `CASE value WHEN ...`
+- subqueries or window expressions inside `CASE`
 - clause widening beyond the expression families already admitted in that phase
 
 ### Global Aggregate `SELECT`

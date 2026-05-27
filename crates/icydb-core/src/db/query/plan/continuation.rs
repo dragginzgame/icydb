@@ -8,7 +8,7 @@ use crate::{
         access::AccessPlan,
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         commit::CommitSchemaFingerprint,
-        cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
+        cursor::{ContinuationSignature, CursorPlanError, ValidatedCursor, ValidatedGroupedCursor},
         query::plan::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
             GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
@@ -114,7 +114,7 @@ impl GroupedWindowProjection {
     // Project grouped window arithmetic from planner-owned continuation state.
     fn from_contract_and_cursor(
         contract: &PlannedContinuationContract,
-        cursor: &GroupedPlannedCursor,
+        cursor: &ValidatedGroupedCursor,
     ) -> Self {
         let resume_initial_offset = if cursor.is_empty() {
             contract.effective_offset(false)
@@ -365,7 +365,7 @@ impl PlannedContinuationContract {
         entity_tag: crate::types::EntityTag,
         schema_info: &SchemaInfo,
         bytes: Option<&[u8]>,
-    ) -> Result<PlannedCursor, CursorPlanError> {
+    ) -> Result<ValidatedCursor, CursorPlanError> {
         if self.is_grouped() {
             return Err(CursorPlanError::continuation_cursor_invariant(
                 "grouped plans require grouped cursor preparation",
@@ -391,7 +391,7 @@ impl PlannedContinuationContract {
         &self,
         entity_path: &'static str,
         bytes: Option<&[u8]>,
-    ) -> Result<GroupedPlannedCursor, CursorPlanError> {
+    ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
         self.validate_grouped_cursor_contract(GroupedCursorAction::Prepare, bytes.is_some())?;
 
         crate::db::cursor::prepare_grouped_cursor(
@@ -409,7 +409,7 @@ impl PlannedContinuationContract {
         &self,
         entity_path: &'static str,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
-    ) -> Result<GroupedPlannedCursor, CursorPlanError> {
+    ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
         self.validate_grouped_cursor_contract(GroupedCursorAction::Prepare, cursor.is_some())?;
 
         crate::db::cursor::prepare_grouped_cursor_token(
@@ -427,8 +427,8 @@ impl PlannedContinuationContract {
         &self,
         entity_tag: crate::types::EntityTag,
         schema_info: &SchemaInfo,
-        cursor: PlannedCursor,
-    ) -> Result<PlannedCursor, CursorPlanError> {
+        cursor: ValidatedCursor,
+    ) -> Result<ValidatedCursor, CursorPlanError> {
         if self.is_grouped() {
             return Err(CursorPlanError::continuation_cursor_invariant(
                 "grouped plans require grouped cursor revalidation",
@@ -449,8 +449,8 @@ impl PlannedContinuationContract {
     /// Revalidate grouped cursor state against this immutable continuation contract.
     pub(in crate::db) fn revalidate_grouped_cursor(
         &self,
-        cursor: GroupedPlannedCursor,
-    ) -> Result<GroupedPlannedCursor, CursorPlanError> {
+        cursor: ValidatedGroupedCursor,
+    ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
         self.validate_grouped_cursor_contract(GroupedCursorAction::Revalidate, !cursor.is_empty())?;
 
         crate::db::cursor::revalidate_grouped_cursor(self.expected_initial_offset(), cursor)
@@ -459,7 +459,7 @@ impl PlannedContinuationContract {
     /// Derive grouped paging contracts from validated grouped cursor state.
     pub(in crate::db) fn project_grouped_paging_window(
         &self,
-        cursor: &GroupedPlannedCursor,
+        cursor: &ValidatedGroupedCursor,
     ) -> Result<GroupedContinuationWindow, CursorPlanError> {
         self.validate_grouped_cursor_contract(
             GroupedCursorAction::PagingWindow,

@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::LoweredKey,
         cursor::{
-            ContinuationSignature, CursorBoundary, PlannedCursor,
+            ContinuationSignature, CursorBoundary, ValidatedCursor,
             decode_pk_cursor_boundary_primary_key_value_for_names,
             effective_keep_count_for_limit as continuation_keep_count_for_limit,
             effective_page_offset_for_window as continuation_page_offset_for_window,
@@ -48,9 +48,9 @@ impl ScalarContinuationContext {
         }
     }
 
-    /// Build one scalar runtime cursor binding bundle from one planned cursor.
+    /// Build one scalar runtime cursor binding bundle from one validated cursor.
     #[must_use]
-    pub(in crate::db::executor) fn new(cursor: PlannedCursor) -> Self {
+    pub(in crate::db::executor) fn new(cursor: ValidatedCursor) -> Self {
         let cursor_boundary = cursor.boundary().cloned();
         let index_range_token = cursor
             .index_range_anchor()
@@ -67,7 +67,7 @@ impl ScalarContinuationContext {
     /// cursor state plus the immutable continuation signature.
     #[must_use]
     pub(in crate::db::executor) fn for_runtime(
-        cursor: PlannedCursor,
+        cursor: ValidatedCursor,
         continuation_signature: ContinuationSignature,
     ) -> Self {
         let mut continuation = Self::new(cursor);

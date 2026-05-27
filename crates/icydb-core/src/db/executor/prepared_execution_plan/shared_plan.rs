@@ -86,12 +86,12 @@ impl SharedPreparedExecutionPlan {
             CursorEmissionMode::Suppress,
         );
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
-        if core.shared.index_prefix_spec_invalid {
+        if core.residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if core.shared.index_range_spec_invalid {
+        if core.residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
         let scalar_runtime = PreparedScalarRuntimeParts {

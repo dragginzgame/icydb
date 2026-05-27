@@ -29,7 +29,7 @@ use super::{
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        cursor::{CursorBoundary, PlannedCursor},
+        cursor::{CursorBoundary, ValidatedCursor},
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation,
@@ -1047,7 +1047,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         limit: Some(2),
         offset: 0,
     });
-    let continuation = ScalarContinuationContext::new(PlannedCursor::new_validated(
+    let continuation = ScalarContinuationContext::new(ValidatedCursor::new_validated(
         CursorBoundary { slots: Vec::new() },
         None,
         0,

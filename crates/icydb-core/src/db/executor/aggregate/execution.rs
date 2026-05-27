@@ -19,9 +19,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::{
             builder::aggregate::ScalarProjectionBoundaryRequest,
-            plan::{
-                AccessPlannedQuery, CoveringProjectionContext, OrderSpec, PageSpec, expr::Expr,
-            },
+            plan::{AccessPlannedQuery, CoveringProjectionFacts, OrderSpec, PageSpec, expr::Expr},
         },
         registry::StoreHandle,
     },
@@ -550,7 +548,7 @@ pub(in crate::db::executor) struct ScalarProjectionWindow {
 pub(in crate::db::executor) enum PreparedScalarProjectionStrategy {
     Materialized,
     CoveringIndex {
-        context: CoveringProjectionContext,
+        facts: CoveringProjectionFacts,
         window: ScalarProjectionWindow,
         distinct: Option<PreparedCoveringDistinctStrategy>,
     },

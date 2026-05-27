@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db, PersistedRow,
-        cursor::PlannedCursor,
+        cursor::ValidatedCursor,
         executor::{
             EntityAuthority, LoadCursorInput, PreparedLoadPlan, PreparedScalarRuntimeParts,
             ScalarContinuationContext, StoreResolver,
@@ -171,7 +171,7 @@ where
         CursorEmissionMode::Suppress,
     )?;
     let continuation =
-        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
+        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
         prepared.authority.clone(),
@@ -222,7 +222,7 @@ where
         CursorEmissionMode::Suppress,
     )?;
     let continuation =
-        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
+        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
         prepared.authority.clone(),
@@ -276,7 +276,7 @@ where
 {
     let continuation_signature = prepared.plan_core.continuation_signature_for_runtime()?;
     let continuation =
-        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
+        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
         prepared.authority.clone(),
@@ -354,7 +354,7 @@ where
         retained_slot_layout,
     )?;
     let continuation =
-        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
+        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
         prepared.authority.clone(),
@@ -403,7 +403,7 @@ where
         CursorEmissionMode::Suppress,
     )?;
     let continuation =
-        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
+        ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
         prepared.authority.clone(),

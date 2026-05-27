@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        cursor::GroupedPlannedCursor,
+        cursor::ValidatedGroupedCursor,
         executor::{
             GroupedContinuationContext, PreparedLoadPlan,
             diagnostics::execution_trace_for_access,
@@ -23,7 +23,7 @@ use crate::{
 // Resolve grouped handoff/route metadata into one grouped route-stage payload.
 pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     plan: PreparedLoadPlan,
-    cursor: GroupedPlannedCursor,
+    cursor: ValidatedGroupedCursor,
     debug: bool,
 ) -> Result<GroupedRouteStage, InternalError> {
     let authority = plan.authority();

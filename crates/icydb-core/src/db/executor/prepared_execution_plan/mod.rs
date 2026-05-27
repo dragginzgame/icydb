@@ -16,7 +16,7 @@ mod snapshot;
 use crate::db::{executor::LoweredIndexPrefixSpec, query::plan::ExecutionOrdering};
 use crate::{
     db::{
-        cursor::{GroupedPlannedCursor, PlannedCursor},
+        cursor::{ValidatedCursor, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutorPlanError,
             explain::assemble_load_execution_node_descriptor_for_authority,
@@ -104,7 +104,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     pub(in crate::db) fn prepare_cursor(
         &self,
         cursor: Option<&[u8]>,
-    ) -> Result<PlannedCursor, ExecutorPlanError> {
+    ) -> Result<ValidatedCursor, ExecutorPlanError> {
         self.core.prepare_cursor(self.authority.clone(), cursor)
     }
 
@@ -212,22 +212,22 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             core,
             marker: _,
         } = self;
-        let shared = core.into_shared();
+        let residents = core.into_residents();
 
-        if shared.index_prefix_spec_invalid {
+        if residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if shared.index_range_spec_invalid {
+        if residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
         Ok(PreparedAccessPlanParts {
             authority,
-            plan: shared.plan,
-            index_prefix_specs: shared.index_prefix_specs,
-            index_range_specs: shared.index_range_specs,
+            plan: residents.plan,
+            index_prefix_specs: residents.index_prefix_specs,
+            index_range_specs: residents.index_range_specs,
         })
     }
 
@@ -236,8 +236,8 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     pub(in crate::db) fn prepare_grouped_cursor(
         &self,
         cursor: Option<&[u8]>,
-    ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.core.shared.continuation.as_ref() else {
+    ) -> Result<ValidatedGroupedCursor, ExecutorPlanError> {
+        let Some(contract) = self.core.residents.continuation.as_ref() else {
             return Err(ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
         };
 
@@ -250,8 +250,8 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     pub(in crate::db) fn prepare_grouped_cursor_token(
         &self,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
-    ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.core.shared.continuation.as_ref() else {
+    ) -> Result<ValidatedGroupedCursor, ExecutorPlanError> {
+        let Some(contract) = self.core.residents.continuation.as_ref() else {
             return Err(ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
         };
 

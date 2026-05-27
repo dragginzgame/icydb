@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.1` continues the naming hard cut with covering-read facts,
+  prepared-plan residents, and validated cursor terminology aligned to their
+  planner/executor roles.
+
 - `0.165.0` starts the naming hard cut with role-family governance and
   route/access selection terminology aligned around modes, decisions,
   contexts, and facts.

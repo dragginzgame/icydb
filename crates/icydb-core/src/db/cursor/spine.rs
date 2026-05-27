@@ -8,8 +8,8 @@ use crate::{
         access::ExecutionPathPayload,
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorPlanError,
-            GroupedContinuationToken, GroupedPlannedCursor, IndexRangeCursorAnchor, PlannedCursor,
-            ValidatedInEnvelopeIndexRangeCursorAnchor,
+            GroupedContinuationToken, IndexRangeCursorAnchor, ValidatedCursor,
+            ValidatedGroupedCursor, ValidatedInEnvelopeIndexRangeCursorAnchor,
             anchor::{
                 validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
             },
@@ -82,7 +82,7 @@ impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> 
 
 /// Validate and materialize an executable cursor through the canonical spine.
 #[expect(clippy::too_many_arguments)]
-pub(in crate::db) fn validate_planned_cursor<K>(
+pub(in crate::db) fn validate_cursor_token<K>(
     cursor: Option<&[u8]>,
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_path: &'static str,
@@ -92,12 +92,12 @@ pub(in crate::db) fn validate_planned_cursor<K>(
     expected_signature: ContinuationSignature,
     direction: Direction,
     expected_initial_offset: u32,
-) -> Result<PlannedCursor, CursorPlanError>
+) -> Result<ValidatedCursor, CursorPlanError>
 where
     K: KeyValueCodec,
 {
     let Some(cursor) = cursor else {
-        return Ok(PlannedCursor::none());
+        return Ok(ValidatedCursor::none());
     };
 
     let surface = CursorPlanSurfaceAdapter {
@@ -120,20 +120,20 @@ where
 }
 
 /// Validate an executor-provided cursor state through the canonical cursor spine.
-pub(in crate::db) fn validate_planned_cursor_state<K>(
-    cursor: PlannedCursor,
+pub(in crate::db) fn validate_cursor_state<K>(
+    cursor: ValidatedCursor,
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
     schema: &SchemaInfo,
     order: &OrderSpec,
     direction: Direction,
     expected_initial_offset: u32,
-) -> Result<PlannedCursor, CursorPlanError>
+) -> Result<ValidatedCursor, CursorPlanError>
 where
     K: KeyValueCodec,
 {
     if cursor.is_empty() {
-        return Ok(PlannedCursor::none());
+        return Ok(ValidatedCursor::none());
     }
 
     let surface = CursorPlanSurfaceAdapter {
@@ -202,7 +202,7 @@ fn validate_structured_cursor<K: KeyValueCodec, S: CursorPlanSurface<K>>(
     entity_tag: EntityTag,
     surface: &S,
     require_index_range_anchor: bool,
-) -> Result<PlannedCursor, CursorPlanError> {
+) -> Result<ValidatedCursor, CursorPlanError> {
     let validated_index_range_anchor = validate_cursor_boundary_anchor_invariants(
         &boundary,
         index_range_anchor.as_ref(),
@@ -213,7 +213,7 @@ fn validate_structured_cursor<K: KeyValueCodec, S: CursorPlanSurface<K>>(
         require_index_range_anchor,
     )?;
 
-    Ok(PlannedCursor::new_validated(
+    Ok(ValidatedCursor::new_validated(
         boundary,
         validated_index_range_anchor,
         actual_initial_offset,
@@ -265,9 +265,9 @@ pub(in crate::db) fn validate_grouped_cursor(
     continuation_signature: ContinuationSignature,
     expected_direction: Direction,
     expected_initial_offset: u32,
-) -> Result<GroupedPlannedCursor, CursorPlanError> {
+) -> Result<ValidatedGroupedCursor, CursorPlanError> {
     let Some(cursor) = cursor else {
-        return Ok(GroupedPlannedCursor::none());
+        return Ok(ValidatedGroupedCursor::none());
     };
     let token =
         GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)?;
@@ -276,7 +276,7 @@ pub(in crate::db) fn validate_grouped_cursor(
     validate_grouped_cursor_direction(expected_direction, token.direction())?;
     validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
 
-    Ok(GroupedPlannedCursor::new_validated(
+    Ok(ValidatedGroupedCursor::new_validated(
         token.last_group_key().to_vec(),
         token.initial_offset(),
     ))
@@ -290,9 +290,9 @@ pub(in crate::db) fn validate_grouped_cursor_token(
     continuation_signature: ContinuationSignature,
     expected_direction: Direction,
     expected_initial_offset: u32,
-) -> Result<GroupedPlannedCursor, CursorPlanError> {
+) -> Result<ValidatedGroupedCursor, CursorPlanError> {
     let Some(token) = cursor else {
-        return Ok(GroupedPlannedCursor::none());
+        return Ok(ValidatedGroupedCursor::none());
     };
     let (signature, last_group_key, direction, initial_offset) = token.into_parts();
 
@@ -300,7 +300,7 @@ pub(in crate::db) fn validate_grouped_cursor_token(
     validate_grouped_cursor_direction(expected_direction, direction)?;
     validate_cursor_window_offset(expected_initial_offset, initial_offset)?;
 
-    Ok(GroupedPlannedCursor::new_validated(
+    Ok(ValidatedGroupedCursor::new_validated(
         last_group_key,
         initial_offset,
     ))
@@ -309,10 +309,10 @@ pub(in crate::db) fn validate_grouped_cursor_token(
 /// Revalidate grouped cursor offset compatibility for executor-provided state.
 pub(in crate::db) fn validate_grouped_cursor_state(
     expected_initial_offset: u32,
-    cursor: GroupedPlannedCursor,
-) -> Result<GroupedPlannedCursor, CursorPlanError> {
+    cursor: ValidatedGroupedCursor,
+) -> Result<ValidatedGroupedCursor, CursorPlanError> {
     if cursor.is_empty() {
-        return Ok(GroupedPlannedCursor::none());
+        return Ok(ValidatedGroupedCursor::none());
     }
     validate_cursor_window_offset(expected_initial_offset, cursor.initial_offset())?;
 

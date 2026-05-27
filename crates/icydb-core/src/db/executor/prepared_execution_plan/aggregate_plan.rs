@@ -42,23 +42,23 @@ impl PreparedAggregatePlan {
         self,
     ) -> Result<PreparedAggregateStreamingPlanParts, InternalError> {
         let Self { authority, core } = self;
-        let shared = core.into_shared();
+        let residents = core.into_residents();
 
-        if shared.index_prefix_spec_invalid {
+        if residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if shared.index_range_spec_invalid {
+        if residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
         Ok(PreparedAggregateStreamingPlanParts {
             authority,
-            logical_plan: shared.plan,
-            schema_fingerprint: shared.schema_fingerprint,
-            index_prefix_specs: shared.index_prefix_specs,
-            index_range_specs: shared.index_range_specs,
+            logical_plan: residents.plan,
+            schema_fingerprint: residents.schema_fingerprint,
+            index_prefix_specs: residents.index_prefix_specs,
+            index_range_specs: residents.index_range_specs,
         })
     }
 
@@ -70,8 +70,8 @@ impl PreparedAggregatePlan {
         group: GroupSpec,
     ) -> PreparedLoadPlan {
         let Self { authority, core } = self;
-        let shared = core.into_shared();
-        let mut grouped_plan = Arc::unwrap_or_clone(shared.plan).into_grouped(group);
+        let residents = core.into_residents();
+        let mut grouped_plan = Arc::unwrap_or_clone(residents.plan).into_grouped(group);
 
         // Grouped DISTINCT rewrites change continuation/static planning shape,
         // but `AccessPlannedQuery::into_grouped` carries the same access payload,
@@ -83,11 +83,11 @@ impl PreparedAggregatePlan {
             core: build_prepared_execution_plan_core_with_lowered_access(
                 authority,
                 grouped_plan,
-                shared.schema_fingerprint,
-                shared.index_prefix_specs,
-                shared.index_prefix_spec_invalid,
-                shared.index_range_specs,
-                shared.index_range_spec_invalid,
+                residents.schema_fingerprint,
+                residents.index_prefix_specs,
+                residents.index_prefix_spec_invalid,
+                residents.index_range_specs,
+                residents.index_range_spec_invalid,
             ),
         }
     }

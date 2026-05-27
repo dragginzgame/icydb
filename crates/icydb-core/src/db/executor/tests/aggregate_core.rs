@@ -1980,7 +1980,7 @@ fn aggregate_core_grouped_having_non_boolean_expr_fails_closed_when_planner_is_b
     let err = load
         .execute_grouped_paged_with_cursor_traced(
             plan,
-            crate::db::cursor::GroupedPlannedCursor::none(),
+            crate::db::cursor::ValidatedGroupedCursor::none(),
         )
         .expect_err("bypassed planner shape should fail with executor invariant");
 
@@ -2056,7 +2056,7 @@ fn aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan() 
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
         load.execute_grouped_paged_with_cursor_traced(
             plan,
-            crate::db::cursor::GroupedPlannedCursor::none(),
+            crate::db::cursor::ValidatedGroupedCursor::none(),
         )
     });
     let err = result.expect_err(
@@ -2104,7 +2104,7 @@ fn aggregate_core_grouped_field_target_aggregate_fails_without_scan() {
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
         load.execute_grouped_paged_with_cursor_traced(
             plan,
-            crate::db::cursor::GroupedPlannedCursor::none(),
+            crate::db::cursor::ValidatedGroupedCursor::none(),
         )
     });
     let err = result

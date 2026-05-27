@@ -27,7 +27,7 @@ use crate::{
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::covering::{
-                    covering_index_adjacent_distinct_eligible, covering_index_projection_context,
+                    covering_index_adjacent_distinct_eligible, covering_index_projection_facts,
                 },
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
@@ -46,7 +46,7 @@ use crate::{
             ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
         },
         query::plan::{
-            CoveringProjectionContext, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
+            CoveringProjectionFacts, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
             constant_covering_projection_value_from_access,
             expr::{Expr, eval_builder_expr_for_value_preview},
         },
@@ -135,7 +135,7 @@ where
                     op,
                 ),
             PreparedScalarProjectionStrategy::CoveringIndex {
-                context,
+                facts,
                 window,
                 distinct,
             } => self.execute_covering_scalar_projection_boundary(
@@ -143,7 +143,7 @@ where
                 &target_field_name,
                 field_slot,
                 op,
-                context,
+                facts,
                 window,
                 distinct,
             ),
@@ -165,7 +165,7 @@ where
         op: &PreparedScalarProjectionOp,
     ) -> PreparedScalarProjectionStrategy {
         if !prepared.has_predicate()
-            && let Some(context) = covering_index_projection_context(
+            && let Some(facts) = covering_index_projection_facts(
                 &prepared.logical_plan.access,
                 prepared.order_spec(),
                 target_field,
@@ -177,7 +177,7 @@ where
             let distinct = match op {
                 PreparedScalarProjectionOp::DistinctValues
                 | PreparedScalarProjectionOp::CountDistinct => {
-                    Some(if covering_index_adjacent_distinct_eligible(context) {
+                    Some(if covering_index_adjacent_distinct_eligible(facts) {
                         PreparedCoveringDistinctStrategy::Adjacent
                     } else {
                         PreparedCoveringDistinctStrategy::PreserveFirst
@@ -187,7 +187,7 @@ where
             };
 
             return PreparedScalarProjectionStrategy::CoveringIndex {
-                context,
+                facts,
                 window,
                 distinct,
             };
@@ -215,7 +215,7 @@ where
     // materialized boundary without re-deriving strategy from the plan.
     #[expect(
         clippy::too_many_arguments,
-        reason = "covering scalar projection execution still threads pre-resolved boundary context, window state, and DISTINCT policy explicitly"
+        reason = "covering scalar projection execution still threads pre-resolved boundary facts, window state, and DISTINCT policy explicitly"
     )]
     fn execute_covering_scalar_projection_boundary(
         &self,
@@ -223,15 +223,15 @@ where
         target_field_name: &str,
         field_slot: FieldSlot,
         op: PreparedScalarProjectionOp,
-        context: CoveringProjectionContext,
+        facts: CoveringProjectionFacts,
         window: ScalarProjectionWindow,
         distinct: Option<PreparedCoveringDistinctStrategy>,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         match op {
             PreparedScalarProjectionOp::Values { .. } => {
                 if let Some(values) =
-                    Self::covering_index_projection_values_with_context_from_prepared(
-                        &prepared, context, window,
+                    Self::covering_index_projection_values_with_facts_from_prepared(
+                        &prepared, facts, window,
                     )?
                 {
                     let values = project_scalar_values(values, target_field_name, op.projection())?;
@@ -241,8 +241,8 @@ where
             }
             PreparedScalarProjectionOp::DistinctValues => {
                 if let Some(projected_pairs) =
-                    Self::covering_index_projection_values_from_context_structural(
-                        &prepared, context, window,
+                    Self::covering_index_projection_values_from_facts_structural(
+                        &prepared, facts, window,
                     )?
                 {
                     let values = distinct_values_from_covering_projection_pairs(
@@ -256,8 +256,8 @@ where
             }
             PreparedScalarProjectionOp::CountDistinct => {
                 if let Some(projected_pairs) =
-                    Self::covering_index_projection_values_from_context_structural(
-                        &prepared, context, window,
+                    Self::covering_index_projection_values_from_facts_structural(
+                        &prepared, facts, window,
                     )?
                 {
                     let count =
@@ -267,11 +267,9 @@ where
                 }
             }
             PreparedScalarProjectionOp::ValuesWithIds { .. } => {
-                if let Some(values) =
-                    Self::covering_index_projection_values_from_context_structural(
-                        &prepared, context, window,
-                    )?
-                {
+                if let Some(values) = Self::covering_index_projection_values_from_facts_structural(
+                    &prepared, facts, window,
+                )? {
                     let values =
                         project_scalar_value_pairs(values, target_field_name, op.projection())?;
 
@@ -282,8 +280,8 @@ where
             }
             PreparedScalarProjectionOp::TerminalValue { terminal_kind, .. } => {
                 if let Some(projected_pairs) =
-                    Self::covering_index_projection_values_from_context_structural(
-                        &prepared, context, window,
+                    Self::covering_index_projection_values_from_facts_structural(
+                        &prepared, facts, window,
                     )?
                 {
                     op.validate_terminal_value_kind()?;
@@ -655,13 +653,13 @@ where
 
     // Resolve one index-covered projection value vector from already-prepared
     // covering strategy metadata.
-    fn covering_index_projection_values_with_context_from_prepared(
+    fn covering_index_projection_values_with_facts_from_prepared(
         prepared: &PreparedAggregateStreamingInputs<'_>,
-        context: CoveringProjectionContext,
+        facts: CoveringProjectionFacts,
         window: ScalarProjectionWindow,
     ) -> Result<Option<Vec<Value>>, InternalError> {
         let Some(projected_pairs) =
-            Self::covering_index_projection_pairs_from_context(prepared, context, window)?
+            Self::covering_index_projection_pairs_from_facts(prepared, facts, window)?
         else {
             return Ok(None);
         };
@@ -676,32 +674,30 @@ where
 
     // Resolve one index-covered structural `(data_key, value)` projection
     // vector from already prepared covering strategy metadata.
-    fn covering_index_projection_values_from_context_structural(
+    fn covering_index_projection_values_from_facts_structural(
         prepared: &PreparedAggregateStreamingInputs<'_>,
-        context: CoveringProjectionContext,
+        facts: CoveringProjectionFacts,
         window: ScalarProjectionWindow,
     ) -> Result<Option<ValueProjection>, InternalError> {
-        Self::covering_index_projection_pairs_from_context(prepared, context, window)
+        Self::covering_index_projection_pairs_from_facts(prepared, facts, window)
     }
 
     // Resolve one covering projection pair vector from already prepared
     // covering-index strategy metadata.
-    fn covering_index_projection_pairs_from_context(
+    fn covering_index_projection_pairs_from_facts(
         prepared: &PreparedAggregateStreamingInputs<'_>,
-        context: CoveringProjectionContext,
+        facts: CoveringProjectionFacts,
         window: ScalarProjectionWindow,
     ) -> CoveringProjectionPairsResolution {
         // Phase 1: read component pairs in the order implied by the covering contract.
-        let scan_direction = covering_projection_scan_direction(context.order_contract);
+        let scan_direction = covering_projection_scan_direction(facts.order_contract);
         let raw_pairs = Self::read_covering_projection_component_pairs(
             prepared,
-            context.component_index,
+            facts.component_index,
             scan_direction,
         )?;
-        if matches!(
-            context.order_contract,
-            CoveringProjectionOrder::IndexOrder(_)
-        ) && (window.offset != 0 || window.limit.is_some())
+        if matches!(facts.order_contract, CoveringProjectionOrder::IndexOrder(_))
+            && (window.offset != 0 || window.limit.is_some())
         {
             return Self::covering_index_projection_pairs_in_index_order_window(
                 prepared, raw_pairs, window,
@@ -722,7 +718,7 @@ where
         };
 
         // Phase 3: realign to post-access order and apply prepared effective window.
-        reorder_covering_projection_pairs(context.order_contract, projected_pairs.as_mut_slice());
+        reorder_covering_projection_pairs(facts.order_contract, projected_pairs.as_mut_slice());
         apply_scalar_projection_window_in_place(&mut projected_pairs, window);
 
         Ok(Some(projected_pairs))

@@ -99,7 +99,7 @@ where
     fn build_grouped_prepared_route_runtime(
         &self,
         plan: PreparedLoadPlan,
-        cursor: crate::db::cursor::GroupedPlannedCursor,
+        cursor: crate::db::cursor::ValidatedGroupedCursor,
     ) -> Result<PreparedLoadRouteRuntime, InternalError> {
         let prepared =
             prepare_grouped_route_runtime_for_load_plan(&self.db, self.debug, plan, cursor)?;

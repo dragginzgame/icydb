@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        cursor::{GroupedPlannedCursor, PlannedCursor},
+        cursor::{ValidatedCursor, ValidatedGroupedCursor},
         executor::planning::continuation::scalar::ScalarContinuationContext,
         executor::{PreparedLoadPlan, pipeline::orchestrator::LoadSurfaceMode},
         query::plan::ExecutionOrdering,
@@ -64,20 +64,20 @@ impl LoadCursorResolver {
 ///
 
 pub(in crate::db::executor) enum LoadCursorInput {
-    Scalar(Box<PlannedCursor>),
-    Grouped(GroupedPlannedCursor),
+    Scalar(Box<ValidatedCursor>),
+    Grouped(ValidatedGroupedCursor),
 }
 
 impl LoadCursorInput {
     /// Build scalar load cursor input.
     #[must_use]
-    pub(in crate::db::executor) fn scalar(cursor: PlannedCursor) -> Self {
+    pub(in crate::db::executor) fn scalar(cursor: ValidatedCursor) -> Self {
         Self::Scalar(Box::new(cursor))
     }
 
     /// Build grouped load cursor input.
     #[must_use]
-    pub(in crate::db::executor) fn grouped(cursor: impl Into<GroupedPlannedCursor>) -> Self {
+    pub(in crate::db::executor) fn grouped(cursor: impl Into<ValidatedGroupedCursor>) -> Self {
         Self::Grouped(cursor.into())
     }
 }
@@ -90,5 +90,5 @@ impl LoadCursorInput {
 
 pub(in crate::db::executor) enum PreparedLoadCursor {
     Scalar(Box<ScalarContinuationContext>),
-    Grouped(GroupedPlannedCursor),
+    Grouped(ValidatedGroupedCursor),
 }

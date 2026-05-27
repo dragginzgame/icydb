@@ -36,7 +36,7 @@ use crate::{
         query::plan::{
             CoveringProjectionOrder, FieldSlot as PlannedFieldSlot, OrderDirection,
             constant_covering_projection_value_from_access,
-            covering_index_projection_context_with_primary_key_names as covering_index_projection_context,
+            covering_index_projection_facts_with_primary_key_names as covering_index_projection_facts,
         },
     },
     error::InternalError,
@@ -274,7 +274,7 @@ where
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<u64>, InternalError> {
-        let Some(context) = covering_index_projection_context(
+        let Some(facts) = covering_index_projection_facts(
             &prepared.logical_plan().access,
             prepared.order_spec(),
             target_field.field(),
@@ -284,16 +284,14 @@ where
         };
 
         // Phase 1: read component bytes in covering-order scan direction.
-        let scan_direction = covering_projection_scan_direction(context.order_contract);
+        let scan_direction = covering_projection_scan_direction(facts.order_contract);
         let raw_pairs = Self::read_bytes_covering_projection_component_pairs(
             prepared,
-            context.component_index,
+            facts.component_index,
             scan_direction,
         )?;
-        if matches!(
-            context.order_contract,
-            CoveringProjectionOrder::IndexOrder(_)
-        ) && prepared.page_spec().is_some()
+        if matches!(facts.order_contract, CoveringProjectionOrder::IndexOrder(_))
+            && prepared.page_spec().is_some()
         {
             return Self::bytes_by_index_order_covering_pairs(prepared, raw_pairs);
         }
@@ -312,7 +310,7 @@ where
         };
 
         // Phase 3: reapply the effective output order before page-window folding.
-        reorder_covering_projection_pairs(context.order_contract, projected_rows.as_mut_slice());
+        reorder_covering_projection_pairs(facts.order_contract, projected_rows.as_mut_slice());
 
         let (offset, limit) = page_window_state(prepared.page_spec());
         let total = fold_windowed_value_lens(

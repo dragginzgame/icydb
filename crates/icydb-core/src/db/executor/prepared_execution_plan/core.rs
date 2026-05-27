@@ -1,7 +1,7 @@
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
-        cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
+        cursor::{ContinuationSignature, CursorPlanError, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_access,
@@ -43,16 +43,16 @@ pub enum ExecutionFamily {
 }
 
 ///
-/// PreparedExecutionPlanCoreShared
+/// PreparedExecutionPlanResidents
 ///
-/// Shared prepared-plan residents stored behind `PreparedExecutionPlanCore`.
+/// Prepared-plan residents stored behind `PreparedExecutionPlanCore`.
 /// The struct keeps immutable plan state, lowered access metadata, and lazy
 /// runtime residents together so cloned prepared plans share expensive
 /// preparation products without duplicating logical plans.
 ///
 
 #[derive(Debug)]
-pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanCoreShared {
+pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanResidents {
     pub(in crate::db::executor::prepared_execution_plan) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor::prepared_execution_plan) schema_fingerprint:
         Option<CommitSchemaFingerprint>,
@@ -80,7 +80,7 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) index_range_spec_invalid: bool,
 }
 
-impl Clone for PreparedExecutionPlanCoreShared {
+impl Clone for PreparedExecutionPlanResidents {
     fn clone(&self) -> Self {
         Self {
             plan: Arc::clone(&self.plan),
@@ -109,8 +109,8 @@ impl Clone for PreparedExecutionPlanCoreShared {
     }
 }
 
-// Clone initialized lazy residents when the shared plan core has to be cloned
-// out of an `Arc`; uninitialized residents intentionally stay lazy.
+// Clone initialized lazy residents when the prepared core has to be cloned out
+// of an `Arc`; uninitialized residents intentionally stay lazy.
 fn clone_once_lock<T: Clone>(source: &OnceLock<T>) -> OnceLock<T> {
     let cloned = OnceLock::new();
     if let Some(value) = source.get() {
@@ -131,8 +131,8 @@ fn clone_once_lock<T: Clone>(source: &OnceLock<T>) -> OnceLock<T> {
 
 #[derive(Clone, Debug)]
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanCore {
-    pub(in crate::db::executor::prepared_execution_plan) shared:
-        Arc<PreparedExecutionPlanCoreShared>,
+    pub(in crate::db::executor::prepared_execution_plan) residents:
+        Arc<PreparedExecutionPlanResidents>,
 }
 
 ///
@@ -207,23 +207,23 @@ impl PreparedScalarPlanCore {
     pub(in crate::db::executor) fn index_prefix_specs(
         &self,
     ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        if self.core.shared.index_prefix_spec_invalid {
+        if self.core.residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
 
-        Ok(self.core.shared.index_prefix_specs.as_ref())
+        Ok(self.core.residents.index_prefix_specs.as_ref())
     }
 
     pub(in crate::db::executor) fn index_range_specs(
         &self,
     ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        if self.core.shared.index_range_spec_invalid {
+        if self.core.residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(self.core.shared.index_range_specs.as_ref())
+        Ok(self.core.residents.index_range_specs.as_ref())
     }
 }
 
@@ -239,7 +239,7 @@ impl PreparedExecutionPlanCore {
         index_range_spec_invalid: bool,
     ) -> Self {
         Self {
-            shared: Arc::new(PreparedExecutionPlanCoreShared {
+            residents: Arc::new(PreparedExecutionPlanResidents {
                 plan,
                 schema_fingerprint,
                 prepared_projection_shape: OnceLock::new(),
@@ -260,7 +260,7 @@ impl PreparedExecutionPlanCore {
 
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn plan(&self) -> &AccessPlannedQuery {
-        &self.shared.plan
+        &self.residents.plan
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_shape(
@@ -269,13 +269,13 @@ impl PreparedExecutionPlanCore {
     ) -> Option<Arc<PreparedProjectionShape>> {
         // Projection adapters consume this shape directly; scalar validation
         // callers request it explicitly before execution.
-        self.shared
+        self.residents
             .prepared_projection_shape
             .get_or_init(|| {
-                self.shared.plan.scalar_projection_plan().map(|_| {
+                self.residents.plan.scalar_projection_plan().map(|_| {
                     Arc::new(prepare_projection_shape_from_plan(
                         authority.row_layout_ref(),
-                        &self.shared.plan,
+                        &self.residents.plan,
                     ))
                 })
             })
@@ -288,20 +288,20 @@ impl PreparedExecutionPlanCore {
     ) -> Option<Arc<PreparedGroupedRuntimeResidents>> {
         // Grouped execution needs both the runtime preparation and slot layout
         // together, so cache them behind one grouped-resident initializer.
-        self.shared
+        self.residents
             .prepared_grouped_runtime_residents
             .get_or_init(|| {
-                self.shared.plan.grouped_plan().and_then(|grouped_plan| {
+                self.residents.plan.grouped_plan().and_then(|grouped_plan| {
                     let grouped_distinct_execution_strategy =
-                        self.shared.plan.grouped_distinct_execution_strategy()?;
+                        self.residents.plan.grouped_distinct_execution_strategy()?;
                     let execution_preparation = ExecutionPreparation::from_runtime_plan(
-                        &self.shared.plan,
-                        self.shared.plan.slot_map().map(<[usize]>::to_vec),
+                        &self.residents.plan,
+                        self.residents.plan.slot_map().map(<[usize]>::to_vec),
                     );
                     let grouped_slot_layout = compile_grouped_row_slot_layout_from_parts(
                         authority.row_layout(),
                         grouped_plan.group.group_fields.as_slice(),
-                        self.shared
+                        self.residents
                             .plan
                             .grouped_aggregate_execution_specs()
                             .unwrap_or(&[]),
@@ -325,12 +325,12 @@ impl PreparedExecutionPlanCore {
         // on the effective runtime predicate and slot map, but not on store
         // handles, cursor state, route retry policy, diagnostics, or
         // materialization mode.
-        self.shared
+        self.residents
             .scalar_execution_preparation
             .get_or_init(|| {
                 ExecutionPreparation::from_runtime_plan(
-                    &self.shared.plan,
-                    slot_map_for_model_plan(&self.shared.plan),
+                    &self.residents.plan,
+                    slot_map_for_model_plan(&self.residents.plan),
                 )
             })
             .clone()
@@ -343,12 +343,12 @@ impl PreparedExecutionPlanCore {
         // because route planning needs the capability snapshot and strict
         // predicate program. The inputs are deterministic prepared-plan
         // residents, so cache the bundle beside the scalar/runtime variants.
-        self.shared
+        self.residents
             .aggregate_execution_preparation
             .get_or_init(|| {
                 ExecutionPreparation::from_plan(
-                    &self.shared.plan,
-                    slot_map_for_model_plan(&self.shared.plan),
+                    &self.residents.plan,
+                    slot_map_for_model_plan(&self.residents.plan),
                 )
             })
             .clone()
@@ -364,13 +364,15 @@ impl PreparedExecutionPlanCore {
         // family, so compile only the selected `(projection, cursor)` shape.
         let layout_cache = match (projection_materialization, cursor_emission) {
             (ProjectionMaterializationMode::SharedValidation, CursorEmissionMode::Emit) => {
-                &self.shared.shared_validation_emit_retained_slot_layout
+                &self.residents.shared_validation_emit_retained_slot_layout
             }
             (ProjectionMaterializationMode::RetainSlotRows, CursorEmissionMode::Suppress) => {
-                &self.shared.retain_slot_rows_suppress_retained_slot_layout
+                &self
+                    .residents
+                    .retain_slot_rows_suppress_retained_slot_layout
             }
             (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
-                &self.shared.none_suppress_retained_slot_layout
+                &self.residents.none_suppress_retained_slot_layout
             }
             _ => return None,
         };
@@ -379,7 +381,7 @@ impl PreparedExecutionPlanCore {
             .get_or_init(|| {
                 compile_retained_slot_layout_for_mode(
                     &authority,
-                    &self.shared.plan,
+                    &self.residents.plan,
                     projection_materialization,
                     cursor_emission,
                 )
@@ -389,12 +391,12 @@ impl PreparedExecutionPlanCore {
 
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn mode(&self) -> QueryMode {
-        self.shared.plan.scalar_plan().mode
+        self.residents.plan.scalar_plan().mode
     }
 
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn is_grouped(&self) -> bool {
-        match self.shared.continuation {
+        match self.residents.continuation {
             Some(ref contract) => contract.is_grouped(),
             None => false,
         }
@@ -421,62 +423,62 @@ impl PreparedExecutionPlanCore {
 
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn consistency(&self) -> MissingRowPolicy {
-        row_read_consistency_for_plan(&self.shared.plan)
+        row_read_consistency_for_plan(&self.residents.plan)
     }
 
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn order_spec(
         &self,
     ) -> Option<&OrderSpec> {
-        self.shared.plan.scalar_plan().order.as_ref()
+        self.residents.plan.scalar_plan().order.as_ref()
     }
 
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn has_predicate(&self) -> bool {
-        self.shared.plan.has_residual_filter_expr()
-            || self.shared.plan.has_residual_filter_predicate()
+        self.residents.plan.has_residual_filter_expr()
+            || self.residents.plan.has_residual_filter_predicate()
     }
 
     #[cfg(test)]
     pub(in crate::db::executor::prepared_execution_plan) fn index_prefix_specs(
         &self,
     ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        if self.shared.index_prefix_spec_invalid {
+        if self.residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
 
-        Ok(self.shared.index_prefix_specs.as_ref())
+        Ok(self.residents.index_prefix_specs.as_ref())
     }
 
     #[cfg(test)]
     pub(in crate::db::executor::prepared_execution_plan) fn index_range_specs(
         &self,
     ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        if self.shared.index_range_spec_invalid {
+        if self.residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(self.shared.index_range_specs.as_ref())
+        Ok(self.residents.index_range_specs.as_ref())
     }
 
-    // Recover the shared prepared-plan payload by move when this core is
+    // Recover the prepared-plan resident payload by move when this core is
     // uniquely owned, and fall back to cloning only when another wrapper still
-    // holds the shared Arc.
+    // holds the resident Arc.
     #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn into_shared(
+    pub(in crate::db::executor::prepared_execution_plan) fn into_residents(
         self,
-    ) -> PreparedExecutionPlanCoreShared {
-        Arc::try_unwrap(self.shared).unwrap_or_else(|shared| shared.as_ref().clone())
+    ) -> PreparedExecutionPlanResidents {
+        Arc::try_unwrap(self.residents).unwrap_or_else(|residents| residents.as_ref().clone())
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn prepare_cursor(
         &self,
         authority: EntityAuthority,
         cursor: Option<&[u8]>,
-    ) -> Result<PlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.shared.continuation.as_ref() else {
+    ) -> Result<ValidatedCursor, ExecutorPlanError> {
+        let Some(contract) = self.residents.continuation.as_ref() else {
             return Err(ExecutorPlanError::continuation_cursor_requires_load_plan());
         };
 
@@ -488,9 +490,9 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn revalidate_cursor(
         &self,
         authority: EntityAuthority,
-        cursor: PlannedCursor,
-    ) -> Result<PlannedCursor, InternalError> {
-        let Some(contract) = self.shared.continuation.as_ref() else {
+        cursor: ValidatedCursor,
+    ) -> Result<ValidatedCursor, InternalError> {
+        let Some(contract) = self.residents.continuation.as_ref() else {
             return Err(
                 ExecutorPlanError::continuation_cursor_requires_load_plan().into_internal_error()
             );
@@ -503,9 +505,9 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn revalidate_grouped_cursor(
         &self,
-        cursor: GroupedPlannedCursor,
-    ) -> Result<GroupedPlannedCursor, InternalError> {
-        let Some(contract) = self.shared.continuation.as_ref() else {
+        cursor: ValidatedGroupedCursor,
+    ) -> Result<ValidatedGroupedCursor, InternalError> {
+        let Some(contract) = self.residents.continuation.as_ref() else {
             return Err(
                 ExecutorPlanError::grouped_cursor_revalidation_requires_grouped_plan()
                     .into_internal_error(),
@@ -540,7 +542,7 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn grouped_pagination_window(
         &self,
-        cursor: &GroupedPlannedCursor,
+        cursor: &ValidatedGroupedCursor,
     ) -> Result<GroupedPaginationWindow, InternalError> {
         let contract = self.continuation_contract()?;
         let window = contract
@@ -567,7 +569,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn continuation_contract(
         &self,
     ) -> Result<&PlannedContinuationContract, InternalError> {
-        self.shared.continuation.as_ref().ok_or_else(|| {
+        self.residents.continuation.as_ref().ok_or_else(|| {
             ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })
     }

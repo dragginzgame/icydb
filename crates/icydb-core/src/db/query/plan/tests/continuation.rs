@@ -10,7 +10,8 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         cursor::{
-            ContinuationSignature, CursorPlanError, GroupedContinuationToken, GroupedPlannedCursor,
+            ContinuationSignature, CursorPlanError, GroupedContinuationToken,
+            ValidatedGroupedCursor,
         },
         direction::Direction,
         query::plan::{
@@ -39,8 +40,8 @@ fn grouped_contract(
     )
 }
 
-fn applied_grouped_cursor(contract: &PlannedContinuationContract) -> GroupedPlannedCursor {
-    GroupedPlannedCursor::new_validated(vec![Value::Nat64(7)], contract.expected_initial_offset())
+fn applied_grouped_cursor(contract: &PlannedContinuationContract) -> ValidatedGroupedCursor {
+    ValidatedGroupedCursor::new_validated(vec![Value::Nat64(7)], contract.expected_initial_offset())
 }
 
 #[test]
@@ -107,7 +108,7 @@ fn grouped_cursor_contract_skips_policy_gate_for_initial_grouped_page() {
         .prepare_grouped_cursor_token("PlanEntity", None)
         .expect("initial grouped page should not be blocked by continuation-only policy");
     let window = contract
-        .project_grouped_paging_window(&GroupedPlannedCursor::none())
+        .project_grouped_paging_window(&ValidatedGroupedCursor::none())
         .expect("initial grouped page window should not be blocked by continuation-only policy");
     let (limit, initial_offset_for_page, selection_bound, resume_initial_offset, resume_boundary) =
         window.into_parts();

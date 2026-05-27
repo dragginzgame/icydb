@@ -42,16 +42,16 @@ impl PreparedScalarRuntimeParts {
             retained_slot_layout,
             plan_core,
         } = self;
-        let shared = plan_core.core.into_shared();
-        let execution_plan = shared.plan.clone_without_scalar_page();
+        let residents = plan_core.core.into_residents();
+        let execution_plan = residents.plan.clone_without_scalar_page();
         let core = build_prepared_execution_plan_core_with_lowered_access(
             authority.clone(),
             execution_plan,
-            shared.schema_fingerprint,
-            shared.index_prefix_specs,
-            shared.index_prefix_spec_invalid,
-            shared.index_range_specs,
-            shared.index_range_spec_invalid,
+            residents.schema_fingerprint,
+            residents.index_prefix_specs,
+            residents.index_prefix_spec_invalid,
+            residents.index_range_specs,
+            residents.index_range_spec_invalid,
         );
 
         Self {

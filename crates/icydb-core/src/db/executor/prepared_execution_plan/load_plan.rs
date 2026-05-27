@@ -1,7 +1,7 @@
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
-        cursor::{ContinuationSignature, GroupedPlannedCursor, PlannedCursor},
+        cursor::{ContinuationSignature, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutorPlanError, GroupedPaginationWindow, PreparedScalarPlanCore,
             PreparedScalarRuntimeParts,
@@ -80,23 +80,23 @@ impl PreparedLoadPlan {
     pub(in crate::db::executor) fn index_prefix_specs(
         &self,
     ) -> Result<&[crate::db::executor::LoweredIndexPrefixSpec], InternalError> {
-        if self.core.shared.index_prefix_spec_invalid {
+        if self.core.residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
 
-        Ok(self.core.shared.index_prefix_specs.as_ref())
+        Ok(self.core.residents.index_prefix_specs.as_ref())
     }
 
     pub(in crate::db::executor) fn index_range_specs(
         &self,
     ) -> Result<&[crate::db::executor::LoweredIndexRangeSpec], InternalError> {
-        if self.core.shared.index_range_spec_invalid {
+        if self.core.residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(self.core.shared.index_range_specs.as_ref())
+        Ok(self.core.residents.index_range_specs.as_ref())
     }
 
     pub(in crate::db::executor) fn execution_ordering(
@@ -107,15 +107,15 @@ impl PreparedLoadPlan {
 
     pub(in crate::db::executor) fn revalidate_cursor(
         &self,
-        cursor: PlannedCursor,
-    ) -> Result<PlannedCursor, InternalError> {
+        cursor: ValidatedCursor,
+    ) -> Result<ValidatedCursor, InternalError> {
         self.core.revalidate_cursor(self.authority.clone(), cursor)
     }
 
     pub(in crate::db::executor) fn revalidate_grouped_cursor(
         &self,
-        cursor: GroupedPlannedCursor,
-    ) -> Result<GroupedPlannedCursor, InternalError> {
+        cursor: ValidatedGroupedCursor,
+    ) -> Result<ValidatedGroupedCursor, InternalError> {
         self.core.revalidate_grouped_cursor(cursor)
     }
 
@@ -133,7 +133,7 @@ impl PreparedLoadPlan {
 
     pub(in crate::db::executor) fn grouped_pagination_window(
         &self,
-        cursor: &GroupedPlannedCursor,
+        cursor: &ValidatedGroupedCursor,
     ) -> Result<GroupedPaginationWindow, InternalError> {
         self.core.grouped_pagination_window(cursor)
     }
@@ -190,12 +190,12 @@ impl PreparedLoadPlan {
             )
         });
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
-        if core.shared.index_prefix_spec_invalid {
+        if core.residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if core.shared.index_range_spec_invalid {
+        if core.residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
@@ -232,22 +232,22 @@ impl PreparedLoadPlan {
         self,
     ) -> Result<PreparedAccessPlanParts, InternalError> {
         let Self { authority, core } = self;
-        let shared = core.into_shared();
+        let residents = core.into_residents();
 
-        if shared.index_prefix_spec_invalid {
+        if residents.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if shared.index_range_spec_invalid {
+        if residents.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
         Ok(PreparedAccessPlanParts {
             authority,
-            plan: shared.plan,
-            index_prefix_specs: shared.index_prefix_specs,
-            index_range_specs: shared.index_range_specs,
+            plan: residents.plan,
+            index_prefix_specs: residents.index_prefix_specs,
+            index_range_specs: residents.index_range_specs,
         })
     }
 }
