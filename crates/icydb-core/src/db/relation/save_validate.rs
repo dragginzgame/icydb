@@ -10,7 +10,7 @@ use crate::{
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         registry::StoreHandle,
         relation::{
-            AcceptedRelationTargetAuthority, accepted_relation_target_descriptor_from_kind,
+            AcceptedRelationTargetAuthority, accepted_relation_target_metadata_from_kind,
             for_each_relation_target_value, validate_relation_primary_key_component_kind,
         },
         schema::{
@@ -58,7 +58,7 @@ impl AcceptedSaveStrongRelationInfo {
         let [component] = self.local_components.as_slice() else {
             return None;
         };
-        accepted_relation_target_descriptor_from_kind(&component.kind).map(|_| component)
+        accepted_relation_target_metadata_from_kind(&component.kind).map(|_| component)
     }
 }
 
@@ -185,7 +185,7 @@ where
     E: EntityKind,
 {
     if let [field] = local_fields
-        && let Some(target) = accepted_relation_target_descriptor_from_kind(field.kind())
+        && let Some(target) = accepted_relation_target_metadata_from_kind(field.kind())
     {
         if target.strength != PersistedRelationStrength::Strong {
             return Ok(None);
@@ -305,7 +305,7 @@ fn accepted_save_strong_relation_from_field(
     field_name: &str,
     kind: &PersistedFieldKind,
 ) -> Result<Option<AcceptedSaveStrongRelationInfo>, InternalError> {
-    let Some(target) = accepted_relation_target_descriptor_from_kind(kind) else {
+    let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
         return Ok(None);
     };
     if target.strength != PersistedRelationStrength::Strong {

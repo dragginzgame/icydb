@@ -6,7 +6,7 @@
 use crate::{
     db::{
         relation::{
-            RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
+            RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
         },
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexKeyItemSnapshot,
@@ -472,8 +472,8 @@ fn describe_entity_model_from_description_rows(
 }
 
 fn describe_entity_relations_from_model(model: &EntityModel) -> Vec<EntityRelationDescription> {
-    relation_descriptors_for_model_iter(model)
-        .map(relation_description_from_descriptor)
+    relation_field_metadata_for_model_iter(model)
+        .map(relation_description_from_metadata)
         .collect()
 }
 
@@ -855,26 +855,26 @@ const fn entity_relation_strength_from_persisted(
     }
 }
 
-// Project the relation-owned descriptor into the stable describe DTO surface.
-fn relation_description_from_descriptor(
-    descriptor: RelationDescriptor,
+// Project relation-owned metadata into the stable describe DTO surface.
+fn relation_description_from_metadata(
+    metadata: RelationFieldMetadata,
 ) -> EntityRelationDescription {
-    let strength = match descriptor.strength() {
+    let strength = match metadata.strength() {
         RelationStrength::Strong => EntityRelationStrength::Strong,
         RelationStrength::Weak => EntityRelationStrength::Weak,
     };
 
-    let cardinality = match descriptor.cardinality() {
-        RelationDescriptorCardinality::Single => EntityRelationCardinality::Single,
-        RelationDescriptorCardinality::List => EntityRelationCardinality::List,
-        RelationDescriptorCardinality::Set => EntityRelationCardinality::Set,
+    let cardinality = match metadata.cardinality() {
+        RelationFieldCardinality::Single => EntityRelationCardinality::Single,
+        RelationFieldCardinality::List => EntityRelationCardinality::List,
+        RelationFieldCardinality::Set => EntityRelationCardinality::Set,
     };
 
     EntityRelationDescription::new(
-        descriptor.field_name().to_string(),
-        descriptor.target_path().to_string(),
-        descriptor.target_entity_name().to_string(),
-        descriptor.target_store_path().to_string(),
+        metadata.field_name().to_string(),
+        metadata.target_path().to_string(),
+        metadata.target_entity_name().to_string(),
+        metadata.target_store_path().to_string(),
         strength,
         cardinality,
     )
@@ -1258,7 +1258,7 @@ mod tests {
         db::{
             EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
             EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
-            relation::{RelationDescriptorCardinality, relation_descriptors_for_model_iter},
+            relation::{RelationFieldCardinality, relation_field_metadata_for_model_iter},
             schema::{
                 AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
                 PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
@@ -1525,35 +1525,32 @@ mod tests {
     }
 
     #[test]
-    fn schema_describe_relations_match_relation_descriptors() {
-        let descriptors =
-            relation_descriptors_for_model_iter(&DESCRIBE_RELATION_MODEL).collect::<Vec<_>>();
+    fn schema_describe_relations_match_relation_field_metadata() {
+        let metadata =
+            relation_field_metadata_for_model_iter(&DESCRIBE_RELATION_MODEL).collect::<Vec<_>>();
         let described = describe_entity_model(&DESCRIBE_RELATION_MODEL);
         let relations = described.relations();
 
-        assert_eq!(descriptors.len(), relations.len());
+        assert_eq!(metadata.len(), relations.len());
 
-        for (descriptor, relation) in descriptors.iter().zip(relations) {
-            assert_eq!(relation.field(), descriptor.field_name());
-            assert_eq!(relation.target_path(), descriptor.target_path());
-            assert_eq!(
-                relation.target_entity_name(),
-                descriptor.target_entity_name()
-            );
-            assert_eq!(relation.target_store_path(), descriptor.target_store_path());
+        for (metadata, relation) in metadata.iter().zip(relations) {
+            assert_eq!(relation.field(), metadata.field_name());
+            assert_eq!(relation.target_path(), metadata.target_path());
+            assert_eq!(relation.target_entity_name(), metadata.target_entity_name());
+            assert_eq!(relation.target_store_path(), metadata.target_store_path());
             assert_eq!(
                 relation.strength(),
-                match descriptor.strength() {
+                match metadata.strength() {
                     RelationStrength::Strong => EntityRelationStrength::Strong,
                     RelationStrength::Weak => EntityRelationStrength::Weak,
                 }
             );
             assert_eq!(
                 relation.cardinality(),
-                match descriptor.cardinality() {
-                    RelationDescriptorCardinality::Single => EntityRelationCardinality::Single,
-                    RelationDescriptorCardinality::List => EntityRelationCardinality::List,
-                    RelationDescriptorCardinality::Set => EntityRelationCardinality::Set,
+                match metadata.cardinality() {
+                    RelationFieldCardinality::Single => EntityRelationCardinality::Single,
+                    RelationFieldCardinality::List => EntityRelationCardinality::List,
+                    RelationFieldCardinality::Set => EntityRelationCardinality::Set,
                 }
             );
         }

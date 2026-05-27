@@ -21,7 +21,7 @@ use crate::{
         relation::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            accepted_relation_target_descriptor_from_kind,
+            accepted_relation_target_metadata_from_kind,
             validate_relation_primary_key_component_kind,
         },
         schema::{
@@ -195,7 +195,7 @@ impl AcceptedStrongRelationLocalComponents {
             index: field_index,
             field,
         }])
-        .expect("scalar relation descriptor must carry one local component")
+        .expect("scalar relation metadata must carry one local component")
     }
 
     fn try_from_component_specs(
@@ -503,7 +503,7 @@ where
         .collect::<Result<Vec<_>, _>>()?;
 
     if let [field] = local_fields.as_slice()
-        && let Some(target) = accepted_relation_target_descriptor_from_kind(field.kind())
+        && let Some(target) = accepted_relation_target_metadata_from_kind(field.kind())
     {
         if target.strength != PersistedRelationStrength::Strong {
             return Ok(None);
@@ -637,7 +637,7 @@ fn accepted_strong_relation_from_field(
     field: AcceptedFieldDecodeContract<'_>,
     target_path_filter: Option<&str>,
 ) -> Result<Option<AcceptedStrongRelationInfo>, InternalError> {
-    let Some(target) = accepted_relation_target_descriptor_from_kind(field.kind()) else {
+    let Some(target) = accepted_relation_target_metadata_from_kind(field.kind()) else {
         return Ok(None);
     };
     if target.strength != PersistedRelationStrength::Strong {
@@ -807,7 +807,7 @@ pub(super) fn decode_reverse_entry(
     })
 }
 
-/// Resolve target store handle for one relation descriptor.
+/// Resolve target store handle for one relation edge.
 pub(super) fn relation_target_store<C>(
     db: &Db<C>,
     source: ReverseRelationSourceInfo,
@@ -898,7 +898,7 @@ fn relation_target_keys_for_source_slots(
 ) -> Result<RelationTargetKeys, InternalError> {
     if relation
         .scalar_relation_field_kind()
-        .and_then(accepted_relation_target_descriptor_from_kind)
+        .and_then(accepted_relation_target_metadata_from_kind)
         .is_none()
     {
         return relation_target_keys_from_component_slots(row_fields, source, relation);
@@ -1132,9 +1132,8 @@ fn validate_relation_field_kind(
     }
 }
 
-// Enforce the current scalar relation-field target shape supported by the
-// raw relation target-key builder. Composite relation targets will need a
-// relation-edge descriptor instead of this single-component gate.
+// Scalar collection relation fields still use this single-component gate;
+// tuple relation edges use accepted relation-edge metadata instead.
 fn validate_scalar_relation_target_primary_key_kind(
     relation: &AcceptedStrongRelationInfo,
 ) -> Result<(), InternalError> {
@@ -1488,7 +1487,7 @@ mod tests {
     fn accepted_relation_info_carries_ordered_local_component_metadata() {
         let relation = relation(3, PersistedFieldKind::Nat64);
         let [component] = relation.local_components().components() else {
-            panic!("scalar relation descriptor should expose one local component");
+            panic!("scalar relation metadata should expose one local component");
         };
 
         assert_eq!(component.field_index(), 3);
@@ -1553,7 +1552,7 @@ mod tests {
         )]);
         let accepted = AcceptedSchemaSnapshot::new(snapshot);
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted relation descriptor should build");
+            .expect("accepted relation runtime descriptor should build");
         let row_contract = StructuralRowContract::from_accepted_decode_contract(
             "Source",
             descriptor.row_decode_contract(),
@@ -1596,7 +1595,7 @@ mod tests {
         .expect("ordered local component tuple should build");
 
         let [tenant, local] = components.components() else {
-            panic!("tuple relation descriptor should expose both local components");
+            panic!("tuple relation metadata should expose both local components");
         };
         assert_eq!(tenant.field_index(), 2);
         assert_eq!(tenant.field_name(), "tenant_id");

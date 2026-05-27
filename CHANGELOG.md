@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.17` continues the naming hard cut by moving relation model and
+  accepted target metadata away from descriptor vocabulary.
+
+  ```text
+  RelationDescriptor -> RelationFieldMetadata
+  RelationDescriptorCardinality -> RelationFieldCardinality
+  AcceptedRelationTargetDescriptor -> AcceptedRelationTargetMetadata
+  ```
+
 - `0.165.16` continues the naming hard cut by renaming the schema-runtime
   generated-compatibility row shape to proof vocabulary.
 

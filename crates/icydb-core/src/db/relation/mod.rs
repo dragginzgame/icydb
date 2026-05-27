@@ -23,7 +23,7 @@ use crate::{
 use std::{collections::BTreeSet, fmt::Display};
 
 pub(in crate::db) use metadata::{
-    RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
+    RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
 };
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
@@ -70,7 +70,7 @@ enum AcceptedRelationCardinality {
 }
 
 ///
-/// AcceptedRelationTargetDescriptor
+/// AcceptedRelationTargetMetadata
 ///
 /// Accepted-schema relation target metadata projected from a relation field
 /// or a supported collection wrapper. This is intentionally field-shape
@@ -79,7 +79,7 @@ enum AcceptedRelationCardinality {
 ///
 
 #[derive(Clone, Copy)]
-struct AcceptedRelationTargetDescriptor<'a> {
+struct AcceptedRelationTargetMetadata<'a> {
     target_path: &'a str,
     target_entity_name: &'a str,
     target_entity_tag: EntityTag,
@@ -89,13 +89,13 @@ struct AcceptedRelationTargetDescriptor<'a> {
     cardinality: AcceptedRelationCardinality,
 }
 
-fn accepted_relation_target_descriptor_from_kind(
+fn accepted_relation_target_metadata_from_kind(
     kind: &PersistedFieldKind,
-) -> Option<AcceptedRelationTargetDescriptor<'_>> {
+) -> Option<AcceptedRelationTargetMetadata<'_>> {
     fn relation_target(
         kind: &PersistedFieldKind,
         cardinality: AcceptedRelationCardinality,
-    ) -> Option<AcceptedRelationTargetDescriptor<'_>> {
+    ) -> Option<AcceptedRelationTargetMetadata<'_>> {
         let PersistedFieldKind::Relation {
             target_path,
             target_entity_name,
@@ -108,7 +108,7 @@ fn accepted_relation_target_descriptor_from_kind(
             return None;
         };
 
-        Some(AcceptedRelationTargetDescriptor {
+        Some(AcceptedRelationTargetMetadata {
             target_path,
             target_entity_name,
             target_entity_tag: *target_entity_tag,
