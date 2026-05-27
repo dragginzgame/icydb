@@ -26,7 +26,7 @@ use crate::{
             pipeline::{
                 contracts::{
                     ExecutionInputs, ExecutionRuntimeAdapter, GroupedRouteStage,
-                    PreparedExecutionInputParts, PreparedExecutionProjection,
+                    PreparedExecutionInputContext, PreparedExecutionProjection,
                     ProjectionMaterializationMode,
                 },
                 runtime::{
@@ -54,7 +54,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
     execution_preparation: ExecutionPreparation,
     row_runtime: StructuralGroupedRowRuntime,
 ) -> Result<GroupedStreamStage, InternalError> {
-    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
         runtime,
         plan: route.plan(),
         executable_access: route.plan().access.executable_contract(),

@@ -37,6 +37,25 @@ Companion helper rename:
 The helper now names the resident payload it returns rather than the ownership
 mechanism used to store it.
 
+### `PreparedExecutionInputParts` -> `PreparedExecutionInputContext`
+
+Role proof:
+
+- Owning module: `db::executor::pipeline::contracts::execution`
+- Payload: short-lived constructor input bundle for one prepared scalar
+  execution attempt
+- Main consumers: scalar load execution, aggregate fold execution, field
+  extrema execution, and delete execution
+- Chosen family: `*Context`
+- Rejected alternatives:
+  - `*Parts`: too weak because the value is the named constructor boundary for
+    shared execution inputs, not only a temporary decomposition result
+  - `*Inputs`: would collide with `ExecutionInputs`, which is the constructed
+    immutable runtime input payload
+  - `*Bundle`: less aligned with the 0.165 role-family vocabulary
+- Public-surface impact: none; visibility remains executor-internal
+- Hard-cut rule: remove the old type and import vocabulary from live code
+
 ## Kept Names
 
 ### `PreparedExecutionPlanCore`
@@ -86,6 +105,7 @@ Live-code scans for this slice:
 rg -n "PreparedExecutionPlanCoreShared|CoreShared|into_shared|core\\.shared\\b|self\\.shared\\b" crates/icydb-core/src/db/executor/prepared_execution_plan
 rg -n "PreparedExecutionPlanResidents|into_residents|core\\.residents|self\\.residents" crates/icydb-core/src/db/executor/prepared_execution_plan
 rg -n "PreparedScalarRuntimeParts|PreparedGroupedRuntimeParts|PreparedAccessPlanParts|PreparedAggregateStreamingPlanParts|SharedPreparedProjectionRuntimeParts" crates/icydb-core/src/db/executor/prepared_execution_plan crates/icydb-core/src/db/executor
+rg -n "PreparedExecutionInputParts|PreparedExecutionInputContext" crates/icydb-core/src/db/executor
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

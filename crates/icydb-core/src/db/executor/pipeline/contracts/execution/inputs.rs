@@ -321,15 +321,15 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
 }
 
 ///
-/// PreparedExecutionInputParts
+/// PreparedExecutionInputContext
 ///
-/// PreparedExecutionInputParts bundles the constructor-only inputs for one
+/// PreparedExecutionInputContext is the short-lived constructor context for one
 /// prepared scalar execution attempt. It keeps the runtime, access,
 /// execution-preparation, projection, and cursor handoff explicit without
 /// growing the `ExecutionInputs::new_prepared` signature.
 ///
 
-pub(in crate::db::executor) struct PreparedExecutionInputParts<'a> {
+pub(in crate::db::executor) struct PreparedExecutionInputContext<'a> {
     pub(in crate::db::executor) runtime: &'a ExecutionRuntimeAdapter,
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) executable_access: ExecutableAccessPlan<'a, Value>,
@@ -364,8 +364,10 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
 impl<'a> ExecutionInputs<'a> {
     /// Construct one scalar execution-input payload from already-prepared
     /// execution and projection state.
-    pub(in crate::db::executor) fn new_prepared(parts: PreparedExecutionInputParts<'a>) -> Self {
-        let PreparedExecutionInputParts {
+    pub(in crate::db::executor) fn new_prepared(
+        context: PreparedExecutionInputContext<'a>,
+    ) -> Self {
+        let PreparedExecutionInputContext {
             runtime,
             plan,
             executable_access,
@@ -374,7 +376,7 @@ impl<'a> ExecutionInputs<'a> {
             projection_materialization,
             prepared_projection,
             emit_cursor,
-        } = parts;
+        } = context;
 
         Self {
             runtime,

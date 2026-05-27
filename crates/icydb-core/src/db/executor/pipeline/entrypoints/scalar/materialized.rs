@@ -13,7 +13,7 @@ use crate::{
             pipeline::{
                 contracts::{
                     ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-                    MaterializedExecutionPayload, PreparedExecutionInputParts,
+                    MaterializedExecutionPayload, PreparedExecutionInputContext,
                     StructuralCursorPage,
                 },
                 entrypoints::scalar::{
@@ -116,7 +116,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
 
     // Phase 3: build canonical execution inputs and materialize the scalar route.
     let executable_access = plan.access.executable_contract();
-    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
         runtime: &runtime,
         plan,
         executable_access,

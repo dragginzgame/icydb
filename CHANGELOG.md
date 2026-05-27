@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.5` continues the naming hard cut by moving the prepared execution
+  constructor payload from generic parts vocabulary to an explicit input
+  context.
+
+  ```text
+  PreparedExecutionInputParts -> PreparedExecutionInputContext
+  ExecutionInputs::new_prepared(parts) -> new_prepared(context)
+  ```
+
 - `0.165.4` continues the naming hard cut by moving access-layer capability
   vocabulary onto access-shape facts and aligning route capability-facts module
   names so route and aggregate policy consume derived fact surfaces instead of

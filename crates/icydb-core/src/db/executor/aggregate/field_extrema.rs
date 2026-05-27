@@ -19,7 +19,7 @@ use crate::{
                 },
             },
             pipeline::contracts::{
-                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputParts,
+                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputContext,
                 PreparedExecutionProjection, ProjectionMaterializationMode,
             },
             pipeline::runtime::ExecutionAttemptKernel,
@@ -264,7 +264,7 @@ impl ExecutionKernel {
             ),
         );
         let executable_access = prepared.logical_plan.access.executable_contract();
-        let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+        let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
             runtime: &runtime,
             plan: &prepared.logical_plan,
             executable_access,

@@ -28,7 +28,7 @@ use crate::{
             PreparedAggregatePlan, PreparedAggregateStreamingPlanParts,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
-                PreparedExecutionInputParts, PreparedExecutionProjection,
+                PreparedExecutionInputContext, PreparedExecutionProjection,
                 ProjectionMaterializationMode,
             },
             pipeline::runtime::ExecutionAttemptKernel,
@@ -297,7 +297,7 @@ impl ExecutionKernel {
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
             crate::db::executor::TraversalRuntime::new(prepared.store, authority.entity_tag()),
         );
-        let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+        let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
             runtime: &runtime,
             plan: &prepared.logical_plan,
             executable_access: lowered_access.executable().clone(),

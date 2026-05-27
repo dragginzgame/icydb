@@ -13,7 +13,7 @@ use crate::{
             pipeline::{
                 contracts::{
                     ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-                    KernelRowsExecutionAttempt, PreparedExecutionInputParts,
+                    KernelRowsExecutionAttempt, PreparedExecutionInputContext,
                 },
                 entrypoints::scalar::{
                     hints::apply_unpaged_top_n_seek_hints, runtime::PreparedScalarRouteRuntime,
@@ -117,7 +117,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
     // Phase 3: run the shared scalar kernel to post-access rows, but skip
     // structural page cursor/final payload construction.
     let executable_access = plan.access.executable_contract();
-    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
         runtime: &runtime,
         plan,
         executable_access,

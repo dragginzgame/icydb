@@ -14,7 +14,7 @@ use crate::{
             ExecutionPreparation, OrderReadableRow, PreparedExecutionPlan, TraversalRuntime,
             mutation::{mutation_write_context, preflight_mutation_plan_for_authority},
             pipeline::contracts::{
-                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputParts,
+                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputContext,
                 PreparedExecutionProjection, ProjectionMaterializationMode,
             },
             pipeline::runtime::ExecutionAttemptKernel,
@@ -109,7 +109,7 @@ pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows_as<T>(
         store,
         prepared.authority.entity.entity_tag(),
     ));
-    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
         runtime: &runtime,
         plan: &prepared.logical_plan,
         executable_access: prepared.logical_plan.access.executable_contract(),
