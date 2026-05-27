@@ -965,8 +965,8 @@ fn resolved_index_slots_for_access_path(
     access: &ExecutableAccessPlan<'_, crate::value::Value>,
 ) -> Option<Vec<usize>> {
     let path = access.as_path()?;
-    let path_capabilities = path.capabilities();
-    let key_items = path_capabilities.index_key_items_for_slot_map()?;
+    let path_facts = path.shape_facts();
+    let key_items = path_facts.index_key_items_for_slot_map()?;
     let mut slots = Vec::new();
 
     match key_items.key_items() {
@@ -1009,7 +1009,7 @@ fn index_compile_targets_for_schema_plan(
 ) -> Option<Vec<IndexCompileTarget>> {
     let executable = plan.access.executable_contract();
     let path = executable.as_path()?;
-    let key_items = path.capabilities().index_key_items_for_slot_map()?;
+    let key_items = path.shape_facts().index_key_items_for_slot_map()?;
     let mut targets = Vec::new();
 
     match key_items.key_items() {

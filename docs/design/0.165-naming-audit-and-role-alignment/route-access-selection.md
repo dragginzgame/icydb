@@ -64,6 +64,14 @@ Role proof:
 - Hard-cut rule: remove the old type, derivation helper, route-plan field, and
   test vocabulary from live code
 
+Companion module renames:
+
+- `route::capability` -> `route::capability_facts`
+- `route::contracts::capabilities` -> `route::contracts::capability_facts`
+
+These module names now match the accepted route capability-facts role instead
+of preserving the broad capability/capabilities vocabulary as live structure.
+
 ## Kept Names
 
 ### `LoadOrderRouteDecision`
@@ -88,8 +96,8 @@ Live-code scans for this slice:
 ```bash
 rg -n "LoadOrderRouteContract|load_order_route_contract|access_order_satisfied_by_route_contract|GroupedExecutionModeProjection" crates/icydb-core/src
 rg -n "LoadOrderRouteMode|load_order_route_mode|access_order_satisfied_by_route_mode|GroupedExecutionModeContext" crates/icydb-core/src
-rg -n "RouteCapabilities|derive_execution_capabilities_for_model|route_capabilities" crates/icydb-core/src
-rg -n "RouteCapabilityFacts|derive_execution_capability_facts_for_model|route_capability_facts" crates/icydb-core/src
+rg -n "RouteCapabilities|derive_execution_capabilities_for_model|route_capabilities|route::capability\\b|route::contracts::capabilities|mod capability;|mod capabilities;" crates/icydb-core/src
+rg -n "RouteCapabilityFacts|derive_execution_capability_facts_for_model|route_capability_facts|route::capability_facts|route::contracts::capability_facts|mod capability_facts;" crates/icydb-core/src
 ```
 
 Generic `route contract` wording remains valid where it names broader

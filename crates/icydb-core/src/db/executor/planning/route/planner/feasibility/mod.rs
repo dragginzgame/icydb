@@ -16,7 +16,7 @@ use crate::db::{
             GroupedExecutionModeContext, RouteCapabilityFacts, RouteContinuationPlan, ScanHintPlan,
             TopNSeekSpec, aggregate_probe_fetch_hint, aggregate_seek_spec_from_probe_fetch,
             assess_index_range_limit_pushdown_for_model,
-            capability::{
+            capability_facts::{
                 count_pushdown_existing_rows_shape_supported,
                 desc_physical_reverse_traversal_supported,
                 index_range_limit_pushdown_shape_supported_for_model,
@@ -139,10 +139,10 @@ pub(super) fn derive_route_derivation_context_for_model(
     let grouped = intent_stage.grouped;
     let grouped_plan_strategy = intent_stage.grouped_plan_strategy;
     let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
-    let access_capabilities = plan.access_capabilities();
+    let access_shape_facts = plan.access_shape_facts();
     let secondary_pushdown_applicability =
         crate::db::executor::planning::route::derive_secondary_pushdown_applicability_from_contract(
-            &access_capabilities,
+            &access_shape_facts,
             planner_route_profile,
         );
     let direction = aggregate_shape.map_or_else(
@@ -154,7 +154,7 @@ pub(super) fn derive_route_derivation_context_for_model(
         planner_route_profile,
         direction,
         aggregate_shape,
-        &access_capabilities,
+        &access_shape_facts,
     );
     let kind: Option<AggregateKind> = aggregate_shape.map(AggregateRouteShape::kind);
     let load_scan_hints_enabled = load_scan_hints_allowed_for_intent(kind, grouped);
@@ -204,31 +204,31 @@ fn derive_route_capability_state_for_model(
     planner_route_profile: &PlannerRouteProfile,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
-    access_capabilities: &crate::db::access::AccessCapabilities,
+    access_shape_facts: &crate::db::access::AccessShapeFacts,
 ) -> (
     RouteCapabilityFacts,
     RouteDerivationSupport,
     RouteCountPushdownState,
 ) {
     let existing_rows_shape_supported =
-        count_pushdown_existing_rows_shape_supported(access_capabilities);
+        count_pushdown_existing_rows_shape_supported(access_shape_facts);
     let support = RouteDerivationSupport {
         desc_physical_reverse_supported: desc_physical_reverse_traversal_supported(
-            access_capabilities,
+            access_shape_facts,
             direction,
         ),
         index_range_limit_pushdown_shape_supported:
             index_range_limit_pushdown_shape_supported_for_model(
                 plan,
                 planner_route_profile,
-                access_capabilities,
+                access_shape_facts,
             ),
     };
     let capability_facts = derive_execution_capability_facts_for_model(
         plan,
         direction,
         aggregate_shape,
-        access_capabilities,
+        access_shape_facts,
     );
     let count_pushdown = RouteCountPushdownState {
         existing_rows_shape_supported,

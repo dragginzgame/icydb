@@ -195,8 +195,8 @@ impl AccessPlanStreamResolver {
         path: &ExecutionPathPayload<'_, Value>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
     ) -> Result<(), InternalError> {
-        let path_capabilities = path.capabilities();
-        if let Some(details) = path_capabilities.index_prefix_details() {
+        let path_facts = path.shape_facts();
+        if let Some(details) = path_facts.index_prefix_details() {
             for spec in index_prefix_specs {
                 if spec.scan_contract().name() != details.name() {
                     return Err(InternalError::query_executor_invariant(
@@ -278,15 +278,14 @@ impl AccessPlanStreamResolver {
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         match access.node() {
             ExecutableAccessNode::Path(path) => {
-                let path_capabilities = path.capabilities();
-                let index_prefix_specs = if path_capabilities.index_prefix_spec_count() > 0 {
-                    spec_cursor.require_next_index_prefix_specs(
-                        path_capabilities.index_prefix_spec_count(),
-                    )?
+                let path_facts = path.shape_facts();
+                let index_prefix_specs = if path_facts.index_prefix_spec_count() > 0 {
+                    spec_cursor
+                        .require_next_index_prefix_specs(path_facts.index_prefix_spec_count())?
                 } else {
                     &[]
                 };
-                let index_range_spec = if path_capabilities.consumes_index_range_spec() {
+                let index_range_spec = if path_facts.consumes_index_range_spec() {
                     Some(spec_cursor.require_next_index_range_spec()?)
                 } else {
                     None

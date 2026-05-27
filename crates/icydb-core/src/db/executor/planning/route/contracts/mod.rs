@@ -3,14 +3,14 @@
 //! Does not own: capability derivation algorithms or route planning flow.
 //! Boundary: shared immutable route types consumed by route submodules and executor runtime.
 
-mod capabilities;
+mod capability_facts;
 mod execution;
 mod shape;
 
 pub(in crate::db::executor) use crate::db::executor::{
     AccessWindow, ContinuationMode, RouteContinuationPlan,
 };
-pub(in crate::db::executor) use capabilities::RouteCapabilityFacts;
+pub(in crate::db::executor) use capability_facts::RouteCapabilityFacts;
 #[cfg(test)]
 pub(in crate::db::executor) use execution::GroupedRouteDecisionOutcome;
 pub use execution::RouteExecutionMode;

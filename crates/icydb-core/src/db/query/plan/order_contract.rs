@@ -4,7 +4,7 @@
 //! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
 
 use crate::db::{
-    access::{AccessCapabilities, SemanticIndexKeyItemsRef},
+    access::{AccessShapeFacts, SemanticIndexKeyItemsRef},
     direction::Direction,
     query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
 };
@@ -320,8 +320,8 @@ pub(in crate::db) fn deterministic_secondary_index_order_terms_satisfied(
 
 // Empty non-unique prefix scans still interleave several leading-key groups, so
 // their traversal order cannot satisfy arbitrary suffix ordering on its own.
-fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool {
-    let Some(details) = access_capabilities.single_path_index_prefix_details() else {
+fn prefix_order_contract_safe(access_shape_facts: &AccessShapeFacts) -> bool {
+    let Some(details) = access_shape_facts.single_path_index_prefix_details() else {
         return false;
     };
 
@@ -332,15 +332,15 @@ fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool 
 /// the final stream order of one access-capability shape.
 #[must_use]
 pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
     order_contract: &DeterministicSecondaryOrderContract,
 ) -> bool {
-    if !access_capabilities.is_single_path() {
+    if !access_shape_facts.is_single_path() {
         return false;
     }
 
-    if let Some(details) = access_capabilities.single_path_index_prefix_details() {
-        return prefix_order_contract_safe(access_capabilities)
+    if let Some(details) = access_shape_facts.single_path_index_prefix_details() {
+        return prefix_order_contract_safe(access_shape_facts)
             && deterministic_secondary_index_key_items_order_satisfied(
                 order_contract,
                 details.key_items(),
@@ -348,7 +348,7 @@ pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
             );
     }
 
-    access_capabilities
+    access_shape_facts
         .single_path_index_range_details()
         .is_some_and(|details| {
             deterministic_secondary_index_key_items_order_satisfied(

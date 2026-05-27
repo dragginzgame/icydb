@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.4` continues the naming hard cut by moving access-layer capability
+  vocabulary onto access-shape facts and aligning route capability-facts module
+  names so route and aggregate policy consume derived fact surfaces instead of
+  vague capability sets.
+
+  ```text
+  access::capabilities -> access::shape_facts
+  route::capability -> route::capability_facts
+  AccessCapabilities -> AccessShapeFacts
+  SinglePathAccessCapabilities -> SinglePathAccessShapeFacts
+  access_capabilities() -> access_shape_facts()
+  ```
+
 - `0.165.3` continues the naming hard cut with SQL aggregate helper-verb
   cleanup, public-surface keep decisions, and a residual vocabulary sweep that
   found no accepted old-name hits in live code.

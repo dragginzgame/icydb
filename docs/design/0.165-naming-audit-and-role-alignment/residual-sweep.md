@@ -16,7 +16,7 @@ aliases, forwarding helpers, or active instructional drift.
 Command:
 
 ```bash
-rg -n "LoadOrderRouteContract|GroupedExecutionModeProjection|RouteCapabilities|CoveringProjectionContext|CoveringAccessMetadata|PreparedExecutionPlanCoreShared|PlannedCursor|GroupedPlannedCursor|PreparedSqlScalarAggregateDescriptorShape|AggregateTerminalSemantics|resolve_or_insert_global_aggregate_terminal|resolve_having_global_aggregate_terminal_index" crates docs CHANGELOG.md
+rg -n "LoadOrderRouteContract|GroupedExecutionModeProjection|RouteCapabilities|route::capability\\b|route::contracts::capabilities|CoveringProjectionContext|CoveringAccessMetadata|PreparedExecutionPlanCoreShared|PlannedCursor|GroupedPlannedCursor|PreparedSqlScalarAggregateDescriptorShape|AggregateTerminalSemantics|resolve_or_insert_global_aggregate_terminal|resolve_having_global_aggregate_terminal_index" crates docs CHANGELOG.md
 ```
 
 Remaining hits classify as:

@@ -249,11 +249,11 @@ impl ExecutionKernel {
         let Some(executable_path) = inputs.executable_access.as_path() else {
             return Ok(None);
         };
-        let capabilities = executable_path.capabilities();
-        if capabilities.is_by_keys_empty() {
+        let shape_facts = executable_path.shape_facts();
+        if shape_facts.is_by_keys_empty() {
             return Ok(Some((Self::aggregate_zero_window_result(inputs.kind), 0)));
         }
-        if !direct_primary_key_lookup_shape_supported(&capabilities) {
+        if !direct_primary_key_lookup_shape_supported(&shape_facts) {
             return Ok(None);
         }
         let residual_filter_present = inputs.logical_plan.has_residual_filter_expr()
@@ -328,8 +328,8 @@ impl ExecutionKernel {
         let Some(executable_path) = inputs.executable_access.as_path() else {
             return Ok(None);
         };
-        let capabilities = executable_path.capabilities();
-        if !count_pushdown_shape_supported(&capabilities) {
+        let shape_facts = executable_path.shape_facts();
+        if !count_pushdown_shape_supported(&shape_facts) {
             return Ok(None);
         }
 

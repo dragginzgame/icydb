@@ -34,8 +34,8 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     let Some(executable_path) = executable.as_path() else {
         return Ok(None);
     };
-    let path_capabilities = executable_path.capabilities();
-    let Some(details) = path_capabilities.index_prefix_details() else {
+    let path_facts = executable_path.shape_facts();
+    let Some(details) = path_facts.index_prefix_details() else {
         return Ok(None);
     };
     let Some(index_prefix_spec) = index_prefix_spec else {

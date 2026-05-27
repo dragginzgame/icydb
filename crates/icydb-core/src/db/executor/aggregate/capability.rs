@@ -177,7 +177,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy(
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     inputs: AggregateExecutionPolicyInputs,
 ) -> AggregateExecutionPolicy {
-    let access_capabilities = plan.access_capabilities();
+    let access_shape_facts = plan.access_shape_facts();
     let field_min_fast_path = assess_field_extrema_fast_path_eligibility(
         plan,
         direction,
@@ -192,10 +192,10 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy(
     );
 
     AggregateExecutionPolicy {
-        count_pushdown_shape_supported: access_capabilities
-            .single_path_capabilities()
-            .is_some_and(|capabilities| count_pushdown_shape_supported(&capabilities)),
-        composite_aggregate_fast_path_eligible: access_capabilities.is_composite()
+        count_pushdown_shape_supported: access_shape_facts
+            .single_path_facts()
+            .is_some_and(|shape_facts| count_pushdown_shape_supported(&shape_facts)),
+        composite_aggregate_fast_path_eligible: access_shape_facts.is_composite()
             && !inputs.residual_filter_present()
             && !inputs.requires_post_access_sort(),
         field_min_fast_path,
@@ -250,8 +250,8 @@ fn assess_field_extrema_fast_path_eligibility(
         );
     }
 
-    let access_capabilities = plan.access_capabilities();
-    if access_capabilities.is_composite() {
+    let access_shape_facts = plan.access_shape_facts();
+    if access_shape_facts.is_composite() {
         return AggregateFieldExtremaEligibility::ineligible(
             AggregateFieldExtremaIneligibilityReason::CompositePathNotSupported,
         );
@@ -262,7 +262,7 @@ fn assess_field_extrema_fast_path_eligibility(
         );
     }
     if matches!(direction, Direction::Desc)
-        && !access_capabilities.all_paths_support_reverse_traversal()
+        && !access_shape_facts.all_paths_support_reverse_traversal()
     {
         return AggregateFieldExtremaEligibility::ineligible(
             AggregateFieldExtremaIneligibilityReason::DescReverseTraversalNotSupported,
@@ -286,19 +286,19 @@ fn field_extrema_target_has_matching_index(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
 ) -> bool {
-    let access_capabilities = plan.access_capabilities();
-    let Some(path_capabilities) = access_capabilities.single_path_capabilities() else {
+    let access_shape_facts = plan.access_shape_facts();
+    let Some(path_facts) = access_shape_facts.single_path_facts() else {
         return false;
     };
     if aggregate.target_field_is_primary_key() {
-        return primary_key_stream_window_shape_supported(&path_capabilities);
+        return primary_key_stream_window_shape_supported(&path_facts);
     }
     let Some(target_field) = aggregate.target_field() else {
         return false;
     };
-    access_capabilities
+    access_shape_facts
         .single_path_index_prefix_details()
-        .or_else(|| access_capabilities.single_path_index_range_details())
+        .or_else(|| access_shape_facts.single_path_index_range_details())
         .is_some_and(|details| {
             details
                 .first_key_field()

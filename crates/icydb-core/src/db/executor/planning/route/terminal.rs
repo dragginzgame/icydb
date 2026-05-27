@@ -79,22 +79,21 @@ pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_mode
     lowered_access: &LoweredAccess<'_, Value>,
     strict_predicate_compatible: bool,
 ) -> Option<CountTerminalFastPathContract> {
-    let capabilities = lowered_access
+    let shape_facts = lowered_access
         .executable()
-        .capabilities()
-        .single_path_capabilities()?;
+        .shape_facts()
+        .single_path_facts()?;
 
     (plan.has_no_distinct()
         && !plan.has_any_residual_filter()
-        && primary_key_stream_window_shape_supported(&capabilities))
+        && primary_key_stream_window_shape_supported(&shape_facts))
     .then_some(CountTerminalFastPathContract::PrimaryKeyCardinality)
     .or_else(|| {
         let direction = plan.unordered_or_primary_key_order_direction()?;
-        (!plan.has_any_residual_filter()
-            && direct_primary_key_lookup_shape_supported(&capabilities))
-        .then_some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
-            direction,
-        ))
+        (!plan.has_any_residual_filter() && direct_primary_key_lookup_shape_supported(&shape_facts))
+            .then_some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
+                direction,
+            ))
     })
     .or_else(|| {
         index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible).then_some(

@@ -51,13 +51,13 @@ where
 pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
     access_strategy: &ExecutableAccessPlan<'_, Value>,
 ) -> Result<(), InternalError> {
-    let access_capabilities = access_strategy.capabilities();
-    let Some(path_capabilities) = access_capabilities.single_path_capabilities() else {
+    let access_shape_facts = access_strategy.shape_facts();
+    let Some(path_facts) = access_shape_facts.single_path_facts() else {
         return Err(InternalError::query_executor_invariant(
             "pk stream fast-path requires direct access-path execution",
         ));
     };
-    primary_key_stream_window_shape_supported(&path_capabilities)
+    primary_key_stream_window_shape_supported(&path_facts)
         .then_some(())
         .ok_or_else(|| {
             InternalError::query_executor_invariant(
@@ -71,8 +71,8 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
         )
     })?;
     debug_assert_eq!(
-        primary_key_stream_window_shape_supported(&access.capabilities()),
-        primary_key_stream_window_shape_supported(&path_capabilities),
+        primary_key_stream_window_shape_supported(&access.shape_facts()),
+        primary_key_stream_window_shape_supported(&path_facts),
         "route invariant: descriptor and path capability snapshots must stay aligned",
     );
 
@@ -95,8 +95,8 @@ pub(super) const fn aggregate_force_materialized_due_to_predicate_uncertainty_wi
 #[must_use]
 pub(super) fn pk_order_stream_fast_path_shape_supported(plan: &AccessPlannedQuery) -> bool {
     let logical = plan.scalar_plan();
-    let access_capabilities = plan.access_capabilities();
-    let has_primary_key_stream_window = match access_capabilities.single_path_capabilities() {
+    let access_shape_facts = plan.access_shape_facts();
+    let has_primary_key_stream_window = match access_shape_facts.single_path_facts() {
         Some(path) => primary_key_stream_window_shape_supported(&path),
         None => false,
     };

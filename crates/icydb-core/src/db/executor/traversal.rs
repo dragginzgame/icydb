@@ -33,9 +33,9 @@ impl IndexRangeTraversalContract {
         path: &ExecutionPathPayload<'_, K>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<(), InternalError> {
-        let path_capabilities = path.capabilities();
+        let path_facts = path.shape_facts();
         if let Some(spec) = index_range_spec
-            && let Some(details) = path_capabilities.index_range_details()
+            && let Some(details) = path_facts.index_range_details()
             && spec.scan_contract().name() != details.name()
         {
             return Err(InternalError::query_executor_invariant(

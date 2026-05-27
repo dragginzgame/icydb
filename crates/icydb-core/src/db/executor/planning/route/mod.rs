@@ -3,7 +3,7 @@
 //! Does not own: logical query semantics or stream/kernel execution internals.
 //! Boundary: produces one immutable execution-route contract consumed by runtime dispatch.
 
-mod capability;
+mod capability_facts;
 mod contracts;
 mod fast_path;
 mod guard;
@@ -21,10 +21,10 @@ mod terminal;
 #[cfg(test)]
 mod tests;
 
-use capability::derive_execution_capability_facts_for_model;
-use capability::direction_allows_physical_fetch_hint;
-pub(in crate::db::executor) use capability::explain_access_order_satisfied_for_model;
-pub(in crate::db::executor) use capability::{
+use capability_facts::derive_execution_capability_facts_for_model;
+use capability_facts::direction_allows_physical_fetch_hint;
+pub(in crate::db::executor) use capability_facts::explain_access_order_satisfied_for_model;
+pub(in crate::db::executor) use capability_facts::{
     count_pushdown_shape_supported, direct_primary_key_lookup_shape_supported,
     ordered_key_stream_window_shape_supported, paged_primary_key_numeric_fold_shape_supported,
     primary_key_stream_window_shape_supported, primary_scan_fetch_hint_shape_supported,

@@ -18,7 +18,7 @@ use super::{
     LoadOrderRouteDecision, LoadOrderRouteMode, LoadOrderRouteReason, LoadTerminalFastPathContract,
     RouteCapabilityFacts, RouteExecutionMode, RoutePlanRequest, RouteShapeKind, TopNSeekSpec,
     build_execution_route_plan,
-    capability::{
+    capability_facts::{
         count_pushdown_existing_rows_shape_supported,
         index_range_limit_pushdown_shape_supported_for_model,
     },
@@ -283,17 +283,17 @@ fn build_unique_load_route_plan(
 fn load_count_pushdown_existing_rows_shape_supported(plan: &AccessPlannedQuery) -> bool {
     let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
 
-    count_pushdown_existing_rows_shape_supported(&finalized.access_capabilities())
+    count_pushdown_existing_rows_shape_supported(&finalized.access_shape_facts())
 }
 
 fn load_index_range_limit_pushdown_shape_supported(plan: &AccessPlannedQuery) -> bool {
     let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
-    let access_capabilities = finalized.access_capabilities();
+    let access_shape_facts = finalized.access_shape_facts();
 
     index_range_limit_pushdown_shape_supported_for_model(
         &finalized,
         finalized.planner_route_profile(),
-        &access_capabilities,
+        &access_shape_facts,
     )
 }
 
@@ -836,18 +836,18 @@ fn assert_shared_secondary_order_compatibility_matches_route_pushdown(
     // Freeze planner facts before comparing route pushdown so this assertion
     // checks the same finalized profile production execution consumes.
     let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
-    let access_capabilities = finalized.access_capabilities();
+    let access_shape_facts = finalized.access_shape_facts();
     let planner_route_profile = finalized.planner_route_profile();
     let order_contract = planner_route_profile
         .secondary_order_contract()
         .expect("test plan should carry one deterministic secondary order contract");
 
     let shared_compatibility = access_satisfies_deterministic_secondary_order_contract(
-        &access_capabilities,
+        &access_shape_facts,
         order_contract,
     );
     let route_pushdown_eligible = derive_secondary_pushdown_applicability_from_contract(
-        &access_capabilities,
+        &access_shape_facts,
         planner_route_profile,
     )
     .is_eligible();

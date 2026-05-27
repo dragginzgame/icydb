@@ -169,10 +169,10 @@ fn contract_pushdown_applicability(
     let mut finalized = plan.clone();
     finalized.finalize_planner_route_profile_for_model(model);
     let planner_route_profile = finalized.planner_route_profile();
-    let access_capabilities = finalized.access_capabilities();
+    let access_shape_facts = finalized.access_shape_facts();
 
     derive_secondary_pushdown_applicability_from_contract(
-        &access_capabilities,
+        &access_shape_facts,
         planner_route_profile,
     )
 }
@@ -638,7 +638,7 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
     plan.finalize_planner_route_profile_for_model(model);
     let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
-    let access_capabilities = finalized.access_capabilities();
+    let access_shape_facts = finalized.access_shape_facts();
     let gated_profile = PlannerRouteProfile::new(
         ContinuationPolicy::new(false, false, true),
         LogicalPushdownEligibility::new(false, false, false),
@@ -646,7 +646,7 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
     );
 
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(&access_capabilities, &gated_profile),
+        derive_secondary_pushdown_applicability_from_contract(&access_shape_facts, &gated_profile),
         PushdownApplicability::NotApplicable
     );
 }
@@ -661,11 +661,11 @@ fn secondary_order_pushdown_contract_rejects_non_deterministic_tie_break_shape()
     plan.finalize_planner_route_profile_for_model(model);
     let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
-    let access_capabilities = finalized.access_capabilities();
+    let access_shape_facts = finalized.access_shape_facts();
 
     assert_eq!(
         derive_secondary_pushdown_applicability_from_contract(
-            &access_capabilities,
+            &access_shape_facts,
             planner_route_profile,
         ),
         PushdownApplicability::NotApplicable,
@@ -686,11 +686,11 @@ fn secondary_order_pushdown_contract_rejects_mixed_direction_shape() {
     plan.finalize_planner_route_profile_for_model(model);
     let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
-    let access_capabilities = finalized.access_capabilities();
+    let access_shape_facts = finalized.access_shape_facts();
 
     assert_eq!(
         derive_secondary_pushdown_applicability_from_contract(
-            &access_capabilities,
+            &access_shape_facts,
             planner_route_profile,
         ),
         PushdownApplicability::NotApplicable,

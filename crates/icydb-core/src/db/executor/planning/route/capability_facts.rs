@@ -1,10 +1,10 @@
-//! Module: db::executor::planning::route::capability
+//! Module: db::executor::planning::route::capability_facts
 //! Responsibility: derive route capability facts from executable plans.
 //! Does not own: fast-path execution dispatch or post-access kernel behavior.
 //! Boundary: capability and eligibility helpers for route planning.
 
 use crate::db::{
-    access::{AccessCapabilities, AccessPathKind, SinglePathAccessCapabilities},
+    access::{AccessPathKind, AccessShapeFacts, SinglePathAccessShapeFacts},
     direction::Direction,
     executor::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
@@ -21,16 +21,16 @@ use crate::db::{
 use crate::db::executor::planning::route::{
     ExecutionRoutePlan, RouteCapabilityFacts,
     index_range_limit_pushdown_shape_supported_for_order_contract,
-    pushdown::access_order_satisfied_by_route_mode_with_capabilities,
+    pushdown::access_order_satisfied_by_route_mode_with_access_shape_facts,
 };
 
 /// Return whether this access path can produce an ordered key-stream window directly.
 #[must_use]
 pub(in crate::db::executor) const fn ordered_key_stream_window_shape_supported(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     matches!(
-        capabilities.kind(),
+        shape_facts.kind(),
         AccessPathKind::ByKey
             | AccessPathKind::ByKeys
             | AccessPathKind::IndexPrefix
@@ -42,10 +42,10 @@ pub(in crate::db::executor) const fn ordered_key_stream_window_shape_supported(
 /// Return whether this access path is a primary-key stream-window shape.
 #[must_use]
 pub(in crate::db::executor) const fn primary_key_stream_window_shape_supported(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     matches!(
-        capabilities.kind(),
+        shape_facts.kind(),
         AccessPathKind::KeyRange | AccessPathKind::FullScan
     )
 }
@@ -53,10 +53,10 @@ pub(in crate::db::executor) const fn primary_key_stream_window_shape_supported(
 /// Return whether this access path directly addresses primary-key values.
 #[must_use]
 pub(in crate::db::executor) const fn direct_primary_key_lookup_shape_supported(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     matches!(
-        capabilities.kind(),
+        shape_facts.kind(),
         AccessPathKind::ByKey | AccessPathKind::ByKeys
     )
 }
@@ -64,10 +64,10 @@ pub(in crate::db::executor) const fn direct_primary_key_lookup_shape_supported(
 /// Return whether this path requires one top-N lookahead row in unpaged mode.
 #[must_use]
 pub(in crate::db::executor) const fn top_n_seek_lookahead_required_for_shape(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     matches!(
-        capabilities.kind(),
+        shape_facts.kind(),
         AccessPathKind::ByKeys | AccessPathKind::IndexMultiLookup
     )
 }
@@ -75,10 +75,10 @@ pub(in crate::db::executor) const fn top_n_seek_lookahead_required_for_shape(
 /// Return whether this path can use a primary-scan fetch hint.
 #[must_use]
 pub(in crate::db::executor) const fn primary_scan_fetch_hint_shape_supported(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     matches!(
-        capabilities.kind(),
+        shape_facts.kind(),
         AccessPathKind::ByKey | AccessPathKind::KeyRange | AccessPathKind::FullScan
     )
 }
@@ -86,18 +86,18 @@ pub(in crate::db::executor) const fn primary_scan_fetch_hint_shape_supported(
 /// Return whether COUNT can use a direct structural pushdown for this shape.
 #[must_use]
 pub(in crate::db::executor) const fn count_pushdown_shape_supported(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
-    primary_key_stream_window_shape_supported(capabilities)
+    primary_key_stream_window_shape_supported(shape_facts)
 }
 
 /// Return whether numeric field aggregates can use one direct key-stream fold.
 #[must_use]
 pub(in crate::db::executor) const fn streaming_numeric_fold_shape_supported(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     matches!(
-        capabilities.kind(),
+        shape_facts.kind(),
         AccessPathKind::ByKey
             | AccessPathKind::ByKeys
             | AccessPathKind::FullScan
@@ -110,10 +110,10 @@ pub(in crate::db::executor) const fn streaming_numeric_fold_shape_supported(
 /// Return whether numeric field aggregates can fold paged primary-key windows.
 #[must_use]
 pub(in crate::db::executor) const fn paged_primary_key_numeric_fold_shape_supported(
-    capabilities: &SinglePathAccessCapabilities,
+    shape_facts: &SinglePathAccessShapeFacts,
 ) -> bool {
     matches!(
-        capabilities.kind(),
+        shape_facts.kind(),
         AccessPathKind::ByKey
             | AccessPathKind::ByKeys
             | AccessPathKind::FullScan
@@ -139,7 +139,7 @@ struct LoadRouteCapabilityFacts {
 
 impl LoadRouteCapabilityFacts {
     // Derive the shared load-capability fact snapshot from one validated plan.
-    fn from_plan(plan: &AccessPlannedQuery, access_capabilities: &AccessCapabilities) -> Self {
+    fn from_plan(plan: &AccessPlannedQuery, access_shape_facts: &AccessShapeFacts) -> Self {
         let logical = plan.scalar_plan();
 
         // Phase 1: collect the shared budget and order facts that downstream
@@ -147,7 +147,7 @@ impl LoadRouteCapabilityFacts {
         let residual_filter_present =
             plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
         let access_order_satisfied_by_path =
-            access_order_satisfied_by_route_mode_with_capabilities(plan, access_capabilities);
+            access_order_satisfied_by_route_mode_with_access_shape_facts(plan, access_shape_facts);
         let has_order = logical
             .order
             .as_ref()
@@ -167,7 +167,7 @@ impl LoadRouteCapabilityFacts {
                 LoadOrderRouteReason::RequiresMaterializedSort,
             )
         } else if let Some(decision) =
-            secondary_prefix_streaming_requires_materialized_boundary(plan, access_capabilities)
+            secondary_prefix_streaming_requires_materialized_boundary(plan, access_shape_facts)
         {
             decision
         } else {
@@ -201,9 +201,9 @@ impl LoadRouteCapabilityFacts {
 // load-hint helpers do not re-derive the same plan facts independently.
 fn derive_load_route_capability_facts_for_model(
     plan: &AccessPlannedQuery,
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
 ) -> LoadRouteCapabilityFacts {
-    LoadRouteCapabilityFacts::from_plan(plan, access_capabilities)
+    LoadRouteCapabilityFacts::from_plan(plan, access_shape_facts)
 }
 
 // Some secondary-prefix ORDER BY shapes are semantically pushdown-compatible
@@ -212,10 +212,10 @@ fn derive_load_route_capability_facts_for_model(
 // access contracts stay visible while unsafe streaming windows fail closed.
 fn secondary_prefix_streaming_requires_materialized_boundary(
     plan: &AccessPlannedQuery,
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
 ) -> Option<LoadOrderRouteDecision> {
     let logical = plan.scalar_plan();
-    let index = access_capabilities.single_path_index_prefix_details()?;
+    let index = access_shape_facts.single_path_index_prefix_details()?;
 
     // DISTINCT over secondary-prefix routes still depends on materialized
     // deduplication rather than direct ordered streaming.
@@ -253,14 +253,14 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return false;
     }
 
-    let access_capabilities = plan.access_capabilities();
+    let access_shape_facts = plan.access_shape_facts();
     let Some(order_contract) = plan.scalar_plan().order.as_ref().and_then(|order| {
         order.deterministic_secondary_order_contract_fields(&plan.primary_key_names())
     }) else {
         return true;
     };
 
-    if let Some(details) = access_capabilities.single_path_index_prefix_details()
+    if let Some(details) = access_shape_facts.single_path_index_prefix_details()
         && !details.is_unique()
         && details.slot_arity() > 0
         && matches!(order_contract.direction(), OrderDirection::Desc)
@@ -272,7 +272,7 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return true;
     }
 
-    let Some(details) = access_capabilities.single_path_index_range_details() else {
+    let Some(details) = access_shape_facts.single_path_index_range_details() else {
         return true;
     };
     let prefix_len = details.slot_arity();
@@ -313,10 +313,10 @@ pub(super) fn derive_execution_capability_facts_for_model(
     plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
 ) -> RouteCapabilityFacts {
     let load_route_capability_facts =
-        derive_load_route_capability_facts_for_model(plan, access_capabilities);
+        derive_load_route_capability_facts_for_model(plan, access_shape_facts);
     let aggregate_execution_policy = derive_aggregate_execution_policy(
         plan,
         direction,
@@ -345,20 +345,19 @@ pub(super) fn derive_execution_capability_facts_for_model(
 }
 
 pub(super) const fn desc_physical_reverse_traversal_supported(
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
     direction: Direction,
 ) -> bool {
-    matches!(direction, Direction::Desc)
-        && access_capabilities.all_paths_support_reverse_traversal()
+    matches!(direction, Direction::Desc) && access_shape_facts.all_paths_support_reverse_traversal()
 }
 
 pub(super) fn count_pushdown_existing_rows_shape_supported(
-    access_capabilities: &crate::db::access::AccessCapabilities,
+    access_shape_facts: &crate::db::access::AccessShapeFacts,
 ) -> bool {
-    access_capabilities
+    access_shape_facts
         .single_path_index_prefix_details()
         .is_some()
-        || access_capabilities
+        || access_shape_facts
             .single_path_index_range_details()
             .is_some()
 }
@@ -366,7 +365,7 @@ pub(super) fn count_pushdown_existing_rows_shape_supported(
 pub(super) fn index_range_limit_pushdown_shape_supported_for_model(
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
 ) -> bool {
     let planner_bypass_empty_order = plan
         .scalar_plan()
@@ -391,7 +390,7 @@ pub(super) fn index_range_limit_pushdown_shape_supported_for_model(
     }
 
     index_range_limit_pushdown_shape_supported_for_order_contract(
-        access_capabilities,
+        access_shape_facts,
         order_contract,
         order_present,
     )

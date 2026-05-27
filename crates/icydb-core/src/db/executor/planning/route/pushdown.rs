@@ -1,10 +1,10 @@
 //! Module: db::executor::planning::route::pushdown
 //! Responsibility: secondary-index ORDER BY pushdown feasibility routing.
 //! Does not own: logical ORDER BY validation semantics.
-//! Boundary: route-owned capability assessment over validated logical+access plans.
+//! Boundary: route-owned access-shape assessment over validated logical+access plans.
 
 use crate::db::{
-    access::{AccessCapabilities, SemanticIndexKeyItemsRef},
+    access::{AccessShapeFacts, SemanticIndexKeyItemsRef},
     executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
@@ -23,16 +23,16 @@ fn validated_secondary_order_contract(
 }
 
 /// Derive route pushdown applicability from planner-owned logical eligibility and
-/// route-owned access capabilities. Route must not re-derive logical shape policy.
+/// route-owned access-shape facts. Route must not re-derive logical shape policy.
 pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
     planner_route_profile: &PlannerRouteProfile,
 ) -> PushdownApplicability {
     let Some(order_contract) = validated_secondary_order_contract(planner_route_profile) else {
         return PushdownApplicability::NotApplicable;
     };
 
-    secondary_order_pushdown_applicability(access_capabilities, order_contract)
+    secondary_order_pushdown_applicability(access_shape_facts, order_contract)
 }
 
 // Core matcher for secondary ORDER BY pushdown eligibility.
@@ -66,14 +66,14 @@ fn match_secondary_order_pushdown_core(
 }
 
 /// Derive secondary ORDER BY pushdown applicability from route-owned access
-/// capabilities and one planner-owned deterministic ORDER BY contract.
+/// access-shape facts and one planner-owned deterministic ORDER BY contract.
 #[must_use]
 fn secondary_order_pushdown_applicability(
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
     order_contract: &DeterministicSecondaryOrderContract,
 ) -> PushdownApplicability {
-    if !access_capabilities.is_single_path() {
-        if let Some(details) = access_capabilities.first_index_range_details() {
+    if !access_shape_facts.is_single_path() {
+        if let Some(details) = access_shape_facts.first_index_range_details() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index: details.name().to_string(),
@@ -85,7 +85,7 @@ fn secondary_order_pushdown_applicability(
         return PushdownApplicability::NotApplicable;
     }
 
-    if let Some(details) = access_capabilities.single_path_index_prefix_details() {
+    if let Some(details) = access_shape_facts.single_path_index_prefix_details() {
         let index_name = details.name();
         let prefix_len = details.slot_arity();
         if prefix_len > details.key_arity() {
@@ -104,7 +104,7 @@ fn secondary_order_pushdown_applicability(
         );
     }
 
-    if let Some(details) = access_capabilities.single_path_index_range_details() {
+    if let Some(details) = access_shape_facts.single_path_index_range_details() {
         let index_name = details.name();
         let prefix_len = details.slot_arity();
         if prefix_len > details.key_arity() {
@@ -140,14 +140,14 @@ fn secondary_order_pushdown_applicability(
 /// the supplied planner-owned deterministic ORDER BY contract.
 #[must_use]
 pub(super) fn index_range_limit_pushdown_shape_supported_for_order_contract(
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
     order_contract: Option<&DeterministicSecondaryOrderContract>,
     order_present: bool,
 ) -> bool {
-    if !access_capabilities.is_single_path() {
+    if !access_shape_facts.is_single_path() {
         return false;
     }
-    let Some(details) = access_capabilities.single_path_index_range_details() else {
+    let Some(details) = access_shape_facts.single_path_index_range_details() else {
         return false;
     };
     let prefix_len = details.slot_arity();
@@ -180,14 +180,14 @@ pub(super) const fn secondary_order_contract_active(
 pub(in crate::db::executor) fn access_order_satisfied_by_route_mode(
     plan: &AccessPlannedQuery,
 ) -> bool {
-    let access_capabilities = plan.access_capabilities();
+    let access_shape_facts = plan.access_shape_facts();
 
-    access_order_satisfied_by_route_mode_with_capabilities(plan, &access_capabilities)
+    access_order_satisfied_by_route_mode_with_access_shape_facts(plan, &access_shape_facts)
 }
 
-pub(super) fn access_order_satisfied_by_route_mode_with_capabilities(
+pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
     plan: &AccessPlannedQuery,
-    access_capabilities: &AccessCapabilities,
+    access_shape_facts: &AccessShapeFacts,
 ) -> bool {
     let logical = plan.scalar_plan();
     let Some(order) = logical.order.as_ref() else {
@@ -199,10 +199,10 @@ pub(super) fn access_order_satisfied_by_route_mode_with_capabilities(
     // order is already primary-key ordered. Secondary index paths stay ordered,
     // but that order is owned by the index key, so they must not claim PK-order
     // satisfaction merely because they are monotonic.
-    let access_uses_index = access_capabilities
+    let access_uses_index = access_shape_facts
         .single_path_index_prefix_details()
         .is_some()
-        || access_capabilities
+        || access_shape_facts
             .single_path_index_range_details()
             .is_some();
     let primary_key_order_satisfied = order
@@ -212,7 +212,7 @@ pub(super) fn access_order_satisfied_by_route_mode_with_capabilities(
     let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
             access_satisfies_deterministic_secondary_order_contract(
-                access_capabilities,
+                access_shape_facts,
                 order_contract,
             )
         });

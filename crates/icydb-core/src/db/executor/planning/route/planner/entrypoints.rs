@@ -136,12 +136,12 @@ fn build_mutation_execution_route_plan(
     // families, but it still carries mutation-safe defaults instead of
     // borrowing load scan-hint or continuation-window semantics.
     let continuation = RouteContinuationPlan::initial_for_mutation();
-    let access_capabilities = plan.access_capabilities();
+    let access_shape_facts = plan.access_shape_facts();
     let capability_facts = derive_execution_capability_facts_for_model(
         plan,
         Direction::Asc,
         None,
-        &access_capabilities,
+        &access_shape_facts,
     );
     let feasibility_stage = RouteFeasibilityStage {
         continuation,

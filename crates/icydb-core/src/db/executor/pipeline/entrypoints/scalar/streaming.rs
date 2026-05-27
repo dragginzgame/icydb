@@ -94,9 +94,9 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
     // Phase 1: keep aggregate row sinks on the same route-hint path as scalar
     // page materialization so bounded windows observe identical input rows.
     let top_n_seek_requires_lookahead = plan
-        .access_capabilities()
-        .single_path_capabilities()
-        .is_some_and(|capabilities| top_n_seek_lookahead_required_for_shape(&capabilities));
+        .access_shape_facts()
+        .single_path_facts()
+        .is_some_and(|shape_facts| top_n_seek_lookahead_required_for_shape(&shape_facts));
     prepare_scalar_sink_route_for_execution(
         &mut route_plan,
         &continuation,

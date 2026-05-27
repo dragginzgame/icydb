@@ -197,14 +197,14 @@ where
         let Some(path) = lowered_access.executable().as_path() else {
             return false;
         };
-        let capabilities = path.capabilities();
-        if !streaming_numeric_fold_shape_supported(&capabilities) {
+        let shape_facts = path.shape_facts();
+        if !streaming_numeric_fold_shape_supported(&shape_facts) {
             return false;
         }
 
         Self::aggregate_page_window_safe(
             prepared,
-            paged_primary_key_numeric_fold_shape_supported(&capabilities),
+            paged_primary_key_numeric_fold_shape_supported(&shape_facts),
         )
     }
 

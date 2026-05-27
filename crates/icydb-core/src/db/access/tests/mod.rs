@@ -48,7 +48,7 @@ fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn access_capabilities_preserve_pure_index_range_shape_facts() {
+fn access_shape_facts_preserve_pure_index_range_details() {
     let spec = SemanticIndexRangeSpec::new(
         CAPABILITY_TEST_INDEX,
         vec![0, 1],
@@ -57,11 +57,11 @@ fn access_capabilities_preserve_pure_index_range_shape_facts() {
         Bound::Excluded(Value::Text("z".to_string())),
     );
     let plan: AccessPlan<Value> = AccessPlan::index_range(spec);
-    let capabilities = plan.capabilities();
-    let path = capabilities
-        .single_path_capabilities()
+    let shape_facts = plan.shape_facts();
+    let path = shape_facts
+        .single_path_facts()
         .expect("index-range test plan should remain a single access path");
-    let range_details = capabilities
+    let range_details = shape_facts
         .single_path_index_range_details()
         .expect("index-range test plan should expose index range details");
 
@@ -78,11 +78,8 @@ fn access_capabilities_preserve_pure_index_range_shape_facts() {
     );
     assert_eq!(path.index_prefix_spec_count(), 0);
     assert!(path.consumes_index_range_spec());
-    assert!(capabilities.all_paths_support_reverse_traversal());
-    assert_eq!(
-        capabilities.first_index_range_details(),
-        Some(range_details)
-    );
+    assert!(shape_facts.all_paths_support_reverse_traversal());
+    assert_eq!(shape_facts.first_index_range_details(), Some(range_details));
 }
 
 // Strip top-level `#[cfg(test)]` items from source text using a lightweight

@@ -120,12 +120,12 @@ where
             }
         };
         let executable = prepared.logical_plan().access.executable_contract();
-        let capabilities = executable.capabilities().single_path_capabilities()?;
+        let shape_facts = executable.shape_facts().single_path_facts()?;
 
-        primary_key_stream_window_shape_supported(&capabilities)
+        primary_key_stream_window_shape_supported(&shape_facts)
             .then_some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction))
             .or_else(|| {
-                ordered_key_stream_window_shape_supported(&capabilities).then_some(
+                ordered_key_stream_window_shape_supported(&shape_facts).then_some(
                     BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction),
                 )
             })

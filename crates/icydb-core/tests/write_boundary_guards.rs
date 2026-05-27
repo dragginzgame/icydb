@@ -1099,8 +1099,8 @@ fn lowered_executor_scans_use_reduced_index_scan_facts() {
 }
 
 #[test]
-fn runtime_access_capabilities_use_reduced_index_shape_facts() {
-    let access_capabilities = read_source("src/db/access/capabilities.rs");
+fn runtime_access_shape_facts_use_reduced_index_shape_facts() {
+    let access_shape_facts = read_source("src/db/access/shape_facts.rs");
     let execution_path_payload = read_source("src/db/access/execution_contract/types.rs");
     let route_pushdown = read_source("src/db/executor/planning/route/pushdown.rs");
     let aggregate_capability = read_source("src/db/executor/aggregate/capability.rs");
@@ -1116,13 +1116,13 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     let planner_range = read_source("src/db/query/plan/planner/range/extract.rs");
 
     assert!(
-        access_capabilities.contains("pub(in crate::db) struct IndexShapeDetails")
-            && access_capabilities.contains("index: SemanticIndexAccessContract")
-            && access_capabilities.contains("fn name(&self) -> &str")
-            && access_capabilities.contains("fn key_items(&self) -> SemanticIndexKeyItemsRef")
-            && access_capabilities.contains("fn key_arity(&self) -> usize")
-            && !access_capabilities.contains("index: IndexModel,\n    slot_arity: usize"),
-        "runtime access capabilities must carry reduced index shape facts instead of exposing generated IndexModel",
+        access_shape_facts.contains("pub(in crate::db) struct IndexShapeDetails")
+            && access_shape_facts.contains("index: SemanticIndexAccessContract")
+            && access_shape_facts.contains("fn name(&self) -> &str")
+            && access_shape_facts.contains("fn key_items(&self) -> SemanticIndexKeyItemsRef")
+            && access_shape_facts.contains("fn key_arity(&self) -> usize")
+            && !access_shape_facts.contains("index: IndexModel,\n    slot_arity: usize"),
+        "runtime access-shape facts must carry reduced index details instead of exposing generated IndexModel",
     );
     assert!(
         execution_path_payload.contains("index: IndexShapeDetails")

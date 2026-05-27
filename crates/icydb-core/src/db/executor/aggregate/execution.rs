@@ -259,7 +259,7 @@ impl PreparedAggregateStreamingInputs<'_> {
             || lowered_access
                 .executable()
                 .as_path()
-                .is_some_and(|path| path.capabilities().is_by_keys_empty())
+                .is_some_and(|path| path.shape_facts().is_by_keys_empty())
     }
 
     /// Borrow scalar ORDER BY semantics for prepared aggregate execution.

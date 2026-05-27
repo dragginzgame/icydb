@@ -1,5 +1,5 @@
-//! Module: db::access::capabilities
-//! Responsibility: access-shape capability facts over semantic and executable contracts.
+//! Module: db::access::shape_facts
+//! Responsibility: immutable access-shape facts over semantic and executable contracts.
 //! Does not own: planner semantics or physical stream execution behavior.
 //! Boundary: access-layer shape authority consumed by executor route/load/stream modules.
 
@@ -14,7 +14,7 @@ const fn has_reversible_traversal_shape_for_path_kind(kind: AccessPathKind) -> b
 }
 
 ///
-/// SinglePathAccessCapabilities
+/// SinglePathAccessShapeFacts
 ///
 /// Access-shape fact snapshot for one executable access path.
 /// This projects one passive execution descriptor into immutable structural
@@ -23,7 +23,7 @@ const fn has_reversible_traversal_shape_for_path_kind(kind: AccessPathKind) -> b
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SinglePathAccessCapabilities {
+pub(in crate::db) struct SinglePathAccessShapeFacts {
     kind: AccessPathKind,
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
@@ -33,7 +33,7 @@ pub(in crate::db) struct SinglePathAccessCapabilities {
     consumes_index_range_spec: bool,
 }
 
-impl SinglePathAccessCapabilities {
+impl SinglePathAccessShapeFacts {
     /// Return the coarse access-path kind represented by this shape snapshot.
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> AccessPathKind {
@@ -79,7 +79,7 @@ impl SinglePathAccessCapabilities {
 ///
 /// IndexShapeDetails
 ///
-/// Named shape details for one index-backed path capability.
+/// Named shape details for one index-backed path shape.
 /// Carries index identity together with slot arity to avoid tuple-position drift.
 ///
 
@@ -142,24 +142,24 @@ impl IndexShapeDetails {
 }
 
 ///
-/// AccessCapabilities
+/// AccessShapeFacts
 ///
-/// Access-shape descriptor for one semantic or executable access plan.
+/// Access-shape facts for one semantic or executable access plan.
 /// This captures plan-level structural flags and single-path facts while
 /// leaving route, aggregate, and fetch-hint policy outside the access layer.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AccessCapabilities {
-    single_path: Option<SinglePathAccessCapabilities>,
+pub(in crate::db) struct AccessShapeFacts {
+    single_path: Option<SinglePathAccessShapeFacts>,
     first_index_range_details: Option<IndexShapeDetails>,
     all_paths_support_reverse_traversal: bool,
 }
 
-impl AccessCapabilities {
-    /// Borrow the single-path capability snapshot when this access plan is one path.
+impl AccessShapeFacts {
+    /// Borrow the single-path fact snapshot when this access plan is one path.
     #[must_use]
-    pub(in crate::db) fn single_path_capabilities(&self) -> Option<SinglePathAccessCapabilities> {
+    pub(in crate::db) fn single_path_facts(&self) -> Option<SinglePathAccessShapeFacts> {
         self.single_path.clone()
     }
 
@@ -216,13 +216,13 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
     }
 }
 
-fn derive_capabilities_from_parts(
+fn derive_single_path_access_shape_facts_from_parts(
     kind: AccessPathKind,
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
     index_prefix_spec_count: usize,
-) -> SinglePathAccessCapabilities {
+) -> SinglePathAccessShapeFacts {
     let index_key_items_for_slot_map = match (&index_prefix_details, &index_range_details) {
         (Some(details), None) | (None, Some(details)) => Some(details.clone()),
         (None, None) => None,
@@ -230,7 +230,7 @@ fn derive_capabilities_from_parts(
     };
     let consumes_index_range_spec = index_range_details.is_some();
 
-    SinglePathAccessCapabilities {
+    SinglePathAccessShapeFacts {
         kind,
         is_by_keys_empty,
         index_prefix_details,
@@ -243,9 +243,9 @@ fn derive_capabilities_from_parts(
 
 /// Derive immutable access-shape facts for one executable access path.
 #[must_use]
-fn derive_access_path_capabilities<K>(
+fn derive_access_path_shape_facts<K>(
     path: &ExecutionPathPayload<'_, K>,
-) -> SinglePathAccessCapabilities {
+) -> SinglePathAccessShapeFacts {
     // Phase 1: derive fact projection from execution-path shape.
     let kind = path.kind();
 
@@ -253,7 +253,7 @@ fn derive_access_path_capabilities<K>(
     let index_prefix_details = path.index_prefix_details();
     let index_range_details = path.index_range_details();
 
-    derive_capabilities_from_parts(
+    derive_single_path_access_shape_facts_from_parts(
         kind,
         is_by_keys_empty_from_payload(path),
         index_prefix_details,
@@ -264,12 +264,10 @@ fn derive_access_path_capabilities<K>(
 
 /// Derive immutable access-shape facts for one semantic access path.
 #[must_use]
-fn derive_semantic_access_path_capabilities<K>(
-    path: &AccessPath<K>,
-) -> SinglePathAccessCapabilities {
+fn derive_semantic_access_path_shape_facts<K>(path: &AccessPath<K>) -> SinglePathAccessShapeFacts {
     let payload = ExecutionPathPayload::from_access_path(path);
 
-    derive_access_path_capabilities(&payload)
+    derive_access_path_shape_facts(&payload)
 }
 
 fn summarize_access_plan_runtime_shape<K>(
@@ -277,11 +275,11 @@ fn summarize_access_plan_runtime_shape<K>(
 ) -> (Option<IndexShapeDetails>, bool) {
     match access.node() {
         ExecutableAccessNode::Path(path) => {
-            let capabilities = path.capabilities();
+            let shape_facts = path.shape_facts();
 
             (
-                capabilities.index_range_details(),
-                capabilities.has_reversible_traversal_shape(),
+                shape_facts.index_range_details(),
+                shape_facts.has_reversible_traversal_shape(),
             )
         }
         ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
@@ -310,11 +308,11 @@ fn summarize_semantic_access_plan_runtime_shape<K>(
 ) -> (Option<IndexShapeDetails>, bool) {
     match access {
         AccessPlan::Path(path) => {
-            let capabilities = path.capabilities();
+            let shape_facts = path.shape_facts();
 
             (
-                capabilities.index_range_details(),
-                capabilities.has_reversible_traversal_shape(),
+                shape_facts.index_range_details(),
+                shape_facts.has_reversible_traversal_shape(),
             )
         }
         AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
@@ -340,15 +338,15 @@ fn summarize_semantic_access_plan_runtime_shape<K>(
 
 /// Derive immutable access-shape facts for one executable access plan.
 #[must_use]
-fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> AccessCapabilities {
+fn derive_access_shape_facts<K>(access: &ExecutableAccessPlan<'_, K>) -> AccessShapeFacts {
     let single_path = match access.node() {
-        ExecutableAccessNode::Path(path) => Some(path.capabilities()),
+        ExecutableAccessNode::Path(path) => Some(path.shape_facts()),
         ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
     };
     let (first_index_range_details, all_paths_support_reverse_traversal) =
         summarize_access_plan_runtime_shape(access);
 
-    AccessCapabilities {
+    AccessShapeFacts {
         single_path,
         first_index_range_details,
         all_paths_support_reverse_traversal,
@@ -357,15 +355,15 @@ fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> Access
 
 /// Derive immutable access-shape facts for one semantic access plan.
 #[must_use]
-fn derive_semantic_access_capabilities<K>(access: &AccessPlan<K>) -> AccessCapabilities {
+fn derive_semantic_access_shape_facts<K>(access: &AccessPlan<K>) -> AccessShapeFacts {
     let single_path = match access {
-        AccessPlan::Path(path) => Some(path.capabilities()),
+        AccessPlan::Path(path) => Some(path.shape_facts()),
         AccessPlan::Union(_) | AccessPlan::Intersection(_) => None,
     };
     let (first_index_range_details, all_paths_support_reverse_traversal) =
         summarize_semantic_access_plan_runtime_shape(access);
 
-    AccessCapabilities {
+    AccessShapeFacts {
         single_path,
         first_index_range_details,
         all_paths_support_reverse_traversal,
@@ -375,31 +373,31 @@ fn derive_semantic_access_capabilities<K>(access: &AccessPlan<K>) -> AccessCapab
 impl<K> AccessPath<K> {
     /// Project immutable access-shape facts for this semantic access path.
     #[must_use]
-    pub(in crate::db) fn capabilities(&self) -> SinglePathAccessCapabilities {
-        derive_semantic_access_path_capabilities(self)
+    pub(in crate::db) fn shape_facts(&self) -> SinglePathAccessShapeFacts {
+        derive_semantic_access_path_shape_facts(self)
     }
 }
 
 impl<K> AccessPlan<K> {
     /// Project immutable access-shape facts for this semantic access plan.
     #[must_use]
-    pub(in crate::db) fn capabilities(&self) -> AccessCapabilities {
-        derive_semantic_access_capabilities(self)
+    pub(in crate::db) fn shape_facts(&self) -> AccessShapeFacts {
+        derive_semantic_access_shape_facts(self)
     }
 }
 
 impl<K> ExecutionPathPayload<'_, K> {
     /// Project immutable access-shape facts for this executable access path.
     #[must_use]
-    pub(in crate::db) fn capabilities(&self) -> SinglePathAccessCapabilities {
-        derive_access_path_capabilities(self)
+    pub(in crate::db) fn shape_facts(&self) -> SinglePathAccessShapeFacts {
+        derive_access_path_shape_facts(self)
     }
 }
 
 impl<K> ExecutableAccessPlan<'_, K> {
     /// Project immutable access-shape facts for this executable access plan.
     #[must_use]
-    pub(in crate::db) fn capabilities(&self) -> AccessCapabilities {
-        derive_access_capabilities(self)
+    pub(in crate::db) fn shape_facts(&self) -> AccessShapeFacts {
+        derive_access_shape_facts(self)
     }
 }

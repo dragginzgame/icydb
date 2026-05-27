@@ -163,7 +163,7 @@ fn validate_expression_order_support(
         return Ok(());
     }
 
-    let access_capabilities = plan.access_capabilities();
+    let access_shape_facts = plan.access_shape_facts();
     let planner_route_profile = plan.planner_route_profile();
     let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
     let secondary_contract_active = logical_pushdown_eligibility.secondary_order_allowed()
@@ -172,7 +172,7 @@ fn validate_expression_order_support(
         .secondary_order_contract()
         .is_some_and(|order_contract| {
             access_satisfies_deterministic_secondary_order_contract(
-                &access_capabilities,
+                &access_shape_facts,
                 order_contract,
             )
         });

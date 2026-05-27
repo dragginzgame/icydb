@@ -4,7 +4,7 @@
 //! Boundary: glue between logical plan semantics and selected access paths.
 
 use crate::db::{
-    access::{AccessCapabilities, AccessPlan},
+    access::{AccessPlan, AccessShapeFacts},
     direction::Direction,
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
@@ -497,10 +497,10 @@ impl AccessPlannedQuery {
         )
     }
 
-    /// Project route-facing capability facts directly from the chosen access plan.
+    /// Project route-facing access-shape facts directly from the chosen access plan.
     #[must_use]
-    pub(in crate::db) fn access_capabilities(&self) -> AccessCapabilities {
-        self.access.capabilities()
+    pub(in crate::db) fn access_shape_facts(&self) -> AccessShapeFacts {
+        self.access.shape_facts()
     }
 
     /// Borrow the planner-owned access-choice diagnostics snapshot.

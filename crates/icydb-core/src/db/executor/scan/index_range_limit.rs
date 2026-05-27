@@ -33,8 +33,8 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     let Some(executable_path) = executable.as_path() else {
         return Ok(None);
     };
-    let path_capabilities = executable_path.capabilities();
-    let Some(details) = path_capabilities.index_range_details() else {
+    let path_facts = executable_path.shape_facts();
+    let Some(details) = path_facts.index_range_details() else {
         return Ok(None);
     };
     let Some(index_range_spec) = index_range_spec else {
