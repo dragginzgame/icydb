@@ -294,7 +294,7 @@ pub(in crate::db) fn validate_grouped_cursor_token(
     let Some(token) = cursor else {
         return Ok(ValidatedGroupedCursor::none());
     };
-    let (signature, last_group_key, direction, initial_offset) = token.into_parts();
+    let (signature, last_group_key, direction, initial_offset) = token.into_components();
 
     validate_cursor_signature(entity_path, &continuation_signature, &signature)?;
     validate_grouped_cursor_direction(expected_direction, direction)?;

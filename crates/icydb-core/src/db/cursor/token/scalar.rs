@@ -87,21 +87,21 @@ impl ContinuationToken {
     }
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
-        let parts = decode_scalar_token(bytes)?;
+        let payload = decode_scalar_token(bytes)?;
 
-        match parts.index_range_anchor {
+        match payload.index_range_anchor {
             Some(anchor) => Ok(Self::new_index_range_with_direction(
-                parts.signature,
-                parts.boundary,
+                payload.signature,
+                payload.boundary,
                 anchor,
-                parts.direction,
-                parts.initial_offset,
+                payload.direction,
+                payload.initial_offset,
             )),
             None => Ok(Self::new_with_direction(
-                parts.signature,
-                parts.boundary,
-                parts.direction,
-                parts.initial_offset,
+                payload.signature,
+                payload.boundary,
+                payload.direction,
+                payload.initial_offset,
             )),
         }
     }

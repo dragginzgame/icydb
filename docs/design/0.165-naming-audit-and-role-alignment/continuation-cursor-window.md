@@ -49,6 +49,34 @@ Companion helper/module renames:
 - `validate_planned_cursor(...)` -> `validate_cursor_token(...)`
 - `validate_planned_cursor_state(...)` -> `validate_cursor_state(...)`
 
+### Cursor Token Decode Payloads
+
+Role proof:
+
+- Owning module: `db::cursor::token::codec`
+- Payload: decoded scalar/grouped token wire payloads handed from the bounded
+  token codec into the scalar or grouped continuation token domain type
+- Main consumers: scalar and grouped token decode constructors
+- Chosen family: `Decoded*Payload`
+- Rejected alternatives:
+  - `*Parts`: too weak because these values are named wire decode payloads, not
+    general decompositions
+  - `*Context`: wrong because the values are returned codec payloads rather
+    than owner-local traversal/input contexts
+  - `*Contract`: too strong because validation policy lives above the wire
+    codec
+- Public-surface impact: none; visibility remains cursor-token-internal
+- Hard-cut rule: remove the old token `Parts` type names and grouped token
+  `into_parts` helper from live cursor code
+
+Accepted renames:
+
+```text
+ScalarTokenParts -> DecodedScalarTokenPayload
+GroupedTokenParts -> DecodedGroupedTokenPayload
+GroupedContinuationToken::into_parts() -> into_components()
+```
+
 ## Kept Names
 
 ### `PlannedContinuationContract`
@@ -94,6 +122,8 @@ Live-code scans for this slice:
 rg -n "PlannedCursor|GroupedPlannedCursor|validate_planned_cursor|planned_cursor|mod planned|planned::|cursor::planned" crates/icydb-core/src docs/design/0.165-naming-audit-and-role-alignment
 rg -n "ValidatedCursor|ValidatedGroupedCursor|validate_cursor_token|validate_cursor_state|mod validated" crates/icydb-core/src/db
 rg -n "PlannedContinuationContract|ScalarAccessWindowPlan|GroupedContinuationWindow|GroupedWindowProjection|RouteContinuationPlan" crates/icydb-core/src/db/query/plan crates/icydb-core/src/db/executor/planning/continuation
+rg -n "ScalarTokenParts|GroupedTokenParts|GroupedContinuationToken::into_parts|\\.into_parts\\(\\)" crates/icydb-core/src/db/cursor docs/design/0.165-naming-audit-and-role-alignment
+rg -n "DecodedScalarTokenPayload|DecodedGroupedTokenPayload|into_components" crates/icydb-core/src/db/cursor
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

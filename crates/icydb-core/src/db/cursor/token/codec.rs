@@ -30,13 +30,13 @@ const DIRECTION_ASC: u8 = 0;
 const DIRECTION_DESC: u8 = 1;
 
 ///
-/// ScalarTokenParts
+/// DecodedScalarTokenPayload
 ///
-/// ScalarTokenParts is the decode handoff from the token wire layer back to the
-/// scalar continuation token domain type.
+/// DecodedScalarTokenPayload is the decoded wire payload handed from the token
+/// codec back to the scalar continuation token domain type.
 ///
 
-pub(in crate::db::cursor::token) struct ScalarTokenParts {
+pub(in crate::db::cursor::token) struct DecodedScalarTokenPayload {
     pub(in crate::db::cursor::token) signature: ContinuationSignature,
     pub(in crate::db::cursor::token) boundary: CursorBoundary,
     pub(in crate::db::cursor::token) direction: Direction,
@@ -45,13 +45,13 @@ pub(in crate::db::cursor::token) struct ScalarTokenParts {
 }
 
 ///
-/// GroupedTokenParts
+/// DecodedGroupedTokenPayload
 ///
-/// GroupedTokenParts is the decode handoff from the token wire layer back to
-/// the grouped continuation token domain type.
+/// DecodedGroupedTokenPayload is the decoded wire payload handed from the
+/// token codec back to the grouped continuation token domain type.
 ///
 
-pub(in crate::db::cursor::token) struct GroupedTokenParts {
+pub(in crate::db::cursor::token) struct DecodedGroupedTokenPayload {
     pub(in crate::db::cursor::token) signature: ContinuationSignature,
     pub(in crate::db::cursor::token) last_group_key: Vec<Value>,
     pub(in crate::db::cursor::token) direction: Direction,
@@ -110,7 +110,7 @@ pub(in crate::db::cursor::token) fn encode_grouped_token(
 
 pub(in crate::db::cursor::token) fn decode_scalar_token(
     bytes: &[u8],
-) -> Result<ScalarTokenParts, TokenWireError> {
+) -> Result<DecodedScalarTokenPayload, TokenWireError> {
     let mut cursor = start_token_decode(bytes)?;
 
     // Phase 1: validate the scalar token envelope and fixed-width header.
@@ -125,7 +125,7 @@ pub(in crate::db::cursor::token) fn decode_scalar_token(
 
     cursor.finish()?;
 
-    Ok(ScalarTokenParts {
+    Ok(DecodedScalarTokenPayload {
         signature,
         boundary,
         direction,
@@ -136,7 +136,7 @@ pub(in crate::db::cursor::token) fn decode_scalar_token(
 
 pub(in crate::db::cursor::token) fn decode_grouped_token(
     bytes: &[u8],
-) -> Result<GroupedTokenParts, TokenWireError> {
+) -> Result<DecodedGroupedTokenPayload, TokenWireError> {
     let mut cursor = start_token_decode(bytes)?;
 
     // Phase 1: validate the grouped token envelope and fixed-width header.
@@ -150,7 +150,7 @@ pub(in crate::db::cursor::token) fn decode_grouped_token(
 
     cursor.finish()?;
 
-    Ok(GroupedTokenParts {
+    Ok(DecodedGroupedTokenPayload {
         signature,
         last_group_key,
         direction,

@@ -61,7 +61,9 @@ impl GroupedContinuationToken {
         self.initial_offset
     }
 
-    pub(in crate::db) fn into_parts(self) -> (ContinuationSignature, Vec<Value>, Direction, u32) {
+    pub(in crate::db) fn into_components(
+        self,
+    ) -> (ContinuationSignature, Vec<Value>, Direction, u32) {
         (
             self.signature,
             self.last_group_key,
@@ -80,13 +82,13 @@ impl GroupedContinuationToken {
     }
 
     pub(in crate::db) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
-        let wire = decode_grouped_token(bytes)?;
+        let payload = decode_grouped_token(bytes)?;
 
         Ok(Self::new_with_direction(
-            wire.signature,
-            wire.last_group_key,
-            wire.direction,
-            wire.initial_offset,
+            payload.signature,
+            payload.last_group_key,
+            payload.direction,
+            payload.initial_offset,
         ))
     }
 }

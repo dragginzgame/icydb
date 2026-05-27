@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.7` continues the naming hard cut by moving cursor-token decode
+  handoff values from generic parts vocabulary to decoded payload/component
+  vocabulary.
+
+  ```text
+  ScalarTokenParts -> DecodedScalarTokenPayload
+  GroupedTokenParts -> DecodedGroupedTokenPayload
+  GroupedContinuationToken::into_parts() -> into_components()
+  ```
+
 - `0.165.6` continues the naming hard cut by moving grouped entrypoint runtime
   and SQL global-aggregate command payloads out of broad core vocabulary.
 
