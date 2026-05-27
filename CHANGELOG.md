@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.22` continues the naming hard cut by renaming ordered index-key
+  helper parts to byte-segment vocabulary.
+
+  ```text
+  index::key::ordered::parts -> index::key::ordered::segments
+  parts::push_terminated_bytes(...) -> segments::push_terminated_bytes(...)
+  parts::encode_segment_len(...) -> segments::encode_segment_len(...)
+  ```
+
 - `0.165.21` continues the naming hard cut by moving private aggregate
   execution state away from descriptor vocabulary and into dispatch vocabulary.
 

@@ -1,5 +1,5 @@
-//! Module: index::key::ordered::parts
-//! Responsibility: ordered payload helpers for compound/scoped value kinds.
+//! Module: index::key::ordered::segments
+//! Responsibility: ordered byte-segment helpers for compound/scoped value kinds.
 //! Does not own: numeric normalization policy.
 //! Boundary: internal helper for ordered component encoding.
 

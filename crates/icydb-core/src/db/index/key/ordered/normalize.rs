@@ -6,7 +6,7 @@
 use crate::{
     db::index::key::ordered::{
         NEGATIVE_MARKER, OrderedValueEncodeError, POSITIVE_MARKER, ZERO_MARKER,
-        parts::{encode_segment_len, push_inverted},
+        segments::{encode_segment_len, push_inverted},
         semantics::ordered_i32_bytes,
     },
     types::{Decimal, IntBig, NatBig},
@@ -30,11 +30,11 @@ pub(super) fn push_decimal_payload(
         return Ok(());
     }
 
-    let parts = normalized.parts();
+    let decimal_parts = normalized.parts();
     let mut digits_buf = [0u8; DECIMAL_DIGIT_BUFFER_LEN];
-    let mantissa = parts.mantissa();
+    let mantissa = decimal_parts.mantissa();
     let digit_len = write_u128_decimal_digits(mantissa.unsigned_abs(), &mut digits_buf);
-    let exponent = decimal_exponent(parts.scale(), digit_len)?;
+    let exponent = decimal_exponent(decimal_parts.scale(), digit_len)?;
 
     let exponent_bytes = ordered_i32_bytes(exponent);
     let digits_bytes = &digits_buf[..digit_len];

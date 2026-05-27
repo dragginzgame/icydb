@@ -5,7 +5,7 @@
 
 mod error;
 mod normalize;
-mod parts;
+mod segments;
 mod semantics;
 
 #[cfg(test)]
@@ -110,7 +110,7 @@ pub(crate) fn encode_canonical_index_component_from_primary_key_value(
 
     match value {
         PrimaryKeyComponent::Account(value) => {
-            parts::push_account_payload(&mut out, &value)?;
+            segments::push_account_payload(&mut out, &value)?;
             Ok(out)
         }
         PrimaryKeyComponent::Int64(value) => {
@@ -122,7 +122,7 @@ pub(crate) fn encode_canonical_index_component_from_primary_key_value(
             Ok(out)
         }
         PrimaryKeyComponent::Principal(value) => {
-            parts::push_terminated_bytes(&mut out, value.as_slice());
+            segments::push_terminated_bytes(&mut out, value.as_slice());
             Ok(out)
         }
         PrimaryKeyComponent::Subaccount(value) => {
@@ -155,7 +155,7 @@ fn encode_component_payload(
     value: &Value,
 ) -> Result<(), OrderedValueEncodeError> {
     match value {
-        Value::Account(v) => parts::push_account_payload(out, v),
+        Value::Account(v) => segments::push_account_payload(out, v),
         Value::Blob(_) | Value::List(_) | Value::Map(_) => {
             Err(OrderedValueEncodeError::UnsupportedValueKind {
                 kind: value.canonical_tag().label(),
@@ -168,7 +168,7 @@ fn encode_component_payload(
         Value::Date(v) => v.encode_ordered(out),
         Value::Decimal(v) => normalize::push_decimal_payload(out, *v),
         Value::Duration(v) => v.encode_ordered(out),
-        Value::Enum(v) => parts::push_enum_payload(out, v),
+        Value::Enum(v) => segments::push_enum_payload(out, v),
         Value::Float32(v) => {
             out.extend_from_slice(&semantics::ordered_f32_bytes(v.get()));
             Ok(())
@@ -185,7 +185,7 @@ fn encode_component_payload(
         Value::IntBig(v) => normalize::push_signed_big_integer_payload(out, v),
         Value::Null => Err(OrderedValueEncodeError::NullNotIndexable),
         Value::Principal(v) => {
-            parts::push_terminated_bytes(out, v.as_slice());
+            segments::push_terminated_bytes(out, v.as_slice());
             Ok(())
         }
         Value::Subaccount(v) => {
@@ -193,7 +193,7 @@ fn encode_component_payload(
             Ok(())
         }
         Value::Text(v) => {
-            parts::push_terminated_bytes(out, v.as_bytes());
+            segments::push_terminated_bytes(out, v.as_bytes());
             Ok(())
         }
         Value::Timestamp(v) => v.encode_ordered(out),
