@@ -9,7 +9,7 @@ use crate::{
         projection::materialize::{
             execute::{visit_data_row_views, visit_slot_row_views},
             metrics::ProjectionMaterializationMetricsRecorder,
-            plan::PreparedProjectionShape,
+            plan::PreparedProjectionContract,
             structural::{MaterializedProjectionRows, identity::project_identity_page},
         },
         terminal::RowLayout,
@@ -20,7 +20,7 @@ use crate::{
 #[cfg(feature = "sql")]
 pub(in crate::db) fn project(
     row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     page: StructuralCursorPage,
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<MaterializedProjectionRows, InternalError> {

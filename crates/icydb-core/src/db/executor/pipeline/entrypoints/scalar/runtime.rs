@@ -124,7 +124,7 @@ fn build_prepared_scalar_route_runtime(
     authority: EntityAuthority,
     prep: ExecutionPreparation,
     prepared_projection_validation: Option<
-        Arc<crate::db::executor::projection::PreparedProjectionShape>,
+        Arc<crate::db::executor::projection::PreparedProjectionContract>,
     >,
     prepared_retained_slot_layout: Option<crate::db::executor::RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
@@ -171,7 +171,7 @@ pub(super) fn prepare_scalar_route_runtime_from_inputs<C>(
     authority: EntityAuthority,
     prep: ExecutionPreparation,
     prepared_projection_validation: Option<
-        Arc<crate::db::executor::projection::PreparedProjectionShape>,
+        Arc<crate::db::executor::projection::PreparedProjectionContract>,
     >,
     prepared_retained_slot_layout: Option<crate::db::executor::RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,

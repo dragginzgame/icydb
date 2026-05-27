@@ -33,7 +33,7 @@ aggregate execution descriptor comments -> dispatch/metadata comments
   because they are observable EXPLAIN payloads consumed by renderers.
 - `ProjectionExplainDescriptor` remains because it is an EXPLAIN projection
   description, not executor dispatch state.
-- `AcceptedRowLayoutRuntimeDescriptor` remains because it is a schema-runtime
+- `AcceptedRowLayoutRuntimeContract` remains because it is a schema-runtime
   decode/write trust boundary already documented in the relation metadata
   naming note.
 

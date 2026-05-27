@@ -4,7 +4,7 @@ use crate::db::{
         EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
         PreparedScalarPlanCore,
         prepared_execution_plan::build_prepared_execution_plan_core_with_lowered_access,
-        projection::PreparedProjectionShape, terminal::RetainedSlotLayout,
+        projection::PreparedProjectionContract, terminal::RetainedSlotLayout,
     },
     query::plan::AccessPlannedQuery,
 };
@@ -22,7 +22,8 @@ use std::sync::Arc;
 pub(in crate::db::executor) struct PreparedScalarRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
-    pub(in crate::db::executor) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
+    pub(in crate::db::executor) prepared_projection_contract:
+        Option<Arc<PreparedProjectionContract>>,
     pub(in crate::db::executor) retained_slot_layout: Option<RetainedSlotLayout>,
     pub(in crate::db::executor) plan_core: PreparedScalarPlanCore,
 }
@@ -38,7 +39,7 @@ impl PreparedScalarRuntimeHandoff {
         let Self {
             authority,
             execution_preparation,
-            prepared_projection_shape,
+            prepared_projection_contract,
             retained_slot_layout,
             plan_core,
         } = self;
@@ -57,7 +58,7 @@ impl PreparedScalarRuntimeHandoff {
         Self {
             authority,
             execution_preparation,
-            prepared_projection_shape,
+            prepared_projection_contract,
             retained_slot_layout,
             plan_core: PreparedScalarPlanCore { core },
         }
@@ -120,6 +121,7 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingPlanHandoff {
 
 pub(in crate::db::executor) struct SharedPreparedProjectionRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
-    pub(in crate::db::executor) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
+    pub(in crate::db::executor) prepared_projection_contract:
+        Option<Arc<PreparedProjectionContract>>,
     pub(in crate::db::executor) scalar_runtime: PreparedScalarRuntimeHandoff,
 }

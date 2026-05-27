@@ -7,7 +7,7 @@ use crate::{
     db::{
         executor::{
             PreparedProjectionPlan, StructuralCursorPage, project,
-            projection::PreparedProjectionShape, projection_eval_data_row_for_materialize_tests,
+            projection::PreparedProjectionContract, projection_eval_data_row_for_materialize_tests,
             projection_eval_row_layout_for_materialize_tests, terminal::RetainedSlotRow,
         },
         query::plan::expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
@@ -15,8 +15,8 @@ use crate::{
     value::Value,
 };
 
-fn direct_rank_projection_shape() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_inputs(
+fn direct_rank_projection_shape() -> PreparedProjectionContract {
+    PreparedProjectionContract::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Field(FieldId::new("rank")),
             alias: None,
@@ -29,8 +29,8 @@ fn direct_rank_projection_shape() -> PreparedProjectionShape {
     )
 }
 
-fn repeated_direct_rank_projection_shape() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_inputs(
+fn repeated_direct_rank_projection_shape() -> PreparedProjectionContract {
+    PreparedProjectionContract::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![
             ProjectionField::Scalar {
                 expr: Expr::Field(FieldId::new("rank")),

@@ -23,7 +23,7 @@ use crate::{
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
-            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
+            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             SchemaInfo, accepted_commit_schema_fingerprint, describe_entity_fields,
             describe_entity_fields_with_persisted_schema, describe_entity_model,
             describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
@@ -510,7 +510,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Ensure accepted schema metadata is safe for write paths that still encode
     // rows through generated field contracts. Returning only the snapshot keeps
-    // SQL write type checks unchanged while the schema-runtime descriptor guard
+    // SQL write type checks unchanged while the schema-runtime contract guard
     // rejects unsupported layout or payload drift before mutation staging.
     fn ensure_generated_compatible_accepted_save_schema<E>(
         &self,
@@ -527,7 +527,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
         let (accepted_row_layout, _) =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 &accepted_schema,
                 E::MODEL,
             )?;

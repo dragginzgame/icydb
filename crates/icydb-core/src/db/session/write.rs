@@ -10,7 +10,7 @@ use crate::{
         data::{FieldSlot, StructuralPatch},
         executor::MutationMode,
         schema::{
-            AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor, SchemaInfo,
+            AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeContract, SchemaInfo,
             accepted_commit_schema_fingerprint,
         },
     },
@@ -20,12 +20,12 @@ use crate::{
 };
 
 // Append one session-resolved structural field update. The caller passes the
-// accepted runtime descriptor that already crossed schema reconciliation, so
+// accepted runtime contract that already crossed schema reconciliation, so
 // field-name lookup follows persisted row-layout metadata rather than generated
 // declaration order.
 fn append_accepted_structural_patch_field(
     entity_path: &'static str,
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: StructuralPatch,
     field_name: &str,
     value: Value,
@@ -43,7 +43,7 @@ fn append_accepted_structural_patch_field(
 // accidentally relying on executor-local generated field metadata, Rust
 // `Default`, or derive-local missing slot behavior.
 fn validate_structural_patch_schema_policy<E>(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &StructuralPatch,
     mode: MutationMode,
 ) -> Result<(), InternalError>
@@ -92,7 +92,7 @@ where
 // redundant primary-key slot because the structural API already carries the
 // authoritative key separately.
 fn reject_explicit_generated_fields_from_accepted_patch<E>(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &StructuralPatch,
 ) -> Result<(), InternalError>
 where
@@ -187,7 +187,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
-        let (descriptor, _) = AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
             &accepted_schema,
             E::MODEL,
         )?;
@@ -221,7 +221,7 @@ impl<C: CanisterKind> DbSession<C> {
         S: AsRef<str>,
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
-        let (descriptor, _) = AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+        let (descriptor, _) = AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
             &accepted_schema,
             E::MODEL,
         )?;

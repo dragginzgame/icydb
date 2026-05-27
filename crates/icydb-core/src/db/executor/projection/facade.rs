@@ -110,7 +110,7 @@ where
     } = request;
     let SharedPreparedProjectionRuntimeHandoff {
         authority,
-        prepared_projection_shape,
+        prepared_projection_contract,
         scalar_runtime,
     } = prepared_plan.into_projection_runtime_handoff()?;
     let distinct = scalar_runtime.plan_core.plan().scalar_plan().distinct;
@@ -146,9 +146,9 @@ where
     // projection materializer choose slot-row, data-row, or scalar fallback
     // shaping behind the executor boundary.
     let row_layout = authority.row_layout();
-    let prepared_projection = prepared_projection_shape.as_deref().ok_or_else(|| {
+    let prepared_projection = prepared_projection_contract.as_deref().ok_or_else(|| {
         InternalError::query_executor_invariant(
-            "structural projection runtime requires one frozen projection shape",
+            "structural projection runtime requires one frozen projection contract",
         )
     })?;
     let page = execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(

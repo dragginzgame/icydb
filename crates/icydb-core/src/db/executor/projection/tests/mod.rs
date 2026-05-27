@@ -48,7 +48,7 @@ use serde::Deserialize;
 use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
 use super::{
-    GroupedRowView, PreparedProjectionPlan, PreparedProjectionShape, ProjectionEvalError,
+    GroupedRowView, PreparedProjectionContract, PreparedProjectionPlan, ProjectionEvalError,
     compile_grouped_projection_expr, compile_grouped_projection_plan,
     evaluate_grouped_projection_values,
 };

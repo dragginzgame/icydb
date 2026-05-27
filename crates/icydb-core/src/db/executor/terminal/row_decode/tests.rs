@@ -8,9 +8,9 @@ use crate::{
             with_structural_read_metrics,
         },
         schema::{
-            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, FieldId,
-            PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
-            SchemaRowLayout, SchemaVersion, compiled_schema_proposal_for_model,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, FieldId, PersistedFieldKind,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout,
+            SchemaVersion, compiled_schema_proposal_for_model,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -118,14 +118,14 @@ fn accepted_row_decode_schema() -> AcceptedSchemaSnapshot {
 }
 
 fn accepted_row_decode_layout(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
 ) -> Result<RowLayout, InternalError> {
     accepted_row_decode_layout_for_model(RowDecodeEntity::MODEL, descriptor)
 }
 
 fn accepted_row_decode_layout_for_model(
     model: &'static EntityModel,
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
 ) -> Result<RowLayout, InternalError> {
     let row_proof = descriptor.generated_row_compatibility_proof_for_model(model)?;
 
@@ -222,7 +222,7 @@ fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
             ),
         ],
     ));
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted composite row-decode schema should build");
     let contract = StructuralRowContract::from_accepted_decode_contract(
         "row_decode::tests::CompositeKeyEntity",
@@ -254,8 +254,8 @@ fn composite_data_key(
 #[test]
 fn row_layout_can_be_frozen_from_accepted_row_decode_contract() {
     let accepted = accepted_row_decode_schema();
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-        .expect("accepted row decode schema should project into runtime descriptor");
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted row decode schema should project into runtime contract");
     let layout = accepted_row_decode_layout(&descriptor)
         .expect("exact accepted row layout should be generated-compatible");
 
@@ -308,8 +308,8 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
         .expect("test row serialization should succeed")
         .into_raw_row();
     let accepted = accepted_row_decode_schema();
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-        .expect("accepted row decode schema should project into runtime descriptor");
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted row decode schema should project into runtime contract");
     let generated_layout = RowLayout::from_generated_model_for_test(RowDecodeEntity::MODEL);
     let accepted_layout = accepted_row_decode_layout(&descriptor)
         .expect("exact accepted row layout should be generated-compatible");
@@ -393,7 +393,7 @@ fn row_layout_rejects_accepted_slot_reorder_at_generated_compatibility_proof() {
         snapshot.fields().to_vec(),
     );
     let accepted = AcceptedSchemaSnapshot::new(changed);
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("slot-reordered test schema should still form a descriptor");
 
     let err = accepted_row_decode_layout(&descriptor)
@@ -429,7 +429,7 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
         fields,
     );
     let accepted = AcceptedSchemaSnapshot::new(changed);
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("storage-decode-drift test schema should still form a descriptor");
 
     let err = accepted_row_decode_layout(&descriptor)
@@ -447,8 +447,8 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
 #[test]
 fn accepted_row_layout_decoder_rejects_malformed_raw_row() {
     let accepted = accepted_row_decode_schema();
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-        .expect("accepted row decode schema should project into runtime descriptor");
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted row decode schema should project into runtime contract");
     let layout = accepted_row_decode_layout(&descriptor)
         .expect("exact accepted row layout should be generated-compatible");
     let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(Ulid::from_u128(31))
@@ -564,7 +564,7 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
         ],
     );
     let accepted = accepted_row_decode_schema();
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted retained-slot row decode schema should form descriptor");
     let row_layout = accepted_row_decode_layout(&descriptor)
         .expect("accepted retained-slot row layout should be generated-compatible");
@@ -812,8 +812,8 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
         compiled_schema_proposal_for_model(RowDecodeValueEntity::MODEL)
             .initial_persisted_schema_snapshot(),
     );
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-        .expect("accepted value-storage row decode schema should project into runtime descriptor");
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted value-storage row decode schema should project into runtime contract");
     let generated_layout = RowLayout::from_generated_model_for_test(RowDecodeValueEntity::MODEL);
     let accepted_layout =
         accepted_row_decode_layout_for_model(RowDecodeValueEntity::MODEL, &descriptor)
@@ -893,7 +893,7 @@ fn accepted_row_layout_direct_projection_value_storage_scalar_matches_generated_
         compiled_schema_proposal_for_model(RowDecodeValueTextEntity::MODEL)
             .initial_persisted_schema_snapshot(),
     );
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted value-storage scalar row decode schema should form descriptor");
     let generated_layout =
         RowLayout::from_generated_model_for_test(RowDecodeValueTextEntity::MODEL);
@@ -929,7 +929,7 @@ fn accepted_row_layout_direct_projection_rejects_malformed_value_storage_scalar(
         compiled_schema_proposal_for_model(RowDecodeValueTextEntity::MODEL)
             .initial_persisted_schema_snapshot(),
     );
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted value-storage scalar row decode schema should form descriptor");
     let accepted_layout =
         accepted_row_decode_layout_for_model(RowDecodeValueTextEntity::MODEL, &descriptor)

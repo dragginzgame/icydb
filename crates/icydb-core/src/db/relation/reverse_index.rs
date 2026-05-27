@@ -1355,10 +1355,10 @@ mod tests {
         },
         registry::StoreRegistry,
         schema::{
-            AcceptedFieldDecodeContract, AcceptedRowLayoutRuntimeDescriptor,
-            AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            AcceptedFieldDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
+            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault,
+            SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
         },
     };
     use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
@@ -1551,8 +1551,8 @@ mod tests {
             vec![FieldId::new(2)],
         )]);
         let accepted = AcceptedSchemaSnapshot::new(snapshot);
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted relation runtime descriptor should build");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted relation runtime contract should build");
         let row_contract = StructuralRowContract::from_accepted_decode_contract(
             "Source",
             descriptor.row_decode_contract(),

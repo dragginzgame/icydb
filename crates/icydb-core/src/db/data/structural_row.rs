@@ -9,7 +9,7 @@ use crate::{
         data::{RawRow, decode_runtime_value_from_accepted_field_contract},
         schema::{
             AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
-            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             OwnedAcceptedRelationEdgeContract,
         },
     },
@@ -124,7 +124,7 @@ impl StructuralRowContract {
         entity_path: &'static str,
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<Self, InternalError> {
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(accepted_schema)?;
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(accepted_schema)?;
 
         Ok(Self::from_accepted_decode_contract(
             entity_path,

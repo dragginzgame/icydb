@@ -13,7 +13,7 @@ use crate::{
                 },
             },
             planning::preparation::slot_map_for_model_plan,
-            projection::{PreparedProjectionShape, prepare_projection_shape_from_plan},
+            projection::{PreparedProjectionContract, prepare_projection_contract_from_plan},
             terminal::RetainedSlotLayout,
             traversal::row_read_consistency_for_plan,
         },
@@ -56,8 +56,8 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor::prepared_execution_plan) schema_fingerprint:
         Option<CommitSchemaFingerprint>,
-    pub(in crate::db::executor::prepared_execution_plan) prepared_projection_shape:
-        OnceLock<Option<Arc<PreparedProjectionShape>>>,
+    pub(in crate::db::executor::prepared_execution_plan) prepared_projection_contract:
+        OnceLock<Option<Arc<PreparedProjectionContract>>>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_grouped_runtime_residents:
         OnceLock<Option<Arc<PreparedGroupedRuntimeResidents>>>,
     pub(in crate::db::executor::prepared_execution_plan) aggregate_execution_preparation:
@@ -85,7 +85,7 @@ impl Clone for PreparedExecutionPlanResidents {
         Self {
             plan: Arc::clone(&self.plan),
             schema_fingerprint: self.schema_fingerprint,
-            prepared_projection_shape: clone_once_lock(&self.prepared_projection_shape),
+            prepared_projection_contract: clone_once_lock(&self.prepared_projection_contract),
             prepared_grouped_runtime_residents: clone_once_lock(
                 &self.prepared_grouped_runtime_residents,
             ),
@@ -242,7 +242,7 @@ impl PreparedExecutionPlanCore {
             residents: Arc::new(PreparedExecutionPlanResidents {
                 plan,
                 schema_fingerprint,
-                prepared_projection_shape: OnceLock::new(),
+                prepared_projection_contract: OnceLock::new(),
                 prepared_grouped_runtime_residents: OnceLock::new(),
                 aggregate_execution_preparation: OnceLock::new(),
                 scalar_execution_preparation: OnceLock::new(),
@@ -266,14 +266,14 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_shape(
         &self,
         authority: EntityAuthority,
-    ) -> Option<Arc<PreparedProjectionShape>> {
+    ) -> Option<Arc<PreparedProjectionContract>> {
         // Projection adapters consume this shape directly; scalar validation
         // callers request it explicitly before execution.
         self.residents
-            .prepared_projection_shape
+            .prepared_projection_contract
             .get_or_init(|| {
                 self.residents.plan.scalar_projection_plan().map(|_| {
-                    Arc::new(prepare_projection_shape_from_plan(
+                    Arc::new(prepare_projection_contract_from_plan(
                         authority.row_layout_ref(),
                         &self.residents.plan,
                     ))
@@ -590,7 +590,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     mut plan: AccessPlannedQuery,
     schema_fingerprint: Option<CommitSchemaFingerprint>,
 ) -> PreparedExecutionPlanCore {
-    authority.finalize_static_planning_shape(&mut plan);
+    authority.finalize_static_execution_planning_contract(&mut plan);
 
     // Phase 1: lower access-derived execution specs once and retain invariant
     // state. Projection shapes, grouped residents, and retained-slot layouts are

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         PersistedRow, QueryError,
-        schema::AcceptedRowLayoutRuntimeDescriptor,
+        schema::AcceptedRowLayoutRuntimeContract,
         session::sql::{
             SqlStatementResult,
             projection::{
@@ -28,7 +28,7 @@ use crate::{
 pub(in crate::db::session::sql::execute) fn sql_write_statement_result<E>(
     entities: Vec<E>,
     returning: Option<&SqlReturningProjection>,
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
 ) -> Result<SqlStatementResult, QueryError>
 where
     E: PersistedRow + EntityValue,
@@ -76,7 +76,7 @@ where
 /// descriptor has been proven generated-compatible, but they do not choose the
 /// outward all-column contract here.
 pub(in crate::db::session::sql::execute) fn projection_labels_from_accepted_write_descriptor(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
 ) -> Vec<String> {
     descriptor
         .fields()

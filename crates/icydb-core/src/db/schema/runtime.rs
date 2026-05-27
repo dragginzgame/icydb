@@ -327,7 +327,7 @@ impl OwnedAcceptedRelationEdgeContract {
         for field_id in relation.local_field_ids() {
             let Some(field) = fields.iter().find(|field| field.field_id() == *field_id) else {
                 return Err(InternalError::store_invariant(format!(
-                    "accepted row layout runtime descriptor missing relation local field_id={}",
+                    "accepted row layout runtime contract missing relation local field_id={}",
                     field_id.get(),
                 )));
             };
@@ -381,8 +381,8 @@ pub(in crate::db) struct AcceptedRowDecodeContract {
 }
 
 impl AcceptedRowDecodeContract {
-    /// Build one accepted row decode contract from descriptor field facts.
-    fn from_descriptor(descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>) -> Self {
+    /// Build one accepted row decode contract from runtime contract field facts.
+    fn from_runtime_contract(descriptor: &AcceptedRowLayoutRuntimeContract<'_>) -> Self {
         let mut fields_by_slot = vec![None; descriptor.required_slot_count()];
 
         for field in descriptor.fields() {
@@ -413,7 +413,7 @@ impl AcceptedRowDecodeContract {
             AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
                 .expect("generated model proposal should produce an accepted test schema");
         let (descriptor, _) =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(&accepted, model)
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(&accepted, model)
                 .expect("generated model accepted test schema should be generated-compatible");
 
         descriptor.row_decode_contract()
@@ -507,16 +507,16 @@ impl AcceptedGeneratedRowCompatibilityProof {
 }
 
 ///
-/// AcceptedRowLayoutRuntimeDescriptor
+/// AcceptedRowLayoutRuntimeContract
 ///
-/// AcceptedRowLayoutRuntimeDescriptor is the schema-owned runtime contract for
+/// AcceptedRowLayoutRuntimeContract is the schema-owned runtime contract for
 /// one accepted row layout. It is intentionally read-only and closed: decode
 /// and write code can consume its field facts, but cannot reinterpret raw
 /// persisted snapshots or generated model fields to decide slot behavior.
 ///
 
 #[derive(Debug, Eq, PartialEq)]
-pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
+pub(in crate::db) struct AcceptedRowLayoutRuntimeContract<'a> {
     version: SchemaVersion,
     required_slot_count: usize,
     max_physical_slot_count: usize,
@@ -527,13 +527,13 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
 }
 
-impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
-    /// Build one runtime descriptor from an already accepted schema snapshot.
+impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
+    /// Build one runtime contract from an already accepted schema snapshot.
     ///
     /// The constructor still validates local row-layout completeness because
-    /// this descriptor is a trust boundary for decode/write code. A
+    /// this contract is a trust boundary for decode/write code. A
     /// missing row-layout slot is reported as an internal invariant violation
-    /// rather than hidden behind a partial descriptor.
+    /// rather than hidden behind a partial contract.
     pub(in crate::db) fn from_accepted_schema(
         accepted: &'a AcceptedSchemaSnapshot,
     ) -> Result<Self, InternalError> {
@@ -548,7 +548,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         for field in snapshot.fields() {
             let Some(slot) = row_layout.slot_for_field(field.id()) else {
                 return Err(InternalError::store_invariant(format!(
-                    "accepted row layout runtime descriptor missing slot for field_id={}",
+                    "accepted row layout runtime contract missing slot for field_id={}",
                     field.id().get(),
                 )));
             };
@@ -580,7 +580,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
                 .find(|field| field.field_id() == *primary_key_field_id)
             else {
                 return Err(InternalError::store_invariant(format!(
-                    "accepted row layout runtime descriptor missing primary-key field_id={}",
+                    "accepted row layout runtime contract missing primary-key field_id={}",
                     primary_key_field_id.get(),
                 )));
             };
@@ -612,8 +612,8 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     ///
     /// This is the schema-runtime owner for the common accepted-schema handoff
     /// used by write, commit, relation, and row-layout code. Callers receive
-    /// both the accepted descriptor and the proof object, so they do not repeat
-    /// descriptor construction or forget the generated-compatible guard.
+    /// both the accepted contract and the proof object, so they do not repeat
+    /// contract construction or forget the generated-compatible guard.
     pub(in crate::db) fn from_generated_compatible_schema(
         accepted: &'a AcceptedSchemaSnapshot,
         model: &'static EntityModel,
@@ -780,10 +780,10 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
-    /// Build the owned accepted row-decode contract for this descriptor.
+    /// Build the owned accepted row-decode contract for this contract.
     #[must_use]
     pub(in crate::db) fn row_decode_contract(&self) -> AcceptedRowDecodeContract {
-        AcceptedRowDecodeContract::from_descriptor(self)
+        AcceptedRowDecodeContract::from_runtime_contract(self)
     }
 
     /// Return the proof that this accepted layout can still use generated field codecs.
@@ -791,7 +791,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     /// Accepted-field decoders now own runtime payload interpretation, but
     /// typed materialization still needs proof that the accepted layout can be
     /// bridged back to generated field codecs. Keeping this compatibility
-    /// proof in the descriptor owner makes generated compatibility a
+    /// proof in the contract owner makes generated compatibility a
     /// schema-runtime contract instead of an executor side calculation.
     pub(in crate::db) fn generated_row_compatibility_proof_for_model(
         &self,
@@ -826,7 +826,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         }
 
         // Phase 3: compare every generated field against the accepted
-        // descriptor fact used by runtime decode before executor code can
+        // contract fact used by runtime decode before executor code can
         // consume the descriptor.
         for (generated_slot, field) in model.fields().iter().enumerate() {
             let Some(accepted_field) = self.field_by_name(field.name()) else {
@@ -956,7 +956,7 @@ mod tests {
                 SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
                 runtime::{
                     AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract,
-                    AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
+                    AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
                 },
             },
         },
@@ -1253,10 +1253,10 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_uses_row_layout_slot_authority() {
+    fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
         let accepted = accepted_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted runtime descriptor should build");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted runtime contract should build");
 
         assert_eq!(descriptor.version(), SchemaVersion::initial());
         assert_eq!(descriptor.required_slot_count(), 10);
@@ -1323,10 +1323,10 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_exposes_ordered_primary_key_fields() {
+    fn accepted_row_layout_runtime_contract_exposes_ordered_primary_key_fields() {
         let accepted = accepted_composite_primary_key_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted composite primary-key schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted composite primary-key schema should build contract");
 
         assert_eq!(descriptor.first_primary_key_name(), "id");
         assert_eq!(descriptor.primary_key_names(), ["id", "nickname"]);
@@ -1350,8 +1350,8 @@ mod tests {
     #[test]
     fn accepted_row_decode_contract_owns_slot_indexed_field_contracts() {
         let accepted = accepted_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted runtime descriptor should build");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted runtime contract should build");
         let contract = descriptor.row_decode_contract();
         let nickname = contract
             .field_for_slot(9)
@@ -1374,8 +1374,8 @@ mod tests {
     #[test]
     fn accepted_row_decode_contract_owns_relation_edge_contracts() {
         let accepted = accepted_schema_fixture_with_relation_edge();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted runtime descriptor should build");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted runtime contract should build");
 
         assert_eq!(descriptor.relation_edges().len(), 1);
         assert_eq!(descriptor.relation_edges()[0].name(), "nickname_owner");
@@ -1395,8 +1395,8 @@ mod tests {
     fn accepted_row_decode_contract_survives_descriptor_borrow_scope() {
         let contract: AcceptedRowDecodeContract = {
             let accepted = generated_compatible_accepted_schema_fixture();
-            let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-                .expect("accepted runtime descriptor should build");
+            let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+                .expect("accepted runtime contract should build");
 
             descriptor.row_decode_contract()
         };
@@ -1418,10 +1418,10 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_projects_generated_compatibility_proof() {
+    fn accepted_row_layout_runtime_contract_projects_generated_compatibility_proof() {
         let accepted = generated_compatible_accepted_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("generated-compatible schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("generated-compatible schema should build contract");
 
         let proof = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
@@ -1432,10 +1432,10 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_builds_descriptor_and_row_compatibility_proof() {
+    fn accepted_row_layout_runtime_contract_builds_descriptor_and_row_compatibility_proof() {
         let accepted = generated_compatible_accepted_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted schema should build contract");
         let proof = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
             .expect("generated-compatible schema should build row compatibility proof");
@@ -1453,30 +1453,30 @@ mod tests {
         assert_eq!(
             descriptor.field_slot_index_by_name("nickname"),
             Some(1),
-            "checked descriptor should retain accepted field lookup facts",
+            "checked contract should retain accepted field lookup facts",
         );
         assert_eq!(
             descriptor
                 .field_for_slot_index(1)
                 .map(AcceptedRowLayoutRuntimeField::name),
             Some("nickname"),
-            "checked descriptor should resolve accepted physical slots by index",
+            "checked contract should resolve accepted physical slots by index",
         );
         let nickname_field = descriptor
             .field_by_name("nickname")
-            .expect("nickname should resolve accepted descriptor field");
+            .expect("nickname should resolve accepted runtime contract field");
         assert_eq!(
             nickname_field.write_policy().insert_generation(),
             None,
-            "generated-compatible descriptor should project accepted fields to write-policy facts",
+            "generated-compatible contract should project accepted fields to write-policy facts",
         );
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_primary_key_shape_drift() {
+    fn accepted_row_layout_runtime_contract_rejects_primary_key_shape_drift() {
         let accepted = accepted_composite_primary_key_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted composite primary-key schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted composite primary-key schema should build contract");
 
         let err = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
@@ -1493,11 +1493,11 @@ mod tests {
     #[test]
     fn accepted_field_decode_contract_reports_persisted_scalar_field_name() {
         let accepted = generated_compatible_accepted_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted schema should build contract");
         let nickname_field = descriptor
             .field_by_name("nickname")
-            .expect("nickname should resolve accepted descriptor field");
+            .expect("nickname should resolve accepted runtime contract field");
 
         // Invalid UTF-8 inside a scalar text envelope should be attributed to
         // the accepted persisted field name, not to a generated placeholder.
@@ -1521,17 +1521,17 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_projects_persisted_write_policy() {
+    fn accepted_row_layout_runtime_contract_projects_persisted_write_policy() {
         let accepted = write_policy_accepted_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("write-policy accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("write-policy accepted schema should build contract");
         descriptor
             .generated_row_compatibility_proof_for_model(&WRITE_POLICY_ENTITY_MODEL)
             .expect("write-policy schema should remain generated-compatible");
 
         let token_field = descriptor
             .field_by_name("token")
-            .expect("token should resolve accepted descriptor field");
+            .expect("token should resolve accepted runtime contract field");
         let token_policy = token_field.write_policy();
         assert_eq!(
             token_policy.insert_generation(),
@@ -1541,20 +1541,20 @@ mod tests {
 
         let updated_at_field = descriptor
             .field_by_name("updated_at")
-            .expect("updated_at should resolve accepted descriptor field");
+            .expect("updated_at should resolve accepted runtime contract field");
         let updated_at_policy_from_field = updated_at_field.write_policy();
         assert_eq!(
             updated_at_policy_from_field.write_management(),
             Some(FieldWriteManagement::UpdatedAt),
-            "descriptor-owned field projection should avoid name re-resolution",
+            "contract-owned field projection should avoid name re-resolution",
         );
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_non_generated_compatible_layout() {
+    fn accepted_row_layout_runtime_contract_rejects_non_generated_compatible_layout() {
         let accepted = accepted_schema_fixture();
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("slot-expanded accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("slot-expanded accepted schema should build contract");
 
         let err = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
@@ -1569,7 +1569,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_extra_generated_field_layout() {
+    fn accepted_row_layout_runtime_contract_rejects_extra_generated_field_layout() {
         let mut snapshot = generated_compatible_accepted_schema_fixture()
             .persisted_snapshot()
             .clone();
@@ -1601,8 +1601,8 @@ mod tests {
             fields,
         );
         let accepted = AcceptedSchemaSnapshot::new(snapshot);
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("extra generated accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("extra generated accepted schema should build contract");
 
         let err = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
@@ -1617,14 +1617,14 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_storage_decode_drift() {
+    fn accepted_row_layout_runtime_contract_rejects_storage_decode_drift() {
         let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
             false,
             FieldStorageDecode::Value,
             LeafCodec::Scalar(ScalarCodec::Text),
         );
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("slot-compatible accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("slot-compatible accepted schema should build contract");
 
         let err = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
@@ -1639,14 +1639,14 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_leaf_codec_drift() {
+    fn accepted_row_layout_runtime_contract_rejects_leaf_codec_drift() {
         let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Blob),
         );
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("slot-compatible accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("slot-compatible accepted schema should build contract");
 
         let err = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
@@ -1661,14 +1661,14 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_nullability_drift() {
+    fn accepted_row_layout_runtime_contract_rejects_nullability_drift() {
         let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
             true,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
         );
-        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-            .expect("slot-compatible accepted schema should build descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("slot-compatible accepted schema should build contract");
 
         let err = descriptor
             .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
@@ -1683,7 +1683,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_rejects_missing_layout_slot() {
+    fn accepted_row_layout_runtime_contract_rejects_missing_layout_slot() {
         let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             "schema::tests::BrokenEntity".to_string(),
@@ -1719,7 +1719,7 @@ mod tests {
             ],
         ));
 
-        let err = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        let err = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
             .expect_err("missing row-layout slot should fail closed");
         assert!(
             err.to_string().contains("missing slot for field_id=2"),

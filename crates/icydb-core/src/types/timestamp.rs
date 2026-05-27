@@ -123,7 +123,7 @@ impl Timestamp {
     pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
         // Phase 1: parse one strict RFC3339 timestamp locally so persisted
         // field decode does not retain the full `time` text parser.
-        let parsed = parse_rfc3339_parts(s)?;
+        let parsed = parse_rfc3339_components(s)?;
 
         // Phase 2: rebuild a validated UTC timestamp through `time`'s date/time
         // constructors rather than its format parser.
@@ -197,15 +197,15 @@ fn duration_millis_to_i64(duration: Duration) -> i64 {
 }
 
 //
-// ParsedRfc3339Timestamp
+// Rfc3339TimestampComponents
 //
-// ParsedRfc3339Timestamp captures one strictly parsed RFC3339 timestamp
+// Rfc3339TimestampComponents captures one strictly parsed RFC3339 timestamp
 // payload before it is rebuilt through `time` constructors.
 // It keeps text-shape validation local to `Timestamp` without exposing parser
 // internals outside this module.
 //
 
-struct ParsedRfc3339Timestamp {
+struct Rfc3339TimestampComponents {
     year: i32,
     month: Month,
     day: u8,
@@ -220,7 +220,7 @@ struct ParsedRfc3339Timestamp {
 
 // Parse one strict RFC3339 timestamp payload without routing through
 // `time`'s format-description parser.
-fn parse_rfc3339_parts(s: &str) -> Result<ParsedRfc3339Timestamp, String> {
+fn parse_rfc3339_components(s: &str) -> Result<Rfc3339TimestampComponents, String> {
     let bytes = s.as_bytes();
     if bytes.len() < 20 {
         return Err(timestamp_parse_error(ERR_TIMESTAMP_TOO_SHORT));
@@ -261,7 +261,7 @@ fn parse_rfc3339_parts(s: &str) -> Result<ParsedRfc3339Timestamp, String> {
 
     let (offset_sign, offset_hour, offset_minute) = parse_rfc3339_offset(&bytes[cursor..])?;
 
-    Ok(ParsedRfc3339Timestamp {
+    Ok(Rfc3339TimestampComponents {
         year,
         month,
         day,

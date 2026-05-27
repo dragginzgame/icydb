@@ -73,7 +73,7 @@ fn fingerprint_is_deterministic_for_by_keys() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
-        static_planning_shape: None,
+        static_execution_planning_contract: None,
     };
     let plan_b: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(ScalarPlan {
@@ -93,7 +93,7 @@ fn fingerprint_is_deterministic_for_by_keys() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
-        static_planning_shape: None,
+        static_execution_planning_contract: None,
     };
 
     assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());

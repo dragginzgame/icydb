@@ -52,8 +52,8 @@ pub(in crate::db::executor::projection) use materialize::project_distinct;
 #[cfg(test)]
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
 pub(in crate::db) use materialize::{
-    PreparedProjectionShape, ProjectionMaterializationMetricsRecorder,
-    prepare_projection_shape_from_plan,
+    PreparedProjectionContract, ProjectionMaterializationMetricsRecorder,
+    prepare_projection_contract_from_plan,
 };
 pub(in crate::db::executor) use materialize::{
     PreparedSlotProjectionValidation, ProjectionValidationRow, validate_prepared_projection_row,

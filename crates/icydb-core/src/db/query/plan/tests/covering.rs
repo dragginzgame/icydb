@@ -55,7 +55,7 @@ fn covering_read_execution_plan(
 ) -> Option<crate::db::query::plan::CoveringReadExecutionPlan> {
     let mut finalized = plan.clone();
     finalized
-        .finalize_static_planning_shape_for_model_only(covering_read_model())
+        .finalize_static_execution_planning_contract_for_model_only(covering_read_model())
         .expect("covering tests require planner-frozen projection metadata");
 
     covering_read_execution_plan_from_fields(
@@ -216,7 +216,7 @@ fn covering_read_execution_plan_uses_ordered_model_primary_key_components() {
     });
     let mut finalized = plan.clone();
     finalized
-        .finalize_static_planning_shape_for_model_only(covering_read_model())
+        .finalize_static_execution_planning_contract_for_model_only(covering_read_model())
         .expect("covering tests require planner-frozen projection metadata");
     let primary_key_names = ["id", "rank"];
 

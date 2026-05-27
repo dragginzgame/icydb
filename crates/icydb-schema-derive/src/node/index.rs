@@ -224,7 +224,7 @@ impl Index {
         name.as_str().to_string()
     }
 
-    pub fn runtime_part(
+    pub fn runtime_model_tokens(
         &self,
         entity: &Entity,
         entity_name: &str,
@@ -236,7 +236,7 @@ impl Index {
         let key_items = self.runtime_key_items_tokens();
         let unique = self.unique;
         let (predicate_support, predicate) = self
-            .predicate_runtime_part(entity, ordinal)
+            .predicate_runtime_tokens(entity, ordinal)
             .expect("validated generated index predicate should lower");
         let name = LitStr::new(&self.generated_name(entity_name), Span::call_site());
         let ordinal = u16::try_from(ordinal).expect("index ordinal should fit u16");
@@ -315,7 +315,7 @@ impl Index {
         let key_items = self
             .validated_key_items()
             .iter()
-            .map(IndexKeyItemSpec::schema_part)
+            .map(IndexKeyItemSpec::schema_tokens)
             .collect::<Vec<_>>();
 
         quote! { Some(&[#(#key_items),*]) }
@@ -329,7 +329,7 @@ impl Index {
         let key_items = self
             .validated_key_items()
             .iter()
-            .map(IndexKeyItemSpec::runtime_part)
+            .map(IndexKeyItemSpec::runtime_tokens)
             .collect::<Vec<_>>();
 
         quote! { Some(&[#(#key_items),*]) }
@@ -352,7 +352,7 @@ impl Index {
         Ok(Some(predicate))
     }
 
-    fn predicate_runtime_part(
+    fn predicate_runtime_tokens(
         &self,
         entity: &Entity,
         ordinal: usize,
@@ -421,27 +421,27 @@ impl IndexKeyItemSpec {
         }
     }
 
-    fn schema_part(&self) -> TokenStream {
+    fn schema_tokens(&self) -> TokenStream {
         match self {
             Self::Field(field) => {
                 let field = to_str_lit(field);
                 quote! { ::icydb::schema::node::IndexKeyItem::Field(#field) }
             }
             Self::Expression(expression) => {
-                let expression = expression.schema_part();
+                let expression = expression.schema_tokens();
                 quote! { ::icydb::schema::node::IndexKeyItem::Expression(#expression) }
             }
         }
     }
 
-    fn runtime_part(&self) -> TokenStream {
+    fn runtime_tokens(&self) -> TokenStream {
         match self {
             Self::Field(field) => {
                 let field = to_str_lit(field);
                 quote! { ::icydb::model::index::IndexKeyItem::Field(#field) }
             }
             Self::Expression(expression) => {
-                let expression = expression.runtime_part();
+                let expression = expression.runtime_tokens();
                 quote! { ::icydb::model::index::IndexKeyItem::Expression(#expression) }
             }
         }
@@ -487,7 +487,7 @@ impl IndexExpressionSpec {
         }
     }
 
-    fn schema_part(&self) -> TokenStream {
+    fn schema_tokens(&self) -> TokenStream {
         let field = to_str_lit(self.field_ident());
 
         match self {
@@ -504,7 +504,7 @@ impl IndexExpressionSpec {
         }
     }
 
-    fn runtime_part(&self) -> TokenStream {
+    fn runtime_tokens(&self) -> TokenStream {
         let field = to_str_lit(self.field_ident());
 
         match self {

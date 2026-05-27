@@ -11,7 +11,7 @@ use crate::{
             distinct::collect_bounded_distinct_projected_rows,
             execute::{project_data_row, project_slot_row},
             metrics::ProjectionMaterializationMetricsRecorder,
-            plan::PreparedProjectionShape,
+            plan::PreparedProjectionContract,
             structural::MaterializedProjectionRows,
         },
         terminal::RowLayout,
@@ -22,7 +22,7 @@ use crate::{
 #[cfg(feature = "sql")]
 pub(in crate::db::executor::projection) fn project_distinct(
     row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     window: ProjectionDistinctWindow,
     page: StructuralCursorPage,
     metrics: ProjectionMaterializationMetricsRecorder,

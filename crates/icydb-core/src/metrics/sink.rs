@@ -236,7 +236,7 @@ pub enum PlanChoiceReason {
 ///
 /// PreparedShapeFinalizationOutcome
 ///
-/// Stable executor authority outcome buckets for prepared static-shape
+/// Stable executor authority outcome buckets for prepared static execution-planning contract
 /// finalization. These counters show whether executor lowering preserved an
 /// already-frozen schema-selected shape or applied the generated-model fallback.
 ///
@@ -2049,7 +2049,7 @@ const fn record_entity_plan_choice_reason(
     }
 }
 
-// Mirror prepared static-shape authority outcomes to entity summaries so one
+// Mirror prepared static execution-planning contract authority outcomes to entity summaries so one
 // model still using generated fallback can be found from metrics alone.
 #[remain::check]
 const fn record_entity_prepared_shape_finalization_outcome(

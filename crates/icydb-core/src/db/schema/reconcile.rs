@@ -19,7 +19,7 @@ use crate::{
             SchemaFieldRenameTarget, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
             SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
             SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
-            runtime::AcceptedRowLayoutRuntimeDescriptor,
+            runtime::AcceptedRowLayoutRuntimeContract,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
     },
@@ -1018,7 +1018,7 @@ fn accept_reconciled_schema_snapshot(
 fn validate_accepted_runtime_descriptor(
     accepted: &AcceptedSchemaSnapshot,
 ) -> Result<(), InternalError> {
-    let _descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(accepted)?;
+    let _descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(accepted)?;
 
     Ok(())
 }

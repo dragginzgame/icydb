@@ -73,10 +73,10 @@ impl PreparedAggregatePlan {
         let residents = core.into_residents();
         let mut grouped_plan = Arc::unwrap_or_clone(residents.plan).into_grouped(group);
 
-        // Grouped DISTINCT rewrites change continuation/static planning shape,
+        // Grouped DISTINCT rewrites change continuation/static execution planning contract,
         // but `AccessPlannedQuery::into_grouped` carries the same access payload,
         // so preserve lowered access specs and refresh only grouped metadata.
-        authority.finalize_static_planning_shape(&mut grouped_plan);
+        authority.finalize_static_execution_planning_contract(&mut grouped_plan);
 
         PreparedLoadPlan {
             authority: authority.clone(),

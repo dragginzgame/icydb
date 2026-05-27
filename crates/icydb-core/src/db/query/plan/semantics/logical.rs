@@ -12,7 +12,7 @@ use crate::{
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
             GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedPlanStrategy,
             LogicalPlan, PlannerRouteProfile, QueryMode, ResolvedOrder, ResolvedOrderField,
-            ResolvedOrderValueSource, ScalarPlan, StaticPlanningShape,
+            ResolvedOrderValueSource, ScalarPlan, StaticExecutionPlanningContract,
             derive_logical_pushdown_eligibility,
             expr::{
                 CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
@@ -137,8 +137,8 @@ impl AccessPlannedQuery {
     /// Lower this plan into one canonical planner-owned projection semantic spec.
     #[must_use]
     pub(in crate::db) fn projection_spec(&self, model: &EntityModel) -> ProjectionSpec {
-        if let Some(static_shape) = &self.static_planning_shape {
-            return static_shape.projection_spec.clone();
+        if let Some(static_contract) = &self.static_execution_planning_contract {
+            return static_contract.projection_spec.clone();
         }
 
         lower_projection_intent(model, &self.logical, &self.projection_selection)
@@ -157,8 +157,8 @@ impl AccessPlannedQuery {
     /// still need to see access-bound equalities as index-predicate input.
     #[must_use]
     pub(in crate::db) fn execution_preparation_predicate(&self) -> Option<Predicate> {
-        if let Some(static_shape) = self.static_planning_shape.as_ref() {
-            return static_shape.execution_preparation_predicate.clone();
+        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
+            return static_contract.execution_preparation_predicate.clone();
         }
 
         derive_execution_preparation_predicate(self)
@@ -169,8 +169,8 @@ impl AccessPlannedQuery {
     /// guaranteed by the chosen path.
     #[must_use]
     pub(in crate::db) fn effective_execution_predicate(&self) -> Option<Predicate> {
-        if let Some(static_shape) = self.static_planning_shape.as_ref() {
-            return static_shape.residual_filter_predicate.clone();
+        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
+            return static_contract.residual_filter_predicate.clone();
         }
 
         derive_residual_filter_predicate(self)
@@ -187,8 +187,8 @@ impl AccessPlannedQuery {
     /// surviving semantic remainder still requires runtime evaluation.
     #[must_use]
     pub(in crate::db) fn residual_filter_expr(&self) -> Option<&Expr> {
-        if let Some(static_shape) = self.static_planning_shape.as_ref() {
-            return static_shape.residual_filter_expr.as_ref();
+        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
+            return static_contract.residual_filter_expr.as_ref();
         }
 
         if !derive_has_residual_filter(self) {
@@ -210,7 +210,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) const fn execution_preparation_compiled_predicate(
         &self,
     ) -> Option<&PredicateProgram> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .execution_preparation_compiled_predicate
             .as_ref()
     }
@@ -221,7 +221,7 @@ impl AccessPlannedQuery {
         &self,
     ) -> Option<&PredicateProgram> {
         match self
-            .static_planning_shape()
+            .static_execution_planning_contract()
             .effective_runtime_filter_program
             .as_ref()
         {
@@ -237,7 +237,7 @@ impl AccessPlannedQuery {
         &self,
     ) -> Option<&CompiledExpr> {
         match self
-            .static_planning_shape()
+            .static_execution_planning_contract()
             .effective_runtime_filter_program
             .as_ref()
         {
@@ -251,7 +251,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) const fn effective_runtime_filter_program(
         &self,
     ) -> Option<&EffectiveRuntimeFilterProgram> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .effective_runtime_filter_program
             .as_ref()
     }
@@ -288,27 +288,25 @@ impl AccessPlannedQuery {
 
     /// Freeze model-only executor metadata after logical/access planning completes.
     #[cfg(test)]
-    pub(in crate::db) fn finalize_static_planning_shape_for_model_only(
+    pub(in crate::db) fn finalize_static_execution_planning_contract_for_model_only(
         &mut self,
         model: &EntityModel,
     ) -> Result<(), InternalError> {
-        self.finalize_static_planning_shape_for_model_with_schema(
+        self.finalize_static_execution_planning_contract_for_model_with_schema(
             model,
             SchemaInfo::cached_for_generated_entity_model(model),
         )
     }
 
     /// Freeze planner-owned executor metadata with explicit schema authority.
-    pub(in crate::db) fn finalize_static_planning_shape_for_model_with_schema(
+    pub(in crate::db) fn finalize_static_execution_planning_contract_for_model_with_schema(
         &mut self,
         model: &EntityModel,
         schema_info: &SchemaInfo,
     ) -> Result<(), InternalError> {
-        self.static_planning_shape = Some(project_static_planning_shape_for_model(
-            model,
-            schema_info,
-            self,
-        )?);
+        self.static_execution_planning_contract = Some(
+            project_static_execution_planning_contract_for_model(model, schema_info, self)?,
+        );
 
         Ok(())
     }
@@ -326,10 +324,10 @@ impl AccessPlannedQuery {
     /// scalar query predicate without any additional post-access filtering.
     #[must_use]
     pub(in crate::db) fn predicate_fully_satisfied_by_access_contract(&self) -> bool {
-        if let Some(static_shape) = self.static_planning_shape.as_ref() {
+        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
             return self.scalar_plan().predicate.is_some()
-                && static_shape.residual_filter_predicate.is_none()
-                && static_shape.residual_filter_expr.is_none();
+                && static_contract.residual_filter_predicate.is_none()
+                && static_contract.residual_filter_expr.is_none();
         }
 
         derive_predicate_fully_satisfied_by_access_contract(self)
@@ -338,21 +336,21 @@ impl AccessPlannedQuery {
     /// Borrow the planner-frozen compiled scalar projection program.
     #[must_use]
     pub(in crate::db) fn scalar_projection_plan(&self) -> Option<&[CompiledExpr]> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .scalar_projection_plan
             .as_deref()
     }
 
     /// Return whether planner-owned static execution metadata has already been frozen.
     #[must_use]
-    pub(in crate::db) const fn has_static_planning_shape(&self) -> bool {
-        self.static_planning_shape.is_some()
+    pub(in crate::db) const fn has_static_execution_planning_contract(&self) -> bool {
+        self.static_execution_planning_contract.is_some()
     }
 
     /// Borrow the planner-frozen ordered primary-key field names.
     #[must_use]
     pub(in crate::db) fn primary_key_names(&self) -> Vec<&str> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .primary_key_names
             .iter()
             .map(String::as_str)
@@ -362,7 +360,7 @@ impl AccessPlannedQuery {
     /// Borrow the planner-frozen projection slot reachability set.
     #[must_use]
     pub(in crate::db) const fn projection_referenced_slots(&self) -> &[usize] {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .projection_referenced_slots
             .as_slice()
     }
@@ -371,19 +369,22 @@ impl AccessPlannedQuery {
     #[must_use]
     #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
-        self.static_planning_shape().projected_slot_mask.as_slice()
+        self.static_execution_planning_contract()
+            .projected_slot_mask
+            .as_slice()
     }
 
     /// Return whether projection remains the full model-identity field list.
     #[must_use]
     pub(in crate::db) const fn projection_is_model_identity(&self) -> bool {
-        self.static_planning_shape().projection_is_model_identity
+        self.static_execution_planning_contract()
+            .projection_is_model_identity
     }
 
     /// Borrow the planner-frozen ORDER BY slot reachability set, if any.
     #[must_use]
     pub(in crate::db) fn order_referenced_slots(&self) -> Option<&[usize]> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .order_referenced_slots
             .as_deref()
     }
@@ -391,13 +392,17 @@ impl AccessPlannedQuery {
     /// Borrow the planner-frozen resolved ORDER BY program, if one exists.
     #[must_use]
     pub(in crate::db) const fn resolved_order(&self) -> Option<&ResolvedOrder> {
-        self.static_planning_shape().resolved_order.as_ref()
+        self.static_execution_planning_contract()
+            .resolved_order
+            .as_ref()
     }
 
     /// Borrow the planner-frozen access slot map used by index predicate compilation.
     #[must_use]
     pub(in crate::db) fn slot_map(&self) -> Option<&[usize]> {
-        self.static_planning_shape().slot_map.as_deref()
+        self.static_execution_planning_contract()
+            .slot_map
+            .as_deref()
     }
 
     /// Borrow grouped aggregate execution specs already resolved during static planning.
@@ -405,7 +410,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn grouped_aggregate_execution_specs(
         &self,
     ) -> Option<&[GroupedAggregateExecutionSpec]> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .grouped_aggregate_execution_specs
             .as_deref()
     }
@@ -415,7 +420,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) const fn grouped_distinct_execution_strategy(
         &self,
     ) -> Option<&GroupedDistinctExecutionStrategy> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .grouped_distinct_execution_strategy
             .as_ref()
     }
@@ -423,13 +428,13 @@ impl AccessPlannedQuery {
     /// Borrow the frozen projection semantic shape without reopening model ownership.
     #[must_use]
     pub(in crate::db) const fn frozen_projection_spec(&self) -> &ProjectionSpec {
-        &self.static_planning_shape().projection_spec
+        &self.static_execution_planning_contract().projection_spec
     }
 
     /// Borrow the frozen direct projection slots without reopening model ownership.
     #[must_use]
     pub(in crate::db) fn frozen_direct_projection_slots(&self) -> Option<&[usize]> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .projection_direct_slots
             .as_deref()
     }
@@ -437,7 +442,7 @@ impl AccessPlannedQuery {
     /// Borrow duplicate-preserving direct projection slots for raw data-row readers.
     #[must_use]
     pub(in crate::db) fn frozen_data_row_direct_projection_slots(&self) -> Option<&[usize]> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .projection_data_row_direct_slots
             .as_deref()
     }
@@ -445,15 +450,15 @@ impl AccessPlannedQuery {
     /// Borrow the planner-frozen key-item-aware compile targets for the chosen access path.
     #[must_use]
     pub(in crate::db) fn index_compile_targets(&self) -> Option<&[IndexCompileTarget]> {
-        self.static_planning_shape()
+        self.static_execution_planning_contract()
             .index_compile_targets
             .as_deref()
     }
 
-    const fn static_planning_shape(&self) -> &StaticPlanningShape {
-        self.static_planning_shape
+    const fn static_execution_planning_contract(&self) -> &StaticExecutionPlanningContract {
+        self.static_execution_planning_contract
             .as_ref()
-            .expect("access-planned queries must freeze static planning shape before execution")
+            .expect("access-planned queries must freeze static execution planning contract before execution")
     }
 }
 
@@ -518,11 +523,11 @@ pub(in crate::db) fn project_planner_route_profile_for_schema(
     )
 }
 
-fn project_static_planning_shape_for_model(
+fn project_static_execution_planning_contract_for_model(
     model: &EntityModel,
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Result<StaticPlanningShape, InternalError> {
+) -> Result<StaticExecutionPlanningContract, InternalError> {
     let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
     let execution_preparation_predicate = plan.execution_preparation_predicate();
     let residual_filter_predicate = derive_residual_filter_predicate(plan);
@@ -573,7 +578,7 @@ fn project_static_planning_shape_for_model(
     let slot_map = slot_map_for_schema_plan(schema_info, plan);
     let index_compile_targets = index_compile_targets_for_schema_plan(schema_info, plan);
 
-    Ok(StaticPlanningShape {
+    Ok(StaticExecutionPlanningContract {
         primary_key_names: schema_info.primary_key_names().to_vec(),
         projection_spec,
         execution_preparation_predicate,
@@ -696,7 +701,7 @@ fn derive_residual_filter_expr_for_model(
 
 // Return whether any residual filtering survives after access planning. This
 // helper exists only for pre-finalization assembly; finalized plans must read
-// the explicit residual artifacts frozen in `StaticPlanningShape`.
+// the explicit residual artifacts frozen in `StaticExecutionPlanningContract`.
 fn derive_has_residual_filter(plan: &AccessPlannedQuery) -> bool {
     match (
         plan.scalar_plan().filter_expr.as_ref(),

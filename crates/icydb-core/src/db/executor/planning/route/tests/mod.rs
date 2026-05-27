@@ -214,7 +214,7 @@ fn finalized_plan_for_authority(
     plan: &AccessPlannedQuery,
 ) -> AccessPlannedQuery {
     let mut finalized = plan.clone();
-    authority.finalize_static_planning_shape(&mut finalized);
+    authority.finalize_static_execution_planning_contract(&mut finalized);
     authority.finalize_planner_route_profile(&mut finalized);
 
     finalized

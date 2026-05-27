@@ -27,7 +27,7 @@ use crate::{
                 },
                 materialize::{
                     metrics::ProjectionMaterializationMetricsRecorder,
-                    plan::{PreparedProjectionPlan, PreparedProjectionShape},
+                    plan::{PreparedProjectionContract, PreparedProjectionPlan},
                     row_view::RowView,
                 },
             },
@@ -40,7 +40,7 @@ use crate::{
 
 #[cfg(feature = "sql")]
 pub(super) fn project_slot_row(
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     row: RetainedSlotRow,
 ) -> Result<RowView<'static>, InternalError> {
     if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
@@ -56,7 +56,7 @@ pub(super) fn project_slot_row(
 // projection callback.
 #[cfg(feature = "sql")]
 pub(super) fn visit_slot_row_views(
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     rows: Vec<RetainedSlotRow>,
     visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
@@ -70,7 +70,7 @@ pub(super) fn visit_slot_row_views(
 #[cfg(feature = "sql")]
 pub(super) fn project_data_row(
     row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     row: &DataRow,
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<RowView<'static>, InternalError> {
@@ -103,7 +103,7 @@ pub(super) fn project_data_row(
 #[cfg(feature = "sql")]
 pub(super) fn visit_data_row_views(
     row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     rows: &[DataRow],
     metrics: ProjectionMaterializationMetricsRecorder,
     visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
@@ -188,7 +188,7 @@ pub(in crate::db::executor::projection) fn count_borrowed_identity_data_row_view
 #[cfg(all(feature = "sql", test))]
 pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_test(
     row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     rows: &[DataRow],
 ) -> Result<usize, InternalError> {
     const fn noop() {}
@@ -219,7 +219,7 @@ pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_tes
 
 #[cfg(all(feature = "sql", test))]
 pub(in crate::db::executor::projection) fn count_borrowed_slot_row_views_for_test(
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     rows: Vec<RetainedSlotRow>,
 ) -> Result<usize, InternalError> {
     let mut borrowed_rows = 0;
@@ -241,7 +241,7 @@ pub(in crate::db::executor::projection) fn count_borrowed_slot_row_views_for_tes
 // Visit one retained slot-row page through the prepared compiled structural
 // projection evaluator while borrowing from a reusable output buffer.
 fn visit_scalar_slot_row_views(
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     rows: Vec<RetainedSlotRow>,
     mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
@@ -261,7 +261,7 @@ fn visit_scalar_slot_row_views(
 
 #[cfg(feature = "sql")]
 fn project_slot_row_dense(
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     row: &RetainedSlotRow,
 ) -> Result<Vec<Value>, InternalError> {
     let projection = prepared_projection.projection();
@@ -273,7 +273,7 @@ fn project_slot_row_dense(
 
 #[cfg(feature = "sql")]
 fn project_slot_row_dense_into(
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     row: &RetainedSlotRow,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
@@ -297,7 +297,7 @@ fn project_slot_row_dense_into(
 
 #[cfg(feature = "sql")]
 fn project_slot_row_direct_octet_lengths_into(
-    prepared_projection: &PreparedProjectionShape,
+    prepared_projection: &PreparedProjectionContract,
     row: &RetainedSlotRow,
     shaped: &mut Vec<Value>,
 ) -> Result<bool, InternalError> {

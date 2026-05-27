@@ -1498,9 +1498,9 @@ fn executor_plan_validation_uses_accepted_schema_info() {
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
 
     assert!(
-        entity_authority.contains("if !plan.has_static_planning_shape()")
+        entity_authority.contains("if !plan.has_static_execution_planning_contract()")
             && entity_authority
-                .contains("executor plan validation requires planner-frozen static shape",)
+                .contains("executor plan validation requires planner-frozen static execution planning contract",)
             && entity_authority.contains("executor plan validation requires accepted schema info")
             && entity_authority.contains("validate_access_runtime_invariants_with_schema(")
             && !entity_authority.contains("fn schema_info(")
@@ -1508,7 +1508,7 @@ fn executor_plan_validation_uses_accepted_schema_info() {
                 .contains("SchemaInfo::cached_for_generated_entity_model(self.model)")
             && !entity_authority.contains("validate_access_runtime_invariants_model(")
             && !entity_authority.contains("validate_access_structure_model(self.schema_info()"),
-        "executor plan validation must require planner-frozen static shape and authority-carried accepted schema info instead of reopening generated schema authority",
+        "executor plan validation must require planner-frozen static execution planning contract and authority-carried accepted schema info instead of reopening generated schema authority",
     );
     assert!(
         access_mod.contains("validate_access_runtime_invariants_with_schema")
@@ -1738,7 +1738,7 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
             && !session_mod.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && entity_authority.contains("fn from_accepted_schema_for_type<E>")
             && entity_authority
-                .contains("AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(")
+                .contains("AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(")
             && entity_authority.contains("with_accepted_row_decode_contract(")
             && session_query_cache.contains("accepted_entity_authority::<E>()")
             && session_query_cache.contains("cached_shared_query_plan_for_accepted_authority(")
@@ -1793,7 +1793,7 @@ fn cursor_boundary_validation_uses_authority_schema_info() {
 }
 
 #[test]
-fn prepared_static_shape_finalization_uses_authority_schema_info() {
+fn prepared_static_contract_finalization_uses_authority_schema_info() {
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let query_plan_logical = read_source("src/db/query/plan/semantics/logical.rs");
     let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
@@ -1801,14 +1801,16 @@ fn prepared_static_shape_finalization_uses_authority_schema_info() {
     let schema_info = read_source("src/db/schema/info.rs");
 
     assert!(
-        entity_authority.contains(
-            "plan.finalize_static_planning_shape_for_model_with_schema(self.model, schema_info)",
-        ) && !entity_authority.contains(".finalize_static_planning_shape_for_model_only(self.model)")
+        entity_authority.contains("plan.finalize_static_execution_planning_contract_for_model_with_schema(")
+            && entity_authority.contains("self.model,")
+            && entity_authority.contains("schema_info,")
+            && !entity_authority
+                .contains(".finalize_static_execution_planning_contract_for_model_only(self.model)")
             && !entity_authority.contains("PreparedShapeFinalizationOutcome::GeneratedFallback")
             && query_plan_logical.contains(
-                "#[cfg(test)]\n    pub(in crate::db) fn finalize_static_planning_shape_for_model_only("
+                "#[cfg(test)]\n    pub(in crate::db) fn finalize_static_execution_planning_contract_for_model_only("
             ),
-        "prepared execution finalization must use authority-carried schema info and keep generated static-shape finalization model-only and test-only",
+        "prepared execution finalization must use authority-carried schema info and keep generated static execution-planning contract finalization model-only and test-only",
     );
     assert!(
         schema_info.contains("leaf_codec: LeafCodec,")

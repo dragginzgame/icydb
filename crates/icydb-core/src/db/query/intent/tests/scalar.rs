@@ -571,8 +571,8 @@ fn typed_plan_matches_model_plan_for_same_intent() {
     let mut model_as_typed = model_plan;
     model_as_typed.finalize_planner_route_profile_for_model(PlanEntity::MODEL);
     model_as_typed
-        .finalize_static_planning_shape_for_model_only(PlanEntity::MODEL)
-        .expect("model-backed parity plan should freeze static planning shape");
+        .finalize_static_execution_planning_contract_for_model_only(PlanEntity::MODEL)
+        .expect("model-backed parity plan should freeze static execution planning contract");
 
     let typed_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)

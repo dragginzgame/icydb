@@ -11,9 +11,10 @@ use crate::{
             TAG_TRUE, TAG_UNIT, parse_binary_head, skip_binary_value,
         },
         typed::{
-            decode_account_payload_bytes, decode_date_payload_days, decode_decimal_payload_parts,
-            decode_duration_payload_millis, decode_float32_payload_bytes,
-            decode_float64_payload_bytes, decode_int128_payload_bytes, decode_nat128_payload_bytes,
+            decode_account_payload_bytes, decode_date_payload_days,
+            decode_decimal_payload_mantissa_and_scale, decode_duration_payload_millis,
+            decode_float32_payload_bytes, decode_float64_payload_bytes,
+            decode_int128_payload_bytes, decode_nat128_payload_bytes,
             decode_principal_payload_bytes, decode_subaccount_payload_bytes,
             decode_timestamp_payload_millis, decode_ulid_payload_bytes,
         },
@@ -180,7 +181,7 @@ pub(in crate::db) fn decode_decimal(raw_bytes: &[u8]) -> Result<Decimal, FieldDe
     let scale = u32::try_from(scale)
         .map_err(|_| FieldDecodeError::new("structural binary: decimal scale out of u32 range"))?;
 
-    decode_decimal_payload_parts(i128::from_be_bytes(mantissa_buf), scale)
+    decode_decimal_payload_mantissa_and_scale(i128::from_be_bytes(mantissa_buf), scale)
 }
 
 /// Decode one canonical structural value-storage int128 payload.

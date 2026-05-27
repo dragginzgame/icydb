@@ -1,7 +1,7 @@
 //! Module: db::executor::projection::materialize::plan
 //! Responsibility: prepared projection materialization contracts and validation.
 //! Does not own: row loops, structural page dispatch, or DISTINCT execution.
-//! Boundary: stores planner-derived projection shape for executor-owned consumers.
+//! Boundary: stores planner-derived projection contract for executor-owned consumers.
 
 use crate::{
     db::{
@@ -35,16 +35,16 @@ pub(in crate::db) enum PreparedProjectionPlan {
 }
 
 ///
-/// PreparedProjectionShape
+/// PreparedProjectionContract
 ///
-/// PreparedProjectionShape is the executor-owned prepared projection contract
+/// PreparedProjectionContract is the executor-owned prepared projection contract
 /// shared by slot-row validation and higher-level structural row shaping.
 /// It freezes the canonical projection semantic spec plus the derived direct
 /// slot layouts needed by compiled scalar projection flow.
 ///
 
 #[derive(Debug)]
-pub(in crate::db) struct PreparedProjectionShape {
+pub(in crate::db) struct PreparedProjectionContract {
     projection: ProjectionSpec,
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
@@ -55,7 +55,7 @@ pub(in crate::db) struct PreparedProjectionShape {
     projected_slot_mask: Vec<bool>,
 }
 
-impl PreparedProjectionShape {
+impl PreparedProjectionContract {
     #[must_use]
     pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
         &self.projection
@@ -106,7 +106,7 @@ impl PreparedProjectionShape {
         self.projected_slot_mask.as_slice()
     }
 
-    /// Build one projection shape directly from test-owned prepared inputs.
+    /// Build one projection contract directly from test-owned prepared inputs.
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn from_test_inputs(
@@ -139,7 +139,7 @@ impl PreparedProjectionShape {
 /// each slot-row validation boundary.
 ///
 
-pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProjectionShape;
+pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProjectionContract;
 
 ///
 /// ProjectionValidationRow
@@ -159,16 +159,18 @@ pub(in crate::db::executor) trait ProjectionValidationRow {
     fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value>;
 }
 
-/// Build one executor-owned prepared projection shape from planner-frozen metadata.
+/// Build one executor-owned prepared projection contract from planner-frozen metadata.
 #[must_use]
-pub(in crate::db) fn prepare_projection_shape_from_plan(
+pub(in crate::db) fn prepare_projection_contract_from_plan(
     row_layout: &RowLayout,
     plan: &AccessPlannedQuery,
-) -> PreparedProjectionShape {
+) -> PreparedProjectionContract {
     let projection = plan.frozen_projection_spec().clone();
     let compiled_projection = plan
         .scalar_projection_plan()
-        .expect("scalar execution projection shapes must carry one planner-compiled scalar program")
+        .expect(
+            "scalar execution projection contracts must carry one planner-compiled scalar program",
+        )
         .to_vec();
     let retained_slot_direct_projection_field_slots =
         retained_slot_direct_projection_field_slots_from_projection(
@@ -189,7 +191,7 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
     let projected_slot_mask =
         projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask());
 
-    PreparedProjectionShape {
+    PreparedProjectionContract {
         projection,
         prepared: PreparedProjectionPlan::Scalar(compiled_projection),
         projection_is_model_identity: plan.projection_is_model_identity(),

@@ -36,7 +36,7 @@ use crate::{
         },
         predicate::{ComparePredicate, Predicate, PredicateProgram},
         schema::{
-            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
+            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
             compiled_schema_proposal_for_model,
         },
@@ -850,8 +850,8 @@ fn accepted_row_decode_contract_for_model(
     let snapshot = compiled_schema_proposal_for_model(model).initial_persisted_schema_snapshot();
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot).expect("accepted schema fixture should validate");
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-        .expect("accepted runtime descriptor should build");
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted runtime contract should build");
 
     descriptor.row_decode_contract()
 }
@@ -939,8 +939,8 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
     );
     let accepted = AcceptedSchemaSnapshot::try_new(defaulted_snapshot)
         .expect("accepted defaulted schema fixture should validate");
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-        .expect("accepted defaulted runtime descriptor should build");
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted defaulted runtime contract should build");
 
     descriptor.row_decode_contract()
 }
@@ -986,8 +986,8 @@ fn generated_default_model_with_no_accepted_default_contract_for_tests() -> Stru
     );
     let accepted = AcceptedSchemaSnapshot::try_new(accepted_snapshot)
         .expect("accepted no-default schema fixture should validate");
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
-        .expect("accepted no-default runtime descriptor should build");
+    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect("accepted no-default runtime contract should build");
 
     StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
         &ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL,

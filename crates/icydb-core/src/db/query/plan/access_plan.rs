@@ -180,15 +180,15 @@ impl ResolvedOrder {
 }
 
 ///
-/// StaticPlanningShape
+/// StaticExecutionPlanningContract
 ///
-/// StaticPlanningShape freezes planner-derived executor metadata that must not
+/// StaticExecutionPlanningContract freezes planner-derived executor metadata that must not
 /// be rediscovered from `EntityModel` once execution begins.
 /// This keeps projection/order slot reachability and index compile targeting
 /// under planner ownership instead of executor-local model scans.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct StaticPlanningShape {
+pub(in crate::db) struct StaticExecutionPlanningContract {
     pub(in crate::db) primary_key_names: Vec<String>,
     pub(in crate::db) projection_spec: ProjectionSpec,
     pub(in crate::db) execution_preparation_predicate: Option<Predicate>,
@@ -309,7 +309,7 @@ pub(in crate::db) struct AccessPlannedQuery {
     pub(in crate::db) projection_selection: ProjectionSelection,
     pub(in crate::db) access_choice: AccessChoiceExplainSnapshot,
     pub(in crate::db) planner_route_profile: PlannerRouteProfile,
-    pub(in crate::db) static_planning_shape: Option<StaticPlanningShape>,
+    pub(in crate::db) static_execution_planning_contract: Option<StaticExecutionPlanningContract>,
 }
 
 impl AccessPlannedQuery {
@@ -370,7 +370,7 @@ impl AccessPlannedQuery {
             projection_selection,
             access_choice,
             planner_route_profile,
-            static_planning_shape: None,
+            static_execution_planning_contract: None,
         }
     }
 
@@ -457,7 +457,7 @@ impl AccessPlannedQuery {
             projection_selection,
             access_choice,
             planner_route_profile: _planner_route_profile,
-            static_planning_shape: _static_planning_shape,
+            static_execution_planning_contract: _static_execution_planning_contract,
         } = self;
         let scalar = match logical {
             LogicalPlan::Scalar(plan) => plan,

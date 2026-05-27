@@ -29,7 +29,7 @@ Role proof:
 Accepted rename:
 
 ```text
-PreparedProjectionShape::from_test_parts(...) -> from_test_inputs(...)
+PreparedProjectionContract::from_test_parts(...) -> from_test_inputs(...)
 ```
 
 ### Staged Publication Readiness Inputs
@@ -63,7 +63,7 @@ from_validated_parts(...) -> from_validation_inputs(...)
 Live-code scans for this slice:
 
 ```bash
-rg -n "PreparedProjectionShape::from_test_parts|from_test_parts\\(|from_validated_parts|from_validation_inputs|from_test_inputs" crates/icydb-core/src/db/executor/projection crates/icydb-core/src/db/session/sql/projection crates/icydb-core/src/db/schema/mutation docs/design/0.165-naming-audit-and-role-alignment
+rg -n "PreparedProjectionContract::from_test_parts|from_test_parts\\(|from_validated_parts|from_validation_inputs|from_test_inputs" crates/icydb-core/src/db/executor/projection crates/icydb-core/src/db/session/sql/projection crates/icydb-core/src/db/schema/mutation docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining old-name hits are allowed only inside this family note, changelog

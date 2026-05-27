@@ -96,7 +96,7 @@ fn load_plan_with_order_distinct_and_limit(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
-        static_planning_shape: None,
+        static_execution_planning_contract: None,
     }
 }
 
@@ -170,7 +170,7 @@ fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec 
 fn finalized_grouped_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {
     let mut finalized = plan.clone();
     finalized
-        .finalize_static_planning_shape_for_model_only(
+        .finalize_static_execution_planning_contract_for_model_only(
             <PlanValidateGroupedEntity as EntitySchema>::MODEL,
         )
         .expect("grouped plan tests require planner-frozen execution shape");

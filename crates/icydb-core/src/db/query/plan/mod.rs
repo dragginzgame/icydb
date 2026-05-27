@@ -46,7 +46,7 @@ pub(in crate::db::query) use access_choice::{
 pub(in crate::db) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
     EffectiveRuntimeFilterProgram, PlannedNonIndexAccessReason, ResolvedOrder, ResolvedOrderField,
-    ResolvedOrderValueSource, StaticPlanningShape,
+    ResolvedOrderValueSource, StaticExecutionPlanningContract,
 };
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,

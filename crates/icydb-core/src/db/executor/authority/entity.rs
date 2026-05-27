@@ -14,7 +14,7 @@ use crate::{
         },
         schema::{
             AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
-            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, SchemaInfo,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo,
         },
     },
     error::InternalError,
@@ -85,7 +85,7 @@ impl EntityAuthority {
     {
         let authority = Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH);
         let (accepted_row_layout, row_proof) =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
                 accepted_schema,
                 authority.model(),
             )?;
@@ -209,15 +209,15 @@ impl EntityAuthority {
         self.store_path
     }
 
-    /// Finalize planner-owned static execution shape through canonical entity authority.
-    pub(in crate::db::executor) fn finalize_static_planning_shape(
+    /// Finalize planner-owned static execution contract through canonical entity authority.
+    pub(in crate::db::executor) fn finalize_static_execution_planning_contract(
         &self,
         plan: &mut AccessPlannedQuery,
     ) {
         // Cached/session planning may already have frozen static execution
         // metadata with accepted schema authority. Do not overwrite that
         // schema-selected slot contract while lowering the executor core.
-        if plan.has_static_planning_shape() {
+        if plan.has_static_execution_planning_contract() {
             record_prepared_shape_finalization_for_path(
                 self.entity_path(),
                 PreparedShapeFinalizationOutcome::AlreadyFinalized,
@@ -228,9 +228,12 @@ impl EntityAuthority {
         let schema_info = self
             .accepted_schema_info
             .as_ref()
-            .expect("executor static shape finalization requires accepted schema info");
-        plan.finalize_static_planning_shape_for_model_with_schema(self.model, schema_info)
-            .expect("executable plan core requires accepted-schema static execution shape");
+            .expect("executor static contract finalization requires accepted schema info");
+        plan.finalize_static_execution_planning_contract_for_model_with_schema(
+            self.model,
+            schema_info,
+        )
+        .expect("executable plan core requires accepted-schema static execution contract");
     }
 
     /// Finalize planner-owned route profiling through canonical entity authority.
@@ -250,9 +253,9 @@ impl EntityAuthority {
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
-        if !plan.has_static_planning_shape() {
+        if !plan.has_static_execution_planning_contract() {
             return Err(InternalError::query_executor_invariant(format!(
-                "executor plan validation requires planner-frozen static shape for '{}'",
+                "executor plan validation requires planner-frozen static execution planning contract for '{}'",
                 self.entity_path()
             )));
         }
@@ -488,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn authority_finalization_preserves_schema_finalized_static_shape() {
+    fn authority_finalization_preserves_schema_finalized_static_contract() {
         metrics_reset_all();
         let authority = EntityAuthority::new(
             &MODEL,
@@ -499,11 +502,11 @@ mod tests {
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 
-        plan.finalize_static_planning_shape_for_model_with_schema(&MODEL, &schema)
+        plan.finalize_static_execution_planning_contract_for_model_with_schema(&MODEL, &schema)
             .expect("schema-finalized static shape should build");
         assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
 
-        authority.finalize_static_planning_shape(&mut plan);
+        authority.finalize_static_execution_planning_contract(&mut plan);
 
         assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
 
@@ -529,7 +532,7 @@ mod tests {
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 
-        authority.finalize_static_planning_shape(&mut plan);
+        authority.finalize_static_execution_planning_contract(&mut plan);
 
         assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
     }

@@ -2013,7 +2013,7 @@ fn aggregate_execution_grouped_global_distinct_unsupported_kind_fails_without_sc
             execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
         });
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        grouped.finalize_static_planning_shape_for_model_only(
+        grouped.finalize_static_execution_planning_contract_for_model_only(
             <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
         )
     });

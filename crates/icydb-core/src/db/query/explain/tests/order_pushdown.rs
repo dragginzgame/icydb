@@ -81,7 +81,7 @@ fn explain_does_not_evaluate_composite_pushdown_rejections() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
-        static_planning_shape: None,
+        static_execution_planning_contract: None,
     };
 
     assert_eq!(

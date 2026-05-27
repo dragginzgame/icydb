@@ -33,7 +33,7 @@ accepted_relation_target_descriptor_from_kind(...) -> accepted_relation_target_m
 
 ## Kept Names
 
-- `AcceptedRowLayoutRuntimeDescriptor` remains because it is the accepted-schema
+- `AcceptedRowLayoutRuntimeContract` remains because it is the accepted-schema
   runtime row-layout descriptor used as a decode/write trust boundary.
 - EXPLAIN execution descriptors remain because they are renderable diagnostics.
 

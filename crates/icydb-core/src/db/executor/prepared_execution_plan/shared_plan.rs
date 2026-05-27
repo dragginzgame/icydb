@@ -80,7 +80,7 @@ impl SharedPreparedExecutionPlan {
         self,
     ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
-        let prepared_projection_shape = core.get_or_init_projection_shape(authority.clone());
+        let prepared_projection_contract = core.get_or_init_projection_shape(authority.clone());
         let retained_slot_layout = core.get_or_init_scalar_layout(
             authority.clone(),
             ProjectionMaterializationMode::RetainSlotRows,
@@ -98,14 +98,14 @@ impl SharedPreparedExecutionPlan {
         let scalar_runtime = PreparedScalarRuntimeHandoff {
             authority: authority.clone(),
             execution_preparation,
-            prepared_projection_shape: prepared_projection_shape.clone(),
+            prepared_projection_contract: prepared_projection_contract.clone(),
             retained_slot_layout,
             plan_core: PreparedScalarPlanCore { core },
         };
 
         Ok(SharedPreparedProjectionRuntimeHandoff {
             authority,
-            prepared_projection_shape,
+            prepared_projection_contract,
             scalar_runtime,
         })
     }

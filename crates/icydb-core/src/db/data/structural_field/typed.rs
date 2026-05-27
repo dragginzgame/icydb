@@ -209,7 +209,7 @@ pub(in crate::db::data::structural_field) const fn decimal_payload_mantissa_and_
 
 // Apply Decimal's mantissa/scale validation locally so all structural lanes
 // share one normalization rule instead of drifting independently.
-pub(in crate::db::data::structural_field) fn decode_decimal_payload_parts(
+pub(in crate::db::data::structural_field) fn decode_decimal_payload_mantissa_and_scale(
     mantissa: i128,
     scale: u32,
 ) -> Result<Decimal, FieldDecodeError> {

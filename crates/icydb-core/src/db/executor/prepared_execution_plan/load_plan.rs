@@ -176,7 +176,7 @@ impl PreparedLoadPlan {
         retained_slot_layout_override: Option<RetainedSlotLayout>,
     ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
-        let prepared_projection_shape = if projection_materialization.validate_projection()
+        let prepared_projection_contract = if projection_materialization.validate_projection()
             && !core.plan().projection_is_model_identity()
         {
             core.get_or_init_projection_shape(authority.clone())
@@ -203,7 +203,7 @@ impl PreparedLoadPlan {
         Ok(PreparedScalarRuntimeHandoff {
             authority,
             execution_preparation,
-            prepared_projection_shape,
+            prepared_projection_contract,
             retained_slot_layout,
             plan_core: PreparedScalarPlanCore { core },
         })

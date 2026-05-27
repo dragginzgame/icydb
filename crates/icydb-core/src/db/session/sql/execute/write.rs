@@ -5,7 +5,7 @@ use crate::{
         executor::MutationMode,
         query::intent::StructuralQuery,
         schema::{
-            AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
+            AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo, ValidateError,
             accepted_commit_schema_fingerprint, canonicalize_strict_sql_literal_for_persisted_kind,
             field_type_from_persisted_kind, literal_matches_type,
@@ -37,7 +37,7 @@ use crate::{
 };
 
 fn sql_write_key_from_literal<E>(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     value: &Value,
 ) -> Result<E::Key, QueryError>
 where
@@ -71,7 +71,7 @@ where
 }
 
 fn sql_write_key_from_component_literals<E>(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     values: &[Value],
 ) -> Result<E::Key, QueryError>
 where
@@ -116,25 +116,25 @@ where
     })
 }
 
-fn primary_key_label(descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>) -> String {
+fn primary_key_label(descriptor: &AcceptedRowLayoutRuntimeContract<'_>) -> String {
     descriptor.primary_key_names().join(", ")
 }
 
 fn checked_accepted_write_descriptor<E>(
     schema: &AcceptedSchemaSnapshot,
-) -> Result<AcceptedRowLayoutRuntimeDescriptor<'_>, QueryError>
+) -> Result<AcceptedRowLayoutRuntimeContract<'_>, QueryError>
 where
     E: EntityKind,
 {
     let (descriptor, _) =
-        AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(schema, E::MODEL)
+        AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(schema, E::MODEL)
             .map_err(QueryError::execute)?;
 
     Ok(descriptor)
 }
 
 fn accepted_write_field_slot(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
 ) -> Result<FieldSlot, QueryError> {
     let accepted_slot = descriptor
@@ -147,7 +147,7 @@ fn accepted_write_field_slot(
 }
 
 fn sql_write_patch_set_accepted_field(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: StructuralPatch,
     field_name: &str,
     value: Value,
@@ -158,7 +158,7 @@ fn sql_write_patch_set_accepted_field(
 }
 
 fn write_policy_for_accepted_name(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
 ) -> Result<SchemaFieldWritePolicy, QueryError> {
     let Some(field) = descriptor.field_by_name(field_name) else {
@@ -184,7 +184,7 @@ fn sql_write_generated_field_value(generation: FieldInsertGeneration) -> Value {
 }
 
 fn sql_write_value_for_accepted_field(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
     value: &Value,
 ) -> Result<Value, QueryError> {
@@ -206,7 +206,7 @@ fn sql_write_value_for_accepted_field(
 }
 
 fn reject_explicit_sql_write_to_managed_field(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
     statement_kind: &str,
 ) -> Result<(), QueryError> {
@@ -224,7 +224,7 @@ fn reject_explicit_sql_write_to_managed_field(
 }
 
 fn reject_explicit_sql_write_to_generated_field(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
     statement_kind: &str,
 ) -> Result<(), QueryError> {
@@ -256,7 +256,7 @@ const fn sql_insert_accepted_field_is_omittable(field: &AcceptedRowLayoutRuntime
 }
 
 fn ensure_sql_insert_required_fields(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     columns: &[String],
 ) -> Result<(), QueryError> {
     let mut missing_required_fields = Vec::new();
@@ -300,7 +300,7 @@ fn ensure_sql_insert_required_fields(
 }
 
 fn sql_insert_source_width_hint(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     source: &SqlInsertSource,
 ) -> Option<usize> {
     match source {
@@ -322,7 +322,7 @@ fn sql_insert_source_width_hint(
 }
 
 fn accepted_insert_columns(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     include_omittable_fields: bool,
 ) -> Vec<String> {
     let mut columns = Vec::new();
@@ -345,7 +345,7 @@ fn accepted_insert_columns(
 }
 
 fn sql_insert_columns(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     statement: &SqlInsertStatement,
 ) -> Vec<String> {
     if !statement.columns.is_empty() {
@@ -389,7 +389,7 @@ fn record_sql_write_metrics(
 
 impl<C: CanisterKind> DbSession<C> {
     fn sql_insert_patch_and_key<E>(
-        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         columns: &[String],
         values: &[Value],
     ) -> Result<(E::Key, StructuralPatch), QueryError>
@@ -434,7 +434,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn sql_structural_patch(
-        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         statement: &SqlUpdateStatement,
     ) -> Result<StructuralPatch, QueryError> {
         let mut patch = StructuralPatch::new();
@@ -534,7 +534,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn sql_write_key_from_projected_row<E>(
-        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         row: &[Value],
     ) -> Result<E::Key, QueryError>
     where
@@ -562,7 +562,7 @@ impl<C: CanisterKind> DbSession<C> {
 }
 
 fn sql_insert_primary_key_values(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     columns: &[String],
     values: &[Value],
     generated_fields: &[(&str, Value)],
@@ -603,7 +603,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_sql_insert_select_source_patches<E>(
         &self,
         schema: &AcceptedSchemaSnapshot,
-        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         source: &SqlSelectStatement,
         columns: &[String],
         rows: &mut Vec<(E::Key, StructuralPatch)>,
@@ -648,7 +648,7 @@ impl<C: CanisterKind> DbSession<C> {
     // INSERT SELECT feed patches directly without first cloning/staging the
     // whole source row set behind a shared temporary vector.
     fn sql_insert_push_patch_row<E>(
-        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         rows: &mut Vec<(E::Key, StructuralPatch)>,
         columns: &[String],
         values: &[Value],

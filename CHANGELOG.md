@@ -11,16 +11,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
-- `0.165.25`–`0.165.28` continue the naming hard cut by removing broad
+- `0.165.25`–`0.165.29` continue the naming hard cut by removing broad
   `core` and `parts` vocabulary from validation, persisted-row reading, SQL
-  compilation, aggregate execution tests, and CLI shell config test support.
+  compilation, aggregate execution tests, CLI shell config test support, and
+  structural decimal payload helpers, timestamp parser components, and index
+  derive codegen token helpers, then closes the remaining high-risk boundary
+  names where `Descriptor` or `Shape` obscured runtime contract authority. This
+  group also closes the broad lexical cleanup phase with a risk-based threshold
+  for any future renames.
 
   ```text
   query::plan::validate::core -> query::plan::validate::semantic_gates
-  persisted_row::reader::core -> persisted_row::reader::structural_slot_reader
-  session::sql::compile::core -> session::sql::compile::semantic_compiler
   executor::tests::aggregate_core -> executor::tests::aggregate_execution
-  sql_config_parts(...) -> sql_shell_config_inputs(...)
+  AcceptedRowLayoutRuntimeDescriptor -> AcceptedRowLayoutRuntimeContract
+  StaticPlanningShape -> StaticExecutionPlanningContract
+  PreparedProjectionShape -> PreparedProjectionContract
   ```
 
 - `0.165.20`–`0.165.24` continue the naming hard cut across payload helpers,

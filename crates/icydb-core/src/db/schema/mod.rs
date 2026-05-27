@@ -106,7 +106,7 @@ pub(in crate::db) use reconcile::{
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract,
     AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
-    AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
+    AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
     OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
 };
 pub(in crate::db) use snapshot::{

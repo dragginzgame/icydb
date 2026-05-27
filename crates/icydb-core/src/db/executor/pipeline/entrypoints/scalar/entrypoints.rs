@@ -182,7 +182,7 @@ where
         debug,
         prepared.authority,
         prepared.execution_preparation,
-        prepared.prepared_projection_shape,
+        prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
         ScalarPreparedRuntimeOptions {
@@ -233,7 +233,7 @@ where
         debug,
         prepared.authority,
         prepared.execution_preparation,
-        prepared.prepared_projection_shape,
+        prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
         ScalarPreparedRuntimeOptions {
@@ -284,7 +284,7 @@ where
     )?;
     let projection_requires_data_rows =
         prepared
-            .prepared_projection_shape
+            .prepared_projection_contract
             .as_ref()
             .is_some_and(|shape| {
                 shape
@@ -313,7 +313,7 @@ where
         debug,
         prepared.authority,
         prepared.execution_preparation,
-        prepared.prepared_projection_shape,
+        prepared.prepared_projection_contract,
         retained_slot_layout,
         prepared.plan_core,
         ScalarPreparedRuntimeOptions {
@@ -365,7 +365,7 @@ where
         debug,
         prepared.authority,
         prepared.execution_preparation,
-        prepared.prepared_projection_shape,
+        prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
         ScalarPreparedRuntimeOptions {
@@ -417,7 +417,7 @@ where
         executor.debug,
         prepared.authority,
         prepared.execution_preparation,
-        prepared.prepared_projection_shape,
+        prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
         ScalarPreparedRuntimeOptions {
@@ -485,7 +485,7 @@ where
             self.debug,
             prepared.authority,
             prepared.execution_preparation,
-            prepared.prepared_projection_shape,
+            prepared.prepared_projection_contract,
             prepared.retained_slot_layout,
             prepared.plan_core,
             ScalarPreparedRuntimeOptions {

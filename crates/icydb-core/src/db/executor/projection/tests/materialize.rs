@@ -110,7 +110,7 @@ fn field_path_projection_materialization_decodes_nested_values() {
             CompiledExpr::compile(&scalar)
         })
         .collect();
-    let prepared_projection = PreparedProjectionShape::from_test_inputs(
+    let prepared_projection = PreparedProjectionContract::from_test_inputs(
         projection,
         PreparedProjectionPlan::Scalar(prepared_fields),
         false,
@@ -328,8 +328,8 @@ fn projection_materialization_exposes_projected_rows_payload() {
 }
 
 #[cfg(feature = "sql")]
-fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_inputs(
+fn direct_rank_projection_contract_for_materialize_test() -> PreparedProjectionContract {
+    PreparedProjectionContract::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Field(FieldId::new("rank")),
             alias: None,
@@ -343,8 +343,8 @@ fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShap
 }
 
 #[cfg(feature = "sql")]
-fn repeated_direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShape {
-    PreparedProjectionShape::from_test_inputs(
+fn repeated_direct_rank_projection_contract_for_materialize_test() -> PreparedProjectionContract {
+    PreparedProjectionContract::from_test_inputs(
         ProjectionSpec::from_fields_for_test(vec![
             ProjectionField::Scalar {
                 expr: Expr::Field(FieldId::new("rank")),
@@ -364,7 +364,7 @@ fn repeated_direct_rank_projection_shape_for_materialize_test() -> PreparedProje
 }
 
 #[cfg(feature = "sql")]
-fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProjectionShape {
+fn wide_scalar_fallback_projection_contract_for_materialize_test() -> PreparedProjectionContract {
     let projection = ProjectionSpec::from_fields_for_test(vec![
         ProjectionField::Scalar {
             expr: Expr::Field(FieldId::new("label")),
@@ -408,7 +408,7 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
         })
         .collect();
 
-    PreparedProjectionShape::from_test_inputs(
+    PreparedProjectionContract::from_test_inputs(
         projection,
         PreparedProjectionPlan::Scalar(prepared_fields),
         false,
@@ -464,7 +464,7 @@ fn identity_data_row_materialization_visits_borrowed_row_views() {
 #[test]
 fn direct_data_row_materialization_visits_borrowed_row_views() {
     let row_layout = projection_eval_row_layout_for_materialize_tests();
-    let prepared_projection = direct_rank_projection_shape_for_materialize_test();
+    let prepared_projection = direct_rank_projection_contract_for_materialize_test();
     let rows = [
         projection_eval_data_row_for_materialize_tests(63, 7, true),
         projection_eval_data_row_for_materialize_tests(64, 11, false),
@@ -484,7 +484,7 @@ fn direct_data_row_materialization_visits_borrowed_row_views() {
 #[cfg(feature = "sql")]
 #[test]
 fn direct_slot_row_materialization_visits_borrowed_row_views() {
-    let prepared_projection = direct_rank_projection_shape_for_materialize_test();
+    let prepared_projection = direct_rank_projection_contract_for_materialize_test();
     let rows = retained_slot_rows_for_materialize_test();
 
     let borrowed_rows = count_borrowed_slot_row_views_for_test(&prepared_projection, rows)
@@ -503,7 +503,7 @@ fn direct_slot_row_materialization_preserves_missing_slot_failure() {
     const fn noop_slot_access(_projected_slot: bool) {}
 
     let row_layout = projection_eval_row_layout_for_materialize_tests();
-    let prepared_projection = repeated_direct_rank_projection_shape_for_materialize_test();
+    let prepared_projection = repeated_direct_rank_projection_contract_for_materialize_test();
     let metrics = ProjectionMaterializationMetricsRecorder::new(
         noop,
         noop,
@@ -535,7 +535,7 @@ fn wide_scalar_data_row_materialization_visits_borrowed_row_views() {
     const fn noop_slot_access(_projected_slot: bool) {}
 
     let row_layout = projection_eval_row_layout_for_materialize_tests();
-    let prepared_projection = wide_scalar_fallback_projection_shape_for_materialize_test();
+    let prepared_projection = wide_scalar_fallback_projection_contract_for_materialize_test();
     let rows = [
         projection_eval_data_row_for_materialize_tests(65, 13, true),
         projection_eval_data_row_for_materialize_tests(66, 17, false),
@@ -599,7 +599,7 @@ fn wide_scalar_slot_row_materialization_visits_borrowed_row_views() {
     const fn noop_slot_access(_projected_slot: bool) {}
 
     let row_layout = projection_eval_row_layout_for_materialize_tests();
-    let prepared_projection = wide_scalar_fallback_projection_shape_for_materialize_test();
+    let prepared_projection = wide_scalar_fallback_projection_contract_for_materialize_test();
     let borrowed_rows = count_borrowed_slot_row_views_for_test(
         &prepared_projection,
         retained_slot_rows_for_materialize_test(),

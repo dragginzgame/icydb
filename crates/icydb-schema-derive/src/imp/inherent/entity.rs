@@ -33,19 +33,19 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
         .name
         .as_ref()
         .map_or_else(|| node.def.ident().to_string(), LitStr::value);
-    let index_parts = node
+    let index_runtime_outputs = node
         .indexes
         .iter()
         .enumerate()
         .map(|(ordinal, index)| {
-            index.runtime_part(node, &resolved_entity_name, &node.store, ordinal)
+            index.runtime_model_tokens(node, &resolved_entity_name, &node.store, ordinal)
         })
         .collect::<Vec<_>>();
-    let index_support_items = index_parts
+    let index_support_items = index_runtime_outputs
         .iter()
         .flat_map(|(support_items, _)| support_items.iter().cloned())
         .collect::<Vec<_>>();
-    let index_exprs = index_parts
+    let index_exprs = index_runtime_outputs
         .iter()
         .map(|(_, model_expr)| model_expr.clone())
         .collect::<Vec<_>>();

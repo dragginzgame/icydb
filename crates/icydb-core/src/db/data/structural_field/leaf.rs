@@ -16,8 +16,9 @@ use crate::db::data::structural_field::{
     },
     primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     typed::{
-        decimal_payload_mantissa_and_scale, decode_date_payload_days, decode_decimal_payload_parts,
-        decode_duration_payload_millis, encode_date_payload_days, encode_duration_payload_millis,
+        decimal_payload_mantissa_and_scale, decode_date_payload_days,
+        decode_decimal_payload_mantissa_and_scale, decode_duration_payload_millis,
+        encode_date_payload_days, encode_duration_payload_millis,
     },
 };
 use crate::{
@@ -171,7 +172,7 @@ fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErro
         })?;
     let scale = decode_required_u32_payload(items[1], "decimal scale")?;
 
-    Ok(Value::Decimal(decode_decimal_payload_parts(
+    Ok(Value::Decimal(decode_decimal_payload_mantissa_and_scale(
         i128::from_be_bytes(mantissa_bytes),
         scale,
     )?))
