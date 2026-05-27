@@ -36,7 +36,7 @@ pub(super) fn execute_global_distinct_grouped_fold_stage(
     grouped_execution_context
         .record_implicit_single_group()
         .map_err(GroupError::into_internal_error)?;
-    let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
+    let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
     let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;

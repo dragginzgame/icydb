@@ -75,7 +75,7 @@ fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
 
 #[test]
 fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
-    let group_field = FieldSlot::from_parts_for_test(1, "class_name");
+    let group_field = FieldSlot::from_test_slot(1, "class_name");
     let aggregate_expr = AggregateExpr::terminal_for_kind(AggregateKind::Count);
     let expr = Expr::Binary {
         op: BinaryOp::And,

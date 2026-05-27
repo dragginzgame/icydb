@@ -93,7 +93,7 @@ fn index_range_query(
 fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
     AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore).into_grouped(
         GroupSpec {
-            group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+            group_fields: vec![FieldSlot::from_test_slot(1, "rank")],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 input_expr: None,

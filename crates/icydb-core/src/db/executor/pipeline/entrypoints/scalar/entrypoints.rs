@@ -137,7 +137,7 @@ where
     ) -> Result<(CursorPage<E>, Option<crate::db::executor::ExecutionTrace>), InternalError> {
         match surface {
             LoadExecutionSurface::ScalarPageWithTrace(page, trace) => {
-                let (data_rows, next_cursor) = page.into_parts();
+                let (data_rows, next_cursor) = page.into_data_rows_and_cursor();
 
                 Ok((
                     decode_data_rows_into_cursor_page::<E>(row_layout, data_rows, next_cursor)?,

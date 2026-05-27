@@ -10,7 +10,7 @@ use crate::db::query::{
 
 #[test]
 fn numeric_field_strategy_sum_distinct_preserves_request_shape() {
-    let rank_slot = FieldSlot::from_parts_for_test(7, "rank");
+    let rank_slot = FieldSlot::from_test_slot(7, "rank");
     let strategy = SumDistinctBySlotTerminal::new(rank_slot.clone());
 
     assert_eq!(
@@ -61,7 +61,7 @@ fn existing_rows_terminal_strategy_exists_preserves_request_shape() {
 
 #[test]
 fn numeric_field_strategy_avg_preserves_request_shape() {
-    let rank_slot = FieldSlot::from_parts_for_test(7, "rank");
+    let rank_slot = FieldSlot::from_test_slot(7, "rank");
     let strategy = AvgBySlotTerminal::new(rank_slot.clone());
 
     assert_eq!(
@@ -116,7 +116,7 @@ fn order_sensitive_terminal_strategy_last_preserves_explain_and_request_shape() 
 
 #[test]
 fn order_sensitive_terminal_strategy_nth_preserves_field_order_request_shape() {
-    let rank_slot = FieldSlot::from_parts_for_test(7, "rank");
+    let rank_slot = FieldSlot::from_test_slot(7, "rank");
     let ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth } =
         NthIdBySlotTerminal::new(rank_slot.clone(), 2).into_executor_request()
     else {
@@ -131,7 +131,7 @@ fn order_sensitive_terminal_strategy_nth_preserves_field_order_request_shape() {
 
 #[test]
 fn projection_strategy_count_distinct_preserves_request_shape() {
-    let rank_slot = FieldSlot::from_parts_for_test(7, "rank");
+    let rank_slot = FieldSlot::from_test_slot(7, "rank");
     let strategy = CountDistinctBySlotTerminal::new(rank_slot.clone());
     let explain = strategy.explain_descriptor();
 
@@ -159,7 +159,7 @@ fn projection_strategy_count_distinct_preserves_request_shape() {
 
 #[test]
 fn projection_strategy_terminal_value_preserves_request_shape() {
-    let rank_slot = FieldSlot::from_parts_for_test(7, "rank");
+    let rank_slot = FieldSlot::from_test_slot(7, "rank");
     let strategy = LastValueBySlotTerminal::new(rank_slot.clone());
     let explain = strategy.explain_descriptor();
 

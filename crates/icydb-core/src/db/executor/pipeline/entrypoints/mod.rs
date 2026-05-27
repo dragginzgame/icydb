@@ -134,7 +134,7 @@ where
         let plan = plan.into_prepared_load_plan();
         let row_layout = plan.authority().row_layout();
         let page = execute_prepared_scalar_rows_for_canister(&self.db, self.debug, plan)?;
-        let (data_rows, _) = page.into_parts();
+        let (data_rows, _) = page.into_data_rows_and_cursor();
 
         decode_data_rows_into_entity_response::<E>(&row_layout, data_rows)
     }
@@ -155,7 +155,7 @@ where
             execute_prepared_scalar_rows_for_canister_with_phase_attribution(
                 &self.db, self.debug, plan,
             )?;
-        let (data_rows, _) = page.into_parts();
+        let (data_rows, _) = page.into_data_rows_and_cursor();
 
         // Phase 2: decode the structural data rows into typed response rows.
         let (response_decode_local_instructions, response) = measure_load_entry_phase(|| {

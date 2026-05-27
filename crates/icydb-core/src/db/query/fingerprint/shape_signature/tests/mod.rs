@@ -78,7 +78,7 @@ fn scalar_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
 fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
     AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore).into_grouped(
         GroupSpec {
-            group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+            group_fields: vec![FieldSlot::from_test_slot(1, "rank")],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 input_expr: None,
@@ -587,8 +587,8 @@ fn signature_changes_when_group_fields_change() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
-                    FieldSlot::from_parts_for_test(1, "tenant"),
-                    FieldSlot::from_parts_for_test(2, "phase"),
+                    FieldSlot::from_test_slot(1, "tenant"),
+                    FieldSlot::from_test_slot(2, "phase"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
@@ -602,8 +602,8 @@ fn signature_changes_when_group_fields_change() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
-                    FieldSlot::from_parts_for_test(1, "tenant"),
-                    FieldSlot::from_parts_for_test(2, "region"),
+                    FieldSlot::from_test_slot(1, "tenant"),
+                    FieldSlot::from_test_slot(2, "region"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
@@ -625,7 +625,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
     let grouped_count: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -637,7 +637,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
     let grouped_max_rank: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
                     input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
@@ -660,7 +660,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
     let grouped_max_rank: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
                     input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
@@ -674,7 +674,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
     let grouped_max_score: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
                     input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
@@ -697,7 +697,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
     let grouped_count: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -709,7 +709,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
     let grouped_count_distinct: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -768,8 +768,8 @@ fn signature_changes_when_group_field_order_changes() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
-                    FieldSlot::from_parts_for_test(1, "tenant"),
-                    FieldSlot::from_parts_for_test(2, "phase"),
+                    FieldSlot::from_test_slot(1, "tenant"),
+                    FieldSlot::from_test_slot(2, "phase"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
@@ -783,8 +783,8 @@ fn signature_changes_when_group_field_order_changes() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
-                    FieldSlot::from_parts_for_test(2, "phase"),
-                    FieldSlot::from_parts_for_test(1, "tenant"),
+                    FieldSlot::from_test_slot(2, "phase"),
+                    FieldSlot::from_test_slot(1, "tenant"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
@@ -806,7 +806,7 @@ fn signature_changes_when_group_aggregate_order_changes() {
     let grouped_count_then_max: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![
                     GroupAggregateSpec {
                         kind: AggregateKind::Count,
@@ -828,7 +828,7 @@ fn signature_changes_when_group_aggregate_order_changes() {
     let grouped_max_then_count: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![
                     GroupAggregateSpec {
                         kind: AggregateKind::Max,
@@ -861,7 +861,7 @@ fn signature_changes_between_scalar_and_grouped_shape() {
     let grouped: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -882,7 +882,7 @@ fn signature_changes_when_grouped_limits_change() {
     let grouped_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -894,7 +894,7 @@ fn signature_changes_when_grouped_limits_change() {
     let grouped_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -913,7 +913,7 @@ fn signature_changes_when_grouped_limits_change() {
 #[test]
 fn signature_changes_when_grouped_having_changes() {
     let group = GroupSpec {
-        group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+        group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             input_expr: None,
@@ -954,7 +954,7 @@ fn signature_changes_when_grouped_having_changes() {
 #[test]
 fn signature_snapshot_grouped_having_shape_is_stable() {
     let group = GroupSpec {
-        group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+        group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             input_expr: None,
@@ -988,7 +988,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
     let grouped_distinct: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -1043,7 +1043,7 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
         MissingRowPolicy::Ignore,
     )
     .into_grouped(GroupSpec {
-        group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+        group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             input_expr: None,
@@ -1066,7 +1066,7 @@ fn signature_snapshot_grouped_filtered_shape_is_stable() {
     let grouped_filtered: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,

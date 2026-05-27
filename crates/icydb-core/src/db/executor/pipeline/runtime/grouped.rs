@@ -545,9 +545,9 @@ impl GroupedStreamStage {
         }
     }
 
-    // Borrow grouped runtime context, execution preparation, and mutable resolved
-    // key stream together so callers can combine immutable/mutable borrows safely.
-    pub(in crate::db::executor) const fn parts_mut(
+    // Borrow grouped fold inputs together so callers can combine immutable and
+    // mutable borrows safely.
+    pub(in crate::db::executor) const fn fold_inputs_mut(
         &mut self,
     ) -> (
         &StructuralGroupedRowRuntime,

@@ -604,8 +604,8 @@ mod tests {
     #[test]
     fn group_field_slot_deduplicates_by_slot_index() {
         let mut intent = QueryIntent::<u64>::new();
-        intent.push_group_field_slot(FieldSlot::from_parts_for_test(4, "rank"));
-        intent.push_group_field_slot(FieldSlot::from_parts_for_test(4, "duplicate-rank"));
+        intent.push_group_field_slot(FieldSlot::from_test_slot(4, "rank"));
+        intent.push_group_field_slot(FieldSlot::from_test_slot(4, "duplicate-rank"));
 
         let grouped = intent
             .grouped()
@@ -633,7 +633,7 @@ mod tests {
     #[test]
     fn delete_grouping_policy_accepts_having_clause_when_group_requested() {
         let mut intent = QueryIntent::<u64>::new();
-        intent.push_group_field_slot(FieldSlot::from_parts_for_test(0, "id"));
+        intent.push_group_field_slot(FieldSlot::from_test_slot(0, "id"));
 
         let mut intent = intent.set_delete_mode();
         let result = intent.push_having_expr(Expr::Literal(Value::Bool(true)));

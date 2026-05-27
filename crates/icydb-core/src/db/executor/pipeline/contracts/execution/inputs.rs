@@ -210,9 +210,9 @@ impl StructuralCursorPage {
         }
     }
 
-    /// Consume one structural scalar page into rows plus cursor state.
+    /// Consume one structural scalar page into data rows plus cursor state.
     #[must_use]
-    pub(in crate::db) fn into_parts(
+    pub(in crate::db) fn into_data_rows_and_cursor(
         self,
     ) -> (
         Vec<DataRow>,

@@ -52,7 +52,7 @@ fn grouped_aggregate_state_borrowed_row_probe_reuses_existing_group_without_owne
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
     let mut grouped =
         execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
-    let group_fields = vec![FieldSlot::from_parts_for_test(0, "group")];
+    let group_fields = vec![FieldSlot::from_test_slot(0, "group")];
     let alpha_row = RowView::new(vec![Some(Value::Text("alpha".to_string()))]);
     let alpha_hash = crate::db::executor::group::GroupKey::from_group_values(vec![Value::Text(
         "alpha".to_string(),
@@ -106,7 +106,7 @@ fn grouped_aggregate_state_borrowed_row_probe_handles_hash_collisions() {
         let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
         let mut grouped =
             execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
-        let group_fields = vec![FieldSlot::from_parts_for_test(0, "group")];
+        let group_fields = vec![FieldSlot::from_test_slot(0, "group")];
         let alpha_row = RowView::new(vec![Some(Value::Text("alpha".to_string()))]);
         let beta_row = RowView::new(vec![Some(Value::Text("beta".to_string()))]);
         let colliding_hash =

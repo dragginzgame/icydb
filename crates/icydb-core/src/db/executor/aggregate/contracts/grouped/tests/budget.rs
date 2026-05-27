@@ -8,7 +8,7 @@ fn grouped_aggregate_state_distinct_deduplicates_repeated_data_keys() {
             AggregateKind::Count,
             Direction::Asc,
             true,
-            Some(FieldSlot::from_parts_for_test(0, "id")),
+            Some(FieldSlot::from_test_slot(0, "id")),
         )
         .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
     let mut grouped_plain =
@@ -65,7 +65,7 @@ fn grouped_aggregate_state_enforces_distinct_values_per_group_limit() {
             AggregateKind::Count,
             Direction::Asc,
             true,
-            Some(FieldSlot::from_parts_for_test(0, "id")),
+            Some(FieldSlot::from_test_slot(0, "id")),
         )
         .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
     let first_value = RowView::from_single_value(0, Value::Nat64(1));
@@ -108,7 +108,7 @@ fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
             AggregateKind::Count,
             Direction::Asc,
             true,
-            Some(FieldSlot::from_parts_for_test(0, "id")),
+            Some(FieldSlot::from_test_slot(0, "id")),
         )
         .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
     let first_value = RowView::from_single_value(0, Value::Nat64(1));
@@ -151,7 +151,7 @@ fn grouped_execution_budget_counters_remain_consistent_for_distinct_grouped_fold
             AggregateKind::Count,
             Direction::Asc,
             true,
-            Some(FieldSlot::from_parts_for_test(0, "id")),
+            Some(FieldSlot::from_test_slot(0, "id")),
         )
         .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
 

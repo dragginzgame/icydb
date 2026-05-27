@@ -59,7 +59,7 @@ pub(in crate::db::executor) fn decorate_resolved_execution_key_stream(
         index_predicate_applied,
         index_predicate_keys_rejected,
         _distinct_keys_deduped_counter,
-    ) = resolved.into_parts();
+    ) = resolved.into_stream_resolution_fields();
     let key_comparator = key_stream_comparator_from_direction(direction);
     let strategy = plan.distinct_execution_strategy();
     let dedup_counter = strategy.is_enabled().then(|| Rc::new(Cell::new(0u64)));

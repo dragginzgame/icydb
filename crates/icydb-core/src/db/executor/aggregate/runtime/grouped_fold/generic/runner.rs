@@ -110,7 +110,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
     ) -> Result<(usize, usize), InternalError> {
-        let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
+        let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
         let effective_runtime_filter_program =
             execution_preparation.effective_runtime_filter_program();
         let mut scanned_rows = 0usize;
@@ -154,7 +154,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
     ) -> Result<(usize, usize), InternalError> {
-        let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
+        let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
         let effective_runtime_filter_program =
             execution_preparation.effective_runtime_filter_program();
         let mut scanned_rows = 0usize;

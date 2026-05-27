@@ -599,7 +599,7 @@ impl IndexRangeKeyStream {
             PHYSICAL_SCAN_CHUNK_ENTRIES,
             self.next_output_limit(),
         )?;
-        let (keys, last_raw_key) = chunk.into_parts();
+        let (keys, last_raw_key) = chunk.into_decoded_keys_and_resume_anchor();
         let emitted = keys.len();
         self.buffer = keys;
         self.buffer_pos = 0;

@@ -28,10 +28,10 @@ impl DeleteSpec {
 }
 
 impl FieldSlot {
-    /// Build one field slot directly for tests that need invalid slot shapes.
+    /// Build one field slot directly for tests that need custom slot shapes.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) fn from_parts_for_test(index: usize, field: impl Into<String>) -> Self {
+    pub(in crate::db) fn from_test_slot(index: usize, field: impl Into<String>) -> Self {
         Self {
             index,
             field: field.into(),

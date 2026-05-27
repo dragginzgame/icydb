@@ -114,7 +114,7 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let mut attribution = SqlCompileAttributionBuilder::default();
         attribution.record_cache_key(cache_key_local_instructions);
-        let (cache_key, authority, schema) = context.into_parts();
+        let (cache_key, authority, schema) = context.into_cache_inputs();
 
         self.compile_sql_statement_with_cache::<E>(
             cache_key,

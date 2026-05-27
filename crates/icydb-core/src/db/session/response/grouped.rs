@@ -33,7 +33,7 @@ fn encode_grouped_page_cursor(cursor: Option<PageCursor>) -> Result<Option<Vec<u
 // DTO at the session boundary. This preserves `db::response` as DTO-only while
 // keeping executor internals out of public response construction.
 fn grouped_row_from_runtime_row(row: RuntimeGroupedRow) -> GroupedRow {
-    let (group_key, aggregate_values) = row.into_parts();
+    let (group_key, aggregate_values) = row.into_group_key_and_aggregate_values();
 
     GroupedRow::new(group_key, aggregate_values)
 }
@@ -50,7 +50,7 @@ pub(in crate::db) fn finalize_structural_grouped_projection_result(
     result: StructuralGroupedProjectionResult,
     trace: Option<ExecutionTrace>,
 ) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
-    let (rows, next_cursor) = result.into_parts();
+    let (rows, next_cursor) = result.into_rows_and_cursor();
     let next_cursor = encode_grouped_page_cursor(next_cursor)?;
 
     Ok(PagedGroupedExecutionWithTrace::new(

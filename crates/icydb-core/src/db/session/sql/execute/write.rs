@@ -849,7 +849,7 @@ impl<C: CanisterKind> DbSession<C> {
                             .execute_structural_projection(plan)
                     })
                     .map_err(QueryError::execute)?;
-                let (rows, row_count) = deleted.into_parts();
+                let (rows, row_count) = deleted.into_rows_and_count();
                 let rows = rows.into_value_rows();
                 let metric_rows = u64::from(row_count);
                 record_sql_write_metrics(

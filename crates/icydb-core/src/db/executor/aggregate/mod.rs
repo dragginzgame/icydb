@@ -97,7 +97,7 @@ where
     ) -> Result<(Vec<DataRow>, RowLayout), InternalError> {
         let row_layout = prepared.authority.row_layout();
         let page = self.execute_scalar_materialized_page_stage(prepared)?;
-        let (rows, _) = page.into_parts();
+        let (rows, _) = page.into_data_rows_and_cursor();
 
         Ok((rows, row_layout))
     }

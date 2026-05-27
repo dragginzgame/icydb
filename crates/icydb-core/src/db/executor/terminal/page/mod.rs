@@ -159,7 +159,9 @@ impl KernelRow {
     }
 
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn into_parts(self) -> Result<(DataRow, Vec<Option<Value>>), InternalError> {
+    pub(in crate::db) fn into_data_row_and_slots(
+        self,
+    ) -> Result<(DataRow, Vec<Option<Value>>), InternalError> {
         let Self { data_row, slots } = self;
         let data_row = data_row.ok_or_else(|| {
             InternalError::query_executor_invariant(

@@ -149,7 +149,9 @@ impl StructuralGroupedProjectionResult {
     /// Consume the structural grouped result into runtime rows plus the grouped
     /// continuation cursor carrier for session response finalization.
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<RuntimeGroupedRow>, Option<PageCursor>) {
+    pub(in crate::db) fn into_rows_and_cursor(
+        self,
+    ) -> (Vec<RuntimeGroupedRow>, Option<PageCursor>) {
         let Self { page } = self;
 
         (page.rows, page.next_cursor)

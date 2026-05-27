@@ -24,7 +24,7 @@ where
     E: EntityKind,
 {
     crate::db::query::plan::FieldSlot::resolve(E::MODEL, field).unwrap_or_else(|| {
-        crate::db::query::plan::FieldSlot::from_parts_for_test(usize::MAX, field.to_string())
+        crate::db::query::plan::FieldSlot::from_test_slot(usize::MAX, field.to_string())
     })
 }
 

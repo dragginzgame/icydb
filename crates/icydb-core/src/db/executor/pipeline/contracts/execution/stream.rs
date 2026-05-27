@@ -43,10 +43,10 @@ impl ResolvedExecutionKeyStream {
         }
     }
 
-    /// Decompose resolved key-stream payload into raw parts.
+    /// Consume resolved key-stream payload into explicit stream-resolution fields.
     #[must_use]
     #[expect(clippy::type_complexity)]
-    pub(in crate::db::executor) fn into_parts(
+    pub(in crate::db::executor) fn into_stream_resolution_fields(
         self,
     ) -> (
         OrderedKeyStreamBox,

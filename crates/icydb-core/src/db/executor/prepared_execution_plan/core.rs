@@ -554,7 +554,7 @@ impl PreparedExecutionPlanCore {
             selection_bound,
             resume_initial_offset,
             resume_boundary,
-        ) = window.into_parts();
+        ) = window.into_pagination_window_fields();
 
         Ok(GroupedPaginationWindow::new(
             limit,

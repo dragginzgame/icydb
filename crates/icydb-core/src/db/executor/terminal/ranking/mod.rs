@@ -105,7 +105,7 @@ where
         let row_layout = plan.authority().row_layout();
         let prepared = self.prepare_scalar_materialized_boundary(plan)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
-        let (mut data_rows, _) = page.into_parts();
+        let (mut data_rows, _) = page.into_data_rows_and_cursor();
         let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
         if data_rows.len() > take_len {
             data_rows.truncate(take_len);
@@ -153,7 +153,7 @@ where
 
         match (direction, projection) {
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::Rows) => {
-                let (data_rows, _) = page.into_parts();
+                let (data_rows, _) = page.into_data_rows_and_cursor();
                 Self::top_k_field_from_materialized(
                     row_layout,
                     data_rows,
@@ -164,7 +164,7 @@ where
                 .map(RankingTerminalBoundaryOutput::Rows)
             }
             (RankedFieldBoundaryDirection::Bottom, RankedFieldBoundaryProjection::Rows) => {
-                let (data_rows, _) = page.into_parts();
+                let (data_rows, _) = page.into_data_rows_and_cursor();
                 Self::bottom_k_field_from_materialized(
                     row_layout,
                     data_rows,
@@ -197,7 +197,7 @@ where
                 .map(RankingTerminalBoundaryOutput::Values)
             }
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::ValuesWithIds) => {
-                let (data_rows, _) = page.into_parts();
+                let (data_rows, _) = page.into_data_rows_and_cursor();
                 Self::top_k_field_values_with_ids_from_materialized(
                     row_layout,
                     data_rows,
@@ -211,7 +211,7 @@ where
                 RankedFieldBoundaryDirection::Bottom,
                 RankedFieldBoundaryProjection::ValuesWithIds,
             ) => {
-                let (data_rows, _) = page.into_parts();
+                let (data_rows, _) = page.into_data_rows_and_cursor();
                 Self::bottom_k_field_values_with_ids_from_materialized(
                     row_layout,
                     data_rows,

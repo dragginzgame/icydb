@@ -78,9 +78,9 @@ impl GroupedContinuationWindow {
         }
     }
 
-    /// Decompose grouped continuation window fields into grouped-fold tuple order.
+    /// Consume grouped continuation window fields in pagination handoff order.
     #[must_use]
-    pub(in crate::db) fn into_parts(
+    pub(in crate::db) fn into_pagination_window_fields(
         self,
     ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
         (

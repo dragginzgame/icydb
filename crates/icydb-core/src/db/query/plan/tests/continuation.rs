@@ -111,7 +111,7 @@ fn grouped_cursor_contract_skips_policy_gate_for_initial_grouped_page() {
         .project_grouped_paging_window(&ValidatedGroupedCursor::none())
         .expect("initial grouped page window should not be blocked by continuation-only policy");
     let (limit, initial_offset_for_page, selection_bound, resume_initial_offset, resume_boundary) =
-        window.into_parts();
+        window.into_pagination_window_fields();
 
     assert!(prepared.is_empty());
     assert_eq!(limit, Some(2));

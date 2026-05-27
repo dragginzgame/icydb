@@ -46,7 +46,7 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
     let left = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped_with_having_expr(
             GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "rank")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,
@@ -68,7 +68,7 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
     let right = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped_with_having_expr(
             GroupSpec {
-                group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+                group_fields: vec![FieldSlot::from_test_slot(1, "rank")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     input_expr: None,

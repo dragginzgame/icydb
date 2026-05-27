@@ -11,16 +11,33 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.13` continues the naming hard cut by moving grouped runtime payload,
+  continuation window, test construction, and private execution handoff helpers
+  away from generic parts vocabulary.
+
+  ```text
+  RuntimeGroupedRow::into_parts() -> into_group_key_and_aggregate_values()
+  ResolvedExecutionKeyStream::into_parts() -> into_stream_resolution_fields()
+  StructuralCursorPage::into_parts() -> into_data_rows_and_cursor()
+  ```
+
+- `0.165.12` continues the naming hard cut by moving aggregate semantic and
+  grouped planning helpers away from generic parts vocabulary.
+
+  ```text
+  AggregateIdentity::from_parts(...) -> from_kind_input_and_distinct(...)
+  AggregateSemanticKey::into_parts() -> into_identity_and_filter()
+  GroupedAggregateExecutionSpec::from_uncompiled_parts(...) -> from_uncompiled_inputs(...)
+  ```
+
 - `0.165.11` continues the naming hard cut by moving private access, cache,
-  DESCRIBE, planner, aggregate semantic, SQL aggregate, and executor runtime
-  helpers away from generic parts vocabulary.
+  DESCRIBE, planner, SQL aggregate, and executor runtime helpers away from
+  generic parts vocabulary.
 
   ```text
   derive_single_path_access_shape_facts_from_parts(...) -> derive_single_path_access_shape_facts_from_inputs(...)
   QueryPlanCacheKey::from_authority_parts(...) -> from_authority_cache_inputs(...)
   describe_entity_model_with_parts(...) -> describe_entity_model_from_description_rows(...)
-  AccessPlannedQuery::from_planned_parts_with_projection(...) -> from_planned_access_with_projection(...)
-  AggregateIdentity::from_parts(...) -> from_kind_input_and_distinct(...)
   ```
 
 - `0.165.10` continues the naming hard cut by moving grouped continuation
@@ -37,8 +54,6 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   prepared_execution_plan::parts -> prepared_execution_plan::handoff
   PreparedScalarRuntimeParts -> PreparedScalarRuntimeHandoff
   PreparedAccessPlanParts -> PreparedAccessPlanHandoff
-  PreparedAggregateStreamingPlanParts -> PreparedAggregateStreamingPlanHandoff
-  SharedPreparedProjectionRuntimeParts -> SharedPreparedProjectionRuntimeHandoff
   ```
 
 - `0.165.8` continues the naming hard cut by moving private accepted relation
@@ -49,8 +64,6 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   PersistedRelationDescriptionParts -> PersistedRelationDescriptionMetadata
   persisted_relation_description_parts(...) -> persisted_relation_description_metadata(...)
   SqlProjectionPayloadParts -> SqlProjectionPayloadComponents
-  SqlProjectionPayload::into_parts() -> into_components()
-  SqlProjectionContract::into_parts() -> into_components()
   ```
 
 - `0.165.7` continues the naming hard cut by moving cursor-token decode
@@ -70,7 +83,6 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   GroupedPathRuntimeCore -> GroupedPathRuntimeContext
   GroupedPathRuntimeCore::from_store(...) -> GroupedPathRuntimeContext::from_store(...)
   SqlGlobalAggregateCommandCore -> StructuralSqlGlobalAggregateCommand
-  compile_sql_global_aggregate_command_core_from_prepared_with_schema(...) -> compile_structural_sql_global_aggregate_command_from_prepared_with_schema(...)
   ```
 
 - `0.165.5` continues the naming hard cut by moving the prepared execution
@@ -91,8 +103,6 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   access::capabilities -> access::shape_facts
   route::capability -> route::capability_facts
   AccessCapabilities -> AccessShapeFacts
-  SinglePathAccessCapabilities -> SinglePathAccessShapeFacts
-  access_capabilities() -> access_shape_facts()
   ```
 
 - `0.165.3` continues the naming hard cut with SQL aggregate helper-verb
@@ -103,8 +113,6 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   resolve_or_insert_global_aggregate_terminal -> intern_global_aggregate_terminal
   resolve_having_global_aggregate_terminal_index -> intern_having_global_aggregate_terminal_index
   QueryResponse / ProjectionResponse -> kept public response facade vocabulary
-  SqlQueryResult / SqlQueryRowsOutput / SqlGroupedRowsOutput -> kept public SQL endpoint vocabulary
-  accepted old names under crates/** -> no live-code hits
   ```
 
 - `0.165.2` continues the naming hard cut by removing duplicate SQL scalar
@@ -115,7 +123,6 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   PreparedSqlScalarAggregateDescriptorShape -> PreparedSqlScalarAggregatePlanFragment
   PreparedSqlScalarAggregateStrategy::descriptor_shape() -> plan_fragment()
   prepared_descriptor_shape() -> prepared_plan_fragment()
-  AggregateTerminalSemantics -> AggregateTerminalSemanticKey
   ```
 
 - `0.165.1` continues the naming hard cut with covering-read facts,
@@ -126,8 +133,6 @@ Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
   CoveringProjectionContext -> CoveringProjectionFacts
   CoveringAccessMetadata -> IndexCoveringAccessFacts
   PreparedExecutionPlanCoreShared -> PreparedExecutionPlanResidents
-  PlannedCursor -> ValidatedCursor
-  GroupedPlannedCursor -> ValidatedGroupedCursor
   ```
 
 - `0.165.0` starts the naming hard cut with role-family governance and

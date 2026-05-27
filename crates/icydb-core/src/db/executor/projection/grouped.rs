@@ -111,10 +111,10 @@ pub(in crate::db::executor) struct CompiledGroupedProjectionPlan<'a> {
 }
 
 impl<'a> CompiledGroupedProjectionPlan<'a> {
-    /// Build one compiled grouped projection contract from already-compiled expressions.
+    /// Build one compiled grouped projection contract from test inputs.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db::executor) const fn from_parts_for_test(
+    pub(in crate::db::executor) const fn from_test_inputs(
         compiled_projection: Vec<CompiledExpr>,
         projection_layout: &'a PlannedProjectionLayout,
         group_fields: &'a [FieldSlot],

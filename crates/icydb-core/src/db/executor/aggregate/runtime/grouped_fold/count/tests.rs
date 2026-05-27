@@ -20,7 +20,7 @@ use crate::{
 fn group_fields(indices: &[usize]) -> Vec<FieldSlot> {
     indices
         .iter()
-        .map(|index| FieldSlot::from_parts_for_test(*index, format!("field_{index}")))
+        .map(|index| FieldSlot::from_test_slot(*index, format!("field_{index}")))
         .collect()
 }
 

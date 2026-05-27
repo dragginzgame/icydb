@@ -696,7 +696,7 @@ mod tests {
             group_field_positions: vec![0],
             aggregate_positions: vec![1, 2],
         };
-        let group_fields = [FieldSlot::from_parts_for_test(0, "age")];
+        let group_fields = [FieldSlot::from_test_slot(0, "age")];
         let aggregate_execution_specs = [
             GroupedAggregateExecutionSpec::from_test_inputs(
                 AggregateKind::Count,
@@ -706,7 +706,7 @@ mod tests {
             ),
             GroupedAggregateExecutionSpec::from_test_inputs(
                 AggregateKind::Max,
-                Some(FieldSlot::from_parts_for_test(1, "score")),
+                Some(FieldSlot::from_test_slot(1, "score")),
                 Some("score"),
                 false,
             ),
@@ -717,7 +717,7 @@ mod tests {
             aggregate_execution_specs.as_slice(),
         )
         .expect("grouped projection should compile");
-        let grouped_projection = CompiledGroupedProjectionPlan::from_parts_for_test(
+        let grouped_projection = CompiledGroupedProjectionPlan::from_test_inputs(
             compiled_projection,
             &projection_layout,
             group_fields.as_slice(),

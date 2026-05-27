@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn grouped_projection_arithmetic_over_group_field_evaluates() {
-    let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
+    let group_fields = [FieldSlot::from_test_slot(1, "rank")];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
     let grouped_row = GroupedRowView::new(
         &[Value::Int64(7)],
@@ -26,7 +26,7 @@ fn grouped_projection_arithmetic_over_group_field_evaluates() {
 
 #[test]
 fn grouped_projection_supports_numeric_equality_widening() {
-    let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
+    let group_fields = [FieldSlot::from_test_slot(1, "rank")];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
     let grouped_row = GroupedRowView::new(
         &[Value::Int64(7)],
@@ -48,8 +48,8 @@ fn grouped_projection_supports_numeric_equality_widening() {
 #[test]
 fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
     let group_fields = [
-        FieldSlot::from_parts_for_test(1, "rank"),
-        FieldSlot::from_parts_for_test(2, "label"),
+        FieldSlot::from_test_slot(1, "rank"),
+        FieldSlot::from_test_slot(2, "label"),
     ];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
     let key_values = [Value::Int64(7), Value::Text("label-7".to_string())];
@@ -76,7 +76,7 @@ fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
 
 #[test]
 fn grouped_projection_mixing_aggregate_and_arithmetic_evaluates() {
-    let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
+    let group_fields = [FieldSlot::from_test_slot(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([sum("rank")]);
     let grouped_row = GroupedRowView::new(
         &[Value::Int64(7)],
@@ -101,7 +101,7 @@ fn grouped_projection_mixing_aggregate_and_arithmetic_evaluates() {
 
 #[test]
 fn grouped_projection_function_calls_over_grouped_fields_evaluate() {
-    let group_fields = [FieldSlot::from_parts_for_test(1, "label")];
+    let group_fields = [FieldSlot::from_test_slot(1, "label")];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
     let key_values = [Value::Text("  Ada  ".to_string())];
     let grouped_row = GroupedRowView::new(
@@ -122,7 +122,7 @@ fn grouped_projection_function_calls_over_grouped_fields_evaluate() {
 
 #[test]
 fn grouped_projection_alias_wrapping_is_semantic_no_op() {
-    let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
+    let group_fields = [FieldSlot::from_test_slot(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([sum("rank")]);
     let grouped_row = GroupedRowView::new(
         &[Value::Int64(7)],
@@ -156,7 +156,7 @@ fn grouped_projection_alias_wrapping_is_semantic_no_op() {
 
 #[test]
 fn grouped_projection_column_order_is_stable() {
-    let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
+    let group_fields = [FieldSlot::from_test_slot(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([count(), sum("rank")]);
     let grouped_row = GroupedRowView::new(
         &[Value::Int64(7)],
@@ -216,7 +216,7 @@ fn grouped_projection_column_order_is_stable() {
 
 #[test]
 fn grouped_projection_ordering_preserves_input_group_order() {
-    let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
+    let group_fields = [FieldSlot::from_test_slot(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([sum("rank")]);
     let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
         expr: Expr::Binary {

@@ -135,6 +135,15 @@ Deferred trigger:
 Kept because it is the outward grouped paging-window contract returned from
 `PlannedContinuationContract`. It is not a cursor token and not a planner route.
 
+Companion helper rename:
+
+```text
+GroupedContinuationWindow::into_parts() -> into_pagination_window_fields()
+```
+
+The unpacker now names the pagination window fields it returns instead of using
+generic parts vocabulary.
+
 ## Old-Vocabulary Scan Terms
 
 Live-code scans for this slice:
@@ -145,6 +154,7 @@ rg -n "ValidatedCursor|ValidatedGroupedCursor|validate_cursor_token|validate_cur
 rg -n "PlannedContinuationContract|ScalarAccessWindowPlan|GroupedContinuationWindow|GroupedWindowProjection|GroupedContinuationWindowDraft|RouteContinuationPlan" crates/icydb-core/src/db/query/plan crates/icydb-core/src/db/executor/planning/continuation
 rg -n "ScalarTokenParts|GroupedTokenParts|GroupedContinuationToken::into_parts|\\.into_parts\\(\\)" crates/icydb-core/src/db/cursor docs/design/0.165-naming-audit-and-role-alignment
 rg -n "DecodedScalarTokenPayload|DecodedGroupedTokenPayload|into_components" crates/icydb-core/src/db/cursor
+rg -n "GroupedContinuationWindow::into_parts|window\\.into_parts\\(|into_pagination_window_fields" crates/icydb-core/src/db/query/plan crates/icydb-core/src/db/executor/prepared_execution_plan docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

@@ -44,7 +44,7 @@ impl RuntimeGroupedRow {
 
     /// Consume this runtime row into its grouped key and aggregate values.
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<Value>, Vec<Value>) {
+    pub(in crate::db) fn into_group_key_and_aggregate_values(self) -> (Vec<Value>, Vec<Value>) {
         (self.group_key, self.aggregate_values)
     }
 }

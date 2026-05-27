@@ -52,7 +52,7 @@ fn package_structural_delete_rows(
     let mut rollback_rows = Vec::with_capacity(rows.len());
 
     for row in rows {
-        let (data_row, slots) = row.into_parts()?;
+        let (data_row, slots) = row.into_data_row_and_slots()?;
         let (key, raw) = data_row;
         let rollback_key = key.to_raw()?;
 
@@ -84,7 +84,7 @@ fn package_structural_delete_count(
     let mut rollback_rows = Vec::with_capacity(rows.len());
 
     for row in rows {
-        let (data_row, _) = row.into_parts()?;
+        let (data_row, _) = row.into_data_row_and_slots()?;
         let (key, raw) = data_row;
         let rollback_key = key.to_raw()?;
 

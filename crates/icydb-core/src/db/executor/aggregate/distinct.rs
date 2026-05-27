@@ -85,7 +85,7 @@ impl GlobalDistinctGroupedOutputContract {
         // Decode the single grouped zero-key DISTINCT aggregate row into one
         // scalar value while preserving grouped-output invariants explicitly
         // and moving the selected aggregate value out of the owned page row.
-        let (group_key, mut aggregate_values) = row.into_parts();
+        let (group_key, mut aggregate_values) = row.into_group_key_and_aggregate_values();
         if !group_key.is_empty() {
             return Err(Self::grouped_key_must_be_empty());
         }

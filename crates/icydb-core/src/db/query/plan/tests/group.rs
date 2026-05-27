@@ -119,9 +119,8 @@ fn grouped_plan_with_having(
         group_fields: group_fields
             .into_iter()
             .map(|field| {
-                FieldSlot::resolve(model, field).unwrap_or_else(|| {
-                    FieldSlot::from_parts_for_test(usize::MAX, field.to_string())
-                })
+                FieldSlot::resolve(model, field)
+                    .unwrap_or_else(|| FieldSlot::from_test_slot(usize::MAX, field.to_string()))
             })
             .collect(),
         aggregates,

@@ -142,7 +142,7 @@ pub(in crate::db::session::sql) struct SqlCompiledCommandCacheContext {
 
 impl SqlCompiledCommandCacheContext {
     #[must_use]
-    pub(in crate::db::session::sql) fn into_parts(
+    pub(in crate::db::session::sql) fn into_cache_inputs(
         self,
     ) -> (SqlCompiledCommandCacheKey, EntityAuthority, SchemaInfo) {
         (self.key, self.authority, self.schema)

@@ -55,7 +55,7 @@ impl StructuralQuery {
     // Rewrap one updated generic-free intent model back into the structural
     // query shell so local transformation helpers do not rebuild `Self`
     // ad hoc at each boundary method.
-    const fn from_parts(
+    const fn from_intent_and_access_requirements(
         intent: QueryModel<'static, Value>,
         access_requirements: AccessRequirements,
     ) -> Self {
@@ -76,7 +76,7 @@ impl StructuralQuery {
             access_requirements,
         } = self;
 
-        Self::from_parts(map(intent), access_requirements)
+        Self::from_intent_and_access_requirements(map(intent), access_requirements)
     }
 
     // Apply one fallible intent transformation while keeping result wrapping
@@ -90,7 +90,8 @@ impl StructuralQuery {
             access_requirements,
         } = self;
 
-        map(intent).map(|intent| Self::from_parts(intent, access_requirements))
+        map(intent)
+            .map(|intent| Self::from_intent_and_access_requirements(intent, access_requirements))
     }
 
     #[must_use]

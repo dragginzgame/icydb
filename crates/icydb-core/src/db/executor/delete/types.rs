@@ -156,7 +156,7 @@ impl DeleteProjection {
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (MaterializedProjectionRows, u32) {
+    pub(in crate::db) fn into_rows_and_count(self) -> (MaterializedProjectionRows, u32) {
         let row_count = self.row_count();
 
         (self.rows, row_count)

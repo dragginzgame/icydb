@@ -40,7 +40,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {
     metrics::record_fold_stage_run();
-    let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
+    let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
     let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let consistency = route.consistency();
     let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
