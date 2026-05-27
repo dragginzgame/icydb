@@ -37,7 +37,7 @@ fn v_txt(s: &str) -> Value {
 
 macro_rules! sample_value_for_scalar {
     (Account) => {
-        Value::Account(Account::from_parts(
+        Value::Account(Account::from_owner_and_subaccount(
             Principal::from_slice(&[7]),
             Some(Subaccount::from_array([7; 32])),
         ))
@@ -156,7 +156,7 @@ fn canonical_tag_and_rank_are_stable() {
     let list = Value::List(vec![]);
     let cases = vec![
         (
-            Value::Account(Account::from_parts(
+            Value::Account(Account::from_owner_and_subaccount(
                 Principal::from_slice(&[7]),
                 Some(Subaccount::from_array([7; 32])),
             )),
@@ -437,7 +437,7 @@ fn canonical_cmp_key_is_total_for_enum_payloads() {
 
 #[test]
 fn canonical_cmp_mixed_variant_follows_rank() {
-    let low = Value::Account(Account::from_parts(
+    let low = Value::Account(Account::from_owner_and_subaccount(
         Principal::from_slice(&[1]),
         Some(Subaccount::from_array([1; 32])),
     ));

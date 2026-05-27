@@ -109,7 +109,7 @@ fn encode_list(items: &[Vec<u8>]) -> Vec<u8> {
 
 #[test]
 fn primary_key_component_binary_roundtrips_all_supported_scalar_kinds() {
-    let account = Account::from_parts(
+    let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[3]),
         Some(Subaccount::from_array([3_u8; 32])),
     );

@@ -467,7 +467,7 @@ mod tests {
     use std::borrow::Cow;
 
     fn max_width_data_store_key_fixture() -> DecodedDataStoreKey {
-        let component = PrimaryKeyComponent::Account(Account::from_parts(
+        let component = PrimaryKeyComponent::Account(Account::from_owner_and_subaccount(
             Principal::MAX,
             Some(Subaccount::MAX),
         ));
@@ -713,7 +713,7 @@ mod tests {
         assert_constructor_equivalence(entity, Ulid::from_u128(42));
         assert_constructor_equivalence(
             entity,
-            Account::from_parts(
+            Account::from_owner_and_subaccount(
                 Principal::from_slice(&[9, 8, 7]),
                 Some(Subaccount::new([5; 32])),
             ),
@@ -773,7 +773,7 @@ mod tests {
         assert_primary_key_roundtrip(Subaccount::new([7; 32]));
         assert_primary_key_roundtrip(Timestamp::from_millis(1_710_013_530_123));
         assert_primary_key_roundtrip(Ulid::from_u128(42));
-        assert_primary_key_roundtrip(Account::from_parts(
+        assert_primary_key_roundtrip(Account::from_owner_and_subaccount(
             Principal::from_slice(&[9, 8, 7]),
             Some(Subaccount::new([5; 32])),
         ));
@@ -816,7 +816,7 @@ mod tests {
         let entity = EntityTag::new(29);
         let range = RawDataStoreKeyRange::entity_prefix(entity);
         let supported_values = [
-            Value::Account(Account::from_parts(
+            Value::Account(Account::from_owner_and_subaccount(
                 Principal::from_slice(&[3, 1, 4]),
                 Some(Subaccount::new([1; 32])),
             )),

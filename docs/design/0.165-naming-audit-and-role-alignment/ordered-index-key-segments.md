@@ -31,8 +31,8 @@ parts::encode_segment_len(...) -> segments::encode_segment_len(...)
 - `Decimal::parts()` remains domain-native numeric API. Local users should name
   the binding by domain, such as `decimal_parts`, instead of treating the
   ordered-key encoder module as a `parts` owner.
-- `Account::from_parts` and `Ulid::from_parts` remain domain-native primitive
-  constructors, as recorded in the payload/segment helper note.
+- The earlier kept decision for `Account::from_parts` and `Ulid::from_parts`
+  was superseded by the primitive constructor input hard cut.
 
 ## Old-Vocabulary Scan Terms
 

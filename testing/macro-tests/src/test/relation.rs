@@ -24,7 +24,7 @@ mod tests {
 
         let entity = HasRelation {
             id: Ulid::generate(),
-            a_id: Ulid::from_parts(1, 2),
+            a_id: Ulid::from_timestamp_and_randomness(1, 2),
             b_id: 7u16,
             c_id: Principal::anonymous(),
             created_at: icydb::types::Timestamp::default(),
@@ -36,14 +36,14 @@ mod tests {
         let _: Principal = entity.c_id;
 
         let row: HasRelation = entity;
-        assert_eq!(row.a_id, Ulid::from_parts(1, 2));
+        assert_eq!(row.a_id, Ulid::from_timestamp_and_randomness(1, 2));
     }
 
     #[test]
     fn relation_many_field_uses_primitive_collection_type() {
         let _row: HasManyRelation = HasManyRelation {
             id: Ulid::generate(),
-            a_ids: vec![Ulid::from_parts(2, 2)],
+            a_ids: vec![Ulid::from_timestamp_and_randomness(2, 2)],
             created_at: icydb::types::Timestamp::default(),
             updated_at: icydb::types::Timestamp::default(),
         };
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn entity_relation_fields_stay_plain_primitive_storage() {
-        let owner_key = Ulid::from_parts(3, 1);
+        let owner_key = Ulid::from_timestamp_and_randomness(3, 1);
         let row: RelationOwned = RelationOwned {
             id: Ulid::generate(),
             owner_id: owner_key,
@@ -65,8 +65,8 @@ mod tests {
 
     #[test]
     fn entity_many_relation_fields_stay_plain_key_collections() {
-        let owner_a = Ulid::from_parts(4, 20);
-        let owner_b = Ulid::from_parts(4, 21);
+        let owner_a = Ulid::from_timestamp_and_randomness(4, 20);
+        let owner_b = Ulid::from_timestamp_and_randomness(4, 21);
         let mut row: HasManyRelation = HasManyRelation {
             id: Ulid::generate(),
             a_ids: vec![owner_a],
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn plural_relation_field_keeps_declared_storage_name() {
-        let order_key = Ulid::from_parts(4, 10);
+        let order_key = Ulid::from_timestamp_and_randomness(4, 10);
         let row: HasPluralRelation = HasPluralRelation {
             id: Ulid::generate(),
             orders_ids: vec![order_key],
@@ -96,8 +96,8 @@ mod tests {
 
     #[test]
     fn record_relation_fields_stay_plain_storage_members() {
-        let owner_a = Ulid::from_parts(5, 1);
-        let owner_b = Ulid::from_parts(5, 2);
+        let owner_a = Ulid::from_timestamp_and_randomness(5, 1);
+        let owner_b = Ulid::from_timestamp_and_randomness(5, 2);
 
         let record = RelationRecord {
             owner_id: owner_a,

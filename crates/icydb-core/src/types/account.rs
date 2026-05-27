@@ -60,9 +60,12 @@ impl Account {
         }
     }
 
-    /// Build an account from normalized runtime value parts.
+    /// Build an account from normalized owner/subaccount values.
     #[must_use]
-    pub const fn from_parts(owner: Principal, subaccount: Option<Subaccount>) -> Self {
+    pub const fn from_owner_and_subaccount(
+        owner: Principal,
+        subaccount: Option<Subaccount>,
+    ) -> Self {
         Self { owner, subaccount }
     }
 
@@ -335,7 +338,7 @@ mod tests {
 
     #[test]
     fn storable_bytes_are_exact_size() {
-        let account = Account::from_parts(Principal::MAX, Some(Subaccount::MAX));
+        let account = Account::from_owner_and_subaccount(Principal::MAX, Some(Subaccount::MAX));
         let bytes = account.to_bytes().expect("account encode");
         let size = bytes.len();
 

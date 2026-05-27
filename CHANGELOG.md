@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.165.md](docs/changelog/0.165.md)
 
+- `0.165.23` continues the naming hard cut by replacing ambiguous public
+  primitive `from_parts` constructors with role-specific input names.
+
+  ```text
+  Account::from_parts(...) -> Account::from_owner_and_subaccount(...)
+  Ulid::from_parts(...) -> Ulid::from_timestamp_and_randomness(...)
+  render_table_row parts -> padded_cells
+  ```
+
 - `0.165.22` continues the naming hard cut by renaming ordered index-key
   helper parts to byte-segment vocabulary.
 

@@ -30,8 +30,10 @@ sql_field_expr_from_parts(...) -> sql_field_expr_from_segments(...)
 
 ## Kept Names
 
-- `Account::from_parts` and `Ulid::from_parts` remain domain-native primitive
-  constructors.
+- `Decimal::parts()` remains domain-native numeric decomposition API. Local
+  users should name the binding by domain, such as `decimal_parts`.
+- The earlier kept decision for `Account::from_parts` and `Ulid::from_parts`
+  was superseded by the primitive constructor input hard cut.
 - Historical application fixture fields named `selected_parts` remain test
   schema vocabulary, not IcyDB helper architecture.
 

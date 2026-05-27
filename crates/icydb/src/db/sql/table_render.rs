@@ -380,11 +380,11 @@ fn render_table_separator(widths: &[usize]) -> String {
 }
 
 fn render_table_row(cells: &[String], widths: &[usize]) -> String {
-    let mut parts = Vec::with_capacity(widths.len());
+    let mut padded_cells = Vec::with_capacity(widths.len());
     for (index, width) in widths.iter().copied().enumerate() {
         let value = cells.get(index).map_or("", String::as_str);
-        parts.push(format!("{value:<width$}"));
+        padded_cells.push(format!("{value:<width$}"));
     }
 
-    format!("| {} |", parts.join(" | "))
+    format!("| {} |", padded_cells.join(" | "))
 }

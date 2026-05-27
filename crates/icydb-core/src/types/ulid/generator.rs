@@ -64,7 +64,7 @@ impl Generator {
         let component = Self::next_component(ts)?;
         #[cfg(target_arch = "wasm32")]
         let component = self.next_component(ts)?;
-        let ulid = Ulid::from_parts(ts, component);
+        let ulid = Ulid::from_timestamp_and_randomness(ts, component);
 
         self.previous = ulid;
 

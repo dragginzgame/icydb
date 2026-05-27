@@ -1785,7 +1785,7 @@ fn cursor_boundary_validation_uses_authority_schema_info() {
             && entity_authority.contains("contract.prepare_scalar_cursor(")
             && entity_authority.contains("contract.revalidate_scalar_cursor(")
             && entity_authority_compact.contains(
-                "authority.with_accepted_row_decode_contract(row_shape,row_decode_contract,schema_info",
+                "authority.with_accepted_row_decode_contract(row_proof,row_decode_contract,schema_info",
             ),
         "entity authority must carry accepted schema info into scalar cursor validation",
     );

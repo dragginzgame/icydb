@@ -163,7 +163,7 @@ fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
 #[test]
 fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants() {
     let samples = [
-        PrimaryKeyComponent::Account(Account::from_parts(
+        PrimaryKeyComponent::Account(Account::from_owner_and_subaccount(
             Principal::from_slice(&[7]),
             Some(Subaccount::from_array([7; 32])),
         )),
@@ -601,7 +601,7 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
 #[test]
 fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_samples() {
     let samples = vec![
-        Value::Account(Account::from_parts(
+        Value::Account(Account::from_owner_and_subaccount(
             Principal::from_slice(&[1]),
             Some(Subaccount::from_array([1; 32])),
         )),

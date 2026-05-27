@@ -16,8 +16,8 @@ use crate::db::data::structural_field::{
     },
     primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     typed::{
-        decode_date_payload_days, decode_decimal_payload_parts, decode_duration_payload_millis,
-        encode_date_payload_days, encode_decimal_payload_parts, encode_duration_payload_millis,
+        decimal_payload_mantissa_and_scale, decode_date_payload_days, decode_decimal_payload_parts,
+        decode_duration_payload_millis, encode_date_payload_days, encode_duration_payload_millis,
     },
 };
 use crate::{
@@ -229,7 +229,7 @@ fn encode_decimal_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>
         ));
     };
 
-    let (mantissa, scale) = encode_decimal_payload_parts(*value);
+    let (mantissa, scale) = decimal_payload_mantissa_and_scale(*value);
     let mut encoded = Vec::new();
     push_binary_list_len(&mut encoded, 2);
     push_binary_bytes(&mut encoded, &mantissa.to_be_bytes());

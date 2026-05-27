@@ -213,9 +213,9 @@ fn write_i32_days(out: &mut Vec<u8>, value: Date) {
 }
 
 fn write_decimal(out: &mut Vec<u8>, value: Decimal) {
-    let parts = value.parts();
-    write_i128(out, parts.mantissa());
-    write_u32(out, parts.scale());
+    let decimal_parts = value.parts();
+    write_i128(out, decimal_parts.mantissa());
+    write_u32(out, decimal_parts.scale());
 }
 
 fn write_value_enum(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), TokenWireError> {

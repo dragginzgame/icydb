@@ -1441,7 +1441,7 @@ mod tests {
     };
 
     fn account_fixture(seed: u8) -> Account {
-        Account::from_parts(
+        Account::from_owner_and_subaccount(
             Principal::from_slice(&[seed]),
             Some(Subaccount::from_array([seed; 32])),
         )

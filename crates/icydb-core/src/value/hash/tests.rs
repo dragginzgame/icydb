@@ -234,7 +234,7 @@ fn map_hash_is_order_independent_for_non_canonical_construction_order() {
 #[test]
 fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
     let values = vec![
-        Value::Account(crate::types::Account::from_parts(
+        Value::Account(crate::types::Account::from_owner_and_subaccount(
             Principal::from_slice(&[7]),
             Some(Subaccount::from_array([7; 32])),
         )),

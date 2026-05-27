@@ -645,7 +645,7 @@ fn representative_value_storage_cases() -> Vec<Value> {
     .expect("nested value storage case should normalize");
 
     vec![
-        Value::Account(Account::from_parts(
+        Value::Account(Account::from_owner_and_subaccount(
             Principal::from_slice(&[7]),
             Some(Subaccount::from_array([7; 32])),
         )),
@@ -685,7 +685,7 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
     let nested_map = Value::from_map(vec![
         (
             Value::Text("account".to_string()),
-            Value::Account(Account::from_parts(
+            Value::Account(Account::from_owner_and_subaccount(
                 Principal::from_slice(&[7]),
                 Some(Subaccount::from_array([7; 32])),
             )),
@@ -1139,7 +1139,7 @@ fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
     assert_direct_persisted_structured_roundtrip(Timestamp::from_millis(1_234_567));
     assert_direct_persisted_structured_roundtrip(Date::from_days_since_epoch(321));
     assert_direct_persisted_structured_roundtrip(Duration::from_millis(9_876));
-    assert_direct_persisted_structured_roundtrip(Ulid::from_parts(77, 3));
+    assert_direct_persisted_structured_roundtrip(Ulid::from_timestamp_and_randomness(77, 3));
     assert_direct_persisted_structured_roundtrip(-123_i128);
     assert_direct_persisted_structured_roundtrip(456_u128);
     assert_direct_persisted_structured_roundtrip(IntBig::from(-789_i32));
@@ -1191,7 +1191,10 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
         Subaccount::from_array([9u8; 32]),
         FieldKind::Subaccount,
     );
-    assert_direct_persisted_by_kind_roundtrip(Ulid::from_parts(77, 3), FieldKind::Ulid);
+    assert_direct_persisted_by_kind_roundtrip(
+        Ulid::from_timestamp_and_randomness(77, 3),
+        FieldKind::Ulid,
+    );
     assert_direct_persisted_by_kind_roundtrip(Unit, FieldKind::Unit);
 }
 
@@ -1361,7 +1364,7 @@ fn direct_persisted_by_kind_leaf_codecs_reject_truncated_payloads() {
         FieldKind::Subaccount,
     );
     assert_direct_persisted_by_kind_rejects_truncated_payload(
-        Ulid::from_parts(77, 3),
+        Ulid::from_timestamp_and_randomness(77, 3),
         FieldKind::Ulid,
     );
     assert_direct_persisted_by_kind_rejects_truncated_payload(
@@ -1549,7 +1552,7 @@ fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
 
 #[test]
 fn encode_runtime_value_into_slot_roundtrips_leaf_by_kind_wrapper_slots() {
-    let account = Account::from_parts(
+    let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[7]),
         Some(Subaccount::from_array([7_u8; 32])),
     );

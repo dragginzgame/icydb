@@ -69,8 +69,8 @@ impl Ulid {
     }
 
     #[must_use]
-    pub const fn from_parts(timestamp_ms: u64, random: u128) -> Self {
-        Self(WrappedUlid::from_parts(timestamp_ms, random))
+    pub const fn from_timestamp_and_randomness(timestamp_ms: u64, randomness: u128) -> Self {
+        Self(WrappedUlid::from_parts(timestamp_ms, randomness))
     }
 
     /// generate

@@ -69,6 +69,6 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_accou
     };
 
     Ok(PrimaryKeyComponent::Account(
-        crate::types::Account::from_parts(owner, subaccount),
+        crate::types::Account::from_owner_and_subaccount(owner, subaccount),
     ))
 }

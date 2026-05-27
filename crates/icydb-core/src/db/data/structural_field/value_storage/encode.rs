@@ -11,8 +11,8 @@ use crate::{
             push_binary_text, push_binary_unit,
         },
         typed::{
-            encode_account_payload_bytes, encode_date_payload_days, encode_decimal_payload_parts,
-            encode_duration_payload_millis, encode_float32_payload_bytes,
+            decimal_payload_mantissa_and_scale, encode_account_payload_bytes,
+            encode_date_payload_days, encode_duration_payload_millis, encode_float32_payload_bytes,
             encode_float64_payload_bytes, encode_int128_payload_bytes, encode_nat128_payload_bytes,
             encode_principal_payload_bytes, encode_subaccount_payload_bytes,
             encode_timestamp_payload_millis, encode_ulid_payload_bytes,
@@ -378,7 +378,7 @@ fn push_account_payload(out: &mut Vec<u8>, value: Account) -> Result<(), Interna
 // Encode one binary decimal payload as `(mantissa_bytes, scale)` without
 // embedding a generic field-name object model in bytes.
 fn push_decimal_payload(out: &mut Vec<u8>, value: Decimal) {
-    let (mantissa, scale) = encode_decimal_payload_parts(value);
+    let (mantissa, scale) = decimal_payload_mantissa_and_scale(value);
 
     push_binary_tag(out, VALUE_BINARY_TAG_DECIMAL);
     push_binary_list_len(out, 2);

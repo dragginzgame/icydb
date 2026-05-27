@@ -200,11 +200,11 @@ pub(in crate::db::data::structural_field) const fn decode_duration_payload_milli
 
 // Split one decimal into the canonical `(mantissa, scale)` pair shared by the
 // structural sibling lanes.
-pub(in crate::db::data::structural_field) const fn encode_decimal_payload_parts(
+pub(in crate::db::data::structural_field) const fn decimal_payload_mantissa_and_scale(
     value: Decimal,
 ) -> (i128, u32) {
-    let parts = value.parts();
-    (parts.mantissa(), parts.scale())
+    let decimal_parts = value.parts();
+    (decimal_parts.mantissa(), decimal_parts.scale())
 }
 
 // Apply Decimal's mantissa/scale validation locally so all structural lanes

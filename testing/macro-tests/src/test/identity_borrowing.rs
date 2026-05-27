@@ -52,7 +52,7 @@ mod tests {
             <UserProjects as icydb::__macro::EntityValue>::id;
 
         let row = UserProjects {
-            user_id: Ulid::from_parts(7, 1),
+            user_id: Ulid::from_timestamp_and_randomness(7, 1),
             created_at: icydb::types::Timestamp::default(),
             updated_at: icydb::types::Timestamp::default(),
         };

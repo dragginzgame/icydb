@@ -248,7 +248,7 @@ fn structural_field_decode_value_storage_handles_enum_payload() {
 
 #[test]
 fn structural_field_decode_typed_wrappers_preserves_payloads() {
-    let account = Account::from_parts(
+    let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[7]),
         Some(Subaccount::from_array([7_u8; 32])),
     );

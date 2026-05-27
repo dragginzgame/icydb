@@ -3638,15 +3638,15 @@ fn structural_replace_does_not_inherit_omitted_nullable_fields() {
     let session = DbSession::new(DB);
     let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
     let id = Ulid::from_u128(294);
-    let old_from = Account::from_parts(
+    let old_from = Account::from_owner_and_subaccount(
         Principal::from_slice(&[1]),
         Some(Subaccount::from_array([1; 32])),
     );
-    let old_to = Account::from_parts(
+    let old_to = Account::from_owner_and_subaccount(
         Principal::from_slice(&[2]),
         Some(Subaccount::from_array([2; 32])),
     );
-    let new_from = Account::from_parts(
+    let new_from = Account::from_owner_and_subaccount(
         Principal::from_slice(&[3]),
         Some(Subaccount::from_array([3; 32])),
     );
@@ -3750,7 +3750,7 @@ fn save_executor_insert_allows_nullable_account_event_with_missing_from() {
 
     let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
     let id = Ulid::from_u128(400);
-    let account = Account::from_parts(
+    let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[7]),
         Some(Subaccount::from_array([7; 32])),
     );
@@ -3776,7 +3776,7 @@ fn save_executor_insert_allows_nullable_account_event_with_missing_to() {
 
     let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
     let id = Ulid::from_u128(401);
-    let account = Account::from_parts(
+    let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[9]),
         Some(Subaccount::from_array([9; 32])),
     );

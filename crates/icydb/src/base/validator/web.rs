@@ -12,11 +12,11 @@ pub struct MimeType;
 
 impl Validator<str> for MimeType {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
-        // Split into at most three parts so we can enforce exactly one '/'.
-        let mut parts = s.split('/');
-        let type_part = parts.next();
-        let subtype_part = parts.next();
-        let extra_part = parts.next();
+        // Split into at most three slash segments so we can enforce exactly one '/'.
+        let mut slash_segments = s.split('/');
+        let type_part = slash_segments.next();
+        let subtype_part = slash_segments.next();
+        let extra_part = slash_segments.next();
 
         // Must contain exactly one '/'
         if type_part.is_none() || subtype_part.is_none() || extra_part.is_some() {

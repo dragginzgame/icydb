@@ -423,12 +423,12 @@ impl SqlExpr {
     /// leaf that preserves nested path shape.
     #[must_use]
     pub(crate) fn from_field_identifier(identifier: String) -> Self {
-        let mut parts = identifier.split('.');
-        let Some(root) = parts.next() else {
+        let mut path_segments = identifier.split('.');
+        let Some(root) = path_segments.next() else {
             return Self::Field(identifier);
         };
 
-        let segments = parts.map(str::to_string).collect::<Vec<_>>();
+        let segments = path_segments.map(str::to_string).collect::<Vec<_>>();
         if segments.is_empty() {
             return Self::Field(root.to_string());
         }
