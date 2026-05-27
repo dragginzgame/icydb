@@ -202,7 +202,7 @@ impl PreparedScalarAggregateTerminalSet {
         })
     }
 
-    pub(super) fn into_runtime_parts(
+    pub(super) fn into_runtime_inputs(
         self,
     ) -> (
         Vec<InternedPreparedScalarAggregateTerminal>,
@@ -232,9 +232,9 @@ pub(super) struct PreparedScalarAggregateTerminal {
 }
 
 impl PreparedScalarAggregateTerminal {
-    /// Build one prepared scalar aggregate terminal from validated parts.
+    /// Build one prepared scalar aggregate terminal from validated inputs.
     #[must_use]
-    pub(super) const fn from_validated_parts(
+    pub(super) const fn from_validated_inputs(
         kind: ScalarAggregateTerminalKind,
         input: ScalarAggregateInput,
         filter: Option<CompiledExpr>,
@@ -401,7 +401,7 @@ pub(super) struct ResolvedStructuralAggregateTerminal<'a> {
 
 impl ResolvedStructuralAggregateTerminal<'_> {
     pub(super) fn into_grouped_spec(self) -> GroupedAggregateExecutionSpec {
-        GroupedAggregateExecutionSpec::from_uncompiled_parts(
+        GroupedAggregateExecutionSpec::from_uncompiled_inputs(
             self.aggregate_kind,
             self.input.target_slot().cloned(),
             self.input.grouped_input_expr(),
@@ -420,7 +420,7 @@ impl ResolvedStructuralAggregateTerminal<'_> {
             .map(|expr| compile_structural_aggregate_expr(schema, expr, "filter"))
             .transpose()?;
 
-        Ok(PreparedScalarAggregateTerminal::from_validated_parts(
+        Ok(PreparedScalarAggregateTerminal::from_validated_inputs(
             self.scalar_kind,
             input,
             filter,
@@ -616,13 +616,13 @@ mod tests {
         let input = repeated_input_expr();
         let filter = repeated_filter_expr();
         let terminals = PreparedScalarAggregateTerminalSet::new(vec![
-            PreparedScalarAggregateTerminal::from_validated_parts(
+            PreparedScalarAggregateTerminal::from_validated_inputs(
                 ScalarAggregateTerminalKind::Sum,
                 ScalarAggregateInput::Expr(input.clone()),
                 Some(filter.clone()),
                 false,
             ),
-            PreparedScalarAggregateTerminal::from_validated_parts(
+            PreparedScalarAggregateTerminal::from_validated_inputs(
                 ScalarAggregateTerminalKind::Avg,
                 ScalarAggregateInput::Expr(input),
                 Some(filter),
@@ -659,7 +659,7 @@ mod tests {
     #[test]
     fn scalar_aggregate_terminal_set_keeps_field_inputs_out_of_expr_table() {
         let terminals = PreparedScalarAggregateTerminalSet::new(vec![
-            PreparedScalarAggregateTerminal::from_validated_parts(
+            PreparedScalarAggregateTerminal::from_validated_inputs(
                 ScalarAggregateTerminalKind::CountValues,
                 ScalarAggregateInput::Field {
                     slot: 2,
@@ -668,7 +668,7 @@ mod tests {
                 None,
                 false,
             ),
-            PreparedScalarAggregateTerminal::from_validated_parts(
+            PreparedScalarAggregateTerminal::from_validated_inputs(
                 ScalarAggregateTerminalKind::Sum,
                 ScalarAggregateInput::Expr(repeated_input_expr()),
                 None,

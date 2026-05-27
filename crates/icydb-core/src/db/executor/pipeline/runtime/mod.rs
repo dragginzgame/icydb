@@ -25,7 +25,7 @@ pub(in crate::db::executor) use adapter::{
 pub(in crate::db::executor) use attempt::ExecutionAttemptKernel;
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedStreamStage, RowView, StructuralGroupedRowRuntime,
-    compile_grouped_row_slot_layout_from_parts,
+    compile_grouped_row_slot_layout_from_inputs,
 };
 pub(in crate::db::executor) use retained_slots::{
     compile_retained_slot_layout_for_mode, compile_retained_slot_layout_for_mode_with_extra_slots,

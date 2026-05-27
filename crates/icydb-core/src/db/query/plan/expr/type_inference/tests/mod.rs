@@ -599,7 +599,7 @@ fn infer_sum_aggregate_requires_numeric_target() {
 #[test]
 fn infer_sum_aggregate_without_target_rejects_missing_target() {
     let schema = schema();
-    let expr = Expr::Aggregate(AggregateExpr::from_semantic_parts(
+    let expr = Expr::Aggregate(AggregateExpr::from_optional_field_input(
         AggregateKind::Sum,
         None,
         false,
@@ -687,12 +687,12 @@ fn infer_binary_compare_rejects_unknown_operands_fail_closed() {
     let schema = schema();
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
-        left: Box::new(Expr::Aggregate(AggregateExpr::from_semantic_parts(
+        left: Box::new(Expr::Aggregate(AggregateExpr::from_optional_field_input(
             AggregateKind::Min,
             None,
             false,
         ))),
-        right: Box::new(Expr::Aggregate(AggregateExpr::from_semantic_parts(
+        right: Box::new(Expr::Aggregate(AggregateExpr::from_optional_field_input(
             AggregateKind::Max,
             None,
             false,

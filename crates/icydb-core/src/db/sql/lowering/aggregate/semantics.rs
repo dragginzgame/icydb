@@ -23,7 +23,7 @@ fn semantic_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> Agg
         AggregateInput::Expr(input_expr) => Some(input_expr),
     };
 
-    AggregateIdentity::from_parts(terminal.kind, input_expr, terminal.distinct)
+    AggregateIdentity::from_kind_input_and_distinct(terminal.kind, input_expr, terminal.distinct)
 }
 
 ///
@@ -71,10 +71,10 @@ impl AggregateTerminalSemanticKey {
 
     // Split the semantic key into the normalized aggregate meaning and its
     // optional per-row filter expression for model-bound strategy preparation.
-    pub(in crate::db::sql::lowering::aggregate) fn into_parts(
+    pub(in crate::db::sql::lowering::aggregate) fn into_identity_and_filter(
         self,
     ) -> (AggregateIdentity, Option<Expr>) {
-        self.semantic_key.into_parts()
+        self.semantic_key.into_identity_and_filter()
     }
 }
 
@@ -113,7 +113,7 @@ impl PreparedAggregateTarget {
 
     // Convert the sealed target into the current executor terminal tuple. This
     // is the only expansion point from the semantic target into executor shape.
-    pub(in crate::db::sql::lowering::aggregate) fn into_executor_parts(
+    pub(in crate::db::sql::lowering::aggregate) fn into_terminal_inputs(
         self,
     ) -> (Option<FieldSlot>, Option<Expr>) {
         match self {
@@ -157,7 +157,7 @@ pub(in crate::db::sql::lowering::aggregate) enum PreparedAggregateSemantics {
 impl PreparedAggregateSemantics {
     // Combine normalized aggregate kind/DISTINCT semantics with a model-bound
     // target. MIN/MAX deliberately discard the supplied DISTINCT bit.
-    pub(in crate::db::sql::lowering::aggregate) fn from_parts(
+    pub(in crate::db::sql::lowering::aggregate) fn from_kind_target_and_distinct(
         kind: AggregateKind,
         target: PreparedAggregateTarget,
         distinct: bool,
@@ -219,8 +219,8 @@ impl PreparedAggregateSemantics {
         self.target().input_expr()
     }
 
-    // Move this prepared semantic terminal into executor input parts.
-    pub(in crate::db::sql::lowering::aggregate) fn into_executor_parts(
+    // Move this prepared semantic terminal into executor inputs.
+    pub(in crate::db::sql::lowering::aggregate) fn into_terminal_inputs(
         self,
     ) -> (Option<FieldSlot>, Option<Expr>) {
         match self {
@@ -228,7 +228,7 @@ impl PreparedAggregateSemantics {
             | Self::Sum { target, .. }
             | Self::Avg { target, .. }
             | Self::Min { target }
-            | Self::Max { target } => target.into_executor_parts(),
+            | Self::Max { target } => target.into_terminal_inputs(),
         }
     }
 }

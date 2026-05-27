@@ -198,7 +198,7 @@ impl ScalarAggregateReducerRuntime {
     // Build a reducer sink from one prepared terminal set, preserving the
     // expression-interning tables created during terminal preparation.
     pub(super) fn new(terminals: PreparedScalarAggregateTerminalSet) -> Self {
-        let (terminals, input_exprs, filter_exprs) = terminals.into_runtime_parts();
+        let (terminals, input_exprs, filter_exprs) = terminals.into_runtime_inputs();
         let terminal_count = terminals.len();
         // Count reducer buckets before consuming the terminal vector so each
         // hot-loop list reserves only its own input class, not the full

@@ -136,13 +136,13 @@ impl GroupedAggregateExecutionSpec {
     }
 
     /// Build one uncompiled grouped aggregate spec from already-canonical
-    /// aggregate parts.
+    /// aggregate inputs.
     /// Global aggregate execution uses this to reuse the grouped
     /// post-aggregate compilation seam without rebuilding grouped planner
     /// state or pretending the implicit single aggregate row came from grouped
     /// route preparation.
     #[must_use]
-    pub(in crate::db) const fn from_uncompiled_parts(
+    pub(in crate::db) const fn from_uncompiled_inputs(
         kind: AggregateKind,
         target_slot: Option<FieldSlot>,
         input_expr: Option<Expr>,
@@ -150,7 +150,7 @@ impl GroupedAggregateExecutionSpec {
         distinct: bool,
     ) -> Self {
         Self {
-            identity: AggregateIdentity::from_parts(kind, input_expr, distinct),
+            identity: AggregateIdentity::from_kind_input_and_distinct(kind, input_expr, distinct),
             target_slot,
             filter_expr,
             compiled_input_expr: None,
@@ -291,14 +291,14 @@ impl GroupedAggregateExecutionSpec {
     /// not carry a model-owned grouped lowering context.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) fn from_parts_for_test(
+    pub(in crate::db) fn from_test_inputs(
         kind: AggregateKind,
         target_slot: Option<FieldSlot>,
         target_field: Option<&str>,
         distinct: bool,
     ) -> Self {
         Self {
-            identity: AggregateIdentity::from_parts(
+            identity: AggregateIdentity::from_kind_input_and_distinct(
                 kind,
                 target_field
                     .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field))),
@@ -417,7 +417,7 @@ pub(in crate::db) enum GroupedExecutionRoute {
 impl GroupedExecutionRoute {
     /// Project the grouped execution route from planner-owned strategy outputs.
     #[must_use]
-    pub(in crate::db) const fn from_planner_parts(
+    pub(in crate::db) const fn from_planner_strategy(
         strategy: GroupedPlanStrategy,
         fold_path: GroupedFoldPath,
         distinct_strategy: &GroupedDistinctExecutionStrategy,
@@ -632,7 +632,7 @@ pub(in crate::db) fn grouped_executor_handoff(
             })?
             .clone(),
     );
-    let grouped_execution_route = GroupedExecutionRoute::from_planner_parts(
+    let grouped_execution_route = GroupedExecutionRoute::from_planner_strategy(
         grouped_plan_strategy,
         grouped_fold_path,
         grouped_distinct_policy_contract.execution_strategy(),

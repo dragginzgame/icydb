@@ -27,7 +27,7 @@ use crate::{
             pipeline::orchestrator::LoadExecutionSurface,
             pipeline::runtime::{
                 GroupedFoldStage, GroupedStreamStage, StructuralGroupedRowRuntime,
-                compile_grouped_row_slot_layout_from_parts,
+                compile_grouped_row_slot_layout_from_inputs,
             },
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             record_aggregation,
@@ -222,7 +222,7 @@ impl PreparedGroupedRouteRuntime {
             )
         });
         let grouped_slot_layout = prepared_grouped_slot_layout.unwrap_or_else(|| {
-            compile_grouped_row_slot_layout_from_parts(
+            compile_grouped_row_slot_layout_from_inputs(
                 runtime.authority.row_layout(),
                 route.group_fields(),
                 route.grouped_aggregate_execution_specs(),

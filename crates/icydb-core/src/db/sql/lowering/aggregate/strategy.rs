@@ -75,7 +75,7 @@ impl PreparedSqlScalarAggregateStrategy {
         terminal: SqlGlobalAggregateTerminal,
     ) -> Result<Self, SqlLoweringError> {
         let (semantic_identity, filter_expr) =
-            AggregateTerminalSemanticKey::from_owned_terminal(terminal).into_parts();
+            AggregateTerminalSemanticKey::from_owned_terminal(terminal).into_identity_and_filter();
         let kind = semantic_identity.kind();
         let distinct_input = semantic_identity.distinct();
         let target = match aggregate_input_from_semantics(semantic_identity) {
@@ -99,7 +99,7 @@ impl PreparedSqlScalarAggregateStrategy {
         };
 
         Ok(Self::from_semantics(
-            PreparedAggregateSemantics::from_parts(kind, target, distinct_input),
+            PreparedAggregateSemantics::from_kind_target_and_distinct(kind, target, distinct_input),
             filter_expr,
         ))
     }
@@ -198,7 +198,7 @@ impl PreparedSqlScalarAggregateStrategy {
             filter_expr,
         } = self;
         let distinct_input = semantics.distinct_input();
-        let (target_slot, input_expr) = semantics.into_executor_parts();
+        let (target_slot, input_expr) = semantics.into_terminal_inputs();
 
         (
             descriptor,

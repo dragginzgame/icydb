@@ -29,7 +29,7 @@ fn grouped_having_runtime_accepts_post_aggregate_round_compare() {
         }),
         right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(1000, 2)))),
     };
-    let specs = [GroupedAggregateExecutionSpec::from_parts_for_test(
+    let specs = [GroupedAggregateExecutionSpec::from_test_inputs(
         AggregateKind::Count,
         None,
         None,
@@ -57,7 +57,7 @@ fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
         }),
         right: Box::new(Expr::Literal(Value::Nat64(5))),
     };
-    let specs = [GroupedAggregateExecutionSpec::from_parts_for_test(
+    let specs = [GroupedAggregateExecutionSpec::from_test_inputs(
         AggregateKind::Count,
         None,
         None,
@@ -92,7 +92,7 @@ fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
     };
 
     let group_fields = [group_field];
-    let specs = [GroupedAggregateExecutionSpec::from_parts_for_test(
+    let specs = [GroupedAggregateExecutionSpec::from_test_inputs(
         AggregateKind::Count,
         None,
         None,
@@ -126,7 +126,7 @@ fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
         }),
         right: Box::new(Expr::Literal(Value::Nat64(5))),
     };
-    let specs = [GroupedAggregateExecutionSpec::from_parts_for_test(
+    let specs = [GroupedAggregateExecutionSpec::from_test_inputs(
         AggregateKind::Count,
         None,
         None,

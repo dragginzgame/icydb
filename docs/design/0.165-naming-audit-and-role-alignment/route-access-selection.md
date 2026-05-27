@@ -101,6 +101,37 @@ AccessPlannedQuery::from_parts_with_projection(...) -> from_logical_access_and_p
 AccessPlannedQuery::from_planned_parts_with_projection(...) -> from_planned_access_with_projection(...)
 ```
 
+### Grouped Aggregate Route Helper Renames
+
+Role proof:
+
+- Owning modules: `db::query::plan::group` and grouped aggregate planning
+  helpers
+- Payload: private grouped aggregate execution constructors that combine
+  uncompiled aggregate inputs and planner strategy decisions before executor
+  handoff
+- Main consumers: grouped query planning, grouped aggregate tests, and scalar
+  aggregate terminal lowering into grouped specs
+- Chosen family: explicit planner strategy and input vocabulary
+- Rejected alternatives:
+  - `from_uncompiled_parts`: too weak because the constructor consumes named
+    uncompiled aggregate inputs
+  - `from_planner_parts`: too weak because the route is projected from a
+    planner strategy and fold/distinct decisions, not arbitrary parts
+  - `from_parts_for_test`: too weak even for test-only construction because the
+    helper supplies aggregate test inputs
+- Public-surface impact: none
+- Hard-cut rule: remove the old private helper names from live grouped planning
+  code and tests
+
+Accepted code examples:
+
+```text
+GroupedAggregateExecutionSpec::from_uncompiled_parts(...) -> from_uncompiled_inputs(...)
+GroupedExecutionRoute::from_planner_parts(...) -> from_planner_strategy(...)
+GroupedAggregateExecutionSpec::from_parts_for_test(...) -> from_test_inputs(...)
+```
+
 ## Kept Names
 
 ### `LoadOrderRouteDecision`
@@ -128,6 +159,7 @@ rg -n "LoadOrderRouteMode|load_order_route_mode|access_order_satisfied_by_route_
 rg -n "RouteCapabilities|derive_execution_capabilities_for_model|route_capabilities|route::capability\\b|route::contracts::capabilities|mod capability;|mod capabilities;" crates/icydb-core/src
 rg -n "RouteCapabilityFacts|derive_execution_capability_facts_for_model|route_capability_facts|route::capability_facts|route::contracts::capability_facts|mod capability_facts;" crates/icydb-core/src
 rg -n "PlannedAccessSelection::into_parts|from_parts_with_projection|from_planned_parts_with_projection|into_access_and_non_index_reason|from_logical_access_and_projection|from_planned_access_with_projection" crates/icydb-core/src/db/query/plan docs/design/0.165-naming-audit-and-role-alignment
+rg -n "from_uncompiled_parts|from_uncompiled_inputs|from_planner_parts|from_planner_strategy|from_parts_for_test|from_test_inputs" crates/icydb-core/src/db/query/plan docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Generic `route contract` wording remains valid where it names broader

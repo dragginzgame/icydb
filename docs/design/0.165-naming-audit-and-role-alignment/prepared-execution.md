@@ -168,6 +168,39 @@ Accepted code example:
 LoweredAccess::into_parts() -> into_executable_and_index_specs()
 ```
 
+### Executor Runtime Input Helpers
+
+Role proof:
+
+- Owning modules: `db::executor::pipeline::entrypoints::scalar::runtime`,
+  `db::executor::pipeline::runtime::grouped`, and
+  `db::executor::aggregate::scalar_terminals`
+- Payload: private runtime constructors and unpackers that consume already
+  validated scalar route, grouped slot-layout, and scalar aggregate terminal
+  inputs
+- Main consumers: scalar entrypoint adapters, grouped entrypoint preparation,
+  prepared execution residents, and scalar aggregate reducers
+- Chosen family: explicit runtime/input vocabulary
+- Rejected alternatives:
+  - `*Parts`: too weak because the helpers operate at named executor runtime
+    seams, not temporary decompositions
+  - `*Handoff`: too strong for local scalar/grouped runtime constructors that
+    do not define a prepared-plan handoff DTO
+  - `*Context`: wrong because the helpers do not take one owner-local context
+    object
+- Public-surface impact: none
+- Hard-cut rule: remove the old private helper names and active comments from
+  live executor code
+
+Accepted code examples:
+
+```text
+prepare_scalar_route_runtime_from_parts(...) -> prepare_scalar_route_runtime_from_inputs(...)
+compile_grouped_row_slot_layout_from_parts(...) -> compile_grouped_row_slot_layout_from_inputs(...)
+PreparedScalarAggregateTerminalSet::into_runtime_parts() -> into_runtime_inputs()
+PreparedScalarAggregateTerminal::from_validated_parts(...) -> from_validated_inputs(...)
+```
+
 ## Kept Names
 
 ### `PreparedExecutionPlanCore`
@@ -209,6 +242,7 @@ rg -n "PreparedScalarRuntimeHandoff|PreparedGroupedRuntimeHandoff|PreparedAccess
 rg -n "PreparedExecutionInputParts|PreparedExecutionInputContext" crates/icydb-core/src/db/executor
 rg -n "GroupedPathRuntimeCore|GroupedPathRuntimeContext" crates/icydb-core/src/db/executor/pipeline/entrypoints/grouped.rs
 rg -n "LoweredAccess::into_parts|into_executable_and_index_specs|lowered\\.into_parts\\(" crates/icydb-core/src/db/access crates/icydb-core/src/db/executor docs/design/0.165-naming-audit-and-role-alignment
+rg -n "prepare_scalar_route_runtime_from_parts|prepare_scalar_route_runtime_from_inputs|compile_grouped_row_slot_layout_from_parts|compile_grouped_row_slot_layout_from_inputs|into_runtime_parts|into_runtime_inputs|from_validated_parts|from_validated_inputs" crates/icydb-core/src/db/executor docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

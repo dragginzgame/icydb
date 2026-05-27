@@ -100,8 +100,8 @@ impl AggregateExpr {
         self.distinct
     }
 
-    /// Build one aggregate expression directly from planner semantic parts.
-    pub(in crate::db::query) fn from_semantic_parts(
+    /// Build one aggregate expression from an optional field input.
+    pub(in crate::db::query) fn from_optional_field_input(
         kind: AggregateKind,
         target_field: Option<String>,
         distinct: bool,

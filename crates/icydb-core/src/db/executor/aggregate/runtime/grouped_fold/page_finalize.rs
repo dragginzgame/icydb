@@ -698,13 +698,13 @@ mod tests {
         };
         let group_fields = [FieldSlot::from_parts_for_test(0, "age")];
         let aggregate_execution_specs = [
-            GroupedAggregateExecutionSpec::from_parts_for_test(
+            GroupedAggregateExecutionSpec::from_test_inputs(
                 AggregateKind::Count,
                 None,
                 None,
                 false,
             ),
-            GroupedAggregateExecutionSpec::from_parts_for_test(
+            GroupedAggregateExecutionSpec::from_test_inputs(
                 AggregateKind::Max,
                 Some(FieldSlot::from_parts_for_test(1, "score")),
                 Some("score"),

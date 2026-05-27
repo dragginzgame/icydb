@@ -58,7 +58,7 @@ fn avg(expr: Expr) -> Expr {
 
 fn count_all_with_filter(filter_expr: Expr) -> Expr {
     Expr::Aggregate(
-        AggregateExpr::from_semantic_parts(AggregateKind::Count, None, false)
+        AggregateExpr::from_optional_field_input(AggregateKind::Count, None, false)
             .with_filter_expr(filter_expr),
     )
 }

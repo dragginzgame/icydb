@@ -1,7 +1,7 @@
 //! Module: executor::pipeline::entrypoints::scalar::runtime
 //! Responsibility: scalar route runtime bundle construction.
 //! Does not own: scalar execution, sink execution, or page finalization.
-//! Boundary: converts prepared scalar plan parts into one runtime bundle.
+//! Boundary: converts prepared scalar plan inputs into one runtime bundle.
 
 use std::sync::Arc;
 
@@ -35,7 +35,7 @@ pub(super) type ScalarProjectionRuntimeMode = ProjectionMaterializationMode;
 /// Kernel dispatch consumes this bundle directly so the scalar lane no longer
 /// carries `LoadExecutor<E>` or `PreparedExecutionPlan<E>` behind a runtime adapter.
 /// Runtime construction is intentionally centralized in this module:
-/// entrypoint adapters build this bundle through `prepare_scalar_route_runtime_from_parts`,
+/// entrypoint adapters build this bundle through `prepare_scalar_route_runtime_from_inputs`,
 /// while execution and sink modules only consume an already-prepared bundle.
 ///
 
@@ -165,7 +165,7 @@ fn build_prepared_scalar_route_runtime(
 // structural inputs that stay constant across initial, resumed, retained-slot,
 // and materialized scalar entrypoint families.
 #[expect(clippy::too_many_arguments)]
-pub(super) fn prepare_scalar_route_runtime_from_parts<C>(
+pub(super) fn prepare_scalar_route_runtime_from_inputs<C>(
     db: &Db<C>,
     debug: bool,
     authority: EntityAuthority,

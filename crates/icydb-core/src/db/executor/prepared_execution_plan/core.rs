@@ -8,7 +8,7 @@ use crate::{
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::{
-                    compile_grouped_row_slot_layout_from_parts,
+                    compile_grouped_row_slot_layout_from_inputs,
                     compile_retained_slot_layout_for_mode,
                 },
             },
@@ -298,7 +298,7 @@ impl PreparedExecutionPlanCore {
                         &self.residents.plan,
                         self.residents.plan.slot_map().map(<[usize]>::to_vec),
                     );
-                    let grouped_slot_layout = compile_grouped_row_slot_layout_from_parts(
+                    let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
                         authority.row_layout(),
                         grouped_plan.group.group_fields.as_slice(),
                         self.residents

@@ -37,7 +37,11 @@ impl GroupAggregateSpec {
     /// Build the canonical aggregate identity for this grouped terminal.
     #[must_use]
     pub(in crate::db) fn identity(&self) -> AggregateIdentity {
-        AggregateIdentity::from_parts(self.kind(), self.identity_input_expr_owned(), self.distinct)
+        AggregateIdentity::from_kind_input_and_distinct(
+            self.kind(),
+            self.identity_input_expr_owned(),
+            self.distinct,
+        )
     }
 
     /// Build the filter-aware semantic key for this grouped aggregate.
@@ -121,7 +125,7 @@ impl GroupPlan {
 pub(in crate::db) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
     let expr = match aggregate.identity_input_expr_owned() {
         Some(input_expr) => AggregateExpr::from_expression_input(aggregate.kind(), input_expr),
-        None => AggregateExpr::from_semantic_parts(aggregate.kind(), None, false),
+        None => AggregateExpr::from_optional_field_input(aggregate.kind(), None, false),
     };
     let expr = match aggregate.filter_expr() {
         Some(filter_expr) => expr.with_filter_expr(filter_expr.clone()),

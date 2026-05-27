@@ -52,9 +52,9 @@ pub(in crate::db) enum AggregateIdentity {
 }
 
 impl AggregateIdentity {
-    /// Build aggregate identity from raw planner aggregate parts.
+    /// Build aggregate identity from its normalized kind, input, and DISTINCT bit.
     #[must_use]
-    pub(in crate::db) const fn from_parts(
+    pub(in crate::db) const fn from_kind_input_and_distinct(
         kind: AggregateKind,
         input_expr: Option<Expr>,
         distinct: bool,
@@ -92,7 +92,7 @@ impl AggregateIdentity {
     /// Build aggregate identity from one raw aggregate expression.
     #[must_use]
     pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
-        Self::from_parts(
+        Self::from_kind_input_and_distinct(
             aggregate.kind(),
             aggregate.input_expr().cloned(),
             aggregate.is_distinct(),
@@ -247,7 +247,7 @@ impl AggregateSemanticKey {
 
     /// Move this key into its identity and filter components.
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (AggregateIdentity, Option<Expr>) {
+    pub(in crate::db) fn into_identity_and_filter(self) -> (AggregateIdentity, Option<Expr>) {
         (self.identity, self.filter_expr)
     }
 }

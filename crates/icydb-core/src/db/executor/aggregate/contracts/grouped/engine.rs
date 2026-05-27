@@ -198,7 +198,7 @@ impl GroupedAggregateState {
         let group_count_before_insert = self.groups.len();
         let group_capacity_before_insert = self.groups.capacity();
         let uses_distinct_value_dedup =
-            AggregateIdentity::from_parts(self.kind, None, self.distinct)
+            AggregateIdentity::from_kind_input_and_distinct(self.kind, None, self.distinct)
                 .uses_grouped_distinct_value_dedup();
         let distinct_mode =
             GroupedDistinctExecutionMode::new(self.distinct, uses_distinct_value_dedup);

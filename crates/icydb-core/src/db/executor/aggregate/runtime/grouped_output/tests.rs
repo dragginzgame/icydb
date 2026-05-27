@@ -37,8 +37,8 @@ fn grouped_identity_projection_fast_path_preserves_rows() {
     };
     let group_fields = [FieldSlot::from_parts_for_test(0, "age")];
     let aggregate_execution_specs = [
-        GroupedAggregateExecutionSpec::from_parts_for_test(AggregateKind::Count, None, None, false),
-        GroupedAggregateExecutionSpec::from_parts_for_test(
+        GroupedAggregateExecutionSpec::from_test_inputs(AggregateKind::Count, None, None, false),
+        GroupedAggregateExecutionSpec::from_test_inputs(
             AggregateKind::Max,
             Some(FieldSlot::from_parts_for_test(1, "score")),
             Some("score"),
@@ -91,8 +91,8 @@ fn grouped_non_identity_projection_reorders_aggregate_outputs() {
     };
     let group_fields = [FieldSlot::from_parts_for_test(0, "age")];
     let aggregate_execution_specs = [
-        GroupedAggregateExecutionSpec::from_parts_for_test(AggregateKind::Count, None, None, false),
-        GroupedAggregateExecutionSpec::from_parts_for_test(
+        GroupedAggregateExecutionSpec::from_test_inputs(AggregateKind::Count, None, None, false),
+        GroupedAggregateExecutionSpec::from_test_inputs(
             AggregateKind::Max,
             Some(FieldSlot::from_parts_for_test(1, "score")),
             Some("score"),

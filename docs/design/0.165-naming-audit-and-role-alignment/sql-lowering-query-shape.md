@@ -90,6 +90,37 @@ StructuralSqlGlobalAggregateCommand::into_execution_parts() -> into_execution_in
 PreparedSqlScalarAggregateStrategy::into_aggregate_plan_parts() -> into_structural_terminal_inputs()
 ```
 
+### SQL Aggregate Semantic Handoff Helpers
+
+Role proof:
+
+- Owning module: `db::sql::lowering::aggregate::semantics`
+- Payload: private aggregate semantic-key and prepared-aggregate helpers that
+  split normalized aggregate identity, filters, model-bound targets, and
+  executor terminal inputs during SQL aggregate lowering
+- Main consumers: prepared scalar aggregate strategy construction and executor
+  terminal preparation
+- Chosen family: explicit identity/filter and terminal-input vocabulary
+- Rejected alternatives:
+  - `into_parts`: too weak because the helper expands a filter-aware semantic
+    key into named identity and filter fields
+  - `into_executor_parts`: too weak because the prepared semantics yield
+    executor terminal inputs, not arbitrary parts
+  - `from_parts`: too weak because the constructor combines aggregate kind,
+    model-bound target, and DISTINCT semantics
+- Public-surface impact: none
+- Hard-cut rule: remove the old private helper names from live SQL aggregate
+  code
+
+Accepted code examples:
+
+```text
+AggregateTerminalSemanticKey::into_parts() -> into_identity_and_filter()
+PreparedAggregateTarget::into_executor_parts() -> into_terminal_inputs()
+PreparedAggregateSemantics::from_parts(...) -> from_kind_target_and_distinct(...)
+PreparedAggregateSemantics::into_executor_parts() -> into_terminal_inputs()
+```
+
 ## Kept Names
 
 ### `LoweredSelectShape`
@@ -128,6 +159,7 @@ rg -n "PreparedSqlScalarAggregatePlanFragment|plan_fragment|prepared_plan_fragme
 rg -n "LoweredSelectShape|LoweredBaseQueryShape|LoweredExprAnalysis|LoweredSqlAggregateShape" crates/icydb-core/src/db/sql/lowering
 rg -n "SqlGlobalAggregateCommandCore|compile_sql_global_aggregate_command_core_from_prepared_with_schema|StructuralSqlGlobalAggregateCommand|compile_structural_sql_global_aggregate_command_from_prepared_with_schema" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql
 rg -n "into_execution_parts|into_execution_inputs|into_aggregate_plan_parts|into_structural_terminal_inputs" crates/icydb-core/src/db/sql/lowering crates/icydb-core/src/db/session/sql/execute docs/design/0.165-naming-audit-and-role-alignment
+rg -n "AggregateTerminalSemanticKey::into_parts|AggregateTerminalSemanticKey::into_identity_and_filter|PreparedAggregateTarget::into_executor_parts|PreparedAggregateTarget::into_terminal_inputs|PreparedAggregateSemantics::from_parts|PreparedAggregateSemantics::from_kind_target_and_distinct|PreparedAggregateSemantics::into_executor_parts|PreparedAggregateSemantics::into_terminal_inputs" crates/icydb-core/src/db/sql/lowering docs/design/0.165-naming-audit-and-role-alignment
 ```
 
 Remaining old-name hits are allowed only inside this family note as accepted

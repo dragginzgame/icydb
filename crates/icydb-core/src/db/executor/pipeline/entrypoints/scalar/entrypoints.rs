@@ -21,7 +21,7 @@ use crate::{
                     runtime::{
                         PreparedScalarRouteRuntime, ScalarPlanValidationMode,
                         ScalarPreparedRuntimeOptions, ScalarProjectionRuntimeMode,
-                        ScalarRoutePlanFamily, prepare_scalar_route_runtime_from_parts,
+                        ScalarRoutePlanFamily, prepare_scalar_route_runtime_from_inputs,
                         reusable_initial_scalar_route_plan,
                     },
                     streaming::execute_prepared_scalar_kernel_row_sink_execution,
@@ -177,7 +177,7 @@ where
         prepared.authority.clone(),
         &continuation,
     )?;
-    let prepared = prepare_scalar_route_runtime_from_parts(
+    let prepared = prepare_scalar_route_runtime_from_inputs(
         db,
         debug,
         prepared.authority,
@@ -228,7 +228,7 @@ where
         prepared.authority.clone(),
         &continuation,
     )?;
-    let prepared = prepare_scalar_route_runtime_from_parts(
+    let prepared = prepare_scalar_route_runtime_from_inputs(
         db,
         debug,
         prepared.authority,
@@ -308,7 +308,7 @@ where
     };
 
     // Phase 1: prepare the scalar route runtime from plan-resident handoff.
-    let prepared = prepare_scalar_route_runtime_from_parts(
+    let prepared = prepare_scalar_route_runtime_from_inputs(
         db,
         debug,
         prepared.authority,
@@ -360,7 +360,7 @@ where
         prepared.authority.clone(),
         &continuation,
     )?;
-    let prepared = prepare_scalar_route_runtime_from_parts(
+    let prepared = prepare_scalar_route_runtime_from_inputs(
         db,
         debug,
         prepared.authority,
@@ -412,7 +412,7 @@ where
 
     // Phase 1: execute the shared scalar runtime through the same prepared
     // route bundle used by the other scalar entrypoint families.
-    let prepared = prepare_scalar_route_runtime_from_parts(
+    let prepared = prepare_scalar_route_runtime_from_inputs(
         &executor.db,
         executor.debug,
         prepared.authority,
@@ -480,7 +480,7 @@ where
             CursorEmissionMode::Emit,
         )?;
 
-        prepare_scalar_route_runtime_from_parts(
+        prepare_scalar_route_runtime_from_inputs(
             &self.db,
             self.debug,
             prepared.authority,
