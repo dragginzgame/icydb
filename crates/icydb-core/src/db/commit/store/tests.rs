@@ -33,7 +33,7 @@ fn raw_data_store_key(fill: u8) -> RawDataStoreKey {
 // Encode one single-row marker payload directly from raw row-op fields so
 // corruption tests can exercise malformed persisted keys that no longer fit
 // through the typed `CommitRowOp` constructor.
-fn encode_test_single_row_payload_from_parts(
+fn encode_test_single_row_payload_from_fields(
     entity_path: &str,
     key_bytes: &[u8],
     before: Option<&[u8]>,
@@ -299,7 +299,7 @@ fn commit_marker_rejects_row_op_with_empty_entity_path() {
 
 #[test]
 fn commit_marker_rejects_row_op_with_invalid_key_length() {
-    let bytes = encode_test_single_row_payload_from_parts(
+    let bytes = encode_test_single_row_payload_from_fields(
         "test::Entity",
         &[9u8],
         Some(&[1u8]),
@@ -319,7 +319,7 @@ fn commit_marker_rejects_row_op_with_invalid_key_shape() {
     let mut malformed_key = vec![0u8; RawDataStoreKey::MAX_STORED_SIZE_USIZE];
     malformed_key[RawDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
 
-    let bytes = encode_test_single_row_payload_from_parts(
+    let bytes = encode_test_single_row_payload_from_fields(
         "test::Entity",
         malformed_key.as_slice(),
         Some(&[1u8]),

@@ -693,12 +693,12 @@ fn normalize_field_identifier_expr_to_scope(
     identifier: String,
     entity_scope: &[String],
 ) -> SqlExpr {
-    let mut parts = identifier.split('.');
-    let Some(root) = parts.next() else {
+    let mut path_segments = identifier.split('.');
+    let Some(root) = path_segments.next() else {
         return SqlExpr::Field(identifier);
     };
 
-    let segments = parts.map(str::to_string).collect::<Vec<_>>();
+    let segments = path_segments.map(str::to_string).collect::<Vec<_>>();
     if segments.is_empty() {
         return SqlExpr::Field(root.to_string());
     }
@@ -713,26 +713,26 @@ fn normalize_field_path_to_scope(
     segments: Vec<String>,
     entity_scope: &[String],
 ) -> SqlExpr {
-    let mut parts = Vec::with_capacity(1 + segments.len());
-    parts.push(root);
-    parts.extend(segments);
+    let mut path_segments = Vec::with_capacity(1 + segments.len());
+    path_segments.push(root);
+    path_segments.extend(segments);
 
-    for split_at in (1..parts.len()).rev() {
-        let qualifier = parts[..split_at].join(".");
+    for split_at in (1..path_segments.len()).rev() {
+        let qualifier = path_segments[..split_at].join(".");
         if entity_scope
             .iter()
             .any(|candidate| identifiers_tail_match(candidate.as_str(), qualifier.as_str()))
         {
-            return sql_field_expr_from_parts(&parts[split_at..]);
+            return sql_field_expr_from_segments(&path_segments[split_at..]);
         }
     }
 
-    sql_field_expr_from_parts(parts.as_slice())
+    sql_field_expr_from_segments(path_segments.as_slice())
 }
 
-// Rebuild one normalized field/path from its already-split identifier parts.
-fn sql_field_expr_from_parts(parts: &[String]) -> SqlExpr {
-    match parts {
+// Rebuild one normalized field/path from its already-split identifier segments.
+fn sql_field_expr_from_segments(path_segments: &[String]) -> SqlExpr {
+    match path_segments {
         [field] => SqlExpr::Field(field.clone()),
         [root, segments @ ..] => SqlExpr::FieldPath {
             root: root.clone(),

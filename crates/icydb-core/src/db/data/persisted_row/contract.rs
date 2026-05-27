@@ -643,7 +643,7 @@ where
 
 // Encode one fixed-width slot table plus concatenated slot payload bytes into
 // the canonical row payload container.
-pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_parts(
+pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_table_and_bytes(
     slot_count: usize,
     slot_table: &[(u32, u32)],
     payload_bytes: &[u8],
@@ -695,7 +695,11 @@ where
         slot_table.push((start, len));
     }
 
-    encode_slot_payload_from_parts(slot_payloads.len(), slot_table.as_slice(), &payload_bytes)
+    encode_slot_payload_from_table_and_bytes(
+        slot_payloads.len(),
+        slot_table.as_slice(),
+        &payload_bytes,
+    )
 }
 
 // Build and emit one canonical row from any slot-addressable payload source so

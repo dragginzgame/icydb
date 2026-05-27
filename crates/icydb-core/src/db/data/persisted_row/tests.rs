@@ -16,7 +16,7 @@ use super::{
     codec::{ScalarSlotValueRef, ScalarValueRef, encode_scalar_slot_value},
     contract::{
         decode_slot_into_runtime_value, encode_runtime_value_into_slot,
-        encode_slot_payload_from_parts,
+        encode_slot_payload_from_table_and_bytes,
     },
     reader::{CachedSlotValue, StructuralSlotReader},
     types::{FieldSlot, SerializedStructuralFieldUpdate, SerializedStructuralPatch},
@@ -811,7 +811,11 @@ fn encode_slot_payload_allowing_missing_for_tests(
         }
     }
 
-    encode_slot_payload_from_parts(slots.len(), slot_table.as_slice(), payload_bytes.as_slice())
+    encode_slot_payload_from_table_and_bytes(
+        slots.len(),
+        slot_table.as_slice(),
+        payload_bytes.as_slice(),
+    )
 }
 
 // Build one dense canonical slot container for tests without routing through a
@@ -997,7 +1001,7 @@ fn old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
-    let slot_payload = encode_slot_payload_from_parts(
+    let slot_payload = encode_slot_payload_from_table_and_bytes(
         2,
         &[
             (
@@ -1024,7 +1028,7 @@ fn malformed_old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
-    let slot_payload = encode_slot_payload_from_parts(
+    let slot_payload = encode_slot_payload_from_table_and_bytes(
         2,
         &[
             (
@@ -2673,7 +2677,7 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_primary
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
     let raw_row = RawRow::try_new(
         serialize_row_payload(
-            encode_slot_payload_from_parts(
+            encode_slot_payload_from_table_and_bytes(
                 1,
                 &[(
                     0_u32,
@@ -2706,7 +2710,7 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
     let raw_row = RawRow::try_new(
         serialize_row_payload(
-            encode_slot_payload_from_parts(
+            encode_slot_payload_from_table_and_bytes(
                 1,
                 &[(
                     0_u32,
@@ -2847,7 +2851,7 @@ fn typed_meta_field_decodes_matching_field_slot_payload() {
     };
     let payload_bytes = crate::db::encode_persisted_slot_payload_by_meta(&payload_value, "payload")
         .expect("matching typed field bytes should encode");
-    let payload = encode_slot_payload_from_parts(
+    let payload = encode_slot_payload_from_table_and_bytes(
         2,
         &[
             (
@@ -2931,7 +2935,7 @@ fn many_typed_meta_decodes_matching_container_slot_payload() {
         "payloads",
     )
     .expect("matching typed container bytes should encode");
-    let payload = encode_slot_payload_from_parts(
+    let payload = encode_slot_payload_from_table_and_bytes(
         2,
         &[
             (
