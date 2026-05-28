@@ -3700,7 +3700,7 @@ fn assert_explain_contains_tokens(explain: &str, tokens: &[&str], context: &str)
     for token in tokens {
         assert!(
             explain.contains(token),
-            "explain matrix case missing token `{token}`: {context}",
+            "explain matrix case missing token `{token}`: {context}: {explain}",
         );
     }
 }

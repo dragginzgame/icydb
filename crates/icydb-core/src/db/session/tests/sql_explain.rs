@@ -409,6 +409,39 @@ fn explain_sql_execution_expression_owned_where_surfaces_explicit_residual_filte
 }
 
 #[test]
+fn explain_sql_execution_separates_index_pushdown_from_residual_predicate() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM IndexedSessionSqlEntity \
+         WHERE name >= 'S' AND name < 'T' AND age >= 30 \
+         ORDER BY name ASC",
+    )
+    .expect("indexed range plus residual EXPLAIN EXECUTION should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "access_strategy=IndexRange(name)",
+            "predicate_pushdown_mode=partial",
+            "predicate_pushdown=name>=Text(\"S\") AND name<Text(\"T\")",
+            "ResidualFilter execution_mode=",
+            "residual_filter_predicate=",
+            "age",
+        ],
+        "indexed range plus residual EXPLAIN EXECUTION",
+    );
+    assert!(
+        !explain.contains("access=FullScan"),
+        "index-compatible range predicates should not collapse to a full scan: {explain}",
+    );
+}
+
+#[test]
 fn explain_sql_execution_verbose_keyword_is_accepted_in_sql_surface() {
     reset_session_sql_store();
     let session = sql_session();

@@ -2462,6 +2462,233 @@ fn execute_sql_query_defines_order_by_null_ordering() {
 }
 
 #[test]
+fn execute_sql_query_composes_supported_scalar_and_grouped_forms() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("ada", 21),
+            ("bob", 21),
+            ("ally", 32),
+            ("carol", 19),
+            ("ada", 31),
+        ],
+    );
+
+    let SqlStatementResult::Projection {
+        columns: scalar_columns,
+        rows: scalar_rows,
+        row_count: scalar_row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name AS display_name, LENGTH(name) AS name_len \
+             FROM SessionSqlEntity \
+             WHERE name LIKE 'a%' AND age >= 20 \
+             ORDER BY display_name DESC, age ASC LIMIT 1 OFFSET 0",
+        )
+        .expect("admitted scalar SQL forms should compose through the public query surface")
+    else {
+        panic!("scalar cross-form proof should return projection rows");
+    };
+    assert_eq!(
+        scalar_columns,
+        vec!["display_name".to_string(), "name_len".to_string()],
+    );
+    assert_eq!(
+        scalar_rows,
+        vec![vec![
+            output(Value::Text("ally".to_string())),
+            output(Value::Nat64(4)),
+        ]],
+        "scalar WHERE, computed projection, field-alias ordering, LIMIT, and OFFSET should compose",
+    );
+    assert_eq!(scalar_row_count, 1);
+
+    let SqlStatementResult::Grouped {
+        columns: grouped_columns,
+        rows: grouped_rows,
+        row_count: grouped_row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS rows, SUM(age) AS total \
+             FROM SessionSqlEntity \
+             WHERE age >= 20 \
+             GROUP BY name \
+             HAVING SUM(age) >= 20 \
+             ORDER BY total DESC LIMIT 1",
+        )
+        .expect("admitted grouped SQL forms should compose through the public query surface")
+    else {
+        panic!("grouped cross-form proof should return grouped rows");
+    };
+    assert_eq!(
+        grouped_columns,
+        vec!["name".to_string(), "rows".to_string(), "total".to_string()],
+    );
+    assert_eq!(grouped_row_count, 1);
+    let actual_grouped_rows = grouped_rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_grouped_rows,
+        vec![(
+            vec![Value::Text("ada".to_string())],
+            vec![
+                Value::Nat64(2),
+                Value::Decimal(crate::types::Decimal::from(52u64)),
+            ],
+        )],
+        "grouped WHERE, GROUP BY, HAVING, aggregate aliases, aggregate ordering, and LIMIT should compose",
+    );
+}
+
+#[test]
+fn execute_sql_query_preserves_group_key_declaration_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("ada", 21), ("ada", 21), ("ada", 32), ("bob", 21)],
+    );
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, age, COUNT(*) AS rows \
+             FROM SessionSqlEntity \
+             GROUP BY name, age \
+             ORDER BY name ASC, age ASC LIMIT 10",
+        )
+        .expect("multi-field grouped query should execute through the public query surface")
+    else {
+        panic!("multi-field grouped query should return grouped rows");
+    };
+
+    assert_eq!(
+        columns,
+        vec!["name".to_string(), "age".to_string(), "rows".to_string()],
+    );
+    assert_eq!(row_count, 3);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized grouped key-order proof should not emit a cursor",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (
+                vec![Value::Text("ada".to_string()), Value::Nat64(21)],
+                vec![Value::Nat64(2)],
+            ),
+            (
+                vec![Value::Text("ada".to_string()), Value::Nat64(32)],
+                vec![Value::Nat64(1)],
+            ),
+            (
+                vec![Value::Text("bob".to_string()), Value::Nat64(21)],
+                vec![Value::Nat64(1)],
+            ),
+        ],
+        "group keys should preserve declared GROUP BY field order and aggregate values should remain separate",
+    );
+}
+
+#[test]
+fn execute_sql_query_preserves_parenthesized_boolean_predicate_semantics() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("ada", 21),
+            ("ada", 32),
+            ("ally", 32),
+            ("bob", 21),
+            ("carol", 19),
+        ],
+    );
+
+    let left = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, age \
+             FROM SessionSqlEntity \
+             WHERE (age = 21 AND name = 'ada') OR (age = 32 AND name = 'ally') \
+             ORDER BY name ASC, age ASC",
+        )
+        .expect("parenthesized boolean predicate should execute through the public query surface");
+    let right = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, age \
+             FROM SessionSqlEntity \
+             WHERE ((name = 'ally') AND (age = 32)) OR (name = 'ada' AND age = 21) \
+             ORDER BY name ASC, age ASC",
+        )
+        .expect("equivalent reordered boolean predicate should execute through the public query surface");
+
+    let SqlStatementResult::Projection {
+        columns: left_columns,
+        rows: left_rows,
+        row_count: left_row_count,
+        ..
+    } = left
+    else {
+        panic!("left parenthesized boolean predicate should return projection rows");
+    };
+    let SqlStatementResult::Projection {
+        columns: right_columns,
+        rows: right_rows,
+        row_count: right_row_count,
+        ..
+    } = right
+    else {
+        panic!("right parenthesized boolean predicate should return projection rows");
+    };
+
+    let expected_rows = vec![
+        vec![
+            output(Value::Text("ada".to_string())),
+            output(Value::Nat64(21)),
+        ],
+        vec![
+            output(Value::Text("ally".to_string())),
+            output(Value::Nat64(32)),
+        ],
+    ];
+    assert_eq!(left_columns, vec!["name".to_string(), "age".to_string()]);
+    assert_eq!(right_columns, left_columns);
+    assert_eq!(left_rows, expected_rows);
+    assert_eq!(
+        right_rows, expected_rows,
+        "equivalent parenthesized AND/OR predicates should produce the same public rows",
+    );
+    assert_eq!(left_row_count, 2);
+    assert_eq!(right_row_count, left_row_count);
+}
+
+#[test]
 fn execute_sql_query_having_terms_are_not_auto_projected() {
     reset_session_sql_store();
     let session = sql_session();
