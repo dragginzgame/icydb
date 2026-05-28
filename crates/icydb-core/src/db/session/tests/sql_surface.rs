@@ -574,6 +574,11 @@ fn sql_metadata_surfaces_match_typed_payloads() {
         "SHOW INDEXES FROM SessionSqlEntity",
     )
     .expect("show_indexes_sql should succeed");
+    let show_indexes_in_from_sql = statement_show_indexes_sql::<SessionSqlEntity>(
+        &session,
+        "SHOW INDEXES IN SessionSqlEntity",
+    )
+    .expect("show_indexes_sql should accept the SHOW INDEXES IN alias");
     let show_columns_from_sql =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("show_columns_sql should succeed");
@@ -591,6 +596,10 @@ fn sql_metadata_surfaces_match_typed_payloads() {
         show_indexes_from_sql,
         session.show_indexes::<SessionSqlEntity>(),
         "show_indexes_sql should project through canonical show_indexes payload",
+    );
+    assert_eq!(
+        show_indexes_in_from_sql, show_indexes_from_sql,
+        "SHOW INDEXES IN should stay a direct SQL alias of SHOW INDEXES FROM",
     );
     assert_eq!(
         show_columns_from_sql,
@@ -641,6 +650,28 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         columns,
         session.show_columns::<SessionSqlEntity>(),
         "SHOW COLUMNS should expose the same public payload as the typed metadata surface",
+    );
+
+    let SqlStatementResult::ShowIndexes(show_indexes_from) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    let SqlStatementResult::ShowIndexes(show_indexes_in) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES IN SessionSqlEntity")
+        .expect("SHOW INDEXES IN should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW INDEXES IN should return an index metadata payload");
+    };
+    assert_eq!(
+        show_indexes_from,
+        session.show_indexes::<SessionSqlEntity>(),
+        "SHOW INDEXES FROM should expose the same public payload as the typed metadata surface",
+    );
+    assert_eq!(
+        show_indexes_in, show_indexes_from,
+        "SHOW INDEXES IN should stay a direct SQL alias of SHOW INDEXES FROM",
     );
 
     let SqlStatementResult::ShowEntities(show_entities) = session
@@ -2304,6 +2335,110 @@ fn execute_sql_query_admits_grouped_boolean_computed_projection() {
             (vec![Value::Nat64(32)], vec![Value::Bool(false)]),
         ],
         "grouped boolean computed projection should evaluate over finalized grouped outputs",
+    );
+}
+
+#[test]
+fn execute_sql_query_admits_bounded_scalar_boolean_computed_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 32), ("carol", 19)]);
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, CASE WHEN age >= 30 THEN TRUE ELSE FALSE END AS adult \
+             FROM SessionSqlEntity ORDER BY age ASC, name ASC",
+        )
+        .expect(
+            "bounded scalar boolean computed projection should execute through the public query surface",
+        )
+    else {
+        panic!("bounded scalar boolean computed projection should emit projection rows");
+    };
+
+    assert_eq!(columns, vec!["name".to_string(), "adult".to_string()]);
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                output(Value::Text("carol".to_string())),
+                output(Value::Bool(false)),
+            ],
+            vec![
+                output(Value::Text("ada".to_string())),
+                output(Value::Bool(false)),
+            ],
+            vec![
+                output(Value::Text("bob".to_string())),
+                output(Value::Bool(true)),
+            ],
+        ],
+        "scalar boolean searched-CASE projection should stay bounded to explicit TRUE/FALSE result terms",
+    );
+    assert_eq!(row_count, 3);
+}
+
+#[test]
+fn execute_sql_query_admits_grouped_key_text_function_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            (" alpha ", 20),
+            (" alpha ", 21),
+            ("beta", 30),
+            ("gamma  ", 40),
+        ],
+    );
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT TRIM(name) AS trimmed_name, COUNT(*) AS total \
+             FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
+        )
+        .expect("grouped key text-function projection should execute through public query")
+    else {
+        panic!("grouped key text-function projection should emit grouped rows");
+    };
+
+    assert_eq!(
+        columns,
+        vec!["trimmed_name".to_string(), "total".to_string()]
+    );
+    assert_eq!(row_count, 3);
+    assert!(
+        next_cursor.is_none(),
+        "bounded grouped key text-function projection should fully materialize",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (vec![Value::Text("alpha".into())], vec![Value::Nat64(2)]),
+            (vec![Value::Text("beta".into())], vec![Value::Nat64(1)]),
+            (vec![Value::Text("gamma".into())], vec![Value::Nat64(1)]),
+        ],
+        "grouped text transforms should evaluate only over grouped key values",
     );
 }
 
