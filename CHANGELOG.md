@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.4` proves that global and grouped `HAVING` terms filter rows without
+  being auto-projected into public SQL result payloads.
+
 - `0.166.3` adds public fail-closed proof for unsupported SQL DDL/query edges:
   `DESC` index order, legacy broad numeric column types, introspection
   modifiers, and it proves grouped boolean computed projections as admitted

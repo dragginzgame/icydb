@@ -2308,6 +2308,77 @@ fn execute_sql_query_admits_grouped_boolean_computed_projection() {
 }
 
 #[test]
+fn execute_sql_query_having_terms_are_not_auto_projected() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) AS rows FROM SessionSqlEntity HAVING AVG(age) > 20",
+        )
+        .expect("global HAVING should execute through the public query surface")
+    else {
+        panic!("global HAVING should return projection rows");
+    };
+    assert_eq!(
+        columns,
+        vec!["rows".to_string()],
+        "global HAVING terms should not become hidden projection columns",
+    );
+    assert_eq!(rows, vec![vec![output(Value::Nat64(3))]]);
+    assert_eq!(row_count, 1);
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) AS rows \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             HAVING SUM(age) > 40 \
+             ORDER BY age ASC LIMIT 10",
+        )
+        .expect("grouped HAVING should execute through the public query surface")
+    else {
+        panic!("grouped HAVING should return grouped rows");
+    };
+    assert_eq!(
+        columns,
+        vec!["age".to_string(), "rows".to_string()],
+        "grouped HAVING terms should not become hidden projection columns",
+    );
+    assert_eq!(row_count, 1);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized grouped HAVING proof should not emit a cursor",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![(vec![Value::Nat64(21)], vec![Value::Nat64(2)])],
+        "grouped HAVING should filter by non-projected aggregates while preserving projected payloads",
+    );
+}
+
+#[test]
 fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
     reset_session_sql_store();
     let session = sql_session();
