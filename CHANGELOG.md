@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.7` proves public SQL null grouping and post-aggregation `HAVING`
+  behavior for grouped result payloads.
+
 - `0.166.6` proves admitted scalar/grouped SQL composition, multi-field group
   key identity, predicate grouping, and SQL EXPLAIN pushdown/residual
   visibility.

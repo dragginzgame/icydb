@@ -41,7 +41,7 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-all      Install canister dependencies and git hooks"
-	@echo "  update-dev       Check prerequisites and run safe maintenance checks"
+	@echo "  update-dev       Update the local Rust/Cargo/ICP development environment"
 	@echo "  install-canister-deps  Install Wasm target + candid tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
@@ -109,14 +109,23 @@ ensure-python3:
 install-all: install-canister-deps install-hooks
 	@echo "Canister dependencies and git hooks installed"
 
-# Check local prerequisites and run safe maintenance checks. This target does
-# not install cargo tools, update rustup, or mutate Cargo.lock.
+# Update the local Rust/Cargo/ICP development environment.
 update-dev: ensure-python3
 	@command -v rustup >/dev/null 2>&1 || { echo "Missing rustup. Install Rust from https://rustup.rs/."; exit 1; }
 	@command -v cargo >/dev/null 2>&1 || { echo "Missing cargo. Install the Rust toolchain pinned in README.md."; exit 1; }
-	@command -v rg >/dev/null 2>&1 || { echo "Missing ripgrep (rg). Install it with your system package manager."; exit 1; }
+	@command -v npm >/dev/null 2>&1 || { echo "Missing npm. Install Node/npm before updating ICP CLI tools."; exit 1; }
+	rustup update
 	rustup target add wasm32-unknown-unknown
-	$(CARGO_WORK_ENV) cargo fetch --locked
+	cargo install --quiet \
+		cargo-audit cargo-bloat cargo-deny cargo-expand cargo-machete \
+		cargo-llvm-lines cargo-sort cargo-tarpaulin cargo-sort-derives \
+		ripgrep \
+		candid-extractor ic-wasm twiggy
+	npm install -g --prefix "$$HOME/.local" @icp-sdk/icp-cli @icp-sdk/ic-wasm
+	icp --version
+	ic-wasm --version
+	cargo audit
+	$(CARGO_WORK_ENV) cargo update --quiet
 
 # Install wasm target + candid tools
 install-canister-deps:

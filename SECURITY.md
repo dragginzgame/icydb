@@ -11,9 +11,10 @@ that boundary and should be run only on hosts where that is acceptable.
 - There is no repo bootstrap target that installs Rust, OS packages, or
   user-level GitHub release binaries. Local setup prerequisites are documented
   in `INSTALLING.md` and remain operator-owned.
-- `make update-dev` checks local prerequisites, adds the pinned Wasm Rust target,
-  and runs a locked cargo fetch. It does not install cargo tools, update rustup,
-  or mutate `Cargo.lock`.
+- `make update-dev` is a maintainer workstation updater. It updates Rust with
+  `rustup`, installs or updates the standard Cargo helper tools and wasm tools,
+  installs or updates `icp` and `ic-wasm` under `$HOME/.local` through npm, runs
+  `cargo audit`, and refreshes `Cargo.lock` with `cargo update`.
 - `make install-canister-deps` adds the pinned Wasm Rust target and installs
   `candid-extractor`, `ic-wasm`, and `twiggy` through Cargo. It does not run
   `sudo` or install OS packages.

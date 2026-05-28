@@ -2617,6 +2617,68 @@ fn execute_sql_query_preserves_group_key_declaration_order() {
 }
 
 #[test]
+fn execute_sql_query_groups_null_keys_and_applies_having_after_aggregation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("null-a", None),
+            ("alpha-a", Some("alpha")),
+            ("null-b", None),
+            ("bravo", Some("bravo")),
+            ("alpha-b", Some("alpha")),
+        ],
+    );
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionNullableSqlEntity>(
+            "SELECT nickname, COUNT(*) AS rows \
+             FROM SessionNullableSqlEntity \
+             GROUP BY nickname \
+             HAVING COUNT(*) > 1 \
+             ORDER BY nickname ASC LIMIT 10",
+        )
+        .expect("nullable grouped HAVING query should execute through the public query surface")
+    else {
+        panic!("nullable grouped HAVING query should return grouped rows");
+    };
+
+    assert_eq!(columns, vec!["nickname".to_string(), "rows".to_string()]);
+    assert_eq!(row_count, 2);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized nullable grouped proof should not emit a cursor",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (vec![Value::Null], vec![Value::Nat64(2)]),
+            (
+                vec![Value::Text("alpha".to_string())],
+                vec![Value::Nat64(2)],
+            ),
+        ],
+        "NULL group keys should form one group and HAVING should filter after counts finalize",
+    );
+}
+
+#[test]
 fn execute_sql_query_preserves_parenthesized_boolean_predicate_semantics() {
     reset_session_sql_store();
     let session = sql_session();

@@ -4,9 +4,10 @@ This document is for contributors and maintainers setting up this repository
 locally. The README stays focused on what IcyDB is and how to use it from a
 canister.
 
-The repository does not provide a bootstrap target that installs OS packages,
-Rust, or user-level release binaries. Install prerequisites explicitly with the
-tools you trust for your machine.
+The repository does not provide a bootstrap target that installs OS packages or
+Rust. Install system prerequisites explicitly with the tools you trust for your
+machine. The maintainer `make update-dev` target does update user-level Rust,
+Cargo, and ICP development tooling.
 
 ## System Prerequisites
 
@@ -34,7 +35,7 @@ rustup toolchain install 1.95.0
 rustup target add wasm32-unknown-unknown
 ```
 
-Then fetch locked dependencies and check the local prerequisite surface:
+Then update the local maintainer tooling surface:
 
 ```bash
 make update-dev
@@ -50,7 +51,8 @@ cargo install cargo-sort cargo-sort-derives --locked
 ## ICP And Canister Tools
 
 Local ICP workflows require the current Canic ICP tools with `icp` on `PATH`.
-Install those tools through the Canic ICP distribution you normally use.
+`make update-dev` installs or updates `@icp-sdk/icp-cli` and
+`@icp-sdk/ic-wasm` under `$HOME/.local` through npm.
 
 Optional canister-operation utilities should be installed explicitly when you
 need them:
@@ -267,10 +269,6 @@ is useful secondary context for transport.
 
 Install `python3` and a `python` alias through your system package manager. On
 Ubuntu, `python3` plus `python-is-python3` provides the expected shape.
-
-### `make update-dev` says `rg` is missing
-
-Install `ripgrep` with your system package manager.
 
 ### `make fmt` or `make check` cannot find `cargo sort`
 
