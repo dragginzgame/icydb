@@ -1,0 +1,11 @@
+error: store(...) requires storage(stable(...)) in 0.167
+  --> tests/ui/store_missing_storage.rs:6:1
+   |
+ 6 | / #[store(
+ 7 | |     ident = "UI_DATA_STORE",
+ 8 | |     store_name = "ui_data",
+ 9 | |     canister = "UiCanister"
+10 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `store` (in Nightly builds, run with -Z macro-backtrace for more info)

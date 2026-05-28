@@ -66,14 +66,12 @@ mod tests {
             254,
             254,
         )));
-        schema.insert_node(SchemaNode::Store(Store::new(
+        schema.insert_node(SchemaNode::Store(Store::new_stable(
             Def::new(module_path, store_ident),
             store_ident,
             "test_store",
             canister_path,
-            data_memory_id,
-            index_memory_id,
-            schema_memory_id,
+            StoreStableMemoryConfig::new(data_memory_id, index_memory_id, schema_memory_id),
         )));
 
         let inserted_store_path = format!("{module_path}::{store_ident}");

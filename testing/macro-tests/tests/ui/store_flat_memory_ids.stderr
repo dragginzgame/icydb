@@ -1,0 +1,5 @@
+error: store memory ids must be declared inside storage(stable(...))
+  --> tests/ui/store_flat_memory_ids.rs:10:5
+   |
+10 |     data_memory_id = 100,
+   |     ^^^^^^^^^^^^^^

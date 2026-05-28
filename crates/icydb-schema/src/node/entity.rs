@@ -174,14 +174,12 @@ mod tests {
     }
 
     fn store(path: &'static str) -> Store {
-        Store::new(
+        Store::new_stable(
             Def::new("schema_entity_relation_edge", "Store"),
             "STORE",
             "schema_entity_relation_edge_store",
             path,
-            110,
-            111,
-            112,
+            StoreStableMemoryConfig::new(110, 111, 112),
         )
     }
 
@@ -254,14 +252,12 @@ mod tests {
     #[test]
     fn entity_validation_reports_relation_edge_errors_under_relation_name() {
         let store_path = "schema_entity_relation_edge_error::Store";
-        schema_write().insert_node(SchemaNode::Store(Store::new(
+        schema_write().insert_node(SchemaNode::Store(Store::new_stable(
             Def::new("schema_entity_relation_edge_error", "Store"),
             "STORE",
             "schema_entity_relation_edge_error_store",
             store_path,
-            113,
-            114,
-            115,
+            StoreStableMemoryConfig::new(113, 114, 115),
         )));
         let target_fields = Box::leak(
             vec![

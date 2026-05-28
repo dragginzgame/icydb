@@ -4,21 +4,15 @@ use icydb::design::prelude::*;
 pub struct UiCanister {}
 
 #[store(
-    ident = "UI_DATA_STORE", store_name = "ui_data",
+    ident = "UI_DATA_STORE",
+    store_name = "ui_data",
     canister = "UiCanister",
-    storage(stable(
+    storage(heap(
         data_memory_id = 100,
         index_memory_id = 101,
         schema_memory_id = 102,
     ))
 )]
 pub struct UiDataStore {}
-
-#[entity(
-    store = "UiDataStore",
-    pk(fields = []),
-    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
-)]
-pub struct EmptyPkFields;
 
 fn main() {}

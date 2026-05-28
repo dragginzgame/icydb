@@ -6,9 +6,11 @@ pub struct UiCanister {}
 #[store(
     ident = "UI_DATA_STORE", store_name = "ui_data",
     canister = "UiCanister",
-    data_memory_id = 100,
-    index_memory_id = 101,
-    schema_memory_id = 102
+    storage(stable(
+        data_memory_id = 100,
+        index_memory_id = 101,
+        schema_memory_id = 102,
+    ))
 )]
 pub struct UiDataStore {}
 

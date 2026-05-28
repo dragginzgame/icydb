@@ -19,30 +19,90 @@ pub struct Store {
     ident: &'static str,
     name: &'static str,
     canister: &'static str,
-    data_memory_id: u8,
-    index_memory_id: u8,
-    schema_memory_id: u8,
+    storage: StoreStorage,
+}
+
+/// Storage configuration owned by one schema store declaration.
+///
+/// 0.167 implements only stable storage. Future storage forms should add new
+/// variants here rather than teaching stable-only memory ID fields new meaning.
+#[derive(Clone, Debug, Serialize)]
+pub enum StoreStorage {
+    /// Durable stable-memory store using one memory for data, one for indexes,
+    /// and one for accepted schema metadata.
+    Stable(StoreStableMemoryConfig),
+}
+
+impl StoreStorage {
+    /// Borrow the stable-memory configuration.
+    ///
+    /// This is stable-only while `StoreStorage` has a single implemented
+    /// variant. Future storage forms should prefer explicit variant matching.
+    #[must_use]
+    pub const fn stable_memory_config(&self) -> &StoreStableMemoryConfig {
+        match self {
+            Self::Stable(config) => config,
+        }
+    }
+}
+
+/// Stable-memory IDs for the three durable roles owned by one store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct StoreStableMemoryConfig {
+    data: u8,
+    index: u8,
+    schema: u8,
+}
+
+impl StoreStableMemoryConfig {
+    /// Build a stable-memory configuration from data, index, and schema memory
+    /// IDs.
+    #[must_use]
+    pub const fn new(data_memory_id: u8, index_memory_id: u8, schema_memory_id: u8) -> Self {
+        Self {
+            data: data_memory_id,
+            index: index_memory_id,
+            schema: schema_memory_id,
+        }
+    }
+
+    /// Data-store stable memory ID.
+    #[must_use]
+    pub const fn data_memory_id(self) -> u8 {
+        self.data
+    }
+
+    /// Index-store stable memory ID.
+    #[must_use]
+    pub const fn index_memory_id(self) -> u8 {
+        self.index
+    }
+
+    /// Schema-store stable memory ID.
+    #[must_use]
+    pub const fn schema_memory_id(self) -> u8 {
+        self.schema
+    }
 }
 
 impl Store {
+    /// Build a stable-memory-backed store declaration.
+    ///
+    /// This is the only implemented store constructor in 0.167.
     #[must_use]
-    pub const fn new(
+    pub const fn new_stable(
         def: Def,
         ident: &'static str,
         store_name: &'static str,
         canister: &'static str,
-        data_memory_id: u8,
-        index_memory_id: u8,
-        schema_memory_id: u8,
+        stable: StoreStableMemoryConfig,
     ) -> Self {
         Self {
             def,
             ident,
             name: store_name,
             canister,
-            data_memory_id,
-            index_memory_id,
-            schema_memory_id,
+            storage: StoreStorage::Stable(stable),
         }
     }
 
@@ -66,19 +126,39 @@ impl Store {
         self.canister
     }
 
+    /// Borrow this store's storage configuration.
+    #[must_use]
+    pub const fn storage(&self) -> &StoreStorage {
+        &self.storage
+    }
+
+    /// Return whether this store is stable-memory-backed.
+    #[must_use]
+    pub const fn is_stable_storage(&self) -> bool {
+        matches!(self.storage, StoreStorage::Stable(_))
+    }
+
+    /// Borrow stable-memory IDs when this store uses stable storage.
+    #[must_use]
+    pub const fn stable_memory_config(&self) -> Option<&StoreStableMemoryConfig> {
+        match &self.storage {
+            StoreStorage::Stable(config) => Some(config),
+        }
+    }
+
     #[must_use]
     pub const fn data_memory_id(&self) -> u8 {
-        self.data_memory_id
+        self.storage.stable_memory_config().data_memory_id()
     }
 
     #[must_use]
     pub const fn index_memory_id(&self) -> u8 {
-        self.index_memory_id
+        self.storage.stable_memory_config().index_memory_id()
     }
 
     #[must_use]
     pub const fn schema_memory_id(&self) -> u8 {
-        self.schema_memory_id
+        self.storage.stable_memory_config().schema_memory_id()
     }
 
     #[must_use]
@@ -148,9 +228,9 @@ impl Store {
         role: StoreMemoryRole,
     ) -> StableMemoryAllocation {
         let memory_id = match role {
-            StoreMemoryRole::Data => self.data_memory_id,
-            StoreMemoryRole::Index => self.index_memory_id,
-            StoreMemoryRole::Schema => self.schema_memory_id,
+            StoreMemoryRole::Data => self.data_memory_id(),
+            StoreMemoryRole::Index => self.index_memory_id(),
+            StoreMemoryRole::Schema => self.schema_memory_id(),
         };
 
         StableMemoryAllocation::without_schema_metadata(
@@ -166,9 +246,9 @@ impl Store {
         schema_metadata: StableMemoryAllocationMetadata,
     ) -> StableMemoryAllocation {
         let memory_id = match role {
-            StoreMemoryRole::Data => self.data_memory_id,
-            StoreMemoryRole::Index => self.index_memory_id,
-            StoreMemoryRole::Schema => self.schema_memory_id,
+            StoreMemoryRole::Data => self.data_memory_id(),
+            StoreMemoryRole::Index => self.index_memory_id(),
+            StoreMemoryRole::Schema => self.schema_memory_id(),
         };
 
         StableMemoryAllocation::with_schema_metadata(
@@ -345,87 +425,10 @@ impl ValidateNode for Store {
         match schema.cast_node::<Canister>(self.canister()) {
             Ok(canister) => {
                 validate_stable_key_segment(&mut errs, "store store_name", self.store_name());
-
-                // Validate data memory ID
-                validate_memory_id_in_range(
-                    &mut errs,
-                    "data_memory_id",
-                    self.data_memory_id(),
-                    canister.memory_min(),
-                    canister.memory_max(),
-                );
-                validate_app_memory_id(&mut errs, "data_memory_id", self.data_memory_id());
-                validate_memory_id_not_reserved(&mut errs, "data_memory_id", self.data_memory_id());
-                validate_stable_key(
-                    &mut errs,
-                    "data stable key",
-                    self.data_allocation(canister.memory_namespace())
-                        .stable_key(),
-                );
-
-                // Validate index memory ID
-                validate_memory_id_in_range(
-                    &mut errs,
-                    "index_memory_id",
-                    self.index_memory_id(),
-                    canister.memory_min(),
-                    canister.memory_max(),
-                );
-                validate_app_memory_id(&mut errs, "index_memory_id", self.index_memory_id());
-                validate_memory_id_not_reserved(
-                    &mut errs,
-                    "index_memory_id",
-                    self.index_memory_id(),
-                );
-                validate_stable_key(
-                    &mut errs,
-                    "index stable key",
-                    self.index_allocation(canister.memory_namespace())
-                        .stable_key(),
-                );
-
-                // Validate schema memory ID
-                validate_memory_id_in_range(
-                    &mut errs,
-                    "schema_memory_id",
-                    self.schema_memory_id(),
-                    canister.memory_min(),
-                    canister.memory_max(),
-                );
-                validate_app_memory_id(&mut errs, "schema_memory_id", self.schema_memory_id());
-                validate_memory_id_not_reserved(
-                    &mut errs,
-                    "schema_memory_id",
-                    self.schema_memory_id(),
-                );
-                validate_stable_key(
-                    &mut errs,
-                    "schema stable key",
-                    self.schema_allocation(canister.memory_namespace())
-                        .stable_key(),
-                );
-
-                // Ensure the per-store memories are distinct.
-                if self.data_memory_id() == self.index_memory_id() {
-                    err!(
-                        errs,
-                        "data_memory_id and index_memory_id must differ (both are {})",
-                        self.data_memory_id(),
-                    );
-                }
-                if self.data_memory_id() == self.schema_memory_id() {
-                    err!(
-                        errs,
-                        "data_memory_id and schema_memory_id must differ (both are {})",
-                        self.data_memory_id(),
-                    );
-                }
-                if self.index_memory_id() == self.schema_memory_id() {
-                    err!(
-                        errs,
-                        "index_memory_id and schema_memory_id must differ (both are {})",
-                        self.index_memory_id(),
-                    );
+                match self.storage() {
+                    StoreStorage::Stable(config) => {
+                        validate_stable_memory_config(&mut errs, self, *config, canister);
+                    }
                 }
             }
             Err(e) => errs.add(e),
@@ -433,6 +436,86 @@ impl ValidateNode for Store {
 
         errs.result()
     }
+}
+
+fn validate_stable_memory_config(
+    errs: &mut ErrorTree,
+    store: &Store,
+    config: StoreStableMemoryConfig,
+    canister: &Canister,
+) {
+    validate_stable_memory_role(
+        errs,
+        "data_memory_id",
+        "data stable key",
+        config.data_memory_id(),
+        store
+            .data_allocation(canister.memory_namespace())
+            .stable_key(),
+        canister,
+    );
+    validate_stable_memory_role(
+        errs,
+        "index_memory_id",
+        "index stable key",
+        config.index_memory_id(),
+        store
+            .index_allocation(canister.memory_namespace())
+            .stable_key(),
+        canister,
+    );
+    validate_stable_memory_role(
+        errs,
+        "schema_memory_id",
+        "schema stable key",
+        config.schema_memory_id(),
+        store
+            .schema_allocation(canister.memory_namespace())
+            .stable_key(),
+        canister,
+    );
+
+    if config.data_memory_id() == config.index_memory_id() {
+        err!(
+            errs,
+            "data_memory_id and index_memory_id must differ (both are {})",
+            config.data_memory_id(),
+        );
+    }
+    if config.data_memory_id() == config.schema_memory_id() {
+        err!(
+            errs,
+            "data_memory_id and schema_memory_id must differ (both are {})",
+            config.data_memory_id(),
+        );
+    }
+    if config.index_memory_id() == config.schema_memory_id() {
+        err!(
+            errs,
+            "index_memory_id and schema_memory_id must differ (both are {})",
+            config.index_memory_id(),
+        );
+    }
+}
+
+fn validate_stable_memory_role(
+    errs: &mut ErrorTree,
+    memory_label: &str,
+    stable_key_label: &str,
+    memory_id: u8,
+    stable_key: &str,
+    canister: &Canister,
+) {
+    validate_memory_id_in_range(
+        errs,
+        memory_label,
+        memory_id,
+        canister.memory_min(),
+        canister.memory_max(),
+    );
+    validate_app_memory_id(errs, memory_label, memory_id);
+    validate_memory_id_not_reserved(errs, memory_label, memory_id);
+    validate_stable_key(errs, stable_key_label, stable_key);
 }
 
 impl VisitableNode for Store {
@@ -451,14 +534,12 @@ mod tests {
 
     #[test]
     fn store_stable_keys_use_durable_icydb_shape() {
-        let store = Store::new(
+        let store = Store::new_stable(
             Def::new("demo::rpg", "CharacterStore"),
             "CHARACTER_STORE",
             "characters",
             "demo::rpg::Canister",
-            110,
-            111,
-            112,
+            StoreStableMemoryConfig::new(110, 111, 112),
         );
 
         assert_eq!(
@@ -477,14 +558,12 @@ mod tests {
 
     #[test]
     fn store_allocations_default_to_absent_schema_metadata() {
-        let store = Store::new(
+        let store = Store::new_stable(
             Def::new("demo::rpg", "CharacterStore"),
             "CHARACTER_STORE",
             "characters",
             "demo::rpg::Canister",
-            110,
-            111,
-            112,
+            StoreStableMemoryConfig::new(110, 111, 112),
         );
 
         for allocation in [
@@ -503,14 +582,12 @@ mod tests {
 
     #[test]
     fn allocation_metadata_is_role_specific_and_diagnostic_only() {
-        let store = Store::new(
+        let store = Store::new_stable(
             Def::new("demo::rpg", "CharacterStore"),
             "CHARACTER_STORE",
             "characters",
             "demo::rpg::Canister",
-            110,
-            111,
-            112,
+            StoreStableMemoryConfig::new(110, 111, 112),
         );
         let data = store.data_allocation_with_schema_metadata(
             "demo_rpg",
@@ -550,5 +627,28 @@ mod tests {
         assert!(data.same_identity_as(&data_after_reconcile));
         assert!(!data.same_identity_as(&index));
         assert!(!data.same_identity_as(&schema));
+    }
+
+    #[test]
+    fn store_owns_explicit_stable_storage_config() {
+        let store = Store::new_stable(
+            Def::new("demo::rpg", "CharacterStore"),
+            "CHARACTER_STORE",
+            "characters",
+            "demo::rpg::Canister",
+            StoreStableMemoryConfig::new(110, 111, 112),
+        );
+
+        assert!(store.is_stable_storage());
+        let stable = store
+            .stable_memory_config()
+            .expect("0.167 model stores stable config explicitly");
+
+        assert_eq!(stable.data_memory_id(), 110);
+        assert_eq!(stable.index_memory_id(), 111);
+        assert_eq!(stable.schema_memory_id(), 112);
+        assert_eq!(store.data_memory_id(), 110);
+        assert_eq!(store.index_memory_id(), 111);
+        assert_eq!(store.schema_memory_id(), 112);
     }
 }

@@ -1,5 +1,5 @@
 error: cannot add an index field with many cardinality
-  --> tests/ui/index_many_cardinality_field.rs:18:21
+  --> tests/ui/index_many_cardinality_field.rs:20:21
    |
-18 |     index(fields = ["tags"]),
+20 |     index(fields = ["tags"]),
    |                     ^^^^^^

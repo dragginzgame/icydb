@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.167.x] 🧱 - 2026-05-28 - Per-Store Storage Boundary
+
+Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
+
+- `0.167.0` introduces the explicit per-store storage boundary by requiring
+  `storage(stable(...))` store declarations, reserving heap syntax, and
+  preserving stable memory IDs, stable keys, allocation identity, and generated
+  stable wiring.
+
 ## [0.166.x] 🧾 - 2026-05-28 - SQL Surface Contract Proof Audit
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)

@@ -20,9 +20,7 @@ pub mod relation {
         ident = "RELATION_DATA_STORE",
         store_name = "main",
         canister = "RelationCanister",
-        data_memory_id = 100,
-        index_memory_id = 101,
-        schema_memory_id = 102
+        storage(stable(data_memory_id = 100, index_memory_id = 101, schema_memory_id = 102,))
     )]
     pub struct RelationDataStore {}
 }
@@ -48,9 +46,7 @@ pub mod test {
         ident = "TEST_STORE",
         store_name = "main",
         canister = "TestCanister",
-        data_memory_id = 130,
-        index_memory_id = 131,
-        schema_memory_id = 132
+        storage(stable(data_memory_id = 130, index_memory_id = 131, schema_memory_id = 132,))
     )]
     pub struct TestStore {}
 }

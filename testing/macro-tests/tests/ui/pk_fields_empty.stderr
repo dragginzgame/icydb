@@ -1,5 +1,5 @@
 error: pk(fields = []) must contain at least one field
-  --> tests/ui/pk_fields_empty.rs:17:5
+  --> tests/ui/pk_fields_empty.rs:19:5
    |
-17 |     pk(fields = []),
+19 |     pk(fields = []),
    |     ^^

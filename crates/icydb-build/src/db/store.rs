@@ -1,5 +1,5 @@
 use crate::ActorBuilder;
-use icydb_schema::node::Store;
+use icydb_schema::node::{Store, StoreStableMemoryConfig, StoreStorage};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -69,6 +69,20 @@ fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
+) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
+    match store.storage() {
+        StoreStorage::Stable(config) => {
+            stable_store_registry_entry_tokens(store_path, store, memory_namespace, *config)
+        }
+    }
+}
+
+/// Render one stable store registry entry into data/index/schema cells plus registration.
+fn stable_store_registry_entry_tokens(
+    store_path: &str,
+    store: &Store,
+    memory_namespace: &str,
+    _stable: StoreStableMemoryConfig,
 ) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
     let data_cell_ident = format_ident!("{}_DATA", store.ident());
     let index_cell_ident = format_ident!("{}_INDEX", store.ident());
@@ -243,5 +257,45 @@ fn store_wiring_tokens(
         pub fn db() -> ::icydb::db::DbSession<#canister_path> {
             ::icydb::db::DbSession::new(core_db())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use icydb_schema::node::Def;
+
+    fn stable_store() -> Store {
+        Store::new_stable(
+            Def::new("demo::schema", "DemoStore"),
+            "DEMO_STORE",
+            "demo",
+            "demo::schema::DemoCanister",
+            StoreStableMemoryConfig::new(10, 11, 12),
+        )
+    }
+
+    #[test]
+    fn stable_store_wiring_uses_ic_memory_key_for_each_store_role() {
+        let store = stable_store();
+        let (data_def, index_def, schema_def, store_init) =
+            store_registry_entry_tokens("demo::schema::DemoStore", &store, "demo");
+        let rendered = quote! {
+            #data_def
+            #index_def
+            #schema_def
+            #store_init
+        }
+        .to_string();
+
+        assert_eq!(rendered.matches("ic_memory_key").count(), 3);
+        assert_eq!(
+            rendered.matches("StoreAllocationIdentity :: new").count(),
+            3
+        );
+        assert!(rendered.contains("icydb.demo.demo.data.v1"));
+        assert!(rendered.contains("icydb.demo.demo.index.v1"));
+        assert!(rendered.contains("icydb.demo.demo.schema.v1"));
+        assert!(!rendered.contains("heap"));
     }
 }

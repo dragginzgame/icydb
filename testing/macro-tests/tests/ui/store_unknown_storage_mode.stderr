@@ -1,0 +1,5 @@
+error: unknown store storage mode; expected storage(stable(...))
+  --> tests/ui/store_unknown_storage_mode.rs:10:13
+   |
+10 |     storage(memory())
+   |             ^^^^^^

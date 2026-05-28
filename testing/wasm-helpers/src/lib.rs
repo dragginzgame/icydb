@@ -56,7 +56,16 @@ macro_rules! define_fixture_canister_store {
         #[doc = ""]
         #[doc = "Main store model used by wasm SQL fixtures."]
         #[doc = ""]
-        #[store(ident = $store_ident, store_name = "main", canister = $canister_name, data_memory_id = $data_memory_id, index_memory_id = $index_memory_id, schema_memory_id = $schema_memory_id)]
+        #[store(
+            ident = $store_ident,
+            store_name = "main",
+            canister = $canister_name,
+            storage(stable(
+                data_memory_id = $data_memory_id,
+                index_memory_id = $index_memory_id,
+                schema_memory_id = $schema_memory_id,
+            )),
+        )]
         pub struct $store {}
     };
 }

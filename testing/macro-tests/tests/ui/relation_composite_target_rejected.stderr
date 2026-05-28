@@ -1,32 +1,32 @@
 error[E0277]: the trait bound `CompositeTargetKey: icydb::__macro::ScalarRelationTargetKeyMatchesDeclaredPrimitive<u64>` is not satisfied
-  --> tests/ui/relation_composite_target_rejected.rs:25:1
+  --> tests/ui/relation_composite_target_rejected.rs:27:1
    |
-25 | / #[entity(
-26 | |     store = "UiDataStore",
-27 | |     pk(fields = ["id"]),
-28 | |     fields(
+27 | / #[entity(
+28 | |     store = "UiDataStore",
+29 | |     pk(fields = ["id"]),
+30 | |     fields(
 ...  |
-32 | | )]
+34 | | )]
    | |__^ unsatisfied trait bound
    |
 help: the trait `icydb::__macro::ScalarRelationTargetKeyMatchesDeclaredPrimitive<u64>` is not implemented for `CompositeTargetKey`
-  --> tests/ui/relation_composite_target_rejected.rs:15:1
+  --> tests/ui/relation_composite_target_rejected.rs:17:1
    |
-15 | / #[entity(
-16 | |     store = "UiDataStore",
-17 | |     pk(fields = ["tenant_id", "local_id"]),
-18 | |     fields(
+17 | / #[entity(
+18 | |     store = "UiDataStore",
+19 | |     pk(fields = ["tenant_id", "local_id"]),
+20 | |     fields(
 ...  |
-22 | | )]
+24 | | )]
    | |__^
 note: required by a bound in `__icydb_assert_relation_target_key`
-  --> tests/ui/relation_composite_target_rejected.rs:25:1
+  --> tests/ui/relation_composite_target_rejected.rs:27:1
    |
-25 | / #[entity(
-26 | |     store = "UiDataStore",
-27 | |     pk(fields = ["id"]),
-28 | |     fields(
+27 | / #[entity(
+28 | |     store = "UiDataStore",
+29 | |     pk(fields = ["id"]),
+30 | |     fields(
 ...  |
-32 | | )]
+34 | | )]
    | |__^ required by this bound in `__icydb_assert_relation_target_key`
    = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

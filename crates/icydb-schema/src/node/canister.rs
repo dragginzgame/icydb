@@ -111,44 +111,48 @@ impl ValidateNode for Canister {
 
         // Check all Store nodes for this canister
         for (path, store) in schema.filter_nodes::<Store>(|node| node.canister() == canister_path) {
-            assert_unique_memory_allocation(
-                store.data_allocation(self.memory_namespace()).memory_id(),
-                store
-                    .data_allocation(self.memory_namespace())
-                    .stable_key()
-                    .to_string(),
-                format!("Store `{path}`.data_memory"),
-                &canister_path,
-                &mut seen_ids,
-                &mut seen_keys,
-                &mut errs,
-            );
+            match store.storage() {
+                StoreStorage::Stable(_) => {
+                    assert_unique_memory_allocation(
+                        store.data_allocation(self.memory_namespace()).memory_id(),
+                        store
+                            .data_allocation(self.memory_namespace())
+                            .stable_key()
+                            .to_string(),
+                        format!("Store `{path}`.data_memory"),
+                        &canister_path,
+                        &mut seen_ids,
+                        &mut seen_keys,
+                        &mut errs,
+                    );
 
-            assert_unique_memory_allocation(
-                store.index_allocation(self.memory_namespace()).memory_id(),
-                store
-                    .index_allocation(self.memory_namespace())
-                    .stable_key()
-                    .to_string(),
-                format!("Store `{path}`.index_memory"),
-                &canister_path,
-                &mut seen_ids,
-                &mut seen_keys,
-                &mut errs,
-            );
+                    assert_unique_memory_allocation(
+                        store.index_allocation(self.memory_namespace()).memory_id(),
+                        store
+                            .index_allocation(self.memory_namespace())
+                            .stable_key()
+                            .to_string(),
+                        format!("Store `{path}`.index_memory"),
+                        &canister_path,
+                        &mut seen_ids,
+                        &mut seen_keys,
+                        &mut errs,
+                    );
 
-            assert_unique_memory_allocation(
-                store.schema_allocation(self.memory_namespace()).memory_id(),
-                store
-                    .schema_allocation(self.memory_namespace())
-                    .stable_key()
-                    .to_string(),
-                format!("Store `{path}`.schema_memory"),
-                &canister_path,
-                &mut seen_ids,
-                &mut seen_keys,
-                &mut errs,
-            );
+                    assert_unique_memory_allocation(
+                        store.schema_allocation(self.memory_namespace()).memory_id(),
+                        store
+                            .schema_allocation(self.memory_namespace())
+                            .stable_key()
+                            .to_string(),
+                        format!("Store `{path}`.schema_memory"),
+                        &canister_path,
+                        &mut seen_ids,
+                        &mut seen_keys,
+                        &mut errs,
+                    );
+                }
+            }
         }
 
         errs.result()
@@ -227,14 +231,12 @@ mod tests {
         index_memory_id: u8,
         schema_memory_id: u8,
     ) {
-        schema_write().insert_node(SchemaNode::Store(Store::new(
+        schema_write().insert_node(SchemaNode::Store(Store::new_stable(
             Def::new(path_module, ident),
             ident,
             store_name,
             canister_path,
-            data_memory_id,
-            index_memory_id,
-            schema_memory_id,
+            StoreStableMemoryConfig::new(data_memory_id, index_memory_id, schema_memory_id),
         )));
     }
 
@@ -324,23 +326,19 @@ mod tests {
 
     #[test]
     fn store_allocation_identity_is_independent_of_schema_order() {
-        let first = Store::new(
+        let first = Store::new_stable(
             Def::new("schema_allocation_order", "Users"),
             "USERS",
             "users",
             "schema_allocation_order::Canister",
-            110,
-            111,
-            112,
+            StoreStableMemoryConfig::new(110, 111, 112),
         );
-        let reordered = Store::new(
+        let reordered = Store::new_stable(
             Def::new("schema_allocation_order", "Users"),
             "USERS",
             "users",
             "schema_allocation_order::Canister",
-            110,
-            111,
-            112,
+            StoreStableMemoryConfig::new(110, 111, 112),
         );
 
         assert!(
@@ -362,23 +360,19 @@ mod tests {
 
     #[test]
     fn adding_store_does_not_change_existing_store_allocation() {
-        let existing = Store::new(
+        let existing = Store::new_stable(
             Def::new("schema_allocation_add", "Users"),
             "USERS",
             "users",
             "schema_allocation_add::Canister",
-            110,
-            111,
-            112,
+            StoreStableMemoryConfig::new(110, 111, 112),
         );
-        let _new_store = Store::new(
+        let _new_store = Store::new_stable(
             Def::new("schema_allocation_add", "AuditEvents"),
             "AUDIT_EVENTS",
             "audit_events",
             "schema_allocation_add::Canister",
-            120,
-            121,
-            122,
+            StoreStableMemoryConfig::new(120, 121, 122),
         );
 
         assert_eq!(existing.data_allocation("test_db").memory_id(), 110);
