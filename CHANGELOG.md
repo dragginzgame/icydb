@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.13` closes the SQL surface proof audit with the matrix marked closed
+  and future SQL contract changes required to update the proof ledger.
+
 - `0.166.12` pins expression-index, unique-index, and `ALTER TABLE` DDL proof
   rows to exact public SQL DDL entrypoint tests.
 

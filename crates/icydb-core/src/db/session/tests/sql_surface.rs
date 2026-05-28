@@ -1017,6 +1017,22 @@ fn execute_sql_query_rejects_unsupported_sql_families() {
             "ROLLBACK",
             "transaction control should stay outside the SQL surface",
         ),
+    ];
+
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(
+            session.execute_sql_query::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
+}
+
+#[test]
+fn execute_sql_query_rejects_unsupported_expression_sql_families() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
         (
             "SELECT bytes(age) FROM SessionSqlEntity",
             "byte-metric diagnostics should stay outside the SQL surface",
@@ -3107,7 +3123,7 @@ fn execute_sql_query_preserves_deterministic_aggregate_labels() {
 }
 
 #[test]
-fn execute_sql_query_evaluates_basic_global_and_grouped_aggregate_loads() {
+fn execute_sql_query_evaluates_basic_global_aggregate_loads() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 20), ("bob", 32), ("ada", 40)]);
@@ -3162,6 +3178,13 @@ fn execute_sql_query_evaluates_basic_global_and_grouped_aggregate_loads() {
         vec![vec![output(Value::Nat64(0)), output(Value::Null)]],
         "empty-input global aggregate loads should keep SQL count/sum semantics",
     );
+}
+
+#[test]
+fn execute_sql_query_evaluates_basic_grouped_aggregate_loads() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 20), ("bob", 32), ("ada", 40)]);
 
     let SqlStatementResult::Grouped {
         columns,
