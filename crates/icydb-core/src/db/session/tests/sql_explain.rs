@@ -112,6 +112,164 @@ fn assert_explain_token_matrix<E>(
     }
 }
 
+// Execute one EXPLAIN statement through the public query entrypoint. Keep this
+// separate from `statement_explain_sql`, which is useful supporting coverage but
+// does not close public-entrypoint proof rows.
+fn public_query_explain_sql<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> String
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+{
+    let result = session
+        .execute_sql_query::<E>(sql)
+        .unwrap_or_else(|err| panic!("public EXPLAIN query should succeed: {sql}: {err}"));
+
+    let SqlStatementResult::Explain(explain) = result else {
+        panic!("public EXPLAIN query should emit explain text: {sql}");
+    };
+
+    explain
+}
+
+#[test]
+fn execute_sql_query_explain_plan_matrix_returns_public_explain_payload() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, tokens) in [
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            ["mode=Load", "access="].as_slice(),
+        ),
+        (
+            "EXPLAIN SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+            ["mode=Load", "distinct=true"].as_slice(),
+        ),
+        (
+            "EXPLAIN SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            ["mode=Load", "grouping=Grouped"].as_slice(),
+        ),
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            ["mode=Delete", "access="].as_slice(),
+        ),
+        (
+            "EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity",
+            ["mode=Load", "access="].as_slice(),
+        ),
+    ] {
+        let explain = public_query_explain_sql::<SessionSqlEntity>(&session, sql);
+
+        assert_explain_contains_tokens(explain.as_str(), tokens, sql);
+    }
+}
+
+#[test]
+fn execute_sql_query_explain_execution_matrix_returns_public_explain_payload() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, tokens) in [
+        (
+            "EXPLAIN EXECUTION SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            ["phases:", "execution:", "node_id=0", "node_properties:"].as_slice(),
+        ),
+        (
+            "EXPLAIN EXECUTION SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            ["phases:", "execution:", "node_id=0", "execution_mode="].as_slice(),
+        ),
+        (
+            "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
+            [
+                "phases:",
+                "execution:",
+                "AggregateCount execution_mode=",
+                "node_id=0",
+            ]
+            .as_slice(),
+        ),
+        (
+            "EXPLAIN EXECUTION DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            ["phases:", "execution:", "node_id=0", "layer="].as_slice(),
+        ),
+    ] {
+        let explain = public_query_explain_sql::<SessionSqlEntity>(&session, sql);
+
+        assert_explain_contains_tokens(explain.as_str(), tokens, sql);
+    }
+}
+
+#[test]
+fn execute_sql_query_explain_json_matrix_returns_public_explain_payload() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, tokens) in [
+        (
+            "EXPLAIN JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            ["\"mode\":{\"type\":\"Load\"", "\"access\":"].as_slice(),
+        ),
+        (
+            "EXPLAIN JSON SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+            ["\"mode\":{\"type\":\"Load\"", "\"distinct\":true"].as_slice(),
+        ),
+        (
+            "EXPLAIN JSON SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            ["\"mode\":{\"type\":\"Load\"", "\"grouping\""].as_slice(),
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            ["\"mode\":{\"type\":\"Delete\"", "\"access\":"].as_slice(),
+        ),
+        (
+            "EXPLAIN JSON SELECT COUNT(*) FROM SessionSqlEntity",
+            ["\"mode\":{\"type\":\"Load\"", "\"access\":"].as_slice(),
+        ),
+    ] {
+        let explain = public_query_explain_sql::<SessionSqlEntity>(&session, sql);
+
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "public query EXPLAIN JSON should render one JSON object payload: {sql}: {explain}",
+        );
+        assert_explain_contains_tokens(explain.as_str(), tokens, sql);
+    }
+}
+
+#[test]
+fn execute_sql_query_explain_unsupported_features_fail_closed_publicly() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, context) in [
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
+            "EXPLAIN JOIN should stay outside the public query surface",
+        ),
+        (
+            "EXPLAIN EXECUTION SELECT ROW_NUMBER() OVER (ORDER BY age) FROM SessionSqlEntity",
+            "EXPLAIN window functions should stay outside the public query surface",
+        ),
+        (
+            "EXPLAIN SELECT CAST(age AS text) FROM SessionSqlEntity",
+            "EXPLAIN casts should stay outside the public query surface",
+        ),
+    ] {
+        assert_unsupported_sql_surface_result(
+            session.execute_sql_query::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
+}
+
 #[test]
 fn explain_sql_plan_matrix_queries_include_expected_tokens() {
     reset_session_sql_store();
@@ -438,6 +596,38 @@ fn explain_sql_execution_separates_index_pushdown_from_residual_predicate() {
     assert!(
         !explain.contains("access=FullScan"),
         "index-compatible range predicates should not collapse to a full scan: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_query_explain_execution_separates_index_pushdown_from_residual_predicate() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    let explain = public_query_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM IndexedSessionSqlEntity \
+         WHERE name >= 'S' AND name < 'T' AND age >= 30 \
+         ORDER BY name ASC",
+    );
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "access_strategy=IndexRange(name)",
+            "predicate_pushdown_mode=partial",
+            "predicate_pushdown=name>=Text(\"S\") AND name<Text(\"T\")",
+            "ResidualFilter execution_mode=",
+            "residual_filter_predicate=",
+            "age",
+        ],
+        "public query EXPLAIN EXECUTION indexed range plus residual",
+    );
+    assert!(
+        !explain.contains("access=FullScan"),
+        "public query EXPLAIN should not collapse index-compatible range predicates to a full scan: {explain}",
     );
 }
 

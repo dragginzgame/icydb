@@ -2,16 +2,18 @@
 
 ## Status
 
-First public-surface proof pass populated.
+Closed.
 
 This matrix starts from `docs/contracts/SQL_SUBSET.md`, which remains the
 normative SQL contract. Rows remain intentionally conservative: a claim is
 marked proven only when it is matched to direct public-entrypoint tests.
 
-The first 0.166 pass has no supported rows classified as partially proven,
+The 0.166 closeout matrix has no supported rows classified as partially proven,
 unproven, contradicted, or accidentally accepted. Explicitly unsupported rows
 are covered by public fail-closed tests or by named supporting tests in the row
-evidence.
+evidence. EXPLAIN rows that claim `execute_sql_query::<E>(...)` evidence are
+closed by tests that call that public entrypoint directly; statement-helper
+coverage is supporting evidence only.
 
 Classification values:
 
@@ -60,11 +62,11 @@ Classification values:
 | Boolean truth predicates | `SQL_SUBSET.md` Predicates | `execute_sql_query::<E>(...)` | `IS TRUE`, `IS FALSE`, `IS NOT TRUE`, `IS NOT FALSE` | Proven | Public scalar rows and cache separation are covered by `execute_sql_scalar_is_true_false_and_is_not_true_false_match_expected_rows` and `shared_query_plan_cache_keeps_is_true_and_is_not_true_filters_separate`. |
 | Prefix text predicates | `SQL_SUBSET.md` Predicates | `execute_sql_query::<E>(...)` | prefix `LIKE`, `NOT LIKE`, `ILIKE`, `NOT ILIKE` | Proven | Public rows for strict and casefolded prefix families are covered by `execute_sql_not_like_prefix_matrix_matches_negated_prefix_rows`, `execute_sql_ilike_prefix_matrix_matches_casefold_prefix_rows`, `execute_sql_not_ilike_prefix_matrix_matches_negated_casefold_prefix_rows`, and wrapped `LIKE` / `ILIKE` scalar tests. |
 | Direct `STARTS_WITH` predicates | `SQL_SUBSET.md` Predicates | `execute_sql_query::<E>(...)` | `STARTS_WITH(field, prefix)`, `STARTS_WITH(LOWER(field), prefix)`, `STARTS_WITH(UPPER(field), prefix)` | Proven | Public query/delete parity with bounded `LIKE` and text ranges is covered by `execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows`, direct lower-prefix tests, and direct delete parity tests. |
-| Index pushdown and residual predicate visibility | `SQL_SUBSET.md` Predicates / `EXPLAIN` | `execute_sql_query::<E>(...)` via `EXPLAIN EXECUTION` | indexed range predicates plus non-index residual predicates | Proven | Public EXPLAIN execution proof is covered by `explain_sql_execution_separates_index_pushdown_from_residual_predicate`, proving index-compatible range predicates keep an index route while residual predicates remain visible as post-access filters. |
+| Index pushdown and residual predicate visibility | `SQL_SUBSET.md` Predicates / `EXPLAIN` | `execute_sql_query::<E>(...)` via `EXPLAIN EXECUTION` | indexed range predicates plus non-index residual predicates | Proven | Direct public-query EXPLAIN execution proof is covered by `execute_sql_query_explain_execution_separates_index_pushdown_from_residual_predicate`, proving index-compatible range predicates keep an index route while residual predicates remain visible as post-access filters. Statement-helper EXPLAIN tests remain supporting coverage. |
 | Searched `CASE` in `WHERE` | `SQL_SUBSET.md` Shared SQL Expression Family / Predicates | `execute_sql_query::<E>(...)` | `CASE WHEN predicate THEN TRUE ELSE ... END` | Proven | Public rows and semantic identity behavior are covered by searched-case scalar WHERE tests, null-context searched-case tests, and SQL surface cache identity tests. |
 | `HAVING` | `SQL_SUBSET.md` `HAVING` | `execute_sql_query::<E>(...)` | grouped/global aggregate `HAVING` | Proven | Grouped/global admitted forms are covered by grouped filter/having matrices, `grouped_select_allows_post_aggregate_having_expressions`, and searched-case grouped having tests. Public output-shape proof that non-projected `HAVING` terms are not auto-projected is covered by `execute_sql_query_having_terms_are_not_auto_projected`. |
 | `ORDER BY`, `LIMIT`, `OFFSET` | `SQL_SUBSET.md` Query semantics | `execute_sql_query::<E>(...)` | `SELECT ... ORDER BY field LIMIT n OFFSET m` | Proven | Deterministic public ordering and windowing are covered by scalar matrix, projection order-by alias/direct-order tests, grouped ordered tests, and offset tests. Nullable ordering is covered by `execute_sql_query_defines_order_by_null_ordering`, proving `ASC` nulls-first behavior and reversed `DESC` comparator behavior. |
-| `EXPLAIN` | `SQL_SUBSET.md` `EXPLAIN` | `execute_sql_query::<E>(...)` | `EXPLAIN SELECT ...`, `EXPLAIN DELETE ...`, JSON/execution variants | Proven | Public explain token/JSON surfaces are covered by `explain_sql_plan_matrix_queries_include_expected_tokens`, `explain_sql_execution_matrix_queries_include_expected_tokens`, and related explain tests. |
+| `EXPLAIN` | `SQL_SUBSET.md` `EXPLAIN` | `execute_sql_query::<E>(...)` | `EXPLAIN SELECT ...`, `EXPLAIN DELETE ...`, JSON/execution variants | Proven | Direct public-query explain token/JSON/error surfaces are covered by `execute_sql_query_explain_plan_matrix_returns_public_explain_payload`, `execute_sql_query_explain_execution_matrix_returns_public_explain_payload`, `execute_sql_query_explain_json_matrix_returns_public_explain_payload`, and `execute_sql_query_explain_unsupported_features_fail_closed_publicly`. Statement-helper EXPLAIN tests remain supporting coverage. |
 | `DESCRIBE` | `SQL_SUBSET.md` Introspection | `execute_sql_query::<E>(...)` | `DESCRIBE Entity` | Proven | Direct public-entrypoint response shape is covered by `sql_metadata_surfaces_execute_through_public_query_entrypoint`; accepted schema rendering parity is covered by metadata surface tests. |
 | `SHOW INDEXES` | `SQL_SUBSET.md` Introspection | `execute_sql_query::<E>(...)` | `SHOW INDEXES FROM Entity`, `SHOW INDEXES IN Entity` | Proven | Public index metadata and origin/lifecycle output are covered by DDL publication/drop tests that verify `SHOW INDEXES FROM` after catalog mutation. Direct alias parity between `SHOW INDEXES FROM` and `SHOW INDEXES IN` is covered by `sql_metadata_surfaces_execute_through_public_query_entrypoint`. |
 | `SHOW COLUMNS` | `SQL_SUBSET.md` Introspection | `execute_sql_query::<E>(...)` | `SHOW COLUMNS Entity` | Proven | Direct public-entrypoint response shape is covered by `sql_metadata_surfaces_execute_through_public_query_entrypoint`; accepted schema field-label parity is covered by metadata surface tests. |
