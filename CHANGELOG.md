@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.12` pins expression-index, unique-index, and `ALTER TABLE` DDL proof
+  rows to exact public SQL DDL entrypoint tests.
+
 - `0.166.11` proves scalar `DISTINCT` windowing and basic global/grouped
   aggregate load values through the public SQL query entrypoint.
 
