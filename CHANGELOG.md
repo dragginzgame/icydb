@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.11` proves scalar `DISTINCT` windowing and basic global/grouped
+  aggregate load values through the public SQL query entrypoint.
+
 - `0.166.10` proves field-list `RETURNING` projections and public SQL write
   count/persisted-state behavior through the SQL update entrypoint, while
   tightening wrong-surface DDL no-publication proof.

@@ -2807,6 +2807,41 @@ fn execute_sql_query_preserves_group_key_declaration_order() {
 }
 
 #[test]
+fn execute_sql_query_preserves_scalar_distinct_ordered_window() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("ada", 20), ("bob", 20), ("carol", 32), ("dana", 40)],
+    );
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
+        )
+        .expect("scalar DISTINCT ordered window should execute through public query")
+    else {
+        panic!("scalar DISTINCT ordered window should emit projection rows");
+    };
+
+    assert_eq!(columns, vec!["age".to_string()]);
+    assert_eq!(
+        rows,
+        vec![
+            vec![output(Value::Nat64(32))],
+            vec![output(Value::Nat64(40))],
+        ],
+        "scalar DISTINCT should dedupe before ORDER BY / LIMIT / OFFSET windowing",
+    );
+    assert_eq!(row_count, 2);
+}
+
+#[test]
 fn execute_sql_query_groups_null_keys_and_applies_having_after_aggregation() {
     reset_session_sql_store();
     let session = sql_session();
@@ -3068,6 +3103,122 @@ fn execute_sql_query_preserves_deterministic_aggregate_labels() {
     assert!(
         next_cursor.is_none(),
         "fully materialized grouped aggregate label proof should not emit a cursor",
+    );
+}
+
+#[test]
+fn execute_sql_query_evaluates_basic_global_and_grouped_aggregate_loads() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 20), ("bob", 32), ("ada", 40)]);
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) AS rows, SUM(age) AS total_age, \
+                    MIN(age) AS youngest, MAX(age) AS oldest \
+             FROM SessionSqlEntity",
+        )
+        .expect("basic global aggregate loads should execute through public query")
+    else {
+        panic!("basic global aggregate proof should return projection rows");
+    };
+    assert_eq!(
+        columns,
+        vec![
+            "rows".to_string(),
+            "total_age".to_string(),
+            "youngest".to_string(),
+            "oldest".to_string(),
+        ],
+    );
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(3)),
+            output(Value::Decimal(crate::types::Decimal::from(92u64))),
+            output(Value::Nat64(20)),
+            output(Value::Nat64(40)),
+        ]],
+        "basic global aggregate loads should preserve public aggregate values",
+    );
+    assert_eq!(row_count, 1);
+
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) AS rows, SUM(age) AS total_age \
+             FROM SessionSqlEntity WHERE age > 99",
+        )
+        .expect("empty-input global aggregate loads should execute through public query")
+    else {
+        panic!("empty-input global aggregate proof should return projection rows");
+    };
+    assert_eq!(
+        rows,
+        vec![vec![output(Value::Nat64(0)), output(Value::Null)]],
+        "empty-input global aggregate loads should keep SQL count/sum semantics",
+    );
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS rows, SUM(age) AS total_age \
+             FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
+        )
+        .expect("basic grouped aggregate loads should execute through public query")
+    else {
+        panic!("basic grouped aggregate proof should return grouped rows");
+    };
+    assert_eq!(
+        columns,
+        vec![
+            "name".to_string(),
+            "rows".to_string(),
+            "total_age".to_string()
+        ],
+    );
+    assert_eq!(row_count, 2);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized basic grouped aggregate proof should not emit a cursor",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (
+                vec![Value::Text("ada".to_string())],
+                vec![
+                    Value::Nat64(2),
+                    Value::Decimal(crate::types::Decimal::from(60u64)),
+                ],
+            ),
+            (
+                vec![Value::Text("bob".to_string())],
+                vec![
+                    Value::Nat64(1),
+                    Value::Decimal(crate::types::Decimal::from(32u64)),
+                ],
+            ),
+        ],
+        "basic grouped aggregate loads should preserve grouped public aggregate values",
     );
 }
 
