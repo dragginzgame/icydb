@@ -60,7 +60,7 @@ help:
 	@echo "  release          CI-driven release (local target is no-op)"
 	@echo ""
 	@echo "Development:"
-	@echo "  test             Run all tests; uncached PocketIC downloads require ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1"
+	@echo "  test             Run all tests; downloads pinned PocketIC when uncached"
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
@@ -200,8 +200,8 @@ test: clippy test-unit
 test-bump: clippy test-unit
 
 test-unit:
-	pocket_ic_bin="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" && POCKET_IC_BIN="$$pocket_ic_bin" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql
-	pocket_ic_bin="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" && POCKET_IC_BIN="$$pocket_ic_bin" $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
+	pocket_ic_bin="$$(ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1 bash scripts/ci/ensure-pocket-ic-bin.sh)" && POCKET_IC_BIN="$$pocket_ic_bin" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql
+	pocket_ic_bin="$$(ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1 bash scripts/ci/ensure-pocket-ic-bin.sh)" && POCKET_IC_BIN="$$pocket_ic_bin" $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
 
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)

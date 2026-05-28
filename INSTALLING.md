@@ -225,7 +225,7 @@ this order:
 
 1. `POCKET_IC_BIN`, when it points at an executable.
 2. A cached binary for the pinned `pocket-ic` crate version.
-3. A GitHub release download, only when `ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1`.
+3. A GitHub release download.
 
 Use a trusted local binary when you have one:
 
@@ -233,10 +233,11 @@ Use a trusted local binary when you have one:
 POCKET_IC_BIN=/path/to/pocket-ic make test
 ```
 
-Or explicitly allow the helper to download the pinned release:
+Or let `make test` download the pinned release into the repo cache when it is
+missing:
 
 ```bash
-ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1 make test
+make test
 ```
 
 Set `POCKET_IC_SERVER_SHA256` when you have a trusted digest and want checksum

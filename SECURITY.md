@@ -18,12 +18,13 @@ that boundary and should be run only on hosts where that is acceptable.
 - `make install-canister-deps` adds the pinned Wasm Rust target and installs
   `candid-extractor`, `ic-wasm`, and `twiggy` through Cargo. It does not run
   `sudo` or install OS packages.
-- `make test` may need an IC testkit server binary. If `POCKET_IC_BIN` is not set
-  and the repo cache does not already contain the binary, the download path now
-  requires `ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1`.
-- `scripts/ci/ensure-pocket-ic-bin.sh` downloads the test runner from GitHub only after
-  that explicit opt-in. Set `POCKET_IC_SERVER_SHA256` when you have a trusted
-  digest and want the script to verify the executable bytes.
+- `make test` may need an IC testkit server binary. It resolves a trusted
+  `POCKET_IC_BIN` first, then the repo cache, and otherwise downloads the
+  pinned `pocket-ic` release before passing that path into testkit.
+- Direct `scripts/ci/ensure-pocket-ic-bin.sh` use downloads the test runner from
+  GitHub only after `ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1`. Set
+  `POCKET_IC_SERVER_SHA256` when you have a trusted digest and want the script
+  to verify the executable bytes.
 - Crate publishing is manual maintainer work using `cargo publish`; there is no
   repo Make target or script that reads crates.io credentials.
 - `scripts/dev/delete-tags.sh` deletes matching local tags and remote `origin`

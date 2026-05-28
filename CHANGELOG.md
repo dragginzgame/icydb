@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
-- `0.166.14` closes the EXPLAIN proof-evidence gap by pinning EXPLAIN matrix
-  rows to direct public SQL query entrypoint tests.
+- `0.166.14` closes the EXPLAIN proof-evidence gap with direct public SQL
+  query tests and makes `make test` bootstrap the pinned PocketIC binary when
+  it is not cached.
 
 - `0.166.13` closes the SQL surface proof audit with the matrix marked closed
   and future SQL contract changes required to update the proof ledger.
