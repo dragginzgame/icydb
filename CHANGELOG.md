@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.9` proves grouped post-aggregate computed projection, aggregate
+  input-expression values, and aggregate `DISTINCT` / `FILTER` terminal values
+  through the public SQL query entrypoint.
+
 - `0.166.8` proves bounded scalar boolean searched-`CASE` projection, grouped
   key text-function projection, and the `SHOW INDEXES IN` metadata alias
   through the public SQL query entrypoint.

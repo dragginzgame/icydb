@@ -2339,6 +2339,61 @@ fn execute_sql_query_admits_grouped_boolean_computed_projection() {
 }
 
 #[test]
+fn execute_sql_query_admits_grouped_post_aggregate_computed_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT age, CASE WHEN COUNT(*) > 1 THEN 'multi' ELSE 'single' END AS bucket \
+             FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+        )
+        .expect(
+            "grouped post-aggregate computed projection should execute through the public query surface",
+        )
+    else {
+        panic!("grouped post-aggregate computed projection should emit grouped rows");
+    };
+
+    assert_eq!(columns, vec!["age".to_string(), "bucket".to_string()]);
+    assert_eq!(row_count, 2);
+    assert!(
+        next_cursor.is_none(),
+        "bounded grouped post-aggregate computed projection should fully materialize",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (
+                vec![Value::Nat64(21)],
+                vec![Value::Text("multi".to_string())],
+            ),
+            (
+                vec![Value::Nat64(32)],
+                vec![Value::Text("single".to_string())],
+            ),
+        ],
+        "grouped post-aggregate CASE projection should evaluate over finalized grouped outputs",
+    );
+}
+
+#[test]
 fn execute_sql_query_admits_bounded_scalar_boolean_computed_projection() {
     reset_session_sql_store();
     let session = sql_session();
@@ -3013,6 +3068,195 @@ fn execute_sql_query_preserves_deterministic_aggregate_labels() {
     assert!(
         next_cursor.is_none(),
         "fully materialized grouped aggregate label proof should not emit a cursor",
+    );
+}
+
+#[test]
+fn execute_sql_query_evaluates_aggregate_input_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("ada", 32)]);
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT SUM(age + 1) AS shifted_sum, \
+                    AVG(CASE WHEN age >= 30 THEN age ELSE 0 END) AS adult_avg \
+             FROM SessionSqlEntity",
+        )
+        .expect("global aggregate input expressions should execute through public query")
+    else {
+        panic!("global aggregate input expression proof should return projection rows");
+    };
+    assert_eq!(
+        columns,
+        vec!["shifted_sum".to_string(), "adult_avg".to_string()],
+    );
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Decimal(crate::types::Decimal::from(77u64))),
+            output(Value::Decimal(
+                "10.666666666666666667"
+                    .parse::<crate::types::Decimal>()
+                    .expect("expected aggregate average decimal should parse"),
+            )),
+        ]],
+        "global aggregate expression inputs should evaluate per source row before reduction",
+    );
+    assert_eq!(row_count, 1);
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, SUM(age + 1) AS shifted_sum \
+             FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
+        )
+        .expect("grouped aggregate input expressions should execute through public query")
+    else {
+        panic!("grouped aggregate input expression proof should return grouped rows");
+    };
+    assert_eq!(columns, vec!["name".to_string(), "shifted_sum".to_string()]);
+    assert_eq!(row_count, 2);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized grouped aggregate input proof should not emit a cursor",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (
+                vec![Value::Text("ada".to_string())],
+                vec![Value::Decimal(crate::types::Decimal::from(55u64))],
+            ),
+            (
+                vec![Value::Text("bob".to_string())],
+                vec![Value::Decimal(crate::types::Decimal::from(22u64))],
+            ),
+        ],
+        "grouped aggregate expression inputs should evaluate per source row before grouped reduction",
+    );
+}
+
+#[test]
+fn execute_sql_query_evaluates_aggregate_distinct_and_filter_terminals() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("ada", 20),
+            ("ada", 20),
+            ("ada", 32),
+            ("bob", 20),
+            ("bob", 40),
+        ],
+    );
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(DISTINCT age) AS distinct_ages, \
+                    SUM(age) FILTER (WHERE age >= 30) AS filtered_sum \
+             FROM SessionSqlEntity",
+        )
+        .expect("global DISTINCT and FILTER aggregates should execute through public query")
+    else {
+        panic!("global DISTINCT and FILTER proof should return projection rows");
+    };
+    assert_eq!(
+        columns,
+        vec!["distinct_ages".to_string(), "filtered_sum".to_string()],
+    );
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(3)),
+            output(Value::Decimal(crate::types::Decimal::from(72u64))),
+        ]],
+        "global DISTINCT and FILTER terminals should preserve independent aggregate semantics",
+    );
+    assert_eq!(row_count, 1);
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(DISTINCT age) AS distinct_ages, \
+                    SUM(age) FILTER (WHERE age >= 30) AS filtered_sum \
+             FROM SessionSqlEntity GROUP BY name ORDER BY name ASC LIMIT 10",
+        )
+        .expect("grouped DISTINCT and FILTER aggregates should execute through public query")
+    else {
+        panic!("grouped DISTINCT and FILTER proof should return grouped rows");
+    };
+    assert_eq!(
+        columns,
+        vec![
+            "name".to_string(),
+            "distinct_ages".to_string(),
+            "filtered_sum".to_string(),
+        ],
+    );
+    assert_eq!(row_count, 2);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized grouped DISTINCT and FILTER proof should not emit a cursor",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (
+                vec![Value::Text("ada".to_string())],
+                vec![
+                    Value::Nat64(2),
+                    Value::Decimal(crate::types::Decimal::from(32u64)),
+                ],
+            ),
+            (
+                vec![Value::Text("bob".to_string())],
+                vec![
+                    Value::Nat64(2),
+                    Value::Decimal(crate::types::Decimal::from(40u64)),
+                ],
+            ),
+        ],
+        "grouped DISTINCT and FILTER terminals should preserve per-group aggregate semantics",
     );
 }
 
