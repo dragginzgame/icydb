@@ -959,6 +959,22 @@ fn execute_sql_query_rejects_unsupported_sql_families() {
             "cursor-token syntax should stay outside the scalar SQL surface",
         ),
         (
+            "DESCRIBE SessionSqlEntity WHERE age > 1",
+            "DESCRIBE modifiers should stay outside the SQL metadata surface",
+        ),
+        (
+            "SHOW INDEXES FROM SessionSqlEntity WHERE age > 1",
+            "SHOW INDEXES modifiers should stay outside the SQL metadata surface",
+        ),
+        (
+            "SHOW COLUMNS SessionSqlEntity WHERE age > 1",
+            "SHOW COLUMNS modifiers should stay outside the SQL metadata surface",
+        ),
+        (
+            "SHOW ENTITIES SessionSqlEntity",
+            "SHOW ENTITIES modifiers should stay outside the SQL metadata surface",
+        ),
+        (
             "BEGIN",
             "transaction control should stay outside the SQL surface",
         ),
@@ -1019,6 +1035,36 @@ fn execute_sql_query_rejects_unsupported_sql_families() {
             .is_err(),
         "grouped row-field text predicates should fail closed through the query surface",
     );
+}
+
+#[test]
+fn execute_sql_query_rejects_invalid_grouped_projection_shapes() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, context) in [
+        (
+            "SELECT age FROM SessionSqlEntity GROUP BY age",
+            "grouped projection without aggregate output",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity GROUP BY age",
+            "grouped wildcard projection",
+        ),
+        (
+            "SELECT COUNT(*), age FROM SessionSqlEntity GROUP BY age",
+            "grouped scalar projection after aggregate output",
+        ),
+        (
+            "SELECT age, name, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            "grouped non-group source field projection",
+        ),
+    ] {
+        assert!(
+            session.execute_sql_query::<SessionSqlEntity>(sql).is_err(),
+            "{context} should stay outside the public grouped SQL projection surface",
+        );
+    }
 }
 
 #[test]
@@ -2210,6 +2256,55 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
     assert_eq!(rows, vec![vec![output(Value::Nat64(3))]]);
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_sql_query_admits_grouped_boolean_computed_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT age, CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END AS multi \
+             FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+        )
+        .expect(
+            "grouped boolean computed projection should execute through the public query surface",
+        )
+    else {
+        panic!("grouped boolean computed projection should emit grouped rows");
+    };
+
+    assert_eq!(columns, vec!["age".to_string(), "multi".to_string()]);
+    assert_eq!(row_count, 2);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized grouped boolean projection should not emit a cursor",
+    );
+    let actual_rows = rows
+        .iter()
+        .map(|row| {
+            (
+                runtime_outputs(row.group_key()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows,
+        vec![
+            (vec![Value::Nat64(21)], vec![Value::Bool(true)]),
+            (vec![Value::Nat64(32)], vec![Value::Bool(false)]),
+        ],
+        "grouped boolean computed projection should evaluate over finalized grouped outputs",
+    );
 }
 
 #[test]
@@ -3413,6 +3508,38 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
         ]],
     );
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_legacy_numeric_add_column_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    for sql in [
+        "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 0",
+        "ALTER TABLE SessionSqlEntity ADD COLUMN delta int DEFAULT 0",
+    ] {
+        assert!(
+            session.execute_sql_ddl::<SessionSqlEntity>(sql).is_err(),
+            "legacy broad numeric DDL spelling should stay outside the SQL DDL surface: {sql}",
+        );
+    }
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema store lookup should stay readable after rejected DDL");
+        assert!(
+            latest.as_ref().is_none_or(|snapshot| snapshot
+                .fields()
+                .iter()
+                .all(|field| !matches!(field.name(), "score" | "delta"))),
+            "rejected legacy broad numeric DDL must not publish accepted field metadata",
+        );
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
 
 #[test]
@@ -5143,6 +5270,38 @@ fn execute_sql_ddl_treats_asc_index_order_as_default_order() {
         indexes.iter().any(|index| index
             == "INDEX session_sql_age_name_asc_idx (age, name) [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose ASC syntax as the default index order",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_desc_index_order_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    assert!(
+        session
+            .execute_sql_ddl::<SessionSqlEntity>(
+                "CREATE INDEX session_sql_age_desc_idx ON SessionSqlEntity (age DESC)",
+            )
+            .is_err(),
+        "DESC index order should stay outside the SQL DDL surface",
+    );
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted index set after rejected DDL")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("session_sql_age_desc_idx")),
+        "rejected DESC index order must not publish accepted index metadata",
     );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

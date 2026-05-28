@@ -303,6 +303,7 @@ Supported grouped projection examples:
 - `SELECT age, ROUND(AVG(age), 2) FROM Customer GROUP BY age`
 - `SELECT age, AVG(age + 1) + AVG(age + 1) FROM Customer GROUP BY age`
 - `SELECT age, CASE WHEN COUNT(*) > 1 THEN 'multi' ELSE 'single' END FROM Customer GROUP BY age`
+- `SELECT age, CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END FROM Customer GROUP BY age`
 
 Unsupported grouped projection examples:
 

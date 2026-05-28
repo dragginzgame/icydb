@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.3` adds public fail-closed proof for unsupported SQL DDL/query edges:
+  `DESC` index order, legacy broad numeric column types, introspection
+  modifiers, and it proves grouped boolean computed projections as admitted
+  post-aggregate SQL while locking invalid grouped projection shapes closed.
+
 - `0.166.2` adds explicit public-entrypoint fail-closed proof for SQL casts and
   tightens aggregate expression-input, `DISTINCT`, and `FILTER` contract
   evidence.
