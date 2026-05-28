@@ -2308,6 +2308,160 @@ fn execute_sql_query_admits_grouped_boolean_computed_projection() {
 }
 
 #[test]
+fn execute_sql_query_preserves_deterministic_projection_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 32)]);
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name AS display_name, age, LENGTH(name) AS name_len, UPPER(name) \
+             FROM SessionSqlEntity \
+             ORDER BY age ASC, name ASC LIMIT 2",
+        )
+        .expect("mixed projection shape should execute through the public query surface")
+    else {
+        panic!("mixed projection shape should return projection rows");
+    };
+
+    assert_eq!(
+        columns,
+        vec![
+            "display_name".to_string(),
+            "age".to_string(),
+            "name_len".to_string(),
+            "UPPER(name)".to_string(),
+        ],
+        "projection columns should preserve declaration order, aliases, and canonical computed labels",
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                output(Value::Text("ada".to_string())),
+                output(Value::Nat64(21)),
+                output(Value::Nat64(3)),
+                output(Value::Text("ADA".to_string())),
+            ],
+            vec![
+                output(Value::Text("bob".to_string())),
+                output(Value::Nat64(32)),
+                output(Value::Nat64(3)),
+                output(Value::Text("BOB".to_string())),
+            ],
+        ],
+        "projection rows should contain exactly the requested output values with omitted fields absent",
+    );
+    assert_eq!(row_count, 2);
+}
+
+#[test]
+fn execute_sql_query_defines_order_by_null_ordering() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("null-a", None),
+            ("bravo", Some("bravo")),
+            ("null-b", None),
+            ("alpha", Some("alpha")),
+        ],
+    );
+
+    let SqlStatementResult::Projection {
+        columns: asc_columns,
+        rows: asc_rows,
+        row_count: asc_row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionNullableSqlEntity>(
+            "SELECT name, nickname \
+             FROM SessionNullableSqlEntity \
+             ORDER BY nickname ASC, name ASC",
+        )
+        .expect("nullable ASC ordering should execute through the public query surface")
+    else {
+        panic!("nullable ASC ordering should return projection rows");
+    };
+    assert_eq!(
+        asc_columns,
+        vec!["name".to_string(), "nickname".to_string()]
+    );
+    assert_eq!(
+        asc_rows,
+        vec![
+            vec![
+                output(Value::Text("null-a".to_string())),
+                output(Value::Null)
+            ],
+            vec![
+                output(Value::Text("null-b".to_string())),
+                output(Value::Null)
+            ],
+            vec![
+                output(Value::Text("alpha".to_string())),
+                output(Value::Text("alpha".to_string())),
+            ],
+            vec![
+                output(Value::Text("bravo".to_string())),
+                output(Value::Text("bravo".to_string())),
+            ],
+        ],
+        "ASC ordering should place NULL before present values and use later terms as tie-breakers",
+    );
+    assert_eq!(asc_row_count, 4);
+
+    let SqlStatementResult::Projection {
+        columns: desc_columns,
+        rows: desc_rows,
+        row_count: desc_row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionNullableSqlEntity>(
+            "SELECT name, nickname \
+             FROM SessionNullableSqlEntity \
+             ORDER BY nickname DESC, name ASC",
+        )
+        .expect("nullable DESC ordering should execute through the public query surface")
+    else {
+        panic!("nullable DESC ordering should return projection rows");
+    };
+    assert_eq!(
+        desc_columns,
+        vec!["name".to_string(), "nickname".to_string()]
+    );
+    assert_eq!(
+        desc_rows,
+        vec![
+            vec![
+                output(Value::Text("bravo".to_string())),
+                output(Value::Text("bravo".to_string())),
+            ],
+            vec![
+                output(Value::Text("alpha".to_string())),
+                output(Value::Text("alpha".to_string())),
+            ],
+            vec![
+                output(Value::Text("null-a".to_string())),
+                output(Value::Null)
+            ],
+            vec![
+                output(Value::Text("null-b".to_string())),
+                output(Value::Null)
+            ],
+        ],
+        "DESC ordering should reverse the nullable value comparator while preserving later tie-breakers",
+    );
+    assert_eq!(desc_row_count, 4);
+}
+
+#[test]
 fn execute_sql_query_having_terms_are_not_auto_projected() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2375,6 +2529,66 @@ fn execute_sql_query_having_terms_are_not_auto_projected() {
         actual_rows,
         vec![(vec![Value::Nat64(21)], vec![Value::Nat64(2)])],
         "grouped HAVING should filter by non-projected aggregates while preserving projected payloads",
+    );
+}
+
+#[test]
+fn execute_sql_query_preserves_deterministic_aggregate_labels() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("ada", 32)]);
+
+    let SqlStatementResult::Projection {
+        columns, row_count, ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*), SUM(age + 1), ROUND(AVG(age), 2) AS avg_age \
+             FROM SessionSqlEntity",
+        )
+        .expect("global aggregate labels should execute through the public query surface")
+    else {
+        panic!("global aggregate label proof should return projection rows");
+    };
+    assert_eq!(
+        columns,
+        vec![
+            "COUNT(*)".to_string(),
+            "SUM(age + 1)".to_string(),
+            "avg_age".to_string(),
+        ],
+        "global aggregate labels should preserve canonical rendered terms and explicit aliases",
+    );
+    assert_eq!(row_count, 1);
+
+    let SqlStatementResult::Grouped {
+        columns,
+        row_count,
+        next_cursor,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS rows, SUM(age + 1) \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("grouped aggregate labels should execute through the public query surface")
+    else {
+        panic!("grouped aggregate label proof should return grouped rows");
+    };
+    assert_eq!(
+        columns,
+        vec![
+            "name".to_string(),
+            "rows".to_string(),
+            "SUM(age + 1)".to_string(),
+        ],
+        "grouped aggregate labels should preserve grouped key labels, explicit aliases, and canonical aggregate terms",
+    );
+    assert_eq!(row_count, 2);
+    assert!(
+        next_cursor.is_none(),
+        "fully materialized grouped aggregate label proof should not emit a cursor",
     );
 }
 

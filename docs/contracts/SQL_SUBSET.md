@@ -93,6 +93,11 @@ Supported `SELECT` families are:
 - narrow computed projection loads, including admitted bounded arithmetic,
   numeric scalar functions, text-function projection forms, and searched `CASE`
 
+`ORDER BY` uses IcyDB's canonical value comparator. For nullable values, `ASC`
+places `NULL` before present values and `DESC` reverses that comparator, so
+`NULL` sorts after present values. Later `ORDER BY` terms remain tie-breakers
+inside equal nullable groups.
+
 ### `EXPLAIN`
 
 Supported shapes:
