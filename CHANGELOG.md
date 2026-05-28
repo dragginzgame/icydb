@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.16` completes the pre-0.167 DRY consolidation by sharing relation,
+  schema DDL, and SQL execution facade helpers while moving storage-boundary
+  planning onto the 0.167 line.
+
 - `0.166.15` moves `make test` and CI PocketIC bootstrap onto
   `ic-testkit`'s pinned binary resolver and deletes the duplicate repo helper.
 

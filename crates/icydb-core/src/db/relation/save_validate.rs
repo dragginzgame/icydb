@@ -10,8 +10,9 @@ use crate::{
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         registry::StoreHandle,
         relation::{
-            AcceptedRelationTargetAuthority, accepted_relation_target_metadata_from_kind,
-            for_each_relation_target_value, validate_relation_primary_key_component_kind,
+            AcceptedRelationTargetAuthority, accepted_relation_edge_target_contract,
+            accepted_relation_target_metadata_from_kind, for_each_relation_target_value,
+            relation_local_component_key_kind, validate_relation_primary_key_component_kind,
         },
         schema::{
             AcceptedRowDecodeContract, OwnedAcceptedFieldDecodeContract,
@@ -230,21 +231,9 @@ fn accepted_save_tuple_strong_relation_from_edge<E>(
 where
     E: EntityKind,
 {
-    let target_hook = db.runtime_hook_for_entity_path(edge.target_path())?;
-    let target_store = db.store_handle(target_hook.store_path)?;
-    let accepted = target_store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
-            schema_store,
-            target_hook.entity_tag,
-            target_hook.entity_path,
-            target_hook.model,
-        )
-    })?;
-    let target_primary_key_kinds = accepted
-        .primary_key_field_kinds()
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let target_contract =
+        accepted_relation_edge_target_contract(db, E::PATH, edge.name(), edge.target_path())?;
+    let target_primary_key_kinds = target_contract.primary_key_kinds().to_vec();
     if local_fields.len() != target_primary_key_kinds.len() {
         return Err(InternalError::strong_relation_target_identity_mismatch(
             E::PATH,
@@ -287,14 +276,7 @@ where
     Ok(Some(AcceptedSaveStrongRelationInfo {
         relation_name: edge.name().to_string(),
         local_components,
-        target: AcceptedRelationTargetAuthority::try_new(
-            E::PATH,
-            edge.name(),
-            target_hook.entity_path,
-            accepted.entity_name(),
-            target_hook.entity_tag,
-            target_hook.store_path,
-        )?,
+        target: target_contract.into_target(),
         target_primary_key_kinds,
     }))
 }
@@ -541,13 +523,6 @@ fn validate_target_accepted_primary_key_kinds(
     }
 
     Ok(())
-}
-
-fn relation_local_component_key_kind(kind: &PersistedFieldKind) -> &PersistedFieldKind {
-    match kind {
-        PersistedFieldKind::Relation { key_kind, .. } => key_kind,
-        other => other,
-    }
 }
 
 #[cfg(test)]

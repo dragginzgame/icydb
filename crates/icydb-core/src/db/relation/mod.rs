@@ -13,7 +13,7 @@ use crate::{
         Db, EntityRuntimeHooks,
         data::RawDataStoreKey,
         identity::EntityName,
-        schema::{PersistedFieldKind, PersistedRelationStrength},
+        schema::{PersistedFieldKind, PersistedRelationStrength, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::CanisterKind,
@@ -89,6 +89,62 @@ struct AcceptedRelationTargetMetadata<'a> {
     cardinality: AcceptedRelationCardinality,
 }
 
+#[derive(Clone, Debug)]
+struct AcceptedRelationEdgeTargetContract {
+    target: AcceptedRelationTargetAuthority,
+    primary_key_kinds: Vec<PersistedFieldKind>,
+}
+
+impl AcceptedRelationEdgeTargetContract {
+    #[must_use]
+    const fn primary_key_kinds(&self) -> &[PersistedFieldKind] {
+        self.primary_key_kinds.as_slice()
+    }
+
+    fn into_target(self) -> AcceptedRelationTargetAuthority {
+        self.target
+    }
+}
+
+fn accepted_relation_edge_target_contract<C>(
+    db: &Db<C>,
+    source_path: &str,
+    relation_name: &str,
+    target_path: &str,
+) -> Result<AcceptedRelationEdgeTargetContract, InternalError>
+where
+    C: CanisterKind,
+{
+    let target_hook = db.runtime_hook_for_entity_path(target_path)?;
+    let target_store = db.store_handle(target_hook.store_path)?;
+    let accepted = target_store.with_schema_mut(|schema_store| {
+        ensure_accepted_schema_snapshot(
+            schema_store,
+            target_hook.entity_tag,
+            target_hook.entity_path,
+            target_hook.model,
+        )
+    })?;
+    let primary_key_kinds = accepted
+        .primary_key_field_kinds()
+        .into_iter()
+        .cloned()
+        .collect();
+    let target = AcceptedRelationTargetAuthority::try_new(
+        source_path,
+        relation_name,
+        target_hook.entity_path,
+        accepted.entity_name(),
+        target_hook.entity_tag,
+        target_hook.store_path,
+    )?;
+
+    Ok(AcceptedRelationEdgeTargetContract {
+        target,
+        primary_key_kinds,
+    })
+}
+
 fn accepted_relation_target_metadata_from_kind(
     kind: &PersistedFieldKind,
 ) -> Option<AcceptedRelationTargetMetadata<'_>> {
@@ -162,6 +218,13 @@ fn validate_relation_primary_key_component_kind(
         other => Err(InternalError::relation_source_row_unsupported_key_kind(
             other,
         )),
+    }
+}
+
+fn relation_local_component_key_kind(kind: &PersistedFieldKind) -> &PersistedFieldKind {
+    match kind {
+        PersistedFieldKind::Relation { key_kind, .. } => key_kind,
+        other => other,
     }
 }
 

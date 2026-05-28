@@ -19,15 +19,13 @@ use crate::{
         },
         key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue},
         relation::{
-            AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
-            RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            accepted_relation_target_metadata_from_kind,
+            AcceptedRelationCardinality, AcceptedRelationEdgeTargetContract,
+            AcceptedRelationTargetAuthority, RelationTargetDecodeContext,
+            RelationTargetMismatchPolicy, accepted_relation_edge_target_contract,
+            accepted_relation_target_metadata_from_kind, relation_local_component_key_kind,
             validate_relation_primary_key_component_kind,
         },
-        schema::{
-            AcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
-            ensure_accepted_schema_snapshot,
-        },
+        schema::{AcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract},
         schema::{PersistedFieldKind, PersistedRelationStrength},
     },
     error::InternalError,
@@ -317,6 +315,17 @@ impl AcceptedStrongRelationTargetIdentity {
         })
     }
 
+    fn from_relation_edge_target_contract(
+        contract: AcceptedRelationEdgeTargetContract,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
+            primary_key: AcceptedStrongRelationTargetPrimaryKey::try_from_component_kinds(
+                contract.primary_key_kinds(),
+            )?,
+            authority: contract.into_target(),
+        })
+    }
+
     #[must_use]
     pub(in crate::db::relation) const fn path(&self) -> &str {
         self.authority.path()
@@ -537,8 +546,9 @@ where
         }));
     }
 
-    let target = accepted_relation_edge_target_identity(db, source_path, edge)?;
-    let target_kinds = target.primary_key().component_kinds();
+    let target_contract =
+        accepted_relation_edge_target_contract(db, source_path, edge.name(), edge.target_path())?;
+    let target_kinds = target_contract.primary_key_kinds();
     if local_fields.len() != target_kinds.len() {
         return Err(InternalError::strong_relation_target_identity_mismatch(
             source_path,
@@ -584,51 +594,11 @@ where
         local_components: AcceptedStrongRelationLocalComponents::try_from_component_specs(
             component_specs.as_slice(),
         )?,
-        target,
+        target: AcceptedStrongRelationTargetIdentity::from_relation_edge_target_contract(
+            target_contract,
+        )?,
         cardinality: AcceptedRelationCardinality::Single,
     }))
-}
-
-fn accepted_relation_edge_target_identity<C>(
-    db: &Db<C>,
-    source_path: &str,
-    edge: &OwnedAcceptedRelationEdgeContract,
-) -> Result<AcceptedStrongRelationTargetIdentity, InternalError>
-where
-    C: CanisterKind,
-{
-    let target_hook = db.runtime_hook_for_entity_path(edge.target_path())?;
-    let target_store = db.store_handle(target_hook.store_path)?;
-    let accepted = target_store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
-            schema_store,
-            target_hook.entity_tag,
-            target_hook.entity_path,
-            target_hook.model,
-        )
-    })?;
-    let target_primary_key_kinds = accepted
-        .primary_key_field_kinds()
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-
-    AcceptedStrongRelationTargetIdentity::try_new(
-        source_path,
-        edge.name(),
-        target_hook.entity_path,
-        accepted.entity_name(),
-        target_hook.entity_tag,
-        target_hook.store_path,
-        target_primary_key_kinds.as_slice(),
-    )
-}
-
-fn relation_local_component_key_kind(kind: &PersistedFieldKind) -> &PersistedFieldKind {
-    match kind {
-        PersistedFieldKind::Relation { key_kind, .. } => key_kind,
-        other => other,
-    }
 }
 
 fn accepted_strong_relation_from_field(

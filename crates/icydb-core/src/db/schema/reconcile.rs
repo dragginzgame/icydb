@@ -66,21 +66,14 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
 ) -> Result<(usize, usize), InternalError> {
     let before = accepted_before.persisted_snapshot();
     let after = derivation.accepted_after().persisted_snapshot();
-    let plan = match decide_schema_transition(before, after) {
-        SchemaTransitionDecision::Accepted(plan) => plan,
-        SchemaTransitionDecision::Rejected(rejection) => {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL schema mutation rejected before physical execution for entity '{entity_path}': {}",
-                rejection.detail(),
-            )));
-        }
-    };
-    if plan.kind() != SchemaTransitionPlanKind::AddFieldPathIndex {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL execution supports only add_field_path_index for entity '{entity_path}': actual={:?}",
-            plan.kind(),
-        )));
-    }
+    let plan = require_sql_ddl_transition_plan(
+        entity_path,
+        "field-path index",
+        before,
+        after,
+        SchemaTransitionPlanKind::AddFieldPathIndex,
+        "add_field_path_index",
+    )?;
     let supported = plan.supported_developer_physical_path().map_err(|rejection| {
         InternalError::store_unsupported(format!(
             "SQL DDL schema mutation physical execution rejected for entity '{entity_path}': supported_path_rejection={rejection:?}",
@@ -117,21 +110,14 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
 ) -> Result<(usize, usize), InternalError> {
     let before = accepted_before.persisted_snapshot();
     let after = derivation.accepted_after().persisted_snapshot();
-    let plan = match decide_schema_transition(before, after) {
-        SchemaTransitionDecision::Accepted(plan) => plan,
-        SchemaTransitionDecision::Rejected(rejection) => {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL expression-index schema mutation rejected before physical execution for entity '{entity_path}': {}",
-                rejection.detail(),
-            )));
-        }
-    };
-    if plan.kind() != SchemaTransitionPlanKind::AddExpressionIndex {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL expression-index execution supports only add_expression_index for entity '{entity_path}': actual={:?}",
-            plan.kind(),
-        )));
-    }
+    let plan = require_sql_ddl_transition_plan(
+        entity_path,
+        "expression-index",
+        before,
+        after,
+        SchemaTransitionPlanKind::AddExpressionIndex,
+        "add_expression_index",
+    )?;
     let Some(target) = derivation.admission().expression_target() else {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL expression-index execution requires an expression target for entity '{entity_path}'",
@@ -164,21 +150,14 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
     };
     let before = accepted_before.persisted_snapshot();
     let after = derivation.accepted_after().persisted_snapshot();
-    let plan = match decide_schema_transition(before, after) {
-        SchemaTransitionDecision::Accepted(plan) => plan,
-        SchemaTransitionDecision::Rejected(rejection) => {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL field-addition schema mutation rejected before publication for entity '{entity_path}': {}",
-                rejection.detail(),
-            )));
-        }
-    };
-    if plan.kind() != SchemaTransitionPlanKind::AppendOnlyNullableFields {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-addition execution supports only append-only nullable fields for entity '{entity_path}': actual={:?}",
-            plan.kind(),
-        )));
-    }
+    let plan = require_sql_ddl_transition_plan(
+        entity_path,
+        "field-addition",
+        before,
+        after,
+        SchemaTransitionPlanKind::AppendOnlyNullableFields,
+        "append-only nullable fields",
+    )?;
     validate_publishable_transition_plan(entity_path, &plan)?;
 
     let added_field = after
@@ -198,6 +177,41 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
         )));
     }
 
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
+}
+
+fn require_sql_ddl_transition_plan(
+    entity_path: &'static str,
+    operation: &'static str,
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+    expected_kind: SchemaTransitionPlanKind,
+    expected_label: &'static str,
+) -> Result<SchemaTransitionPlan, InternalError> {
+    let plan = match decide_schema_transition(before, after) {
+        SchemaTransitionDecision::Accepted(plan) => plan,
+        SchemaTransitionDecision::Rejected(rejection) => {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL {operation} schema mutation rejected before publication for entity '{entity_path}': {}",
+                rejection.detail(),
+            )));
+        }
+    };
+    if plan.kind() != expected_kind {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL {operation} execution supports only {expected_label} for entity '{entity_path}': actual={:?}",
+            plan.kind(),
+        )));
+    }
+
+    Ok(plan)
+}
+
+fn publish_sql_ddl_accepted_snapshot(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    after: &PersistedSchemaSnapshot,
+) -> Result<(), InternalError> {
     store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
 }
 
@@ -218,7 +232,7 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
     let after = derivation.accepted_after().persisted_snapshot();
     validate_sql_ddl_field_drop_metadata_change(entity_path, before, after, target)?;
 
-    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
@@ -327,7 +341,7 @@ pub(in crate::db) fn execute_sql_ddl_field_default_change(
     let after = derivation.accepted_after().persisted_snapshot();
     validate_sql_ddl_field_default_metadata_change(entity_path, before, after, target)?;
 
-    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
 }
 
 fn validate_sql_ddl_field_default_metadata_change(
@@ -413,9 +427,7 @@ pub(in crate::db) fn execute_sql_ddl_field_nullability_change(
         0
     };
 
-    store.with_schema_mut(|schema_store| {
-        schema_store.insert_persisted_snapshot(entity_tag, after)
-    })?;
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)?;
 
     Ok(rows_scanned)
 }
@@ -565,7 +577,7 @@ pub(in crate::db) fn execute_sql_ddl_field_rename(
     let after = derivation.accepted_after().persisted_snapshot();
     validate_sql_ddl_field_rename_metadata_change(entity_path, before, after, target)?;
 
-    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
 }
 
 fn validate_sql_ddl_field_rename_metadata_change(
@@ -690,9 +702,7 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
         before,
         "before publication",
     )?;
-    store.with_schema_mut(|schema_store| {
-        schema_store.insert_persisted_snapshot(entity_tag, after)
-    })?;
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)?;
 
     Ok(removed)
 }

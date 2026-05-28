@@ -35,6 +35,7 @@ use crate::{
             },
             sql_grouped_cursor_from_bytes,
         },
+        sql::lowering::LoweredSqlCommand,
         sql::parser::{SqlInsertSource, SqlInsertStatement},
     },
     error::ErrorClass,
@@ -151,6 +152,12 @@ where
             class: sql_write_error_class(error),
         });
     }
+}
+
+fn sql_statement_result_with_default_cache(
+    result: Result<SqlStatementResult, QueryError>,
+) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+    result.map(|result| (result, SqlCacheAttribution::default()))
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -543,6 +550,64 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    fn execute_explain_sql_with_cache_attribution<E>(
+        &self,
+        lowered: &LoweredSqlCommand,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (accepted_schema, authority) = self
+            .accepted_entity_authority::<E>()
+            .map_err(QueryError::execute)?;
+
+        if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
+            lowered,
+            authority.clone(),
+            &accepted_schema,
+        )? {
+            return Ok((
+                SqlStatementResult::Explain(explain),
+                SqlCacheAttribution::default(),
+            ));
+        }
+
+        self.explain_lowered_sql_for_authority(lowered, authority, &accepted_schema)
+            .map(SqlStatementResult::Explain)
+            .map(|result| (result, SqlCacheAttribution::default()))
+    }
+
+    fn describe_entity_sql_statement_result<E>(&self) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.try_describe_entity::<E>()
+            .map(SqlStatementResult::Describe)
+            .map_err(QueryError::execute)
+    }
+
+    fn show_indexes_sql_statement_result<E>(&self) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.try_show_indexes::<E>()
+            .map(SqlStatementResult::ShowIndexes)
+            .map_err(QueryError::execute)
+    }
+
+    fn show_columns_sql_statement_result<E>(&self) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.try_show_columns::<E>()
+            .map(SqlStatementResult::ShowColumns)
+            .map_err(QueryError::execute)
+    }
+
+    fn show_entities_sql_statement_result(&self) -> SqlStatementResult {
+        SqlStatementResult::ShowEntities(self.show_entities())
+    }
+
     #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn execute_compiled_sql_with_cache_attribution<E>(
         &self,
@@ -565,56 +630,29 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_global_aggregate_statement::<E>(*command.clone())
             }
             CompiledSqlCommand::Explain(lowered) => {
-                let (accepted_schema, authority) = self
-                    .accepted_entity_authority::<E>()
-                    .map_err(QueryError::execute)?;
-
-                if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
-                    lowered,
-                    authority.clone(),
-                    &accepted_schema,
-                )? {
-                    return Ok((
-                        SqlStatementResult::Explain(explain),
-                        SqlCacheAttribution::default(),
-                    ));
-                }
-
-                self.explain_lowered_sql_for_authority(lowered, authority, &accepted_schema)
-                    .map(SqlStatementResult::Explain)
-                    .map(|result| (result, SqlCacheAttribution::default()))
+                self.execute_explain_sql_with_cache_attribution::<E>(lowered)
             }
             CompiledSqlCommand::Insert(statement) => {
                 let result = self.execute_sql_insert_statement::<E>(statement);
                 record_sql_write_error::<E, C>(sql_insert_write_kind(statement), &result);
-                result.map(|result| (result, SqlCacheAttribution::default()))
+                sql_statement_result_with_default_cache(result)
             }
             CompiledSqlCommand::Update(statement) => {
                 let result = self.execute_sql_update_statement::<E>(statement);
                 record_sql_write_error::<E, C>(SqlWriteKind::Update, &result);
-                result.map(|result| (result, SqlCacheAttribution::default()))
+                sql_statement_result_with_default_cache(result)
             }
-            CompiledSqlCommand::DescribeEntity => Ok((
-                SqlStatementResult::Describe(
-                    self.try_describe_entity::<E>()
-                        .map_err(QueryError::execute)?,
-                ),
-                SqlCacheAttribution::default(),
-            )),
-            CompiledSqlCommand::ShowIndexesEntity => Ok((
-                SqlStatementResult::ShowIndexes(
-                    self.try_show_indexes::<E>().map_err(QueryError::execute)?,
-                ),
-                SqlCacheAttribution::default(),
-            )),
-            CompiledSqlCommand::ShowColumnsEntity => Ok((
-                SqlStatementResult::ShowColumns(
-                    self.try_show_columns::<E>().map_err(QueryError::execute)?,
-                ),
-                SqlCacheAttribution::default(),
-            )),
+            CompiledSqlCommand::DescribeEntity => sql_statement_result_with_default_cache(
+                self.describe_entity_sql_statement_result::<E>(),
+            ),
+            CompiledSqlCommand::ShowIndexesEntity => sql_statement_result_with_default_cache(
+                self.show_indexes_sql_statement_result::<E>(),
+            ),
+            CompiledSqlCommand::ShowColumnsEntity => sql_statement_result_with_default_cache(
+                self.show_columns_sql_statement_result::<E>(),
+            ),
             CompiledSqlCommand::ShowEntities => Ok((
-                SqlStatementResult::ShowEntities(self.show_entities()),
+                self.show_entities_sql_statement_result(),
                 SqlCacheAttribution::default(),
             )),
         }
@@ -641,57 +679,30 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_global_aggregate_statement::<E>(*command)
             }
             CompiledSqlCommand::Explain(lowered) => {
-                let (accepted_schema, authority) = self
-                    .accepted_entity_authority::<E>()
-                    .map_err(QueryError::execute)?;
-
-                if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
-                    &lowered,
-                    authority.clone(),
-                    &accepted_schema,
-                )? {
-                    return Ok((
-                        SqlStatementResult::Explain(explain),
-                        SqlCacheAttribution::default(),
-                    ));
-                }
-
-                self.explain_lowered_sql_for_authority(&lowered, authority, &accepted_schema)
-                    .map(SqlStatementResult::Explain)
-                    .map(|result| (result, SqlCacheAttribution::default()))
+                self.execute_explain_sql_with_cache_attribution::<E>(&lowered)
             }
             CompiledSqlCommand::Insert(statement) => {
                 let kind = sql_insert_write_kind(&statement);
                 let result = self.execute_sql_insert_statement::<E>(&statement);
                 record_sql_write_error::<E, C>(kind, &result);
-                result.map(|result| (result, SqlCacheAttribution::default()))
+                sql_statement_result_with_default_cache(result)
             }
             CompiledSqlCommand::Update(statement) => {
                 let result = self.execute_sql_update_statement::<E>(&statement);
                 record_sql_write_error::<E, C>(SqlWriteKind::Update, &result);
-                result.map(|result| (result, SqlCacheAttribution::default()))
+                sql_statement_result_with_default_cache(result)
             }
-            CompiledSqlCommand::DescribeEntity => Ok((
-                SqlStatementResult::Describe(
-                    self.try_describe_entity::<E>()
-                        .map_err(QueryError::execute)?,
-                ),
-                SqlCacheAttribution::default(),
-            )),
-            CompiledSqlCommand::ShowIndexesEntity => Ok((
-                SqlStatementResult::ShowIndexes(
-                    self.try_show_indexes::<E>().map_err(QueryError::execute)?,
-                ),
-                SqlCacheAttribution::default(),
-            )),
-            CompiledSqlCommand::ShowColumnsEntity => Ok((
-                SqlStatementResult::ShowColumns(
-                    self.try_show_columns::<E>().map_err(QueryError::execute)?,
-                ),
-                SqlCacheAttribution::default(),
-            )),
+            CompiledSqlCommand::DescribeEntity => sql_statement_result_with_default_cache(
+                self.describe_entity_sql_statement_result::<E>(),
+            ),
+            CompiledSqlCommand::ShowIndexesEntity => sql_statement_result_with_default_cache(
+                self.show_indexes_sql_statement_result::<E>(),
+            ),
+            CompiledSqlCommand::ShowColumnsEntity => sql_statement_result_with_default_cache(
+                self.show_columns_sql_statement_result::<E>(),
+            ),
             CompiledSqlCommand::ShowEntities => Ok((
-                SqlStatementResult::ShowEntities(self.show_entities()),
+                self.show_entities_sql_statement_result(),
                 SqlCacheAttribution::default(),
             )),
         }
