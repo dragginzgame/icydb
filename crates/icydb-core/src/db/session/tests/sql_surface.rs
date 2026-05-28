@@ -3274,6 +3274,18 @@ fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
         session.execute_sql_update::<SessionSqlEntity>(sql),
         "update surface should reject parsed DDL before execution",
     );
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES should execute after rejected wrong-surface DDL")
+    else {
+        panic!("SHOW INDEXES should return index metadata after rejected wrong-surface DDL");
+    };
+    assert!(
+        !indexes
+            .iter()
+            .any(|index| index.contains("session_sql_name_idx")),
+        "wrong-surface CREATE INDEX rejection should not publish accepted index metadata: {indexes:?}",
+    );
 
     let err = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
         .expect_err("model-only lowering should reject DDL before query binding");
@@ -6932,6 +6944,23 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
         panic!("execute_sql_update INSERT should emit count payload");
     };
     assert_eq!(row_count, 1);
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_sql_query::<SessionSqlWriteEntity>(
+            "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
+        )
+        .expect("post-INSERT projection query should execute")
+    else {
+        panic!("post-INSERT projection query should emit projection rows");
+    };
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(1)),
+            output(Value::Text("Ada".to_string())),
+            output(Value::Nat64(21)),
+        ]],
+        "execute_sql_update INSERT should persist the inserted row",
+    );
 
     let update = session
         .execute_sql_update::<SessionSqlWriteEntity>(
@@ -6942,24 +6971,44 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
         panic!("execute_sql_update UPDATE should emit count payload");
     };
     assert_eq!(row_count, 1);
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_sql_query::<SessionSqlWriteEntity>(
+            "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
+        )
+        .expect("post-UPDATE projection query should execute")
+    else {
+        panic!("post-UPDATE projection query should emit projection rows");
+    };
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(1)),
+            output(Value::Text("Ada".to_string())),
+            output(Value::Nat64(22)),
+        ]],
+        "execute_sql_update UPDATE should persist the updated row",
+    );
 
     let delete = session
         .execute_sql_update::<SessionSqlWriteEntity>(
-            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
+            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada'",
         )
-        .expect("execute_sql_update should admit DELETE RETURNING");
-    let SqlStatementResult::Projection {
-        columns,
-        rows,
-        row_count,
-        ..
-    } = delete
-    else {
-        panic!("execute_sql_update DELETE RETURNING should emit projection rows");
+        .expect("execute_sql_update should admit DELETE");
+    let SqlStatementResult::Count { row_count } = delete else {
+        panic!("execute_sql_update DELETE should emit count payload");
     };
-    assert_eq!(columns, vec!["name".to_string()]);
-    assert_eq!(rows, vec![vec![output(Value::Text("Ada".to_string()))]]);
     assert_eq!(row_count, 1);
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_sql_query::<SessionSqlWriteEntity>("SELECT COUNT(*) FROM SessionSqlWriteEntity")
+        .expect("post-DELETE count query should execute")
+    else {
+        panic!("post-DELETE count query should emit projection rows");
+    };
+    assert_eq!(
+        rows,
+        vec![vec![output(Value::Nat64(0))]],
+        "execute_sql_update DELETE should remove the matched row",
+    );
 }
 
 #[test]

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.166.md](docs/changelog/0.166.md)
 
+- `0.166.10` proves field-list `RETURNING` projections and public SQL write
+  count/persisted-state behavior through the SQL update entrypoint, while
+  tightening wrong-surface DDL no-publication proof.
+
 - `0.166.9` proves grouped post-aggregate computed projection, aggregate
   input-expression values, and aggregate `DISTINCT` / `FILTER` terminal values
   through the public SQL query entrypoint.

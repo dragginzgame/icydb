@@ -1940,6 +1940,80 @@ fn execute_sql_update_returning_star_public_entrypoint_projects_rows() {
 }
 
 #[test]
+fn execute_sql_update_returning_field_list_public_entrypoint_projects_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let insert = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+             VALUES (1, 'Ada', 21) RETURNING name, age",
+        )
+        .expect("public SQL update entrypoint should admit INSERT field-list RETURNING");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = insert
+    else {
+        panic!("INSERT field-list RETURNING should return a projection payload");
+    };
+    assert_eq!(columns, ["name", "age"]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Text("Ada".to_string())),
+            output(Value::Nat64(21)),
+        ]],
+    );
+    assert_eq!(row_count, 1);
+
+    let update = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id, age",
+        )
+        .expect("public SQL update entrypoint should admit UPDATE field-list RETURNING");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = update
+    else {
+        panic!("UPDATE field-list RETURNING should return a projection payload");
+    };
+    assert_eq!(columns, ["id", "age"]);
+    assert_eq!(
+        rows,
+        vec![vec![output(Value::Nat64(1)), output(Value::Nat64(22))]],
+    );
+    assert_eq!(row_count, 1);
+
+    let delete = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING name",
+        )
+        .expect("public SQL update entrypoint should admit DELETE field-list RETURNING");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = delete
+    else {
+        panic!("DELETE field-list RETURNING should return a projection payload");
+    };
+    assert_eq!(columns, ["name"]);
+    assert_eq!(rows, vec![vec![output(Value::Text("Ada".to_string()))]]);
+    assert_eq!(row_count, 1);
+    assert!(
+        persisted_write_rows(&session).is_empty(),
+        "DELETE field-list RETURNING should still remove the matched row",
+    );
+}
+
+#[test]
 fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix() {
     reset_session_sql_store();
     for (entity_kind, sql) in [
