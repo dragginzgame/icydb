@@ -220,12 +220,12 @@ clippy.
 
 ## IC Testkit Tests
 
-Some integration tests need the IC testkit server binary. The helper checks in
-this order:
+Some integration tests need the PocketIC server binary. `ic-testkit` resolves
+the binary for `make test` in this order:
 
 1. `POCKET_IC_BIN`, when it points at an executable.
-2. A cached binary for the pinned `pocket-ic` crate version.
-3. A GitHub release download.
+2. A cached binary for the pinned `pocket-ic` crate version under `.cache`.
+3. A pinned GitHub release download through `ic-testkit`.
 
 Use a trusted local binary when you have one:
 
@@ -233,15 +233,12 @@ Use a trusted local binary when you have one:
 POCKET_IC_BIN=/path/to/pocket-ic make test
 ```
 
-Or let `make test` download the pinned release into the repo cache when it is
-missing:
+Or let `make test` allow `ic-testkit` to download the pinned release into the
+repo cache when it is missing:
 
 ```bash
 make test
 ```
-
-Set `POCKET_IC_SERVER_SHA256` when you have a trusted digest and want checksum
-verification for the provided, cached, or downloaded executable.
 
 ## Wasm Reports
 
@@ -281,14 +278,8 @@ cargo install cargo-sort cargo-sort-derives --locked
 
 ### `make test` cannot find the IC testkit runner
 
-Set `POCKET_IC_BIN=/path/to/pocket-ic`, or run with
-`ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1` to allow the pinned GitHub release download.
-
-### IC testkit runner checksum verification fails
-
-The executable bytes do not match `POCKET_IC_SERVER_SHA256`. Recheck the digest
-source, remove the cached binary if it is stale, or point `POCKET_IC_BIN` at the
-trusted executable you intended to use.
+Set `POCKET_IC_BIN=/path/to/pocket-ic`, or run `make test` so the repository
+test target opts into `ic-testkit`'s pinned GitHub release download.
 
 ### Local SQL demo cannot find a canister
 

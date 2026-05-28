@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
+      IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "1"
+      TMPDIR: ${{ github.workspace }}/.cache
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@v1
@@ -37,11 +39,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep
-      - name: Resolve IC testkit server binary
-        env:
-          ICYDB_ALLOW_POCKET_IC_DOWNLOAD: "1"
-        run: |
-          echo "POCKET_IC_BIN=$(bash scripts/ci/ensure-pocket-ic-bin.sh)" >> "$GITHUB_ENV"
       - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
       - run: bash scripts/ci/check-route-planner-import-boundary.sh
       - if: github.event_name == 'pull_request'

@@ -18,6 +18,7 @@ ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
+IC_TESTKIT_ENV := IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR="$(ROOT_DIR)/.cache"
 
 # Print repo-local cargo paths for standalone shell scripts that need Makefile-
 # owned defaults without duplicating the path definitions.
@@ -60,7 +61,7 @@ help:
 	@echo "  release          CI-driven release (local target is no-op)"
 	@echo ""
 	@echo "Development:"
-	@echo "  test             Run all tests; downloads pinned PocketIC when uncached"
+	@echo "  test             Run all tests; lets ic-testkit download pinned PocketIC when uncached"
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
@@ -200,8 +201,8 @@ test: clippy test-unit
 test-bump: clippy test-unit
 
 test-unit:
-	pocket_ic_bin="$$(ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1 bash scripts/ci/ensure-pocket-ic-bin.sh)" && POCKET_IC_BIN="$$pocket_ic_bin" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql
-	pocket_ic_bin="$$(ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1 bash scripts/ci/ensure-pocket-ic-bin.sh)" && POCKET_IC_BIN="$$pocket_ic_bin" $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql
+	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
 
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)

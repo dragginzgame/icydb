@@ -996,15 +996,18 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea69d859b9bed50063a107c775a879ba812b43271a80e4d326974ce77f96d948"
+checksum = "7bd720f3ca9c6b2c48768987667f0209ac52d7c4e4165586ee0d00cd4b3cedbd"
 dependencies = [
  "candid",
+ "flate2",
  "ic-cdk",
  "pocket-ic",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
