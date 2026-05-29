@@ -1,4 +1,4 @@
-![Declared MSRV](https://img.shields.io/badge/declared%20MSRV-1.96.0-blue.svg)
+![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.88.0-blue.svg)
 ![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.96.0-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
@@ -13,10 +13,11 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.168.1`
+Current workspace version: `0.168.2`
 
-IcyDB's declared minimum supported Rust version is `1.96.0`. Repository
-development, formatting, Clippy, CI, and release builds use Rust `1.96.0`.
+IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
+public `icydb` crate path. Repository development, formatting, Clippy, tests,
+CI, and release builds use Rust `1.96.0`.
 
 For local development setup, test prerequisites, and troubleshooting, see
 [INSTALLING.md](INSTALLING.md). Safety notes for host-touching commands live in
@@ -43,14 +44,14 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.168.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.168.2" }
 ```
 
 SQL is enabled by default. For typed/fluent-only builds:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.168.1", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.168.2", default-features = false }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs` and use a build

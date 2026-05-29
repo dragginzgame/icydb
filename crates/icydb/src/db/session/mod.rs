@@ -11,10 +11,15 @@ use crate::{
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::QueryResponse,
     },
-    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    error::Error,
     metrics::MetricsSink,
     traits::{CanisterKind, Entity},
-    value::{InputValue, OutputValue},
+    value::InputValue,
+};
+#[cfg(feature = "sql")]
+use crate::{
+    error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    value::OutputValue,
 };
 use icydb_core as core;
 

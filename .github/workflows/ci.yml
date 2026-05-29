@@ -10,6 +10,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency_msrv:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+          cache-targets: "false"
+      - run: cargo check -p icydb --no-default-features
+      - run: cargo check -p icydb
+      - run: cargo check -p icydb-core
+
   check:
     runs-on: ubuntu-latest
     env:

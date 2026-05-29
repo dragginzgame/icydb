@@ -193,7 +193,7 @@ pub(crate) enum SqlCreateIndexExpressionFunction {
 }
 
 impl SqlCreateIndexExpressionFunction {
-    pub(crate) const fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         if value.eq_ignore_ascii_case("LOWER") {
             Some(Self::Lower)
         } else if value.eq_ignore_ascii_case("UPPER") {

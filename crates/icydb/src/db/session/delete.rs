@@ -1,15 +1,16 @@
 use crate::{
     db::{
-        DbSession,
         query::{CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query, QueryTracePlan},
         session::macros::impl_session_query_shape_methods,
-        sql::SqlQueryRowsOutput,
     },
     error::Error,
     traits::{Entity, SingletonEntity},
     types::Id,
 };
 use icydb_core as core;
+
+#[cfg(feature = "sql")]
+use crate::db::{DbSession, sql::SqlQueryRowsOutput};
 
 ///
 /// SessionDeleteQuery
@@ -25,6 +26,7 @@ pub struct SessionDeleteQuery<'a, E: Entity> {
 
 // Fluent delete returning selection kept private so the public surface only
 // exposes the query wrapper types and the shared SQL-style row payload.
+#[cfg(feature = "sql")]
 #[derive(Clone, Debug)]
 enum DeleteReturningSelection {
     All,
@@ -40,6 +42,7 @@ enum DeleteReturningSelection {
 /// inventing a second row-returning result family.
 ///
 
+#[cfg(feature = "sql")]
 pub struct SessionDeleteReturningQuery<'a, E: Entity> {
     inner: core::db::FluentDeleteQuery<'a, E>,
     selection: DeleteReturningSelection,
@@ -91,6 +94,7 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     }
 
     /// Return every declared field from each deleted row.
+    #[cfg(feature = "sql")]
     #[must_use]
     pub fn returning_all(self) -> SessionDeleteReturningQuery<'a, E> {
         SessionDeleteReturningQuery {
@@ -100,6 +104,7 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     }
 
     /// Return one explicit field list from each deleted row.
+    #[cfg(feature = "sql")]
     #[must_use]
     pub fn returning<I, S>(self, fields: I) -> SessionDeleteReturningQuery<'a, E>
     where
@@ -170,6 +175,7 @@ impl<E: Entity + SingletonEntity> SessionDeleteQuery<'_, E> {
     }
 }
 
+#[cfg(feature = "sql")]
 impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     // ------------------------------------------------------------------
     // Intent inspection
@@ -262,6 +268,7 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     }
 }
 
+#[cfg(feature = "sql")]
 impl<E: Entity + SingletonEntity> SessionDeleteReturningQuery<'_, E> {
     /// Delete the singleton entity and return deleted rows.
     #[must_use]

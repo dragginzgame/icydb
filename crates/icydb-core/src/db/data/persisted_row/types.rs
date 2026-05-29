@@ -298,7 +298,7 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// declared-slot absence.
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
         let field = self.field_decode_contract(slot)?;
-        std::debug_assert_matches!(field.leaf_codec(), LeafCodec::Scalar(_));
+        debug_assert!(matches!(field.leaf_codec(), LeafCodec::Scalar(_)));
 
         self.get_scalar(slot)?
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))

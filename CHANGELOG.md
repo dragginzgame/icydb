@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Lower the public `icydb` dependency-path MSRV to Rust `1.88.0` while keeping
+  repository development on Rust `1.96.0`, and add CI coverage that checks the
+  dependency path with the advertised floor.
+
 ## [0.168.x] 🧰 - 2026-05-29 - Runtime Store Backend Boundary
 
 Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)

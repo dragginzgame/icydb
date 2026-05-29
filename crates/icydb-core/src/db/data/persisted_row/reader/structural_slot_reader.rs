@@ -758,7 +758,10 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
 
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
         let field_name = self.contract.field_name(slot)?;
-        std::debug_assert_matches!(self.contract.field_leaf_codec(slot)?, LeafCodec::Scalar(_));
+        debug_assert!(matches!(
+            self.contract.field_leaf_codec(slot)?,
+            LeafCodec::Scalar(_)
+        ));
 
         self.get_scalar(slot)?
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))

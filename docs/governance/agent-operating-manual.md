@@ -23,7 +23,9 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `assets/`: images and docs assets.
 - `scripts/`: release/version helpers.
 - `Makefile`: common tasks.
-- `Cargo.toml`: workspace manifest; edition 2024, MSRV/rust-version 1.96.0.
+- `Cargo.toml`: workspace manifest; edition 2024, maintainer
+  rust-version/toolchain 1.96.0. Public dependency crates advertise MSRV
+  1.88.0 where that dependency path is checked.
 
 ## Workflow
 
@@ -35,7 +37,9 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Hooks path: `.githooks`; common Make targets auto-configure `core.hooksPath`.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`.
-- CI uses Rust `1.96.0`, `rustfmt`, `clippy -D warnings`, `cargo test`, and release builds.
+- CI uses Rust `1.96.0`, `rustfmt`, `clippy -D warnings`, `cargo test`, and
+  release builds. It also checks the public `icydb` dependency path on Rust
+  `1.88.0`.
 
 ## Concurrent Editing
 
