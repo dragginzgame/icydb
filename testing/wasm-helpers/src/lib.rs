@@ -25,23 +25,23 @@ macro_rules! build_configured_canister {
 }
 
 ///
-/// define_fixture_canister_store
+/// define_fixture_canister
 ///
-/// Generate the repeated canister and main-store declarations used by wasm
-/// fixture schema crates.
+/// Generate the repeated canister declaration used by wasm fixture schema
+/// crates.
+///
+/// `memory_min`, `memory_max`, and `commit_memory_id` are canister-level
+/// stable-memory manager configuration. Per-store data/index/schema memory IDs
+/// live in `define_fixture_store!(storage(stable(...)))`.
 ///
 #[macro_export]
-macro_rules! define_fixture_canister_store {
+macro_rules! define_fixture_canister {
     (
         $canister:ident = $canister_name:literal,
-        $store:ident = $store_ident:literal,
         namespace = $namespace:literal,
         memory_min = $memory_min:literal,
         memory_max = $memory_max:literal,
-        commit_memory_id = $commit_memory_id:literal,
-        data_memory_id = $data_memory_id:literal,
-        index_memory_id = $index_memory_id:literal,
-        schema_memory_id = $schema_memory_id:literal $(,)?
+        commit_memory_id = $commit_memory_id:literal $(,)?
     ) => {
         #[doc = ""]
         #[doc = stringify!($canister)]
@@ -50,22 +50,32 @@ macro_rules! define_fixture_canister_store {
         #[doc = ""]
         #[canister(memory_namespace = $namespace, memory_min = $memory_min, memory_max = $memory_max, commit_memory_id = $commit_memory_id)]
         pub struct $canister {}
+    };
+}
 
+///
+/// define_fixture_store
+///
+/// Generate the repeated stable store declaration used by wasm fixture schema
+/// crates.
+///
+#[macro_export]
+macro_rules! define_fixture_store {
+    (
+        $store:ident = $store_ident:literal,
+        canister = $canister_name:literal,
+        storage(stable(
+            data_memory_id = $data_memory_id:literal,
+            index_memory_id = $index_memory_id:literal,
+            schema_memory_id = $schema_memory_id:literal,
+        )) $(,)?
+    ) => {
         #[doc = ""]
         #[doc = stringify!($store)]
         #[doc = ""]
         #[doc = "Main store model used by wasm SQL fixtures."]
         #[doc = ""]
-        #[store(
-            ident = $store_ident,
-            store_name = "main",
-            canister = $canister_name,
-            storage(stable(
-                data_memory_id = $data_memory_id,
-                index_memory_id = $index_memory_id,
-                schema_memory_id = $schema_memory_id,
-            )),
-        )]
+        #[store(ident = $store_ident, store_name = "main", canister = $canister_name, storage(stable(data_memory_id = $data_memory_id, index_memory_id = $index_memory_id, schema_memory_id = $schema_memory_id)))]
         pub struct $store {}
     };
 }

@@ -1,16 +1,22 @@
 use icydb::design::prelude::*;
-use icydb_testing_wasm_helpers::define_fixture_canister_store;
+use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
-define_fixture_canister_store!(
+define_fixture_canister!(
     SqlTestCanister = "SqlTestCanister",
-    SqlTestStore = "SQL_TEST_STORE",
     namespace = "test_sql",
     memory_min = 155,
     memory_max = 165,
     commit_memory_id = 157,
-    data_memory_id = 155,
-    index_memory_id = 156,
-    schema_memory_id = 158,
+);
+
+define_fixture_store!(
+    SqlTestStore = "SQL_TEST_STORE",
+    canister = "SqlTestCanister",
+    storage(stable(
+        data_memory_id = 155,
+        index_memory_id = 156,
+        schema_memory_id = 158,
+    )),
 );
 
 ///

@@ -1,16 +1,22 @@
 use icydb::design::prelude::*;
-use icydb_testing_wasm_helpers::define_fixture_canister_store;
+use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
-define_fixture_canister_store!(
+define_fixture_canister!(
     PerfAuditCanister = "PerfAuditCanister",
-    PerfAuditStore = "PERF_AUDIT_STORE",
     namespace = "sql_perf",
     memory_min = 180,
     memory_max = 210,
     commit_memory_id = 182,
-    data_memory_id = 180,
-    index_memory_id = 181,
-    schema_memory_id = 183,
+);
+
+define_fixture_store!(
+    PerfAuditStore = "PERF_AUDIT_STORE",
+    canister = "PerfAuditCanister",
+    storage(stable(
+        data_memory_id = 180,
+        index_memory_id = 181,
+        schema_memory_id = 183,
+    )),
 );
 
 ///

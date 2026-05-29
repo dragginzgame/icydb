@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.2` splits wasm fixture canister/store helpers and hard-cuts fixture
+  stores to the same nested `storage(stable(...))` syntax as user store
+  declarations.
+
 - `0.167.1` raises the declared MSRV to Rust `1.96.0`, moves match-shape
   assertions onto the standard assert-matches macros, updates public examples,
   and adds derive/schema proof for nested `storage(stable(...))` memory-ID
