@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.4` exposes `storage: stable` in storage snapshot diagnostics for
+  data, index, and schema store rows without changing durable allocation
+  identity or storage ABI.
+
 - `0.167.3` tightens the public `StoreStorage` stable-config accessor and pins
   invalid or ambiguous `storage(...)` macro forms closed.
 

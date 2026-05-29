@@ -79,6 +79,7 @@ pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, ExecutionAccessPathVariant, ExecutionMetrics,
     ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, IntegrityReport,
     IntegrityStoreSnapshot, IntegrityTotals, SchemaStoreSnapshot, StorageReport,
+    StoreSnapshotStorageMode,
 };
 #[doc(hidden)]
 pub use executor::EntityAuthority;

@@ -7,8 +7,8 @@ mod execution_trace;
 
 use super::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
-    IntegrityTotals, SchemaStoreSnapshot, StorageReport, integrity_report, storage_report,
-    storage_report_default,
+    IntegrityTotals, SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
+    integrity_report, storage_report, storage_report_default,
 };
 use crate::{
     db::{
@@ -526,10 +526,12 @@ fn storage_report_empty_store_snapshot() {
         .iter()
         .find(|snapshot| snapshot.path() == STORE_A_PATH)
         .expect("index snapshot should contain store A");
+    assert_eq!(data_a.storage(), StoreSnapshotStorageMode::Stable);
     assert_eq!(data_a.memory_id(), Some(155));
     assert_eq!(data_a.stable_key(), Some("icydb.test.store_a.data.v1"));
     assert_eq!(data_a.schema_version(), Some(1));
     assert!(data_a.schema_fingerprint().is_some());
+    assert_eq!(index_a.storage(), StoreSnapshotStorageMode::Stable);
     assert_eq!(index_a.memory_id(), Some(156));
     assert_eq!(index_a.stable_key(), Some("icydb.test.store_a.index.v1"));
     assert_eq!(index_a.schema_version(), Some(1));
@@ -537,6 +539,7 @@ fn storage_report_empty_store_snapshot() {
 
     let populated_schema = schema_snapshot(&report, STORE_A_PATH);
     let empty_schema = schema_snapshot(&report, STORE_Z_PATH);
+    assert_eq!(populated_schema.storage(), StoreSnapshotStorageMode::Stable);
     assert_eq!(populated_schema.memory_id(), Some(158));
     assert_eq!(
         populated_schema.stable_key(),
@@ -561,6 +564,7 @@ fn storage_report_empty_store_snapshot() {
         "index and schema snapshots should use role-specific schema metadata"
     );
     assert_eq!(empty_schema.memory_id(), None);
+    assert_eq!(empty_schema.storage(), StoreSnapshotStorageMode::Stable);
     assert_eq!(empty_schema.stable_key(), None);
     assert_eq!(empty_schema.schema_version(), None);
     assert_eq!(empty_schema.schema_fingerprint(), None);
@@ -576,8 +580,10 @@ fn storage_report_empty_store_snapshot() {
         .iter()
         .find(|snapshot| snapshot.path() == STORE_Z_PATH)
         .expect("index snapshot should contain store Z");
+    assert_eq!(data_z.storage(), StoreSnapshotStorageMode::Stable);
     assert_eq!(data_z.schema_version(), None);
     assert_eq!(data_z.schema_fingerprint(), None);
+    assert_eq!(index_z.storage(), StoreSnapshotStorageMode::Stable);
     assert_eq!(index_z.schema_version(), None);
     assert_eq!(index_z.schema_fingerprint(), None);
 }
@@ -967,6 +973,7 @@ fn data_store_snapshot_candid_shape_is_stable() {
 
     for field in [
         "path",
+        "storage",
         "memory_id",
         "stable_key",
         "schema_version",
@@ -987,6 +994,7 @@ fn index_store_snapshot_candid_shape_is_stable() {
 
     for field in [
         "path",
+        "storage",
         "memory_id",
         "stable_key",
         "schema_version",
@@ -1010,6 +1018,7 @@ fn schema_store_snapshot_candid_shape_is_stable() {
 
     for field in [
         "path",
+        "storage",
         "memory_id",
         "stable_key",
         "schema_version",

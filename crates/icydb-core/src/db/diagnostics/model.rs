@@ -317,11 +317,32 @@ impl StorageReport {
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct SchemaStoreSnapshot {
     pub(crate) path: String,
+    pub(crate) storage: StoreSnapshotStorageMode,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
     pub(crate) schema_fingerprint: Option<String>,
     pub(crate) entity_count: u64,
+}
+
+/// Diagnostic storage mode reported for one store-role snapshot.
+///
+/// This is observability metadata only. It does not participate in allocation
+/// identity, stable-key generation, or durable row/index/schema storage ABI.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreSnapshotStorageMode {
+    #[default]
+    Stable,
+}
+
+impl StoreSnapshotStorageMode {
+    /// Return the user-facing storage mode label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -405,6 +426,7 @@ impl SchemaStoreSnapshot {
     #[must_use]
     pub(crate) fn new(
         path: String,
+        storage: StoreSnapshotStorageMode,
         allocation: Option<StoreSnapshotAllocationIdentity>,
         schema_metadata: StoreSnapshotSchemaMetadata,
         entity_count: u64,
@@ -418,6 +440,7 @@ impl SchemaStoreSnapshot {
         };
         Self {
             path,
+            storage,
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
@@ -430,6 +453,12 @@ impl SchemaStoreSnapshot {
     #[must_use]
     pub const fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    /// Return diagnostic storage mode.
+    #[must_use]
+    pub const fn storage(&self) -> StoreSnapshotStorageMode {
+        self.storage
     }
 
     /// Return stable-memory manager ID, when generated wiring supplied it.
@@ -473,6 +502,7 @@ impl SchemaStoreSnapshot {
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct DataStoreSnapshot {
     pub(crate) path: String,
+    pub(crate) storage: StoreSnapshotStorageMode,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
@@ -486,6 +516,7 @@ impl DataStoreSnapshot {
     #[must_use]
     pub(crate) fn new(
         path: String,
+        storage: StoreSnapshotStorageMode,
         allocation: Option<StoreSnapshotAllocationIdentity>,
         schema_metadata: StoreSnapshotSchemaMetadata,
         entries: u64,
@@ -500,6 +531,7 @@ impl DataStoreSnapshot {
         };
         Self {
             path,
+            storage,
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
@@ -513,6 +545,12 @@ impl DataStoreSnapshot {
     #[must_use]
     pub const fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    /// Return diagnostic storage mode.
+    #[must_use]
+    pub const fn storage(&self) -> StoreSnapshotStorageMode {
+        self.storage
     }
 
     /// Return stable-memory manager ID, when generated wiring supplied it.
@@ -562,6 +600,7 @@ impl DataStoreSnapshot {
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IndexStoreSnapshot {
     pub(crate) path: String,
+    pub(crate) storage: StoreSnapshotStorageMode,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
@@ -578,6 +617,7 @@ impl IndexStoreSnapshot {
     #[must_use]
     pub(crate) fn new(
         path: String,
+        storage: StoreSnapshotStorageMode,
         allocation: Option<StoreSnapshotAllocationIdentity>,
         schema_metadata: StoreSnapshotSchemaMetadata,
         stats: IndexStoreSnapshotStats,
@@ -591,6 +631,7 @@ impl IndexStoreSnapshot {
         };
         Self {
             path,
+            storage,
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
@@ -607,6 +648,12 @@ impl IndexStoreSnapshot {
     #[must_use]
     pub const fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    /// Return diagnostic storage mode.
+    #[must_use]
+    pub const fn storage(&self) -> StoreSnapshotStorageMode {
+        self.storage
     }
 
     /// Return stable-memory manager ID, when generated wiring supplied it.

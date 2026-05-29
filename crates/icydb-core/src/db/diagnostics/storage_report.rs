@@ -11,7 +11,7 @@ use crate::{
         diagnostics::{
             DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IndexStoreSnapshotStats,
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
-            StoreSnapshotSchemaMetadata,
+            StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
         },
         index::IndexKey,
         registry::StoreAllocationIdentity,
@@ -101,6 +101,36 @@ fn snapshot_schema_metadata(
     StoreSnapshotSchemaMetadata::new(
         metadata.schema_version().get(),
         encode_hex_lower(&metadata.schema_fingerprint()),
+    )
+}
+
+fn snapshot_role_metadata(
+    allocation_metadata: Result<
+        Option<crate::db::schema::SchemaStoreAllocationMetadata>,
+        InternalError,
+    >,
+) -> (
+    StoreSnapshotSchemaMetadata,
+    StoreSnapshotSchemaMetadata,
+    StoreSnapshotSchemaMetadata,
+    u64,
+) {
+    allocation_metadata.ok().flatten().map_or(
+        (
+            StoreSnapshotSchemaMetadata::absent(),
+            StoreSnapshotSchemaMetadata::absent(),
+            StoreSnapshotSchemaMetadata::absent(),
+            0,
+        ),
+        |metadata| {
+            let schema = metadata.schema();
+            (
+                snapshot_schema_metadata(metadata.data()),
+                snapshot_schema_metadata(metadata.index()),
+                snapshot_schema_metadata(schema),
+                schema.entity_count(),
+            )
+        },
     )
 }
 
@@ -288,38 +318,21 @@ fn build_storage_report<C: CanisterKind>(
             let data_allocation = store_handle.data_allocation();
             let index_allocation = store_handle.index_allocation();
             let schema_allocation = store_handle.schema_allocation();
-            let allocation_metadata =
-                store_handle.with_schema(crate::db::schema::SchemaStore::allocation_metadata);
             let (data_metadata, index_metadata, schema_metadata, schema_entity_count) =
-                allocation_metadata.ok().flatten().map_or(
-                    (
-                        StoreSnapshotSchemaMetadata::absent(),
-                        StoreSnapshotSchemaMetadata::absent(),
-                        StoreSnapshotSchemaMetadata::absent(),
-                        0,
-                    ),
-                    |metadata| {
-                        let schema = metadata.schema();
-                        (
-                            snapshot_schema_metadata(metadata.data()),
-                            snapshot_schema_metadata(metadata.index()),
-                            snapshot_schema_metadata(schema),
-                            schema.entity_count(),
-                        )
-                    },
+                snapshot_role_metadata(
+                    store_handle.with_schema(crate::db::schema::SchemaStore::allocation_metadata),
                 );
 
-            // Phase 1: collect data-store snapshots and per-entity stats.
             store_handle.with_data(|store| {
                 data.push(DataStoreSnapshot::new(
                     path.to_string(),
+                    StoreSnapshotStorageMode::Stable,
                     data_allocation.map(snapshot_allocation_identity),
                     data_metadata,
                     store.len(),
                     store.memory_bytes(),
                 ));
 
-                // Track per-entity counts and byte footprint for snapshot output.
                 let mut by_entity = EntityStatsByMode::new(mode);
 
                 for entry in store.entries() {
@@ -336,7 +349,6 @@ fn build_storage_report<C: CanisterKind>(
                 by_entity.push_snapshots(path, db, mode, &mut entity_storage);
             });
 
-            // Phase 2: collect index-store snapshots and integrity counters.
             store_handle.with_index(|store| {
                 let mut user_entries = 0u64;
                 let mut system_entries = 0u64;
@@ -360,6 +372,7 @@ fn build_storage_report<C: CanisterKind>(
 
                 index.push(IndexStoreSnapshot::new(
                     path.to_string(),
+                    StoreSnapshotStorageMode::Stable,
                     index_allocation.map(snapshot_allocation_identity),
                     index_metadata,
                     IndexStoreSnapshotStats::new(
@@ -372,9 +385,9 @@ fn build_storage_report<C: CanisterKind>(
                 ));
             });
 
-            // Phase 3: collect schema-store allocation metadata diagnostics.
             schema.push(SchemaStoreSnapshot::new(
                 path.to_string(),
+                StoreSnapshotStorageMode::Stable,
                 schema_allocation.map(snapshot_allocation_identity),
                 schema_metadata,
                 schema_entity_count,
@@ -382,8 +395,6 @@ fn build_storage_report<C: CanisterKind>(
         }
     });
 
-    // Phase 4: enforce deterministic entity snapshot emission order.
-    // This remains stable even if outer store traversal internals change.
     entity_storage
         .sort_by(|left, right| (left.store(), left.path()).cmp(&(right.store(), right.path())));
 
