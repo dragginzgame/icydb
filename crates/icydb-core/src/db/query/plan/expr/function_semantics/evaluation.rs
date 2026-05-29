@@ -131,7 +131,7 @@ impl Function {
     /// Evaluate one admitted COALESCE call after caller-side arity validation.
     #[must_use]
     pub(in crate::db::query::plan::expr) fn eval_coalesce_values(self, args: &[Value]) -> Value {
-        debug_assert!(matches!(self, Self::Coalesce));
+        std::debug_assert_matches!(self, Self::Coalesce);
 
         args.iter()
             .find(|value| !matches!(value, Value::Null))
@@ -148,7 +148,7 @@ impl Function {
         right: &Value,
         equals: bool,
     ) -> Value {
-        debug_assert!(matches!(self, Self::NullIf));
+        std::debug_assert_matches!(self, Self::NullIf);
 
         if matches!(left, Value::Null) || matches!(right, Value::Null) {
             return left.clone();
@@ -165,7 +165,7 @@ impl Function {
         text: &str,
         needle: &str,
     ) -> Value {
-        debug_assert!(matches!(self, Self::Position));
+        std::debug_assert_matches!(self, Self::Position);
 
         Value::Nat64(Self::text_position_1_based(text, needle))
     }
@@ -179,7 +179,7 @@ impl Function {
         from: &str,
         to: &str,
     ) -> Value {
-        debug_assert!(matches!(self, Self::Replace));
+        std::debug_assert_matches!(self, Self::Replace);
 
         Value::Text(text.replace(from, to))
     }
@@ -193,7 +193,7 @@ impl Function {
         start: i64,
         length: Option<i64>,
     ) -> Value {
-        debug_assert!(matches!(self, Self::Substring));
+        std::debug_assert_matches!(self, Self::Substring);
 
         Value::Text(Self::substring_1_based(text, start, length))
     }
@@ -206,7 +206,7 @@ impl Function {
         value: &Value,
         scale: u32,
     ) -> Option<Value> {
-        debug_assert!(matches!(self, Self::Round | Self::Trunc));
+        std::debug_assert_matches!(self, Self::Round | Self::Trunc);
 
         let decimal = coerce_numeric_decimal(value)?;
 

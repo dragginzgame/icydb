@@ -1,0 +1,13 @@
+error: storage(stable(...)) requires data_memory_id = ...
+  --> tests/ui/store_stable_missing_data_memory_id.rs:6:1
+   |
+ 6 | / #[store(
+ 7 | |     ident = "UI_DATA_STORE",
+ 8 | |     store_name = "ui_data",
+ 9 | |     canister = "UiCanister",
+...  |
+13 | |     ))
+14 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `store` (in Nightly builds, run with -Z macro-backtrace for more info)

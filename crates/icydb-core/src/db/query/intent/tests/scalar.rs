@@ -56,10 +56,10 @@ fn intent_rejects_by_ids_with_predicate() {
         .by_ids([Ulid::generate()])
         .filter_predicate(Predicate::True);
 
-    assert!(matches!(
+    std::assert_matches!(
         intent.build_plan_model(),
         Err(QueryError::Intent(IntentError::ByIdsWithPredicate))
-    ));
+    );
 }
 
 #[test]
@@ -69,10 +69,10 @@ fn intent_rejects_only_with_predicate() {
         .only(Ulid::generate())
         .filter_predicate(Predicate::True);
 
-    assert!(matches!(
+    std::assert_matches!(
         intent.build_plan_model(),
         Err(QueryError::Intent(IntentError::OnlyWithPredicate))
-    ));
+    );
 }
 
 #[test]
@@ -107,12 +107,12 @@ fn delete_query_rejects_grouped_shape_during_intent_validation() {
         .plan()
         .expect_err("delete queries must reject grouped logical shape during intent validation");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::Intent(IntentError::PlanShape(
             crate::db::query::plan::validate::PolicyPlanError::DeletePlanWithGrouping
         ))
-    ));
+    );
 }
 
 #[test]
@@ -207,18 +207,18 @@ fn typed_order_terms_preserve_expression_shape_without_sort_parsing() {
     let lowered = crate::db::OrderTerm::desc(crate::db::lower("name")).lower();
 
     assert_eq!(plain.rendered_label(), "name");
-    assert!(matches!(
+    std::assert_matches!(
         plain.expr(),
         crate::db::query::plan::expr::Expr::Field(field) if field.as_str() == "name"
-    ));
+    );
     assert_eq!(lowered.rendered_label(), "LOWER(name)");
-    assert!(matches!(
+    std::assert_matches!(
         lowered.expr(),
         crate::db::query::plan::expr::Expr::FunctionCall {
             function: crate::db::query::plan::expr::Function::Lower,
             args,
         } if matches!(args.as_slice(), [crate::db::query::plan::expr::Expr::Field(field)] if field.as_str() == "name")
-    ));
+    );
 }
 
 #[test]
@@ -227,12 +227,12 @@ fn intent_rejects_empty_order_spec() {
     let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .order_spec(OrderSpec { fields: Vec::new() });
 
-    assert!(matches!(
+    std::assert_matches!(
         intent.build_plan_model(),
         Err(QueryError::Intent(IntentError::PlanShape(
             crate::db::query::plan::validate::PolicyPlanError::EmptyOrderSpec
         )))
-    ));
+    );
 }
 
 #[test]
@@ -242,10 +242,10 @@ fn intent_rejects_conflicting_key_access() {
         .by_id(Ulid::generate())
         .by_ids([Ulid::generate()]);
 
-    assert!(matches!(
+    std::assert_matches!(
         intent.build_plan_model(),
         Err(QueryError::Intent(IntentError::KeyAccessConflict))
-    ));
+    );
 }
 
 #[test]
@@ -467,10 +467,10 @@ fn singleton_only_uses_default_key() {
         .expect("singleton plan")
         .into_inner();
 
-    assert!(matches!(
+    std::assert_matches!(
         plan.access,
         AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::ByKey(Value::Unit))
-    ));
+    );
 }
 
 #[test]
@@ -479,10 +479,10 @@ fn build_plan_model_full_scan_without_predicate() {
     let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore);
     let plan = intent.build_plan_model().expect("model plan should build");
 
-    assert!(matches!(
+    std::assert_matches!(
         plan.access,
         AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::FullScan)
-    ));
+    );
 }
 
 #[test]
@@ -493,11 +493,11 @@ fn build_plan_model_limit_zero_lowers_to_empty_by_keys() {
         .build_plan_model()
         .expect("ordered limit(0) plan should build");
 
-    assert!(matches!(
+    std::assert_matches!(
         &plan.access,
         AccessPlan::Path(path)
             if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty())
-    ));
+    );
     assert_eq!(
         plan.access_choice().chosen_reason.code(),
         "limit_zero_window",

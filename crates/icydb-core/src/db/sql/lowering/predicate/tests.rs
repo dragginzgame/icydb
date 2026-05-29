@@ -192,16 +192,16 @@ fn compile_where_bool_expr_supports_missing_empty_and_collection_contains_functi
         ],
     };
 
-    assert!(matches!(
+    std::assert_matches!(
         compile_normalized_bool_expr_to_predicate(&missing),
         Predicate::IsMissing { field } if field == "nickname"
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         compile_normalized_bool_expr_to_predicate(&empty),
         Predicate::IsEmpty { field } if field == "tags"
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         compile_normalized_bool_expr_to_predicate(&contains),
         Predicate::Compare(_)
-    ));
+    );
 }

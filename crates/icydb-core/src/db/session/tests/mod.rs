@@ -3710,14 +3710,14 @@ fn assert_query_error_is_cursor_plan(
     err: QueryError,
     predicate: impl Fn(&CursorPlanError) -> bool,
 ) {
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::Plan(plan_err)
             if matches!(
                 plan_err.as_ref(),
                 PlanError::Cursor(inner) if predicate(inner.as_ref())
             )
-    ));
+    );
 }
 
 // Assert both session conversion paths preserve the same cursor-plan variant payload.

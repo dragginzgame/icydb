@@ -17,7 +17,7 @@ fn plan_error_from_order_maps_to_order_domain_variant() {
         field: "rank".to_string(),
     });
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         PlanError::User(inner)
             if matches!(
@@ -28,29 +28,29 @@ fn plan_error_from_order_maps_to_order_domain_variant() {
                         OrderPlanError::UnorderableField { field } if field == "rank"
                     )
             )
-    ));
+    );
 }
 
 #[test]
 fn plan_error_from_access_maps_to_access_domain_variant() {
     let err = PlanError::from(AccessPlanError::InvalidKeyRange);
 
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Access(inner)
             if matches!(inner.as_ref(), AccessPlanError::InvalidKeyRange)
-    )));
+    ));
 }
 
 #[test]
 fn plan_error_from_policy_maps_to_policy_domain_variant() {
     let err = PlanError::from(PolicyPlanError::UnorderedPagination);
 
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::UnorderedPagination)
-    )));
+    ));
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn plan_error_from_cursor_maps_to_cursor_domain_variant() {
         found: 1,
     });
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         PlanError::Cursor(inner)
             if matches!(
@@ -70,7 +70,7 @@ fn plan_error_from_cursor_maps_to_cursor_domain_variant() {
                     found: 1
                 }
             )
-    ));
+    );
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn plan_error_from_group_maps_to_group_domain_variant() {
         field: "tenant".to_string(),
     });
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         PlanError::User(inner)
             if matches!(
@@ -90,7 +90,7 @@ fn plan_error_from_group_maps_to_group_domain_variant() {
                         GroupPlanError::UnknownGroupField { field } if field == "tenant"
                     )
             )
-    ));
+    );
 }
 
 #[test]
@@ -99,23 +99,23 @@ fn user_plan_error_from_order_maps_to_order_user_variant() {
         field: "rank".to_string(),
     });
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         PlanUserError::Order(inner)
             if matches!(
                 inner.as_ref(),
                 OrderPlanError::UnorderableField { field } if field == "rank"
             )
-    ));
+    );
 }
 
 #[test]
 fn plan_error_from_policy_axis_maps_to_policy_domain_variant() {
     let err = PlanError::from(PlanPolicyError::from(PolicyPlanError::UnorderedPagination));
 
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::UnorderedPagination)
-    )));
+    ));
 }

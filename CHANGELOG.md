@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Raised the declared MSRV to Rust `1.96.0` and moved match-shape assertions
+  onto the standard `assert_matches!` / `debug_assert_matches!` macros.
+
 ## [0.167.x] 🧱 - 2026-05-28 - Per-Store Storage Boundary
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
+
+- `0.167.1` updates public examples and adds derive/schema proof for nested
+  `storage(stable(...))` memory-ID diagnostics.
 
 - `0.167.0` introduces the explicit per-store storage boundary by requiring
   `storage(stable(...))` store declarations, reserving heap syntax, and

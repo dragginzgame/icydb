@@ -966,7 +966,7 @@ fn execute_sql_statement_insert_with_schema_generated_primary_key_matrix_accepts
         });
 
         assert_eq!(rows.len(), 1);
-        assert!(matches!(rows[0][0], Value::Ulid(_)));
+        std::assert_matches!(rows[0][0], Value::Ulid(_));
         assert_eq!(
             rows[0][1..],
             [

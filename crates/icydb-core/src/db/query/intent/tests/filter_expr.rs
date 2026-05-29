@@ -83,7 +83,7 @@ fn filter_expr_rejects_wrong_strict_enum_path() {
         .filter_predicate(predicate)
         .build_plan_model()
         .expect_err("strict enum with wrong path should fail");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::Validate(err)
             if matches!(
@@ -93,7 +93,7 @@ fn filter_expr_rejects_wrong_strict_enum_path() {
                     ..
                 } if field == "stage"
             )
-    ));
+    );
 }
 
 #[test]

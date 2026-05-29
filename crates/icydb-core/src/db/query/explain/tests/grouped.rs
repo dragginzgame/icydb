@@ -45,14 +45,14 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
         });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "hash_group",
             fallback_reason: Some("group_key_order_unavailable"),
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -87,14 +87,14 @@ fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "hash_group",
             fallback_reason: Some("group_key_order_prefix_mismatch"),
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -131,14 +131,14 @@ fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_o
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "hash_group",
             fallback_reason: Some("group_key_order_expression_not_admissible"),
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -165,14 +165,14 @@ fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "top_k_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -201,14 +201,14 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -239,14 +239,14 @@ fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_ind
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -277,14 +277,14 @@ fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -315,14 +315,14 @@ fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -355,14 +355,14 @@ fn explain_grouped_strategy_preserves_ordered_group_for_fully_indexable_predicat
     ));
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -391,14 +391,14 @@ fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_sha
     });
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -431,14 +431,14 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_filter_predicate_sha
     ));
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "hash_group",
             fallback_reason: Some("residual_filter_blocks_grouped_order",),
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -478,14 +478,14 @@ fn explain_grouped_strategy_downgrades_to_hash_for_non_streaming_having_expr() {
     );
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "hash_group",
             fallback_reason: Some("having_blocks_grouped_order"),
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -523,14 +523,14 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
     );
 
     let explain = grouped.explain();
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 }
 
 #[test]
@@ -559,13 +559,13 @@ fn explain_grouped_having_projection_is_reported() {
             )),
         );
 
-    assert!(matches!(
+    std::assert_matches!(
         grouped.explain().grouping(),
         ExplainGrouping::Grouped {
             having: Some(_),
             ..
         }
-    ));
+    );
 }
 
 #[test]

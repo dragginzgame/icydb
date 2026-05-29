@@ -186,7 +186,7 @@ mod tests {
         let err = GroupedContinuationToken::decode(oversized.as_slice())
             .expect_err("oversized grouped cursor payload must fail");
 
-        assert!(matches!(err, TokenWireError::Decode(_)));
+        std::assert_matches!(err, TokenWireError::Decode(_));
     }
 
     #[test]
@@ -202,6 +202,6 @@ mod tests {
             .encode()
             .expect_err("oversized grouped cursor payload must fail before emission");
 
-        assert!(matches!(err, TokenWireError::Encode(_)));
+        std::assert_matches!(err, TokenWireError::Encode(_));
     }
 }

@@ -84,7 +84,7 @@ mod tests {
     fn next_u128_fails_when_rng_is_unseeded_without_native_entropy() {
         clear_for_tests();
 
-        assert!(matches!(next_u128(), Err(RandomError::NotInitialized)));
+        std::assert_matches!(next_u128(), Err(RandomError::NotInitialized));
     }
 
     #[test]

@@ -699,7 +699,7 @@ fn compile_sql_command_select_star_lowers_to_load_query() {
         panic!("expected lowered query command");
     };
 
-    assert!(matches!(query.mode(), QueryMode::Load(_)));
+    std::assert_matches!(query.mode(), QueryMode::Load(_));
 }
 
 #[test]
@@ -1322,7 +1322,7 @@ fn compile_sql_command_delete_lowers_to_delete_query() {
         panic!("expected lowered query command");
     };
 
-    assert!(matches!(query.mode(), QueryMode::Delete(_)));
+    std::assert_matches!(query.mode(), QueryMode::Delete(_));
 }
 
 #[test]
@@ -1337,13 +1337,13 @@ fn compile_sql_command_delete_with_offset_lowers_to_delete_query() {
         panic!("expected lowered query command");
     };
 
-    assert!(matches!(
+    std::assert_matches!(
         query.mode(),
         QueryMode::Delete(DeleteSpec {
             limit: Some(3),
             offset: 1,
         })
-    ));
+    );
 }
 
 #[test]
@@ -1540,7 +1540,7 @@ fn compile_sql_command_describe_rejects_entity_mismatch() {
         compile_sql_command::<SqlLowerEntity>("DESCRIBE DifferentEntity", MissingRowPolicy::Ignore)
             .expect_err("DESCRIBE entity mismatch should fail lowering");
 
-    assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
+    std::assert_matches!(err, SqlLoweringError::EntityMismatch { .. });
 }
 
 #[test]
@@ -1616,7 +1616,7 @@ fn compile_sql_command_show_indexes_rejects_entity_mismatch() {
     )
     .expect_err("SHOW INDEXES FROM entity mismatch should fail lowering");
 
-    assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
+    std::assert_matches!(err, SqlLoweringError::EntityMismatch { .. });
 }
 
 #[test]
@@ -1641,7 +1641,7 @@ fn compile_sql_command_show_columns_rejects_entity_mismatch() {
     )
     .expect_err("SHOW COLUMNS entity mismatch should fail lowering");
 
-    assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
+    std::assert_matches!(err, SqlLoweringError::EntityMismatch { .. });
 }
 
 #[test]
@@ -1674,7 +1674,7 @@ fn compile_sql_command_explain_execution_wraps_lowered_query() {
 
     assert_eq!(mode, SqlExplainMode::Execution);
     assert!(!verbose);
-    assert!(matches!(query.mode(), QueryMode::Load(_)));
+    std::assert_matches!(query.mode(), QueryMode::Load(_));
 }
 
 #[test]
@@ -1696,7 +1696,7 @@ fn compile_sql_command_explain_execution_verbose_wraps_lowered_query() {
 
     assert_eq!(mode, SqlExplainMode::Execution);
     assert!(verbose);
-    assert!(matches!(query.mode(), QueryMode::Load(_)));
+    std::assert_matches!(query.mode(), QueryMode::Load(_));
 }
 
 #[test]
@@ -1834,8 +1834,8 @@ fn compile_sql_command_select_scalar_add_projection_lowers_to_binary_expr() {
                 },
             alias: None,
         } => {
-            assert!(matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age"));
-            assert!(matches!(right.as_ref(), Expr::Literal(Value::Int64(1))));
+            std::assert_matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age");
+            std::assert_matches!(right.as_ref(), Expr::Literal(Value::Int64(1)));
         }
         other @ ProjectionField::Scalar { .. } => {
             panic!("scalar arithmetic projection should lower to one add expression: {other:?}")
@@ -1873,8 +1873,8 @@ fn compile_sql_command_select_scalar_field_to_field_projection_lowers_to_binary_
             alias: Some(alias),
         } => {
             assert_eq!(alias.as_str(), "total");
-            assert!(matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age"));
-            assert!(matches!(right.as_ref(), Expr::Field(field) if field.as_str() == "age"));
+            std::assert_matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age");
+            std::assert_matches!(right.as_ref(), Expr::Field(field) if field.as_str() == "age");
         }
         other @ ProjectionField::Scalar { .. } => {
             panic!(
@@ -1933,7 +1933,7 @@ fn compile_sql_command_select_scalar_sub_mul_div_projection_lowers_to_binary_exp
                     *op, expected_op,
                     "{context} should preserve the arithmetic operator"
                 );
-                assert!(matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age"));
+                std::assert_matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age");
                 assert!(
                     matches!(right.as_ref(), Expr::Literal(value) if value == &expected_literal)
                 );
@@ -3417,7 +3417,7 @@ fn compile_sql_command_rejects_round_with_negative_scale() {
     )
     .expect_err("ROUND should reject negative scale in the bounded slice");
 
-    assert!(matches!(err, SqlLoweringError::Query(_)));
+    std::assert_matches!(err, SqlLoweringError::Query(_));
 }
 
 #[test]
@@ -3516,7 +3516,7 @@ fn bind_sql_select_with_schema_rejects_non_selectable_accepted_nested_leaf() {
     )
     .expect_err("accepted non-queryable nested field should not be selectable");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+    std::assert_matches!(err, SqlLoweringError::UnsupportedSelectProjection);
 }
 
 #[test]
@@ -3535,7 +3535,7 @@ fn bind_sql_select_with_schema_rejects_field_missing_from_accepted_schema() {
     )
     .expect_err("accepted schema must be authoritative for SELECT field admission");
 
-    assert!(matches!(err, SqlLoweringError::UnknownField { field } if field == "name"));
+    std::assert_matches!(err, SqlLoweringError::UnknownField { field } if field == "name");
 }
 
 #[test]
@@ -3554,7 +3554,7 @@ fn bind_sql_select_with_schema_rejects_field_path_missing_from_accepted_schema()
     )
     .expect_err("accepted schema must be authoritative for SELECT field-path admission");
 
-    assert!(matches!(err, SqlLoweringError::UnknownField { field } if field == "name.leaf"));
+    std::assert_matches!(err, SqlLoweringError::UnknownField { field } if field == "name.leaf");
 }
 
 #[test]
@@ -3573,7 +3573,7 @@ fn bind_sql_select_with_schema_rejects_group_by_field_missing_from_accepted_sche
     )
     .expect_err("accepted schema must be authoritative for GROUP BY field admission");
 
-    assert!(matches!(err, SqlLoweringError::UnknownField { field } if field == "name"));
+    std::assert_matches!(err, SqlLoweringError::UnknownField { field } if field == "name");
 }
 
 #[test]
@@ -3594,7 +3594,7 @@ fn bind_sql_select_with_schema_rejects_non_groupable_accepted_field() {
     )
     .expect_err("accepted collection field should not be groupable");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+    std::assert_matches!(err, SqlLoweringError::UnsupportedSelectGroupBy);
 }
 
 #[test]
@@ -3614,7 +3614,7 @@ fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be orderable");
 
-    assert!(matches!(err, SqlLoweringError::Query(_)));
+    std::assert_matches!(err, SqlLoweringError::Query(_));
 }
 
 #[test]
@@ -3634,7 +3634,7 @@ fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct DELETE ORDER BY target");
 
-    assert!(matches!(err, SqlLoweringError::Query(_)));
+    std::assert_matches!(err, SqlLoweringError::Query(_));
 }
 
 #[test]
@@ -3656,7 +3656,7 @@ fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct UPDATE ORDER BY target");
 
-    assert!(matches!(err, SqlLoweringError::Query(_)));
+    std::assert_matches!(err, SqlLoweringError::Query(_));
 }
 
 #[test]
@@ -4005,12 +4005,12 @@ fn compile_sql_command_like_non_prefix_pattern_rejects() {
         let err = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
             .expect_err("non-prefix LIKE pattern should fail closed");
 
-        assert!(matches!(
+        std::assert_matches!(
             err,
             SqlLoweringError::Parse(SqlParseError::UnsupportedFeature {
                 feature: "LIKE patterns beyond trailing '%' prefix form"
             })
-        ));
+        );
     }
 }
 
@@ -4021,7 +4021,7 @@ fn compile_sql_command_select_schema_qualified_entity_lowers_to_load_query() {
         "schema-qualified entity SQL",
     );
 
-    assert!(matches!(query.mode(), QueryMode::Load(_)));
+    std::assert_matches!(query.mode(), QueryMode::Load(_));
 }
 
 #[test]
@@ -4046,7 +4046,7 @@ fn compile_sql_command_rejects_mixed_scalar_and_aggregate_projection_in_current_
     )
     .expect_err("mixed scalar+aggregate projection should remain gated in this slice");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+    std::assert_matches!(err, SqlLoweringError::UnsupportedSelectProjection);
 }
 
 #[test]
@@ -4126,7 +4126,7 @@ fn lower_aggregate_call_rejects_distinct_filter_pairing_in_0940() {
     })
     .expect_err("DISTINCT + FILTER should stay fail-closed in 0.94.0");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+    std::assert_matches!(err, SqlLoweringError::UnsupportedSelectProjection);
 }
 
 #[test]
@@ -4148,10 +4148,7 @@ fn lower_aggregate_call_rejects_aggregate_predicates_inside_filter() {
     })
     .expect_err("aggregate expressions inside FILTER should stay fail-closed");
 
-    assert!(matches!(
-        err,
-        SqlLoweringError::UnsupportedAggregateInputExpressions
-    ));
+    std::assert_matches!(err, SqlLoweringError::UnsupportedAggregateInputExpressions);
 }
 
 #[test]
@@ -4162,7 +4159,7 @@ fn compile_sql_command_rejects_subqueries_inside_filter_predicates() {
     )
     .expect_err("subqueries inside FILTER should stay fail-closed before execution");
 
-    assert!(matches!(err, SqlLoweringError::Parse(_)));
+    std::assert_matches!(err, SqlLoweringError::Parse(_));
 }
 
 #[test]
@@ -4177,10 +4174,10 @@ fn compile_sql_command_rejects_grouped_filter_alias_references_before_execution(
     )
     .expect_err("grouped FILTER alias leakage should stay fail-closed before execution");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlLoweringError::UnknownField { field } if field == "total_count"
-    ));
+    );
 }
 
 #[test]
@@ -4202,10 +4199,10 @@ fn compile_sql_command_rejects_grouped_filter_alias_references_inside_case_befor
         "grouped FILTER alias leakage inside CASE should stay fail-closed before execution",
     );
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlLoweringError::UnknownField { field } if field == "total_count"
-    ));
+    );
 }
 
 #[test]
@@ -4266,10 +4263,10 @@ fn compile_sql_command_grouped_projection_unknown_field_stays_specific() {
     )
     .expect_err("grouped projection typo should stay a field-resolution error");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlLoweringError::UnknownField { ref field } if field == "agge"
-    ));
+    );
 }
 
 #[test]
@@ -4362,7 +4359,7 @@ fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
         "grouped ORDER BY expressions that do not preserve grouped-key order should remain fail-closed",
     );
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         crate::db::query::intent::QueryError::Plan(inner)
             if matches!(
@@ -4377,7 +4374,7 @@ fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
                             )
                     )
             )
-    ));
+    );
 }
 
 #[test]
@@ -4666,10 +4663,10 @@ fn compile_sql_command_rejects_grouped_non_group_field_projection() {
     )
     .expect_err("grouped non-group field projection should stay fail-closed");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlLoweringError::GroupedProjectionReferencesNonGroupField { index: 1 }
-    ));
+    );
 }
 
 #[test]
@@ -4680,10 +4677,7 @@ fn compile_sql_command_rejects_grouped_projection_without_aggregate_specifically
     )
     .expect_err("grouped projection without aggregates should stay fail-closed");
 
-    assert!(matches!(
-        err,
-        SqlLoweringError::GroupedProjectionRequiresAggregate
-    ));
+    std::assert_matches!(err, SqlLoweringError::GroupedProjectionRequiresAggregate);
 }
 
 #[test]
@@ -4694,10 +4688,7 @@ fn compile_sql_command_rejects_grouped_star_projection_specifically() {
     )
     .expect_err("grouped star projection should stay fail-closed");
 
-    assert!(matches!(
-        err,
-        SqlLoweringError::GroupedProjectionRequiresExplicitList
-    ));
+    std::assert_matches!(err, SqlLoweringError::GroupedProjectionRequiresExplicitList);
 }
 
 #[test]
@@ -4708,10 +4699,10 @@ fn compile_sql_command_rejects_grouped_scalar_projection_after_aggregate_specifi
     )
     .expect_err("grouped scalar terms after aggregate terms should stay fail-closed");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlLoweringError::GroupedProjectionScalarAfterAggregate { index: 1 }
-    ));
+    );
 }
 
 #[test]
@@ -5289,7 +5280,7 @@ fn compile_sql_command_select_having_without_group_by_rejects() {
     )
     .expect_err("HAVING without GROUP BY should fail closed");
 
-    assert!(matches!(err, SqlLoweringError::HavingRequiresGroupBy));
+    std::assert_matches!(err, SqlLoweringError::HavingRequiresGroupBy);
 }
 
 #[test]
@@ -5419,7 +5410,7 @@ fn compile_sql_command_rejects_entity_mismatch() {
     )
     .expect_err("entity mismatch should fail lowering");
 
-    assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
+    std::assert_matches!(err, SqlLoweringError::EntityMismatch { .. });
 }
 
 #[test]
@@ -5489,10 +5480,7 @@ fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_fie
         )
         .expect_err("accepted blob field should not be SUM input");
 
-    assert!(matches!(
-        err,
-        SqlLoweringError::UnsupportedGlobalAggregateProjection
-    ));
+    std::assert_matches!(err, SqlLoweringError::UnsupportedGlobalAggregateProjection);
 }
 
 #[test]

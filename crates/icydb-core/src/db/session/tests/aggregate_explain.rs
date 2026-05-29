@@ -424,27 +424,27 @@ fn session_aggregate_terminal_explain_exists_matrix_preserves_alias_and_route_co
         .expect("session explain_not_exists should succeed");
 
     assert_eq!(exists_plan.terminal(), AggregateKind::Exists);
-    assert!(matches!(
+    std::assert_matches!(
         exists_plan.execution().ordering_source(),
         crate::db::ExplainExecutionOrderingSource::AccessOrder
             | crate::db::ExplainExecutionOrderingSource::Materialized
-    ));
+    );
 
     let exists_execution = exists_plan.execution();
     assert_eq!(exists_execution.aggregation(), AggregateKind::Exists);
-    assert!(matches!(
+    std::assert_matches!(
         exists_execution.ordering_source(),
         crate::db::ExplainExecutionOrderingSource::AccessOrder
             | crate::db::ExplainExecutionOrderingSource::Materialized
-    ));
+    );
     assert_eq!(
         exists_execution.access_strategy(),
         exists_plan.query().access()
     );
-    assert!(matches!(
+    std::assert_matches!(
         exists_execution.execution_mode(),
         crate::db::ExplainExecutionMode::Streaming | crate::db::ExplainExecutionMode::Materialized
-    ));
+    );
     assert_eq!(exists_execution.limit(), None);
     assert!(!exists_execution.cursor());
     assert!(

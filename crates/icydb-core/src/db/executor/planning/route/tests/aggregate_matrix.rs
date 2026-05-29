@@ -17,10 +17,7 @@ fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
     let route_plan = build_aggregate_route(&plan, AggregateKind::Count);
 
     assert_eq!(route_plan.execution_mode, RouteExecutionMode::Streaming);
-    assert!(matches!(
-        route_plan.aggregate_fold_mode,
-        AggregateFoldMode::KeysOnly
-    ));
+    std::assert_matches!(route_plan.aggregate_fold_mode, AggregateFoldMode::KeysOnly);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, Some(6));
 }
 
@@ -43,10 +40,10 @@ fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
     ] {
         let route_plan = build_aggregate_route(&plan, kind);
 
-        assert!(matches!(
+        std::assert_matches!(
             route_plan.aggregate_fold_mode,
             AggregateFoldMode::ExistingRows
-        ));
+        );
     }
 }
 
@@ -63,10 +60,10 @@ fn route_matrix_numeric_field_aggregate_fold_mode_contract_maps_sum_avg_to_exist
     for aggregate_expr in [crate::db::sum("rank"), crate::db::avg("rank")] {
         let route_plan = build_aggregate_spec_route(&plan, aggregate_expr);
 
-        assert!(matches!(
+        std::assert_matches!(
             route_plan.aggregate_fold_mode,
             AggregateFoldMode::ExistingRows
-        ));
+        );
     }
 }
 
@@ -90,10 +87,10 @@ fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
     let route_plan = build_aggregate_route(&plan, AggregateKind::Count);
 
     assert_eq!(route_plan.execution_mode, RouteExecutionMode::Streaming);
-    assert!(matches!(
+    std::assert_matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
-    ));
+    );
 }
 
 #[test]
@@ -111,10 +108,10 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_predicate_streams() 
     let route_plan = build_aggregate_route(&plan, AggregateKind::Count);
 
     assert_eq!(route_plan.execution_mode, RouteExecutionMode::Streaming);
-    assert!(matches!(
+    std::assert_matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
-    ));
+    );
 }
 
 #[test]
@@ -138,10 +135,10 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_uncertainty_material
     let route_plan = build_aggregate_route(&plan, AggregateKind::Count);
 
     assert_eq!(route_plan.execution_mode, RouteExecutionMode::Materialized);
-    assert!(matches!(
+    std::assert_matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
-    ));
+    );
 }
 
 #[test]
@@ -161,10 +158,10 @@ fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
     let route_plan = build_aggregate_route(&plan, AggregateKind::Last);
 
     assert_eq!(route_plan.execution_mode, RouteExecutionMode::Streaming);
-    assert!(matches!(
+    std::assert_matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
-    ));
+    );
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
 }
 

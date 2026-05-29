@@ -1,0 +1,5 @@
+error: storage(stable(...)) accepts only one data_memory_id = ... argument
+  --> tests/ui/store_stable_duplicate_data_memory_id.rs:12:9
+   |
+12 |         data_memory_id = 101,
+   |         ^^^^^^^^^^^^^^

@@ -105,7 +105,7 @@ fn resolve_orderable_target_slot_accepts_scalar_field() {
     )
     .expect("rank should be accepted as orderable target");
 
-    assert!(matches!(slot.kind, FieldKind::Nat64));
+    std::assert_matches!(slot.kind, FieldKind::Nat64);
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn resolve_orderable_target_slot_matches_schema_index() {
     .expect("rank slot should resolve");
 
     assert_eq!(slot.index, 1);
-    assert!(matches!(slot.kind, FieldKind::Nat64));
+    std::assert_matches!(slot.kind, FieldKind::Nat64);
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn resolve_any_target_slot_supports_non_orderable_field_kind() {
     .expect("any-target slot should resolve list field");
 
     assert_eq!(slot.index, 3);
-    assert!(matches!(slot.kind, FieldKind::List(_)));
+    std::assert_matches!(slot.kind, FieldKind::List(_));
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn resolve_orderable_target_slot_rejects_unknown_field() {
     )
     .expect_err("unknown target field must be rejected");
 
-    assert!(matches!(err, AggregateFieldValueError::UnknownField { .. }));
+    std::assert_matches!(err, AggregateFieldValueError::UnknownField { .. });
 }
 
 #[test]
@@ -151,10 +151,7 @@ fn resolve_orderable_target_slot_rejects_non_orderable_field_kind() {
     )
     .expect_err("list field should be rejected for field aggregates");
 
-    assert!(matches!(
-        err,
-        AggregateFieldValueError::UnsupportedFieldKind { .. }
-    ));
+    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind { .. });
 }
 
 #[test]
@@ -162,10 +159,10 @@ fn compare_orderable_field_values_rejects_mismatched_variants() {
     let err = compare_orderable_field_values("rank", &Value::Nat64(7), &Value::Text("x".into()))
         .expect_err("mismatched value variants must be rejected");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         AggregateFieldValueError::IncomparableFieldValues { .. }
-    ));
+    );
 }
 
 #[test]
@@ -252,10 +249,7 @@ fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
     )
     .expect_err("runtime type mismatch must be rejected");
 
-    assert!(matches!(
-        err,
-        AggregateFieldValueError::FieldValueTypeMismatch { .. }
-    ));
+    std::assert_matches!(err, AggregateFieldValueError::FieldValueTypeMismatch { .. });
 }
 
 #[test]
@@ -326,7 +320,7 @@ fn resolve_numeric_target_slot_accepts_numeric_field() {
     )
     .expect("numeric target field should be accepted");
 
-    assert!(matches!(slot.kind, FieldKind::Nat64));
+    std::assert_matches!(slot.kind, FieldKind::Nat64);
 }
 
 #[test]
@@ -337,10 +331,7 @@ fn resolve_numeric_target_slot_rejects_non_numeric_field() {
     )
     .expect_err("text field should be rejected for numeric aggregates");
 
-    assert!(matches!(
-        err,
-        AggregateFieldValueError::UnsupportedFieldKind { .. }
-    ));
+    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind { .. });
 }
 
 #[test]

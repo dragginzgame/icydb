@@ -194,17 +194,10 @@ fn query_surface_with_perf(
 ) -> Result<SqlQueryPerfResult, Error> {
     match surface {
         SqlPerfSurface::User if query_loop_count == 1 => fixture
-            .pic()
-            .query_call(
-                fixture.canister_id(),
-                "query_user_with_perf",
-                (sql.to_string(),),
-            )
+            .query_call("query_user_with_perf", (sql.to_string(),))
             .expect("query_user_with_perf should decode"),
         SqlPerfSurface::User => fixture
-            .pic()
             .query_call(
-                fixture.canister_id(),
                 "query_user_loop_with_perf",
                 (
                     sql.to_string(),
@@ -214,17 +207,10 @@ fn query_surface_with_perf(
             )
             .expect("query_user_loop_with_perf should decode"),
         SqlPerfSurface::Account if query_loop_count == 1 => fixture
-            .pic()
-            .query_call(
-                fixture.canister_id(),
-                "query_account_with_perf",
-                (sql.to_string(),),
-            )
+            .query_call("query_account_with_perf", (sql.to_string(),))
             .expect("query_account_with_perf should decode"),
         SqlPerfSurface::Account => fixture
-            .pic()
             .query_call(
-                fixture.canister_id(),
                 "query_account_loop_with_perf",
                 (
                     sql.to_string(),
@@ -234,17 +220,10 @@ fn query_surface_with_perf(
             )
             .expect("query_account_loop_with_perf should decode"),
         SqlPerfSurface::Blob if query_loop_count == 1 => fixture
-            .pic()
-            .query_call(
-                fixture.canister_id(),
-                "query_blob_with_perf",
-                (sql.to_string(),),
-            )
+            .query_call("query_blob_with_perf", (sql.to_string(),))
             .expect("query_blob_with_perf should decode"),
         SqlPerfSurface::Blob => fixture
-            .pic()
             .query_call(
-                fixture.canister_id(),
                 "query_blob_loop_with_perf",
                 (
                     sql.to_string(),
@@ -263,28 +242,13 @@ fn warm_query_surface_with_perf(
 ) -> Result<SqlQueryPerfResult, Error> {
     match surface {
         SqlPerfSurface::User => fixture
-            .pic()
-            .update_call(
-                fixture.canister_id(),
-                "warm_user_query_with_perf",
-                (sql.to_string(),),
-            )
+            .update_call("warm_user_query_with_perf", (sql.to_string(),))
             .expect("warm_user_query_with_perf should decode"),
         SqlPerfSurface::Account => fixture
-            .pic()
-            .update_call(
-                fixture.canister_id(),
-                "warm_account_query_with_perf",
-                (sql.to_string(),),
-            )
+            .update_call("warm_account_query_with_perf", (sql.to_string(),))
             .expect("warm_account_query_with_perf should decode"),
         SqlPerfSurface::Blob => fixture
-            .pic()
-            .update_call(
-                fixture.canister_id(),
-                "warm_blob_query_with_perf",
-                (sql.to_string(),),
-            )
+            .update_call("warm_blob_query_with_perf", (sql.to_string(),))
             .expect("warm_blob_query_with_perf should decode"),
     }
 }

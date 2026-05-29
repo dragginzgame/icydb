@@ -31,7 +31,7 @@ Local Make targets do not install OS packages and do not run `sudo`.
 Use the Rust toolchain pinned by the workspace:
 
 ```bash
-rustup toolchain install 1.95.0
+rustup toolchain install 1.96.0
 rustup target add wasm32-unknown-unknown
 ```
 

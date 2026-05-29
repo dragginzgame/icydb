@@ -1474,10 +1474,10 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
         GroupedExecutionRoute::GenericFull,
         "non-count grouped handoff shapes must stay on the generic grouped execution route",
     );
-    assert!(matches!(
+    std::assert_matches!(
         handoff.distinct_execution_strategy(),
         GroupedDistinctExecutionStrategy::None
-    ));
+    );
     assert_eq!(
         handoff.distinct_policy_violation_for_executor(),
         None,

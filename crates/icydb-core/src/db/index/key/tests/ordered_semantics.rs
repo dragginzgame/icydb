@@ -445,10 +445,7 @@ fn canonical_encoder_rejects_decimal_scale_above_max() {
 
     let err = encode_canonical_index_component(&value)
         .expect_err("unordered decimal scale should fail ordered encoding");
-    assert!(matches!(
-        err,
-        OrderedValueEncodeError::DecimalExponentOverflow
-    ));
+    std::assert_matches!(err, OrderedValueEncodeError::DecimalExponentOverflow);
 }
 
 #[test]

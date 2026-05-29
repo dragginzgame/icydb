@@ -77,7 +77,7 @@ fn rejects_too_many_index_fields() {
     let fields = ["a", "b", "c", "d", "e"];
 
     let err = IndexName::try_from_entity_fields(&entity, &fields).unwrap_err();
-    assert!(matches!(err, IndexNameError::TooManyFields { .. }));
+    std::assert_matches!(err, IndexNameError::TooManyFields { .. });
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn rejects_index_with_no_fields() {
     let entity = EntityName::try_from_str("entity").unwrap();
 
     let err = IndexName::try_from_entity_fields(&entity, &[]).unwrap_err();
-    assert!(matches!(err, IndexNameError::NoFields));
+    std::assert_matches!(err, IndexNameError::NoFields);
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn rejects_empty_index_field_segment() {
     let entity = EntityName::try_from_str("entity").unwrap();
 
     let err = IndexName::try_from_entity_fields(&entity, &[""]).unwrap_err();
-    assert!(matches!(err, IndexNameError::FieldEmpty));
+    std::assert_matches!(err, IndexNameError::FieldEmpty);
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn rejects_index_field_over_len() {
     let long_field = "a".repeat(MAX_INDEX_FIELD_NAME_LEN + 1);
 
     let err = IndexName::try_from_entity_fields(&entity, &[long_field.as_str()]).unwrap_err();
-    assert!(matches!(err, IndexNameError::FieldTooLong { .. }));
+    std::assert_matches!(err, IndexNameError::FieldTooLong { .. });
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn rejects_index_field_delimiter_that_would_alias_segments() {
 
     let entity = EntityName::try_from_str("E").unwrap();
     let err = IndexName::try_from_entity_fields(&entity, &["a|b"]).unwrap_err();
-    assert!(matches!(err, IndexNameError::FieldDelimiter { .. }));
+    std::assert_matches!(err, IndexNameError::FieldDelimiter { .. });
 }
 
 #[test]
@@ -134,26 +134,26 @@ fn entity_try_from_str_roundtrip() {
 #[test]
 fn entity_rejects_empty() {
     let err = EntityName::try_from_str("").unwrap_err();
-    assert!(matches!(err, EntityNameError::Empty));
+    std::assert_matches!(err, EntityNameError::Empty);
 }
 
 #[test]
 fn entity_rejects_len_over_max() {
     let s = "a".repeat(MAX_ENTITY_NAME_LEN + 1);
     let err = EntityName::try_from_str(&s).unwrap_err();
-    assert!(matches!(err, EntityNameError::TooLong { .. }));
+    std::assert_matches!(err, EntityNameError::TooLong { .. });
 }
 
 #[test]
 fn entity_rejects_non_ascii() {
     let err = EntityName::try_from_str("usér").unwrap_err();
-    assert!(matches!(err, EntityNameError::NonAscii));
+    std::assert_matches!(err, EntityNameError::NonAscii);
 }
 
 #[test]
 fn entity_rejects_index_name_delimiter() {
     let err = EntityName::try_from_str("user|account").unwrap_err();
-    assert!(matches!(err, EntityNameError::Delimiter));
+    std::assert_matches!(err, EntityNameError::Delimiter);
 }
 
 #[test]
@@ -189,20 +189,20 @@ fn entity_max_width_fixture_covers_every_accepted_ascii_byte() {
 #[test]
 fn entity_rejects_invalid_size() {
     let buf = vec![0u8; EntityName::STORED_SIZE_USIZE - 1];
-    assert!(matches!(
+    std::assert_matches!(
         EntityName::from_bytes(&buf),
         Err(IdentityDecodeError::InvalidSize)
-    ));
+    );
 }
 
 #[test]
 fn entity_rejects_len_over_max_from_bytes() {
     let mut buf = [0u8; EntityName::STORED_SIZE_USIZE];
     buf[0] = (MAX_ENTITY_NAME_LEN as u8).saturating_add(1);
-    assert!(matches!(
+    std::assert_matches!(
         EntityName::from_bytes(&buf),
         Err(IdentityDecodeError::InvalidLength)
-    ));
+    );
 }
 
 #[test]
@@ -210,10 +210,10 @@ fn entity_rejects_non_ascii_from_bytes() {
     let mut buf = [0u8; EntityName::STORED_SIZE_USIZE];
     buf[0] = 1;
     buf[1] = 0xFF;
-    assert!(matches!(
+    std::assert_matches!(
         EntityName::from_bytes(&buf),
         Err(IdentityDecodeError::NonAscii)
-    ));
+    );
 }
 
 #[test]
@@ -222,10 +222,10 @@ fn entity_rejects_delimiter_from_bytes() {
     buf[0] = 1;
     buf[1] = b'|';
 
-    assert!(matches!(
+    std::assert_matches!(
         EntityName::from_bytes(&buf),
         Err(IdentityDecodeError::Delimiter)
-    ));
+    );
 }
 
 #[test]
@@ -234,10 +234,10 @@ fn entity_rejects_non_zero_padding() {
     let mut bytes = e.to_bytes();
     bytes[1 + e.len()] = b'x';
 
-    assert!(matches!(
+    std::assert_matches!(
         EntityName::from_bytes(&bytes),
         Err(IdentityDecodeError::NonZeroPadding)
-    ));
+    );
 }
 
 #[test]
@@ -357,10 +357,10 @@ fn index_rejects_non_ascii_from_bytes() {
     buf[..2].copy_from_slice(&1u16.to_be_bytes());
     buf[2] = 0xFF;
 
-    assert!(matches!(
+    std::assert_matches!(
         IndexName::from_bytes(&buf),
         Err(IdentityDecodeError::NonAscii)
-    ));
+    );
 }
 
 // ------------------------------------------------------------------

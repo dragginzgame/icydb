@@ -203,7 +203,7 @@ mod tests {
             .find(|field| field.name() == "name")
             .expect("bounded text field should be present");
 
-        assert!(matches!(name.kind(), FieldKind::Text { max_len: Some(12) }));
+        std::assert_matches!(name.kind(), FieldKind::Text { max_len: Some(12) });
     }
 
     #[test]
@@ -214,10 +214,7 @@ mod tests {
             .find(|field| field.name() == "payload")
             .expect("bounded blob field should be present");
 
-        assert!(matches!(
-            payload.kind(),
-            FieldKind::Blob { max_len: Some(4) }
-        ));
+        std::assert_matches!(payload.kind(), FieldKind::Blob { max_len: Some(4) });
     }
 
     #[test]

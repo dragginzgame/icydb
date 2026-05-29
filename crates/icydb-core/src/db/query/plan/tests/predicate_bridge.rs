@@ -316,19 +316,19 @@ fn predicate_bridge_preserves_special_predicate_variants() {
         CoercionId::Strict,
     ));
 
-    assert!(matches!(
+    std::assert_matches!(
         canonicalize_runtime_predicate_via_bool_expr(text_contains_ci),
         Predicate::TextContainsCi { .. }
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         canonicalize_runtime_predicate_via_bool_expr(is_missing),
         Predicate::IsMissing { .. }
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         canonicalize_runtime_predicate_via_bool_expr(contains),
         Predicate::Compare(compare)
             if compare.op() == crate::db::predicate::CompareOp::Contains
-    ));
+    );
 }
 
 #[test]

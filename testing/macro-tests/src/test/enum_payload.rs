@@ -141,6 +141,6 @@ pub mod test {
     fn generated_unit_enum_can_be_used_as_fluent_filter_literal() {
         let expr = FilterExpr::eq("stage", Stage::Live);
 
-        assert!(matches!(expr, FilterExpr::Eq { .. }));
+        std::assert_matches!(expr, FilterExpr::Eq { .. });
     }
 }

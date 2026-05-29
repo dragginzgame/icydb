@@ -61,7 +61,7 @@ fn unknown_top_level_section_fails_parse() {
     )
     .expect_err("unknown top-level sections should fail");
 
-    assert!(matches!(err, ConfigBuildError::Parse { .. }));
+    std::assert_matches!(err, ConfigBuildError::Parse { .. });
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn unknown_canister_field_fails_parse() {
     )
     .expect_err("unknown canister fields should fail");
 
-    assert!(matches!(err, ConfigBuildError::Parse { .. }));
+    std::assert_matches!(err, ConfigBuildError::Parse { .. });
 }
 
 #[test]
@@ -89,10 +89,10 @@ fn unknown_generated_canister_fails_validation() {
     )
     .expect_err("config canister must match generated schema canister");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         ConfigBuildError::UnknownCanister { canister, .. } if canister == "unknown"
-    ));
+    );
 }
 
 #[test]
@@ -109,10 +109,7 @@ fn ambiguous_canister_names_fail_validation() {
     )
     .expect_err("normalized duplicate canister names should fail");
 
-    assert!(matches!(
-        err,
-        ConfigBuildError::AmbiguousCanisterName { .. }
-    ));
+    std::assert_matches!(err, ConfigBuildError::AmbiguousCanisterName { .. });
 }
 
 #[test]

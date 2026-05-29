@@ -1859,10 +1859,10 @@ fn accepted_row_contract_reads_missing_trailing_nullable_slots_as_null() {
         reader.get_value(2).expect("reader missing slot"),
         Some(Value::Null)
     );
-    assert!(matches!(
+    std::assert_matches!(
         reader.get_scalar(2).expect("reader scalar missing slot"),
         Some(ScalarSlotValueRef::Null),
-    ));
+    );
     assert_eq!(
         dense,
         vec![

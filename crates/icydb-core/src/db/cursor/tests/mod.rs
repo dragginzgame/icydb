@@ -44,11 +44,11 @@ fn prepare_grouped_cursor_rejects_direction_mismatch() {
     )
     .expect_err("grouped cursor direction must match grouped execution direction");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         CursorPlanError::InvalidContinuationCursorPayload { reason }
             if reason == "grouped continuation cursor direction does not match executable plan direction"
-    ));
+    );
 }
 
 #[test]
@@ -88,14 +88,14 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
     )
     .expect_err("grouped cursor signature mismatch must fail");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         CursorPlanError::ContinuationCursorSignatureMismatch {
             entity_path,
             expected: _,
             actual: _,
         } if entity_path == "grouped::test_entity"
-    ));
+    );
 }
 
 #[test]
@@ -114,13 +114,13 @@ fn prepare_grouped_cursor_rejects_offset_mismatch() {
     )
     .expect_err("grouped cursor initial offset mismatch must fail");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         CursorPlanError::ContinuationCursorWindowMismatch {
             expected_offset,
             actual_offset,
         } if expected_offset == token.initial_offset() + 1 && actual_offset == token.initial_offset()
-    ));
+    );
 }
 
 #[test]
@@ -129,11 +129,11 @@ fn validate_grouped_cursor_order_plan_rejects_empty_order_spec() {
     let err = validate_grouped_cursor_order_plan(Some(&empty_order))
         .expect_err("grouped cursor order plan must reject empty order specs");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         CursorPlanError::ContinuationCursorInvariantViolation { reason }
             if reason.contains("cursor pagination requires non-empty ordering")
-    ));
+    );
 }
 
 #[test]
@@ -157,22 +157,22 @@ fn cursor_order_invariant_constructors_keep_raw_reasons() {
     let requires_explicit_or_grouped =
         CursorPlanError::cursor_requires_explicit_or_grouped_ordering();
 
-    assert!(matches!(
+    std::assert_matches!(
         requires_order,
         CursorPlanError::ContinuationCursorInvariantViolation { reason }
             if reason == CursorPlanError::cursor_requires_order_message()
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         requires_non_empty_order,
         CursorPlanError::ContinuationCursorInvariantViolation { reason }
             if reason == CursorPlanError::cursor_requires_non_empty_order_message()
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         requires_explicit_or_grouped,
         CursorPlanError::ContinuationCursorInvariantViolation { reason }
             if reason
                 == CursorPlanError::cursor_requires_explicit_or_grouped_ordering_message()
-    ));
+    );
 }
 
 #[test]
@@ -215,13 +215,13 @@ fn revalidate_grouped_cursor_rejects_offset_mismatch() {
     let err = revalidate_grouped_cursor(token.initial_offset() + 1, prepared)
         .expect_err("grouped cursor revalidate must enforce offset compatibility");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         CursorPlanError::ContinuationCursorWindowMismatch {
             expected_offset,
             actual_offset,
         } if expected_offset == token.initial_offset() + 1 && actual_offset == token.initial_offset()
-    ));
+    );
 }
 
 #[test]

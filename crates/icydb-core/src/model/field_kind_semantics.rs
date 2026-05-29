@@ -684,10 +684,10 @@ mod tests {
     fn strict_sql_literal_canonicalization_adds_ulid_without_widening_other_kinds() {
         let ulid_text = "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string();
 
-        assert!(matches!(
+        std::assert_matches!(
             canonicalize_strict_sql_literal_for_kind(&FieldKind::Ulid, &Value::Text(ulid_text),),
             Some(Value::Ulid(_)),
-        ));
+        );
         assert_eq!(
             canonicalize_strict_sql_literal_for_kind(&FieldKind::Nat64, &Value::Int64(4)),
             Some(Value::Nat64(4)),

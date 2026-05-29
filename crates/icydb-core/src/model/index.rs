@@ -549,11 +549,11 @@ mod tests {
             model.to_string(),
             "idx_users__tenant_lower_email: users::index(tenant_id, LOWER(email))"
         );
-        assert!(matches!(
+        std::assert_matches!(
             model.key_items(),
             IndexKeyItemsRef::Items(items)
                 if items == KEY_ITEMS.as_slice()
-        ));
+        );
     }
 
     #[test]

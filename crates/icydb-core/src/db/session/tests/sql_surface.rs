@@ -3581,14 +3581,14 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
         SessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject non-owned entity targets");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::EntityMismatch {
             sql_entity,
             expected_entity,
         } if sql_entity == "IndexedSessionSqlEntity"
             && expected_entity == "SessionSqlEntity"
-    ));
+    );
 
     let unknown_field = parse_sql("CREATE INDEX missing_field_idx ON SessionSqlEntity (missing)")
         .expect("CREATE INDEX should parse before field binding");
@@ -3599,13 +3599,13 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
         SessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject unknown accepted field paths");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnknownFieldPath {
             entity_name,
             field_path,
         } if entity_name == "SessionSqlEntity" && field_path == "missing"
-    ));
+    );
 
     let unknown_expression_field =
         parse_sql("CREATE INDEX missing_expression_idx ON SessionSqlEntity (LOWER(missing))")
@@ -3617,13 +3617,13 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
         SessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject unknown expression source field paths");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnknownFieldPath {
             entity_name,
             field_path,
         } if entity_name == "SessionSqlEntity" && field_path == "missing"
-    ));
+    );
 }
 
 #[test]
@@ -3673,13 +3673,13 @@ fn sql_ddl_create_index_binding_accepts_expression_keys_as_catalog_metadata() {
     let PersistedIndexKeySnapshot::Items(items) = create.candidate_index().key() else {
         panic!("mixed CREATE INDEX should use explicit key-item metadata");
     };
-    assert!(matches!(
+    std::assert_matches!(
         items.as_slice(),
         [
             PersistedIndexKeyItemSnapshot::FieldPath(_),
             PersistedIndexKeyItemSnapshot::Expression(_)
         ]
-    ));
+    );
 }
 
 #[test]
@@ -3766,7 +3766,7 @@ fn sql_ddl_alter_table_add_big_int_column_rejects_zero_max_bytes() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("zero max_bytes should not bind as a supported column type");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnsupportedAlterTableAddColumnType {
             entity_name,
@@ -3775,7 +3775,7 @@ fn sql_ddl_alter_table_add_big_int_column_rejects_zero_max_bytes() {
         } if entity_name == "SessionSqlEntity"
             && column_name == "score"
             && column_type == "nat_big(max_bytes=0)"
-    ));
+    );
 }
 
 #[test]
@@ -3793,13 +3793,13 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
         SessionSqlStore::PATH,
     )
     .expect_err("required SQL-added columns should fail closed until default/backfill lands");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnsupportedAlterTableAddColumnNotNull {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "title"
-    ));
+    );
 
     let invalid_default_statement =
         parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 'seven'")
@@ -3811,14 +3811,14 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
         SessionSqlStore::PATH,
     )
     .expect_err("unencodable SQL-added defaults should fail closed");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::InvalidAlterTableAddColumnDefault {
             entity_name,
             column_name,
             ..
         } if entity_name == "SessionSqlEntity" && column_name == "score"
-    ));
+    );
 
     let legacy_nat_statement =
         parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 0")
@@ -3830,7 +3830,7 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
         SessionSqlStore::PATH,
     )
     .expect_err("legacy nat spelling should no longer bind as a column type");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnsupportedAlterTableAddColumnType {
             entity_name,
@@ -3839,7 +3839,7 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
         } if entity_name == "SessionSqlEntity"
             && column_name == "score"
             && column_type == "nat"
-    ));
+    );
 
     let legacy_int_statement =
         parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN delta int DEFAULT 0")
@@ -3851,7 +3851,7 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
         SessionSqlStore::PATH,
     )
     .expect_err("legacy int spelling should no longer bind as a column type");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnsupportedAlterTableAddColumnType {
             entity_name,
@@ -3860,7 +3860,7 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
         } if entity_name == "SessionSqlEntity"
             && column_name == "delta"
             && column_type == "int"
-    ));
+    );
 }
 
 #[test]
@@ -3886,13 +3886,13 @@ fn sql_ddl_alter_table_alter_column_nullability_rejects_generated_changes() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("ALTER COLUMN DROP NOT NULL should reject generated accepted fields");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::GeneratedFieldNullabilityChangeRejected {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "age"
-    ));
+    );
 }
 
 #[test]
@@ -3905,13 +3905,13 @@ fn sql_ddl_alter_table_alter_column_rejects_unknown_column() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("ALTER COLUMN should validate accepted catalog fields before failing");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnknownColumn {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "missing"
-    ));
+    );
 }
 
 #[test]
@@ -3983,13 +3983,13 @@ fn sql_ddl_alter_table_drop_column_rejects_unknown_column() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("DROP COLUMN should validate accepted catalog fields before failing");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnknownColumn {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "missing"
-    ));
+    );
 }
 
 #[test]
@@ -4022,13 +4022,13 @@ fn sql_ddl_alter_table_drop_column_rejects_generated_fields() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("DROP COLUMN should reject generated accepted fields");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::GeneratedFieldDropRejected {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "age"
-    ));
+    );
 }
 
 #[test]
@@ -4041,13 +4041,13 @@ fn sql_ddl_alter_table_drop_column_rejects_primary_key_fields() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("DROP COLUMN should reject primary-key accepted fields");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::PrimaryKeyFieldDropRejected {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "id"
-    ));
+    );
 }
 
 #[test]
@@ -4092,13 +4092,13 @@ fn sql_ddl_alter_table_drop_column_rejects_any_composite_primary_key_field() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("DROP COLUMN should reject every accepted primary-key component");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::PrimaryKeyFieldDropRejected {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "nickname"
-    ));
+    );
 }
 
 #[test]
@@ -4142,7 +4142,7 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("DROP COLUMN should reject fields referenced by accepted indexes");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::IndexedFieldDropRejected {
             entity_name,
@@ -4151,7 +4151,7 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
         } if entity_name == "SessionSqlEntity"
             && column_name == "nickname"
             && index_name == "session_sql_nickname_idx"
-    ));
+    );
 }
 
 #[test]
@@ -4296,13 +4296,13 @@ fn sql_ddl_alter_table_rename_column_rejects_unknown_source_column() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("RENAME COLUMN should validate accepted source fields before failing");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::UnknownColumn {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "missing"
-    ));
+    );
 }
 
 #[test]
@@ -4315,13 +4315,13 @@ fn sql_ddl_alter_table_rename_column_rejects_duplicate_target_column() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("RENAME COLUMN should reject existing target fields");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::DuplicateColumn {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "name"
-    ));
+    );
 }
 
 #[test]
@@ -4334,13 +4334,13 @@ fn sql_ddl_alter_table_rename_column_rejects_generated_fields() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("RENAME COLUMN should reject generated accepted fields");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::GeneratedFieldRenameRejected {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "age"
-    ));
+    );
 }
 
 #[test]
@@ -4534,13 +4534,13 @@ fn sql_ddl_alter_table_alter_column_default_rejects_generated_fields() {
     let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
         .expect_err("ALTER COLUMN SET DEFAULT should reject generated accepted fields");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::GeneratedFieldDefaultChangeRejected {
             entity_name,
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "age"
-    ));
+    );
 }
 
 #[test]
@@ -5591,10 +5591,10 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
         IndexedSessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject accepted duplicate index names");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::DuplicateIndexName { index_name } if index_name == "name"
-    ));
+    );
 
     let duplicate_key = parse_sql("CREATE INDEX another_name ON IndexedSessionSqlEntity (name)")
         .expect("CREATE INDEX should parse before duplicate-key binding");
@@ -5605,13 +5605,13 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
         IndexedSessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject accepted duplicate field-path indexes");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::DuplicateFieldPathIndex {
             field_path,
             existing_index,
         } if field_path == "name" && existing_index == "name"
-    ));
+    );
 }
 
 #[test]
@@ -5653,10 +5653,10 @@ fn sql_ddl_create_index_if_not_exists_rejects_conflicting_existing_index_name() 
     )
     .expect_err("IF NOT EXISTS should not hide conflicting index definitions");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::DuplicateIndexName { index_name } if index_name == "name"
-    ));
+    );
 }
 
 #[test]
@@ -5674,10 +5674,10 @@ fn sql_ddl_drop_index_binding_rejects_generated_indexes() {
     )
     .expect_err("DDL binding should reject generated index drops");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::GeneratedIndexDropRejected { index_name } if index_name == "name"
-    ));
+    );
 }
 
 #[test]
@@ -5718,10 +5718,10 @@ fn sql_ddl_drop_index_if_exists_still_rejects_generated_indexes() {
     )
     .expect_err("IF EXISTS should not hide generated index ownership");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SqlDdlBindError::GeneratedIndexDropRejected { index_name } if index_name == "name"
-    ));
+    );
 }
 
 #[test]

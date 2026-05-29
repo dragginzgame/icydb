@@ -7,7 +7,9 @@ use std::{
 };
 
 use ic_testkit::artifacts::wasm_path;
-use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister_with_cycles};
+use ic_testkit::pic::{
+    InstallSpec, StandaloneCanisterFixture, install_prebuilt_canister_from_spec,
+};
 use icydb::Error;
 
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
@@ -314,24 +316,25 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
         )
     });
 
-    install_prebuilt_canister_with_cycles(
-        wasm,
-        candid::encode_args(()).expect("encode empty init args"),
-        FIXTURE_INSTALL_CYCLES,
+    install_prebuilt_canister_from_spec(
+        InstallSpec::new(
+            wasm,
+            candid::encode_args(()).expect("encode empty init args"),
+            FIXTURE_INSTALL_CYCLES,
+        )
+        .label(canister_name),
     )
 }
 
 /// Reset and reload the generated IcyDB fixture set on one installed canister.
 pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
     let reset: Result<(), Error> = fixture
-        .pic()
-        .update_call(fixture.canister_id(), "__icydb_fixtures_reset", ())
+        .update_call("__icydb_fixtures_reset", ())
         .expect("__icydb_fixtures_reset should decode");
     reset.expect("__icydb_fixtures_reset should succeed");
 
     let load: Result<(), Error> = fixture
-        .pic()
-        .update_call(fixture.canister_id(), "__icydb_fixtures_load", ())
+        .update_call("__icydb_fixtures_load", ())
         .expect("__icydb_fixtures_load should decode");
     load.expect("__icydb_fixtures_load should succeed");
 }

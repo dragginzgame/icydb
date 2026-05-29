@@ -301,10 +301,10 @@ mod tests {
 
         assert!(index.has_expression_key_items());
         assert_eq!(index.to_string(), "(tenant_id, LOWER(email))");
-        assert!(matches!(
+        std::assert_matches!(
             index.key_items(),
             IndexKeyItemsRef::Items(items)
                 if items == KEY_ITEMS.as_slice()
-        ));
+        );
     }
 }

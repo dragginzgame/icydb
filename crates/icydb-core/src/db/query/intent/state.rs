@@ -533,19 +533,19 @@ mod tests {
     fn query_intent_new_starts_in_load_scalar_mode() {
         let intent = QueryIntent::<u64>::new();
 
-        assert!(matches!(intent.mode(), QueryMode::Load(_)));
-        assert!(matches!(
+        std::assert_matches!(intent.mode(), QueryMode::Load(_));
+        std::assert_matches!(
             intent.mode(),
             QueryMode::Load(LoadSpec {
                 limit: None,
                 offset: 0
             })
-        ));
+        );
         assert!(
             !intent.is_grouped(),
             "new intent must start in scalar shape without grouped policy flags"
         );
-        assert!(matches!(intent.mode(), QueryMode::Load(_)));
+        std::assert_matches!(intent.mode(), QueryMode::Load(_));
     }
 
     #[test]
@@ -576,7 +576,7 @@ mod tests {
 
         let intent = intent.set_delete_mode();
 
-        assert!(matches!(intent.mode(), QueryMode::Delete(_)));
+        std::assert_matches!(intent.mode(), QueryMode::Delete(_));
         assert!(
             intent.is_grouped(),
             "delete mode should preserve grouped-delete policy signal"

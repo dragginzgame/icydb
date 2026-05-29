@@ -413,10 +413,10 @@ fn try_from_map_vec_returns_schema_invariant_error() {
     let err = Value::try_from(vec![(v_txt("a"), v_u(1)), (v_txt("a"), v_u(2))])
         .expect_err("duplicate map keys should fail");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         SchemaInvariantError::InvalidMapValue(crate::value::MapValueError::DuplicateKey { .. })
-    ));
+    );
 }
 
 #[test]

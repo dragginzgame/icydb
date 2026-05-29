@@ -338,17 +338,10 @@ fn query_fluent_surface_with_perf(
 ) -> Result<FluentQueryPerfResult, Error> {
     match surface {
         FluentPerfSurface::User if query_loop_count == 1 => fixture
-            .pic()
-            .query_call(
-                fixture.canister_id(),
-                "query_user_fluent_with_perf",
-                (scenario_key.to_string(),),
-            )
+            .query_call("query_user_fluent_with_perf", (scenario_key.to_string(),))
             .expect("query_user_fluent_with_perf should decode"),
         FluentPerfSurface::User => fixture
-            .pic()
             .query_call(
-                fixture.canister_id(),
                 "query_user_fluent_loop_with_perf",
                 (
                     scenario_key.to_string(),
@@ -358,17 +351,13 @@ fn query_fluent_surface_with_perf(
             )
             .expect("query_user_fluent_loop_with_perf should decode"),
         FluentPerfSurface::Account if query_loop_count == 1 => fixture
-            .pic()
             .query_call(
-                fixture.canister_id(),
                 "query_account_fluent_with_perf",
                 (scenario_key.to_string(),),
             )
             .expect("query_account_fluent_with_perf should decode"),
         FluentPerfSurface::Account => fixture
-            .pic()
             .query_call(
-                fixture.canister_id(),
                 "query_account_fluent_loop_with_perf",
                 (
                     scenario_key.to_string(),
@@ -387,20 +376,10 @@ fn warm_fluent_surface_with_perf(
 ) -> Result<FluentQueryPerfResult, Error> {
     match surface {
         FluentPerfSurface::User => fixture
-            .pic()
-            .update_call(
-                fixture.canister_id(),
-                "warm_user_fluent_with_perf",
-                (scenario_key.to_string(),),
-            )
+            .update_call("warm_user_fluent_with_perf", (scenario_key.to_string(),))
             .expect("warm_user_fluent_with_perf should decode"),
         FluentPerfSurface::Account => fixture
-            .pic()
-            .update_call(
-                fixture.canister_id(),
-                "warm_account_fluent_with_perf",
-                (scenario_key.to_string(),),
-            )
+            .update_call("warm_account_fluent_with_perf", (scenario_key.to_string(),))
             .expect("warm_account_fluent_with_perf should decode"),
     }
 }

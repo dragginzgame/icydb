@@ -210,7 +210,7 @@ mod tests {
     fn raw_row_rejects_oversized_payload() {
         let bytes = vec![0u8; MAX_ROW_BYTES as usize + 1];
         let err = RawRow::try_new(bytes).unwrap_err();
-        assert!(matches!(err, RawRowError::TooLarge { .. }));
+        std::assert_matches!(err, RawRowError::TooLarge { .. });
     }
 
     #[test]

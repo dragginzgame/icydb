@@ -88,14 +88,14 @@ fn grouped_aggregate_state_enforces_distinct_values_per_group_limit() {
         )
         .expect_err("second unique grouped distinct value should exceed per-group budget");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         GroupError::DistinctBudgetExceeded {
             resource: "distinct_values_per_group",
             attempted: 2,
             limit: 1,
         }
-    ));
+    );
 }
 
 #[test]
@@ -131,14 +131,14 @@ fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
         )
         .expect_err("second grouped distinct value should exceed total distinct budget");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         GroupError::DistinctBudgetExceeded {
             resource: "distinct_values_total",
             attempted: 2,
             limit: 1,
         }
-    ));
+    );
 }
 
 #[test]
@@ -215,14 +215,14 @@ fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
         .apply_borrowed(&text_group_key("c"), &data_key(3), &mut execution_context)
         .expect_err("third group should exceed max_groups hard limit");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
             resource: "groups",
             attempted: 3,
             limit: 2,
         }
-    ));
+    );
 }
 
 #[test]
@@ -240,14 +240,14 @@ fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
         )
         .expect_err("tiny byte budget should reject first group insertion");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
             resource: "estimated_bytes",
             attempted: _,
             limit: 1,
         }
-    ));
+    );
 }
 
 #[test]
@@ -280,14 +280,14 @@ fn grouped_aggregate_state_counts_max_groups_once_per_canonical_group_across_sta
         .apply_borrowed(&text_group_key("b"), &data_key(2), &mut execution_context)
         .expect_err("second canonical group should exceed max_groups hard limit");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
             resource: "groups",
             attempted: 2,
             limit: 1,
         }
-    ));
+    );
 }
 
 #[test]
@@ -304,14 +304,14 @@ fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact()
         .apply_borrowed(&text_group_key("b"), &data_key(2), &mut execution_context)
         .expect_err("second group should exceed max_groups and fail atomically");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
             resource: "groups",
             attempted: 2,
             limit: 1,
         }
-    ));
+    );
     assert_eq!(
         execution_context.budget().groups(),
         1,

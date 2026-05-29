@@ -85,10 +85,10 @@ fn grouped_order_classifier_accepts_canonical_group_field() {
         classify_grouped_order_term_for_field(&expr, "score"),
         GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::CanonicalGroupField),
     );
-    assert!(matches!(
+    std::assert_matches!(
         classify_grouped_order_term_for_field(&expr, "score"),
         GroupedOrderTermAdmissibility::Preserves(_)
-    ));
+    );
 }
 
 #[test]
@@ -99,10 +99,10 @@ fn grouped_order_classifier_accepts_group_field_plus_constant() {
         classify_grouped_order_term_for_field(&expr, "score"),
         GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::GroupFieldPlusConstant),
     );
-    assert!(matches!(
+    std::assert_matches!(
         classify_grouped_order_term_for_field(&expr, "score"),
         GroupedOrderTermAdmissibility::Preserves(_)
-    ));
+    );
 }
 
 #[test]
@@ -113,10 +113,10 @@ fn grouped_order_classifier_accepts_group_field_minus_constant() {
         classify_grouped_order_term_for_field(&expr, "score"),
         GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::GroupFieldMinusConstant),
     );
-    assert!(matches!(
+    std::assert_matches!(
         classify_grouped_order_term_for_field(&expr, "score"),
         GroupedOrderTermAdmissibility::Preserves(_)
-    ));
+    );
 }
 
 #[test]

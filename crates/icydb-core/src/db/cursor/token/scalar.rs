@@ -215,6 +215,6 @@ mod tests {
             .encode()
             .expect_err("oversized scalar cursor payload must fail before emission");
 
-        assert!(matches!(err, TokenWireError::Encode(_)));
+        std::assert_matches!(err, TokenWireError::Encode(_));
     }
 }

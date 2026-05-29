@@ -1453,7 +1453,7 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
         3,
         "SELECT * projection response should include all model fields",
     );
-    assert!(matches!(row[0], Value::Ulid(_)));
+    std::assert_matches!(row[0], Value::Ulid(_));
     assert_eq!(row[1], Value::Text("projection-star".to_string()));
     assert_eq!(row[2], Value::Nat64(41));
 }

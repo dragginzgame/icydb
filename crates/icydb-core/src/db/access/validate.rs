@@ -655,7 +655,7 @@ mod tests {
         )
         .expect_err("scalar primary-key validation should reject list literals");
 
-        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+        std::assert_matches!(err, AccessPlanError::PrimaryKeyMismatch { .. });
     }
 
     #[test]
@@ -695,7 +695,7 @@ mod tests {
         )
         .expect_err("runtime access validation should reject scalar value for composite key");
 
-        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+        std::assert_matches!(err, AccessPlanError::PrimaryKeyMismatch { .. });
     }
 
     #[test]
@@ -718,7 +718,7 @@ mod tests {
         )
         .expect_err("runtime access validation should reject malformed composite key lists");
 
-        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+        std::assert_matches!(err, AccessPlanError::PrimaryKeyMismatch { .. });
     }
 
     #[test]
@@ -730,7 +730,7 @@ mod tests {
             validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
                 .expect_err("composite primary-key validation should reject wrong arity");
 
-        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+        std::assert_matches!(err, AccessPlanError::PrimaryKeyMismatch { .. });
     }
 
     #[test]
@@ -742,7 +742,7 @@ mod tests {
             validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
                 .expect_err("composite primary-key validation should reject component mismatch");
 
-        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+        std::assert_matches!(err, AccessPlanError::PrimaryKeyMismatch { .. });
     }
 
     #[test]
@@ -756,10 +756,10 @@ mod tests {
         let err = validate_access_structure_model(schema, &COMPOSITE_MODEL, &range)
             .expect_err("composite primary-key range access is deferred and should reject");
 
-        assert!(matches!(
+        std::assert_matches!(
             err,
             AccessPlanError::CompositePrimaryKeyRangeUnsupported { .. }
-        ));
+        );
     }
 
     #[test]
@@ -773,9 +773,9 @@ mod tests {
         let err = validate_access_runtime_invariants_with_schema(schema, &range)
             .expect_err("runtime access validation should also reject composite key ranges");
 
-        assert!(matches!(
+        std::assert_matches!(
             err,
             AccessPlanError::CompositePrimaryKeyRangeUnsupported { .. }
-        ));
+        );
     }
 }

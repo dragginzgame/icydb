@@ -812,10 +812,7 @@ fn grouped_having_requires_group_by() {
         )
         .expect_err("having should fail when group_by is missing");
 
-    assert!(matches!(
-        err,
-        QueryError::Intent(IntentError::HavingRequiresGroupBy)
-    ));
+    std::assert_matches!(err, QueryError::Intent(IntentError::HavingRequiresGroupBy));
 }
 
 #[test]

@@ -177,10 +177,7 @@ mod tests {
         let err = primary_key_matches_value(&index_key, &Value::Text("broken".to_string()))
             .expect_err("non-storage-key runtime value must be rejected");
 
-        assert!(matches!(
-            err,
-            PrimaryKeyEquivalenceError::BoundaryDecode { .. }
-        ));
+        std::assert_matches!(err, PrimaryKeyEquivalenceError::BoundaryDecode { .. });
     }
 
     #[test]

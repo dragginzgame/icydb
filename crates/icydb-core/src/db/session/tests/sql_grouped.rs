@@ -276,14 +276,14 @@ fn assert_indexed_grouped_ordered_public_case(
         .explain()
         .unwrap_or_else(|err| panic!("{context} logical explain should succeed: {err}"));
 
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
-    ));
+    );
 
     let descriptor = query
         .explain_execution()
@@ -492,13 +492,13 @@ fn grouped_select_lowering_explain_and_execution_project_grouped_fallback_public
         .explain()
         .expect("grouped logical explain should succeed");
 
-    assert!(matches!(
+    std::assert_matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
             fallback_reason: Some("group_key_order_unavailable"),
             ..
         }
-    ));
+    );
 
     let descriptor = query
         .explain_execution()
@@ -3533,7 +3533,7 @@ fn grouped_select_rejects_non_preserving_computed_order() {
     )
     .expect_err("grouped non-preserving computed ORDER BY should stay fail-closed");
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::Plan(inner)
             if matches!(
@@ -3548,7 +3548,7 @@ fn grouped_select_rejects_non_preserving_computed_order() {
                             )
                     )
             )
-    ));
+    );
 }
 
 #[test]

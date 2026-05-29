@@ -398,10 +398,10 @@ mod tests {
         let err = value
             .canonical_key()
             .expect_err("duplicate map keys should fail");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             KeyCanonicalError::InvalidMapValue(MapValueError::DuplicateKey { .. })
-        ));
+        );
     }
 
     #[test]

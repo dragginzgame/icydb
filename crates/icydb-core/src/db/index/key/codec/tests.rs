@@ -1017,12 +1017,12 @@ fn index_key_primary_key_equivalence_fails_closed_on_corrupted_anchor_payload() 
 
     let err = primary_key_matches_value(&key, &Value::Int64(9))
         .expect_err("corrupted index-key primary-key payload should fail closed");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         PrimaryKeyEquivalenceError::AnchorDecode {
             source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError::UnknownKind { .. }
         }
-    ));
+    );
 }
 
 #[test]
@@ -1037,10 +1037,7 @@ fn index_key_primary_key_equivalence_rejects_non_primary_key_component_boundary_
 
     let err = primary_key_matches_value(&key, &Value::Text("not-keyable".to_string()))
         .expect_err("non-storage-key boundary values must fail closed");
-    assert!(matches!(
-        err,
-        PrimaryKeyEquivalenceError::BoundaryDecode { .. }
-    ));
+    std::assert_matches!(err, PrimaryKeyEquivalenceError::BoundaryDecode { .. });
 }
 
 #[test]
@@ -1102,12 +1099,12 @@ fn index_key_partial_truncation_cases_fail_closed() {
     );
     let missing_pk_err = primary_key_matches_value(&key_with_truncated_pk, &Value::Int64(9))
         .expect_err("missing PK bytes must fail closed in primary-key equivalence");
-    assert!(matches!(
+    std::assert_matches!(
         missing_pk_err,
         PrimaryKeyEquivalenceError::AnchorDecode {
             source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError::InvalidLength { .. }
         }
-    ));
+    );
 
     // Phase 2: freeze decode behavior when one namespace-prefix byte is missing.
     let baseline = key_with(

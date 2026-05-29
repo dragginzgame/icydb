@@ -45,8 +45,7 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     let response: Result<SqlQueryPerfResult, Error> = fixture
-        .pic()
-        .query_call(fixture.canister_id(), "__icydb_query", (sql.to_string(),))
+        .query_call("__icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode");
 
     response.map(|payload| payload.result)
@@ -61,8 +60,7 @@ fn query_numeric_types(
 
 fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
-        .pic()
-        .update_call(fixture.canister_id(), "__icydb_ddl", (sql.to_string(),))
+        .update_call("__icydb_ddl", (sql.to_string(),))
         .expect("sql DDL canister call should decode")
 }
 

@@ -421,11 +421,11 @@ fn plan_rejects_unorderable_field() {
     };
 
     let err = validate_query_semantics(schema, model, &plan).expect_err("unorderable field");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Order(inner)
             if matches!(inner.as_ref(), OrderPlanError::UnorderableField { .. })
-    )));
+    ));
 }
 
 #[test]
@@ -548,14 +548,14 @@ fn plan_rejects_duplicate_non_primary_order_field() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("duplicate non-primary order field must fail");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Order(inner)
             if matches!(
                 inner.as_ref(),
                 OrderPlanError::DuplicateOrderField { field } if field == "rank"
             )
-    )));
+    ));
 }
 
 #[test]
@@ -589,11 +589,11 @@ fn plan_rejects_index_prefix_too_long() {
     };
 
     let err = validate_query_semantics(schema, model, &plan).expect_err("index prefix too long");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Access(inner)
             if matches!(inner.as_ref(), AccessPlanError::IndexPrefixTooLong { .. })
-    )));
+    ));
 }
 
 #[test]
@@ -627,11 +627,11 @@ fn plan_rejects_empty_index_prefix() {
     };
 
     let err = validate_query_semantics(schema, model, &plan).expect_err("index prefix empty");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Access(inner)
             if matches!(inner.as_ref(), AccessPlanError::IndexPrefixEmpty)
-    )));
+    ));
 }
 
 #[test]
@@ -688,11 +688,11 @@ fn plan_rejects_empty_order_spec() {
     };
 
     let err = validate_query_semantics(schema, model, &plan).expect_err("empty order must fail");
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::EmptyOrderSpec)
-    )));
+    ));
 }
 
 #[test]
@@ -725,11 +725,11 @@ fn delete_limit_requires_order() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("delete limit without order must fail");
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::DeleteWindowRequiresOrder)
-    )));
+    ));
 }
 
 #[test]
@@ -832,11 +832,11 @@ fn delete_plan_rejects_pagination() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("delete plans must not carry pagination");
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::DeletePlanWithPagination)
-    )));
+    ));
 }
 
 #[test]
@@ -874,11 +874,11 @@ fn load_plan_rejects_delete_limit() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("load plans must not carry delete limits");
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::LoadPlanWithDeleteLimit)
-    )));
+    ));
 }
 
 #[test]
@@ -911,11 +911,11 @@ fn plan_rejects_unordered_pagination() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("pagination without ordering must be rejected");
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::UnorderedPagination)
-    )));
+    ));
 }
 
 #[test]
@@ -948,11 +948,11 @@ fn plan_rejects_limit_without_order() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("limit without ordering must be rejected");
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::UnorderedPagination)
-    )));
+    ));
 }
 
 #[test]
@@ -1100,14 +1100,14 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("expression order must fail closed when access does not satisfy ordering");
-    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+    std::assert_matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
             if matches!(
                 inner.as_ref(),
                 PolicyPlanError::ExpressionOrderRequiresIndexSatisfiedAccess
             )
-    )));
+    ));
 }
 
 #[test]
@@ -1289,11 +1289,11 @@ fn plan_rejects_order_without_primary_key_tie_break() {
     };
 
     let err = validate_query_semantics(schema, model, &plan).expect_err("missing PK tie-break");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Order(inner)
             if matches!(inner.as_ref(), OrderPlanError::MissingPrimaryKeyTieBreak { .. })
-    )));
+    ));
 }
 
 #[test]
@@ -1333,7 +1333,7 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
 
     let err = validate_query_semantics(schema, model, &plan)
         .expect_err("map field predicates must fail during planner validation");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::PredicateInvalid(inner)
             if matches!(
@@ -1341,5 +1341,5 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
                 ValidateError::UnsupportedQueryFeature(UnsupportedQueryFeature::MapPredicate { field })
                     if field == "metadata"
             )
-    )));
+    ));
 }

@@ -86,11 +86,11 @@ fn grouped_cursor_contract_shares_policy_gate_for_token_and_window_paths() {
         .project_grouped_paging_window(&applied_grouped_cursor(&contract))
         .expect_err("grouped paging window should honor grouped cursor policy");
 
-    assert!(matches!(
+    std::assert_matches!(
         &token_err,
         CursorPlanError::ContinuationCursorInvariantViolation { reason }
             if reason == "grouped continuation cursors require an explicit LIMIT"
-    ));
+    );
     assert_eq!(
         token_err.to_string(),
         window_err.to_string(),

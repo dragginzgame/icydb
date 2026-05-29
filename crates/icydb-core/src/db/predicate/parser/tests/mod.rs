@@ -141,7 +141,7 @@ fn parse_sql_predicate_rejects_empty_or_double_comma_in_lists() {
     for sql in ["age IN ()", "age IN (10,, 20)", "age NOT IN (10,, 20)"] {
         let err = parse_sql_predicate(sql).expect_err("invalid list shape should stay rejected");
 
-        assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+        std::assert_matches!(err, SqlParseError::InvalidSyntax { .. });
     }
 }
 
@@ -150,7 +150,7 @@ fn parse_sql_predicate_rejects_trailing_unsupported_clause() {
     let err = parse_sql_predicate("active = true ORDER BY age")
         .expect_err("predicate parser should reject trailing unsupported clauses");
 
-    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+    std::assert_matches!(err, SqlParseError::InvalidSyntax { .. });
 }
 
 #[test]

@@ -1600,10 +1600,10 @@ mod tests {
         assert_eq!(source.slot(), 1);
         assert_eq!(source.path(), &["name".to_string()]);
 
-        assert!(matches!(
+        std::assert_matches!(
             &key_items[0],
             super::SchemaExpressionIndexKeyItemInfo::Expression(_)
-        ));
+        );
     }
 
     #[test]

@@ -202,7 +202,7 @@ mod tests {
         )
         .expect_err("duplicate non-primary-key fields should still reject");
 
-        assert!(matches!(
+        std::assert_matches!(
             err,
             PlanError::User(inner)
                 if matches!(
@@ -213,7 +213,7 @@ mod tests {
                             OrderPlanError::DuplicateOrderField { field } if field == "rank"
                         )
                 )
-        ));
+        );
     }
 
     #[test]

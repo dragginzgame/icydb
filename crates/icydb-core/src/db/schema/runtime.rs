@@ -1288,10 +1288,10 @@ mod tests {
             nickname_decode_contract.leaf_codec(),
             LeafCodec::Scalar(ScalarCodec::Text),
         );
-        assert!(matches!(
+        std::assert_matches!(
             nickname.kind(),
             PersistedFieldKind::Text { max_len: Some(32) },
-        ));
+        );
         assert_eq!(
             descriptor
                 .field_for_slot(SchemaFieldSlot::new(9))
@@ -1314,10 +1314,10 @@ mod tests {
             FieldId::new(2),
         );
         assert_eq!(descriptor.field_slot_index_by_name("nickname"), Some(9));
-        assert!(matches!(
+        std::assert_matches!(
             descriptor.field_kind_by_name("nickname"),
             Some(PersistedFieldKind::Text { max_len: Some(32) }),
-        ));
+        );
         assert!(nickname.nested_leaves().is_empty());
         assert!(nickname.nullable());
     }
@@ -1365,10 +1365,10 @@ mod tests {
             contract.field_for_slot(1).is_none(),
             "accepted row decode contract should preserve row-layout gaps"
         );
-        assert!(matches!(
+        std::assert_matches!(
             nickname.kind(),
             PersistedFieldKind::Text { max_len: Some(32) },
-        ));
+        );
     }
 
     #[test]

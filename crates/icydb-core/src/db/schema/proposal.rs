@@ -1076,7 +1076,7 @@ mod tests {
 
         assert_eq!(name.name(), "name");
         assert_eq!(name.slot(), SchemaFieldSlot::from_generated_index(1));
-        assert!(matches!(name.kind(), FieldKind::Text { max_len: None }));
+        std::assert_matches!(name.kind(), FieldKind::Text { max_len: None });
         assert!(name.nullable());
         assert_eq!(name.database_default(), FieldDatabaseDefault::None);
         assert_eq!(name.storage_decode(), FieldStorageDecode::ByKind);
@@ -1116,10 +1116,7 @@ mod tests {
         assert_eq!(name.id(), FieldId::new(2));
         assert_eq!(name.name(), "name");
         assert_eq!(name.slot(), SchemaFieldSlot::from_generated_index(1));
-        assert!(matches!(
-            name.kind(),
-            PersistedFieldKind::Text { max_len: None }
-        ));
+        std::assert_matches!(name.kind(), PersistedFieldKind::Text { max_len: None });
         assert!(name.nullable());
         assert_eq!(name.default(), &SchemaFieldDefault::None);
         assert_eq!(name.storage_decode(), FieldStorageDecode::ByKind);
@@ -1129,15 +1126,12 @@ mod tests {
         assert_eq!(profile.name(), "profile");
         assert_eq!(profile.nested_leaves().len(), 2);
         assert_eq!(profile.nested_leaves()[0].path(), &["nickname".to_string()],);
-        assert!(matches!(
+        std::assert_matches!(
             profile.nested_leaves()[0].kind(),
             PersistedFieldKind::Text { max_len: None }
-        ));
+        );
         assert_eq!(profile.nested_leaves()[1].path(), &["score".to_string()]);
-        assert!(matches!(
-            profile.nested_leaves()[1].kind(),
-            PersistedFieldKind::Nat64
-        ));
+        std::assert_matches!(profile.nested_leaves()[1].kind(), PersistedFieldKind::Nat64);
 
         let name_index = &snapshot.indexes()[0];
         assert_eq!(name_index.ordinal(), 1);
@@ -1167,10 +1161,10 @@ mod tests {
             nested_index.key().field_paths()[0].path(),
             &["profile".to_string(), "nickname".to_string()]
         );
-        assert!(matches!(
+        std::assert_matches!(
             nested_index.key().field_paths()[0].kind(),
             PersistedFieldKind::Text { max_len: None }
-        ));
+        );
 
         let expression_index = &snapshot.indexes()[2];
         assert_eq!(expression_index.ordinal(), 3);
@@ -1189,14 +1183,14 @@ mod tests {
             SchemaFieldSlot::from_generated_index(1)
         );
         assert_eq!(expression.source().path(), &["name".to_string()]);
-        assert!(matches!(
+        std::assert_matches!(
             expression.input_kind(),
             PersistedFieldKind::Text { max_len: None }
-        ));
-        assert!(matches!(
+        );
+        std::assert_matches!(
             expression.output_kind(),
             PersistedFieldKind::Text { max_len: None }
-        ));
+        );
         assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
     }
 }

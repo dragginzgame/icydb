@@ -188,7 +188,7 @@ mod primary_key_model_tests {
                 .collect::<Vec<_>>(),
             ["id", "tenant_id"],
         );
-        assert!(matches!(model.fields(), PrimaryKeyModelFields::Ordered(_)));
+        std::assert_matches!(model.fields(), PrimaryKeyModelFields::Ordered(_));
     }
 }
 

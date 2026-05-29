@@ -1540,26 +1540,26 @@ mod tests {
     fn composite_primary_key_value_rejects_invalid_component_counts() {
         let empty = CompositePrimaryKeyValue::try_from_components(&[])
             .expect_err("empty composite primary key should reject");
-        assert!(matches!(
+        std::assert_matches!(
             empty,
             CompositePrimaryKeyValueError::TooFewComponents { count: 0, min: 2 }
-        ));
+        );
 
         let one = CompositePrimaryKeyValue::try_from_components(&[PrimaryKeyComponent::Nat64(1)])
             .expect_err("single-component composite primary key should reject");
-        assert!(matches!(
+        std::assert_matches!(
             one,
             CompositePrimaryKeyValueError::TooFewComponents { count: 1, min: 2 }
-        ));
+        );
 
         let too_many = [PrimaryKeyComponent::Nat64(1); MAX_PRIMARY_KEY_FIELDS + 1];
         let err = CompositePrimaryKeyValue::try_from_components(&too_many)
             .expect_err("overwide composite primary key should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompositePrimaryKeyValueError::TooManyComponents { count, max }
                 if count == MAX_PRIMARY_KEY_FIELDS + 1 && max == MAX_PRIMARY_KEY_FIELDS
-        ));
+        );
     }
 
     #[test]
@@ -1570,10 +1570,10 @@ mod tests {
         ])
         .expect_err("unit is scalar-only and should reject in composite keys");
 
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompositePrimaryKeyValueError::UnitComponent { index: 1 }
-        ));
+        );
     }
 
     #[test]
@@ -1619,10 +1619,10 @@ mod tests {
                 .expect("composite primary key should decode"),
             PrimaryKeyValue::Composite(value),
         );
-        assert!(matches!(
+        std::assert_matches!(
             encoded.decode_component(),
             Err(CompactPrimaryKeyDecodeError::CompositeNotScalar)
-        ));
+        );
     }
 
     #[test]
@@ -1664,10 +1664,10 @@ mod tests {
             encoded.decode().expect("primary-key value should decode"),
             PrimaryKeyValue::Composite(value),
         );
-        assert!(matches!(
+        std::assert_matches!(
             encoded.decode_component(),
             Err(CompactPrimaryKeyDecodeError::CompositeNotScalar)
-        ));
+        );
     }
 
     #[test]
@@ -1682,10 +1682,10 @@ mod tests {
         }
         .decode_composite()
         .expect_err("composite count one should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactPrimaryKeyDecodeError::InvalidCompositeCount { count: 1, .. }
-        ));
+        );
 
         let overwide = [PrimaryKeyKind::Composite.tag(), 5];
         let err = EncodedPrimaryKey {
@@ -1693,10 +1693,10 @@ mod tests {
         }
         .decode_composite()
         .expect_err("overwide composite count should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactPrimaryKeyDecodeError::InvalidCompositeCount { count: 5, .. }
-        ));
+        );
     }
 
     #[test]
@@ -1721,10 +1721,10 @@ mod tests {
         .decode_composite()
         .expect_err("unit component should reject");
 
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactPrimaryKeyDecodeError::UnitCompositeComponent { index: 1 }
-        ));
+        );
     }
 
     #[test]
@@ -1800,10 +1800,7 @@ mod tests {
         let err = EncodedPrimaryKey::try_from(&[0xFF][..])
             .expect_err("unknown primary-key kind tag should reject");
 
-        assert!(matches!(
-            err,
-            CompactPrimaryKeyDecodeError::UnknownKind { tag: 0xFF }
-        ));
+        std::assert_matches!(err, CompactPrimaryKeyDecodeError::UnknownKind { tag: 0xFF });
     }
 
     #[test]
@@ -1823,13 +1820,13 @@ mod tests {
         for kind in fixed_cases {
             let err = EncodedPrimaryKey::try_from(&[kind.tag(), 0xAA][..])
                 .expect_err("fixed-width primary key should reject wrong length");
-            assert!(matches!(
+            std::assert_matches!(
                 err,
                 CompactPrimaryKeyDecodeError::InvalidLength {
                     kind: err_kind,
                     ..
                 } if err_kind == kind
-            ));
+            );
         }
     }
 
@@ -1843,23 +1840,23 @@ mod tests {
         ];
         let err = EncodedPrimaryKey::try_from(&too_long[..])
             .expect_err("oversized principal length should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactPrimaryKeyDecodeError::InvalidPrincipalLength { len, max }
                 if len == Principal::MAX_LENGTH_IN_BYTES as usize + 1
                     && max == Principal::MAX_LENGTH_IN_BYTES as usize
-        ));
+        );
 
         let truncated = [PrimaryKeyKind::Principal.tag(), 3, 1, 2];
         let err = EncodedPrimaryKey::try_from(&truncated[..])
             .expect_err("truncated principal payload should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactPrimaryKeyDecodeError::InvalidLength {
                 kind: PrimaryKeyKind::Principal,
                 ..
             }
-        ));
+        );
     }
 
     #[test]
@@ -1870,13 +1867,13 @@ mod tests {
         let missing_length = [PrimaryKeyKind::Principal.tag()];
         let err = EncodedPrimaryKey::try_from(&missing_length[..])
             .expect_err("principal payload must contain a length byte");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactPrimaryKeyDecodeError::InvalidLength {
                 kind: PrimaryKeyKind::Principal,
                 ..
             }
-        ));
+        );
     }
 
     #[test]
@@ -1884,13 +1881,13 @@ mod tests {
         let short = [PrimaryKeyKind::Subaccount.tag(), 0x01];
         let err = EncodedPrimaryKey::try_from(&short[..])
             .expect_err("subaccount primary key must be exactly 32 bytes");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactPrimaryKeyDecodeError::InvalidLength {
                 kind: PrimaryKeyKind::Subaccount,
                 ..
             }
-        ));
+        );
 
         roundtrip(PrimaryKeyComponent::Subaccount(Subaccount::from_array(
             [0xCC; 32],
@@ -1909,10 +1906,7 @@ mod tests {
 
         let err = EncodedPrimaryKey::try_from(&invalid[..])
             .expect_err("invalid account payload should reject");
-        assert!(matches!(
-            err,
-            CompactPrimaryKeyDecodeError::InvalidAccount { .. }
-        ));
+        std::assert_matches!(err, CompactPrimaryKeyDecodeError::InvalidAccount { .. });
     }
 
     #[test]
@@ -2335,21 +2329,18 @@ mod tests {
         let short = [0u8; size_of::<u64>()];
         let err = RawDataStoreKey::from_bytes(&short[..])
             .expect_err("raw data key without primary suffix should reject");
-        assert!(matches!(
-            err,
-            CompactStoreKeyDecodeError::DataStoreKeyTooShort { .. }
-        ));
+        std::assert_matches!(err, CompactStoreKeyDecodeError::DataStoreKeyTooShort { .. });
 
         let mut invalid_primary = vec![0u8; size_of::<u64>()];
         invalid_primary.push(0xFF);
         let err = RawDataStoreKey::from_bytes(&invalid_primary[..])
             .expect_err("raw data key with invalid primary suffix should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactStoreKeyDecodeError::InvalidPrimaryKey(
                 CompactPrimaryKeyDecodeError::UnknownKind { tag: 0xFF }
             )
-        ));
+        );
     }
 
     #[test]
@@ -2470,20 +2461,17 @@ mod tests {
     fn raw_index_store_key_rejects_malformed_live_shape() {
         let err = RawIndexStoreKey::from_bytes(&[])
             .expect_err("empty raw index key should reject before handle open");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactStoreKeyDecodeError::TruncatedIndexSegment {
                 segment: "key kind"
             }
-        ));
+        );
 
         let wrong_kind = [0xFF];
         let err = RawIndexStoreKey::from_bytes(&wrong_kind[..])
             .expect_err("unknown raw index key kind should reject");
-        assert!(matches!(
-            err,
-            CompactStoreKeyDecodeError::UnknownIndexKeyKind { .. }
-        ));
+        std::assert_matches!(err, CompactStoreKeyDecodeError::UnknownIndexKeyKind { .. });
 
         let entity = EntityTag::new(0x1592);
         let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat64(1))
@@ -2496,12 +2484,12 @@ mod tests {
         let _ = truncated.pop();
         let err = RawIndexStoreKey::from_bytes(&truncated[..])
             .expect_err("truncated primary-key suffix should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactStoreKeyDecodeError::TruncatedIndexSegment {
                 segment: "primary key suffix"
             }
-        ));
+        );
     }
 
     #[test]
@@ -2516,12 +2504,12 @@ mod tests {
         empty_component.extend_from_slice(&0u16.to_be_bytes());
         let err = RawIndexStoreKey::from_bytes(&empty_component)
             .expect_err("empty component segment should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactStoreKeyDecodeError::EmptyIndexSegment {
                 segment: "index component"
             }
-        ));
+        );
 
         let mut empty_primary = Vec::new();
         empty_primary.push(IndexStoreKeyKind::User.tag());
@@ -2530,12 +2518,12 @@ mod tests {
         empty_primary.extend_from_slice(&0u16.to_be_bytes());
         let err = RawIndexStoreKey::from_bytes(&empty_primary)
             .expect_err("empty primary-key suffix should reject");
-        assert!(matches!(
+        std::assert_matches!(
             err,
             CompactStoreKeyDecodeError::EmptyIndexSegment {
                 segment: "primary key suffix"
             }
-        ));
+        );
     }
 
     #[test]

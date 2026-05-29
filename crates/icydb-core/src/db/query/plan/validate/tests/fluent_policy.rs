@@ -20,10 +20,7 @@ fn cursor_spec(limit: Option<u32>) -> LoadSpec {
 fn fluent_non_paged_rejects_cursor_tokens() {
     let err = validate_fluent_non_paged_mode(true, false)
         .expect_err("non-paged fluent mode must reject cursor tokens");
-    assert!(matches!(
-        err,
-        FluentLoadPolicyViolation::CursorRequiresPagedExecution
-    ));
+    std::assert_matches!(err, FluentLoadPolicyViolation::CursorRequiresPagedExecution);
 }
 
 #[test]
@@ -42,10 +39,7 @@ fn fluent_non_paged_prefers_cursor_error_when_both_violate() {
 fn fluent_paged_rejects_grouped_shapes() {
     let err = validate_fluent_paged_mode(true, true, Some(cursor_spec(Some(10))))
         .expect_err("paged fluent mode must reject grouped shapes");
-    assert!(matches!(
-        err,
-        FluentLoadPolicyViolation::GroupedRequiresDirectExecute
-    ));
+    std::assert_matches!(err, FluentLoadPolicyViolation::GroupedRequiresDirectExecute);
 }
 
 #[test]
@@ -58,20 +52,14 @@ fn fluent_paged_without_cursor_spec_passes_without_order_requirement() {
 fn fluent_paged_cursor_requires_order() {
     let err = validate_fluent_paged_mode(false, false, Some(cursor_spec(Some(10))))
         .expect_err("cursor pagination must require explicit ORDER BY");
-    assert!(matches!(
-        err,
-        FluentLoadPolicyViolation::CursorRequiresOrder
-    ));
+    std::assert_matches!(err, FluentLoadPolicyViolation::CursorRequiresOrder);
 }
 
 #[test]
 fn fluent_paged_cursor_requires_limit() {
     let err = validate_fluent_paged_mode(false, true, Some(cursor_spec(None)))
         .expect_err("cursor pagination must require explicit LIMIT");
-    assert!(matches!(
-        err,
-        FluentLoadPolicyViolation::CursorRequiresLimit
-    ));
+    std::assert_matches!(err, FluentLoadPolicyViolation::CursorRequiresLimit);
 }
 
 #[test]

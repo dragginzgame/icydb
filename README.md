@@ -1,5 +1,5 @@
-![Declared MSRV](https://img.shields.io/badge/declared%20MSRV-1.88.0-blue.svg)
-![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.95.0-4c1.svg)
+![Declared MSRV](https://img.shields.io/badge/declared%20MSRV-1.96.0-blue.svg)
+![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.96.0-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
@@ -13,10 +13,10 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.166.16`
+Current workspace version: `0.167.0`
 
-IcyDB's declared minimum supported Rust version is `1.88.0`. Repository
-development, formatting, Clippy, CI, and release builds use Rust `1.95.0`.
+IcyDB's declared minimum supported Rust version is `1.96.0`. Repository
+development, formatting, Clippy, CI, and release builds use Rust `1.96.0`.
 
 For local development setup, test prerequisites, and troubleshooting, see
 [INSTALLING.md](INSTALLING.md). Safety notes for host-touching commands live in
@@ -43,14 +43,14 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.166.16" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.167.0" }
 ```
 
 SQL is enabled by default. For typed/fluent-only builds:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.166.16", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.167.0", default-features = false }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs` and use a build
@@ -75,9 +75,11 @@ pub struct AppCanister {}
     ident = "APP_STORE",
     store_name = "main",
     canister = "AppCanister",
-    data_memory_id = 100,
-    index_memory_id = 101,
-    schema_memory_id = 102
+    storage(stable(
+        data_memory_id = 100,
+        index_memory_id = 101,
+        schema_memory_id = 102,
+    ))
 )]
 pub struct AppStore {}
 

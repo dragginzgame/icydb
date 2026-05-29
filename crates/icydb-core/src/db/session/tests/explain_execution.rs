@@ -676,10 +676,10 @@ fn session_explain_execution_projects_descriptor_tree_for_ordered_limited_index_
         descriptor.access_strategy().is_some(),
         "execution descriptor root should carry one canonical access projection",
     );
-    assert!(matches!(
+    std::assert_matches!(
         descriptor.node_type(),
         ExplainExecutionNodeType::IndexPrefixScan | ExplainExecutionNodeType::IndexRangeScan
-    ));
+    );
     assert_eq!(
         descriptor.covering_scan(),
         Some(false),
@@ -817,16 +817,16 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
         .explain_min()
         .expect("session explain_min should succeed");
     assert_eq!(min_terminal_plan.terminal(), AggregateKind::Min);
-    assert!(matches!(
+    std::assert_matches!(
         min_terminal_plan.execution().ordering_source(),
         crate::db::ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }
-    ));
+    );
     let min_execution = min_terminal_plan.execution();
     assert_eq!(min_execution.aggregation(), AggregateKind::Min);
-    assert!(matches!(
+    std::assert_matches!(
         min_execution.ordering_source(),
         crate::db::ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }
-    ));
+    );
     assert_eq!(
         min_execution.execution_mode(),
         crate::db::ExplainExecutionMode::Materialized
@@ -858,16 +858,16 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
         .explain_max()
         .expect("session explain_max should succeed");
     assert_eq!(max_terminal_plan.terminal(), AggregateKind::Max);
-    assert!(matches!(
+    std::assert_matches!(
         max_terminal_plan.execution().ordering_source(),
         crate::db::ExplainExecutionOrderingSource::IndexSeekLast { fetch: 1 }
-    ));
+    );
     let max_execution = max_terminal_plan.execution();
     assert_eq!(max_execution.aggregation(), AggregateKind::Max);
-    assert!(matches!(
+    std::assert_matches!(
         max_execution.ordering_source(),
         crate::db::ExplainExecutionOrderingSource::IndexSeekLast { fetch: 1 }
-    ));
+    );
     assert_eq!(
         max_execution.execution_mode(),
         crate::db::ExplainExecutionMode::Materialized

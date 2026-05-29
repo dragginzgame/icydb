@@ -188,15 +188,9 @@ fn parse_sql_preserves_placeholder_slot_order_across_where_and_having() {
         panic!("HAVING placeholder should stay one compare expression");
     };
 
-    assert!(matches!(
-        where_first_param.as_ref(),
-        SqlExpr::Param { index: 0 }
-    ));
-    assert!(matches!(
-        where_second_param.as_ref(),
-        SqlExpr::Param { index: 1 }
-    ));
-    assert!(matches!(having_param.as_ref(), SqlExpr::Param { index: 2 }));
+    std::assert_matches!(where_first_param.as_ref(), SqlExpr::Param { index: 0 });
+    std::assert_matches!(where_second_param.as_ref(), SqlExpr::Param { index: 1 });
+    std::assert_matches!(having_param.as_ref(), SqlExpr::Param { index: 2 });
 }
 
 fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
@@ -1140,7 +1134,7 @@ fn parse_select_statement_rejects_round_without_integer_scale() {
     let err = parse_sql("SELECT ROUND(age, name) FROM users")
         .expect_err("ROUND scale should remain literal-only in the bounded slice");
 
-    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+    std::assert_matches!(err, SqlParseError::InvalidSyntax { .. });
 }
 
 #[test]

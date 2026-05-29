@@ -568,10 +568,10 @@ fn runner_input_binds_accepted_snapshots_to_execution_plan() {
         input.execution_plan().readiness(),
         super::SchemaMutationExecutionReadiness::PublishableNow,
     );
-    assert!(matches!(
+    std::assert_matches!(
         input.outcome(&runner),
         super::SchemaMutationRunnerOutcome::NoPhysicalWork(_),
-    ));
+    );
 }
 
 #[test]
@@ -649,10 +649,10 @@ fn noop_runner_accepts_metadata_only_input_and_rejects_physical_work() {
             .expect("index same-entity input should build");
     let runner = super::SchemaMutationNoopRunner::new();
 
-    assert!(matches!(
+    std::assert_matches!(
         runner.run(&metadata_input),
         super::SchemaMutationRunnerOutcome::NoPhysicalWork(_),
-    ));
+    );
 
     let super::SchemaMutationRunnerOutcome::Rejected(rejection) = runner.run(&index_input) else {
         panic!("no-op runner must reject physical index work");

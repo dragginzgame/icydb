@@ -530,7 +530,22 @@ impl VisitableNode for Store {
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        build::schema_write,
+        node::{Canister, SchemaNode},
+    };
+
     use super::*;
+
+    fn insert_canister(path_module: &'static str, ident: &'static str) {
+        schema_write().insert_node(SchemaNode::Canister(Canister::new(
+            Def::new(path_module, ident),
+            "test_db",
+            100,
+            254,
+            254,
+        )));
+    }
 
     #[test]
     fn store_stable_keys_use_durable_icydb_shape() {
@@ -650,5 +665,27 @@ mod tests {
         assert_eq!(store.data_memory_id(), 110);
         assert_eq!(store.index_memory_id(), 111);
         assert_eq!(store.schema_memory_id(), 112);
+    }
+
+    #[test]
+    fn store_stable_storage_config_rejects_duplicate_role_memory_ids() {
+        insert_canister("store_duplicate_role_memory_ids", "Canister");
+        let store = Store::new_stable(
+            Def::new("store_duplicate_role_memory_ids", "Store"),
+            "STORE",
+            "duplicate_role_memory_ids",
+            "store_duplicate_role_memory_ids::Canister",
+            StoreStableMemoryConfig::new(110, 110, 112),
+        );
+
+        let err = store
+            .validate()
+            .expect_err("duplicate store role memory IDs must fail validation");
+        let rendered = err.to_string();
+
+        assert!(
+            rendered.contains("data_memory_id and index_memory_id must differ"),
+            "expected duplicate role memory-id error, got: {rendered}"
+        );
     }
 }

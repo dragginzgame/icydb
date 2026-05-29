@@ -1389,10 +1389,10 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
             .limit(2)
     };
     let full_scan_plan = plan_from_query(full_scan_query(), "full-scan count matrix");
-    assert!(matches!(
+    std::assert_matches!(
         execution_root_node_type(&full_scan_plan),
         ExplainExecutionNodeType::FullScan
-    ));
+    );
     execute_count_window_parity(&simple_load, full_scan_query, "count matrix full-scan");
 
     // Phase 2: residual-filter full-scan remains materialized but keeps COUNT parity.
@@ -1404,10 +1404,10 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
             .order_term(crate::db::asc("id"))
     };
     let residual_filter_plan = plan_from_query(residual_filter_query(), "residual-filter count");
-    assert!(matches!(
+    std::assert_matches!(
         execution_root_node_type(&residual_filter_plan),
         ExplainExecutionNodeType::FullScan
-    ));
+    );
     execute_count_window_parity(
         &phase_load,
         residual_filter_query,
@@ -1430,10 +1430,10 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
     };
     let secondary_index_plan =
         plan_from_query(secondary_index_query(), "secondary-index count matrix");
-    assert!(matches!(
+    std::assert_matches!(
         execution_root_node_type(&secondary_index_plan),
         ExplainExecutionNodeType::IndexPrefixScan
-    ));
+    );
     execute_count_window_parity(
         &pushdown_load,
         secondary_index_query,
@@ -1453,10 +1453,10 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
             .order_term(crate::db::asc("id"))
     };
     let composite_plan = plan_from_query(composite_query(), "composite count matrix");
-    assert!(matches!(
+    std::assert_matches!(
         execution_root_node_type(&composite_plan),
         ExplainExecutionNodeType::Union | ExplainExecutionNodeType::Intersection
-    ));
+    );
     execute_count_window_parity(
         &composite_load,
         composite_query,

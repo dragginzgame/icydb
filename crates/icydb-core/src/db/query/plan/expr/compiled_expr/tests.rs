@@ -265,18 +265,18 @@ fn compiled_expr_out_of_bounds_grouped_reads_error_not_null() {
     };
     let aggregate = CompiledExpr::Aggregate { index: 9 };
 
-    assert!(matches!(
+    std::assert_matches!(
         group_key.evaluate(&grouped_view),
         Err(ProjectionEvalError::MissingFieldValue { field, index })
             if field == "class" && index == 9
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         aggregate.evaluate(&grouped_view),
         Err(ProjectionEvalError::MissingGroupedAggregateValue {
             aggregate_index: 9,
             ..
         })
-    ));
+    );
 }
 
 #[test]

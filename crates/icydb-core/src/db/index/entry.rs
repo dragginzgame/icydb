@@ -424,20 +424,20 @@ mod tests {
         let raw_key = raw_key_for(PrimaryKeyComponent::Int64(1));
         let bytes = vec![];
         let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-        assert!(matches!(
+        std::assert_matches!(
             raw.decode_row_witness(&raw_key),
             Err(IndexEntryCorruption::EmptyEntry)
-        ));
+        );
     }
 
     #[test]
     fn index_entry_value_rejects_invalid_witness() {
         let raw_key = raw_key_for(PrimaryKeyComponent::Int64(1));
         let raw = IndexEntryValue::from_bytes(Cow::Owned(vec![9]));
-        assert!(matches!(
+        std::assert_matches!(
             raw.decode_row_witness(&raw_key),
             Err(IndexEntryCorruption::InvalidWitness)
-        ));
+        );
     }
 
     #[test]
@@ -445,20 +445,20 @@ mod tests {
         let raw_key = raw_key_for(PrimaryKeyComponent::Int64(1));
         let bytes = vec![0u8; MAX_INDEX_ENTRY_BYTES as usize + 1];
         let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-        assert!(matches!(
+        std::assert_matches!(
             raw.decode_row_witness(&raw_key),
             Err(IndexEntryCorruption::TooLarge { .. })
-        ));
+        );
     }
 
     #[test]
     fn index_entry_value_rejects_invalid_raw_key_primary_suffix() {
         let raw = IndexEntryValue::presence();
         let invalid_raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![0]));
-        assert!(matches!(
+        std::assert_matches!(
             raw.decode_row_witness(&invalid_raw_key),
             Err(IndexEntryCorruption::InvalidKey)
-        ));
+        );
     }
 
     #[test]

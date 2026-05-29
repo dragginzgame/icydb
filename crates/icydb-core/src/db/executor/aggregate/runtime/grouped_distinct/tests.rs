@@ -80,7 +80,7 @@ fn grouped_distinct_count_strategy_maps_to_count_field_spec() {
         .expect("grouped distinct COUNT strategy should resolve");
 
     assert_eq!(spec.0.field(), "rank");
-    assert!(matches!(spec.1, AggregateKind::Count));
+    std::assert_matches!(spec.1, AggregateKind::Count);
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn grouped_distinct_sum_strategy_maps_to_sum_field_spec() {
         .expect("grouped distinct SUM strategy should resolve");
 
     assert_eq!(spec.0.field(), "score");
-    assert!(matches!(spec.1, AggregateKind::Sum));
+    std::assert_matches!(spec.1, AggregateKind::Sum);
 }
 
 #[test]
@@ -106,5 +106,5 @@ fn grouped_distinct_avg_strategy_maps_to_avg_field_spec() {
         .expect("grouped distinct AVG strategy should resolve");
 
     assert_eq!(spec.0.field(), "score");
-    assert!(matches!(spec.1, AggregateKind::Avg));
+    std::assert_matches!(spec.1, AggregateKind::Avg);
 }

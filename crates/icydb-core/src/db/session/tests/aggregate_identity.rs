@@ -414,7 +414,7 @@ fn session_aggregate_min_by_unknown_field_fails_before_scan_budget_consumption()
         panic!("session min_by(missing_field) should be rejected");
     };
 
-    assert!(matches!(err, QueryError::Execute(_)));
+    std::assert_matches!(err, QueryError::Execute(_));
     assert_eq!(scanned_rows, 0);
     assert!(err.to_string().contains("unknown aggregate target field"));
 }

@@ -456,11 +456,11 @@ fn expression_casefold_starts_with_access_and_execution_route_stay_in_parity() {
         prefix.is_empty(),
         "expression starts-with range should not carry equality prefix values",
     );
-    assert!(matches!(
+    std::assert_matches!(
         lower,
         std::ops::Bound::Included(Value::Text(value)) if value == "ali"
-    ));
-    assert!(matches!(upper, std::ops::Bound::Unbounded));
+    );
+    std::assert_matches!(upper, std::ops::Bound::Unbounded);
 
     let verbose = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(predicate.clone())
@@ -514,11 +514,11 @@ fn expression_casefold_starts_with_single_char_prefix_keeps_index_range_route() 
         panic!("single-char expression starts-with should lower to index-range access");
     };
     assert_eq!(name, &PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0].name());
-    assert!(matches!(
+    std::assert_matches!(
         lower,
         std::ops::Bound::Included(Value::Text(value)) if value == "a"
-    ));
-    assert!(matches!(upper, std::ops::Bound::Unbounded));
+    );
+    std::assert_matches!(upper, std::ops::Bound::Unbounded);
 
     let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(predicate)
@@ -904,10 +904,10 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
     let QueryError::AccessRequirement(err) = err else {
         panic!("mismatched index requirement should return an access-requirement error");
     };
-    assert!(matches!(
+    std::assert_matches!(
         err.violation(),
         AccessRequirementViolation::NamedIndexRequired { expected } if expected == "missing_idx"
-    ));
+    );
     assert_eq!(
         err.decision().selected.index_name.as_deref(),
         Some("group_rank"),
@@ -919,23 +919,23 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
         .require_index()
         .explain()
         .expect_err("full scan should fail require_index");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::AccessRequirement(err)
             if matches!(err.violation(), AccessRequirementViolation::IndexRequired)
-    ));
+    );
 
     let err = Query::<PlanSimpleEntity>::new(MissingRowPolicy::Ignore)
         .by_id(Ulid::from_u128(9_101))
         .require_index()
         .explain()
         .expect_err("primary-key lookup should not satisfy secondary-index requirement");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::AccessRequirement(err)
             if matches!(err.violation(), AccessRequirementViolation::IndexRequired)
                 && err.decision().selected.kind == ExplainAccessDecisionKind::ByKey
-    ));
+    );
 
     let err = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
@@ -947,7 +947,7 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
         .require_access_path(RequiredAccessPath::IndexRange)
         .explain()
         .expect_err("selected index-prefix path should fail index-range requirement");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::AccessRequirement(err)
             if matches!(
@@ -956,7 +956,7 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
                     if *expected == RequiredAccessPath::IndexRange
             )
                 && err.decision().selected.kind == ExplainAccessDecisionKind::IndexPrefix
-    ));
+    );
 
     let err = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::And(vec![
@@ -976,14 +976,14 @@ fn fluent_access_requirements_fail_closed_with_selected_decision() {
         .require_no_residual_filter()
         .explain()
         .expect_err("residual predicate should fail no-residual requirement");
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::AccessRequirement(err)
             if matches!(
                 err.violation(),
                 AccessRequirementViolation::ResidualFilterForbidden
             )
-    ));
+    );
 }
 
 #[test]

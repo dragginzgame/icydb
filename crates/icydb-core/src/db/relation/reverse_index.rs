@@ -1462,10 +1462,7 @@ mod tests {
 
         assert_eq!(component.field_index(), 3);
         assert_eq!(component.field_name(), "target_id");
-        assert!(matches!(
-            component.field_kind(),
-            PersistedFieldKind::Relation { .. }
-        ));
+        std::assert_matches!(component.field_kind(), PersistedFieldKind::Relation { .. });
     }
 
     #[test]

@@ -12,20 +12,17 @@ use super::*;
 
 fn assert_execute_variant_for_class(err: &QueryExecutionError, class: ErrorClass) {
     match class {
-        ErrorClass::Corruption => assert!(matches!(err, QueryExecutionError::Corruption(_))),
+        ErrorClass::Corruption => std::assert_matches!(err, QueryExecutionError::Corruption(_)),
         ErrorClass::IncompatiblePersistedFormat => {
-            assert!(matches!(
-                err,
-                QueryExecutionError::IncompatiblePersistedFormat(_)
-            ));
+            std::assert_matches!(err, QueryExecutionError::IncompatiblePersistedFormat(_));
         }
         ErrorClass::InvariantViolation => {
-            assert!(matches!(err, QueryExecutionError::InvariantViolation(_)));
+            std::assert_matches!(err, QueryExecutionError::InvariantViolation(_));
         }
-        ErrorClass::Conflict => assert!(matches!(err, QueryExecutionError::Conflict(_))),
-        ErrorClass::NotFound => assert!(matches!(err, QueryExecutionError::NotFound(_))),
-        ErrorClass::Unsupported => assert!(matches!(err, QueryExecutionError::Unsupported(_))),
-        ErrorClass::Internal => assert!(matches!(err, QueryExecutionError::Internal(_))),
+        ErrorClass::Conflict => std::assert_matches!(err, QueryExecutionError::Conflict(_)),
+        ErrorClass::NotFound => std::assert_matches!(err, QueryExecutionError::NotFound(_)),
+        ErrorClass::Unsupported => std::assert_matches!(err, QueryExecutionError::Unsupported(_)),
+        ErrorClass::Internal => std::assert_matches!(err, QueryExecutionError::Internal(_)),
     }
 }
 
@@ -65,12 +62,12 @@ fn planner_internal_mapping_preserves_runtime_class_and_origin() {
     )));
     let query_err = QueryError::from(planner_internal);
 
-    assert!(matches!(
+    std::assert_matches!(
         query_err,
         QueryError::Execute(QueryExecutionError::Unsupported(inner))
             if inner.class == ErrorClass::Unsupported
                 && inner.origin == ErrorOrigin::Cursor
-    ));
+    );
 }
 
 #[test]
@@ -145,41 +142,41 @@ fn query_execute_storage_and_index_errors_stay_in_execution_boundary() {
 fn query_intent_constructor_keeps_intent_boundary() {
     let err = QueryError::intent(IntentError::GroupedRequiresDirectExecute);
 
-    assert!(matches!(
+    std::assert_matches!(
         err,
         QueryError::Intent(IntentError::GroupedRequiresDirectExecute)
-    ));
+    );
 }
 
 #[test]
 fn having_requires_group_by_constructor_keeps_intent_boundary() {
     let err = IntentError::having_requires_group_by();
 
-    assert!(matches!(err, IntentError::HavingRequiresGroupBy));
+    std::assert_matches!(err, IntentError::HavingRequiresGroupBy);
 }
 
 #[test]
 fn query_invariant_constructor_preserves_query_invariant_boundary() {
     let query_err = QueryError::invariant("route contract mismatch");
 
-    assert!(matches!(
+    std::assert_matches!(
         query_err,
         QueryError::Execute(QueryExecutionError::InvariantViolation(inner))
             if inner.class == ErrorClass::InvariantViolation
                 && inner.origin == ErrorOrigin::Query
-    ));
+    );
 }
 
 #[test]
 fn query_serialize_internal_constructor_preserves_serialize_internal_boundary() {
     let query_err = QueryError::serialize_internal("cursor token encode failed");
 
-    assert!(matches!(
+    std::assert_matches!(
         query_err,
         QueryError::Execute(QueryExecutionError::Internal(inner))
             if inner.class == ErrorClass::Internal
                 && inner.origin == ErrorOrigin::Serialize
-    ));
+    );
 }
 
 #[test]
@@ -210,24 +207,24 @@ fn continuation_kind_mismatch_helpers_preserve_invariant_messages() {
 fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
     let query_err = QueryError::unsupported_sql_feature("JOIN");
 
-    assert!(matches!(
+    std::assert_matches!(
         query_err,
         QueryError::Execute(QueryExecutionError::Unsupported(inner))
             if inner.class == ErrorClass::Unsupported
                 && inner.origin == ErrorOrigin::Query
-    ));
+    );
 }
 
 #[test]
 fn unknown_aggregate_target_field_preserves_query_unsupported_execution_boundary() {
     let query_err = QueryError::unknown_aggregate_target_field("missing");
 
-    assert!(matches!(
+    std::assert_matches!(
         query_err,
         QueryError::Execute(QueryExecutionError::Unsupported(ref inner))
             if inner.class == ErrorClass::Unsupported
                 && inner.origin == ErrorOrigin::Query
-    ));
+    );
 
     let QueryError::Execute(QueryExecutionError::Unsupported(inner)) = query_err else {
         panic!("unknown aggregate target field must map to query unsupported execution error");
@@ -241,14 +238,14 @@ fn cursor_paging_policy_maps_to_invalid_paging_shape_intent_error() {
     let order = IntentError::from(CursorPagingPolicyError::CursorRequiresOrder);
     let limit = IntentError::from(CursorPagingPolicyError::CursorRequiresLimit);
 
-    assert!(matches!(
+    std::assert_matches!(
         order,
         IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresOrder)
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         limit,
         IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresLimit)
-    ));
+    );
 }
 
 #[test]
@@ -256,11 +253,11 @@ fn fluent_paging_policy_maps_to_invalid_paging_shape_or_grouped_contract() {
     let non_paged = IntentError::from(FluentLoadPolicyViolation::CursorRequiresPagedExecution);
     let grouped = IntentError::from(FluentLoadPolicyViolation::GroupedRequiresDirectExecute);
 
-    assert!(matches!(
+    std::assert_matches!(
         non_paged,
         IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresPagedExecution)
-    ));
-    assert!(matches!(grouped, IntentError::GroupedRequiresDirectExecute));
+    );
+    std::assert_matches!(grouped, IntentError::GroupedRequiresDirectExecute);
 }
 
 #[test]
@@ -268,12 +265,12 @@ fn fluent_cursor_order_and_limit_policy_map_to_intent_paging_shape() {
     let requires_order = IntentError::from(FluentLoadPolicyViolation::CursorRequiresOrder);
     let requires_limit = IntentError::from(FluentLoadPolicyViolation::CursorRequiresLimit);
 
-    assert!(matches!(
+    std::assert_matches!(
         requires_order,
         IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresOrder)
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         requires_limit,
         IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresLimit)
-    ));
+    );
 }

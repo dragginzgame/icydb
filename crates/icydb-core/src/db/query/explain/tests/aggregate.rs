@@ -91,15 +91,15 @@ fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
     );
 
     assert_eq!(terminal_plan.terminal(), AggregateKind::Min);
-    assert!(matches!(
+    std::assert_matches!(
         terminal_plan.query().access(),
         ExplainAccessPath::IndexPrefix { name, fields, prefix_len, values }
             if name == "explain::pushdown_tag"
                 && fields == &vec!["tag".to_string()]
                 && *prefix_len == 1
                 && values == &vec![Value::Text("alpha".to_string())]
-    ));
-    assert!(matches!(
+    );
+    std::assert_matches!(
         terminal_plan.query().order_by(),
         ExplainOrderBy::Fields(fields)
             if fields.len() == 2
@@ -107,7 +107,7 @@ fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
                 && fields[0].direction == OrderDirection::Asc
                 && fields[1].field == "id"
                 && fields[1].direction == OrderDirection::Asc
-    ));
+    );
     assert_eq!(terminal_plan.query().page(), &ExplainPagination::None);
     assert_eq!(terminal_plan.query().grouping(), &ExplainGrouping::None);
     assert_eq!(
@@ -161,13 +161,13 @@ fn explain_aggregate_terminal_standard_route_public_contract_is_stable() {
 
     assert_eq!(terminal_plan.terminal(), AggregateKind::Exists);
     assert_eq!(terminal_plan.query().access(), &ExplainAccessPath::FullScan);
-    assert!(matches!(
+    std::assert_matches!(
         terminal_plan.query().order_by(),
         ExplainOrderBy::Fields(fields)
             if fields.len() == 1
                 && fields[0].field == "id"
                 && fields[0].direction == OrderDirection::Asc
-    ));
+    );
     assert_eq!(
         terminal_plan.query().page(),
         &ExplainPagination::Page {
