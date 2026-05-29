@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.168.x] 🧰 - 2026-05-29 - Runtime Store Backend Boundary
+
+Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)
+
+- `0.168.0` starts the runtime store-backend boundary line with a concrete
+  traversal inventory and a hard-cut policy for replacing stable-shaped store
+  traversal APIs without aliases, shims, or compatibility fallbacks.
+
 ## [0.167.x] 🧱 - 2026-05-28 - Per-Store Storage Boundary
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
