@@ -82,7 +82,7 @@ fn stable_store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
-    _stable: StoreStableMemoryConfig,
+    stable: StoreStableMemoryConfig,
 ) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
     let data_cell_ident = format_ident!("{}_DATA", store.ident());
     let index_cell_ident = format_ident!("{}_INDEX", store.ident());
@@ -90,9 +90,9 @@ fn stable_store_registry_entry_tokens(
     let data_allocation = store.data_allocation(memory_namespace);
     let index_allocation = store.index_allocation(memory_namespace);
     let schema_allocation = store.schema_allocation(memory_namespace);
-    let data_memory_id = data_allocation.memory_id();
-    let index_memory_id = index_allocation.memory_id();
-    let schema_memory_id = schema_allocation.memory_id();
+    let data_memory_id = stable.data_memory_id();
+    let index_memory_id = stable.index_memory_id();
+    let schema_memory_id = stable.schema_memory_id();
     let data_stable_key = data_allocation.stable_key();
     let index_stable_key = index_allocation.stable_key();
     let schema_stable_key = schema_allocation.stable_key();
@@ -293,6 +293,12 @@ mod tests {
             rendered.matches("StoreAllocationIdentity :: new").count(),
             3
         );
+        for expected in ["id = 10u8", "id = 11u8", "id = 12u8"] {
+            assert!(
+                rendered.contains(expected),
+                "stable store wiring should render {expected}: {rendered}"
+            );
+        }
         assert!(rendered.contains("icydb.demo.demo.data.v1"));
         assert!(rendered.contains("icydb.demo.demo.index.v1"));
         assert!(rendered.contains("icydb.demo.demo.schema.v1"));

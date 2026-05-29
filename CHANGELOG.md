@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.5` makes generated stable-store wiring consume the matched
+  `storage(stable(...))` configuration directly for data, index, and schema
+  memory IDs while preserving stable keys and allocation identity.
+
 - `0.167.4` exposes `storage: stable` in storage snapshot diagnostics for
   data, index, and schema store rows without changing durable allocation
   identity or storage ABI.
