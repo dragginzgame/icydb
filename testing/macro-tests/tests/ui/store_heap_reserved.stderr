@@ -1,5 +1,5 @@
-error: storage(heap(...)) is reserved for a future release; use storage(stable(...))
+error: storage(heap) must be written as storage(heap())
   --> tests/ui/store_heap_reserved.rs:10:13
    |
-10 |     storage(heap())
+10 |     storage(heap)
    |             ^^^^

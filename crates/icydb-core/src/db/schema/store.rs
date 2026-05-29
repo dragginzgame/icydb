@@ -21,7 +21,9 @@ use crate::{
     types::EntityTag,
 };
 use ic_memory::stable_structures::storable::Bound;
-use ic_memory::stable_structures::{BTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory};
+use ic_memory::stable_structures::{
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
+};
 use sha2::Digest;
 use std::borrow::Cow;
 use std::collections::BTreeMap as StdBTreeMap;
@@ -337,13 +339,18 @@ impl SchemaStoreFootprint {
 ///
 /// SchemaStore
 ///
-/// Thin persistence wrapper over one stable schema metadata BTreeMap.
+/// Thin persistence wrapper over one stable or heap schema metadata BTreeMap.
 /// Startup reconciliation writes and validates encoded schema snapshots here
 /// before row/index operations proceed.
 ///
 
 pub struct SchemaStore {
-    map: BTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>,
+    backend: SchemaStoreBackend,
+}
+
+enum SchemaStoreBackend {
+    Stable(StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>),
+    Heap(StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>),
 }
 
 /// Control-flow result for schema-store traversal visitors.
@@ -368,7 +375,15 @@ impl SchemaStore {
     #[must_use]
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         Self {
-            map: BTreeMap::init(memory),
+            backend: SchemaStoreBackend::Stable(StableBTreeMap::init(memory)),
+        }
+    }
+
+    /// Initialize a volatile heap-backed schema store.
+    #[must_use]
+    pub const fn init_heap() -> Self {
+        Self {
+            backend: SchemaStoreBackend::Heap(StdBTreeMap::new()),
         }
     }
 
@@ -498,41 +513,59 @@ impl SchemaStore {
         key: RawSchemaKey,
         snapshot: RawSchemaSnapshot,
     ) -> Option<RawSchemaSnapshot> {
-        self.map.insert(key, snapshot)
+        match &mut self.backend {
+            SchemaStoreBackend::Stable(map) => map.insert(key, snapshot),
+            SchemaStoreBackend::Heap(map) => map.insert(key, snapshot),
+        }
     }
 
     /// Load one raw schema snapshot by key.
     #[must_use]
     #[cfg(test)]
     fn get_raw_snapshot(&self, key: &RawSchemaKey) -> Option<RawSchemaSnapshot> {
-        self.map.get(key)
+        match &self.backend {
+            SchemaStoreBackend::Stable(map) => map.get(key),
+            SchemaStoreBackend::Heap(map) => map.get(key).cloned(),
+        }
     }
 
     /// Return whether one schema snapshot key is present.
     #[must_use]
     #[cfg(test)]
     fn contains_raw_snapshot(&self, key: &RawSchemaKey) -> bool {
-        self.map.contains_key(key)
+        match &self.backend {
+            SchemaStoreBackend::Stable(map) => map.contains_key(key),
+            SchemaStoreBackend::Heap(map) => map.contains_key(key),
+        }
     }
 
     /// Return the number of schema snapshot entries in this store.
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn len(&self) -> u64 {
-        self.map.len()
+        match &self.backend {
+            SchemaStoreBackend::Stable(map) => map.len(),
+            SchemaStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
+        }
     }
 
     /// Return whether this schema store currently has no persisted snapshots.
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        match &self.backend {
+            SchemaStoreBackend::Stable(map) => map.is_empty(),
+            SchemaStoreBackend::Heap(map) => map.is_empty(),
+        }
     }
 
     /// Clear all schema metadata entries from the store.
     #[cfg(test)]
     pub(in crate::db) fn clear(&mut self) {
-        self.map.clear_new();
+        match &mut self.backend {
+            SchemaStoreBackend::Stable(map) => map.clear_new(),
+            SchemaStoreBackend::Heap(map) => map.clear(),
+        }
     }
 
     fn latest_raw_snapshots_by_entity(
@@ -565,9 +598,20 @@ impl SchemaStore {
         &self,
         mut visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
-        for entry in self.map.iter() {
-            if visitor(entry.key(), &entry.value())?.should_stop() {
-                break;
+        match &self.backend {
+            SchemaStoreBackend::Stable(map) => {
+                for entry in map.iter() {
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            SchemaStoreBackend::Heap(map) => {
+                for (key, snapshot) in map {
+                    if visitor(key, snapshot)?.should_stop() {
+                        break;
+                    }
+                }
             }
         }
 
@@ -1061,6 +1105,52 @@ mod tests {
         });
 
         assert_eq!(visited, vec![1]);
+    }
+
+    #[test]
+    fn heap_schema_store_preserves_order_latest_snapshot_and_early_stop() {
+        let mut store = SchemaStore::init_heap();
+        let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
+        let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
+        let other_entity = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
+
+        store
+            .insert_persisted_snapshot(EntityTag::new(41), &initial)
+            .expect("initial heap schema snapshot should encode");
+        store
+            .insert_persisted_snapshot(EntityTag::new(42), &other_entity)
+            .expect("other heap schema snapshot should encode");
+        store
+            .insert_persisted_snapshot(EntityTag::new(41), &newer)
+            .expect("newer heap schema snapshot should encode");
+
+        let latest = store
+            .latest_persisted_snapshot(EntityTag::new(41))
+            .expect("latest heap schema snapshot should decode")
+            .expect("heap schema snapshot should exist");
+        assert_eq!(latest.version(), SchemaVersion::new(2));
+        assert_eq!(latest.entity_name(), "Newer");
+
+        let mut visited = Vec::new();
+        let _: Result<(), Infallible> = store.visit_raw_snapshots(|key, snapshot| {
+            visited.push((
+                key.entity_tag().value(),
+                key.version(),
+                snapshot.as_bytes().len(),
+            ));
+            Ok(if visited.len() == 2 {
+                SchemaStoreVisit::Stop
+            } else {
+                SchemaStoreVisit::Continue
+            })
+        });
+        assert_eq!(
+            visited
+                .iter()
+                .map(|(entity, version, _)| (*entity, *version))
+                .collect::<Vec<_>>(),
+            vec![(41, 1), (41, 2)]
+        );
     }
 
     #[test]

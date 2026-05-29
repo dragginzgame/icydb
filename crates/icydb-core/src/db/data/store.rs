@@ -10,9 +10,12 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_memory::stable_structures::{BTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory};
+use ic_memory::stable_structures::{
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
+};
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
+use std::collections::BTreeMap as HeapBTreeMap;
 use std::convert::Infallible;
 use std::ops::RangeBounds;
 
@@ -31,14 +34,19 @@ fn record_data_store_get_call() {
 ///
 /// DataStore
 ///
-/// Thin persistence wrapper over one stable BTreeMap.
+/// Thin persistence wrapper over one stable or heap BTreeMap.
 ///
 /// Invariant: callers provide already-validated `RawDataStoreKey` and canonical row bytes.
 /// This type intentionally does not enforce commit-phase ordering.
 ///
 
 pub struct DataStore {
-    map: BTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
+    backend: DataStoreBackend,
+}
+
+enum DataStoreBackend {
+    Stable(StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>),
+    Heap(HeapBTreeMap<RawDataStoreKey, RawRow>),
 }
 
 /// Control-flow result for store traversal visitors.
@@ -59,7 +67,15 @@ impl DataStore {
     #[must_use]
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         Self {
-            map: BTreeMap::init(memory),
+            backend: DataStoreBackend::Stable(StableBTreeMap::init(memory)),
+        }
+    }
+
+    /// Initialize a volatile heap-backed data store.
+    #[must_use]
+    pub const fn init_heap() -> Self {
+        Self {
+            backend: DataStoreBackend::Heap(HeapBTreeMap::new()),
         }
     }
 
@@ -69,7 +85,11 @@ impl DataStore {
         key: RawDataStoreKey,
         row: CanonicalRow,
     ) -> Option<RawRow> {
-        self.map.insert(key, row.into_raw_row())
+        let row = row.into_raw_row();
+        match &mut self.backend {
+            DataStoreBackend::Stable(map) => map.insert(key, row),
+            DataStoreBackend::Heap(map) => map.insert(key, row),
+        }
     }
 
     /// Insert one raw row directly for corruption-focused test setup only.
@@ -79,12 +99,18 @@ impl DataStore {
         key: RawDataStoreKey,
         row: RawRow,
     ) -> Option<RawRow> {
-        self.map.insert(key, row)
+        match &mut self.backend {
+            DataStoreBackend::Stable(map) => map.insert(key, row),
+            DataStoreBackend::Heap(map) => map.insert(key, row),
+        }
     }
 
     /// Remove one row by raw key.
     pub(in crate::db) fn remove(&mut self, key: &RawDataStoreKey) -> Option<RawRow> {
-        self.map.remove(key)
+        match &mut self.backend {
+            DataStoreBackend::Stable(map) => map.remove(key),
+            DataStoreBackend::Heap(map) => map.remove(key),
+        }
     }
 
     /// Load one row by raw key.
@@ -92,32 +118,47 @@ impl DataStore {
         #[cfg(feature = "diagnostics")]
         record_data_store_get_call();
 
-        self.map.get(key)
+        match &self.backend {
+            DataStoreBackend::Stable(map) => map.get(key),
+            DataStoreBackend::Heap(map) => map.get(key).cloned(),
+        }
     }
 
     /// Return whether one raw key exists without cloning the row payload.
     #[must_use]
     pub(in crate::db) fn contains(&self, key: &RawDataStoreKey) -> bool {
-        self.map.contains_key(key)
+        match &self.backend {
+            DataStoreBackend::Stable(map) => map.contains_key(key),
+            DataStoreBackend::Heap(map) => map.contains_key(key),
+        }
     }
 
     /// Clear all stored rows from the data store.
     #[cfg(test)]
     pub(in crate::db) fn clear(&mut self) {
-        self.map.clear_new();
+        match &mut self.backend {
+            DataStoreBackend::Stable(map) => map.clear_new(),
+            DataStoreBackend::Heap(map) => map.clear(),
+        }
     }
 
     /// Return the number of stored rows without exposing the backing map.
     #[must_use]
     pub(in crate::db) fn len(&self) -> u64 {
-        self.map.len()
+        match &self.backend {
+            DataStoreBackend::Stable(map) => map.len(),
+            DataStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
+        }
     }
 
     /// Return whether the data store currently contains no rows.
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        match &self.backend {
+            DataStoreBackend::Stable(map) => map.is_empty(),
+            DataStoreBackend::Heap(map) => map.is_empty(),
+        }
     }
 
     /// Visit raw row entries in canonical storage order.
@@ -125,9 +166,20 @@ impl DataStore {
         &self,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        for entry in self.map.iter() {
-            if visitor(entry.key(), &entry.value())?.should_stop() {
-                break;
+        match &self.backend {
+            DataStoreBackend::Stable(map) => {
+                for entry in map.iter() {
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Heap(map) => {
+                for (key, row) in map {
+                    if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
             }
         }
 
@@ -139,9 +191,20 @@ impl DataStore {
         &self,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        for entry in self.map.iter().rev() {
-            if visitor(entry.key(), &entry.value())?.should_stop() {
-                break;
+        match &self.backend {
+            DataStoreBackend::Stable(map) => {
+                for entry in map.iter().rev() {
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Heap(map) => {
+                for (key, row) in map.iter().rev() {
+                    if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
             }
         }
 
@@ -154,9 +217,20 @@ impl DataStore {
         key_range: impl RangeBounds<RawDataStoreKey>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        for entry in self.map.range(key_range) {
-            if visitor(entry.key(), &entry.value())?.should_stop() {
-                break;
+        match &self.backend {
+            DataStoreBackend::Stable(map) => {
+                for entry in map.range(key_range) {
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Heap(map) => {
+                for (key, row) in map.range(key_range) {
+                    if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
             }
         }
 
@@ -169,9 +243,20 @@ impl DataStore {
         key_range: impl RangeBounds<RawDataStoreKey>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        for entry in self.map.range(key_range).rev() {
-            if visitor(entry.key(), &entry.value())?.should_stop() {
-                break;
+        match &self.backend {
+            DataStoreBackend::Stable(map) => {
+                for entry in map.range(key_range).rev() {
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Heap(map) => {
+                for (key, row) in map.range(key_range).rev() {
+                    if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
             }
         }
 
@@ -233,6 +318,14 @@ mod tests {
 
     fn seed_store(memory_id: u8, entries: &[(u64, u64, u8)]) -> DataStore {
         let mut store = DataStore::init(test_memory(memory_id));
+        for (entity, id, row) in entries {
+            store.insert_raw_for_test(raw_key(*entity, *id), raw_row(*row));
+        }
+        store
+    }
+
+    fn seed_heap_store(entries: &[(u64, u64, u8)]) -> DataStore {
+        let mut store = DataStore::init_heap();
         for (entity, id, row) in entries {
             store.insert_raw_for_test(raw_key(*entity, *id), raw_row(*row));
         }
@@ -305,5 +398,45 @@ mod tests {
         });
 
         assert_eq!(visited, vec![raw_key(1, 1), raw_key(1, 2)]);
+    }
+
+    #[test]
+    fn heap_data_store_preserves_order_bounds_and_early_stop() {
+        let store = seed_heap_store(&[(2, 1, 21), (1, 3, 13), (1, 1, 11), (1, 2, 12)]);
+
+        let mut expected = vec![raw_key(2, 1), raw_key(1, 3), raw_key(1, 1), raw_key(1, 2)];
+        expected.sort();
+        assert_eq!(collect_keys(&store), expected);
+
+        let mut ranged = Vec::new();
+        let _: Result<(), Infallible> = store.visit_range(
+            (
+                Bound::Included(raw_key(1, 1)),
+                Bound::Excluded(raw_key(1, 3)),
+            ),
+            |key, row| {
+                ranged.push((key.clone(), row.as_bytes()[0]));
+                Ok(StoreVisit::Continue)
+            },
+        );
+        assert_eq!(ranged, vec![(raw_key(1, 1), 11), (raw_key(1, 2), 12)]);
+
+        let mut entity = Vec::new();
+        let _: Result<(), Infallible> = store.visit_entity(EntityTag::new(2), |key, row| {
+            entity.push((key.clone(), row.as_bytes()[0]));
+            Ok(StoreVisit::Continue)
+        });
+        assert_eq!(entity, vec![(raw_key(2, 1), 21)]);
+
+        let mut stopped = Vec::new();
+        let _: Result<(), Infallible> = store.visit_entries(|key, _| {
+            stopped.push(key.clone());
+            Ok(if stopped.len() == 2 {
+                StoreVisit::Stop
+            } else {
+                StoreVisit::Continue
+            })
+        });
+        assert_eq!(stopped, vec![raw_key(1, 1), raw_key(1, 2)]);
     }
 }

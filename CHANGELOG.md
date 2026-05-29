@@ -7,13 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Close the runtime store-backend boundary proof matrix with source-audit
-  evidence and focused validation for generated wiring, allocation identity,
-  codec preservation, commit/recovery behavior, and mutation centralization.
-
 ## [0.168.x] 🧰 - 2026-05-29 - Runtime Store Backend Boundary
 
 Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)
+
+- `0.168.6` closes the runtime store-backend boundary proof matrix with
+  source-audit evidence and focused validation for generated wiring,
+  allocation identity, codec preservation, commit/recovery behavior, and
+  mutation centralization.
 
 - `0.168.5` closes the runtime store-boundary diagnostics and negative heap
   proof rows: storage snapshots keep reporting stable storage metadata, heap

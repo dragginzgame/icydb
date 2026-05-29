@@ -6,8 +6,11 @@
 use crate::db::index::{IndexEntryValue, key::RawIndexStoreKey};
 
 use candid::CandidType;
-use ic_memory::stable_structures::{BTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory};
+use ic_memory::stable_structures::{
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
+};
 use serde::Deserialize;
+use std::collections::BTreeMap as HeapBTreeMap;
 
 //
 // IndexState
@@ -39,15 +42,20 @@ impl IndexState {
 ///
 /// IndexStore
 ///
-/// Thin persistence wrapper over one stable BTreeMap.
+/// Thin persistence wrapper over one stable or heap BTreeMap.
 ///
 /// Invariant: callers provide already-validated `RawIndexStoreKey`/`IndexEntryValue`.
 ///
 
 pub struct IndexStore {
-    pub(super) map: BTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>,
+    pub(super) backend: IndexStoreBackend,
     generation: u64,
     state: IndexState,
+}
+
+pub(super) enum IndexStoreBackend {
+    Stable(StableBTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>),
+    Heap(HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>),
 }
 
 /// Control-flow result for index-store traversal visitors.
@@ -71,10 +79,20 @@ impl IndexStore {
     #[must_use]
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         Self {
-            map: BTreeMap::init(memory),
+            backend: IndexStoreBackend::Stable(StableBTreeMap::init(memory)),
             generation: 0,
             // Existing stores default to Ready until one explicit build/drop
             // lifecycle is introduced.
+            state: IndexState::Ready,
+        }
+    }
+
+    /// Initialize a volatile heap-backed index store.
+    #[must_use]
+    pub const fn init_heap() -> Self {
+        Self {
+            backend: IndexStoreBackend::Heap(HeapBTreeMap::new()),
+            generation: 0,
             state: IndexState::Ready,
         }
     }
@@ -85,9 +103,20 @@ impl IndexStore {
         &self,
         mut visitor: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<IndexStoreVisit, E>,
     ) -> Result<(), E> {
-        for entry in self.map.iter() {
-            if visitor(entry.key(), &entry.value())?.should_stop() {
-                return Ok(());
+        match &self.backend {
+            IndexStoreBackend::Stable(map) => {
+                for entry in map.iter() {
+                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                        return Ok(());
+                    }
+                }
+            }
+            IndexStoreBackend::Heap(map) => {
+                for (key, value) in map {
+                    if visitor(key, value)?.should_stop() {
+                        return Ok(());
+                    }
+                }
             }
         }
 
@@ -95,15 +124,24 @@ impl IndexStore {
     }
 
     pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        self.map.get(key)
+        match &self.backend {
+            IndexStoreBackend::Stable(map) => map.get(key),
+            IndexStoreBackend::Heap(map) => map.get(key).cloned(),
+        }
     }
 
     pub fn len(&self) -> u64 {
-        self.map.len()
+        match &self.backend {
+            IndexStoreBackend::Stable(map) => map.len(),
+            IndexStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        match &self.backend {
+            IndexStoreBackend::Stable(map) => map.is_empty(),
+            IndexStoreBackend::Heap(map) => map.is_empty(),
+        }
     }
 
     #[must_use]
@@ -138,28 +176,39 @@ impl IndexStore {
         key: RawIndexStoreKey,
         entry: IndexEntryValue,
     ) -> Option<IndexEntryValue> {
-        let previous = self.map.insert(key, entry);
+        let previous = match &mut self.backend {
+            IndexStoreBackend::Stable(map) => map.insert(key, entry),
+            IndexStoreBackend::Heap(map) => map.insert(key, entry),
+        };
         self.bump_generation();
         previous
     }
 
     pub(crate) fn remove(&mut self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        let previous = self.map.remove(key);
+        let previous = match &mut self.backend {
+            IndexStoreBackend::Stable(map) => map.remove(key),
+            IndexStoreBackend::Heap(map) => map.remove(key),
+        };
         self.bump_generation();
         previous
     }
 
     pub fn clear(&mut self) {
-        self.map.clear_new();
+        match &mut self.backend {
+            IndexStoreBackend::Stable(map) => map.clear_new(),
+            IndexStoreBackend::Heap(map) => map.clear(),
+        }
         self.bump_generation();
     }
 
     /// Sum of bytes used by all stored index entries.
     pub fn memory_bytes(&self) -> u64 {
-        self.map
-            .iter()
-            .map(|entry| entry.key().as_bytes().len() as u64 + entry.value().len() as u64)
-            .sum()
+        let mut bytes = 0u64;
+        let _: Result<(), std::convert::Infallible> = self.visit_entries(|key, value| {
+            bytes = bytes.saturating_add(key.as_bytes().len() as u64 + value.len() as u64);
+            Ok(IndexStoreVisit::Continue)
+        });
+        bytes
     }
 
     const fn bump_generation(&mut self) {

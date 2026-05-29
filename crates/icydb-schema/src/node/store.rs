@@ -24,13 +24,15 @@ pub struct Store {
 
 /// Storage configuration owned by one schema store declaration.
 ///
-/// 0.167 implements only stable storage. Future storage forms should add new
-/// variants here rather than teaching stable-only memory ID fields new meaning.
+/// 0.169 admits stable and heap storage as distinct store storage modes.
+/// Stable-only memory ID fields must not acquire heap meaning.
 #[derive(Clone, Debug, Serialize)]
 pub enum StoreStorage {
     /// Durable stable-memory store using one memory for data, one for indexes,
     /// and one for accepted schema metadata.
     Stable(StoreStableMemoryConfig),
+    /// Volatile heap store with no stable allocation identity.
+    Heap(StoreHeapConfig),
 }
 
 impl StoreStorage {
@@ -42,7 +44,20 @@ impl StoreStorage {
     pub const fn stable_memory_config(&self) -> Option<&StoreStableMemoryConfig> {
         match self {
             Self::Stable(config) => Some(config),
+            Self::Heap(_) => None,
         }
+    }
+}
+
+/// Heap storage configuration for one volatile store.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct StoreHeapConfig;
+
+impl StoreHeapConfig {
+    /// Build an empty heap storage configuration.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -88,7 +103,7 @@ impl StoreStableMemoryConfig {
 impl Store {
     /// Build a stable-memory-backed store declaration.
     ///
-    /// This is the only implemented store constructor in 0.167.
+    /// This is the durable store constructor.
     #[must_use]
     pub const fn new_stable(
         def: Def,
@@ -103,6 +118,24 @@ impl Store {
             name: store_name,
             canister,
             storage: StoreStorage::Stable(stable),
+        }
+    }
+
+    /// Build a heap-backed volatile store declaration.
+    #[must_use]
+    pub const fn new_heap(
+        def: Def,
+        ident: &'static str,
+        store_name: &'static str,
+        canister: &'static str,
+        heap: StoreHeapConfig,
+    ) -> Self {
+        Self {
+            def,
+            ident,
+            name: store_name,
+            canister,
+            storage: StoreStorage::Heap(heap),
         }
     }
 
@@ -138,6 +171,12 @@ impl Store {
         matches!(self.storage, StoreStorage::Stable(_))
     }
 
+    /// Return whether this store is heap-backed and volatile.
+    #[must_use]
+    pub const fn is_heap_storage(&self) -> bool {
+        matches!(self.storage, StoreStorage::Heap(_))
+    }
+
     /// Borrow stable-memory IDs when this store uses stable storage.
     #[must_use]
     pub const fn stable_memory_config(&self) -> Option<&StoreStableMemoryConfig> {
@@ -148,6 +187,7 @@ impl Store {
     pub const fn stable_data_memory_id(&self) -> u8 {
         match self.storage {
             StoreStorage::Stable(config) => config.data_memory_id(),
+            StoreStorage::Heap(_) => panic!("heap stores do not have a stable data memory id"),
         }
     }
 
@@ -155,6 +195,7 @@ impl Store {
     pub const fn stable_index_memory_id(&self) -> u8 {
         match self.storage {
             StoreStorage::Stable(config) => config.index_memory_id(),
+            StoreStorage::Heap(_) => panic!("heap stores do not have a stable index memory id"),
         }
     }
 
@@ -162,6 +203,7 @@ impl Store {
     pub const fn stable_schema_memory_id(&self) -> u8 {
         match self.storage {
             StoreStorage::Stable(config) => config.schema_memory_id(),
+            StoreStorage::Heap(_) => panic!("heap stores do not have a stable schema memory id"),
         }
     }
 
@@ -433,6 +475,7 @@ impl ValidateNode for Store {
                     StoreStorage::Stable(config) => {
                         validate_stable_memory_config(&mut errs, self, *config, canister);
                     }
+                    StoreStorage::Heap(_) => {}
                 }
             }
             Err(e) => errs.add(e),
@@ -670,6 +713,23 @@ mod tests {
         assert_eq!(store.stable_data_memory_id(), 110);
         assert_eq!(store.stable_index_memory_id(), 111);
         assert_eq!(store.stable_schema_memory_id(), 112);
+    }
+
+    #[test]
+    fn store_owns_explicit_heap_storage_config() {
+        insert_canister("store_heap_config", "Canister");
+        let store = Store::new_heap(
+            Def::new("store_heap_config", "Store"),
+            "STORE",
+            "heap_store",
+            "store_heap_config::Canister",
+            StoreHeapConfig::new(),
+        );
+
+        assert!(store.is_heap_storage());
+        assert!(!store.is_stable_storage());
+        assert!(store.stable_memory_config().is_none());
+        assert!(store.validate().is_ok());
     }
 
     #[test]

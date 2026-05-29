@@ -1,4 +1,4 @@
-error: storage(heap(...)) is reserved for a future release; use storage(stable(...))
+error: storage(heap()) does not accept arguments
   --> tests/ui/store_heap_memory_ids_reserved.rs:10:13
    |
 10 |     storage(heap(

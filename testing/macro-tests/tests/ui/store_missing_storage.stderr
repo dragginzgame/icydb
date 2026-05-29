@@ -1,4 +1,4 @@
-error: store(...) requires storage(stable(...)) in 0.167
+error: store(...) requires storage(stable(...)) or storage(heap())
   --> tests/ui/store_missing_storage.rs:6:1
    |
  6 | / #[store(

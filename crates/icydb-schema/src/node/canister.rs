@@ -158,6 +158,7 @@ impl ValidateNode for Canister {
                         &mut errs,
                     );
                 }
+                StoreStorage::Heap(_) => {}
             }
         }
 

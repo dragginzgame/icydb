@@ -1,5 +1,5 @@
 use crate::ActorBuilder;
-use icydb_schema::node::{Store, StoreStableMemoryConfig, StoreStorage};
+use icydb_schema::node::{Store, StoreHeapConfig, StoreStableMemoryConfig, StoreStorage};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -74,6 +74,7 @@ fn store_registry_entry_tokens(
         StoreStorage::Stable(config) => {
             stable_store_registry_entry_tokens(store_path, store, memory_namespace, *config)
         }
+        StoreStorage::Heap(config) => heap_store_registry_entry_tokens(store_path, store, *config),
     }
 }
 
@@ -178,6 +179,57 @@ fn stable_store_registry_entry_tokens(
     (data_def, index_def, schema_def, store_init)
 }
 
+/// Render one volatile heap store registry entry into data/index/schema cells plus registration.
+fn heap_store_registry_entry_tokens(
+    store_path: &str,
+    store: &Store,
+    _heap: StoreHeapConfig,
+) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
+    let data_cell_ident = format_ident!("{}_DATA", store.ident());
+    let index_cell_ident = format_ident!("{}_INDEX", store.ident());
+    let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
+
+    let data_def = quote! {
+        thread_local! {
+            static #data_cell_ident: ::std::cell::RefCell<
+                ::icydb::__macro::DataStore
+            > = ::std::cell::RefCell::new(
+                ::icydb::__macro::DataStore::init_heap()
+            );
+        }
+    };
+    let index_def = quote! {
+        thread_local! {
+            static #index_cell_ident: ::std::cell::RefCell<
+                ::icydb::__macro::IndexStore
+            > = ::std::cell::RefCell::new(
+                ::icydb::__macro::IndexStore::init_heap()
+            );
+        }
+    };
+    let schema_def = quote! {
+        thread_local! {
+            static #schema_cell_ident: ::std::cell::RefCell<
+                ::icydb::__macro::SchemaStore
+            > = ::std::cell::RefCell::new(
+                ::icydb::__macro::SchemaStore::init_heap()
+            );
+        }
+    };
+    let store_init = quote! {
+        reg.register_store(
+            #store_path,
+            &#data_cell_ident,
+            &#index_cell_ident,
+            &#schema_cell_ident,
+            ::icydb::__macro::StoreAllocationIdentities::absent(),
+        )
+        .expect("store registration should succeed");
+    };
+
+    (data_def, index_def, schema_def, store_init)
+}
+
 /// Assemble the outer canister store wiring around the generated registry.
 fn store_wiring_tokens(
     canister_path: &syn::Path,
@@ -275,6 +327,16 @@ mod tests {
         )
     }
 
+    fn heap_store() -> Store {
+        Store::new_heap(
+            Def::new("demo::schema", "ScratchStore"),
+            "SCRATCH_STORE",
+            "scratch",
+            "demo::schema::DemoCanister",
+            StoreHeapConfig::new(),
+        )
+    }
+
     #[test]
     fn stable_store_wiring_uses_ic_memory_key_for_each_store_role() {
         let store = stable_store();
@@ -303,5 +365,30 @@ mod tests {
         assert!(rendered.contains("icydb.demo.demo.index.v1"));
         assert!(rendered.contains("icydb.demo.demo.schema.v1"));
         assert!(!rendered.contains("heap"));
+    }
+
+    #[test]
+    fn heap_store_wiring_uses_heap_initializers_and_absent_allocation_identity() {
+        let store = heap_store();
+        let (data_def, index_def, schema_def, store_init) =
+            store_registry_entry_tokens("demo::schema::ScratchStore", &store, "demo");
+        let rendered = quote! {
+            #data_def
+            #index_def
+            #schema_def
+            #store_init
+        }
+        .to_string();
+
+        assert!(rendered.contains("DataStore :: init_heap"));
+        assert!(rendered.contains("IndexStore :: init_heap"));
+        assert!(rendered.contains("SchemaStore :: init_heap"));
+        assert!(rendered.contains("StoreAllocationIdentities :: absent"));
+        assert_eq!(rendered.matches("ic_memory_key").count(), 0);
+        assert_eq!(
+            rendered.matches("StoreAllocationIdentity :: new").count(),
+            0
+        );
+        assert!(!rendered.contains("ensure_memory_bootstrap"));
     }
 }

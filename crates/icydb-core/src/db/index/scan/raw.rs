@@ -5,7 +5,11 @@
 
 use crate::{
     db::direction::Direction,
-    db::index::{IndexEntryValue, envelope_is_empty, key::RawIndexStoreKey, store::IndexStore},
+    db::index::{
+        IndexEntryValue, envelope_is_empty,
+        key::RawIndexStoreKey,
+        store::{IndexStore, IndexStoreBackend},
+    },
     error::InternalError,
 };
 use std::ops::Bound;
@@ -30,20 +34,38 @@ impl IndexStore {
         }
 
         match direction {
-            Direction::Asc => {
-                for entry in self.map.range((bounds.0.clone(), bounds.1.clone())) {
-                    if visit(entry.key(), &entry.value())? {
-                        return Ok(());
+            Direction::Asc => match &self.backend {
+                IndexStoreBackend::Stable(map) => {
+                    for entry in map.range((bounds.0.clone(), bounds.1.clone())) {
+                        if visit(entry.key(), &entry.value())? {
+                            return Ok(());
+                        }
                     }
                 }
-            }
-            Direction::Desc => {
-                for entry in self.map.range((bounds.0.clone(), bounds.1.clone())).rev() {
-                    if visit(entry.key(), &entry.value())? {
-                        return Ok(());
+                IndexStoreBackend::Heap(map) => {
+                    for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())) {
+                        if visit(key, value)? {
+                            return Ok(());
+                        }
                     }
                 }
-            }
+            },
+            Direction::Desc => match &self.backend {
+                IndexStoreBackend::Stable(map) => {
+                    for entry in map.range((bounds.0.clone(), bounds.1.clone())).rev() {
+                        if visit(entry.key(), &entry.value())? {
+                            return Ok(());
+                        }
+                    }
+                }
+                IndexStoreBackend::Heap(map) => {
+                    for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())).rev() {
+                        if visit(key, value)? {
+                            return Ok(());
+                        }
+                    }
+                }
+            },
         }
 
         Ok(())

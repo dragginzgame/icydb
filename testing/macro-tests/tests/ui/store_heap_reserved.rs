@@ -7,7 +7,7 @@ pub struct UiCanister {}
     ident = "UI_DATA_STORE",
     store_name = "ui_data",
     canister = "UiCanister",
-    storage(heap())
+    storage(heap)
 )]
 pub struct UiDataStore {}
 

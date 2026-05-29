@@ -1,4 +1,4 @@
-error: storage(...) requires exactly one storage mode: stable(...)
+error: storage(...) requires exactly one storage mode: stable(...) or heap()
   --> tests/ui/store_multiple_storage_modes.rs:10:5
    |
 10 |     storage(

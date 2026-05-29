@@ -71,3 +71,48 @@ fn visit_entries_preserves_store_order_and_supports_early_stop() {
         "index entry traversal should preserve raw store order and stop without allocation"
     );
 }
+
+#[test]
+fn heap_index_store_preserves_range_order_and_early_stop() {
+    let mut index_store = IndexStore::init_heap();
+    for value in [3_u8, 1, 2] {
+        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
+        let raw_entry = IndexEntryValue::presence();
+        index_store.insert(raw_key, raw_entry);
+    }
+
+    let lower = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
+        vec![1],
+    )));
+    let upper = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
+        vec![3],
+    )));
+    let mut asc = Vec::new();
+    index_store
+        .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw_key, _| {
+            asc.push(raw_key.as_bytes()[0]);
+            Ok(false)
+        })
+        .expect("heap asc scan should succeed");
+    assert_eq!(asc, vec![1, 2, 3]);
+
+    let mut desc = Vec::new();
+    index_store
+        .visit_raw_entries_in_range((&lower, &upper), Direction::Desc, |raw_key, _| {
+            desc.push(raw_key.as_bytes()[0]);
+            Ok(false)
+        })
+        .expect("heap desc scan should succeed");
+    assert_eq!(desc, vec![3, 2, 1]);
+
+    let mut stopped = Vec::new();
+    let _: Result<(), std::convert::Infallible> = index_store.visit_entries(|raw_key, _| {
+        stopped.push(raw_key.as_bytes()[0]);
+        Ok(if stopped.len() == 2 {
+            IndexStoreVisit::Stop
+        } else {
+            IndexStoreVisit::Continue
+        })
+    });
+    assert_eq!(stopped, vec![1, 2]);
+}
