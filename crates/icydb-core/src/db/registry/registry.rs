@@ -39,26 +39,14 @@ impl StoreRegistry {
         self.stores.iter().copied()
     }
 
-    /// Register a `Store` path to its row/index/schema store triplet.
+    /// Register a `Store` path to its row/index/schema store triplet with an
+    /// explicit allocation identity decision.
+    ///
+    /// Generated stable-store wiring supplies stable allocation identities.
+    /// Tests and future non-stable stores must pass
+    /// [`StoreAllocationIdentities::absent`] explicitly when allocation
+    /// identities are intentionally unavailable.
     pub fn register_store(
-        &mut self,
-        name: &'static str,
-        data: &'static LocalKey<RefCell<DataStore>>,
-        index: &'static LocalKey<RefCell<IndexStore>>,
-        schema: &'static LocalKey<RefCell<SchemaStore>>,
-    ) -> Result<(), InternalError> {
-        self.register_store_with_allocations(
-            name,
-            data,
-            index,
-            schema,
-            StoreAllocationIdentities::absent(),
-        )
-    }
-
-    /// Register a `Store` path to its row/index/schema store triplet with
-    /// durable allocation identity descriptors.
-    pub fn register_store_with_allocations(
         &mut self,
         name: &'static str,
         data: &'static LocalKey<RefCell<DataStore>>,
@@ -93,10 +81,8 @@ impl StoreRegistry {
             .into());
         }
 
-        self.stores.push((
-            name,
-            StoreHandle::new_with_allocations(data, index, schema, allocations),
-        ));
+        self.stores
+            .push((name, StoreHandle::new(data, index, schema, allocations)));
 
         Ok(())
     }

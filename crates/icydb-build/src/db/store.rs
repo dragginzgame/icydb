@@ -152,7 +152,7 @@ fn stable_store_registry_entry_tokens(
         }
     };
     let store_init = quote! {
-        reg.register_store_with_allocations(
+        reg.register_store(
             #store_path,
             &#data_cell_ident,
             &#index_cell_ident,

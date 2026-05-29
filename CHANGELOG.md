@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.6` makes store registry registration require an explicit allocation
+  identity decision, keeping generated stable-store registration distinct from
+  future non-stable or test-only explicit absent allocation identities.
+
 - `0.167.5` makes generated stable-store wiring consume the matched
   `storage(stable(...))` configuration directly for data, index, and schema
   memory IDs while preserving stable keys and allocation identity.

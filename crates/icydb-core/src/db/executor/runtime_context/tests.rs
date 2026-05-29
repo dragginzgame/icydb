@@ -61,6 +61,7 @@ fn test_store_handle() -> StoreHandle {
         &TEST_RUNTIME_CONTEXT_DATA_STORE,
         &TEST_RUNTIME_CONTEXT_INDEX_STORE,
         &TEST_RUNTIME_CONTEXT_SCHEMA_STORE,
+        crate::db::StoreAllocationIdentities::absent(),
     )
 }
 

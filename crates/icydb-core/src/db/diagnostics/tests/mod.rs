@@ -155,10 +155,16 @@ thread_local! {
     static DIAGNOSTICS_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry
-            .register_store(STORE_Z_PATH, &STORE_Z_DATA, &STORE_Z_INDEX, &STORE_Z_SCHEMA)
+            .register_store(
+                STORE_Z_PATH,
+                &STORE_Z_DATA,
+                &STORE_Z_INDEX,
+                &STORE_Z_SCHEMA,
+                crate::db::StoreAllocationIdentities::absent(),
+            )
             .expect("diagnostics test z-store registration should succeed");
         registry
-            .register_store_with_allocations(
+            .register_store(
                 STORE_A_PATH,
                 &STORE_A_DATA,
                 &STORE_A_INDEX,

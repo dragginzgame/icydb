@@ -116,19 +116,9 @@ impl StoreAllocationIdentities {
 }
 
 impl StoreHandle {
-    /// Build a store handle from thread-local row/index/schema stores.
+    /// Build a store handle with an explicit allocation identity decision.
     #[must_use]
     pub const fn new(
-        data: &'static LocalKey<RefCell<DataStore>>,
-        index: &'static LocalKey<RefCell<IndexStore>>,
-        schema: &'static LocalKey<RefCell<SchemaStore>>,
-    ) -> Self {
-        Self::new_with_allocations(data, index, schema, StoreAllocationIdentities::absent())
-    }
-
-    /// Build a store handle with stable allocation identities.
-    #[must_use]
-    pub const fn new_with_allocations(
         data: &'static LocalKey<RefCell<DataStore>>,
         index: &'static LocalKey<RefCell<IndexStore>>,
         schema: &'static LocalKey<RefCell<SchemaStore>>,

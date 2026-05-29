@@ -630,6 +630,7 @@ thread_local! {
             &RECOVERY_DATA_STORE,
             &RECOVERY_INDEX_STORE,
             &RECOVERY_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
         )
             .expect("test store registration should succeed");
         reg

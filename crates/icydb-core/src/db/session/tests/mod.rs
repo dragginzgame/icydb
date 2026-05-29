@@ -133,6 +133,7 @@ thread_local! {
             &SESSION_SQL_DATA_STORE,
             &SESSION_SQL_INDEX_STORE,
             &SESSION_SQL_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
         )
         .expect("SQL session test store registration should succeed");
         reg
@@ -150,6 +151,7 @@ thread_local! {
             &INDEXED_SESSION_SQL_DATA_STORE,
             &INDEXED_SESSION_SQL_INDEX_STORE,
             &INDEXED_SESSION_SQL_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
         )
         .expect("indexed SQL session test store registration should succeed");
         reg

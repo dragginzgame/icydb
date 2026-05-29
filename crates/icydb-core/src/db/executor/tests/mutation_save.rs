@@ -101,6 +101,7 @@ thread_local! {
             &SOURCE_DATA_STORE,
             &UNIQUE_INDEX_STORE,
             &SOURCE_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
         )
             .expect("source store registration should succeed");
         reg.register_store(
@@ -108,6 +109,7 @@ thread_local! {
             &TARGET_DATA_STORE,
             &TARGET_INDEX_STORE,
             &TARGET_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
         )
             .expect("target store registration should succeed");
         reg

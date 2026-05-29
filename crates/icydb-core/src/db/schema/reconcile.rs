@@ -1397,6 +1397,7 @@ mod tests {
                     &RECONCILE_DATA_STORE,
                     &RECONCILE_INDEX_STORE,
                     &RECONCILE_SCHEMA_STORE,
+                    crate::db::StoreAllocationIdentities::absent(),
                 )
                 .expect("schema reconcile test store should register");
             registry

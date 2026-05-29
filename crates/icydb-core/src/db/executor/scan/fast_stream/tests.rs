@@ -70,6 +70,7 @@ thread_local! {
             &FAST_STREAM_INVARIANT_DATA_STORE,
             &FAST_STREAM_INVARIANT_INDEX_STORE,
             &FAST_STREAM_INVARIANT_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
         )
         .expect("fast-stream invariant test store registration should succeed");
         reg
