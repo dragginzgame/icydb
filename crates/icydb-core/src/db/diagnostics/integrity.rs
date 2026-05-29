@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DecodedDataStoreKey, decode_structural_row_payload},
+        data::{DecodedDataStoreKey, StoreVisit, decode_structural_row_payload},
         diagnostics::{IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals},
         index::IndexKey,
         key_taxonomy::PrimaryKeyValue,
@@ -76,13 +76,14 @@ fn collect_global_live_keys_by_entity<C: CanisterKind>(
     db.with_store_registry(|reg| {
         for (_, store_handle) in reg.iter() {
             store_handle.with_data(|data_store| {
-                for entry in data_store.entries() {
-                    if let Ok(data_key) = DecodedDataStoreKey::try_from_raw(entry.key()) {
+                let _: Result<(), InternalError> = data_store.visit_entries(|raw_key, _raw_row| {
+                    if let Ok(data_key) = DecodedDataStoreKey::try_from_raw(raw_key) {
                         keys.entry(data_key.entity_tag())
                             .or_default()
                             .insert(data_key.primary_key_value());
                     }
-                }
+                    Ok(StoreVisit::Continue)
+                });
             });
         }
 
@@ -99,21 +100,21 @@ fn scan_store_forward_integrity<C: CanisterKind>(
     snapshot: &mut IntegrityStoreSnapshot,
 ) -> Result<(), InternalError> {
     store_handle.with_data(|data_store| {
-        for entry in data_store.entries() {
+        data_store.visit_entries(|raw_key, raw_row| {
             snapshot.data_rows_scanned = snapshot.data_rows_scanned.saturating_add(1);
 
-            let raw_key = entry.key().clone();
+            let raw_key = raw_key.clone();
 
             let Ok(data_key) = DecodedDataStoreKey::try_from_raw(&raw_key) else {
                 snapshot.corrupted_data_keys = snapshot.corrupted_data_keys.saturating_add(1);
-                continue;
+                return Ok(StoreVisit::Continue);
             };
 
             let hooks = match db.runtime_hook_for_entity_tag(data_key.entity_tag()) {
                 Ok(hooks) => hooks,
                 Err(err) => {
                     classify_scan_error(err, snapshot)?;
-                    continue;
+                    return Ok(StoreVisit::Continue);
                 }
             };
             let accepted_schema = match store_handle.with_schema_mut(|schema_store| {
@@ -127,14 +128,14 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                 Ok(schema) => schema,
                 Err(err) => {
                     classify_scan_error(err, snapshot)?;
-                    continue;
+                    return Ok(StoreVisit::Continue);
                 }
             };
             let schema_fingerprint = match accepted_commit_schema_fingerprint(&accepted_schema) {
                 Ok(fingerprint) => fingerprint,
                 Err(err) => {
                     classify_scan_error(err, snapshot)?;
-                    continue;
+                    return Ok(StoreVisit::Continue);
                 }
             };
 
@@ -142,22 +143,22 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                 hooks.entity_path,
                 raw_key,
                 None,
-                Some(entry.value().as_bytes().to_vec()),
+                Some(raw_row.as_bytes().to_vec()),
                 schema_fingerprint,
             );
 
             // Validate the outer row envelope before typed preparation so
             // hard-cut persisted-format mismatches count as corruption.
-            if let Err(err) = decode_structural_row_payload(&entry.value()) {
+            if let Err(err) = decode_structural_row_payload(raw_row) {
                 classify_scan_error(err, snapshot)?;
-                continue;
+                return Ok(StoreVisit::Continue);
             }
 
             let prepared = match db.prepare_row_commit_op(&marker_row) {
                 Ok(prepared) => prepared,
                 Err(err) => {
                     classify_scan_error(err, snapshot)?;
-                    continue;
+                    return Ok(StoreVisit::Continue);
                 }
             };
 
@@ -181,9 +182,8 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                     }
                 }
             }
-        }
-
-        Ok::<(), InternalError>(())
+            Ok(StoreVisit::Continue)
+        })
     })
 }
 

@@ -21,7 +21,7 @@ use crate::{
             rollback_prepared_row_ops_reverse, store,
         },
         data::{
-            CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow,
+            CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
             encode_runtime_value_into_slot,
         },
         executor::SaveExecutor,
@@ -960,15 +960,13 @@ fn index_key_bytes_snapshot() -> Vec<Vec<u8>> {
 fn recovery_store_snapshot() -> RecoveryStoreSnapshot {
     with_recovery_store(|store| {
         let mut data_rows = store.with_data(|data_store| {
-            data_store
-                .entries()
-                .map(|entry| {
-                    (
-                        entry.key().as_bytes().to_vec(),
-                        entry.value().as_bytes().to_vec(),
-                    )
-                })
-                .collect::<Vec<_>>()
+            let mut rows = Vec::new();
+            let _: Result<(), crate::error::InternalError> =
+                data_store.visit_entries(|raw_key, raw_row| {
+                    rows.push((raw_key.as_bytes().to_vec(), raw_row.as_bytes().to_vec()));
+                    Ok(StoreVisit::Continue)
+                });
+            rows
         });
         let mut index_rows = store.with_index(|index_store| {
             index_store

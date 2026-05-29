@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow, StructuralRowContract},
+        data::{DecodedDataStoreKey, RawRow, StoreVisit, StructuralRowContract},
         index::{IndexId, IndexKey, IndexState, IndexStore, RawIndexStoreKey},
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
@@ -481,18 +481,19 @@ fn expression_rebuild_row_fingerprint_for_store(
     store.with_data(|data_store| {
         let mut rows = 0usize;
         let mut hasher = Sha256::new();
-        for entry in data_store.entries() {
-            let data_key = DecodedDataStoreKey::try_from_raw(entry.key()).map_err(|error| {
+        data_store.visit_entries(|raw_key, raw_row| {
+            let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
                 InternalError::store_corruption(format!(
                     "schema mutation expression-index data key decode failed for entity '{entity_path}' while validating startup rebuild gate: {error}",
                 ))
             })?;
             if data_key.entity_tag() != entity_tag {
-                continue;
+                return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
             }
             rows += 1;
-            hash_expression_rebuild_row(&mut hasher, entry.key().as_bytes(), &entry.value());
-        }
+            hash_expression_rebuild_row(&mut hasher, raw_key.as_bytes(), raw_row);
+            Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+        })?;
 
         Ok(StartupExpressionRebuildRowFingerprint::new(
             rows,

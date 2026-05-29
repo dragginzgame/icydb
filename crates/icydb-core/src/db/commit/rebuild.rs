@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
+        data::{DecodedDataStoreKey, StoreVisit},
         index::{IndexEntryValue, IndexState, IndexStore, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
@@ -120,10 +120,12 @@ fn rebuild_secondary_indexes_in_place(
     // Phase 3: rebuild index entries from authoritative row stores.
     for (store_path, handle) in stores {
         let rows = handle.with_data(|data_store| {
-            data_store
-                .entries()
-                .map(|entry| (entry.key().clone(), entry.value()))
-                .collect::<Vec<(RawDataStoreKey, RawRow)>>()
+            let mut rows = Vec::new();
+            let _: Result<(), InternalError> = data_store.visit_entries(|raw_key, raw_row| {
+                rows.push((raw_key.clone(), raw_row.clone()));
+                Ok(StoreVisit::Continue)
+            });
+            rows
         });
 
         for (raw_key, raw_row) in rows {

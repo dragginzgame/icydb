@@ -12,7 +12,7 @@ use crate::{db::key_taxonomy::PrimaryKeyValue, types::EntityTag};
 use crate::{
     db::{
         Db,
-        data::{DataRow, DataStore, DecodedDataStoreKey, RawRow},
+        data::{DataRow, DataStore, DecodedDataStoreKey, RawRow, StoreVisit},
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
         predicate::MissingRowPolicy,
@@ -23,6 +23,7 @@ use crate::{
 };
 #[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
+use std::convert::Infallible;
 use std::ops::Bound;
 
 // -----------------------------------------------------------------------------
@@ -510,18 +511,21 @@ pub(in crate::db::executor) fn sum_row_payload_bytes_full_scan_window_with_store
     offset: usize,
     limit: Option<usize>,
 ) -> u64 {
-    store.with_data(|store| match direction {
-        Direction::Asc => sum_payload_bytes_from_row_lengths(
-            store.entries().map(|entry| entry.value().len()),
-            offset,
-            limit,
-        ),
-        Direction::Desc => sum_payload_bytes_from_row_lengths(
-            store.entries().rev().map(|entry| entry.value().len()),
-            offset,
-            limit,
-        ),
-    })
+    let row_lengths = store.with_data(|store| {
+        let mut row_lengths = Vec::new();
+        let _: Result<(), Infallible> = match direction {
+            Direction::Asc => store.visit_entries(|_raw_key, row| {
+                row_lengths.push(row.len());
+                Ok(StoreVisit::Continue)
+            }),
+            Direction::Desc => store.visit_entries_rev(|_raw_key, row| {
+                row_lengths.push(row.len());
+                Ok(StoreVisit::Continue)
+            }),
+        };
+        row_lengths
+    });
+    sum_payload_bytes_from_row_lengths(row_lengths.into_iter(), offset, limit)
 }
 
 /// Fold persisted row payload bytes over one key-range page window through structural store authority.
@@ -535,25 +539,39 @@ pub(in crate::db::executor) fn sum_row_payload_bytes_key_range_window_with_store
 ) -> Result<u64, InternalError> {
     let start_raw = start.to_raw()?;
     let end_raw = end.to_raw()?;
-    let total = store.with_data(|store| match direction {
-        Direction::Asc => sum_payload_bytes_from_row_lengths(
-            store
-                .range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                .map(|entry| entry.value().len()),
-            offset,
-            limit,
-        ),
-        Direction::Desc => sum_payload_bytes_from_row_lengths(
-            store
-                .range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                .rev()
-                .map(|entry| entry.value().len()),
-            offset,
-            limit,
-        ),
-    });
+    let row_lengths = store.with_data(|store| {
+        let mut row_lengths = Vec::new();
+        let result = match direction {
+            Direction::Asc => store.visit_range(
+                (
+                    Bound::Included(start_raw.clone()),
+                    Bound::Included(end_raw.clone()),
+                ),
+                |_raw_key, row| {
+                    row_lengths.push(row.len());
+                    Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+                },
+            ),
+            Direction::Desc => store.visit_range_rev(
+                (
+                    Bound::Included(start_raw.clone()),
+                    Bound::Included(end_raw.clone()),
+                ),
+                |_raw_key, row| {
+                    row_lengths.push(row.len());
+                    Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+                },
+            ),
+        };
+        result?;
+        Ok::<_, InternalError>(row_lengths)
+    })?;
 
-    Ok(total)
+    Ok(sum_payload_bytes_from_row_lengths(
+        row_lengths.into_iter(),
+        offset,
+        limit,
+    ))
 }
 
 /// Fold persisted row payload bytes over one ordered key stream page window through structural store authority.

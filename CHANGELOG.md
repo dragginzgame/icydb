@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)
 
+- `0.168.1` replaces live `DataStore` iterator-returning traversal APIs with
+  backend-neutral visitor traversal and deletes the old stable-shaped entry,
+  range, and entity-prefix APIs.
+
 - `0.168.0` starts the runtime store-backend boundary line with a concrete
   traversal inventory and a hard-cut policy for replacing stable-shaped store
   traversal APIs without aliases, shims, or compatibility fallbacks.

@@ -9,7 +9,10 @@ mod startup_field_path;
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        data::{DecodedDataStoreKey, SlotReader, StructuralRowContract, StructuralSlotReader},
+        data::{
+            DecodedDataStoreKey, SlotReader, StoreVisit, StructuralRowContract,
+            StructuralSlotReader,
+        },
         index::{IndexId, IndexKey, IndexState, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{
@@ -533,19 +536,18 @@ fn validate_sql_ddl_set_not_null_rows(
 
     store.with_data(|data_store| {
         let mut scanned = 0usize;
-        for entry in data_store.entries() {
-            let key = DecodedDataStoreKey::try_from_raw(entry.key()).map_err(|error| {
+        data_store.visit_entries(|raw_key, raw_row| {
+            let key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
                 InternalError::store_unsupported(format!(
                     "SQL DDL SET NOT NULL could not decode data key for entity '{entity_path}': {error}",
                 ))
             })?;
             if key.entity_tag() != entity_tag {
-                continue;
+                return Ok(StoreVisit::Continue);
             }
             scanned = scanned.saturating_add(1);
-            let raw_row = entry.value();
             let mut reader =
-                StructuralSlotReader::from_raw_row_with_validated_contract(&raw_row, contract.clone())?;
+                StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract.clone())?;
             reader.validate_primary_key(&key)?;
             let value = reader.get_value(required_slot)?;
             if matches!(value, Some(Value::Null) | None) {
@@ -554,7 +556,8 @@ fn validate_sql_ddl_set_not_null_rows(
                     target.name(),
                 )));
             }
-        }
+            Ok(StoreVisit::Continue)
+        })?;
 
         Ok(scanned)
     })

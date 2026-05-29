@@ -51,6 +51,7 @@ pub(in crate::db) use persisted_row::{
 pub(in crate::db) use row::CanonicalRow;
 pub(in crate::db) use row::{DataRow, RawRow};
 pub use store::DataStore;
+pub(in crate::db) use store::StoreVisit;
 pub(in crate::db) use structural_field::{
     FieldDecodeError, ValueStorageView, accepted_kind_supports_primary_key_component_binary,
     decode_accepted_relation_target_primary_key_components_bytes, decode_enum,

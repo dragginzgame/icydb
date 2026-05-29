@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         codec::hex::encode_hex_lower,
-        data::DecodedDataStoreKey,
+        data::{DecodedDataStoreKey, StoreVisit},
         diagnostics::{
             DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IndexStoreSnapshotStats,
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
@@ -21,6 +21,7 @@ use crate::{
     types::EntityTag,
 };
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 
 #[cfg_attr(
     doc,
@@ -335,16 +336,17 @@ fn build_storage_report<C: CanisterKind>(
 
                 let mut by_entity = EntityStatsByMode::new(mode);
 
-                for entry in store.entries() {
-                    let Ok(dk) = DecodedDataStoreKey::try_from_raw(entry.key()) else {
+                let _: Result<(), Infallible> = store.visit_entries(|raw_key, raw_row| {
+                    let Ok(dk) = DecodedDataStoreKey::try_from_raw(raw_key) else {
                         corrupted_keys = corrupted_keys.saturating_add(1);
-                        continue;
+                        return Ok(StoreVisit::Continue);
                     };
 
-                    let value_len = entry.value().len() as u64;
+                    let value_len = raw_row.len() as u64;
 
                     by_entity.update(dk.entity_tag(), value_len);
-                }
+                    Ok(StoreVisit::Continue)
+                });
 
                 by_entity.push_snapshots(path, db, mode, &mut entity_storage);
             });

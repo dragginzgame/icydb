@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{ExecutionPathPayload, LoweredAccess},
-        data::DecodedDataStoreKey,
+        data::{DecodedDataStoreKey, StoreVisit},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
@@ -258,9 +258,14 @@ fn aggregate_count_from_pk_cardinality_with_store(
 
     // Phase 2: read candidate-row cardinality directly from primary storage.
     let available_rows = match path {
-        ExecutionPathPayload::FullScan => {
-            store.with_data(|data| data.range_for_entity(entity_tag).count())
-        }
+        ExecutionPathPayload::FullScan => store.with_data(|data| {
+            let mut count = 0usize;
+            let _: Result<(), InternalError> = data.visit_entity(entity_tag, |_raw_key, _row| {
+                count = count.saturating_add(1);
+                Ok(StoreVisit::Continue)
+            });
+            count
+        }),
         ExecutionPathPayload::KeyRange { start, end } => {
             let start_raw =
                 DecodedDataStoreKey::try_from_structural_key(entity_tag, start)?.to_raw()?;
@@ -268,8 +273,15 @@ fn aggregate_count_from_pk_cardinality_with_store(
                 DecodedDataStoreKey::try_from_structural_key(entity_tag, end)?.to_raw()?;
 
             store.with_data(|data| {
-                data.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .count()
+                let mut count = 0usize;
+                let _: Result<(), InternalError> = data.visit_range(
+                    (Bound::Included(start_raw), Bound::Included(end_raw)),
+                    |_raw_key, _row| {
+                        count = count.saturating_add(1);
+                        Ok(StoreVisit::Continue)
+                    },
+                );
+                count
             })
         }
         _ => {

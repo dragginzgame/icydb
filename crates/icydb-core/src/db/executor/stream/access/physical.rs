@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::ExecutionPathPayload,
         cursor::IndexScanContinuationInput,
-        data::{DecodedDataStoreKey, RawDataStoreKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey, StoreVisit},
         direction::Direction,
         executor::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
@@ -398,31 +398,35 @@ impl PrimaryRangeKeyStream {
                         .last_raw_key
                         .clone()
                         .map_or_else(|| Bound::Included(self.lower_raw.clone()), Bound::Excluded);
-                    for entry in store.range((lower, self.upper_bound.clone())) {
-                        let raw_key = entry.key().clone();
+                    store.visit_range((lower, self.upper_bound.clone()), |raw_key, _row| {
+                        let raw_key = raw_key.clone();
                         keys.push(PrimaryScan::decode_data_key(&raw_key)?);
                         last_raw_key = Some(raw_key);
-                        if keys.len() == chunk_limit {
-                            break;
-                        }
-                    }
+                        Ok::<StoreVisit, InternalError>(if keys.len() == chunk_limit {
+                            StoreVisit::Stop
+                        } else {
+                            StoreVisit::Continue
+                        })
+                    })?;
                 }
                 Direction::Desc => {
                     let upper = self
                         .last_raw_key
                         .clone()
                         .map_or_else(|| self.upper_bound.clone(), Bound::Excluded);
-                    for entry in store
-                        .range((Bound::Included(self.lower_raw.clone()), upper))
-                        .rev()
-                    {
-                        let raw_key = entry.key().clone();
-                        keys.push(PrimaryScan::decode_data_key(&raw_key)?);
-                        last_raw_key = Some(raw_key);
-                        if keys.len() == chunk_limit {
-                            break;
-                        }
-                    }
+                    store.visit_range_rev(
+                        (Bound::Included(self.lower_raw.clone()), upper),
+                        |raw_key, _row| {
+                            let raw_key = raw_key.clone();
+                            keys.push(PrimaryScan::decode_data_key(&raw_key)?);
+                            last_raw_key = Some(raw_key);
+                            Ok::<StoreVisit, InternalError>(if keys.len() == chunk_limit {
+                                StoreVisit::Stop
+                            } else {
+                                StoreVisit::Continue
+                            })
+                        },
+                    )?;
                 }
             }
 
@@ -483,12 +487,18 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
         }
 
         Some(self.store.with_data(|store| {
-            store
-                .range((
+            let mut count = 0usize;
+            let _: Result<(), InternalError> = store.visit_range(
+                (
                     Bound::Included(self.lower_raw.clone()),
                     self.upper_bound.clone(),
-                ))
-                .count()
+                ),
+                |_raw_key, _row| {
+                    count = count.saturating_add(1);
+                    Ok(StoreVisit::Continue)
+                },
+            );
+            count
         }))
     }
 }

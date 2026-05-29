@@ -7,7 +7,9 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow, StructuralRowContract, StructuralSlotReader},
+        data::{
+            DecodedDataStoreKey, RawRow, StoreVisit, StructuralRowContract, StructuralSlotReader,
+        },
         index::{IndexId, IndexKey, IndexState, IndexStore},
         key_taxonomy::PrimaryKeyValue,
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
@@ -438,18 +440,19 @@ fn field_path_rebuild_row_fingerprint_for_store(
     store.with_data(|data_store| {
         let mut rows = 0usize;
         let mut hasher = Sha256::new();
-        for entry in data_store.entries() {
-            let data_key = DecodedDataStoreKey::try_from_raw(entry.key()).map_err(|error| {
+        data_store.visit_entries(|raw_key, raw_row| {
+            let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
                 InternalError::store_corruption(format!(
                     "schema mutation field-path rebuild data key decode failed for entity '{entity_path}' while validating startup rebuild gate: {error}",
                 ))
             })?;
             if data_key.entity_tag() != entity_tag {
-                continue;
+                return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
             }
             rows += 1;
-            hash_field_path_rebuild_row(&mut hasher, entry.key().as_bytes(), &entry.value());
-        }
+            hash_field_path_rebuild_row(&mut hasher, raw_key.as_bytes(), raw_row);
+            Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+        })?;
 
         Ok(StartupFieldPathRebuildRowFingerprint::new(
             rows,
@@ -503,20 +506,21 @@ pub(super) fn field_path_rebuild_raw_rows_for_entity(
 ) -> Result<Vec<StartupFieldPathRebuildRow>, InternalError> {
     store.with_data(|data_store| {
         let mut rows = Vec::new();
-        for entry in data_store.entries() {
-            let data_key = DecodedDataStoreKey::try_from_raw(entry.key()).map_err(|error| {
+        data_store.visit_entries(|raw_key, raw_row| {
+            let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
                 InternalError::store_corruption(format!(
                     "schema mutation field-path rebuild data key decode failed for entity '{entity_path}': {error}",
                 ))
             })?;
             if data_key.entity_tag() != entity_tag {
-                continue;
+                return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
             }
             rows.push(StartupFieldPathRebuildRow {
                 primary_key_value: data_key.primary_key_value(),
-                row: entry.value().clone(),
+                row: raw_row.clone(),
             });
-        }
+            Ok::<StoreVisit, InternalError>(StoreVisit::Continue)
+        })?;
 
         Ok::<_, InternalError>(rows)
     })
