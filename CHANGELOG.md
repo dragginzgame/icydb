@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.10` closes the per-store storage-boundary proof matrix with focused
+  validation proving the explicit `storage(stable(...))` boundary preserves
+  stable wiring, allocation identity, diagnostics semantics, and storage ABI.
+
 - `0.167.9` separates derive-only parsed storage carrier names from the public
   schema storage model while keeping generated `Store::new_stable(...)` output
   unchanged.
