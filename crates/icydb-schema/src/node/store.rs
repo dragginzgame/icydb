@@ -145,21 +145,21 @@ impl Store {
     }
 
     #[must_use]
-    pub const fn data_memory_id(&self) -> u8 {
+    pub const fn stable_data_memory_id(&self) -> u8 {
         match self.storage {
             StoreStorage::Stable(config) => config.data_memory_id(),
         }
     }
 
     #[must_use]
-    pub const fn index_memory_id(&self) -> u8 {
+    pub const fn stable_index_memory_id(&self) -> u8 {
         match self.storage {
             StoreStorage::Stable(config) => config.index_memory_id(),
         }
     }
 
     #[must_use]
-    pub const fn schema_memory_id(&self) -> u8 {
+    pub const fn stable_schema_memory_id(&self) -> u8 {
         match self.storage {
             StoreStorage::Stable(config) => config.schema_memory_id(),
         }
@@ -232,9 +232,9 @@ impl Store {
         role: StoreMemoryRole,
     ) -> StableMemoryAllocation {
         let memory_id = match role {
-            StoreMemoryRole::Data => self.data_memory_id(),
-            StoreMemoryRole::Index => self.index_memory_id(),
-            StoreMemoryRole::Schema => self.schema_memory_id(),
+            StoreMemoryRole::Data => self.stable_data_memory_id(),
+            StoreMemoryRole::Index => self.stable_index_memory_id(),
+            StoreMemoryRole::Schema => self.stable_schema_memory_id(),
         };
 
         StableMemoryAllocation::without_schema_metadata(
@@ -250,9 +250,9 @@ impl Store {
         schema_metadata: StableMemoryAllocationMetadata,
     ) -> StableMemoryAllocation {
         let memory_id = match role {
-            StoreMemoryRole::Data => self.data_memory_id(),
-            StoreMemoryRole::Index => self.index_memory_id(),
-            StoreMemoryRole::Schema => self.schema_memory_id(),
+            StoreMemoryRole::Data => self.stable_data_memory_id(),
+            StoreMemoryRole::Index => self.stable_index_memory_id(),
+            StoreMemoryRole::Schema => self.stable_schema_memory_id(),
         };
 
         StableMemoryAllocation::with_schema_metadata(
@@ -667,9 +667,9 @@ mod tests {
         assert_eq!(stable.data_memory_id(), 110);
         assert_eq!(stable.index_memory_id(), 111);
         assert_eq!(stable.schema_memory_id(), 112);
-        assert_eq!(store.data_memory_id(), 110);
-        assert_eq!(store.index_memory_id(), 111);
-        assert_eq!(store.schema_memory_id(), 112);
+        assert_eq!(store.stable_data_memory_id(), 110);
+        assert_eq!(store.stable_index_memory_id(), 111);
+        assert_eq!(store.stable_schema_memory_id(), 112);
     }
 
     #[test]

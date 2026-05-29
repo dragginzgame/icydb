@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.8` renames store-level stable-memory ID accessors to stable-specific
+  vocabulary, keeping stable-memory IDs out of the generic store API shape.
+
 - `0.167.7` renames schema/build store allocation helpers to stable-specific
   allocation vocabulary while preserving generated stable wiring and allocation
   identity.
