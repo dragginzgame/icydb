@@ -7,16 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Lower the public `icydb` dependency-path MSRV to Rust `1.88.0` while keeping
-  repository development on Rust `1.96.0`, and add CI coverage that checks the
-  dependency path with the advertised floor.
-
-- Move index-store entry scans onto backend-neutral visitor traversal and
-  delete the allocation-shaped `IndexStore::entries()` surface.
+- Move schema-store snapshot scans onto a store-owned traversal helper without
+  exposing stable-map iterator shapes.
 
 ## [0.168.x] 🧰 - 2026-05-29 - Runtime Store Backend Boundary
 
 Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)
+
+- `0.168.3` moves index-store entry scans onto backend-neutral visitor
+  traversal and deletes the allocation-shaped `IndexStore::entries()` surface.
+
+- `0.168.2` lowers the public `icydb` dependency-path MSRV to Rust `1.88.0`,
+  keeps repository development on Rust `1.96.0`, and adds CI coverage for the
+  advertised dependency floor.
 
 - `0.168.1` replaces live `DataStore` iterator-returning traversal APIs with
   backend-neutral visitor traversal and deletes the old stable-shaped entry,

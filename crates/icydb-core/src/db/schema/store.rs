@@ -346,6 +346,23 @@ pub struct SchemaStore {
     map: BTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>,
 }
 
+/// Control-flow result for schema-store traversal visitors.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SchemaStoreVisit {
+    Continue,
+    #[allow(
+        dead_code,
+        reason = "schema traversal exposes early-stop semantics for bounded future callers; focused tests cover it before live call sites need it"
+    )]
+    Stop,
+}
+
+impl SchemaStoreVisit {
+    const fn should_stop(self) -> bool {
+        matches!(self, Self::Stop)
+    }
+}
+
 impl SchemaStore {
     /// Initialize the schema store with the provided backing memory.
     #[must_use]
@@ -387,10 +404,9 @@ impl SchemaStore {
         entity: EntityTag,
     ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
         let mut latest = None::<(SchemaVersion, RawSchemaSnapshot)>;
-        for entry in self.map.iter() {
-            let (key, snapshot) = entry.into_pair();
+        let _: Result<(), InternalError> = self.visit_raw_snapshots(|key, snapshot| {
             if key.entity_tag() != entity {
-                continue;
+                return Ok(SchemaStoreVisit::Continue);
             }
 
             let version = SchemaVersion::new(key.version());
@@ -398,9 +414,10 @@ impl SchemaStore {
                 .as_ref()
                 .is_none_or(|(latest_version, _)| version > *latest_version)
             {
-                latest = Some((version, snapshot));
+                latest = Some((version, snapshot.clone()));
             }
-        }
+            Ok(SchemaStoreVisit::Continue)
+        });
 
         latest
             .map(|(_, snapshot)| snapshot.decode_persisted_snapshot())
@@ -414,10 +431,9 @@ impl SchemaStore {
         let mut encoded_bytes = 0u64;
         let mut latest = None::<(SchemaVersion, u64)>;
 
-        for entry in self.map.iter() {
-            let (key, snapshot) = entry.into_pair();
+        let _: Result<(), std::convert::Infallible> = self.visit_raw_snapshots(|key, snapshot| {
             if key.entity_tag() != entity {
-                continue;
+                return Ok(SchemaStoreVisit::Continue);
             }
 
             let snapshot_bytes = u64::try_from(snapshot.as_bytes().len()).unwrap_or(u64::MAX);
@@ -431,7 +447,8 @@ impl SchemaStore {
             {
                 latest = Some((version, snapshot_bytes));
             }
-        }
+            Ok(SchemaStoreVisit::Continue)
+        });
 
         SchemaStoreFootprint::new(
             snapshots,
@@ -524,22 +541,37 @@ impl SchemaStore {
         let mut latest_by_entity =
             StdBTreeMap::<EntityTag, (SchemaVersion, RawSchemaSnapshot)>::new();
 
-        for entry in self.map.iter() {
-            let (key, snapshot) = entry.into_pair();
+        let _: Result<(), std::convert::Infallible> = self.visit_raw_snapshots(|key, snapshot| {
             let version = SchemaVersion::new(key.version());
             match latest_by_entity.get_mut(&key.entity_tag()) {
                 Some((latest_version, latest_snapshot)) if version > *latest_version => {
                     *latest_version = version;
-                    *latest_snapshot = snapshot;
+                    *latest_snapshot = snapshot.clone();
                 }
                 None => {
-                    latest_by_entity.insert(key.entity_tag(), (version, snapshot));
+                    latest_by_entity.insert(key.entity_tag(), (version, snapshot.clone()));
                 }
                 Some(_) => {}
             }
-        }
+            Ok(SchemaStoreVisit::Continue)
+        });
 
         latest_by_entity
+    }
+
+    /// Visit raw schema snapshots in canonical store order without exposing
+    /// the backing stable-map iterator.
+    fn visit_raw_snapshots<E>(
+        &self,
+        mut visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
+    ) -> Result<(), E> {
+        for entry in self.map.iter() {
+            if visitor(entry.key(), &entry.value())?.should_stop() {
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -870,7 +902,7 @@ const fn field_storage_decode_name(
 
 #[cfg(test)]
 mod tests {
-    use super::{RawSchemaKey, RawSchemaSnapshot, SchemaStore};
+    use super::{RawSchemaKey, RawSchemaSnapshot, SchemaStore, SchemaStoreVisit};
     use crate::{
         db::schema::{
             FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
@@ -884,6 +916,7 @@ mod tests {
         types::EntityTag,
     };
     use std::borrow::Cow;
+    use std::convert::Infallible;
 
     #[test]
     fn raw_schema_key_round_trips_entity_and_version() {
@@ -978,6 +1011,56 @@ mod tests {
         assert_eq!(footprint.snapshots(), 2);
         assert_eq!(footprint.encoded_bytes(), 7);
         assert_eq!(footprint.latest_snapshot_bytes(), 4);
+    }
+
+    #[test]
+    fn schema_store_visit_raw_snapshots_preserves_key_order() {
+        let mut store = SchemaStore::init(test_memory(235));
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(3), SchemaVersion::new(2)),
+            RawSchemaSnapshot::from_bytes(vec![32]),
+        );
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(1), SchemaVersion::new(3)),
+            RawSchemaSnapshot::from_bytes(vec![13]),
+        );
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(1), SchemaVersion::new(1)),
+            RawSchemaSnapshot::from_bytes(vec![11]),
+        );
+
+        let mut visited = Vec::new();
+        let _: Result<(), Infallible> = store.visit_raw_snapshots(|key, snapshot| {
+            visited.push((
+                key.entity_tag().value(),
+                key.version(),
+                snapshot.as_bytes()[0],
+            ));
+            Ok(SchemaStoreVisit::Continue)
+        });
+
+        assert_eq!(visited, vec![(1, 1, 11), (1, 3, 13), (3, 2, 32)]);
+    }
+
+    #[test]
+    fn schema_store_visit_raw_snapshots_can_stop_without_error() {
+        let mut store = SchemaStore::init(test_memory(234));
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(2), SchemaVersion::new(1)),
+            RawSchemaSnapshot::from_bytes(vec![21]),
+        );
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(2), SchemaVersion::new(2)),
+            RawSchemaSnapshot::from_bytes(vec![22]),
+        );
+
+        let mut visited = Vec::new();
+        let _: Result<(), Infallible> = store.visit_raw_snapshots(|key, _| {
+            visited.push(key.version());
+            Ok(SchemaStoreVisit::Stop)
+        });
+
+        assert_eq!(visited, vec![1]);
     }
 
     #[test]
