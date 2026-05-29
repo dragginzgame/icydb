@@ -36,12 +36,12 @@ pub enum StoreStorage {
 impl StoreStorage {
     /// Borrow the stable-memory configuration.
     ///
-    /// This is stable-only while `StoreStorage` has a single implemented
-    /// variant. Future storage forms should prefer explicit variant matching.
+    /// Future storage forms return `None`; callers that require stable memory
+    /// must fail closed or remain explicitly stable-only.
     #[must_use]
-    pub const fn stable_memory_config(&self) -> &StoreStableMemoryConfig {
+    pub const fn stable_memory_config(&self) -> Option<&StoreStableMemoryConfig> {
         match self {
-            Self::Stable(config) => config,
+            Self::Stable(config) => Some(config),
         }
     }
 }
@@ -141,24 +141,28 @@ impl Store {
     /// Borrow stable-memory IDs when this store uses stable storage.
     #[must_use]
     pub const fn stable_memory_config(&self) -> Option<&StoreStableMemoryConfig> {
-        match &self.storage {
-            StoreStorage::Stable(config) => Some(config),
-        }
+        self.storage.stable_memory_config()
     }
 
     #[must_use]
     pub const fn data_memory_id(&self) -> u8 {
-        self.storage.stable_memory_config().data_memory_id()
+        match self.storage {
+            StoreStorage::Stable(config) => config.data_memory_id(),
+        }
     }
 
     #[must_use]
     pub const fn index_memory_id(&self) -> u8 {
-        self.storage.stable_memory_config().index_memory_id()
+        match self.storage {
+            StoreStorage::Stable(config) => config.index_memory_id(),
+        }
     }
 
     #[must_use]
     pub const fn schema_memory_id(&self) -> u8 {
-        self.storage.stable_memory_config().schema_memory_id()
+        match self.storage {
+            StoreStorage::Stable(config) => config.schema_memory_id(),
+        }
     }
 
     #[must_use]
@@ -655,6 +659,7 @@ mod tests {
         );
 
         assert!(store.is_stable_storage());
+        assert!(store.storage().stable_memory_config().is_some());
         let stable = store
             .stable_memory_config()
             .expect("0.167 model stores stable config explicitly");

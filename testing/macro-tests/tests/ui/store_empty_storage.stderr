@@ -1,0 +1,5 @@
+error: storage(...) requires exactly one storage mode: stable(...)
+  --> tests/ui/store_empty_storage.rs:10:5
+   |
+10 |     storage()
+   |     ^^^^^^^

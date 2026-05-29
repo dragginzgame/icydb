@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.3` tightens the public `StoreStorage` stable-config accessor and pins
+  invalid or ambiguous `storage(...)` macro forms closed.
+
 - `0.167.2` splits wasm fixture canister/store helpers and hard-cuts fixture
   stores to the same nested `storage(stable(...))` syntax as user store
   declarations.

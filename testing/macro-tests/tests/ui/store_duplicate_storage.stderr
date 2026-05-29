@@ -1,0 +1,5 @@
+error: store(...) accepts only one storage(...) argument
+  --> tests/ui/store_duplicate_storage.rs:15:5
+   |
+15 |     storage(stable(
+   |     ^^^^^^^
