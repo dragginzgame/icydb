@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.7` renames schema/build store allocation helpers to stable-specific
+  allocation vocabulary while preserving generated stable wiring and allocation
+  identity.
+
 - `0.167.6` makes store registry registration require an explicit allocation
   identity decision, keeping generated stable-store registration distinct from
   future non-stable or test-only explicit absent allocation identities.

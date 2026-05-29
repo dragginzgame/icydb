@@ -166,19 +166,19 @@ impl Store {
     }
 
     #[must_use]
-    pub fn data_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
-        self.allocation(memory_namespace, StoreMemoryRole::Data)
+    pub fn stable_data_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
+        self.stable_allocation(memory_namespace, StoreMemoryRole::Data)
     }
 
     /// Build the data-memory allocation descriptor with accepted row-layout
     /// schema metadata attached for diagnostics.
     #[must_use]
-    pub fn data_allocation_with_schema_metadata(
+    pub fn stable_data_allocation_with_schema_metadata(
         &self,
         memory_namespace: &str,
         schema_metadata: StableMemoryAllocationMetadata,
     ) -> StableMemoryAllocation {
-        self.allocation_with_schema_metadata(
+        self.stable_allocation_with_schema_metadata(
             memory_namespace,
             StoreMemoryRole::Data,
             schema_metadata,
@@ -186,19 +186,19 @@ impl Store {
     }
 
     #[must_use]
-    pub fn index_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
-        self.allocation(memory_namespace, StoreMemoryRole::Index)
+    pub fn stable_index_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
+        self.stable_allocation(memory_namespace, StoreMemoryRole::Index)
     }
 
     /// Build the index-memory allocation descriptor with accepted index-catalog
     /// schema metadata attached for diagnostics.
     #[must_use]
-    pub fn index_allocation_with_schema_metadata(
+    pub fn stable_index_allocation_with_schema_metadata(
         &self,
         memory_namespace: &str,
         schema_metadata: StableMemoryAllocationMetadata,
     ) -> StableMemoryAllocation {
-        self.allocation_with_schema_metadata(
+        self.stable_allocation_with_schema_metadata(
             memory_namespace,
             StoreMemoryRole::Index,
             schema_metadata,
@@ -206,19 +206,19 @@ impl Store {
     }
 
     #[must_use]
-    pub fn schema_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
-        self.allocation(memory_namespace, StoreMemoryRole::Schema)
+    pub fn stable_schema_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
+        self.stable_allocation(memory_namespace, StoreMemoryRole::Schema)
     }
 
     /// Build the schema-memory allocation descriptor with accepted catalog
     /// schema metadata attached for diagnostics.
     #[must_use]
-    pub fn schema_allocation_with_schema_metadata(
+    pub fn stable_schema_allocation_with_schema_metadata(
         &self,
         memory_namespace: &str,
         schema_metadata: StableMemoryAllocationMetadata,
     ) -> StableMemoryAllocation {
-        self.allocation_with_schema_metadata(
+        self.stable_allocation_with_schema_metadata(
             memory_namespace,
             StoreMemoryRole::Schema,
             schema_metadata,
@@ -226,7 +226,7 @@ impl Store {
     }
 
     #[must_use]
-    pub fn allocation(
+    pub fn stable_allocation(
         &self,
         memory_namespace: &str,
         role: StoreMemoryRole,
@@ -243,7 +243,7 @@ impl Store {
         )
     }
 
-    fn allocation_with_schema_metadata(
+    fn stable_allocation_with_schema_metadata(
         &self,
         memory_namespace: &str,
         role: StoreMemoryRole,
@@ -454,7 +454,7 @@ fn validate_stable_memory_config(
         "data stable key",
         config.data_memory_id(),
         store
-            .data_allocation(canister.memory_namespace())
+            .stable_data_allocation(canister.memory_namespace())
             .stable_key(),
         canister,
     );
@@ -464,7 +464,7 @@ fn validate_stable_memory_config(
         "index stable key",
         config.index_memory_id(),
         store
-            .index_allocation(canister.memory_namespace())
+            .stable_index_allocation(canister.memory_namespace())
             .stable_key(),
         canister,
     );
@@ -474,7 +474,7 @@ fn validate_stable_memory_config(
         "schema stable key",
         config.schema_memory_id(),
         store
-            .schema_allocation(canister.memory_namespace())
+            .stable_schema_allocation(canister.memory_namespace())
             .stable_key(),
         canister,
     );
@@ -562,15 +562,15 @@ mod tests {
         );
 
         assert_eq!(
-            store.data_allocation("demo_rpg").stable_key(),
+            store.stable_data_allocation("demo_rpg").stable_key(),
             "icydb.demo_rpg.characters.data.v1",
         );
         assert_eq!(
-            store.index_allocation("demo_rpg").stable_key(),
+            store.stable_index_allocation("demo_rpg").stable_key(),
             "icydb.demo_rpg.characters.index.v1",
         );
         assert_eq!(
-            store.schema_allocation("demo_rpg").stable_key(),
+            store.stable_schema_allocation("demo_rpg").stable_key(),
             "icydb.demo_rpg.characters.schema.v1",
         );
     }
@@ -586,9 +586,9 @@ mod tests {
         );
 
         for allocation in [
-            store.data_allocation("demo_rpg"),
-            store.index_allocation("demo_rpg"),
-            store.schema_allocation("demo_rpg"),
+            store.stable_data_allocation("demo_rpg"),
+            store.stable_index_allocation("demo_rpg"),
+            store.stable_schema_allocation("demo_rpg"),
         ] {
             assert_eq!(allocation.schema_version(), None);
             assert_eq!(allocation.schema_fingerprint(), None);
@@ -608,28 +608,28 @@ mod tests {
             "demo::rpg::Canister",
             StoreStableMemoryConfig::new(110, 111, 112),
         );
-        let data = store.data_allocation_with_schema_metadata(
+        let data = store.stable_data_allocation_with_schema_metadata(
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 7,
                 "data-row-layout".to_string(),
             ),
         );
-        let index = store.index_allocation_with_schema_metadata(
+        let index = store.stable_index_allocation_with_schema_metadata(
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 8,
                 "index-catalog".to_string(),
             ),
         );
-        let schema = store.schema_allocation_with_schema_metadata(
+        let schema = store.stable_schema_allocation_with_schema_metadata(
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 10,
                 "schema-catalog".to_string(),
             ),
         );
-        let data_after_reconcile = store.data_allocation_with_schema_metadata(
+        let data_after_reconcile = store.stable_data_allocation_with_schema_metadata(
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 9,

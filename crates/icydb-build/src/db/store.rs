@@ -87,9 +87,9 @@ fn stable_store_registry_entry_tokens(
     let data_cell_ident = format_ident!("{}_DATA", store.ident());
     let index_cell_ident = format_ident!("{}_INDEX", store.ident());
     let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
-    let data_allocation = store.data_allocation(memory_namespace);
-    let index_allocation = store.index_allocation(memory_namespace);
-    let schema_allocation = store.schema_allocation(memory_namespace);
+    let data_allocation = store.stable_data_allocation(memory_namespace);
+    let index_allocation = store.stable_index_allocation(memory_namespace);
+    let schema_allocation = store.stable_schema_allocation(memory_namespace);
     let data_memory_id = stable.data_memory_id();
     let index_memory_id = stable.index_memory_id();
     let schema_memory_id = stable.schema_memory_id();

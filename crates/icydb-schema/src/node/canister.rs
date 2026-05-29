@@ -114,9 +114,11 @@ impl ValidateNode for Canister {
             match store.storage() {
                 StoreStorage::Stable(_) => {
                     assert_unique_memory_allocation(
-                        store.data_allocation(self.memory_namespace()).memory_id(),
                         store
-                            .data_allocation(self.memory_namespace())
+                            .stable_data_allocation(self.memory_namespace())
+                            .memory_id(),
+                        store
+                            .stable_data_allocation(self.memory_namespace())
                             .stable_key()
                             .to_string(),
                         format!("Store `{path}`.data_memory"),
@@ -127,9 +129,11 @@ impl ValidateNode for Canister {
                     );
 
                     assert_unique_memory_allocation(
-                        store.index_allocation(self.memory_namespace()).memory_id(),
                         store
-                            .index_allocation(self.memory_namespace())
+                            .stable_index_allocation(self.memory_namespace())
+                            .memory_id(),
+                        store
+                            .stable_index_allocation(self.memory_namespace())
                             .stable_key()
                             .to_string(),
                         format!("Store `{path}`.index_memory"),
@@ -140,9 +144,11 @@ impl ValidateNode for Canister {
                     );
 
                     assert_unique_memory_allocation(
-                        store.schema_allocation(self.memory_namespace()).memory_id(),
                         store
-                            .schema_allocation(self.memory_namespace())
+                            .stable_schema_allocation(self.memory_namespace())
+                            .memory_id(),
+                        store
+                            .stable_schema_allocation(self.memory_namespace())
                             .stable_key()
                             .to_string(),
                         format!("Store `{path}`.schema_memory"),
@@ -343,18 +349,18 @@ mod tests {
 
         assert!(
             first
-                .data_allocation("test_db")
-                .same_identity_as(&reordered.data_allocation("test_db"))
+                .stable_data_allocation("test_db")
+                .same_identity_as(&reordered.stable_data_allocation("test_db"))
         );
         assert!(
             first
-                .index_allocation("test_db")
-                .same_identity_as(&reordered.index_allocation("test_db"))
+                .stable_index_allocation("test_db")
+                .same_identity_as(&reordered.stable_index_allocation("test_db"))
         );
         assert!(
             first
-                .schema_allocation("test_db")
-                .same_identity_as(&reordered.schema_allocation("test_db"))
+                .stable_schema_allocation("test_db")
+                .same_identity_as(&reordered.stable_schema_allocation("test_db"))
         );
     }
 
@@ -375,9 +381,9 @@ mod tests {
             StoreStableMemoryConfig::new(120, 121, 122),
         );
 
-        assert_eq!(existing.data_allocation("test_db").memory_id(), 110);
+        assert_eq!(existing.stable_data_allocation("test_db").memory_id(), 110);
         assert_eq!(
-            existing.data_allocation("test_db").stable_key(),
+            existing.stable_data_allocation("test_db").stable_key(),
             "icydb.test_db.users.data.v1"
         );
     }
