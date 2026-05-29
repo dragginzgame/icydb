@@ -333,6 +333,7 @@ pub struct SchemaStoreSnapshot {
 pub enum StoreSnapshotStorageMode {
     #[default]
     Stable,
+    Heap,
 }
 
 impl StoreSnapshotStorageMode {
@@ -341,6 +342,7 @@ impl StoreSnapshotStorageMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Stable => "stable",
+            Self::Heap => "heap",
         }
     }
 }

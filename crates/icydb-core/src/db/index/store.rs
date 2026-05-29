@@ -97,6 +97,12 @@ impl IndexStore {
         }
     }
 
+    /// Return whether this index store is heap-backed and volatile.
+    #[must_use]
+    pub(in crate::db) const fn is_heap_storage(&self) -> bool {
+        matches!(self.backend, IndexStoreBackend::Heap(_))
+    }
+
     /// Visit all index entries in canonical store order without exposing the
     /// backing stable-map iterator.
     pub(in crate::db) fn visit_entries<E>(

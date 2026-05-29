@@ -51,6 +51,7 @@ crate::test_canister! {
 
 const STORE_Z_PATH: &str = "diagnostics_tests::z_store";
 const STORE_A_PATH: &str = "diagnostics_tests::a_store";
+const STORE_HEAP_PATH: &str = "diagnostics_tests::heap_store";
 const SINGLE_ENTITY_NAME: &str = "diag_single_entity";
 const SINGLE_ENTITY_PATH: &str = "diagnostics_tests::entity::single";
 const FIRST_ENTITY_NAME: &str = "diag_first_entity";
@@ -152,6 +153,10 @@ thread_local! {
     static STORE_A_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(156)));
     static STORE_A_SCHEMA: RefCell<SchemaStore> =
         RefCell::new(SchemaStore::init(test_memory(158)));
+    static STORE_HEAP_DATA: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+    static STORE_HEAP_INDEX: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+    static STORE_HEAP_SCHEMA: RefCell<SchemaStore> =
+        const { RefCell::new(SchemaStore::init_heap()) };
     static DIAGNOSTICS_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry
@@ -163,6 +168,15 @@ thread_local! {
                 crate::db::StoreAllocationIdentities::absent(),
             )
             .expect("diagnostics test z-store registration should succeed");
+        registry
+            .register_store(
+                STORE_HEAP_PATH,
+                &STORE_HEAP_DATA,
+                &STORE_HEAP_INDEX,
+                &STORE_HEAP_SCHEMA,
+                crate::db::StoreAllocationIdentities::absent(),
+            )
+            .expect("diagnostics test heap-store registration should succeed");
         registry
             .register_store(
                 STORE_A_PATH,
@@ -468,6 +482,36 @@ fn schema_snapshot<'a>(report: &'a StorageReport, path: &str) -> &'a SchemaStore
         .expect("schema snapshot should contain target store path")
 }
 
+fn assert_heap_store_snapshot_is_volatile(report: &StorageReport) {
+    let data_heap = report
+        .storage_data()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_HEAP_PATH)
+        .expect("data snapshot should contain heap store");
+    let index_heap = report
+        .storage_index()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_HEAP_PATH)
+        .expect("index snapshot should contain heap store");
+    let schema_heap = schema_snapshot(report, STORE_HEAP_PATH);
+    assert_eq!(data_heap.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(data_heap.memory_id(), None);
+    assert_eq!(data_heap.stable_key(), None);
+    assert_eq!(data_heap.schema_version(), None);
+    assert_eq!(data_heap.schema_fingerprint(), None);
+    assert_eq!(index_heap.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(index_heap.memory_id(), None);
+    assert_eq!(index_heap.stable_key(), None);
+    assert_eq!(index_heap.schema_version(), None);
+    assert_eq!(index_heap.schema_fingerprint(), None);
+    assert_eq!(schema_heap.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(schema_heap.memory_id(), None);
+    assert_eq!(schema_heap.stable_key(), None);
+    assert_eq!(schema_heap.schema_version(), None);
+    assert_eq!(schema_heap.schema_fingerprint(), None);
+    assert_eq!(schema_heap.entity_count(), 0);
+}
+
 fn entity_snapshot_rows(report: &StorageReport) -> Vec<(&str, &str, u64, u64)> {
     report
         .entity_storage()
@@ -506,9 +550,18 @@ fn storage_report_empty_store_snapshot() {
     assert_eq!(report.corrupted_entries(), 0);
     assert!(report.entity_storage().is_empty());
 
-    assert_eq!(data_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
-    assert_eq!(index_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
-    assert_eq!(schema_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
+    assert_eq!(
+        data_paths(&report),
+        vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
+    );
+    assert_eq!(
+        index_paths(&report),
+        vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
+    );
+    assert_eq!(
+        schema_paths(&report),
+        vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
+    );
     assert!(
         report
             .storage_data()
@@ -576,6 +629,8 @@ fn storage_report_empty_store_snapshot() {
     assert_eq!(empty_schema.schema_fingerprint(), None);
     assert_eq!(empty_schema.entity_count(), 0);
 
+    assert_heap_store_snapshot_is_volatile(&report);
+
     let data_z = report
         .storage_data()
         .iter()
@@ -597,6 +652,7 @@ fn storage_report_empty_store_snapshot() {
 #[test]
 fn store_snapshot_storage_mode_renders_stable_label() {
     assert_eq!(StoreSnapshotStorageMode::Stable.as_str(), "stable");
+    assert_eq!(StoreSnapshotStorageMode::Heap.as_str(), "heap");
 }
 
 #[test]

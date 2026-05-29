@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.169.x] 🧠 - 2026-05-29 - Heap Store Runtime Backend
+
+Detailed notes: [docs/changelog/0.169.md](docs/changelog/0.169.md)
+
+- `0.169.1` makes storage diagnostics report heap-backed store roles as
+  `storage: heap` with absent stable allocation metadata while preserving
+  stable-store diagnostics.
+
+- `0.169.0` admits explicit volatile `storage(heap())` stores with heap-backed
+  runtime store wrappers, generated heap wiring, and absent allocation identity.
+
 ## [0.168.x] 🧰 - 2026-05-29 - Runtime Store Backend Boundary
 
 Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)

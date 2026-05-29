@@ -7,14 +7,15 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         codec::hex::encode_hex_lower,
-        data::{DecodedDataStoreKey, StoreVisit},
+        data::{DataStore, DecodedDataStoreKey, StoreVisit},
         diagnostics::{
             DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IndexStoreSnapshotStats,
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
             StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
         },
-        index::{IndexKey, IndexStoreVisit},
+        index::{IndexKey, IndexStore, IndexStoreVisit},
         registry::StoreAllocationIdentity,
+        schema::SchemaStore,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -133,6 +134,30 @@ fn snapshot_role_metadata(
             )
         },
     )
+}
+
+const fn data_store_snapshot_mode(store: &DataStore) -> StoreSnapshotStorageMode {
+    if store.is_heap_storage() {
+        StoreSnapshotStorageMode::Heap
+    } else {
+        StoreSnapshotStorageMode::Stable
+    }
+}
+
+const fn index_store_snapshot_mode(store: &IndexStore) -> StoreSnapshotStorageMode {
+    if store.is_heap_storage() {
+        StoreSnapshotStorageMode::Heap
+    } else {
+        StoreSnapshotStorageMode::Stable
+    }
+}
+
+const fn schema_store_snapshot_mode(store: &SchemaStore) -> StoreSnapshotStorageMode {
+    if store.is_heap_storage() {
+        StoreSnapshotStorageMode::Heap
+    } else {
+        StoreSnapshotStorageMode::Stable
+    }
 }
 
 ///
@@ -327,7 +352,7 @@ fn build_storage_report<C: CanisterKind>(
             store_handle.with_data(|store| {
                 data.push(DataStoreSnapshot::new(
                     path.to_string(),
-                    StoreSnapshotStorageMode::Stable,
+                    data_store_snapshot_mode(store),
                     data_allocation.map(snapshot_allocation_identity),
                     data_metadata,
                     store.len(),
@@ -375,7 +400,7 @@ fn build_storage_report<C: CanisterKind>(
 
                 index.push(IndexStoreSnapshot::new(
                     path.to_string(),
-                    StoreSnapshotStorageMode::Stable,
+                    index_store_snapshot_mode(store),
                     index_allocation.map(snapshot_allocation_identity),
                     index_metadata,
                     IndexStoreSnapshotStats::new(
@@ -388,13 +413,15 @@ fn build_storage_report<C: CanisterKind>(
                 ));
             });
 
-            schema.push(SchemaStoreSnapshot::new(
-                path.to_string(),
-                StoreSnapshotStorageMode::Stable,
-                schema_allocation.map(snapshot_allocation_identity),
-                schema_metadata,
-                schema_entity_count,
-            ));
+            store_handle.with_schema(|store| {
+                schema.push(SchemaStoreSnapshot::new(
+                    path.to_string(),
+                    schema_store_snapshot_mode(store),
+                    schema_allocation.map(snapshot_allocation_identity),
+                    schema_metadata,
+                    schema_entity_count,
+                ));
+            });
         }
     });
 
