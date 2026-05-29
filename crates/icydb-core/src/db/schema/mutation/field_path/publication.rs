@@ -552,13 +552,16 @@ fn target_index_entry_count(
     target_index_id: &IndexId,
 ) -> Result<usize, SchemaFieldPathIndexPublishedStoreError> {
     let mut entry_count = 0usize;
-    for (raw_key, _) in index_store.entries() {
-        let index_key = IndexKey::try_from_raw(&raw_key)
-            .map_err(|_| SchemaFieldPathIndexPublishedStoreError::IndexKeyDecode)?;
-        if index_key.index_id() == target_index_id {
-            entry_count = entry_count.saturating_add(1);
-        }
-    }
+    let result: Result<(), SchemaFieldPathIndexPublishedStoreError> =
+        index_store.visit_entries(|raw_key, _| {
+            let index_key = IndexKey::try_from_raw(raw_key)
+                .map_err(|_| SchemaFieldPathIndexPublishedStoreError::IndexKeyDecode)?;
+            if index_key.index_id() == target_index_id {
+                entry_count = entry_count.saturating_add(1);
+            }
+            Ok(IndexStoreVisit::Continue)
+        });
+    result?;
 
     Ok(entry_count)
 }

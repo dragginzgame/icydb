@@ -53,7 +53,7 @@ use crate::{
         },
         direction::Direction,
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
-        index::{IndexKey, IndexStore, key_within_envelope},
+        index::{IndexKey, IndexStore, IndexStoreVisit, key_within_envelope},
         key_taxonomy::PrimaryKeyComponent,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
@@ -3141,30 +3141,33 @@ fn inspect_filtered_expression_order_only_raw_scan(
 
     // Inspect stored entries that fall inside the lowered raw envelope.
     let entries_in_range = store.with_index(|index_store| {
-        index_store
-            .entries()
-            .into_iter()
-            .filter(|(raw_key, _)| key_within_envelope(raw_key, spec.lower(), spec.upper()))
-            .map(|(raw_key, raw_entry)| {
+        let mut entries = Vec::new();
+        let _: Result<(), std::convert::Infallible> =
+            index_store.visit_entries(|raw_key, raw_entry| {
+                if !key_within_envelope(raw_key, spec.lower(), spec.upper()) {
+                    return Ok(IndexStoreVisit::Continue);
+                }
+
                 let decoded_key =
-                    IndexKey::try_from_raw(&raw_key).expect("filtered expression test key");
+                    IndexKey::try_from_raw(raw_key).expect("filtered expression test key");
                 let decoded_id = raw_entry
-                    .decode_row_identity(&raw_key)
+                    .decode_row_identity(raw_key)
                     .expect("filtered expression test entry")
                     .primary_key_value()
                     .scalar_component()
                     .expect("filtered expression test scalar entry");
 
-                (
+                entries.push((
                     decoded_key
                         .primary_key_value()
                         .expect("primary-key value")
                         .scalar_component()
                         .expect("filtered expression decoded key should be scalar"),
                     decoded_id,
-                )
-            })
-            .collect::<Vec<_>>()
+                ));
+                Ok(IndexStoreVisit::Continue)
+            });
+        entries
     });
 
     // Then inspect the actual scan order produced by the shared raw range resolver.

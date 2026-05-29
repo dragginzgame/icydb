@@ -50,6 +50,23 @@ pub struct IndexStore {
     state: IndexState,
 }
 
+/// Control-flow result for index-store traversal visitors.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum IndexStoreVisit {
+    Continue,
+    #[allow(
+        dead_code,
+        reason = "index traversal exposes early-stop semantics for bounded future callers; focused tests cover it before live call sites need it"
+    )]
+    Stop,
+}
+
+impl IndexStoreVisit {
+    const fn should_stop(self) -> bool {
+        matches!(self, Self::Stop)
+    }
+}
+
 impl IndexStore {
     #[must_use]
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
@@ -62,10 +79,19 @@ impl IndexStore {
         }
     }
 
-    /// Snapshot all index entry pairs (diagnostics only).
-    #[expect(clippy::redundant_closure_for_method_calls)]
-    pub(crate) fn entries(&self) -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
-        self.map.iter().map(|entry| entry.into_pair()).collect()
+    /// Visit all index entries in canonical store order without exposing the
+    /// backing stable-map iterator.
+    pub(in crate::db) fn visit_entries<E>(
+        &self,
+        mut visitor: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<IndexStoreVisit, E>,
+    ) -> Result<(), E> {
+        for entry in self.map.iter() {
+            if visitor(entry.key(), &entry.value())?.should_stop() {
+                return Ok(());
+            }
+        }
+
+        Ok(())
     }
 
     pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {

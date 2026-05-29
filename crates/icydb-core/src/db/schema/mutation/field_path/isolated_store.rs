@@ -166,14 +166,17 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
         target_index_id: &IndexId,
     ) -> Result<u64, SchemaFieldPathIndexIsolatedIndexStoreValidationError> {
         let mut entry_count = 0u64;
-        for (raw_key, _) in self.index_store.entries() {
-            let index_key = IndexKey::try_from_raw(&raw_key).map_err(|_| {
-                SchemaFieldPathIndexIsolatedIndexStoreValidationError::IndexKeyDecode
-            })?;
-            if index_key.index_id() == target_index_id {
-                entry_count += 1;
-            }
-        }
+        let result: Result<(), SchemaFieldPathIndexIsolatedIndexStoreValidationError> =
+            self.index_store.visit_entries(|raw_key, _| {
+                let index_key = IndexKey::try_from_raw(raw_key).map_err(|_| {
+                    SchemaFieldPathIndexIsolatedIndexStoreValidationError::IndexKeyDecode
+                })?;
+                if index_key.index_id() == target_index_id {
+                    entry_count += 1;
+                }
+                Ok(IndexStoreVisit::Continue)
+            });
+        result?;
 
         Ok(entry_count)
     }

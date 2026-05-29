@@ -8,13 +8,14 @@ use crate::{
         Db,
         commit::CommitRowOp,
         data::{DecodedDataStoreKey, StoreVisit},
-        index::{IndexEntryValue, IndexState, IndexStore, RawIndexStoreKey},
+        index::{IndexEntryValue, IndexState, IndexStore, IndexStoreVisit, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::CanisterKind,
 };
+use std::convert::Infallible;
 
 /// Rebuild all secondary indexes from authoritative data rows.
 ///
@@ -66,7 +67,14 @@ impl IndexStoreSnapshot {
     fn capture(handle: StoreHandle) -> Self {
         Self {
             handle,
-            entries: handle.with_index(IndexStore::entries),
+            entries: handle.with_index(|index_store| {
+                let mut entries = Vec::new();
+                let _: Result<(), Infallible> = index_store.visit_entries(|raw_key, raw_entry| {
+                    entries.push((raw_key.clone(), raw_entry.clone()));
+                    Ok(IndexStoreVisit::Continue)
+                });
+                entries
+            }),
             state: handle.index_state(),
         }
     }

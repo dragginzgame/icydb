@@ -13,7 +13,7 @@ use crate::{
             DecodedDataStoreKey, SlotReader, StoreVisit, StructuralRowContract,
             StructuralSlotReader,
         },
-        index::{IndexId, IndexKey, IndexState, RawIndexStoreKey},
+        index::{IndexId, IndexKey, IndexState, IndexStoreVisit, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
@@ -757,23 +757,24 @@ fn sql_ddl_drop_target_index_keys(
             )));
         }
 
-        index_store
-            .entries()
-            .into_iter()
-            .filter_map(|(raw_key, _)| {
-                let decoded = IndexKey::try_from_raw(&raw_key).map_err(|error| {
+        let mut target_keys = Vec::new();
+        index_store.visit_entries(|raw_key, _| {
+                let decoded = IndexKey::try_from_raw(raw_key).map_err(|error| {
                     InternalError::store_corruption(format!(
                         "SQL DDL DROP INDEX key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
                         target.name(),
                     ))
                 });
                 match decoded {
-                    Ok(index_key) if *index_key.index_id() == target_index_id => Some(Ok(raw_key)),
-                    Ok(_) => None,
-                    Err(error) => Some(Err(error)),
+                    Ok(index_key) if *index_key.index_id() == target_index_id => {
+                        target_keys.push(raw_key.clone());
+                        Ok(IndexStoreVisit::Continue)
+                    }
+                    Ok(_) => Ok(IndexStoreVisit::Continue),
+                    Err(error) => Err(error),
                 }
-            })
-            .collect()
+            })?;
+        Ok(target_keys)
     })
 }
 

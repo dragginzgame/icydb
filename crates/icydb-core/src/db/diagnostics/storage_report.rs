@@ -13,7 +13,7 @@ use crate::{
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
             StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
         },
-        index::IndexKey,
+        index::{IndexKey, IndexStoreVisit},
         registry::StoreAllocationIdentity,
     },
     error::InternalError,
@@ -355,10 +355,10 @@ fn build_storage_report<C: CanisterKind>(
                 let mut user_entries = 0u64;
                 let mut system_entries = 0u64;
 
-                for (key, value) in store.entries() {
-                    let Ok(decoded_key) = IndexKey::try_from_raw(&key) else {
+                let _: Result<(), Infallible> = store.visit_entries(|key, value| {
+                    let Ok(decoded_key) = IndexKey::try_from_raw(key) else {
                         corrupted_entries = corrupted_entries.saturating_add(1);
-                        continue;
+                        return Ok(IndexStoreVisit::Continue);
                     };
 
                     if decoded_key.uses_system_namespace() {
@@ -370,7 +370,8 @@ fn build_storage_report<C: CanisterKind>(
                     if value.validate().is_err() {
                         corrupted_entries = corrupted_entries.saturating_add(1);
                     }
-                }
+                    Ok(IndexStoreVisit::Continue)
+                });
 
                 index.push(IndexStoreSnapshot::new(
                     path.to_string(),

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawRow, StoreVisit, StructuralRowContract},
-        index::{IndexId, IndexKey, IndexState, IndexStore, RawIndexStoreKey},
+        index::{IndexId, IndexKey, IndexState, IndexStore, IndexStoreVisit, RawIndexStoreKey},
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
         schema::{
@@ -221,8 +221,8 @@ fn expression_startup_index_store_preflight(
         total: 0,
     };
 
-    for (raw_key, _) in index_store.entries() {
-        let index_key = IndexKey::try_from_raw(&raw_key).map_err(|error| {
+    let result: Result<(), InternalError> = index_store.visit_entries(|raw_key, _| {
+        let index_key = IndexKey::try_from_raw(raw_key).map_err(|error| {
             InternalError::store_corruption(format!(
                 "schema mutation expression-index key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
                 target.name(),
@@ -234,7 +234,9 @@ fn expression_startup_index_store_preflight(
             preflight.other += 1;
         }
         preflight.total += 1;
-    }
+        Ok(IndexStoreVisit::Continue)
+    });
+    result?;
 
     Ok(preflight)
 }
@@ -344,11 +346,13 @@ fn expression_target_index_entry_count(
     target: &SchemaExpressionIndexRebuildTarget,
 ) -> Result<u64, InternalError> {
     let mut count = 0u64;
-    for (raw_key, _) in index_store.entries() {
-        if expression_key_targets_index(&raw_key, target_index_id, entity_path, target)? {
+    let result: Result<(), InternalError> = index_store.visit_entries(|raw_key, _| {
+        if expression_key_targets_index(raw_key, target_index_id, entity_path, target)? {
             count += 1;
         }
-    }
+        Ok(IndexStoreVisit::Continue)
+    });
+    result?;
 
     Ok(count)
 }

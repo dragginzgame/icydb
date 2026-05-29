@@ -49,4 +49,5 @@ pub(in crate::db) use readers::{
     SealedPrimaryRowReader, SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
     StructuralIndexEntryReader, StructuralPrimaryRowReader,
 };
+pub(in crate::db) use store::IndexStoreVisit;
 pub use store::{IndexState, IndexStore};

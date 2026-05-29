@@ -9,7 +9,7 @@ use crate::{
         commit::CommitRowOp,
         data::{DecodedDataStoreKey, StoreVisit, decode_structural_row_payload},
         diagnostics::{IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals},
-        index::IndexKey,
+        index::{IndexKey, IndexStoreVisit},
         key_taxonomy::PrimaryKeyValue,
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
@@ -18,7 +18,10 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
+};
 
 #[cfg_attr(
     doc,
@@ -194,31 +197,34 @@ fn scan_store_reverse_integrity(
     snapshot: &mut IntegrityStoreSnapshot,
 ) {
     store_handle.with_index(|index_store| {
-        for (raw_index_store_key, index_entry_value) in index_store.entries() {
-            snapshot.index_entries_scanned = snapshot.index_entries_scanned.saturating_add(1);
+        let _: Result<(), Infallible> =
+            index_store.visit_entries(|raw_index_store_key, index_entry_value| {
+                snapshot.index_entries_scanned = snapshot.index_entries_scanned.saturating_add(1);
 
-            let Ok(decoded_index_key) = IndexKey::try_from_raw(&raw_index_store_key) else {
-                snapshot.corrupted_index_keys = snapshot.corrupted_index_keys.saturating_add(1);
-                continue;
-            };
+                let Ok(decoded_index_key) = IndexKey::try_from_raw(raw_index_store_key) else {
+                    snapshot.corrupted_index_keys = snapshot.corrupted_index_keys.saturating_add(1);
+                    return Ok(IndexStoreVisit::Continue);
+                };
 
-            let index_entity_tag = data_entity_tag_for_index_key(&decoded_index_key);
+                let index_entity_tag = data_entity_tag_for_index_key(&decoded_index_key);
 
-            let Ok(row_witness) = index_entry_value.decode_row_witness(&raw_index_store_key) else {
-                snapshot.corrupted_index_entries =
-                    snapshot.corrupted_index_entries.saturating_add(1);
-                continue;
-            };
-            let primary_key = row_witness.primary_key_value();
+                let Ok(row_witness) = index_entry_value.decode_row_witness(raw_index_store_key)
+                else {
+                    snapshot.corrupted_index_entries =
+                        snapshot.corrupted_index_entries.saturating_add(1);
+                    return Ok(IndexStoreVisit::Continue);
+                };
+                let primary_key = row_witness.primary_key_value();
 
-            let exists = live_keys_by_entity
-                .get(&index_entity_tag)
-                .is_some_and(|entity_keys| entity_keys.contains(primary_key));
-            if !exists {
-                snapshot.orphan_index_references =
-                    snapshot.orphan_index_references.saturating_add(1);
-            }
-        }
+                let exists = live_keys_by_entity
+                    .get(&index_entity_tag)
+                    .is_some_and(|entity_keys| entity_keys.contains(primary_key));
+                if !exists {
+                    snapshot.orphan_index_references =
+                        snapshot.orphan_index_references.saturating_add(1);
+                }
+                Ok(IndexStoreVisit::Continue)
+            });
     });
 }
 

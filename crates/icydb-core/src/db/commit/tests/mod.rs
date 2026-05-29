@@ -25,7 +25,7 @@ use crate::{
             encode_runtime_value_into_slot,
         },
         executor::SaveExecutor,
-        index::{IndexEntryValue, IndexKey, IndexStore},
+        index::{IndexEntryValue, IndexKey, IndexStore, IndexStoreVisit},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
@@ -945,11 +945,13 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
 fn index_key_bytes_snapshot() -> Vec<Vec<u8>> {
     let mut keys = with_recovery_store(|store| {
         store.with_index(|index_store| {
-            index_store
-                .entries()
-                .into_iter()
-                .map(|(raw_key, _)| raw_key.as_bytes().to_vec())
-                .collect::<Vec<_>>()
+            let mut keys = Vec::new();
+            let _: Result<(), std::convert::Infallible> =
+                index_store.visit_entries(|raw_key, _| {
+                    keys.push(raw_key.as_bytes().to_vec());
+                    Ok(IndexStoreVisit::Continue)
+                });
+            keys
         })
     });
     keys.sort();
@@ -969,13 +971,13 @@ fn recovery_store_snapshot() -> RecoveryStoreSnapshot {
             rows
         });
         let mut index_rows = store.with_index(|index_store| {
-            index_store
-                .entries()
-                .into_iter()
-                .map(|(raw_key, raw_entry)| {
-                    (raw_key.as_bytes().to_vec(), raw_entry.as_bytes().to_vec())
-                })
-                .collect::<Vec<_>>()
+            let mut rows = Vec::new();
+            let _: Result<(), std::convert::Infallible> =
+                index_store.visit_entries(|raw_key, raw_entry| {
+                    rows.push((raw_key.as_bytes().to_vec(), raw_entry.as_bytes().to_vec()));
+                    Ok(IndexStoreVisit::Continue)
+                });
+            rows
         });
         data_rows.sort();
         index_rows.sort();

@@ -1,7 +1,7 @@
 use crate::{
     db::{
         direction::Direction,
-        index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
+        index::{IndexEntryValue, IndexStore, IndexStoreVisit, RawIndexStoreKey},
     },
     testing::test_memory,
     traits::Storable,
@@ -43,5 +43,31 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
         desc,
         vec![3, 2, 1],
         "desc scan should reverse raw key order"
+    );
+}
+
+#[test]
+fn visit_entries_preserves_store_order_and_supports_early_stop() {
+    let mut index_store = IndexStore::init(test_memory(92));
+    for value in [3_u8, 1, 2] {
+        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
+        let raw_entry = IndexEntryValue::presence();
+        index_store.insert(raw_key, raw_entry);
+    }
+
+    let mut visited = Vec::new();
+    let _: Result<(), std::convert::Infallible> = index_store.visit_entries(|raw_key, _| {
+        visited.push(raw_key.as_bytes()[0]);
+        Ok(if visited.len() == 2 {
+            IndexStoreVisit::Stop
+        } else {
+            IndexStoreVisit::Continue
+        })
+    });
+
+    assert_eq!(
+        visited,
+        vec![1, 2],
+        "index entry traversal should preserve raw store order and stop without allocation"
     );
 }

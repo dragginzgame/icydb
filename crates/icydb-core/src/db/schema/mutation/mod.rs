@@ -9,7 +9,10 @@ use crate::db::{
         write_hash_u32,
     },
     data::CanonicalSlotReader,
-    index::{IndexEntryValue, IndexId, IndexKey, IndexState, IndexStore, RawIndexStoreKey},
+    index::{
+        IndexEntryValue, IndexId, IndexKey, IndexState, IndexStore, IndexStoreVisit,
+        RawIndexStoreKey,
+    },
     key_taxonomy::PrimaryKeyValue,
     predicate::PredicateProgram,
     schema::{

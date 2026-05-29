@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   repository development on Rust `1.96.0`, and add CI coverage that checks the
   dependency path with the advertised floor.
 
+- Move index-store entry scans onto backend-neutral visitor traversal and
+  delete the allocation-shaped `IndexStore::entries()` surface.
+
 ## [0.168.x] 🧰 - 2026-05-29 - Runtime Store Backend Boundary
 
 Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)

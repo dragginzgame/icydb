@@ -10,7 +10,7 @@ use crate::{
         data::{
             DecodedDataStoreKey, RawRow, StoreVisit, StructuralRowContract, StructuralSlotReader,
         },
-        index::{IndexId, IndexKey, IndexState, IndexStore},
+        index::{IndexId, IndexKey, IndexState, IndexStore, IndexStoreVisit},
         key_taxonomy::PrimaryKeyValue,
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
@@ -476,15 +476,17 @@ pub(super) fn field_path_startup_index_store_preflight(
     let mut preflight =
         StartupFieldPathIndexStorePreflight::new(IndexId::new(entity_tag, target.ordinal()));
 
-    for (raw_key, _) in index_store.entries() {
-        let index_key = IndexKey::try_from_raw(&raw_key).map_err(|error| {
+    let result: Result<(), InternalError> = index_store.visit_entries(|raw_key, _| {
+        let index_key = IndexKey::try_from_raw(raw_key).map_err(|error| {
             InternalError::store_corruption(format!(
                 "schema mutation field-path startup index key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
                 target.name(),
             ))
         })?;
         preflight.record(index_key.index_id());
-    }
+        Ok(IndexStoreVisit::Continue)
+    });
+    result?;
 
     Ok(preflight)
 }
