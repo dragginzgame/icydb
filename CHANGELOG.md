@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Move schema-store snapshot scans onto a store-owned traversal helper without
-  exposing stable-map iterator shapes.
+- Close the runtime store-boundary diagnostics and negative heap proof rows:
+  storage snapshots keep reporting stable storage metadata, heap syntax remains
+  reserved, and no live heap runtime wiring exists.
 
 ## [0.168.x] 🧰 - 2026-05-29 - Runtime Store Backend Boundary
 
 Detailed notes: [docs/changelog/0.168.md](docs/changelog/0.168.md)
+
+- `0.168.4` moves schema-store snapshot scans onto a store-owned traversal
+  helper and proves accepted snapshot ordering without exposing stable-map
+  iterator shapes.
 
 - `0.168.3` moves index-store entry scans onto backend-neutral visitor
   traversal and deletes the allocation-shaped `IndexStore::entries()` surface.

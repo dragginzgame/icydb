@@ -595,6 +595,11 @@ fn storage_report_empty_store_snapshot() {
 }
 
 #[test]
+fn store_snapshot_storage_mode_renders_stable_label() {
+    assert_eq!(StoreSnapshotStorageMode::Stable.as_str(), "stable");
+}
+
+#[test]
 fn storage_report_default_matches_empty_alias_snapshot() {
     reset_stores();
 
