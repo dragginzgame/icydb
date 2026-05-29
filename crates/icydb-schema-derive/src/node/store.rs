@@ -16,16 +16,16 @@ pub struct Store {
     pub(crate) ident: Ident,
     pub(crate) name: String,
     pub(crate) canister: Path,
-    pub(crate) storage: StoreStorage,
+    pub(crate) storage: ParsedStoreStorage,
 }
 
 #[derive(Debug)]
-pub(crate) enum StoreStorage {
-    Stable(StoreStableStorage),
+pub(crate) enum ParsedStoreStorage {
+    Stable(ParsedStoreStableMemoryConfig),
 }
 
-impl StoreStorage {
-    const fn stable(&self) -> &StoreStableStorage {
+impl ParsedStoreStorage {
+    const fn stable(&self) -> &ParsedStoreStableMemoryConfig {
         match self {
             Self::Stable(stable) => stable,
         }
@@ -33,13 +33,13 @@ impl StoreStorage {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct StoreStableStorage {
+pub(crate) struct ParsedStoreStableMemoryConfig {
     pub(crate) data: u8,
     pub(crate) index: u8,
     pub(crate) schema: u8,
 }
 
-impl StoreStableStorage {
+impl ParsedStoreStableMemoryConfig {
     const fn new(data_memory_id: u8, index_memory_id: u8, schema_memory_id: u8) -> Self {
         Self {
             data: data_memory_id,
@@ -158,7 +158,7 @@ fn is_flat_memory_id_arg(path: &syn::Path) -> bool {
         || path.is_ident("schema_memory_id")
 }
 
-fn parse_store_storage(list: &syn::MetaList) -> Result<StoreStorage, DarlingError> {
+fn parse_store_storage(list: &syn::MetaList) -> Result<ParsedStoreStorage, DarlingError> {
     let items = NestedMeta::parse_meta_list(list.tokens.clone())?;
     let [item] = items.as_slice() else {
         return Err(DarlingError::custom(
@@ -168,9 +168,9 @@ fn parse_store_storage(list: &syn::MetaList) -> Result<StoreStorage, DarlingErro
     };
 
     match item {
-        NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("stable") => {
-            Ok(StoreStorage::Stable(parse_stable_storage(mode)?))
-        }
+        NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("stable") => Ok(
+            ParsedStoreStorage::Stable(parse_stable_memory_config(mode)?),
+        ),
         NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("heap") => {
             Err(DarlingError::custom(
                 "storage(heap(...)) is reserved for a future release; use storage(stable(...))",
@@ -197,7 +197,9 @@ fn parse_store_storage(list: &syn::MetaList) -> Result<StoreStorage, DarlingErro
     }
 }
 
-fn parse_stable_storage(list: &syn::MetaList) -> Result<StoreStableStorage, DarlingError> {
+fn parse_stable_memory_config(
+    list: &syn::MetaList,
+) -> Result<ParsedStoreStableMemoryConfig, DarlingError> {
     let items = NestedMeta::parse_meta_list(list.tokens.clone())?;
     let mut data_memory_id = None;
     let mut index_memory_id = None;
@@ -271,7 +273,7 @@ fn parse_stable_storage(list: &syn::MetaList) -> Result<StoreStableStorage, Darl
         DarlingError::custom("storage(stable(...)) requires schema_memory_id = ...")
     })?;
 
-    Ok(StoreStableStorage::new(
+    Ok(ParsedStoreStableMemoryConfig::new(
         data_memory_id,
         index_memory_id,
         schema_memory_id,

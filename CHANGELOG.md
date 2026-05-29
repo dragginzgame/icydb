@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.167.md](docs/changelog/0.167.md)
 
+- `0.167.9` separates derive-only parsed storage carrier names from the public
+  schema storage model while keeping generated `Store::new_stable(...)` output
+  unchanged.
+
 - `0.167.8` renames store-level stable-memory ID accessors to stable-specific
   vocabulary, keeping stable-memory IDs out of the generic store API shape.
 
