@@ -245,6 +245,34 @@ fn stable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
 }
 
 #[test]
+fn stable_source_weak_relation_to_heap_target_remains_non_enforcing() {
+    reset_mixed_heap_relation_stores();
+    let session = mixed_heap_relation_sql_session();
+
+    session
+        .insert(StableSessionSqlWeakSourceToHeapTargetEntity {
+            id: 11,
+            target_id: 9_999,
+        })
+        .expect("weak stable-source relation to heap target should not take strong policy");
+
+    let persisted = session
+        .load::<StableSessionSqlWeakSourceToHeapTargetEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("weak stable-source relation load should succeed")
+        .entities();
+    assert_eq!(
+        persisted,
+        vec![StableSessionSqlWeakSourceToHeapTargetEntity {
+            id: 11,
+            target_id: 9_999,
+        }],
+        "non-strong relation behavior should stay independent of target durability",
+    );
+}
+
+#[test]
 fn heap_source_strong_relation_to_heap_target_keeps_live_validation_semantics() {
     reset_heap_session_sql_store();
     let session = heap_sql_session();

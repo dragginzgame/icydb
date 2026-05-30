@@ -8,7 +8,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
-        registry::StoreHandle,
+        registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
         relation::{
             AcceptedRelationTargetAuthority, accepted_relation_edge_target_contract,
             accepted_relation_target_metadata_from_kind, for_each_relation_target_value,
@@ -97,7 +97,7 @@ where
 
         let target_hook = relation.validate_target_identity(db, E::PATH)?;
         let target_store = target_store_for_relation::<E>(db, &relation)?;
-        validate_heap_relation_policy::<E>(db, &relation, target_store)?;
+        validate_strong_relation_storage_capabilities::<E>(db, &relation, target_store)?;
         if let Some(target_hook) = target_hook {
             validate_target_accepted_primary_key::<E::Canister>(
                 E::PATH,
@@ -130,7 +130,7 @@ where
 
         let target_hook = relation.validate_target_identity(db, E::PATH)?;
         let target_store = target_store_for_relation::<E>(db, &relation)?;
-        validate_heap_relation_policy::<E>(db, &relation, target_store)?;
+        validate_strong_relation_storage_capabilities::<E>(db, &relation, target_store)?;
         if let Some(target_hook) = target_hook {
             validate_target_accepted_primary_key::<E::Canister>(
                 E::PATH,
@@ -336,7 +336,7 @@ where
         })
 }
 
-fn validate_heap_relation_policy<E>(
+fn validate_strong_relation_storage_capabilities<E>(
     db: &Db<E::Canister>,
     relation: &AcceptedSaveStrongRelationInfo,
     target_store: StoreHandle,
@@ -345,10 +345,16 @@ where
     E: EntityKind + EntityValue,
 {
     let source_store = db.with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
-    // 0.170.3: move this relation policy check onto relation source/target
-    // capability axes instead of the diagnostic storage mode projection.
-    if !source_store.data_is_heap_storage() && target_store.data_is_heap_storage() {
-        return Err(InternalError::strong_relation_heap_target_unsupported(
+    let source_capability = source_store.storage_capabilities().relation_source();
+    let target_capability = target_store.storage_capabilities().relation_target();
+    if matches!(
+        (source_capability, target_capability),
+        (
+            StoreRelationSourceCapability::DurableSource,
+            StoreRelationTargetCapability::VolatileTarget,
+        )
+    ) {
+        return Err(InternalError::strong_relation_volatile_target_unsupported(
             E::PATH,
             relation.relation_name.as_str(),
             relation.target.path(),

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.170.md](docs/changelog/0.170.md)
 
+- `0.170.4` moves cross-backend relation admission onto source/target
+  capability axes while preserving strong and non-strong relation behavior.
+
 - `0.170.3` classifies public write commit plans as durable-only, live-only,
   or mixed durable/live from affected store capabilities.
 

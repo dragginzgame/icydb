@@ -421,8 +421,8 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical 0.169 heap relation policy error.
-    pub(crate) fn strong_relation_heap_target_unsupported(
+    /// Construct the canonical capability-based strong relation target policy error.
+    pub(crate) fn strong_relation_volatile_target_unsupported(
         source_path: &'static str,
         field_name: &str,
         target_path: &str,
@@ -430,7 +430,7 @@ impl InternalError {
         target_store_path: &str,
     ) -> Self {
         Self::executor_unsupported(format!(
-            "strong relation from stable source store to heap target store is not supported in 0.169: source={source_path} field={field_name} target={target_path} source_store={source_store_path} target_store={target_store_path}",
+            "strong relation from durable source store to volatile target store is not supported: source={source_path} field={field_name} target={target_path} source_store={source_store_path} target_store={target_store_path}",
         ))
     }
 }

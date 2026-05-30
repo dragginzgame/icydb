@@ -2029,6 +2029,15 @@ static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
     strength: RelationStrength::Strong,
 };
 
+static SESSION_SQL_HEAP_TARGET_WEAK_RELATION_KIND: FieldKind = FieldKind::Relation {
+    target_path: HeapSessionSqlEntity::PATH,
+    target_entity_name: "HeapSessionSqlEntity",
+    target_entity_tag: HeapSessionSqlEntity::ENTITY_TAG,
+    target_store_path: HeapSessionSqlStore::PATH,
+    key_kind: &FieldKind::Nat64,
+    strength: RelationStrength::Weak,
+};
+
 static SESSION_SQL_STABLE_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
     target_path: SessionSqlSelfRelationEntity::PATH,
     target_entity_name: "SessionSqlSelfRelationEntity",
@@ -2055,6 +2064,27 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: u64 => FieldKind::Nat64 },
         crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_RELATION_KIND },
+    ],
+    indexes = [],
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct StableSessionSqlWeakSourceToHeapTargetEntity {
+    id: u64,
+    target_id: u64,
+}
+
+crate::test_entity! {
+    ident = StableSessionSqlWeakSourceToHeapTargetEntity,
+    entity_name = "StableSessionSqlWeakSourceToHeapTargetEntity",
+    tag = EntityTag::new(0x1074),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = u64,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: u64 => FieldKind::Nat64 },
+        crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_WEAK_RELATION_KIND },
     ],
     indexes = [],
 }

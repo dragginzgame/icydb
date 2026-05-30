@@ -464,15 +464,6 @@ impl StoreHandle {
         self.with_index(IndexStore::state)
     }
 
-    /// Return whether this handle's data store is heap-backed and volatile.
-    #[must_use]
-    pub(in crate::db) const fn data_is_heap_storage(&self) -> bool {
-        matches!(
-            self.capabilities.storage_mode(),
-            StoreRuntimeStorageMode::Heap
-        )
-    }
-
     /// Mark the bound index store as Building.
     pub(in crate::db) fn mark_index_building(&self) {
         self.with_index_mut(IndexStore::mark_building);
