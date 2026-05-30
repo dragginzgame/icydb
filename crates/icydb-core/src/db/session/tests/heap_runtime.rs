@@ -189,3 +189,58 @@ fn heap_backed_session_reinit_loses_rows_and_indexes_but_reconciles_live_schema(
     assert!(schema_version.is_some());
     assert!(schema_fingerprint.is_some());
 }
+
+#[test]
+fn stable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
+    reset_mixed_heap_relation_stores();
+    let session = mixed_heap_relation_sql_session();
+    seed_heap_session_entities(&session);
+
+    let err = session
+        .insert(StableSessionSqlSourceToHeapTargetEntity {
+            id: 10,
+            target_id: 1,
+        })
+        .expect_err("stable source strong relation to heap target should fail closed");
+    assert_eq!(err.class(), ErrorClass::Unsupported);
+
+    let persisted = session
+        .load::<StableSessionSqlSourceToHeapTargetEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("post-rejection stable-source load should succeed")
+        .entities();
+    assert_eq!(
+        persisted,
+        Vec::<StableSessionSqlSourceToHeapTargetEntity>::new(),
+        "stable-source relation rejection must not persist the row",
+    );
+}
+
+#[test]
+fn heap_source_strong_relation_to_heap_target_keeps_live_validation_semantics() {
+    reset_heap_session_sql_store();
+    let session = heap_sql_session();
+    seed_heap_session_entities(&session);
+
+    session
+        .insert(HeapSessionSqlSourceToHeapTargetEntity {
+            id: 20,
+            target_id: 1,
+        })
+        .expect("heap source relation to heap target should validate while live");
+
+    let persisted = session
+        .load::<HeapSessionSqlSourceToHeapTargetEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("heap-source relation load should succeed")
+        .entities();
+    assert_eq!(
+        persisted,
+        vec![HeapSessionSqlSourceToHeapTargetEntity {
+            id: 20,
+            target_id: 1,
+        }],
+    );
+}

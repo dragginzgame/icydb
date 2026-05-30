@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.169.md](docs/changelog/0.169.md)
 
+- `0.169.4` enforces the heap relation policy by rejecting stable-source
+  strong relations to volatile heap targets while preserving heap-source live
+  validation semantics.
+
 - `0.169.3` proves heap store reinitialization loses live data/index contents
   while rebuilding heap schema metadata only for live validation diagnostics.
 

@@ -104,6 +104,46 @@ impl Entity {
     pub fn resolved_name(&self) -> &'static str {
         self.name().unwrap_or_else(|| self.def().ident())
     }
+
+    fn validate_relation_storage_policy(&self, errs: &mut ErrorTree) {
+        for field in self.fields().fields() {
+            if let Some(target) = field.value().item().relation() {
+                self.validate_relation_target_storage_policy(errs, field.ident(), target);
+            }
+        }
+
+        for relation in self.relations() {
+            self.validate_relation_target_storage_policy(errs, relation.ident(), relation.target());
+        }
+    }
+
+    fn validate_relation_target_storage_policy(
+        &self,
+        errs: &mut ErrorTree,
+        relation_name: &str,
+        target_path: &str,
+    ) {
+        let schema = schema_read();
+        let Ok(source_store) = schema.cast_node::<Store>(self.store()) else {
+            return;
+        };
+        let Ok(target) = schema.cast_node::<Self>(target_path) else {
+            return;
+        };
+        let Ok(target_store) = schema.cast_node::<Store>(target.store()) else {
+            return;
+        };
+
+        if source_store.is_stable_storage() && target_store.is_heap_storage() {
+            err!(
+                errs,
+                "relation '{}' from stable store '{}' to heap target store '{}' is not supported in 0.169; stable stores cannot own referential integrity against volatile heap targets",
+                relation_name,
+                self.store(),
+                target.store(),
+            );
+        }
+    }
 }
 
 impl MacroNode for Entity {
@@ -128,6 +168,7 @@ impl ValidateNode for Entity {
                 errs.merge_for(relation.ident(), e);
             }
         }
+        self.validate_relation_storage_policy(&mut errs);
 
         errs.result()
     }
@@ -163,10 +204,33 @@ mod tests {
         )
     }
 
+    fn relation_item(primitive: Primitive, target: &'static str) -> Item {
+        Item::new(
+            ItemTarget::Primitive(primitive),
+            Some(target),
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+        )
+    }
+
     fn field(ident: &'static str, primitive: Primitive) -> Field {
         Field::new(
             ident,
             Value::new(Cardinality::One, primitive_item(primitive)),
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn relation_field(ident: &'static str, primitive: Primitive, target: &'static str) -> Field {
+        Field::new(
+            ident,
+            Value::new(Cardinality::One, relation_item(primitive, target)),
             None,
             None,
             None,
@@ -183,6 +247,26 @@ mod tests {
         )
     }
 
+    fn stable_store_in_module(module: &'static str, ident: &'static str) -> Store {
+        Store::new_stable(
+            Def::new(module, ident),
+            "STORE",
+            "schema_entity_relation_edge_store",
+            "schema_entity_relation_edge_store",
+            StoreStableMemoryConfig::new(120, 121, 122),
+        )
+    }
+
+    fn heap_store_in_module(module: &'static str, ident: &'static str) -> Store {
+        Store::new_heap(
+            Def::new(module, ident),
+            "HEAP_STORE",
+            "schema_entity_relation_edge_heap_store",
+            "schema_entity_relation_edge_heap_store",
+            StoreHeapConfig::new(),
+        )
+    }
+
     fn entity(
         ident: &'static str,
         store_path: &'static str,
@@ -190,8 +274,26 @@ mod tests {
         relations: &'static [RelationEdge],
         fields: &'static [Field],
     ) -> Entity {
+        entity_in_module(
+            "schema_entity_relation_edge",
+            ident,
+            pk_fields,
+            store_path,
+            relations,
+            fields,
+        )
+    }
+
+    fn entity_in_module(
+        module: &'static str,
+        ident: &'static str,
+        pk_fields: &'static [&'static str],
+        store_path: &'static str,
+        relations: &'static [RelationEdge],
+        fields: &'static [Field],
+    ) -> Entity {
         Entity::new(
-            Def::new("schema_entity_relation_edge", ident),
+            Def::new(module, ident),
             store_path,
             PrimaryKey::new(pk_fields, PrimaryKeySource::External),
             None,
@@ -247,6 +349,140 @@ mod tests {
         source
             .validate()
             .expect("entity-owned matching relation edge should validate");
+    }
+
+    #[test]
+    fn entity_validation_rejects_stable_source_relation_field_to_heap_target() {
+        let module = "schema_entity_relation_field_stable_to_heap";
+        let source_store_path = "schema_entity_relation_field_stable_to_heap::StableStore";
+        let target_store_path = "schema_entity_relation_field_stable_to_heap::HeapStore";
+        let target_path = "schema_entity_relation_field_stable_to_heap::User";
+        schema_write().insert_node(SchemaNode::Store(stable_store_in_module(
+            module,
+            "StableStore",
+        )));
+        schema_write().insert_node(SchemaNode::Store(heap_store_in_module(module, "HeapStore")));
+        schema_write().insert_node(SchemaNode::Entity(entity_in_module(
+            module,
+            "User",
+            &["id"],
+            target_store_path,
+            &[],
+            Box::leak(vec![field("id", Primitive::Ulid)].into_boxed_slice()),
+        )));
+
+        let source = entity_in_module(
+            module,
+            "Post",
+            &["id"],
+            source_store_path,
+            &[],
+            Box::leak(
+                vec![
+                    field("id", Primitive::Ulid),
+                    relation_field("author_id", Primitive::Ulid, target_path),
+                ]
+                .into_boxed_slice(),
+            ),
+        );
+
+        let err = source
+            .validate()
+            .expect_err("stable source relation into heap target should reject");
+        assert_eq!(err.messages().len(), 1);
+        assert!(err.children().is_empty());
+    }
+
+    #[test]
+    fn entity_validation_allows_heap_source_relation_field_to_heap_target() {
+        let module = "schema_entity_relation_field_heap_to_heap";
+        let store_path = "schema_entity_relation_field_heap_to_heap::HeapStore";
+        let target_path = "schema_entity_relation_field_heap_to_heap::User";
+        schema_write().insert_node(SchemaNode::Store(heap_store_in_module(module, "HeapStore")));
+        schema_write().insert_node(SchemaNode::Entity(entity_in_module(
+            module,
+            "User",
+            &["id"],
+            store_path,
+            &[],
+            Box::leak(vec![field("id", Primitive::Ulid)].into_boxed_slice()),
+        )));
+
+        let source = entity_in_module(
+            module,
+            "Post",
+            &["id"],
+            store_path,
+            &[],
+            Box::leak(
+                vec![
+                    field("id", Primitive::Ulid),
+                    relation_field("author_id", Primitive::Ulid, target_path),
+                ]
+                .into_boxed_slice(),
+            ),
+        );
+
+        source
+            .validate()
+            .expect("heap source relation into heap target should keep live validation semantics");
+    }
+
+    #[test]
+    fn entity_validation_rejects_stable_source_relation_edge_to_heap_target() {
+        let module = "schema_entity_relation_edge_stable_to_heap";
+        let source_store_path = "schema_entity_relation_edge_stable_to_heap::StableStore";
+        let target_store_path = "schema_entity_relation_edge_stable_to_heap::HeapStore";
+        schema_write().insert_node(SchemaNode::Store(stable_store_in_module(
+            module,
+            "StableStore",
+        )));
+        schema_write().insert_node(SchemaNode::Store(heap_store_in_module(module, "HeapStore")));
+        let target_fields = Box::leak(
+            vec![
+                field("tenant_id", Primitive::Nat64),
+                field("id", Primitive::Ulid),
+            ]
+            .into_boxed_slice(),
+        );
+        schema_write().insert_node(SchemaNode::Entity(entity_in_module(
+            module,
+            "User",
+            &["tenant_id", "id"],
+            target_store_path,
+            &[],
+            target_fields,
+        )));
+
+        let source_relations = Box::leak(
+            vec![RelationEdge::new(
+                "author",
+                "schema_entity_relation_edge_stable_to_heap::User",
+                &["author_tenant_id", "author_id"],
+            )]
+            .into_boxed_slice(),
+        );
+        let source = entity_in_module(
+            module,
+            "Post",
+            &["id"],
+            source_store_path,
+            source_relations,
+            Box::leak(
+                vec![
+                    field("id", Primitive::Ulid),
+                    field("author_tenant_id", Primitive::Nat64),
+                    field("author_id", Primitive::Ulid),
+                ]
+                .into_boxed_slice(),
+            ),
+        );
+
+        let err = source
+            .validate()
+            .expect_err("stable source relation edge into heap target should reject");
+        assert_eq!(err.messages().len(), 1);
+        assert!(err.children().is_empty());
     }
 
     #[test]

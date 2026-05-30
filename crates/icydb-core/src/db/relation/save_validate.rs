@@ -21,7 +21,7 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, Path},
     value::Value,
 };
 
@@ -97,6 +97,7 @@ where
 
         let target_hook = relation.validate_target_identity(db, E::PATH)?;
         let target_store = target_store_for_relation::<E>(db, &relation)?;
+        validate_heap_relation_policy::<E>(db, &relation, target_store)?;
         if let Some(target_hook) = target_hook {
             validate_target_accepted_primary_key::<E::Canister>(
                 E::PATH,
@@ -129,6 +130,7 @@ where
 
         let target_hook = relation.validate_target_identity(db, E::PATH)?;
         let target_store = target_store_for_relation::<E>(db, &relation)?;
+        validate_heap_relation_policy::<E>(db, &relation, target_store)?;
         if let Some(target_hook) = target_hook {
             validate_target_accepted_primary_key::<E::Canister>(
                 E::PATH,
@@ -332,6 +334,28 @@ where
                 err,
             )
         })
+}
+
+fn validate_heap_relation_policy<E>(
+    db: &Db<E::Canister>,
+    relation: &AcceptedSaveStrongRelationInfo,
+    target_store: StoreHandle,
+) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let source_store = db.with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
+    if !source_store.data_is_heap_storage() && target_store.data_is_heap_storage() {
+        return Err(InternalError::strong_relation_heap_target_unsupported(
+            E::PATH,
+            relation.relation_name.as_str(),
+            relation.target.path(),
+            E::Store::PATH,
+            relation.target.store_path(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_save_relation_targets_for_entity<E>(

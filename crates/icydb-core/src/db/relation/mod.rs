@@ -420,6 +420,19 @@ impl InternalError {
             "strong relation target store missing: source={source_path} field={field_name} target={target_path} store={target_store_path} key={value:?} ({err})",
         ))
     }
+
+    /// Construct the canonical 0.169 heap relation policy error.
+    pub(crate) fn strong_relation_heap_target_unsupported(
+        source_path: &'static str,
+        field_name: &str,
+        target_path: &str,
+        source_store_path: &'static str,
+        target_store_path: &str,
+    ) -> Self {
+        Self::executor_unsupported(format!(
+            "strong relation from stable source store to heap target store is not supported in 0.169: source={source_path} field={field_name} target={target_path} source_store={source_store_path} target_store={target_store_path}",
+        ))
+    }
 }
 
 /// Visit concrete relation target values for one relation field payload.

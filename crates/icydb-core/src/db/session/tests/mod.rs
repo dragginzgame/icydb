@@ -180,12 +180,34 @@ thread_local! {
         .expect("heap SQL session test store registration should succeed");
         reg
     };
+    static MIXED_HEAP_RELATION_STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(
+            SessionSqlStore::PATH,
+            &SESSION_SQL_DATA_STORE,
+            &SESSION_SQL_INDEX_STORE,
+            &SESSION_SQL_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
+        )
+        .expect("mixed relation stable store registration should succeed");
+        reg.register_store(
+            HeapSessionSqlStore::PATH,
+            &HEAP_SESSION_SQL_DATA_STORE,
+            &HEAP_SESSION_SQL_INDEX_STORE,
+            &HEAP_SESSION_SQL_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
+        )
+        .expect("mixed relation heap store registration should succeed");
+        reg
+    };
 }
 
 static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
 static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
     Db::new(&INDEXED_SESSION_SQL_STORE_REGISTRY);
 static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&HEAP_SESSION_SQL_STORE_REGISTRY);
+static MIXED_HEAP_RELATION_DB: Db<SessionSqlCanister> =
+    Db::new(&MIXED_HEAP_RELATION_STORE_REGISTRY);
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
 static ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE: LazyLock<Predicate> = LazyLock::new(|| {
@@ -2052,6 +2074,59 @@ crate::test_entity_schema! {
     canister = SessionSqlCanister,
 }
 
+static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
+    target_path: HeapSessionSqlEntity::PATH,
+    target_entity_name: "HeapSessionSqlEntity",
+    target_entity_tag: HeapSessionSqlEntity::ENTITY_TAG,
+    target_store_path: HeapSessionSqlStore::PATH,
+    key_kind: &FieldKind::Nat64,
+    strength: RelationStrength::Strong,
+};
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct StableSessionSqlSourceToHeapTargetEntity {
+    id: u64,
+    target_id: u64,
+}
+
+crate::test_entity_schema! {
+    ident = StableSessionSqlSourceToHeapTargetEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "StableSessionSqlSourceToHeapTargetEntity",
+    entity_tag = EntityTag::new(0x1071),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Nat64),
+        ("target_id", SESSION_SQL_HEAP_TARGET_RELATION_KIND),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct HeapSessionSqlSourceToHeapTargetEntity {
+    id: u64,
+    target_id: u64,
+}
+
+crate::test_entity_schema! {
+    ident = HeapSessionSqlSourceToHeapTargetEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "HeapSessionSqlSourceToHeapTargetEntity",
+    entity_tag = EntityTag::new(0x1072),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Nat64),
+        ("target_id", SESSION_SQL_HEAP_TARGET_RELATION_KIND),
+    ],
+    indexes = [],
+    store = HeapSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
 crate::test_entity_schema! {
     ident = CompositeIndexedSessionSqlEntity,
     id = Ulid,
@@ -2381,6 +2456,20 @@ fn reinitialize_heap_session_sql_store() {
 
 fn heap_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(HEAP_SESSION_SQL_DB)
+}
+
+fn reset_mixed_heap_relation_stores() {
+    reset_session_sql_store();
+    reset_heap_session_sql_store();
+    ensure_recovered(&MIXED_HEAP_RELATION_DB)
+        .expect("mixed heap relation recovery boundary should initialize");
+    let session = mixed_heap_relation_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
+}
+
+fn mixed_heap_relation_sql_session() -> DbSession<SessionSqlCanister> {
+    DbSession::new(MIXED_HEAP_RELATION_DB)
 }
 
 // Resolve the indexed SQL store handle through the recovered DB boundary.
