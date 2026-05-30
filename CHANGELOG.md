@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.169.md](docs/changelog/0.169.md)
 
+- `0.169.5` closes the heap store runtime backend proof matrix with
+  codec-preservation and backend-neutral source-audit evidence plus focused
+  validation.
+
 - `0.169.4` enforces the heap relation policy by rejecting stable-source
   strong relations to volatile heap targets while preserving heap-source live
   validation semantics.

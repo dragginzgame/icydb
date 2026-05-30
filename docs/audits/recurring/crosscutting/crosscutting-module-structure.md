@@ -366,12 +366,24 @@ Produce:
 
 ## 5A. Hub Import Pressure (Required Metric)
 
-For each high-coordination hub module (if present), include:
+Before reporting hub pressure, generate the current structural metrics artifact:
+
+```bash
+bash scripts/audit/runtime_metrics.sh docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/module-structure/runtime-metrics.tsv
+```
+
+For each high-coordination hub module present in the current tree, include:
 
 * `db/mod.rs`
-* `executor/load/mod.rs`
-* `executor/route/mod.rs`
-* `query/plan/mod.rs`
+* `db/executor/mod.rs`
+* `db/executor/planning/route/mod.rs`
+* `db/executor/planning/route/planner/entrypoints.rs`
+* `db/query/plan/mod.rs`
+* `db/session/sql/execute/mod.rs`, `db/session/sql/execute/write/mod.rs`, and
+  SQL write-family children when the SQL feature surface is in scope
+* `db/sql/ddl/mod.rs` and DDL-family children when SQL DDL is in scope
+* `db/schema/mutation/mod.rs`, schema mutation-family children, and
+  `db/schema/reconcile.rs` when schema mutation or DDL work is in scope
 
 Required for each hub:
 
@@ -380,11 +392,13 @@ Required for each hub:
 3. cross-layer dependency count
 4. delta vs previous report
 5. HIP calculation
+6. metric-artifact indicators: logical LOC, fanout, max branch depth, and
+   branch-sites total from the generated artifact
 
 Produce:
 
-| Hub Module | Top Imported Sibling Subsystems (by Symbol Count) | Unique Sibling Subsystems Imported | Cross-Layer Dependency Count | Delta vs Previous Report | HIP | Pressure Band | Risk |
-| ---- | ---- | ----: | ----: | ---- | ----: | ---- | ---- |
+| Hub Module | Top Imported Sibling Subsystems (by Symbol Count) | Unique Sibling Subsystems Imported | Cross-Layer Dependency Count | Delta vs Previous Report | HIP | LOC | Fanout | Max Branch Depth | Branch Sites | Pressure Band | Risk |
+| ---- | ---- | ----: | ----: | ---- | ----: | ----: | ----: | ----: | ----: | ---- | ---- |
 
 Formula:
 
@@ -516,6 +530,8 @@ Verification rules:
 * `PASS` = no high/critical structural violations; only low/moderate pressure
 * `FAIL` = any confirmed high/critical layering, exposure, or cycle violation
 * `BLOCKED` = insufficient evidence/repo visibility for comparable judgment
+* when Method V4 hub thresholds are in scope, include
+  `bash scripts/ci/check-module-structure-hub-thresholds.sh` in validation
 
 ---
 

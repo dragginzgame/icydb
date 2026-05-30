@@ -1,5 +1,5 @@
 //! Module: index::store
-//! Responsibility: stable index-entry persistence primitives.
+//! Responsibility: stable-or-heap index-entry storage behind the index-store boundary.
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 

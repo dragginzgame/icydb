@@ -119,17 +119,6 @@ pub(crate) enum SqlAlterColumnAction {
     DropNotNull,
 }
 
-impl SqlAlterColumnAction {
-    pub(crate) const fn label(&self) -> &'static str {
-        match self {
-            Self::SetDefault(_) => "SET DEFAULT",
-            Self::DropDefault => "DROP DEFAULT",
-            Self::SetNotNull => "SET NOT NULL",
-            Self::DropNotNull => "DROP NOT NULL",
-        }
-    }
-}
-
 ///
 /// SqlCreateIndexStatement
 ///

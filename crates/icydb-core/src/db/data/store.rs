@@ -1,5 +1,5 @@
 //! Module: data::store
-//! Responsibility: stable BTreeMap-backed row persistence.
+//! Responsibility: stable-or-heap row storage behind the data-store boundary.
 //! Does not own: key/row validation policy beyond type boundaries.
 //! Boundary: commit/executor call into this layer after prevalidation.
 
