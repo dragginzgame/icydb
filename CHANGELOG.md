@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.169.md](docs/changelog/0.169.md)
 
+- `0.169.2` proves heap-backed stores support live public write/read and
+  indexed SQL query behavior while keeping heap allocation metadata absent.
+
 - `0.169.1` makes storage diagnostics report heap-backed store roles as
   `storage: heap` with absent stable allocation metadata while preserving
   stable-store diagnostics.

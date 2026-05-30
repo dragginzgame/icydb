@@ -21,6 +21,7 @@ mod filtered_composite_expression;
 mod filtered_composite_order;
 mod filtered_expression;
 mod filtered_prefix;
+mod heap_runtime;
 mod indexed_covering;
 mod indexed_prefix;
 mod lane_metrics;
@@ -119,6 +120,11 @@ crate::test_store! {
     canister = SessionSqlCanister,
 }
 
+crate::test_store! {
+    ident = HeapSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
 thread_local! {
     static SESSION_SQL_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init(test_memory(160)));
@@ -156,11 +162,30 @@ thread_local! {
         .expect("indexed SQL session test store registration should succeed");
         reg
     };
+    static HEAP_SESSION_SQL_DATA_STORE: RefCell<DataStore> =
+        const { RefCell::new(DataStore::init_heap()) };
+    static HEAP_SESSION_SQL_INDEX_STORE: RefCell<IndexStore> =
+        const { RefCell::new(IndexStore::init_heap()) };
+    static HEAP_SESSION_SQL_SCHEMA_STORE: RefCell<SchemaStore> =
+        const { RefCell::new(SchemaStore::init_heap()) };
+    static HEAP_SESSION_SQL_STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(
+            HeapSessionSqlStore::PATH,
+            &HEAP_SESSION_SQL_DATA_STORE,
+            &HEAP_SESSION_SQL_INDEX_STORE,
+            &HEAP_SESSION_SQL_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
+        )
+        .expect("heap SQL session test store registration should succeed");
+        reg
+    };
 }
 
 static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
 static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
     Db::new(&INDEXED_SESSION_SQL_STORE_REGISTRY);
+static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&HEAP_SESSION_SQL_STORE_REGISTRY);
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
 static ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE: LazyLock<Predicate> = LazyLock::new(|| {
@@ -1554,6 +1579,13 @@ static SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
         false,
     ),
 ];
+static HEAP_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
+static HEAP_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
+    "name",
+    HeapSessionSqlStore::PATH,
+    &HEAP_SESSION_SQL_INDEX_FIELDS,
+    false,
+)];
 
 crate::test_entity_schema! {
     ident = SessionSqlEntity,
@@ -1996,6 +2028,30 @@ crate::test_entity_schema! {
     canister = SessionSqlCanister,
 }
 
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct HeapSessionSqlEntity {
+    id: u64,
+    name: String,
+    age: u64,
+}
+
+crate::test_entity_schema! {
+    ident = HeapSessionSqlEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "HeapSessionSqlEntity",
+    entity_tag = EntityTag::new(0x1070),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Nat64),
+        ("name", FieldKind::Text { max_len: None }),
+        ("age", FieldKind::Nat64),
+    ],
+    indexes = [&HEAP_SESSION_SQL_INDEX_MODELS[0]],
+    store = HeapSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
 crate::test_entity_schema! {
     ident = CompositeIndexedSessionSqlEntity,
     id = Ulid,
@@ -2295,6 +2351,24 @@ fn reset_indexed_session_sql_store() {
 
 fn indexed_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(INDEXED_SESSION_SQL_DB)
+}
+
+fn reset_heap_session_sql_store() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    HEAP_SESSION_SQL_DATA_STORE.with_borrow_mut(DataStore::clear);
+    HEAP_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+        store.clear();
+        store.mark_ready();
+    });
+    HEAP_SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    ensure_recovered(&HEAP_SESSION_SQL_DB).expect("heap write-side recovery should succeed");
+    let session = heap_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
+}
+
+fn heap_sql_session() -> DbSession<SessionSqlCanister> {
+    DbSession::new(HEAP_SESSION_SQL_DB)
 }
 
 // Resolve the indexed SQL store handle through the recovered DB boundary.
