@@ -19,7 +19,7 @@ use crate::{
     },
     model::{entity::EntityModel, field::FieldKind},
     testing::PLAN_ENTITY_TAG,
-    traits::{EntitySchema, Path, RuntimeValueEncode},
+    traits::{EntitySchema, RuntimeValueEncode},
     types::Ulid,
     value::Value,
 };
@@ -32,25 +32,14 @@ struct CacheKeyEntity {
     name: String,
 }
 
-struct CacheKeyCanister;
-
-impl Path for CacheKeyCanister {
-    const PATH: &'static str = concat!(module_path!(), "::CacheKeyCanister");
+crate::test_canister! {
+    ident = CacheKeyCanister,
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
-impl crate::traits::CanisterKind for CacheKeyCanister {
-    const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
-    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
-}
-
-struct CacheKeyStore;
-
-impl Path for CacheKeyStore {
-    const PATH: &'static str = concat!(module_path!(), "::CacheKeyStore");
-}
-
-impl crate::traits::StoreKind for CacheKeyStore {
-    type Canister = CacheKeyCanister;
+crate::test_store! {
+    ident = CacheKeyStore,
+    canister = CacheKeyCanister,
 }
 
 crate::test_entity! {

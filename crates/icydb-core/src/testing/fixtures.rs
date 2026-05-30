@@ -95,10 +95,11 @@ macro_rules! __icydb_test_entity_markers {
 #[macro_export]
 macro_rules! __icydb_test_canister_model {
     (
+        vis = $vis:vis,
         ident = $canister:ident,
         commit_memory_id = $commit_memory_id:expr $(,)?
     ) => {
-        struct $canister;
+        $vis struct $canister;
 
         impl $crate::traits::Path for $canister {
             const PATH: &'static str = concat!(module_path!(), "::", stringify!($canister));
@@ -124,10 +125,22 @@ macro_rules! test_canister {
         compile_error!("test_canister! requires `commit_memory_id = <u8>`");
     };
     (
+        vis = $vis:vis,
         ident = $canister:ident,
         commit_memory_id = $commit_memory_id:expr $(,)?
     ) => {
         $crate::__icydb_test_canister_model! {
+            vis = $vis,
+            ident = $canister,
+            commit_memory_id = $commit_memory_id,
+        }
+    };
+    (
+        ident = $canister:ident,
+        commit_memory_id = $commit_memory_id:expr $(,)?
+    ) => {
+        $crate::__icydb_test_canister_model! {
+            vis =,
             ident = $canister,
             commit_memory_id = $commit_memory_id,
         }
@@ -139,10 +152,11 @@ macro_rules! test_canister {
 #[macro_export]
 macro_rules! __icydb_test_store_model {
     (
+        vis = $vis:vis,
         ident = $store:ident,
         canister = $canister:ty $(,)?
     ) => {
-        struct $store;
+        $vis struct $store;
 
         impl $crate::traits::Path for $store {
             const PATH: &'static str = concat!(module_path!(), "::", stringify!($store));
@@ -163,10 +177,22 @@ macro_rules! __icydb_test_store_model {
 #[macro_export]
 macro_rules! test_store {
     (
+        vis = $vis:vis,
         ident = $store:ident,
         canister = $canister:ty $(,)?
     ) => {
         $crate::__icydb_test_store_model! {
+            vis = $vis,
+            ident = $store,
+            canister = $canister,
+        }
+    };
+    (
+        ident = $store:ident,
+        canister = $canister:ty $(,)?
+    ) => {
+        $crate::__icydb_test_store_model! {
+            vis =,
             ident = $store,
             canister = $canister,
         }
@@ -202,7 +228,7 @@ macro_rules! __icydb_test_entity_model {
     (
         $entity:ident,
         $entity_name:expr,
-        primary_key = fields([ $pk_field:ident ]),
+        primary_key = [ $pk_field:ident ],
         fields = [ $( $field_model:expr ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
         relations = [ $( $relation:expr ),* $(,)? ],
@@ -246,7 +272,7 @@ macro_rules! __icydb_test_entity_model {
     (
         $entity:ident,
         $entity_name:expr,
-        primary_key = fields([ $pk_field_0:ident, $( $pk_field_rest:ident ),+ $(,)? ]),
+        primary_key = [ $pk_field_0:ident, $( $pk_field_rest:ident ),+ $(,)? ],
         fields = [ $( $field_model:expr ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
         relations = [ $( $relation:expr ),* $(,)? ],
@@ -335,15 +361,15 @@ macro_rules! __icydb_test_entity_traits {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __icydb_test_entity_value {
-    ($entity:ident, none) => {};
-    ($entity:ident, id_field($id_field:ident)) => {
+    ($entity:ident, none $(,)?) => {};
+    ($entity:ident, id_field($id_field:ident) $(,)?) => {
         impl $crate::traits::EntityValue for $entity {
             fn id(&self) -> $crate::types::Id<Self> {
                 $crate::types::Id::from_key(self.$id_field)
             }
         }
     };
-    ($entity:ident, key($key_expr:expr)) => {
+    ($entity:ident, key($key_expr:expr) $(,)?) => {
         impl $crate::traits::EntityValue for $entity {
             fn id(&self) -> $crate::types::Id<Self> {
                 $crate::types::Id::from_key(($key_expr)(self))
@@ -362,321 +388,89 @@ macro_rules! __icydb_test_entity_singleton {
     ($entity:ident, false) => {};
 }
 
-/// Hidden field-level parser used by `test_field!`.
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __icydb_test_field_model {
-    ($field_name:expr, $field_kind:expr $(,)?) => {
-        $crate::__icydb_test_field_model! {
-            @emit
-            name = $field_name,
-            kind = $field_kind,
-            decode = $crate::model::field::FieldStorageDecode::ByKind,
-            nullable = false,
-            generated = None,
-            managed = None,
-            database_default = $crate::model::field::FieldDatabaseDefault::None,
-            nested = &[],
-        }
+/// Explicit options for test field model construction.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TestFieldModelOptions {
+    storage_decode: crate::model::field::FieldStorageDecode,
+    nullable: bool,
+    insert_generation: Option<crate::model::field::FieldInsertGeneration>,
+    write_management: Option<crate::model::field::FieldWriteManagement>,
+    database_default: crate::model::field::FieldDatabaseDefault,
+    nested_fields: &'static [crate::model::field::FieldModel],
+}
+
+impl TestFieldModelOptions {
+    pub(crate) const DEFAULT: Self = Self {
+        storage_decode: crate::model::field::FieldStorageDecode::ByKind,
+        nullable: false,
+        insert_generation: None,
+        write_management: None,
+        database_default: crate::model::field::FieldDatabaseDefault::None,
+        nested_fields: &[],
     };
-    ($field_name:expr, $field_kind:expr, $($metadata:tt)+) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $crate::model::field::FieldStorageDecode::ByKind,
-            nullable = false,
-            generated = None,
-            managed = None,
-            database_default = $crate::model::field::FieldDatabaseDefault::None,
-            nested = &[],
-            remaining = [ $($metadata)+, ],
-        }
-    };
-    (@emit
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-    ) => {
-        $crate::model::field::FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
-            $field_name,
-            $field_kind,
-            $field_decode,
-            $field_nullable,
-            $field_generation,
-            $field_management,
-            $database_default,
-            $nested_fields,
-        )
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @emit
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $nested_fields,
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [decode = $next_decode:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $next_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [nullable = $next_nullable:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $next_nullable,
-            generated = $field_generation,
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [generated = $next_generation:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = Some($next_generation),
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [managed = $next_management:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = Some($next_management),
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [database_default = $next_default:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = $field_management,
-            database_default = $next_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [nested = $next_nested_fields:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $next_nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [@generated $next_generation:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = Some($next_generation),
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [@managed $next_management:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $field_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = Some($next_management),
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
-    (@parse
-        name = $field_name:expr,
-        kind = $field_kind:expr,
-        decode = $field_decode:expr,
-        nullable = $field_nullable:expr,
-        generated = $field_generation:expr,
-        managed = $field_management:expr,
-        database_default = $database_default:expr,
-        nested = $nested_fields:expr,
-        remaining = [$next_decode:expr, $($rest:tt)*],
-    ) => {
-        $crate::__icydb_test_field_model! {
-            @parse
-            name = $field_name,
-            kind = $field_kind,
-            decode = $next_decode,
-            nullable = $field_nullable,
-            generated = $field_generation,
-            managed = $field_management,
-            database_default = $database_default,
-            nested = $nested_fields,
-            remaining = [ $($rest)* ],
-        }
-    };
+
+    pub(crate) const fn with_storage_decode(
+        mut self,
+        storage_decode: crate::model::field::FieldStorageDecode,
+    ) -> Self {
+        self.storage_decode = storage_decode;
+        self
+    }
+
+    pub(crate) const fn with_nullable(mut self, nullable: bool) -> Self {
+        self.nullable = nullable;
+        self
+    }
+
+    pub(crate) const fn with_insert_generation(
+        mut self,
+        insert_generation: crate::model::field::FieldInsertGeneration,
+    ) -> Self {
+        self.insert_generation = Some(insert_generation);
+        self
+    }
+
+    pub(crate) const fn with_write_management(
+        mut self,
+        write_management: crate::model::field::FieldWriteManagement,
+    ) -> Self {
+        self.write_management = Some(write_management);
+        self
+    }
+
+    pub(crate) const fn with_database_default(
+        mut self,
+        database_default: crate::model::field::FieldDatabaseDefault,
+    ) -> Self {
+        self.database_default = database_default;
+        self
+    }
+
+    pub(crate) const fn with_nested_fields(
+        mut self,
+        nested_fields: &'static [crate::model::field::FieldModel],
+    ) -> Self {
+        self.nested_fields = nested_fields;
+        self
+    }
+}
+
+/// Construct one test field model from explicit options.
+pub(crate) const fn test_field_model(
+    name: &'static str,
+    kind: crate::model::field::FieldKind,
+    options: TestFieldModelOptions,
+) -> crate::model::field::FieldModel {
+    crate::model::field::FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+        name,
+        kind,
+        options.storage_decode,
+        options.nullable,
+        options.insert_generation,
+        options.write_management,
+        options.database_default,
+        options.nested_fields,
+    )
 }
 
 ///
@@ -692,21 +486,32 @@ macro_rules! test_field {
         ty = $field_ty:ty,
         kind = $field_kind:expr $(,)?
     ) => {
-        $crate::__icydb_test_field_model!($field_name, $field_kind)
+        $crate::testing::test_field_model(
+            $field_name,
+            $field_kind,
+            $crate::testing::TestFieldModelOptions::DEFAULT,
+        )
     };
     (
         name = $field_name:expr,
         ty = $field_ty:ty,
         kind = $field_kind:expr,
-        $($metadata:tt)+
+        options = $options:expr $(,)?
     ) => {
-        $crate::__icydb_test_field_model!($field_name, $field_kind, $($metadata)+)
+        $crate::testing::test_field_model($field_name, $field_kind, $options)
     };
     ($field:ident : $field_ty:ty => $field_kind:expr $(,)?) => {
-        $crate::__icydb_test_field_model!(stringify!($field), $field_kind)
+        $crate::testing::test_field_model(
+            stringify!($field),
+            $field_kind,
+            $crate::testing::TestFieldModelOptions::DEFAULT,
+        )
     };
-    ($field:ident : $field_ty:ty => $field_kind:expr, $($metadata:tt)+) => {
-        $crate::__icydb_test_field_model!(stringify!($field), $field_kind, $($metadata)+)
+    (
+        $field:ident : $field_ty:ty => $field_kind:expr,
+        options = $options:expr $(,)?
+    ) => {
+        $crate::testing::test_field_model(stringify!($field), $field_kind, $options)
     };
 }
 
@@ -763,7 +568,7 @@ macro_rules! __icydb_test_emit_entity {
         $crate::__icydb_test_entity_model!(
             $entity,
             $entity_name,
-            primary_key = fields([ $( $pk_field ),+ ]),
+            primary_key = [ $( $pk_field ),+ ],
             fields = [ $( $field_model ),+ ],
             indexes = [ $( $index ),* ],
             relations = [ $( $relation ),* ],
@@ -797,456 +602,13 @@ macro_rules! __icydb_test_emit_entity {
         $crate::__icydb_test_entity_model!(
             $entity,
             $entity_name,
-            primary_key = fields([ $( $pk_field ),+ ]),
+            primary_key = [ $( $pk_field ),+ ],
             fields = [ $( $field_model ),+ ],
             indexes = [ $( $index ),* ],
             relations = [ $( $relation ),* ],
         );
 
         $crate::__icydb_test_entity_runtime_surface!($entity, $key_ty, $entity_name, MODEL_DEF);
-    };
-}
-
-/// Hidden compatibility parser used by `test_entity!`.
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __icydb_test_parse_entity {
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        key_type = $key_ty:ty,
-        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-        relations = [ $( $relation:expr ),* $(,)? ],
-        entity_value = none $(,)?
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $key_ty,
-            primary_key = [ $( $pk_field ),+ ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [ $( $relation ),* ],
-            entity_value = { none },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        key_type = $key_ty:ty,
-        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-        relations = [ $( $relation:expr ),* $(,)? ],
-        entity_value = id_field($id_field:ident) $(,)?
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $key_ty,
-            primary_key = [ $( $pk_field ),+ ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [ $( $relation ),* ],
-            entity_value = { id_field($id_field) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        key_type = $key_ty:ty,
-        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-        relations = [ $( $relation:expr ),* $(,)? ],
-        entity_value = key($key_expr:expr) $(,)?
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $key_ty,
-            primary_key = [ $( $pk_field ),+ ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [ $( $relation ),* ],
-            entity_value = { key($key_expr) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        key_type = $key_ty:ty,
-        primary_key = [ $pk_field:ident ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-        relations = [ $( $relation:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $key_ty,
-            primary_key = [ $pk_field ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [ $( $relation ),* ],
-            entity_value = { id_field($pk_field) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        key_type = $key_ty:ty,
-        primary_key = [ $pk_field:ident ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_parse_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            key_type = $key_ty,
-            primary_key = [ $pk_field ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        singleton = true,
-        key_type = $key_ty:ty,
-        primary_key = [ $pk_field:ident ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = true,
-            key_type = $key_ty,
-            primary_key = [ $pk_field ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-            entity_value = { id_field($pk_field) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        singleton = true,
-        primary_key(fields = [ $pk_field:ident : $pk_ty:ty => $pk_kind:expr $(, $pk_meta_key:ident = $pk_meta_value:expr)* $(,)? ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = true,
-            key_type = $pk_ty,
-            primary_key = [ $pk_field ],
-            fields = [
-                $crate::test_field! { $pk_field : $pk_ty => $pk_kind $(, $pk_meta_key = $pk_meta_value)* },
-                $( $field_model, )*
-            ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-            entity_value = { id_field($pk_field) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        value = none,
-        primary_key(fields = [ $pk_field:ident : $pk_ty:ty => $pk_kind:expr $(, $pk_meta_key:ident = $pk_meta_value:expr)* $(,)? ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $pk_ty,
-            primary_key = [ $pk_field ],
-            fields = [
-                $crate::test_field! { $pk_field : $pk_ty => $pk_kind $(, $pk_meta_key = $pk_meta_value)* },
-                $( $field_model, )*
-            ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-            entity_value = { none },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        entity_value(key_type = $key_ty:ty, key = $key_expr:expr),
-        primary_key(fields = [
-            $pk_field_0:ident : $pk_ty_0:ty => $pk_kind_0:expr,
-            $pk_field_1:ident : $pk_ty_1:ty => $pk_kind_1:expr $(,)?
-        ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_parse_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            entity_value(key_type = $key_ty, key = $key_expr),
-            primary_key(fields = [
-                $pk_field_0: $pk_ty_0 => $pk_kind_0,
-                $pk_field_1: $pk_ty_1 => $pk_kind_1,
-            ]),
-            fields = [ $( $field_model ),* ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        entity_value(key_type = $key_ty:ty, key = $key_expr:expr),
-        primary_key(fields = [
-            $pk_field_0:ident : $pk_ty_0:ty => $pk_kind_0:expr,
-            $pk_field_1:ident : $pk_ty_1:ty => $pk_kind_1:expr $(,)?
-        ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-        relations = [ $( $relation:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $key_ty,
-            primary_key = [ $pk_field_0, $pk_field_1 ],
-            fields = [
-                $crate::test_field! { $pk_field_0 : $pk_ty_0 => $pk_kind_0 },
-                $crate::test_field! { $pk_field_1 : $pk_ty_1 => $pk_kind_1 },
-                $( $field_model, )*
-            ],
-            indexes = [ $( $index ),* ],
-            relations = [ $( $relation ),* ],
-            entity_value = { key($key_expr) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        primary_key(fields = [ $pk_field:ident : $pk_ty:ty => $pk_kind:expr $(, $pk_meta_key:ident = $pk_meta_value:expr)* $(,)? ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-        relations = [ $( $relation:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $pk_ty,
-            primary_key = [ $pk_field ],
-            fields = [
-                $crate::test_field! { $pk_field : $pk_ty => $pk_kind $(, $pk_meta_key = $pk_meta_value)* },
-                $( $field_model, )*
-            ],
-            indexes = [ $( $index ),* ],
-            relations = [ $( $relation ),* ],
-            entity_value = { id_field($pk_field) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        entity_value(id_field = $id_field:ident),
-        primary_key(fields = [ $pk_field:ident : $pk_ty:ty => $pk_kind:expr $(, $pk_meta_key:ident = $pk_meta_value:expr)* $(,)? ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            runtime = full,
-            singleton = false,
-            key_type = $pk_ty,
-            primary_key = [ $pk_field ],
-            fields = [
-                $crate::test_field! { $pk_field : $pk_ty => $pk_kind $(, $pk_meta_key = $pk_meta_value)* },
-                $( $field_model, )*
-            ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-            entity_value = { id_field($id_field) },
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        tag = $entity_tag:expr,
-        store = $store_ty:ty,
-        canister = $canister_ty:ty,
-        primary_key(fields = [ $pk_field:ident : $pk_ty:ty => $pk_kind:expr $(, $pk_meta_key:ident = $pk_meta_value:expr)* $(,)? ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_parse_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            tag = $entity_tag,
-            store = $store_ty,
-            canister = $canister_ty,
-            primary_key(fields = [ $pk_field : $pk_ty => $pk_kind $(, $pk_meta_key = $pk_meta_value)* ]),
-            fields = [ $( $field_model ),* ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        runtime = schema_only,
-        key_type = $key_ty:ty,
-        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-        relations = [ $( $relation:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            runtime = schema_only,
-            key_type = $key_ty,
-            primary_key = [ $( $pk_field ),+ ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [ $( $relation ),* ],
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        runtime = schema_only,
-        key_type = $key_ty:ty,
-        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
-        fields = [ $( $field_model:expr ),+ $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            runtime = schema_only,
-            key_type = $key_ty,
-            primary_key = [ $( $pk_field ),+ ],
-            fields = [ $( $field_model ),+ ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-        }
-    };
-    (
-        ident = $entity:ident,
-        entity_name = $entity_name:expr,
-        runtime = schema_only,
-        primary_key(fields = [ $pk_field:ident : $pk_ty:ty => $pk_kind:expr $(, $pk_meta_key:ident = $pk_meta_value:expr)* $(,)? ]),
-        fields = [ $( $field_model:expr ),* $(,)? ],
-        indexes = [ $( $index:expr ),* $(,)? ],
-    ) => {
-        $crate::__icydb_test_emit_entity! {
-            ident = $entity,
-            entity_name = $entity_name,
-            runtime = schema_only,
-            key_type = $pk_ty,
-            primary_key = [ $pk_field ],
-            fields = [
-                $crate::test_field! { $pk_field : $pk_ty => $pk_kind $(, $pk_meta_key = $pk_meta_value)* },
-                $( $field_model, )*
-            ],
-            indexes = [ $( $index ),* ],
-            relations = [],
-        }
     };
 }
 
@@ -1257,7 +619,199 @@ macro_rules! __icydb_test_parse_entity {
 ///
 #[macro_export]
 macro_rules! test_entity {
-    ( $($input:tt)* ) => {
-        $crate::__icydb_test_parse_entity! { $($input)* }
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        key_type = $key_ty:ty,
+        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+        relations = [ $( $relation:expr ),* $(,)? ],
+        entity_value = $($entity_value:tt)+
+    ) => {
+        $crate::__icydb_test_emit_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            runtime = full,
+            singleton = false,
+            key_type = $key_ty,
+            primary_key = [ $( $pk_field ),+ ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [ $( $relation ),* ],
+            entity_value = { $($entity_value)+ },
+        }
+    };
+    // Compatibility front-end for scalar primary-key fixtures that have not
+    // opted into explicit entity-value syntax yet.
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        key_type = $key_ty:ty,
+        primary_key = [ $pk_field:ident ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+        relations = [ $( $relation:expr ),* $(,)? ],
+    ) => {
+        $crate::__icydb_test_emit_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            runtime = full,
+            singleton = false,
+            key_type = $key_ty,
+            primary_key = [ $pk_field ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [ $( $relation ),* ],
+            entity_value = { id_field($pk_field) },
+        }
+    };
+    // Compatibility front-end for scalar primary-key fixtures that have not
+    // opted into explicit relation syntax yet.
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        key_type = $key_ty:ty,
+        primary_key = [ $pk_field:ident ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+    ) => {
+        $crate::test_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            key_type = $key_ty,
+            primary_key = [ $pk_field ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [],
+        }
+    };
+}
+
+///
+/// test_singleton_entity
+///
+/// Test-only helper for singleton entity fixtures. This keeps singleton
+/// behavior explicit without adding a singleton-only arm to `test_entity!`.
+///
+#[macro_export]
+macro_rules! test_singleton_entity {
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        key_type = $key_ty:ty,
+        primary_key = [ $pk_field:ident ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+        relations = [ $( $relation:expr ),* $(,)? ],
+    ) => {
+        $crate::__icydb_test_emit_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            runtime = full,
+            singleton = true,
+            key_type = $key_ty,
+            primary_key = [ $pk_field ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [ $( $relation ),* ],
+            entity_value = { id_field($pk_field) },
+        }
+    };
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        key_type = $key_ty:ty,
+        primary_key = [ $pk_field:ident ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+    ) => {
+        $crate::test_singleton_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            key_type = $key_ty,
+            primary_key = [ $pk_field ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [],
+        }
+    };
+}
+
+///
+/// test_schema_entity
+///
+/// Test-only helper for model-only entity fixtures that need `EntitySchema`
+/// without runtime placement or value hooks.
+///
+#[macro_export]
+macro_rules! test_schema_entity {
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        key_type = $key_ty:ty,
+        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+        relations = [ $( $relation:expr ),* $(,)? ],
+    ) => {
+        $crate::__icydb_test_emit_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            runtime = schema_only,
+            key_type = $key_ty,
+            primary_key = [ $( $pk_field ),+ ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [ $( $relation ),* ],
+        }
+    };
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        key_type = $key_ty:ty,
+        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+    ) => {
+        $crate::test_schema_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            key_type = $key_ty,
+            primary_key = [ $( $pk_field ),+ ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [],
+        }
     };
 }

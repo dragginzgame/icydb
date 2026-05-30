@@ -55,10 +55,9 @@ const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
     false,
 );
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanValidateIndexedEntity,
     entity_name = "IndexedEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -69,10 +68,9 @@ crate::test_entity! {
     indexes = [&INDEX_MODEL],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanValidateRecordFieldPathEntity,
     entity_name = "RecordFieldPathEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -82,10 +80,9 @@ crate::test_entity! {
     indexes = [],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanValidateListEntity,
     entity_name = "ListEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -95,10 +92,9 @@ crate::test_entity! {
     indexes = [],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanValidateMapEntity,
     entity_name = "MapEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -111,10 +107,9 @@ crate::test_entity! {
     indexes = [],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanValidateExpressionIndexedEntity,
     entity_name = "ExpressionIndexedEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [

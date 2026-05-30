@@ -44,10 +44,9 @@ const INDEX_MODEL: IndexModel =
 type GroupedCaseBuilder = fn() -> AccessPlannedQuery;
 type GroupedPlanErrorCase<'a> = (&'a str, GroupedCaseBuilder, fn(&GroupPlanError) -> bool);
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanValidateGroupedEntity,
     entity_name = "IndexedEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [

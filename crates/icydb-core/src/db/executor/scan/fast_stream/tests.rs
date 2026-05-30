@@ -49,8 +49,11 @@ crate::test_entity! {
     tag = crate::testing::FAST_STREAM_INVARIANT_ENTITY_TAG,
     store = FastStreamInvariantStore,
     canister = FastStreamInvariantCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
-    fields = [],
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+    ],
     indexes = [],
 }
 

@@ -97,8 +97,10 @@ crate::test_entity! {
     tag = crate::testing::INTEGRITY_INDEXED_ENTITY_TAG,
     store = DiagnosticsStoreA,
     canister = DiagnosticsCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { email: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&INTEGRITY_EMAIL_INDEX_MODELS[0]],

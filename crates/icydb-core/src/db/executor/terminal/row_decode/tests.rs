@@ -52,8 +52,10 @@ crate::test_entity! {
     tag = crate::testing::PROBE_ENTITY_TAG,
     store = RowDecodeStore,
     canister = RowDecodeCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { title: Text => FieldKind::Text { max_len: None } },
         crate::test_field! { tags: Vec<Text> => FieldKind::List(&FieldKind::Text { max_len: None }) },
         crate::test_field! { portrait: Blob => FieldKind::Blob { max_len: None } },
@@ -725,14 +727,17 @@ crate::test_entity! {
     tag = crate::testing::PROBE_ENTITY_TAG,
     store = RowDecodeStore,
     canister = RowDecodeCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
             status: RowDecodeStatus => FieldKind::Enum {
                 path: "tests::Status",
                 variants: &[],
             },
-            decode = crate::model::field::FieldStorageDecode::Value,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(crate::model::field::FieldStorageDecode::Value),
         },
     ],
     indexes = [],
@@ -750,11 +755,14 @@ crate::test_entity! {
     tag = crate::testing::PROBE_ENTITY_TAG,
     store = RowDecodeStore,
     canister = RowDecodeCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
             label: Text => FieldKind::Text { max_len: None },
-            decode = crate::model::field::FieldStorageDecode::Value,
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(crate::model::field::FieldStorageDecode::Value),
         },
     ],
     indexes = [],

@@ -171,8 +171,11 @@ crate::test_entity! {
     tag = crate::testing::TARGET_ENTITY_TAG,
     store = TargetStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
-    fields = [],
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+    ],
     indexes = [],
 }
 
@@ -192,8 +195,10 @@ crate::test_entity! {
     tag = crate::testing::SOURCE_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: TargetEntity::PATH,
             target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
@@ -222,8 +227,10 @@ crate::test_entity! {
     tag = crate::testing::INVALID_RELATION_METADATA_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: TargetEntity::PATH,
             target_entity_name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -252,8 +259,10 @@ crate::test_entity! {
     tag = crate::testing::WRONG_TAG_RELATION_METADATA_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: TargetEntity::PATH,
             target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
@@ -282,8 +291,10 @@ crate::test_entity! {
     tag = crate::testing::WRONG_STORE_RELATION_METADATA_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: TargetEntity::PATH,
             target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
@@ -321,8 +332,10 @@ crate::test_entity! {
     tag = crate::testing::SOURCE_SET_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { targets: Vec<Ulid> => FieldKind::Set(&SOURCE_SET_TARGET_KIND) },
     ],
     indexes = [],
@@ -353,8 +366,10 @@ crate::test_entity! {
     tag = crate::testing::SELF_RELATION_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { parents: Vec<Ulid> => FieldKind::Set(&SELF_RELATION_PARENT_KIND) },
     ],
     indexes = [],
@@ -523,11 +538,14 @@ crate::test_entity! {
     tag = STRUCTURED_SELECTION_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
             selected_parts: Vec<SaveSelectedPart> => FieldKind::List(&STRUCTURED_SELECTED_PART_KIND),
-            decode = FieldStorageDecode::Value
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(FieldStorageDecode::Value),
         },
     ],
     indexes = [],
@@ -650,11 +668,14 @@ crate::test_entity! {
     tag = STRUCTURED_SELECTION_SET_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
             selected_parts: SaveSelectedPartSet => STRUCTURED_SELECTION_SET_KIND,
-            decode = FieldStorageDecode::Value
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(FieldStorageDecode::Value),
         },
     ],
     indexes = [],
@@ -802,11 +823,14 @@ crate::test_entity! {
     tag = STRUCTURED_SELECTION_MAP_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
             selected_parts_by_layer: SaveSelectedPartMap => STRUCTURED_SELECTION_MAP_KIND,
-            decode = FieldStorageDecode::Value
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(FieldStorageDecode::Value),
         },
     ],
     indexes = [],
@@ -889,8 +913,10 @@ crate::test_entity! {
     tag = crate::testing::UNIQUE_EMAIL_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { email: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&UNIQUE_EMAIL_INDEX],
@@ -1046,12 +1072,15 @@ crate::test_entity! {
     tag = crate::testing::MISMATCHED_PK_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    entity_value(id_field = actual_id),
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { actual_id: Ulid => FieldKind::Ulid },
     ],
     indexes = [],
+    relations = [],
+    entity_value = id_field(actual_id),
 }
 
 ///
@@ -1153,8 +1182,10 @@ crate::test_entity! {
     tag = crate::testing::DECIMAL_SCALE_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { amount: SaveScale2Decimal => FieldKind::Decimal { scale: 2 } },
     ],
     indexes = [],
@@ -1176,8 +1207,10 @@ crate::test_entity! {
     tag = crate::testing::BOUNDED_TEXT_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { name: String => FieldKind::Text { max_len: Some(3) } },
     ],
     indexes = [],
@@ -1204,11 +1237,15 @@ crate::test_entity! {
     tag = crate::testing::DATABASE_DEFAULT_WRITE_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! {
             score: i32 => FieldKind::Int64,
-            database_default = FieldDatabaseDefault::EncodedSlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD),
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_database_default(
+                FieldDatabaseDefault::EncodedSlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD),
+            ),
         },
     ],
     indexes = [],
@@ -1231,10 +1268,18 @@ crate::test_entity! {
     tag = crate::testing::NULLABLE_ACCOUNT_EVENT_ENTITY_TAG,
     store = SourceStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        crate::test_field! { from: Option<Account> => FieldKind::Account, nullable = true },
-        crate::test_field! { to: Option<Account> => FieldKind::Account, nullable = true },
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! {
+            from: Option<Account> => FieldKind::Account,
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_nullable(true),
+        },
+        crate::test_field! {
+            to: Option<Account> => FieldKind::Account,
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_nullable(true),
+        },
     ],
     indexes = [],
 }

@@ -798,8 +798,10 @@ mod tests {
         tag = crate::testing::PROBE_ENTITY_TAG,
         store = OrderWindowStore,
         canister = OrderWindowCanister,
-        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+        key_type = Ulid,
+        primary_key = [id],
         fields = [
+            crate::test_field! { id: Ulid => FieldKind::Ulid },
             crate::test_field! { title: Text => FieldKind::Text { max_len: None } },
             crate::test_field! { tags: Vec<Text> => FieldKind::List(&FieldKind::Text { max_len: None }) },
             crate::test_field! { portrait: Blob => FieldKind::Blob { max_len: None } },

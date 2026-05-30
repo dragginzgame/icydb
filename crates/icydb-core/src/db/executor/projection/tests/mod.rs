@@ -225,14 +225,17 @@ crate::test_entity! {
     tag = crate::testing::PROJECTION_EVAL_ENTITY_TAG,
     store = ProjectionEvalStore,
     canister = ProjectionEvalCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { rank: i64 => FieldKind::Int64 },
         crate::test_field! { flag: bool => FieldKind::Bool },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
         crate::test_field! {
             profile: ProjectionEvalProfile => FieldKind::Structured { queryable: false },
-            decode = FieldStorageDecode::Value
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(FieldStorageDecode::Value),
         },
     ],
     indexes = [&EMPTY_INDEX],

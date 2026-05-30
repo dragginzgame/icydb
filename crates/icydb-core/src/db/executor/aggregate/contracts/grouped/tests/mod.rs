@@ -55,8 +55,11 @@ crate::test_entity! {
     tag = crate::testing::GROUPED_STATE_TEST_ENTITY_TAG,
     store = GroupedStateTestStore,
     canister = GroupedStateTestCanister,
-    primary_key(fields = [id: u64 => FieldKind::Nat64]),
-    fields = [],
+    key_type = u64,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: u64 => FieldKind::Nat64 },
+    ],
     indexes = [],
 }
 

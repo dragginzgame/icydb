@@ -97,13 +97,16 @@ crate::test_entity! {
     tag = crate::testing::SQL_LOWER_ENTITY_TAG,
     store = SqlLowerDataStore,
     canister = SqlLowerCanister,
-    value = none,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [],
+    relations = [],
+    entity_value = none,
 }
 
 crate::test_entity! {
@@ -112,13 +115,16 @@ crate::test_entity! {
     tag = crate::types::EntityTag::new(0x1038),
     store = SqlLowerDataStore,
     canister = SqlLowerCanister,
-    value = none,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&SQL_LOWER_EXPRESSION_INDEX_MODELS[0]],
+    relations = [],
+    entity_value = none,
 }
 
 crate::test_entity! {
@@ -127,14 +133,17 @@ crate::test_entity! {
     tag = crate::types::EntityTag::new(0x1039),
     store = SqlLowerDataStore,
     canister = SqlLowerCanister,
-    value = none,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
         crate::test_field! { active: bool => FieldKind::Bool },
         crate::test_field! { archived: bool => FieldKind::Bool },
     ],
     indexes = [],
+    relations = [],
+    entity_value = none,
 }
 
 // Lower one SQL query command and extract the normalized first ORDER BY field

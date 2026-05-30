@@ -437,25 +437,16 @@ impl FieldProjection for PlanSingleton {
     }
 }
 
-pub(in crate::db::query::intent::tests) struct PlanCanister;
-
-impl Path for PlanCanister {
-    const PATH: &'static str = concat!(module_path!(), "::PlanCanister");
+crate::test_canister! {
+    vis = pub(in crate::db::query::intent::tests),
+    ident = PlanCanister,
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
-impl crate::traits::CanisterKind for PlanCanister {
-    const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
-    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
-}
-
-pub(in crate::db::query::intent::tests) struct PlanDataStore;
-
-impl Path for PlanDataStore {
-    const PATH: &'static str = concat!(module_path!(), "::PlanDataStore");
-}
-
-impl crate::traits::StoreKind for PlanDataStore {
-    type Canister = PlanCanister;
+crate::test_store! {
+    vis = pub(in crate::db::query::intent::tests),
+    ident = PlanDataStore,
+    canister = PlanCanister,
 }
 
 crate::test_entity! {
@@ -487,13 +478,12 @@ crate::test_entity! {
     indexes = [],
 }
 
-crate::test_entity! {
+crate::test_singleton_entity! {
     ident = PlanSingleton,
     entity_name = "PlanSingleton",
     tag = crate::testing::PLAN_SINGLETON_TAG,
     store = PlanDataStore,
     canister = PlanCanister,
-    singleton = true,
     key_type = Unit,
     primary_key = [id],
     fields = [

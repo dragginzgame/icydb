@@ -131,10 +131,9 @@ const FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel =
         Some(active_true_predicate_metadata()),
     );
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanModelEntity,
     entity_name = "PlanEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -144,10 +143,9 @@ crate::test_entity! {
     indexes = [&INDEX_MODEL],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanRangeEntity,
     entity_name = "PlanRangeEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -184,10 +182,9 @@ impl PlanCompositePrimaryKeyEntity {
     );
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanFilteredEntity,
     entity_name = "PlanFilteredEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -198,10 +195,9 @@ crate::test_entity! {
     indexes = [&FILTERED_INDEX_MODEL],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanFilteredNumericEntity,
     entity_name = "PlanFilteredNumericEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -211,10 +207,9 @@ crate::test_entity! {
     indexes = [&FILTERED_NUMERIC_INDEX_MODEL],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanExpressionCasefoldEntity,
     entity_name = "PlanExpressionCasefoldEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -224,10 +219,9 @@ crate::test_entity! {
     indexes = [&EXPRESSION_CASEFOLD_INDEX_MODEL],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanFilteredExpressionCasefoldEntity,
     entity_name = "PlanFilteredExpressionCasefoldEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -238,10 +232,9 @@ crate::test_entity! {
     indexes = [&FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanExpressionUpperEntity,
     entity_name = "PlanExpressionUpperEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -251,10 +244,9 @@ crate::test_entity! {
     indexes = [&EXPRESSION_UPPER_INDEX_MODEL],
 }
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = PlanExpressionUnsupportedEntity,
     entity_name = "PlanExpressionUnsupportedEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [

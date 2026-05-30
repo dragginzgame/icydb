@@ -43,10 +43,9 @@ const EMPTY_INDEX: IndexModel = IndexModel::generated(
     false,
 );
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = ExprInferenceEntity,
     entity_name = "ExprInferenceEntity",
-    runtime = schema_only,
     key_type = crate::types::Ulid,
     primary_key = [id],
     fields = [

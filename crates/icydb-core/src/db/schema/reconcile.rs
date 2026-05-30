@@ -1301,8 +1301,10 @@ mod tests {
         tag = EntityTag::new(0x7465_7374_7363_6865),
         store = SchemaReconcileTestStore,
         canister = SchemaReconcileTestCanister,
-        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+        key_type = Ulid,
+        primary_key = [id],
         fields = [
+            crate::test_field! { id: Ulid => FieldKind::Ulid },
             crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         ],
         indexes = [],
@@ -1328,8 +1330,10 @@ mod tests {
         tag = EntityTag::new(0x696e_6478_7363_6865),
         store = SchemaReconcileTestStore,
         canister = SchemaReconcileTestCanister,
-        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+        key_type = Ulid,
+        primary_key = [id],
         fields = [
+            crate::test_field! { id: Ulid => FieldKind::Ulid },
             crate::test_field! { name: String => FieldKind::Text { max_len: None } },
         ],
         indexes = [&INDEXED_SCHEMA_NAME_INDEX],

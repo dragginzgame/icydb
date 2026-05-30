@@ -85,8 +85,10 @@ crate::test_entity! {
     tag = crate::testing::AGGREGATE_FIELD_ENTITY_TAG,
     store = AggregateFieldStore,
     canister = AggregateFieldCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { rank: u32 => FieldKind::Nat64 },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
         crate::test_field! { scores: Vec<u32> => FieldKind::List(&SCORE_LIST_KIND) },

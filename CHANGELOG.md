@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Changed
 
-- Classifies write commit plans as durable-only, live-only, or mixed
-  durable/live from affected store capabilities for the next 0.170 patch.
+- Continues mixed-durability write classification work after the 0.170.2
+  test-fixture macro cleanup diversion.
 
 ## [0.170.x] 🧭 - 2026-05-30 - Storage Capability And Mixed-Durability Contracts
 
 Detailed notes: [docs/changelog/0.170.md](docs/changelog/0.170.md)
+
+- `0.170.2` simplifies test schema fixture macros by replacing parser-style
+  field metadata handling with explicit options and keeping entity emission
+  centralized.
 
 - `0.170.1` hard-cuts runtime store handles, generated registration, and
   snapshot diagnostics onto explicit storage capability descriptors.

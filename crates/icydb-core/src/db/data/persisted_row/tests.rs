@@ -327,8 +327,10 @@ crate::test_entity! {
     tag = SIMPLE_ENTITY_TAG,
     store = PersistedRowPatchBridgeStore,
     canister = PersistedRowPatchBridgeCanister,
-    primary_key(fields = [id: crate::types::Ulid => FieldKind::Ulid]),
+    key_type = crate::types::Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: crate::types::Ulid => FieldKind::Ulid },
         crate::test_field! { name: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
@@ -340,11 +342,14 @@ crate::test_entity! {
     tag = SIMPLE_ENTITY_TAG,
     store = PersistedRowPatchBridgeStore,
     canister = PersistedRowPatchBridgeCanister,
-    primary_key(fields = [id: crate::types::Ulid => FieldKind::Ulid]),
+    key_type = crate::types::Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: crate::types::Ulid => FieldKind::Ulid },
         crate::test_field! {
             payload: PersistedRowProfileValue => FieldKind::Structured { queryable: false },
-            decode = FieldStorageDecode::Value
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(FieldStorageDecode::Value),
         },
     ],
     indexes = [],
@@ -356,11 +361,14 @@ crate::test_entity! {
     tag = SIMPLE_ENTITY_TAG,
     store = PersistedRowPatchBridgeStore,
     canister = PersistedRowPatchBridgeCanister,
-    primary_key(fields = [id: crate::types::Ulid => FieldKind::Ulid]),
+    key_type = crate::types::Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: crate::types::Ulid => FieldKind::Ulid },
         crate::test_field! {
             payloads: Vec<PersistedRowProfileValue> => FieldKind::List(&FieldKind::Structured { queryable: false }),
-            decode = FieldStorageDecode::Value
+            options = crate::testing::TestFieldModelOptions::DEFAULT
+                .with_storage_decode(FieldStorageDecode::Value),
         },
     ],
     indexes = [],

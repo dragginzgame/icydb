@@ -136,8 +136,10 @@ crate::test_entity! {
     tag = crate::testing::ROUTE_MATRIX_ENTITY_TAG,
     store = RouteCapabilityTestStore,
     canister = RouteCapabilityTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { rank: u64 => FieldKind::Nat64 },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
         crate::test_field! { scores: Vec<u64> => FieldKind::List(&ROUTE_CAPABILITY_SCORE_KIND) },
@@ -172,8 +174,10 @@ crate::test_entity! {
     tag = crate::testing::ROUTE_MATRIX_ENTITY_TAG,
     store = RouteCapabilityTestStore,
     canister = RouteCapabilityTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { code: u32 => FieldKind::Nat64 },
     ],
     indexes = [&UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0]],

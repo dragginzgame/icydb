@@ -45,10 +45,9 @@ const EMPTY_INDEX: IndexModel = IndexModel::generated(
     false,
 );
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = GroupedPolicyValidateEntity,
     entity_name = "GroupedPolicyValidateEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [

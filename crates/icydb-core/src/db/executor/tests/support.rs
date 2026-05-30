@@ -117,29 +117,16 @@ where
         .into_exists()
 }
 
-// TestCanister
-
-pub(in crate::db::executor::tests) struct TestCanister;
-
-impl Path for TestCanister {
-    const PATH: &'static str = concat!(module_path!(), "::TestCanister");
+crate::test_canister! {
+    vis = pub(in crate::db::executor::tests),
+    ident = TestCanister,
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
-impl crate::traits::CanisterKind for TestCanister {
-    const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
-    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
-}
-
-// TestDataStore
-
-pub(in crate::db::executor::tests) struct TestDataStore;
-
-impl Path for TestDataStore {
-    const PATH: &'static str = concat!(module_path!(), "::TestDataStore");
-}
-
-impl crate::traits::StoreKind for TestDataStore {
-    type Canister = TestCanister;
+crate::test_store! {
+    vis = pub(in crate::db::executor::tests),
+    ident = TestDataStore,
+    canister = TestCanister,
 }
 
 thread_local! {
@@ -208,15 +195,16 @@ pub(in crate::db::executor::tests) struct SingletonUnitEntity {
     pub(in crate::db::executor::tests) label: String,
 }
 
-crate::test_entity! {
+crate::test_singleton_entity! {
     ident = SingletonUnitEntity,
     entity_name = "SingletonUnitEntity",
     tag = crate::testing::SINGLETON_UNIT_ENTITY_TAG,
     store = TestDataStore,
     canister = TestCanister,
-    singleton = true,
-    primary_key(fields = [id: Unit => FieldKind::Unit]),
+    key_type = Unit,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Unit => FieldKind::Unit },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
@@ -248,8 +236,10 @@ crate::test_entity! {
     tag = crate::testing::INDEXED_METRICS_ENTITY_TAG,
     store = TestDataStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { tag: u32 => FieldKind::Nat64 },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
@@ -284,8 +274,10 @@ crate::test_entity! {
     tag = crate::testing::PUSHDOWN_PARITY_ENTITY_TAG,
     store = TestDataStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { group: u32 => FieldKind::Nat64 },
         crate::test_field! { rank: u32 => FieldKind::Nat64 },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
@@ -322,8 +314,10 @@ crate::test_entity! {
     tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
     store = TestDataStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { code: u32 => FieldKind::Nat64 },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
@@ -351,9 +345,14 @@ crate::test_entity! {
     tag = crate::testing::PHASE_ENTITY_TAG,
     store = TestDataStore,
     canister = TestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        crate::test_field! { opt_rank: Option<u32> => FieldKind::Nat64, nullable = true },
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! {
+            opt_rank: Option<u32> => FieldKind::Nat64,
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_nullable(true),
+        },
         crate::test_field! { rank: u32 => FieldKind::Nat64 },
         crate::test_field! { tags: Vec<u32> => FieldKind::List(&PHASE_TAG_KIND) },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
@@ -369,41 +368,22 @@ pub(in crate::db::executor::tests) fn reset_store() {
     TEST_INDEX_STORE.with(|store| store.borrow_mut().clear());
 }
 
-// RelationTestCanister
-
-pub(in crate::db::executor::tests) struct RelationTestCanister;
-
-impl Path for RelationTestCanister {
-    const PATH: &'static str = concat!(module_path!(), "::RelationTestCanister");
+crate::test_canister! {
+    vis = pub(in crate::db::executor::tests),
+    ident = RelationTestCanister,
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
-impl crate::traits::CanisterKind for RelationTestCanister {
-    const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
-    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
+crate::test_store! {
+    vis = pub(in crate::db::executor::tests),
+    ident = RelationSourceStore,
+    canister = RelationTestCanister,
 }
 
-// RelationSourceStore
-
-pub(in crate::db::executor::tests) struct RelationSourceStore;
-
-impl Path for RelationSourceStore {
-    const PATH: &'static str = concat!(module_path!(), "::RelationSourceStore");
-}
-
-impl crate::traits::StoreKind for RelationSourceStore {
-    type Canister = RelationTestCanister;
-}
-
-// RelationTargetStore
-
-pub(in crate::db::executor::tests) struct RelationTargetStore;
-
-impl Path for RelationTargetStore {
-    const PATH: &'static str = concat!(module_path!(), "::RelationTargetStore");
-}
-
-impl crate::traits::StoreKind for RelationTargetStore {
-    type Canister = RelationTestCanister;
+crate::test_store! {
+    vis = pub(in crate::db::executor::tests),
+    ident = RelationTargetStore,
+    canister = RelationTestCanister,
 }
 
 thread_local! {
@@ -566,8 +546,11 @@ crate::test_entity! {
     tag = crate::testing::RELATION_TARGET_ENTITY_TAG,
     store = RelationTargetStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
-    fields = [],
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+    ],
     indexes = [],
 }
 
@@ -587,8 +570,10 @@ crate::test_entity! {
     tag = crate::testing::RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
             target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
@@ -701,21 +686,19 @@ crate::test_entity! {
     tag = crate::testing::COMPOSITE_RELATION_TARGET_ENTITY_TAG,
     store = RelationTargetStore,
     canister = RelationTestCanister,
-    entity_value(
-        key_type = CompositeRelationTargetKey,
-        key = |entity: &CompositeRelationTargetEntity| CompositeRelationTargetKey {
-            tenant_id: entity.tenant_id,
-            local_id: entity.local_id,
-        }
-    ),
-    primary_key(fields = [
-        tenant_id: u64 => FieldKind::Nat64,
-        local_id: u64 => FieldKind::Nat64,
-    ]),
+    key_type = CompositeRelationTargetKey,
+    primary_key = [tenant_id, local_id],
     fields = [
+        crate::test_field! { tenant_id: u64 => FieldKind::Nat64 },
+        crate::test_field! { local_id: u64 => FieldKind::Nat64 },
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
+    relations = [],
+    entity_value = key(|entity: &CompositeRelationTargetEntity| CompositeRelationTargetKey {
+            tenant_id: entity.tenant_id,
+            local_id: entity.local_id,
+    }),
 }
 
 ///
@@ -735,8 +718,10 @@ crate::test_entity! {
     tag = crate::testing::COMPOSITE_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target_tenant_id: u64 => FieldKind::Nat64 },
         crate::test_field! { target_local_id: u64 => FieldKind::Nat64 },
     ],
@@ -767,10 +752,18 @@ crate::test_entity! {
     tag = crate::testing::OPTIONAL_COMPOSITE_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        crate::test_field! { target_tenant_id: Option<u64> => FieldKind::Nat64, nullable = true },
-        crate::test_field! { target_local_id: Option<u64> => FieldKind::Nat64, nullable = true },
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! {
+            target_tenant_id: Option<u64> => FieldKind::Nat64,
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_nullable(true),
+        },
+        crate::test_field! {
+            target_local_id: Option<u64> => FieldKind::Nat64,
+            options = crate::testing::TestFieldModelOptions::DEFAULT.with_nullable(true),
+        },
     ],
     indexes = [],
     relations = [
@@ -883,18 +876,11 @@ crate::test_entity! {
     tag = crate::testing::COMPOSITE_PK_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    entity_value(
-        key_type = CompositePkRelationSourceKey,
-        key = |entity: &CompositePkRelationSourceEntity| CompositePkRelationSourceKey {
-            tenant_id: entity.tenant,
-            source_local_id: entity.source_local,
-        }
-    ),
-    primary_key(fields = [
-        tenant: u64 => FieldKind::Nat64,
-        source_local: u64 => FieldKind::Nat64,
-    ]),
+    key_type = CompositePkRelationSourceKey,
+    primary_key = [tenant, source_local],
     fields = [
+        crate::test_field! { tenant: u64 => FieldKind::Nat64 },
+        crate::test_field! { source_local: u64 => FieldKind::Nat64 },
         crate::test_field! { target_tenant: u64 => FieldKind::Nat64 },
         crate::test_field! { target_local: u64 => FieldKind::Nat64 },
     ],
@@ -906,6 +892,10 @@ crate::test_entity! {
             fields = [target_tenant, target_local],
         },
     ],
+    entity_value = key(|entity: &CompositePkRelationSourceEntity| CompositePkRelationSourceKey {
+            tenant_id: entity.tenant,
+            source_local_id: entity.source_local,
+    }),
 }
 
 ///
@@ -924,8 +914,10 @@ crate::test_entity! {
     tag = crate::testing::WEAK_SINGLE_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Ulid => FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
             target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
@@ -954,8 +946,10 @@ crate::test_entity! {
     tag = crate::testing::WEAK_OPTIONAL_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { target: Option<Ulid> => FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
             target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
@@ -994,8 +988,10 @@ crate::test_entity! {
     tag = crate::testing::WEAK_LIST_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { targets: Vec<Ulid> => FieldKind::List(&REL_WEAK_LIST_TARGET_KIND) },
     ],
     indexes = [],
@@ -1027,8 +1023,10 @@ crate::test_entity! {
     tag = crate::testing::WEAK_SET_RELATION_SOURCE_ENTITY_TAG,
     store = RelationSourceStore,
     canister = RelationTestCanister,
-    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
         crate::test_field! { targets: Vec<Ulid> => FieldKind::Set(&REL_WEAK_SET_TARGET_KIND) },
     ],
     indexes = [],

@@ -33,10 +33,9 @@ const PUSHDOWN_INDEX: IndexModel = IndexModel::generated(
     false,
 );
 
-crate::test_entity! {
+crate::test_schema_entity! {
     ident = ExplainPushdownEntity,
     entity_name = "PushdownEntity",
-    runtime = schema_only,
     key_type = Ulid,
     primary_key = [id],
     fields = [

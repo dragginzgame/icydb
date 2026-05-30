@@ -127,12 +127,15 @@ mod tests {
         tag = crate::types::EntityTag::new(0x1040),
         store = LoweredExprAnalysisStore,
         canister = LoweredExprAnalysisCanister,
-        value = none,
-        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    key_type = Ulid,
+        primary_key = [id],
         fields = [
+            crate::test_field! { id: Ulid => FieldKind::Ulid },
             crate::test_field! { age: u64 => FieldKind::Nat64 },
         ],
         indexes = [],
+        relations = [],
+        entity_value = none,
     }
 
     #[test]
