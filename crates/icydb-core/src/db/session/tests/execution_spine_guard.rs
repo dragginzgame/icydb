@@ -112,10 +112,8 @@ fn fluent_terminal_surfaces_do_not_reintroduce_shared_strategy_enums() {
 #[test]
 fn sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority() {
     let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let checked_files = [
-        manifest_root.join("src/db/sql/ddl.rs"),
-        manifest_root.join("src/db/session/sql/mod.rs"),
-    ];
+    let checked_roots = [manifest_root.join("src/db/sql/ddl")];
+    let checked_files = [manifest_root.join("src/db/session/sql/mod.rs")];
     let forbidden = [
         "SchemaStore",
         "with_schema_mut(",
@@ -127,11 +125,17 @@ fn sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority() {
         "MODEL.indexes",
     ];
     let mut violations = Vec::new();
+    let mut sources = Vec::new();
+    for root in checked_roots {
+        collect_rust_sources(root.as_path(), &mut sources);
+    }
+    sources.extend(checked_files);
+    sources.sort();
 
     // SQL DDL frontend code may bind accepted catalog facts and call the
     // schema-owned mutation runner, but schema-store publication and generated
     // index metadata authority must stay outside this frontend boundary.
-    for source_path in checked_files {
+    for source_path in sources {
         let relative = relative_rust_source_path(manifest_root, source_path.as_path());
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
