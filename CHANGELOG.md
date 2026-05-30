@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.170.md](docs/changelog/0.170.md)
 
+- `0.170.6` closes the storage capability proof matrix with stable ABI,
+  heap volatility, mixed-write, relation, diagnostics, and source-audit
+  evidence.
+
 - `0.170.5` adds source-audit guards proving runtime storage policy consumes
   capability axes instead of concrete stable/heap storage modes.
 
