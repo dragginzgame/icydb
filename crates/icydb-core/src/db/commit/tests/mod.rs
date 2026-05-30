@@ -36,7 +36,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
-        field::{FieldKind, FieldModel, FieldStorageDecode},
+        field::{FieldKind, FieldStorageDecode},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -91,17 +91,15 @@ struct RecoveryTestEntity {
     id: Ulid,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RecoveryTestEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RecoveryTestEntity",
-    entity_tag = crate::testing::RECOVERY_TEST_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid)],
-    indexes = [],
+    tag = crate::testing::RECOVERY_TEST_ENTITY_TAG,
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [],
+    indexes = [],
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -110,17 +108,17 @@ struct RecoveryPayloadEntity {
     name: String,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RecoveryPayloadEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RecoveryPayloadEntity",
-    entity_tag = crate::testing::RECOVERY_PAYLOAD_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("name", FieldKind::Text { max_len: None })],
-    indexes = [],
+    tag = crate::testing::RECOVERY_PAYLOAD_ENTITY_TAG,
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -352,184 +350,131 @@ static RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL: IndexModel = IndexModel::gene
     false,
 );
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RecoveryIndexedEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RecoveryIndexedEntity",
-    entity_tag = crate::testing::RECOVERY_INDEXED_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("group", FieldKind::Nat64)],
-    indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
+    tag = crate::testing::RECOVERY_INDEXED_ENTITY_TAG,
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { group: u32 => FieldKind::Nat64 },
+    ],
+    indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
 }
 
 const RECOVERY_NULLABLE_INDEXED_ENTITY_TAG: EntityTag = EntityTag::new(0x103A);
 
-crate::impl_test_entity_markers!(RecoveryNullableIndexedEntity);
-
-crate::impl_test_entity_model_storage!(
-    RecoveryNullableIndexedEntity,
-    "RecoveryNullableIndexedEntity",
-    0,
+crate::test_entity! {
+    ident = RecoveryNullableIndexedEntity,
+    entity_name = "RecoveryNullableIndexedEntity",
+    tag = RECOVERY_NULLABLE_INDEXED_ENTITY_TAG,
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        FieldModel::generated_with_storage_decode_and_nullability(
-            "id",
-            FieldKind::Ulid,
-            FieldStorageDecode::ByKind,
-            false,
-        ),
-        FieldModel::generated_with_storage_decode_and_nullability(
-            "group",
-            FieldKind::Nat64,
-            FieldStorageDecode::ByKind,
-            false,
-        ),
-        FieldModel::generated_with_storage_decode_and_nullability(
-            "nickname",
-            FieldKind::Text { max_len: None },
-            FieldStorageDecode::ByKind,
-            true,
-        ),
+        crate::test_field! { group: u32 => FieldKind::Nat64 },
+        crate::test_field! { nickname: Option<String> => FieldKind::Text { max_len: None }, nullable = true },
     ],
     indexes = [&RECOVERY_NULLABLE_INDEXED_INDEX_MODELS[0]],
-);
-
-crate::impl_test_entity_runtime_surface!(
-    RecoveryNullableIndexedEntity,
-    Ulid,
-    "RecoveryNullableIndexedEntity",
-    MODEL_DEF
-);
-
-impl crate::traits::EntityPlacement for RecoveryNullableIndexedEntity {
-    type Store = RecoveryTestDataStore;
-    type Canister = RecoveryTestCanister;
 }
 
-impl EntityKind for RecoveryNullableIndexedEntity {
-    const ENTITY_TAG: EntityTag = RECOVERY_NULLABLE_INDEXED_ENTITY_TAG;
-}
-
-impl crate::traits::EntityValue for RecoveryNullableIndexedEntity {
-    fn id(&self) -> crate::types::Id<Self> {
-        crate::types::Id::from_key(self.id)
-    }
-}
-
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RecoveryUniqueEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RecoveryUniqueEntity",
-    entity_tag = crate::testing::RECOVERY_UNIQUE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text { max_len: None })],
-    indexes = [&RECOVERY_UNIQUE_INDEX_MODELS[0]],
+    tag = crate::testing::RECOVERY_UNIQUE_ENTITY_TAG,
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
-}
-
-crate::test_entity_schema! {
-    ident = RecoveryUniqueCasefoldEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "RecoveryUniqueCasefoldEntity",
-    entity_tag = crate::testing::RECOVERY_UNIQUE_CASEFOLD_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text { max_len: None })],
-    indexes = [&RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
-    store = RecoveryTestDataStore,
-    canister = RecoveryTestCanister,
-}
-
-crate::test_entity_schema! {
-    ident = RecoveryUpperExpressionEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "RecoveryUpperExpressionEntity",
-    entity_tag = crate::testing::RECOVERY_UPPER_EXPRESSION_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text { max_len: None })],
-    indexes = [&RECOVERY_UPPER_EXPRESSION_INDEX_MODELS[0]],
-    store = RecoveryTestDataStore,
-    canister = RecoveryTestCanister,
-}
-
-crate::test_entity_schema! {
-    ident = RecoveryConditionalEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "RecoveryConditionalEntity",
-    entity_tag = crate::testing::RECOVERY_CONDITIONAL_ENTITY_TAG,
-    pk_index = 0,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat64),
-        ("active", FieldKind::Bool),
+        crate::test_field! { email: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&RECOVERY_UNIQUE_INDEX_MODELS[0]],
+}
+
+crate::test_entity! {
+    ident = RecoveryUniqueCasefoldEntity,
+    entity_name = "RecoveryUniqueCasefoldEntity",
+    tag = crate::testing::RECOVERY_UNIQUE_CASEFOLD_ENTITY_TAG,
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { email: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
+}
+
+crate::test_entity! {
+    ident = RecoveryUpperExpressionEntity,
+    entity_name = "RecoveryUpperExpressionEntity",
+    tag = crate::testing::RECOVERY_UPPER_EXPRESSION_ENTITY_TAG,
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { email: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&RECOVERY_UPPER_EXPRESSION_INDEX_MODELS[0]],
+}
+
+crate::test_entity! {
+    ident = RecoveryConditionalEntity,
+    entity_name = "RecoveryConditionalEntity",
+    tag = crate::testing::RECOVERY_CONDITIONAL_ENTITY_TAG,
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { group: u32 => FieldKind::Nat64 },
+        crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_INDEX_MODELS[0]],
-    store = RecoveryTestDataStore,
-    canister = RecoveryTestCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RecoveryConditionalUniqueEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RecoveryConditionalUniqueEntity",
-    entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENTITY_TAG,
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text { max_len: None }),
-        ("active", FieldKind::Bool),
+        crate::test_field! { email: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS[0]],
-    store = RecoveryTestDataStore,
-    canister = RecoveryTestCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RecoveryConditionalUniqueCasefoldEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RecoveryConditionalUniqueCasefoldEntity",
-    entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_ENTITY_TAG,
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text { max_len: None }),
-        ("active", FieldKind::Bool),
+        crate::test_field! { email: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { active: bool => FieldKind::Bool },
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
-    store = RecoveryTestDataStore,
-    canister = RecoveryTestCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RecoveryConditionalUniqueEnumEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RecoveryConditionalUniqueEnumEntity",
-    entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENUM_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        (
-            "status",
-            FieldKind::Enum {
-                path: RECOVERY_STATUS_ENUM_PATH,
-                variants: &[],
-            },
-            crate::model::field::FieldStorageDecode::Value
-        ),
-        ("active", FieldKind::Bool),
-    ],
-    indexes = [&RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS[0]],
+    tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENUM_ENTITY_TAG,
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { status: RecoveryStatus => FieldKind::Enum {
+            path: RECOVERY_STATUS_ENUM_PATH,
+            variants: &[],
+        }, decode = crate::model::field::FieldStorageDecode::Value },
+        crate::test_field! { active: bool => FieldKind::Bool },
+    ],
+    indexes = [&RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS[0]],
 }
 
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[

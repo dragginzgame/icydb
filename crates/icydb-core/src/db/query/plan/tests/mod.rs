@@ -133,26 +133,28 @@ const FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel =
 
 crate::test_entity! {
     ident = PlanModelEntity,
-    id = Ulid,
     entity_name = "PlanEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tag: () => FieldKind::Text { max_len: None } },
     ],
     indexes = [&INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanRangeEntity,
-    id = Ulid,
     entity_name = "PlanRangeEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("a", FieldKind::Nat64),
-        ("b", FieldKind::Nat64),
-        ("c", FieldKind::Nat64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { a: () => FieldKind::Nat64 },
+        crate::test_field! { b: () => FieldKind::Nat64 },
+        crate::test_field! { c: () => FieldKind::Nat64 },
     ],
     indexes = [&RANGE_INDEX_MODEL],
 }
@@ -184,74 +186,80 @@ impl PlanCompositePrimaryKeyEntity {
 
 crate::test_entity! {
     ident = PlanFilteredEntity,
-    id = Ulid,
     entity_name = "PlanFilteredEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Text { max_len: None }),
-        ("active", FieldKind::Bool),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tag: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { active: () => FieldKind::Bool },
     ],
     indexes = [&FILTERED_INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanFilteredNumericEntity,
-    id = Ulid,
     entity_name = "PlanFilteredNumericEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("score", FieldKind::Nat64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { score: () => FieldKind::Nat64 },
     ],
     indexes = [&FILTERED_NUMERIC_INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanExpressionCasefoldEntity,
-    id = Ulid,
     entity_name = "PlanExpressionCasefoldEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { email: () => FieldKind::Text { max_len: None } },
     ],
     indexes = [&EXPRESSION_CASEFOLD_INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanFilteredExpressionCasefoldEntity,
-    id = Ulid,
     entity_name = "PlanFilteredExpressionCasefoldEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text { max_len: None }),
-        ("active", FieldKind::Bool),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { email: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { active: () => FieldKind::Bool },
     ],
     indexes = [&FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanExpressionUpperEntity,
-    id = Ulid,
     entity_name = "PlanExpressionUpperEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { email: () => FieldKind::Text { max_len: None } },
     ],
     indexes = [&EXPRESSION_UPPER_INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanExpressionUnsupportedEntity,
-    id = Ulid,
     entity_name = "PlanExpressionUnsupportedEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { email: () => FieldKind::Text { max_len: None } },
     ],
     indexes = [&EXPRESSION_UNSUPPORTED_INDEX_MODEL],
 }

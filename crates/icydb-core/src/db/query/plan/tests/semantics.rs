@@ -57,65 +57,70 @@ const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
 
 crate::test_entity! {
     ident = PlanValidateIndexedEntity,
-    id = Ulid,
     entity_name = "IndexedEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tag: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { rank: () => FieldKind::Int64 },
     ],
     indexes = [&INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanValidateRecordFieldPathEntity,
-    id = Ulid,
     entity_name = "RecordFieldPathEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("profile", FieldKind::Structured { queryable: false }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { profile: () => FieldKind::Structured { queryable: false } },
     ],
     indexes = [],
 }
 
 crate::test_entity! {
     ident = PlanValidateListEntity,
-    id = Ulid,
     entity_name = "ListEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tags: () => FieldKind::List(&FieldKind::Text { max_len: None }) },
     ],
     indexes = [],
 }
 
 crate::test_entity! {
     ident = PlanValidateMapEntity,
-    id = Ulid,
     entity_name = "MapEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("metadata", FieldKind::Map {
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { metadata: () => FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
             value: &FieldKind::Text { max_len: None },
-        }),
+        } },
     ],
     indexes = [],
 }
 
 crate::test_entity! {
     ident = PlanValidateExpressionIndexedEntity,
-    id = Ulid,
     entity_name = "ExpressionIndexedEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { name: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { rank: () => FieldKind::Int64 },
     ],
     indexes = [&EXPRESSION_INDEX_MODEL],
 }

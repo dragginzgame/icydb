@@ -121,19 +121,18 @@ mod tests {
         canister = LoweredExprAnalysisCanister,
     }
 
-    crate::test_entity_schema! {
+    crate::test_entity! {
         ident = LoweredExprAnalysisEntity,
-        id = Ulid,
         entity_name = "LoweredExprAnalysisEntity",
-        entity_tag = crate::types::EntityTag::new(0x1040),
-        pk_index = 0,
-        fields = [
-            ("id", FieldKind::Ulid),
-            ("age", FieldKind::Nat64),
-        ],
-        indexes = [],
+        tag = crate::types::EntityTag::new(0x1040),
         store = LoweredExprAnalysisStore,
         canister = LoweredExprAnalysisCanister,
+        value = none,
+        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+        fields = [
+            crate::test_field! { age: u64 => FieldKind::Nat64 },
+        ],
+        indexes = [],
     }
 
     #[test]

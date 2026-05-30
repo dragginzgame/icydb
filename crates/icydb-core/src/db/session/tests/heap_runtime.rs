@@ -1,5 +1,32 @@
 use super::*;
-use crate::db::StoreSnapshotStorageMode;
+use crate::{db::StoreSnapshotStorageMode, metrics::sink::MutationCommitClass};
+
+fn mutation_commit_classes_for_entity(
+    events: &[MetricsEvent],
+    entity_path: &'static str,
+) -> Vec<MutationCommitClass> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            MetricsEvent::MutationCommitPlan {
+                entity_path: path,
+                class,
+            } if *path == entity_path => Some(*class),
+            _ => None,
+        })
+        .collect()
+}
+
+fn capture_mutation_commit_classes<R>(
+    entity_path: &'static str,
+    run: impl FnOnce() -> R,
+) -> (R, Vec<MutationCommitClass>) {
+    let sink = SessionMetricsCaptureSink::default();
+    let output = with_metrics_sink(&sink, run);
+    let classes = mutation_commit_classes_for_entity(&sink.into_events(), entity_path);
+
+    (output, classes)
+}
 
 fn public_projection_rows<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>>
 where
@@ -242,5 +269,87 @@ fn heap_source_strong_relation_to_heap_target_keeps_live_validation_semantics() 
             id: 20,
             target_id: 1,
         }],
+    );
+}
+
+#[test]
+fn public_writes_emit_durable_live_and_mixed_commit_classifications() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let (stable_result, stable_classes) =
+        capture_mutation_commit_classes(SessionSqlWriteEntity::PATH, || {
+            session.insert(SessionSqlWriteEntity {
+                id: 170_200,
+                name: "stable".to_string(),
+                age: 41,
+            })
+        });
+    stable_result.expect("stable public insert should succeed");
+    assert_eq!(stable_classes, vec![MutationCommitClass::DurableOnly]);
+
+    reset_heap_session_sql_store();
+    let session = heap_sql_session();
+    let (heap_result, heap_classes) =
+        capture_mutation_commit_classes(HeapSessionSqlEntity::PATH, || {
+            session.insert(HeapSessionSqlEntity {
+                id: 170_201,
+                name: "heap".to_string(),
+                age: 42,
+            })
+        });
+    heap_result.expect("heap public insert should succeed");
+    assert_eq!(heap_classes, vec![MutationCommitClass::LiveOnly]);
+
+    reset_mixed_heap_relation_stores();
+    let session = mixed_heap_relation_sql_session();
+    session
+        .insert(SessionSqlSelfRelationEntity {
+            id: 170_202,
+            parent: None,
+        })
+        .expect("stable relation target should seed");
+    let (mixed_result, mixed_classes) =
+        capture_mutation_commit_classes(HeapSessionSqlSourceToStableTargetEntity::PATH, || {
+            session.insert(HeapSessionSqlSourceToStableTargetEntity {
+                id: 170_203,
+                target_id: 170_202,
+            })
+        });
+    mixed_result.expect("heap source to stable target should validate while live");
+    assert_eq!(
+        mixed_classes,
+        vec![MutationCommitClass::MixedDurableAndLive]
+    );
+}
+
+#[test]
+fn failed_heap_source_to_stable_target_write_leaves_no_heap_side_effects() {
+    reset_mixed_heap_relation_stores();
+    let session = mixed_heap_relation_sql_session();
+
+    let (result, classes) =
+        capture_mutation_commit_classes(HeapSessionSqlSourceToStableTargetEntity::PATH, || {
+            session.insert(HeapSessionSqlSourceToStableTargetEntity {
+                id: 170_204,
+                target_id: 170_205,
+            })
+        });
+    result.expect_err("missing stable target should reject before heap write apply");
+    assert_eq!(
+        classes,
+        Vec::<MutationCommitClass>::new(),
+        "failed preflight must not advertise a commit classification"
+    );
+
+    let persisted = session
+        .load::<HeapSessionSqlSourceToStableTargetEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("heap source load after failed write should succeed")
+        .entities();
+    assert_eq!(
+        persisted,
+        Vec::<HeapSessionSqlSourceToStableTargetEntity>::new(),
+        "failed mixed write must not leave heap source side effects"
     );
 }

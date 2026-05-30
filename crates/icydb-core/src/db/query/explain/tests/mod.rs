@@ -34,14 +34,15 @@ const PUSHDOWN_INDEX: IndexModel = IndexModel::generated(
 );
 
 crate::test_entity! {
-ident = ExplainPushdownEntity,
-    id = Ulid,
+    ident = ExplainPushdownEntity,
     entity_name = "PushdownEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tag: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { rank: () => FieldKind::Int64 },
     ],
     indexes = [&PUSHDOWN_INDEX],
 }

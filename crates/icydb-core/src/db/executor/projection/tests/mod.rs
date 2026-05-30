@@ -219,27 +219,23 @@ crate::test_store! {
     canister = ProjectionEvalCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = ProjectionEvalEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "ProjectionEvalEntity",
-    entity_tag = crate::testing::PROJECTION_EVAL_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Int64),
-        ("flag", FieldKind::Bool),
-        ("label", FieldKind::Text { max_len: None }),
-        (
-            "profile",
-            FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value
-        ),
-    ],
-    indexes = [&EMPTY_INDEX],
+    tag = crate::testing::PROJECTION_EVAL_ENTITY_TAG,
     store = ProjectionEvalStore,
     canister = ProjectionEvalCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { rank: i64 => FieldKind::Int64 },
+        crate::test_field! { flag: bool => FieldKind::Bool },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! {
+            profile: ProjectionEvalProfile => FieldKind::Structured { queryable: false },
+            decode = FieldStorageDecode::Value
+        },
+    ],
+    indexes = [&EMPTY_INDEX],
 }
 
 fn row(

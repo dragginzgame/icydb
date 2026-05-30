@@ -49,17 +49,15 @@ struct GroupedStateTestEntity {
     id: u64,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = GroupedStateTestEntity,
-    id = u64,
-    id_field = id,
     entity_name = "GroupedStateTestEntity",
-    entity_tag = crate::testing::GROUPED_STATE_TEST_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Nat64)],
-    indexes = [],
+    tag = crate::testing::GROUPED_STATE_TEST_ENTITY_TAG,
     store = GroupedStateTestStore,
     canister = GroupedStateTestCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [],
+    indexes = [],
 }
 
 fn text_group_key(value: &str) -> crate::db::executor::group::GroupKey {

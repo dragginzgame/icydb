@@ -46,22 +46,19 @@ struct RowDecodeEntity {
     portrait: Blob,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RowDecodeEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RowDecodeEntity",
-    entity_tag = crate::testing::PROBE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("title", FieldKind::Text { max_len: None }),
-        ("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
-        ("portrait", FieldKind::Blob { max_len: None }),
-    ],
-    indexes = [],
+    tag = crate::testing::PROBE_ENTITY_TAG,
     store = RowDecodeStore,
     canister = RowDecodeCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { title: Text => FieldKind::Text { max_len: None } },
+        crate::test_field! { tags: Vec<Text> => FieldKind::List(&FieldKind::Text { max_len: None }) },
+        crate::test_field! { portrait: Blob => FieldKind::Blob { max_len: None } },
+    ],
+    indexes = [],
 }
 
 fn decode_test_row(entity: &RowDecodeEntity) -> KernelRow {
@@ -722,27 +719,23 @@ impl Default for RowDecodeValueEntity {
     }
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RowDecodeValueEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RowDecodeValueEntity",
-    entity_tag = crate::testing::PROBE_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::PROBE_ENTITY_TAG,
+    store = RowDecodeStore,
+    canister = RowDecodeCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        (
-            "status",
-            FieldKind::Enum {
+        crate::test_field! {
+            status: RowDecodeStatus => FieldKind::Enum {
                 path: "tests::Status",
                 variants: &[],
             },
-            crate::model::field::FieldStorageDecode::Value
-        ),
+            decode = crate::model::field::FieldStorageDecode::Value,
+        },
     ],
     indexes = [],
-    store = RowDecodeStore,
-    canister = RowDecodeCanister,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -751,24 +744,20 @@ struct RowDecodeValueTextEntity {
     label: Text,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RowDecodeValueTextEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RowDecodeValueTextEntity",
-    entity_tag = crate::testing::PROBE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        (
-            "label",
-            FieldKind::Text { max_len: None },
-            crate::model::field::FieldStorageDecode::Value
-        ),
-    ],
-    indexes = [],
+    tag = crate::testing::PROBE_ENTITY_TAG,
     store = RowDecodeStore,
     canister = RowDecodeCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! {
+            label: Text => FieldKind::Text { max_len: None },
+            decode = crate::model::field::FieldStorageDecode::Value,
+        },
+    ],
+    indexes = [],
 }
 
 #[test]

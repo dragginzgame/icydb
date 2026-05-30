@@ -43,26 +43,28 @@ const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
 
 crate::test_entity! {
     ident = PlanValidatePushdownEntity,
-    id = Ulid,
     entity_name = "IndexedEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tag: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { rank: () => FieldKind::Int64 },
     ],
     indexes = [&INDEX_MODEL],
 }
 
 crate::test_entity! {
     ident = PlanValidateExpressionPushdownEntity,
-    id = Ulid,
     entity_name = "ExpressionIndexedEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("rank", FieldKind::Int64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { name: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { rank: () => FieldKind::Int64 },
     ],
     indexes = [&EXPRESSION_INDEX_MODEL],
 }

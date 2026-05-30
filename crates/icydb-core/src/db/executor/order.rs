@@ -792,24 +792,21 @@ mod tests {
         y: u64,
     }
 
-    crate::test_entity_schema! {
+    crate::test_entity! {
         ident = OrderWindowEntity,
-        id = Ulid,
-        id_field = id,
         entity_name = "OrderWindowEntity",
-        entity_tag = crate::testing::PROBE_ENTITY_TAG,
-        pk_index = 0,
-        fields = [
-            ("id", FieldKind::Ulid),
-            ("title", FieldKind::Text { max_len: None }),
-            ("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
-            ("portrait", FieldKind::Blob { max_len: None }),
-            ("x", FieldKind::Nat64),
-            ("y", FieldKind::Nat64),
-        ],
-        indexes = [],
+        tag = crate::testing::PROBE_ENTITY_TAG,
         store = OrderWindowStore,
         canister = OrderWindowCanister,
+        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+        fields = [
+            crate::test_field! { title: Text => FieldKind::Text { max_len: None } },
+            crate::test_field! { tags: Vec<Text> => FieldKind::List(&FieldKind::Text { max_len: None }) },
+            crate::test_field! { portrait: Blob => FieldKind::Blob { max_len: None } },
+            crate::test_field! { x: u64 => FieldKind::Nat64 },
+            crate::test_field! { y: u64 => FieldKind::Nat64 },
+        ],
+        indexes = [],
     }
 
     fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {

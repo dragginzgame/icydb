@@ -45,15 +45,16 @@ const EMPTY_INDEX: IndexModel = IndexModel::generated(
 
 crate::test_entity! {
     ident = ExprInferenceEntity,
-    id = crate::types::Ulid,
     entity_name = "ExprInferenceEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = crate::types::Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Nat64),
-        ("flag", FieldKind::Bool),
-        ("label", FieldKind::Text { max_len: None }),
-        ("created_on", FieldKind::Date),
+        crate::test_field! { id: crate::types::Ulid => FieldKind::Ulid },
+        crate::test_field! { rank: () => FieldKind::Nat64 },
+        crate::test_field! { flag: () => FieldKind::Bool },
+        crate::test_field! { label: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { created_on: () => FieldKind::Date },
     ],
     indexes = [&EMPTY_INDEX],
 }

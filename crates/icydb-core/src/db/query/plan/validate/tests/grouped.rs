@@ -47,14 +47,15 @@ const EMPTY_INDEX: IndexModel = IndexModel::generated(
 
 crate::test_entity! {
     ident = GroupedPolicyValidateEntity,
-    id = Ulid,
     entity_name = "GroupedPolicyValidateEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("team", FieldKind::Text { max_len: None }),
-        ("region", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat64),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { team: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { region: () => FieldKind::Text { max_len: None } },
+        crate::test_field! { score: () => FieldKind::Nat64 },
     ],
     indexes = [&EMPTY_INDEX],
 }

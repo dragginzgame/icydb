@@ -91,17 +91,17 @@ static INTEGRITY_EMAIL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     false,
 )];
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = IntegrityIndexedEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "DiagnosticsIntegrityIndexedEntity",
-    entity_tag = crate::testing::INTEGRITY_INDEXED_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text { max_len: None })],
-    indexes = [&INTEGRITY_EMAIL_INDEX_MODELS[0]],
+    tag = crate::testing::INTEGRITY_INDEXED_ENTITY_TAG,
     store = DiagnosticsStoreA,
     canister = DiagnosticsCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { email: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&INTEGRITY_EMAIL_INDEX_MODELS[0]],
 }
 
 static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &[

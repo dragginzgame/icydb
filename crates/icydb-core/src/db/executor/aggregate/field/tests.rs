@@ -79,22 +79,19 @@ struct AggregateFieldEntity {
     scores: Vec<u32>,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = AggregateFieldEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "AggregateFieldEntity",
-    entity_tag = crate::testing::AGGREGATE_FIELD_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
-        ("scores", FieldKind::List(&SCORE_LIST_KIND)),
-    ],
-    indexes = [],
+    tag = crate::testing::AGGREGATE_FIELD_ENTITY_TAG,
     store = AggregateFieldStore,
     canister = AggregateFieldCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { rank: u32 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { scores: Vec<u32> => FieldKind::List(&SCORE_LIST_KIND) },
+    ],
+    indexes = [],
 }
 
 #[test]

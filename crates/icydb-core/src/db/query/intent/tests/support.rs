@@ -458,65 +458,63 @@ impl crate::traits::StoreKind for PlanDataStore {
     type Canister = PlanCanister;
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanSimpleEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanSimpleEntity",
-    entity_tag = crate::testing::SIMPLE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Ulid)],
-    indexes = [],
+    tag = crate::testing::SIMPLE_ENTITY_TAG,
     store = PlanDataStore,
     canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanEntity",
-    entity_tag = crate::testing::PLAN_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-    ],
-    indexes = [],
+    tag = crate::testing::PLAN_ENTITY_TAG,
     store = PlanDataStore,
     canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanSingleton,
-    id = Unit,
-    id_field = id,
-    singleton = true,
     entity_name = "PlanSingleton",
-    entity_tag = crate::testing::PLAN_SINGLETON_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Unit),
-    ],
-    indexes = [],
+    tag = crate::testing::PLAN_SINGLETON_TAG,
     store = PlanDataStore,
     canister = PlanCanister,
+    singleton = true,
+    key_type = Unit,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Unit => FieldKind::Unit },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanNumericEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanNumericEntity",
-    entity_tag = crate::testing::PLAN_NUMERIC_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Int64),
-    ],
-    indexes = [],
+    tag = crate::testing::PLAN_NUMERIC_ENTITY_TAG,
     store = PlanDataStore,
     canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { rank: i32 => FieldKind::Int64 },
+    ],
+    indexes = [],
 }
 
 pub(in crate::db::query::intent::tests) static PLAN_PUSHDOWN_INDEX_FIELDS: [&str; 2] =
@@ -619,168 +617,159 @@ pub(in crate::db::query::intent::tests) static PLAN_ORDER_ONLY_CHOICE_INDEX_MODE
 
 pub(in crate::db::query::intent::tests) static PLAN_PHASE_TAG_KIND: FieldKind = FieldKind::Nat64;
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanPushdownEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanPushdownEntity",
-    entity_tag = crate::testing::PUSHDOWN_PARITY_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::PUSHDOWN_PARITY_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat64),
-        ("rank", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { group: u32 => FieldKind::Nat64 },
+        crate::test_field! { rank: u32 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_PUSHDOWN_INDEX_MODELS[0]],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanUniqueRangeEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanUniqueRangeEntity",
-    entity_tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("code", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { code: u32 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_UNIQUE_RANGE_INDEX_MODELS[0]],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanTextPrefixEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanTextPrefixEntity",
-    entity_tag = crate::testing::TEXT_PREFIX_PARITY_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::TEXT_PREFIX_PARITY_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_TEXT_PREFIX_INDEX_MODELS[0]],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanPhaseEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanPhaseEntity",
-    entity_tag = crate::testing::PHASE_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::PHASE_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tags", FieldKind::List(&PLAN_PHASE_TAG_KIND)),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tags: Vec<u32> => FieldKind::List(&PLAN_PHASE_TAG_KIND) },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanExpressionCasefoldEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanExpressionCasefoldEntity",
-    entity_tag = crate::testing::PLAN_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::PLAN_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text { max_len: None }),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { email: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0]],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanDeterministicChoiceEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanDeterministicChoiceEntity",
-    entity_tag = crate::testing::PLAN_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::PLAN_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("handle", FieldKind::Text { max_len: None }),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { handle: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
         &PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS[1],
     ],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanDeterministicRangeEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanDeterministicRangeEntity",
-    entity_tag = crate::testing::PLAN_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::PLAN_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat64),
-        ("handle", FieldKind::Text { max_len: None }),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { score: u32 => FieldKind::Nat64 },
+        crate::test_field! { handle: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &PLAN_DETERMINISTIC_RANGE_INDEX_MODELS[0],
         &PLAN_DETERMINISTIC_RANGE_INDEX_MODELS[1],
     ],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanOrderOnlyChoiceEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanOrderOnlyChoiceEntity",
-    entity_tag = crate::testing::PLAN_ENTITY_TAG,
-    pk_index = 0,
+    tag = crate::testing::PLAN_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("alpha", FieldKind::Text { max_len: None }),
-        ("beta", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { alpha: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { beta: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS[0],
         &PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS[1],
     ],
-    store = PlanDataStore,
-    canister = PlanCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PlanTemporalBoundaryEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "PlanTemporalBoundaryEntity",
-    entity_tag = crate::testing::TEMPORAL_BOUNDARY_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("occurred_on", FieldKind::Date),
-        ("occurred_at", FieldKind::Timestamp),
-        ("elapsed", FieldKind::Duration),
-    ],
-    indexes = [],
+    tag = crate::testing::TEMPORAL_BOUNDARY_ENTITY_TAG,
     store = PlanDataStore,
     canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { occurred_on: Date => FieldKind::Date },
+        crate::test_field! { occurred_at: Timestamp => FieldKind::Timestamp },
+        crate::test_field! { elapsed: Duration => FieldKind::Duration },
+    ],
+    indexes = [],
 }

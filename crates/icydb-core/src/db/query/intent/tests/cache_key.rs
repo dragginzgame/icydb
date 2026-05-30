@@ -53,20 +53,19 @@ impl crate::traits::StoreKind for CacheKeyStore {
     type Canister = CacheKeyCanister;
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = CacheKeyEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "CacheKeyEntity",
-    entity_tag = PLAN_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-    ],
-    indexes = [],
+    tag = PLAN_ENTITY_TAG,
     store = CacheKeyStore,
     canister = CacheKeyCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
 fn basic_model() -> &'static EntityModel {

@@ -91,53 +91,50 @@ static SQL_LOWER_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generat
     false,
 )];
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SqlLowerEntity,
-    id = Ulid,
     entity_name = "SqlLowerEntity",
-entity_tag = crate::testing::SQL_LOWER_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
-    ],
-    indexes = [],
+    tag = crate::testing::SQL_LOWER_ENTITY_TAG,
     store = SqlLowerDataStore,
     canister = SqlLowerCanister,
+    value = none,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SqlLowerExpressionEntity,
-    id = Ulid,
     entity_name = "SqlLowerExpressionEntity",
-    entity_tag = crate::types::EntityTag::new(0x1038),
-    pk_index = 0,
+    tag = crate::types::EntityTag::new(0x1038),
+    store = SqlLowerDataStore,
+    canister = SqlLowerCanister,
+    value = none,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&SQL_LOWER_EXPRESSION_INDEX_MODELS[0]],
-    store = SqlLowerDataStore,
-    canister = SqlLowerCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SqlLowerBoolEntity,
-    id = Ulid,
     entity_name = "SqlLowerBoolEntity",
-    entity_tag = crate::types::EntityTag::new(0x1039),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("label", FieldKind::Text { max_len: None }),
-        ("active", FieldKind::Bool),
-        ("archived", FieldKind::Bool),
-    ],
-    indexes = [],
+    tag = crate::types::EntityTag::new(0x1039),
     store = SqlLowerDataStore,
     canister = SqlLowerCanister,
+    value = none,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { active: bool => FieldKind::Bool },
+        crate::test_field! { archived: bool => FieldKind::Bool },
+    ],
+    indexes = [],
 }
 
 // Lower one SQL query command and extract the normalized first ORDER BY field

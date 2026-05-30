@@ -1295,20 +1295,17 @@ mod tests {
         name: String,
     }
 
-    crate::test_entity_schema! {
+    crate::test_entity! {
         ident = SchemaReconcileEntity,
-        id = Ulid,
-        id_field = id,
         entity_name = "SchemaReconcileEntity",
-        entity_tag = EntityTag::new(0x7465_7374_7363_6865),
-        pk_index = 0,
-        fields = [
-            ("id", FieldKind::Ulid),
-            ("name", FieldKind::Text { max_len: None }),
-        ],
-        indexes = [],
+        tag = EntityTag::new(0x7465_7374_7363_6865),
         store = SchemaReconcileTestStore,
         canister = SchemaReconcileTestCanister,
+        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+        fields = [
+            crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        ],
+        indexes = [],
     }
 
     static INDEXED_SCHEMA_NAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
@@ -1325,20 +1322,17 @@ mod tests {
         name: String,
     }
 
-    crate::test_entity_schema! {
+    crate::test_entity! {
         ident = IndexedSchemaEntity,
-        id = Ulid,
-        id_field = id,
         entity_name = "IndexedSchemaEntity",
-        entity_tag = EntityTag::new(0x696e_6478_7363_6865),
-        pk_index = 0,
-        fields = [
-            ("id", FieldKind::Ulid),
-            ("name", FieldKind::Text { max_len: None }),
-        ],
-        indexes = [&INDEXED_SCHEMA_NAME_INDEX],
+        tag = EntityTag::new(0x696e_6478_7363_6865),
         store = SchemaReconcileTestStore,
         canister = SchemaReconcileTestCanister,
+        primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+        fields = [
+            crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        ],
+        indexes = [&INDEXED_SCHEMA_NAME_INDEX],
     }
 
     static NESTED_PROFILE_FIELDS: [FieldModel; 1] =

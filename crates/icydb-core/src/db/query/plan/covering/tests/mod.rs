@@ -39,14 +39,15 @@ const COVERING_READ_INDEX: IndexModel = IndexModel::generated(
 
 crate::test_entity! {
     ident = CoveringReadEntity,
-    id = Ulid,
     entity_name = "CoveringReadEntity",
-    pk_index = 0,
+    runtime = schema_only,
+    key_type = Ulid,
+    primary_key = [id],
     fields = [
-        ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat64),
-        ("rank", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { group: () => FieldKind::Nat64 },
+        crate::test_field! { rank: () => FieldKind::Nat64 },
+        crate::test_field! { label: () => FieldKind::Text { max_len: None } },
     ],
     indexes = [&COVERING_READ_INDEX],
 }

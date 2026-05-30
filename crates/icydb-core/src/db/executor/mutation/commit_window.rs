@@ -22,11 +22,11 @@ use crate::{
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
         key_taxonomy::PrimaryKeyValue,
-        registry::StoreHandle,
+        registry::{StoreCommitParticipation, StoreHandle},
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, record},
+    metrics::sink::{MetricsEvent, MutationCommitClass, record},
     traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
 use std::{
@@ -87,6 +87,7 @@ pub(in crate::db::executor) struct OpenCommitWindow {
     pub(in crate::db::executor) prepared_row_ops: Vec<PreparedRowCommitOp>,
     pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
     pub(in crate::db::executor) delta: PreparedRowOpDelta,
+    pub(in crate::db::executor) commit_class: MutationCommitClass,
 }
 
 ///
@@ -678,6 +679,8 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
         index_store_guards,
         delta,
     } = preflight_prepare_row_op_batch::<E>(db, &row_ops)?;
+    let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
+    let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
 
@@ -686,6 +689,7 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
         prepared_row_ops,
         index_store_guards,
         delta,
+        commit_class,
     })
 }
 
@@ -699,6 +703,8 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
         index_store_guards,
         delta,
     } = preflight_prepare_row_op_batch_structural(db, &row_ops)?;
+    let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
+    let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
 
@@ -707,6 +713,7 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
         prepared_row_ops,
         index_store_guards,
         delta,
+        commit_class,
     })
 }
 
@@ -807,7 +814,9 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
         prepared_row_ops,
         index_store_guards,
         delta,
+        commit_class,
     } = open_commit_window::<E>(db, row_ops)?;
+    record_mutation_commit_plan(E::PATH, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
@@ -854,8 +863,11 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_finger
         &row_ops,
         schema_fingerprint,
     )?;
+    let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
+    let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
+    record_mutation_commit_plan(E::PATH, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
@@ -921,7 +933,9 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         prepared_row_ops,
         index_store_guards,
         delta,
+        commit_class,
     } = open_commit_window_structural(db, row_ops)?;
+    record_mutation_commit_plan(entity_path, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
@@ -957,8 +971,14 @@ pub(in crate::db::executor) fn commit_single_save_row_op_with_window_and_schema_
             &context,
             schema_fingerprint,
         )?;
+    let affected_store_handles =
+        affected_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
+    record_mutation_commit_plan(
+        E::PATH,
+        classify_mutation_commit_plan(affected_store_handles.as_slice()),
+    );
 
     commit_prepared_single_save_row_op_with_window(
         row_op,
@@ -1035,6 +1055,12 @@ fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
         )?;
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
+    let affected_store_handles =
+        affected_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
+    record_mutation_commit_plan(
+        E::PATH,
+        classify_mutation_commit_plan(affected_store_handles.as_slice()),
+    );
     commit_prepared_single_row_op_with_window(
         row_op,
         prepared_row_op,
@@ -1056,6 +1082,12 @@ fn commit_single_delete_row_op_with_window_for_path<C: CanisterKind>(
     let prepared_row_op = db.prepare_row_commit_op(&row_op)?;
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
+    let affected_store_handles =
+        affected_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
+    record_mutation_commit_plan(
+        entity_path,
+        classify_mutation_commit_plan(affected_store_handles.as_slice()),
+    );
     commit_prepared_single_row_op_with_window(
         row_op,
         prepared_row_op,
@@ -1106,6 +1138,61 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
             })
         })
         .collect()
+}
+
+// Resolve every registered store touched by one prepared row-op batch. Unlike
+// the synchronized-index helper, this includes data-only rows and cross-store
+// reverse-index mutations so durable/live commit classification can describe
+// the full write footprint.
+pub(in crate::db::executor) fn affected_store_handles_for_prepared_row_ops<C: CanisterKind>(
+    db: &Db<C>,
+    prepared_row_ops: &[PreparedRowCommitOp],
+) -> Vec<StoreHandle> {
+    let registered_handles = db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .map(|(_, handle)| handle)
+            .collect::<Vec<StoreHandle>>()
+    });
+
+    registered_handles
+        .into_iter()
+        .filter(|handle| {
+            prepared_row_ops.iter().any(|row_op| {
+                ptr::eq(handle.data_store(), row_op.data_store)
+                    || row_op
+                        .index_ops
+                        .iter()
+                        .any(|index_op| ptr::eq(handle.index_store(), index_op.index_store))
+            })
+        })
+        .collect()
+}
+
+/// Classify the durable/live commit footprint represented by affected stores.
+#[must_use]
+pub(in crate::db::executor) fn classify_mutation_commit_plan(
+    handles: &[StoreHandle],
+) -> MutationCommitClass {
+    let mut touches_durable = false;
+    let mut touches_live = false;
+
+    for handle in handles {
+        match handle.storage_capabilities().commit_participation() {
+            StoreCommitParticipation::Durable => touches_durable = true,
+            StoreCommitParticipation::LiveOnly => touches_live = true,
+        }
+    }
+
+    match (touches_durable, touches_live) {
+        (true, true) => MutationCommitClass::MixedDurableAndLive,
+        (false, true) => MutationCommitClass::LiveOnly,
+        _ => MutationCommitClass::DurableOnly,
+    }
+}
+
+fn record_mutation_commit_plan(entity_path: &'static str, class: MutationCommitClass) {
+    record(MetricsEvent::MutationCommitPlan { entity_path, class });
 }
 
 // Mark one batch of synchronized index stores as `Ready` after commit apply

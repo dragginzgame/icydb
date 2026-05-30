@@ -321,60 +321,49 @@ impl PersistedByKindCodec for PersistedRowProfileValue {
     }
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PersistedRowPatchBridgeEntity,
-    id = crate::types::Ulid,
-    id_field = id,
     entity_name = "PersistedRowPatchBridgeEntity",
-    entity_tag = SIMPLE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-    ],
-    indexes = [],
+    tag = SIMPLE_ENTITY_TAG,
     store = PersistedRowPatchBridgeStore,
     canister = PersistedRowPatchBridgeCanister,
+    primary_key(fields = [id: crate::types::Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PersistedRowTypedMetaEntity,
-    id = crate::types::Ulid,
-    id_field = id,
     entity_name = "PersistedRowTypedMetaEntity",
-    entity_tag = SIMPLE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        (
-            "payload",
-            FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value
-        ),
-    ],
-    indexes = [],
+    tag = SIMPLE_ENTITY_TAG,
     store = PersistedRowPatchBridgeStore,
     canister = PersistedRowPatchBridgeCanister,
+    primary_key(fields = [id: crate::types::Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! {
+            payload: PersistedRowProfileValue => FieldKind::Structured { queryable: false },
+            decode = FieldStorageDecode::Value
+        },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = PersistedRowManyTypedMetaEntity,
-    id = crate::types::Ulid,
-    id_field = id,
     entity_name = "PersistedRowManyTypedMetaEntity",
-    entity_tag = SIMPLE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        (
-            "payloads",
-            FieldKind::List(&FieldKind::Structured { queryable: false }),
-            FieldStorageDecode::Value
-        ),
-    ],
-    indexes = [],
+    tag = SIMPLE_ENTITY_TAG,
     store = PersistedRowPatchBridgeStore,
     canister = PersistedRowPatchBridgeCanister,
+    primary_key(fields = [id: crate::types::Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! {
+            payloads: Vec<PersistedRowProfileValue> => FieldKind::List(&FieldKind::Structured { queryable: false }),
+            decode = FieldStorageDecode::Value
+        },
+    ],
+    indexes = [],
 }
 
 static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(

@@ -1635,45 +1635,33 @@ static HEAP_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     false,
 )];
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionSqlEntity",
-    entity_tag = crate::testing::SESSION_SQL_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
-    ],
-    indexes = [],
+    tag = crate::testing::SESSION_SQL_ENTITY_TAG,
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlFieldPathEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionSqlFieldPathEntity",
-    entity_tag = crate::testing::SESSION_SQL_FIELD_PATH_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        (
-            "profile",
-            FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value
-        ),
-    ],
-    indexes = [],
+    tag = crate::testing::SESSION_SQL_FIELD_PATH_ENTITY_TAG,
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { profile: SessionSqlProfileRecord => FieldKind::Structured { queryable: false }, decode = FieldStorageDecode::Value },
+    ],
+    indexes = [],
 }
-
-crate::impl_test_entity_markers!(SessionSqlRecordFieldPathEntity);
 
 impl SessionSqlRecordFieldPathEntity {
     const PROFILE_NESTED_FIELDS: [FieldModel; 2] = [
@@ -1682,260 +1670,146 @@ impl SessionSqlRecordFieldPathEntity {
     ];
 }
 
-crate::impl_test_entity_model_storage!(
-    SessionSqlRecordFieldPathEntity,
-    "SessionSqlRecordFieldPathEntity",
-    0,
+crate::test_entity! {
+    ident = SessionSqlRecordFieldPathEntity,
+    entity_name = "SessionSqlRecordFieldPathEntity",
+    tag = EntityTag::new(0x1057),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
     fields = [
-        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
-            "id",
-            FieldKind::Ulid,
-            FieldStorageDecode::ByKind,
-            false,
-            Some(crate::model::field::FieldInsertGeneration::Ulid),
-            None,
-        ),
-        FieldModel::generated("name", FieldKind::Text { max_len: None }),
-        FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
-            "profile",
-            FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value,
-            false,
-            None,
-            None,
-            &SessionSqlRecordFieldPathEntity::PROFILE_NESTED_FIELDS,
-        ),
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! {
+            profile: SessionSqlProfileRecord => FieldKind::Structured { queryable: false },
+            decode = FieldStorageDecode::Value,
+            nested = &SessionSqlRecordFieldPathEntity::PROFILE_NESTED_FIELDS,
+        },
     ],
     indexes = [],
-);
-
-crate::impl_test_entity_runtime_surface!(
-    SessionSqlRecordFieldPathEntity,
-    Ulid,
-    "SessionSqlRecordFieldPathEntity",
-    MODEL_DEF
-);
-
-impl crate::traits::EntityPlacement for SessionSqlRecordFieldPathEntity {
-    type Store = SessionSqlStore;
-    type Canister = SessionSqlCanister;
 }
 
-impl crate::traits::EntityKind for SessionSqlRecordFieldPathEntity {
-    const ENTITY_TAG: EntityTag = EntityTag::new(0x1057);
-}
-
-impl crate::traits::EntityValue for SessionSqlRecordFieldPathEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
-}
-
-crate::impl_test_entity_markers!(SessionNullableSqlEntity);
-
-crate::impl_test_entity_model_storage!(
-    SessionNullableSqlEntity,
-    "SessionNullableSqlEntity",
-    0,
+crate::test_entity! {
+    ident = SessionNullableSqlEntity,
+    entity_name = "SessionNullableSqlEntity",
+    tag = EntityTag::new(0x104C),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
-            "id",
-            FieldKind::Ulid,
-            crate::model::field::FieldStorageDecode::ByKind,
-            false,
-        ),
-        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
-            "name",
-            FieldKind::Text { max_len: None },
-            crate::model::field::FieldStorageDecode::ByKind,
-            false,
-        ),
-        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
-            "nickname",
-            FieldKind::Text { max_len: None },
-            crate::model::field::FieldStorageDecode::ByKind,
-            true,
-        ),
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { nickname: Option<String> => FieldKind::Text { max_len: None }, nullable = true },
     ],
     indexes = [],
-);
-
-crate::impl_test_entity_runtime_surface!(
-    SessionNullableSqlEntity,
-    Ulid,
-    "SessionNullableSqlEntity",
-    MODEL_DEF
-);
-
-impl crate::traits::EntityPlacement for SessionNullableSqlEntity {
-    type Store = SessionSqlStore;
-    type Canister = SessionSqlCanister;
 }
 
-impl crate::traits::EntityKind for SessionNullableSqlEntity {
-    const ENTITY_TAG: EntityTag = EntityTag::new(0x104C);
-}
-
-impl crate::traits::EntityValue for SessionNullableSqlEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
-}
-
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlWriteEntity,
-    id = u64,
-    id_field = id,
     entity_name = "SessionSqlWriteEntity",
-    entity_tag = EntityTag::new(0x1044),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Nat64),
-        ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1044),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [],
 }
 
-crate::impl_test_entity_markers!(SessionSqlCompositeWriteEntity);
-
-impl SessionSqlCompositeWriteEntity {
-    const FIELD_MODELS: [FieldModel; 4] = [
-        FieldModel::generated("tenant_id", FieldKind::Nat64),
-        FieldModel::generated("local_id", FieldKind::Nat64),
-        FieldModel::generated("name", FieldKind::Text { max_len: None }),
-        FieldModel::generated("age", FieldKind::Nat64),
-    ];
-    const PRIMARY_KEY_FIELDS: [&'static FieldModel; 2] =
-        [&Self::FIELD_MODELS[0], &Self::FIELD_MODELS[1]];
-    const INDEXES_DEF: [&'static IndexModel; 0] = [];
-    const MODEL_DEF: crate::model::entity::EntityModel =
-        crate::model::entity::EntityModel::generated_with_primary_key_model(
-            concat!(
-                module_path!(),
-                "::",
-                stringify!(SessionSqlCompositeWriteEntity)
-            ),
-            "SessionSqlCompositeWriteEntity",
-            crate::model::entity::PrimaryKeyModel::ordered(&Self::PRIMARY_KEY_FIELDS),
-            0,
-            &Self::FIELD_MODELS,
-            &Self::INDEXES_DEF,
-        );
+crate::test_entity! {
+    ident = SessionSqlCompositeWriteEntity,
+    entity_name = "SessionSqlCompositeWriteEntity",
+    tag = EntityTag::new(0x1059),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    entity_value(
+        key_type = SessionSqlCompositeWriteEntityKey,
+        key = |entity: &SessionSqlCompositeWriteEntity| SessionSqlCompositeWriteEntityKey {
+            tenant_id: entity.tenant_id,
+            local_id: entity.local_id,
+        }
+    ),
+    primary_key(fields = [
+        tenant_id: u64 => FieldKind::Nat64,
+        local_id: u64 => FieldKind::Nat64,
+    ]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [],
 }
 
-crate::impl_test_entity_runtime_surface!(
-    SessionSqlCompositeWriteEntity,
-    SessionSqlCompositeWriteEntityKey,
-    "SessionSqlCompositeWriteEntity",
-    MODEL_DEF
-);
-
-impl crate::traits::EntityPlacement for SessionSqlCompositeWriteEntity {
-    type Store = SessionSqlStore;
-    type Canister = SessionSqlCanister;
-}
-
-impl crate::traits::EntityKind for SessionSqlCompositeWriteEntity {
-    const ENTITY_TAG: EntityTag = EntityTag::new(0x1059);
-}
-
-impl crate::traits::EntityValue for SessionSqlCompositeWriteEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(SessionSqlCompositeWriteEntityKey {
-            tenant_id: self.tenant_id,
-            local_id: self.local_id,
-        })
-    }
-}
-
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlBlobEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionSqlBlobEntity",
-    entity_tag = EntityTag::new(0x1058),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text { max_len: None }),
-        ("bucket", FieldKind::Nat64),
-        ("thumbnail", FieldKind::Blob { max_len: None }),
-        ("chunk", FieldKind::Blob { max_len: None }),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1058),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
+    fields = [
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { bucket: u64 => FieldKind::Nat64 },
+        crate::test_field! { thumbnail: Blob => FieldKind::Blob { max_len: None } },
+        crate::test_field! { chunk: Blob => FieldKind::Blob { max_len: None } },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlGeneratedFieldEntity,
-    id = u64,
-    id_field = id,
     entity_name = "SessionSqlGeneratedFieldEntity",
-    entity_tag = EntityTag::new(0x1045),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Nat64),
-        ("token", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1045),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { token: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlGeneratedTimestampEntity,
-    id = u64,
-    id_field = id,
     entity_name = "SessionSqlGeneratedTimestampEntity",
-    entity_tag = EntityTag::new(0x1047),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Nat64),
-        ("created_on_insert", FieldKind::Timestamp, @generated crate::model::field::FieldInsertGeneration::Timestamp),
-        ("name", FieldKind::Text { max_len: None }),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1047),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { created_on_insert: Timestamp => FieldKind::Timestamp, generated = crate::model::field::FieldInsertGeneration::Timestamp },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlManagedWriteEntity,
-    id = u64,
-    id_field = id,
     entity_name = "SessionSqlManagedWriteEntity",
-    entity_tag = EntityTag::new(0x1046),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Nat64),
-        ("name", FieldKind::Text { max_len: None }),
-        ("created_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::CreatedAt),
-        ("updated_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::UpdatedAt),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1046),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { created_at: Timestamp => FieldKind::Timestamp, managed = crate::model::field::FieldWriteManagement::CreatedAt },
+        crate::test_field! { updated_at: Timestamp => FieldKind::Timestamp, managed = crate::model::field::FieldWriteManagement::UpdatedAt },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlSignedWriteEntity,
-    id = i64,
-    id_field = id,
     entity_name = "SessionSqlSignedWriteEntity",
-    entity_tag = EntityTag::new(0x1048),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Int64),
-        ("delta", FieldKind::Int64),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1048),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: i64 => FieldKind::Int64]),
+    fields = [
+        crate::test_field! { delta: i64 => FieldKind::Int64 },
+    ],
+    indexes = [],
 }
 
 static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
@@ -1947,133 +1821,91 @@ static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
     strength: RelationStrength::Strong,
 };
 
-crate::impl_test_entity_markers!(SessionSqlSelfRelationEntity);
-
-crate::impl_test_entity_model_storage!(
-    SessionSqlSelfRelationEntity,
-    "SessionSqlSelfRelationEntity",
-    0,
+crate::test_entity! {
+    ident = SessionSqlSelfRelationEntity,
+    entity_name = "SessionSqlSelfRelationEntity",
+    tag = EntityTag::new(0x1056),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
     fields = [
-        crate::model::field::FieldModel::generated("id", FieldKind::Nat64),
-        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
-            "parent",
-            SESSION_SQL_SELF_RELATION_PARENT_KIND,
-            crate::model::field::FieldStorageDecode::ByKind,
-            true,
-        )
+        crate::test_field! { parent: Option<u64> => SESSION_SQL_SELF_RELATION_PARENT_KIND, nullable = true },
     ],
     indexes = [],
-);
-
-crate::impl_test_entity_runtime_surface!(
-    SessionSqlSelfRelationEntity,
-    u64,
-    "SessionSqlSelfRelationEntity",
-    MODEL_DEF
-);
-
-impl crate::traits::EntityPlacement for SessionSqlSelfRelationEntity {
-    type Store = SessionSqlStore;
-    type Canister = SessionSqlCanister;
 }
 
-impl crate::traits::EntityKind for SessionSqlSelfRelationEntity {
-    const ENTITY_TAG: EntityTag = EntityTag::new(0x1056);
-}
-
-impl crate::traits::EntityValue for SessionSqlSelfRelationEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
-}
-
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlMixedNumericCompareEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionSqlMixedNumericCompareEntity",
-    entity_tag = EntityTag::new(0x1049),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text { max_len: None }),
-        ("left_score", FieldKind::Nat64),
-        ("right_score", FieldKind::Int64),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1049),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
+    fields = [
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { left_score: u64 => FieldKind::Nat64 },
+        crate::test_field! { right_score: i64 => FieldKind::Int64 },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlBoolCompareEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionSqlBoolCompareEntity",
-    entity_tag = EntityTag::new(0x104A),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text { max_len: None }),
-        ("active", FieldKind::Bool),
-        ("archived", FieldKind::Bool),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x104A),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
+    fields = [
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { active: bool => FieldKind::Bool },
+        crate::test_field! { archived: bool => FieldKind::Bool },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlFloatCompareEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionSqlFloatCompareEntity",
-    entity_tag = EntityTag::new(0x104D),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text { max_len: None }),
-        ("dodge_chance", FieldKind::Float64),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x104D),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
+    fields = [
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { dodge_chance: Float64 => FieldKind::Float64 },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionSqlFieldBoundRangeEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionSqlFieldBoundRangeEntity",
-    entity_tag = EntityTag::new(0x104B),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat64),
-        ("min_score", FieldKind::Nat64),
-        ("max_score", FieldKind::Nat64),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x104B),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid, generated = crate::model::field::FieldInsertGeneration::Ulid]),
+    fields = [
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { score: u64 => FieldKind::Nat64 },
+        crate::test_field! { min_score: u64 => FieldKind::Nat64 },
+        crate::test_field! { max_score: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = IndexedSessionSqlEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "IndexedSessionSqlEntity",
-    entity_tag = EntityTag::new(0x1033),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
-    ],
-    indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    tag = EntityTag::new(0x1033),
     store = IndexedSessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2083,21 +1915,18 @@ struct HeapSessionSqlEntity {
     age: u64,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = HeapSessionSqlEntity,
-    id = u64,
-    id_field = id,
     entity_name = "HeapSessionSqlEntity",
-    entity_tag = EntityTag::new(0x1070),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Nat64),
-        ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
-    ],
-    indexes = [&HEAP_SESSION_SQL_INDEX_MODELS[0]],
+    tag = EntityTag::new(0x1070),
     store = HeapSessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [&HEAP_SESSION_SQL_INDEX_MODELS[0]],
 }
 
 static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -2109,26 +1938,51 @@ static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
     strength: RelationStrength::Strong,
 };
 
+static SESSION_SQL_STABLE_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
+    target_path: SessionSqlSelfRelationEntity::PATH,
+    target_entity_name: "SessionSqlSelfRelationEntity",
+    target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
+    target_store_path: SessionSqlStore::PATH,
+    key_kind: &FieldKind::Nat64,
+    strength: RelationStrength::Strong,
+};
+
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct StableSessionSqlSourceToHeapTargetEntity {
     id: u64,
     target_id: u64,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = StableSessionSqlSourceToHeapTargetEntity,
-    id = u64,
-    id_field = id,
     entity_name = "StableSessionSqlSourceToHeapTargetEntity",
-    entity_tag = EntityTag::new(0x1071),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Nat64),
-        ("target_id", SESSION_SQL_HEAP_TARGET_RELATION_KIND),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1071),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_RELATION_KIND },
+    ],
+    indexes = [],
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct HeapSessionSqlSourceToStableTargetEntity {
+    id: u64,
+    target_id: u64,
+}
+
+crate::test_entity! {
+    ident = HeapSessionSqlSourceToStableTargetEntity,
+    entity_name = "HeapSessionSqlSourceToStableTargetEntity",
+    tag = EntityTag::new(0x1073),
+    store = HeapSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { target_id: u64 => SESSION_SQL_STABLE_TARGET_RELATION_KIND },
+    ],
+    indexes = [],
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2137,54 +1991,47 @@ struct HeapSessionSqlSourceToHeapTargetEntity {
     target_id: u64,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = HeapSessionSqlSourceToHeapTargetEntity,
-    id = u64,
-    id_field = id,
     entity_name = "HeapSessionSqlSourceToHeapTargetEntity",
-    entity_tag = EntityTag::new(0x1072),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Nat64),
-        ("target_id", SESSION_SQL_HEAP_TARGET_RELATION_KIND),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1072),
     store = HeapSessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: u64 => FieldKind::Nat64]),
+    fields = [
+        crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_RELATION_KIND },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = CompositeIndexedSessionSqlEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "CompositeIndexedSessionSqlEntity",
-    entity_tag = EntityTag::new(0x1037),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("code", FieldKind::Text { max_len: None }),
-        ("serial", FieldKind::Nat64),
-        ("note", FieldKind::Text { max_len: None }),
-    ],
-    indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    tag = EntityTag::new(0x1037),
     store = IndexedSessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { code: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { serial: u64 => FieldKind::Nat64 },
+        crate::test_field! { note: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = FilteredIndexedSessionSqlEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "FilteredIndexedSessionSqlEntity",
-    entity_tag = EntityTag::new(0x1039),
-    pk_index = 0,
+    tag = EntityTag::new(0x1039),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("active", FieldKind::Bool),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("handle", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { active: bool => FieldKind::Bool },
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { handle: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [
         &FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS[0],
@@ -2192,203 +2039,171 @@ crate::test_entity_schema! {
         &FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_MODELS[0],
         &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_MODELS[0],
     ],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = ExpressionIndexedSessionSqlEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "ExpressionIndexedSessionSqlEntity",
-    entity_tag = EntityTag::new(0x1038),
-    pk_index = 0,
+    tag = EntityTag::new(0x1038),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Nat64),
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionAggregateEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionAggregateEntity",
-    entity_tag = EntityTag::new(0x1034),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat64),
-        ("rank", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1034),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { group: u64 => FieldKind::Nat64 },
+        crate::test_field! { rank: u64 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionExplainEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionExplainEntity",
-    entity_tag = EntityTag::new(0x1035),
-    pk_index = 0,
+    tag = EntityTag::new(0x1035),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("group", FieldKind::Nat64),
-        ("rank", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { group: u64 => FieldKind::Nat64 },
+        crate::test_field! { rank: u64 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&SESSION_EXPLAIN_INDEX_MODELS[0]],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionTemporalEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionTemporalEntity",
-    entity_tag = EntityTag::new(0x1036),
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("occurred_on", FieldKind::Date),
-        ("occurred_at", FieldKind::Timestamp),
-        ("elapsed", FieldKind::Duration),
-    ],
-    indexes = [],
+    tag = EntityTag::new(0x1036),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { occurred_on: Date => FieldKind::Date },
+        crate::test_field! { occurred_at: Timestamp => FieldKind::Timestamp },
+        crate::test_field! { elapsed: Duration => FieldKind::Duration },
+    ],
+    indexes = [],
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionDeterministicChoiceEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionDeterministicChoiceEntity",
-    entity_tag = EntityTag::new(0x1040),
-    pk_index = 0,
+    tag = EntityTag::new(0x1040),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("handle", FieldKind::Text { max_len: None }),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { handle: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
         &SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS[1],
     ],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionDeterministicRangeEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionDeterministicRangeEntity",
-    entity_tag = EntityTag::new(0x1041),
-    pk_index = 0,
+    tag = EntityTag::new(0x1041),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat64),
-        ("handle", FieldKind::Text { max_len: None }),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { score: u64 => FieldKind::Nat64 },
+        crate::test_field! { handle: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[0],
         &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[1],
     ],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionRangeStrengthEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionRangeStrengthEntity",
-    entity_tag = EntityTag::new(0x104F),
-    pk_index = 0,
+    tag = EntityTag::new(0x104F),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { score: u64 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &SESSION_RANGE_STRENGTH_INDEX_MODELS[0],
         &SESSION_RANGE_STRENGTH_INDEX_MODELS[1],
     ],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionResidualRankingEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionResidualRankingEntity",
-    entity_tag = EntityTag::new(0x1050),
-    pk_index = 0,
+    tag = EntityTag::new(0x1050),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("active", FieldKind::Bool),
-        ("archived", FieldKind::Bool),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("label", FieldKind::Text { max_len: None }),
+        crate::test_field! { active: bool => FieldKind::Bool },
+        crate::test_field! { archived: bool => FieldKind::Bool },
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &SESSION_RESIDUAL_RANKING_INDEX_MODELS[0],
         &SESSION_RESIDUAL_RANKING_INDEX_MODELS[1],
     ],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionUniquePrefixOffsetEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionUniquePrefixOffsetEntity",
-    entity_tag = EntityTag::new(0x1043),
-    pk_index = 0,
+    tag = EntityTag::new(0x1043),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text { max_len: None }),
-        ("handle", FieldKind::Text { max_len: None }),
-        ("note", FieldKind::Text { max_len: None }),
+        crate::test_field! { tier: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { handle: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { note: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&SESSION_UNIQUE_PREFIX_OFFSET_INDEX_MODELS[0]],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = SessionOrderOnlyChoiceEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "SessionOrderOnlyChoiceEntity",
-    entity_tag = EntityTag::new(0x1042),
-    pk_index = 0,
+    tag = EntityTag::new(0x1042),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
     fields = [
-        ("id", FieldKind::Ulid),
-        ("alpha", FieldKind::Text { max_len: None }),
-        ("beta", FieldKind::Text { max_len: None }),
+        crate::test_field! { alpha: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { beta: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [
         &SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS[0],
         &SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS[1],
     ],
-    store = IndexedSessionSqlStore,
-    canister = SessionSqlCanister,
 }
 
 // Reset all session SQL fixture state between tests to preserve deterministic assertions.

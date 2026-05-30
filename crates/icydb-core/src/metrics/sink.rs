@@ -118,6 +118,18 @@ pub enum SaveMutationKind {
 }
 
 ///
+/// MutationCommitClass
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum MutationCommitClass {
+    DurableOnly,
+    LiveOnly,
+    MixedDurableAndLive,
+}
+
+///
 /// SchemaReconcileOutcome
 ///
 /// Stable startup/metadata reconciliation outcomes for the schema trust
@@ -314,6 +326,10 @@ pub enum MetricsEvent {
         candidate_rows_scanned: u64,
         candidate_rows_filtered: u64,
         result_rows_emitted: u64,
+    },
+    MutationCommitPlan {
+        entity_path: &'static str,
+        class: MutationCommitClass,
     },
     NonAtomicPartialCommit {
         entity_path: &'static str,
@@ -608,6 +624,7 @@ impl MetricsSink for GlobalMetricsSink {
                         .saturating_add(result_rows_emitted);
                 });
             }
+            MetricsEvent::MutationCommitPlan { .. } => {}
             MetricsEvent::NonAtomicPartialCommit {
                 entity_path,
                 committed_rows,

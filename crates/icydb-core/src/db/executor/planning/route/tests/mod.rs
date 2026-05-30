@@ -130,22 +130,19 @@ static ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL: IndexModel = IndexModel::generate
     false,
 );
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = RouteCapabilityEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "RouteCapabilityEntity",
-    entity_tag = crate::testing::ROUTE_MATRIX_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Nat64),
-        ("label", FieldKind::Text { max_len: None }),
-        ("scores", FieldKind::List(&ROUTE_CAPABILITY_SCORE_KIND)),
-    ],
-    indexes = [&ROUTE_CAPABILITY_INDEX_MODELS[0]],
+    tag = crate::testing::ROUTE_MATRIX_ENTITY_TAG,
     store = RouteCapabilityTestStore,
     canister = RouteCapabilityTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { rank: u64 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { scores: Vec<u64> => FieldKind::List(&ROUTE_CAPABILITY_SCORE_KIND) },
+    ],
+    indexes = [&ROUTE_CAPABILITY_INDEX_MODELS[0]],
 }
 
 ///
@@ -169,20 +166,17 @@ static UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::gene
     true,
 )];
 
-crate::test_entity_schema! {
+crate::test_entity! {
     ident = UniqueRouteCapabilityEntity,
-    id = Ulid,
-    id_field = id,
     entity_name = "UniqueRouteCapabilityEntity",
-    entity_tag = crate::testing::ROUTE_MATRIX_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("code", FieldKind::Nat64),
-    ],
-    indexes = [&UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0]],
+    tag = crate::testing::ROUTE_MATRIX_ENTITY_TAG,
     store = RouteCapabilityTestStore,
     canister = RouteCapabilityTestCanister,
+    primary_key(fields = [id: Ulid => FieldKind::Ulid]),
+    fields = [
+        crate::test_field! { code: u32 => FieldKind::Nat64 },
+    ],
+    indexes = [&UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0]],
 }
 
 fn initial_scalar_continuation_context() -> ScalarContinuationContext {
