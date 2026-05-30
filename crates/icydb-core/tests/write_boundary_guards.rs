@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn read_source(relative_path: &str) -> String {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -50,6 +53,49 @@ fn read_rust_sources_under(relative_path: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn relative_source_path(path: &Path) -> String {
+    let manifest_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.strip_prefix(manifest_root)
+        .unwrap_or_else(|err| panic!("failed to relativize {}: {err}", path.display()))
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn strip_cfg_test_items(source: &str) -> String {
+    let mut output = String::new();
+    let mut pending_cfg_test = false;
+    let mut skip_depth = 0usize;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if skip_depth > 0 {
+            skip_depth = skip_depth
+                .saturating_add(line.matches('{').count())
+                .saturating_sub(line.matches('}').count());
+            continue;
+        }
+
+        if trimmed.starts_with("#[cfg(test)]") {
+            pending_cfg_test = true;
+            continue;
+        }
+        if pending_cfg_test {
+            let opens = line.matches('{').count();
+            let closes = line.matches('}').count();
+            if opens > 0 {
+                skip_depth = opens.saturating_sub(closes);
+            }
+            pending_cfg_test = false;
+            continue;
+        }
+
+        output.push_str(line);
+        output.push('\n');
+    }
+
+    output
 }
 
 fn compact_source(source: &str) -> String {
@@ -2022,5 +2068,96 @@ fn value_stays_out_of_persisted_field_contracts() {
         violations.is_empty(),
         "Value is runtime-only and must not implement persisted-field contracts:\n{}",
         violations.join("\n"),
+    );
+}
+
+#[test]
+fn storage_capability_policy_roots_do_not_branch_on_concrete_storage_modes() {
+    let checked_roots = [
+        "src/db/executor",
+        "src/db/relation",
+        "src/db/commit",
+        "src/db/diagnostics",
+    ];
+    let checked_files = ["src/db/schema/reconcile.rs"];
+    let allowed_storage_mode_files = [
+        "src/db/diagnostics/storage_report.rs",
+        "src/db/diagnostics/model.rs",
+    ];
+    let forbidden = [
+        "StoreStorage::Heap",
+        "StoreStorage::Stable",
+        "StoreRuntimeStorageMode::Heap",
+        "StoreRuntimeStorageMode::Stable",
+        "DataStoreBackend::Heap",
+        "IndexStoreBackend::Heap",
+        "SchemaStoreBackend::Heap",
+        ".storage_mode()",
+    ];
+    let mut sources = Vec::new();
+    for root in checked_roots {
+        sources.extend(rust_sources_under(root));
+    }
+    sources.extend(checked_files.iter().map(|path| {
+        let mut absolute = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        absolute.push(path);
+        absolute
+    }));
+    sources.sort();
+
+    let mut violations = Vec::new();
+    for path in sources {
+        let relative = relative_source_path(&path);
+        if relative.contains("/tests/") {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let production_source = strip_cfg_test_items(&source);
+        let symbols: Vec<&str> = forbidden
+            .iter()
+            .copied()
+            .filter(|symbol| {
+                if (*symbol == ".storage_mode()" || symbol.starts_with("StoreRuntimeStorageMode::"))
+                    && allowed_storage_mode_files.contains(&relative.as_str())
+                {
+                    return false;
+                }
+                production_source.contains(symbol)
+            })
+            .collect();
+        if !symbols.is_empty() {
+            violations.push(format!("{relative} ({})", symbols.join(", ")));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "runtime policy roots must consume storage capability axes, not concrete stable/heap storage modes:\n{}",
+        violations.join("\n"),
+    );
+}
+
+#[test]
+fn relation_and_commit_policy_consume_storage_capability_axes() {
+    let relation_save_validate = read_source("src/db/relation/save_validate.rs");
+    let commit_window = read_source("src/db/executor/mutation/commit_window.rs");
+
+    assert!(
+        relation_save_validate.contains(".storage_capabilities().relation_source()")
+            && relation_save_validate.contains(".storage_capabilities().relation_target()")
+            && relation_save_validate.contains("StoreRelationSourceCapability::DurableSource")
+            && relation_save_validate.contains("StoreRelationTargetCapability::VolatileTarget")
+            && !relation_save_validate.contains("data_is_heap_storage")
+            && !relation_save_validate.contains("strong_relation_heap_target_unsupported"),
+        "strong relation admission must be expressed through source/target relation capability axes",
+    );
+    assert!(
+        commit_window.contains(".storage_capabilities().commit_participation()")
+            && commit_window.contains("StoreCommitParticipation::Durable")
+            && commit_window.contains("StoreCommitParticipation::LiveOnly")
+            && !commit_window.contains(".storage_mode()")
+            && !commit_window.contains("StoreRuntimeStorageMode::"),
+        "mutation commit classification must consume commit-participation capabilities",
     );
 }
