@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.170.x] 🧭 - 2026-05-30 - Storage Capability And Mixed-Durability Contracts
+
+Detailed notes: [docs/changelog/0.170.md](docs/changelog/0.170.md)
+
+- `0.170.0` introduces the storage capability design and schema model for
+  allocation identity, durability, recovery, commit participation, schema
+  metadata, relation eligibility, and live validation without changing runtime
+  behavior.
+
 ## [0.169.x] 🧠 - 2026-05-29 - Heap Store Runtime Backend
 
 Detailed notes: [docs/changelog/0.169.md](docs/changelog/0.169.md)

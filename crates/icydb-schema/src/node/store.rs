@@ -7,10 +7,10 @@ use crate::prelude::*;
 ///
 /// Store
 ///
-/// Schema node describing stable IC BTreeMap memories that store:
+/// Schema node describing the storage mode for:
 /// - primary entity data
 /// - all index data for that entity
-/// - persisted schema metadata for that store
+/// - schema metadata for that store
 ///
 
 #[derive(Clone, Debug, Serialize)]
@@ -46,6 +46,223 @@ impl StoreStorage {
             Self::Stable(config) => Some(config),
             Self::Heap(_) => None,
         }
+    }
+
+    /// Return the capability descriptor derived from this storage mode.
+    #[must_use]
+    pub const fn storage_capabilities(&self) -> StoreStorageCapabilities {
+        match self {
+            Self::Stable(_) => StoreStorageCapabilities::stable(),
+            Self::Heap(_) => StoreStorageCapabilities::heap(),
+        }
+    }
+}
+
+/// Diagnostic storage mode carried by a storage capability descriptor.
+///
+/// Policy code should branch on capability axes instead of this display value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum StoreStorageMode {
+    /// Durable stable-memory storage.
+    Stable,
+    /// Volatile in-process heap storage.
+    Heap,
+}
+
+/// Whether a store storage mode owns durable stable-memory allocation identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum AllocationIdentityCapability {
+    /// Stable allocation identity is present.
+    Present,
+    /// Stable allocation identity is absent.
+    Absent,
+}
+
+/// Store durability class.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum StoreDurability {
+    /// Store contents participate in durable storage semantics.
+    Durable,
+    /// Store contents are live-only and volatile.
+    Volatile,
+}
+
+/// Store recovery capability.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum StoreRecoveryCapability {
+    /// Store contents can be recovered through stable commit replay.
+    StableCommitReplay,
+    /// Store contents are not recovered.
+    None,
+}
+
+/// Store commit participation class.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum CommitParticipation {
+    /// Store mutations participate in the durable commit path.
+    Durable,
+    /// Store mutations are live-only side effects.
+    LiveOnly,
+}
+
+/// Store schema metadata persistence class.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum SchemaMetadataCapability {
+    /// Schema metadata has durable accepted-history semantics.
+    DurableAcceptedHistory,
+    /// Schema metadata is rebuilt live and is not durable history.
+    LiveRebuiltMetadata,
+}
+
+/// Strong relation source capability for a store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum RelationSourceCapability {
+    /// Source rows can own durable relation integrity.
+    DurableSource,
+    /// Source rows can participate in live relation validation.
+    LiveSource,
+}
+
+/// Strong relation target capability for a store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum RelationTargetCapability {
+    /// Target rows can be referenced by durable source rows.
+    DurableTarget,
+    /// Target rows are volatile and cannot satisfy durable source integrity.
+    VolatileTarget,
+}
+
+/// Whether the store can participate in live validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum LiveValidationCapability {
+    /// Live validation is supported.
+    Supported,
+}
+
+/// Storage capability descriptor derived from a store storage mode.
+///
+/// Capabilities describe storage policy. They are not allocation identity.
+/// Stable allocation identity remains `memory_id + stable_key`; heap allocation
+/// identity remains absent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct StoreStorageCapabilities {
+    storage_mode: StoreStorageMode,
+    allocation_identity: AllocationIdentityCapability,
+    durability: StoreDurability,
+    recovery: StoreRecoveryCapability,
+    commit_participation: CommitParticipation,
+    schema_metadata: SchemaMetadataCapability,
+    relation_source: RelationSourceCapability,
+    relation_target: RelationTargetCapability,
+    live_validation: LiveValidationCapability,
+}
+
+impl StoreStorageCapabilities {
+    /// Capability descriptor for stable-memory stores.
+    #[must_use]
+    pub const fn stable() -> Self {
+        Self {
+            storage_mode: StoreStorageMode::Stable,
+            allocation_identity: AllocationIdentityCapability::Present,
+            durability: StoreDurability::Durable,
+            recovery: StoreRecoveryCapability::StableCommitReplay,
+            commit_participation: CommitParticipation::Durable,
+            schema_metadata: SchemaMetadataCapability::DurableAcceptedHistory,
+            relation_source: RelationSourceCapability::DurableSource,
+            relation_target: RelationTargetCapability::DurableTarget,
+            live_validation: LiveValidationCapability::Supported,
+        }
+    }
+
+    /// Capability descriptor for heap stores.
+    #[must_use]
+    pub const fn heap() -> Self {
+        Self {
+            storage_mode: StoreStorageMode::Heap,
+            allocation_identity: AllocationIdentityCapability::Absent,
+            durability: StoreDurability::Volatile,
+            recovery: StoreRecoveryCapability::None,
+            commit_participation: CommitParticipation::LiveOnly,
+            schema_metadata: SchemaMetadataCapability::LiveRebuiltMetadata,
+            relation_source: RelationSourceCapability::LiveSource,
+            relation_target: RelationTargetCapability::VolatileTarget,
+            live_validation: LiveValidationCapability::Supported,
+        }
+    }
+
+    /// Diagnostic storage mode. Policy code should use the capability axes.
+    #[must_use]
+    pub const fn storage_mode(self) -> StoreStorageMode {
+        self.storage_mode
+    }
+
+    /// Stable allocation identity capability.
+    #[must_use]
+    pub const fn allocation_identity(self) -> AllocationIdentityCapability {
+        self.allocation_identity
+    }
+
+    /// Durability capability.
+    #[must_use]
+    pub const fn durability(self) -> StoreDurability {
+        self.durability
+    }
+
+    /// Recovery capability.
+    #[must_use]
+    pub const fn recovery(self) -> StoreRecoveryCapability {
+        self.recovery
+    }
+
+    /// Commit participation capability.
+    #[must_use]
+    pub const fn commit_participation(self) -> CommitParticipation {
+        self.commit_participation
+    }
+
+    /// Schema metadata persistence capability.
+    #[must_use]
+    pub const fn schema_metadata(self) -> SchemaMetadataCapability {
+        self.schema_metadata
+    }
+
+    /// Relation source capability.
+    #[must_use]
+    pub const fn relation_source(self) -> RelationSourceCapability {
+        self.relation_source
+    }
+
+    /// Relation target capability.
+    #[must_use]
+    pub const fn relation_target(self) -> RelationTargetCapability {
+        self.relation_target
+    }
+
+    /// Live validation capability.
+    #[must_use]
+    pub const fn live_validation(self) -> LiveValidationCapability {
+        self.live_validation
+    }
+
+    /// Return whether stable allocation identity is present.
+    #[must_use]
+    pub const fn has_allocation_identity(self) -> bool {
+        matches!(
+            self.allocation_identity,
+            AllocationIdentityCapability::Present
+        )
+    }
+
+    /// Return whether mutations participate in durable commit.
+    #[must_use]
+    pub const fn participates_in_durable_commit(self) -> bool {
+        matches!(self.commit_participation, CommitParticipation::Durable)
+    }
+
+    /// Return whether the store is volatile.
+    #[must_use]
+    pub const fn is_volatile(self) -> bool {
+        matches!(self.durability, StoreDurability::Volatile)
     }
 }
 
@@ -181,6 +398,12 @@ impl Store {
     #[must_use]
     pub const fn stable_memory_config(&self) -> Option<&StoreStableMemoryConfig> {
         self.storage.stable_memory_config()
+    }
+
+    /// Return the capability descriptor derived from this store's storage mode.
+    #[must_use]
+    pub const fn storage_capabilities(&self) -> StoreStorageCapabilities {
+        self.storage.storage_capabilities()
     }
 
     #[must_use]
@@ -716,6 +939,52 @@ mod tests {
     }
 
     #[test]
+    fn stable_store_storage_capabilities_describe_durable_contract() {
+        let store = Store::new_stable(
+            Def::new("demo::rpg", "CharacterStore"),
+            "CHARACTER_STORE",
+            "characters",
+            "demo::rpg::Canister",
+            StoreStableMemoryConfig::new(110, 111, 112),
+        );
+        let capabilities = store.storage_capabilities();
+
+        assert_eq!(capabilities.storage_mode(), StoreStorageMode::Stable);
+        assert_eq!(
+            capabilities.allocation_identity(),
+            AllocationIdentityCapability::Present,
+        );
+        assert_eq!(capabilities.durability(), StoreDurability::Durable);
+        assert_eq!(
+            capabilities.recovery(),
+            StoreRecoveryCapability::StableCommitReplay,
+        );
+        assert_eq!(
+            capabilities.commit_participation(),
+            CommitParticipation::Durable,
+        );
+        assert_eq!(
+            capabilities.schema_metadata(),
+            SchemaMetadataCapability::DurableAcceptedHistory,
+        );
+        assert_eq!(
+            capabilities.relation_source(),
+            RelationSourceCapability::DurableSource,
+        );
+        assert_eq!(
+            capabilities.relation_target(),
+            RelationTargetCapability::DurableTarget,
+        );
+        assert_eq!(
+            capabilities.live_validation(),
+            LiveValidationCapability::Supported,
+        );
+        assert!(capabilities.has_allocation_identity());
+        assert!(capabilities.participates_in_durable_commit());
+        assert!(!capabilities.is_volatile());
+    }
+
+    #[test]
     fn store_owns_explicit_heap_storage_config() {
         insert_canister("store_heap_config", "Canister");
         let store = Store::new_heap(
@@ -730,6 +999,107 @@ mod tests {
         assert!(!store.is_stable_storage());
         assert!(store.stable_memory_config().is_none());
         assert!(store.validate().is_ok());
+    }
+
+    #[test]
+    fn heap_store_storage_capabilities_describe_volatile_contract() {
+        let store = Store::new_heap(
+            Def::new("store_heap_capabilities", "Store"),
+            "STORE",
+            "heap_store",
+            "store_heap_capabilities::Canister",
+            StoreHeapConfig::new(),
+        );
+        let capabilities = store.storage_capabilities();
+
+        assert_eq!(capabilities.storage_mode(), StoreStorageMode::Heap);
+        assert_eq!(
+            capabilities.allocation_identity(),
+            AllocationIdentityCapability::Absent,
+        );
+        assert_eq!(capabilities.durability(), StoreDurability::Volatile);
+        assert_eq!(capabilities.recovery(), StoreRecoveryCapability::None);
+        assert_eq!(
+            capabilities.commit_participation(),
+            CommitParticipation::LiveOnly,
+        );
+        assert_eq!(
+            capabilities.schema_metadata(),
+            SchemaMetadataCapability::LiveRebuiltMetadata,
+        );
+        assert_eq!(
+            capabilities.relation_source(),
+            RelationSourceCapability::LiveSource,
+        );
+        assert_eq!(
+            capabilities.relation_target(),
+            RelationTargetCapability::VolatileTarget,
+        );
+        assert_eq!(
+            capabilities.live_validation(),
+            LiveValidationCapability::Supported,
+        );
+        assert!(!capabilities.has_allocation_identity());
+        assert!(!capabilities.participates_in_durable_commit());
+        assert!(capabilities.is_volatile());
+    }
+
+    #[test]
+    fn storage_capabilities_are_not_allocation_identity() {
+        let store_a = Store::new_stable(
+            Def::new("demo::rpg", "CharacterStore"),
+            "CHARACTER_STORE",
+            "characters",
+            "demo::rpg::Canister",
+            StoreStableMemoryConfig::new(110, 111, 112),
+        );
+        let store_b = Store::new_stable(
+            Def::new("demo::rpg", "InventoryStore"),
+            "INVENTORY_STORE",
+            "inventory",
+            "demo::rpg::Canister",
+            StoreStableMemoryConfig::new(120, 121, 122),
+        );
+
+        assert_eq!(
+            store_a.storage_capabilities(),
+            store_b.storage_capabilities()
+        );
+        assert_ne!(
+            store_a.stable_data_allocation("demo_rpg"),
+            store_b.stable_data_allocation("demo_rpg"),
+            "stable allocation identity must remain separate from capabilities",
+        );
+    }
+
+    #[test]
+    fn capability_consumers_use_axes_not_storage_mode() {
+        const fn commit_label(capabilities: StoreStorageCapabilities) -> &'static str {
+            match capabilities.commit_participation() {
+                CommitParticipation::Durable => "durable",
+                CommitParticipation::LiveOnly => "live-only",
+            }
+        }
+
+        let future_durable_heap_mode = StoreStorageCapabilities {
+            storage_mode: StoreStorageMode::Heap,
+            allocation_identity: AllocationIdentityCapability::Present,
+            durability: StoreDurability::Durable,
+            recovery: StoreRecoveryCapability::StableCommitReplay,
+            commit_participation: CommitParticipation::Durable,
+            schema_metadata: SchemaMetadataCapability::DurableAcceptedHistory,
+            relation_source: RelationSourceCapability::DurableSource,
+            relation_target: RelationTargetCapability::DurableTarget,
+            live_validation: LiveValidationCapability::Supported,
+        };
+
+        assert_eq!(commit_label(future_durable_heap_mode), "durable");
+        assert!(future_durable_heap_mode.participates_in_durable_commit());
+        assert_eq!(
+            future_durable_heap_mode.storage_mode(),
+            StoreStorageMode::Heap,
+            "the diagnostic storage mode must not drive commit policy",
+        );
     }
 
     #[test]
