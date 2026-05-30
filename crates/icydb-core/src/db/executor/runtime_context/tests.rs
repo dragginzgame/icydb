@@ -61,7 +61,12 @@ fn test_store_handle() -> StoreHandle {
         &TEST_RUNTIME_CONTEXT_DATA_STORE,
         &TEST_RUNTIME_CONTEXT_INDEX_STORE,
         &TEST_RUNTIME_CONTEXT_SCHEMA_STORE,
-        crate::db::StoreAllocationIdentities::absent(),
+        crate::db::StoreAllocationIdentities::new(
+            crate::db::StoreAllocationIdentity::new(171, "icydb.test.runtime_context.data.v1"),
+            crate::db::StoreAllocationIdentity::new(172, "icydb.test.runtime_context.index.v1"),
+            crate::db::StoreAllocationIdentity::new(173, "icydb.test.runtime_context.schema.v1"),
+        ),
+        crate::db::StoreRuntimeStorageCapabilities::stable(),
     )
 }
 

@@ -345,6 +345,8 @@ where
     E: EntityKind + EntityValue,
 {
     let source_store = db.with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
+    // 0.170.3: move this relation policy check onto relation source/target
+    // capability axes instead of the diagnostic storage mode projection.
     if !source_store.data_is_heap_storage() && target_store.data_is_heap_storage() {
         return Err(InternalError::strong_relation_heap_target_unsupported(
             E::PATH,

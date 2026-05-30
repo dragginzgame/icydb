@@ -7,15 +7,14 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         codec::hex::encode_hex_lower,
-        data::{DataStore, DecodedDataStoreKey, StoreVisit},
+        data::{DecodedDataStoreKey, StoreVisit},
         diagnostics::{
             DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IndexStoreSnapshotStats,
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
             StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
         },
-        index::{IndexKey, IndexStore, IndexStoreVisit},
-        registry::StoreAllocationIdentity,
-        schema::SchemaStore,
+        index::{IndexKey, IndexStoreVisit},
+        registry::{StoreAllocationIdentity, StoreRuntimeStorageMode},
     },
     error::InternalError,
     traits::CanisterKind,
@@ -136,27 +135,10 @@ fn snapshot_role_metadata(
     )
 }
 
-const fn data_store_snapshot_mode(store: &DataStore) -> StoreSnapshotStorageMode {
-    if store.is_heap_storage() {
-        StoreSnapshotStorageMode::Heap
-    } else {
-        StoreSnapshotStorageMode::Stable
-    }
-}
-
-const fn index_store_snapshot_mode(store: &IndexStore) -> StoreSnapshotStorageMode {
-    if store.is_heap_storage() {
-        StoreSnapshotStorageMode::Heap
-    } else {
-        StoreSnapshotStorageMode::Stable
-    }
-}
-
-const fn schema_store_snapshot_mode(store: &SchemaStore) -> StoreSnapshotStorageMode {
-    if store.is_heap_storage() {
-        StoreSnapshotStorageMode::Heap
-    } else {
-        StoreSnapshotStorageMode::Stable
+const fn snapshot_storage_mode(mode: StoreRuntimeStorageMode) -> StoreSnapshotStorageMode {
+    match mode {
+        StoreRuntimeStorageMode::Stable => StoreSnapshotStorageMode::Stable,
+        StoreRuntimeStorageMode::Heap => StoreSnapshotStorageMode::Heap,
     }
 }
 
@@ -344,6 +326,8 @@ fn build_storage_report<C: CanisterKind>(
             let data_allocation = store_handle.data_allocation();
             let index_allocation = store_handle.index_allocation();
             let schema_allocation = store_handle.schema_allocation();
+            let capabilities = store_handle.storage_capabilities();
+            let storage_mode = snapshot_storage_mode(capabilities.storage_mode());
             let (data_metadata, index_metadata, schema_metadata, schema_entity_count) =
                 snapshot_role_metadata(
                     store_handle.with_schema(crate::db::schema::SchemaStore::allocation_metadata),
@@ -352,7 +336,8 @@ fn build_storage_report<C: CanisterKind>(
             store_handle.with_data(|store| {
                 data.push(DataStoreSnapshot::new(
                     path.to_string(),
-                    data_store_snapshot_mode(store),
+                    storage_mode,
+                    capabilities,
                     data_allocation.map(snapshot_allocation_identity),
                     data_metadata,
                     store.len(),
@@ -400,7 +385,8 @@ fn build_storage_report<C: CanisterKind>(
 
                 index.push(IndexStoreSnapshot::new(
                     path.to_string(),
-                    index_store_snapshot_mode(store),
+                    storage_mode,
+                    capabilities,
                     index_allocation.map(snapshot_allocation_identity),
                     index_metadata,
                     IndexStoreSnapshotStats::new(
@@ -413,10 +399,11 @@ fn build_storage_report<C: CanisterKind>(
                 ));
             });
 
-            store_handle.with_schema(|store| {
+            store_handle.with_schema(|_| {
                 schema.push(SchemaStoreSnapshot::new(
                     path.to_string(),
-                    schema_store_snapshot_mode(store),
+                    storage_mode,
+                    capabilities,
                     schema_allocation.map(snapshot_allocation_identity),
                     schema_metadata,
                     schema_entity_count,

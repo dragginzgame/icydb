@@ -100,10 +100,15 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     output
 }
 
-fn data_store_row(row: &DataStoreSnapshot) -> [String; 8] {
+fn data_store_row(row: &DataStoreSnapshot) -> [String; 13] {
     [
         row.path().to_string(),
         row.storage().as_str().to_string(),
+        row.allocation().as_str().to_string(),
+        row.durability().as_str().to_string(),
+        row.commit().as_str().to_string(),
+        row.recovery().as_str().to_string(),
+        row.schema_metadata().as_str().to_string(),
         format_optional_u8(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
         format_optional_u32(row.schema_version()),
@@ -113,10 +118,15 @@ fn data_store_row(row: &DataStoreSnapshot) -> [String; 8] {
     ]
 }
 
-fn index_store_row(row: &IndexStoreSnapshot) -> [String; 11] {
+fn index_store_row(row: &IndexStoreSnapshot) -> [String; 16] {
     [
         row.path().to_string(),
         row.storage().as_str().to_string(),
+        row.allocation().as_str().to_string(),
+        row.durability().as_str().to_string(),
+        row.commit().as_str().to_string(),
+        row.recovery().as_str().to_string(),
+        row.schema_metadata().as_str().to_string(),
         format_optional_u8(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
         format_optional_u32(row.schema_version()),
@@ -129,10 +139,15 @@ fn index_store_row(row: &IndexStoreSnapshot) -> [String; 11] {
     ]
 }
 
-fn schema_store_row(row: &SchemaStoreSnapshot) -> [String; 7] {
+fn schema_store_row(row: &SchemaStoreSnapshot) -> [String; 12] {
     [
         row.path().to_string(),
         row.storage().as_str().to_string(),
+        row.allocation().as_str().to_string(),
+        row.durability().as_str().to_string(),
+        row.commit().as_str().to_string(),
+        row.recovery().as_str().to_string(),
+        row.schema_metadata().as_str().to_string(),
         format_optional_u8(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
         row.schema_version()
@@ -159,13 +174,18 @@ fn entity_storage_row(path: &str, store: &str, entries: u64, memory_bytes: u64) 
     ]
 }
 
-fn append_data_store_table(output: &mut String, rows: &[[String; 8]]) {
+fn append_data_store_table(output: &mut String, rows: &[[String; 13]]) {
     append_snapshot_table(
         output,
         "data stores",
         &[
             "path",
             "storage",
+            "alloc",
+            "durability",
+            "commit",
+            "recovery",
+            "schema meta",
             "mem",
             "stable key",
             "version",
@@ -175,6 +195,11 @@ fn append_data_store_table(output: &mut String, rows: &[[String; 8]]) {
         ],
         rows,
         &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Right,
@@ -187,13 +212,18 @@ fn append_data_store_table(output: &mut String, rows: &[[String; 8]]) {
     );
 }
 
-fn append_index_store_table(output: &mut String, rows: &[[String; 11]]) {
+fn append_index_store_table(output: &mut String, rows: &[[String; 16]]) {
     append_snapshot_table(
         output,
         "index stores",
         &[
             "path",
             "storage",
+            "alloc",
+            "durability",
+            "commit",
+            "recovery",
+            "schema meta",
             "mem",
             "stable key",
             "version",
@@ -208,6 +238,11 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 11]]) {
         &[
             ColumnAlign::Left,
             ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
             ColumnAlign::Right,
             ColumnAlign::Left,
             ColumnAlign::Right,
@@ -221,13 +256,18 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 11]]) {
     );
 }
 
-fn append_schema_store_table(output: &mut String, rows: &[[String; 7]]) {
+fn append_schema_store_table(output: &mut String, rows: &[[String; 12]]) {
     append_snapshot_table(
         output,
         "schema stores",
         &[
             "path",
             "storage",
+            "alloc",
+            "durability",
+            "commit",
+            "recovery",
+            "schema meta",
             "mem",
             "stable key",
             "version",
@@ -236,6 +276,11 @@ fn append_schema_store_table(output: &mut String, rows: &[[String; 7]]) {
         ],
         rows,
         &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Right,

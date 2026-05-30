@@ -630,7 +630,12 @@ thread_local! {
             &RECOVERY_DATA_STORE,
             &RECOVERY_INDEX_STORE,
             &RECOVERY_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(19, "icydb.test.recovery.data.v1"),
+                crate::db::StoreAllocationIdentity::new(20, "icydb.test.recovery.index.v1"),
+                crate::db::StoreAllocationIdentity::new(21, "icydb.test.recovery.schema.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
             .expect("test store registration should succeed");
         reg

@@ -3,6 +3,8 @@ use crate::db::{
     index::{IndexState, IndexStore},
     schema::SchemaStore,
 };
+use candid::CandidType;
+use serde::Deserialize;
 use std::{cell::RefCell, thread::LocalKey};
 
 ///
@@ -20,6 +22,267 @@ pub struct StoreHandle {
     index: &'static LocalKey<RefCell<IndexStore>>,
     schema: &'static LocalKey<RefCell<SchemaStore>>,
     allocations: StoreAllocationIdentities,
+    capabilities: StoreRuntimeStorageCapabilities,
+}
+
+/// Diagnostic storage mode carried by a runtime storage capability descriptor.
+///
+/// Policy code should branch on capability axes instead of this display value.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreRuntimeStorageMode {
+    /// Durable stable-memory storage.
+    #[default]
+    Stable,
+    /// Volatile in-process heap storage.
+    Heap,
+}
+
+impl StoreRuntimeStorageMode {
+    /// Return the user-facing storage mode label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Heap => "heap",
+        }
+    }
+}
+
+/// Whether a store owns durable allocation identity.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreAllocationIdentityCapability {
+    /// Stable allocation identity is present.
+    #[default]
+    Present,
+    /// Stable allocation identity is absent.
+    Absent,
+}
+
+impl StoreAllocationIdentityCapability {
+    /// Return the user-facing capability label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::Absent => "absent",
+        }
+    }
+}
+
+/// Store durability class.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreDurability {
+    /// Store contents participate in durable storage semantics.
+    #[default]
+    Durable,
+    /// Store contents are live-only and volatile.
+    Volatile,
+}
+
+impl StoreDurability {
+    /// Return the user-facing durability label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Durable => "durable",
+            Self::Volatile => "volatile",
+        }
+    }
+}
+
+/// Store recovery capability.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreRecoveryCapability {
+    /// Store contents can be recovered through stable commit replay.
+    #[default]
+    StableCommitReplay,
+    /// Store contents are not recovered.
+    None,
+}
+
+impl StoreRecoveryCapability {
+    /// Return the user-facing recovery label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StableCommitReplay => "stable-replay",
+            Self::None => "none",
+        }
+    }
+}
+
+/// Store commit participation class.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreCommitParticipation {
+    /// Store mutations participate in the durable commit path.
+    #[default]
+    Durable,
+    /// Store mutations are live-only side effects.
+    LiveOnly,
+}
+
+impl StoreCommitParticipation {
+    /// Return the user-facing commit-participation label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Durable => "durable",
+            Self::LiveOnly => "live-only",
+        }
+    }
+}
+
+/// Store schema metadata persistence class.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreSchemaMetadataCapability {
+    /// Schema metadata has durable accepted-history semantics.
+    #[default]
+    DurableAcceptedHistory,
+    /// Schema metadata is rebuilt live and is not durable history.
+    LiveRebuiltMetadata,
+}
+
+impl StoreSchemaMetadataCapability {
+    /// Return the user-facing schema-metadata capability label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DurableAcceptedHistory => "durable-accepted-history",
+            Self::LiveRebuiltMetadata => "live-rebuilt-metadata",
+        }
+    }
+}
+
+/// Strong relation source capability for a store.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreRelationSourceCapability {
+    /// Source rows can own durable relation integrity.
+    #[default]
+    DurableSource,
+    /// Source rows can participate in live relation validation.
+    LiveSource,
+}
+
+/// Strong relation target capability for a store.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreRelationTargetCapability {
+    /// Target rows can be referenced by durable source rows.
+    #[default]
+    DurableTarget,
+    /// Target rows are volatile and cannot satisfy durable source integrity.
+    VolatileTarget,
+}
+
+/// Whether the store can participate in live validation.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub enum StoreLiveValidationCapability {
+    /// Live validation is supported.
+    #[default]
+    Supported,
+}
+
+/// Runtime storage capability descriptor carried by one registered store.
+///
+/// Capabilities describe storage policy. They are not allocation identity.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct StoreRuntimeStorageCapabilities {
+    storage_mode: StoreRuntimeStorageMode,
+    allocation_identity: StoreAllocationIdentityCapability,
+    durability: StoreDurability,
+    recovery: StoreRecoveryCapability,
+    commit_participation: StoreCommitParticipation,
+    schema_metadata: StoreSchemaMetadataCapability,
+    relation_source: StoreRelationSourceCapability,
+    relation_target: StoreRelationTargetCapability,
+    live_validation: StoreLiveValidationCapability,
+}
+
+impl StoreRuntimeStorageCapabilities {
+    /// Capability descriptor for stable-memory stores.
+    #[must_use]
+    pub const fn stable() -> Self {
+        Self {
+            storage_mode: StoreRuntimeStorageMode::Stable,
+            allocation_identity: StoreAllocationIdentityCapability::Present,
+            durability: StoreDurability::Durable,
+            recovery: StoreRecoveryCapability::StableCommitReplay,
+            commit_participation: StoreCommitParticipation::Durable,
+            schema_metadata: StoreSchemaMetadataCapability::DurableAcceptedHistory,
+            relation_source: StoreRelationSourceCapability::DurableSource,
+            relation_target: StoreRelationTargetCapability::DurableTarget,
+            live_validation: StoreLiveValidationCapability::Supported,
+        }
+    }
+
+    /// Capability descriptor for heap stores.
+    #[must_use]
+    pub const fn heap() -> Self {
+        Self {
+            storage_mode: StoreRuntimeStorageMode::Heap,
+            allocation_identity: StoreAllocationIdentityCapability::Absent,
+            durability: StoreDurability::Volatile,
+            recovery: StoreRecoveryCapability::None,
+            commit_participation: StoreCommitParticipation::LiveOnly,
+            schema_metadata: StoreSchemaMetadataCapability::LiveRebuiltMetadata,
+            relation_source: StoreRelationSourceCapability::LiveSource,
+            relation_target: StoreRelationTargetCapability::VolatileTarget,
+            live_validation: StoreLiveValidationCapability::Supported,
+        }
+    }
+
+    /// Diagnostic storage mode. Policy code should use the capability axes.
+    #[must_use]
+    pub const fn storage_mode(self) -> StoreRuntimeStorageMode {
+        self.storage_mode
+    }
+
+    /// Allocation identity capability.
+    #[must_use]
+    pub const fn allocation_identity(self) -> StoreAllocationIdentityCapability {
+        self.allocation_identity
+    }
+
+    /// Durability capability.
+    #[must_use]
+    pub const fn durability(self) -> StoreDurability {
+        self.durability
+    }
+
+    /// Recovery capability.
+    #[must_use]
+    pub const fn recovery(self) -> StoreRecoveryCapability {
+        self.recovery
+    }
+
+    /// Commit participation capability.
+    #[must_use]
+    pub const fn commit_participation(self) -> StoreCommitParticipation {
+        self.commit_participation
+    }
+
+    /// Schema metadata persistence capability.
+    #[must_use]
+    pub const fn schema_metadata(self) -> StoreSchemaMetadataCapability {
+        self.schema_metadata
+    }
+
+    /// Relation source capability.
+    #[must_use]
+    pub const fn relation_source(self) -> StoreRelationSourceCapability {
+        self.relation_source
+    }
+
+    /// Relation target capability.
+    #[must_use]
+    pub const fn relation_target(self) -> StoreRelationTargetCapability {
+        self.relation_target
+    }
+
+    /// Live validation capability.
+    #[must_use]
+    pub const fn live_validation(self) -> StoreLiveValidationCapability {
+        self.live_validation
+    }
 }
 
 ///
@@ -113,6 +376,17 @@ impl StoreAllocationIdentities {
     pub const fn schema(self) -> Option<StoreAllocationIdentity> {
         self.schema
     }
+
+    /// Return the allocation capability represented by this triplet, or
+    /// `None` if the triplet is partially populated and therefore invalid.
+    #[must_use]
+    pub const fn allocation_identity_capability(self) -> Option<StoreAllocationIdentityCapability> {
+        match (self.data, self.index, self.schema) {
+            (Some(_), Some(_), Some(_)) => Some(StoreAllocationIdentityCapability::Present),
+            (None, None, None) => Some(StoreAllocationIdentityCapability::Absent),
+            _ => None,
+        }
+    }
 }
 
 impl StoreHandle {
@@ -123,12 +397,14 @@ impl StoreHandle {
         index: &'static LocalKey<RefCell<IndexStore>>,
         schema: &'static LocalKey<RefCell<SchemaStore>>,
         allocations: StoreAllocationIdentities,
+        capabilities: StoreRuntimeStorageCapabilities,
     ) -> Self {
         Self {
             data,
             index,
             schema,
             allocations,
+            capabilities,
         }
     }
 
@@ -190,8 +466,11 @@ impl StoreHandle {
 
     /// Return whether this handle's data store is heap-backed and volatile.
     #[must_use]
-    pub(in crate::db) fn data_is_heap_storage(&self) -> bool {
-        self.with_data(DataStore::is_heap_storage)
+    pub(in crate::db) const fn data_is_heap_storage(&self) -> bool {
+        matches!(
+            self.capabilities.storage_mode(),
+            StoreRuntimeStorageMode::Heap
+        )
     }
 
     /// Mark the bound index store as Building.
@@ -241,5 +520,11 @@ impl StoreHandle {
     #[must_use]
     pub const fn schema_allocation(&self) -> Option<StoreAllocationIdentity> {
         self.allocations.schema()
+    }
+
+    /// Return this store's explicit runtime storage capabilities.
+    #[must_use]
+    pub const fn storage_capabilities(&self) -> StoreRuntimeStorageCapabilities {
+        self.capabilities
     }
 }

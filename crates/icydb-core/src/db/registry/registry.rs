@@ -2,7 +2,10 @@ use crate::{
     db::{
         data::DataStore,
         index::IndexStore,
-        registry::{StoreAllocationIdentities, StoreHandle, StoreRegistryError},
+        registry::{
+            StoreAllocationIdentities, StoreHandle, StoreRegistryError,
+            StoreRuntimeStorageCapabilities,
+        },
         schema::SchemaStore,
     },
     error::InternalError,
@@ -53,6 +56,7 @@ impl StoreRegistry {
         index: &'static LocalKey<RefCell<IndexStore>>,
         schema: &'static LocalKey<RefCell<SchemaStore>>,
         allocations: StoreAllocationIdentities,
+        capabilities: StoreRuntimeStorageCapabilities,
     ) -> Result<(), InternalError> {
         if self
             .stores
@@ -81,8 +85,17 @@ impl StoreRegistry {
             .into());
         }
 
-        self.stores
-            .push((name, StoreHandle::new(data, index, schema, allocations)));
+        if allocations.allocation_identity_capability() != Some(capabilities.allocation_identity())
+        {
+            return Err(
+                StoreRegistryError::StoreAllocationCapabilityMismatch(name.to_string()).into(),
+            );
+        }
+
+        self.stores.push((
+            name,
+            StoreHandle::new(data, index, schema, allocations, capabilities),
+        ));
 
         Ok(())
     }

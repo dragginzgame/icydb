@@ -139,7 +139,12 @@ thread_local! {
             &SESSION_SQL_DATA_STORE,
             &SESSION_SQL_INDEX_STORE,
             &SESSION_SQL_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(160, "icydb.test.session.data.v1"),
+                crate::db::StoreAllocationIdentity::new(161, "icydb.test.session.index.v1"),
+                crate::db::StoreAllocationIdentity::new(164, "icydb.test.session.schema.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("SQL session test store registration should succeed");
         reg
@@ -157,7 +162,21 @@ thread_local! {
             &INDEXED_SESSION_SQL_DATA_STORE,
             &INDEXED_SESSION_SQL_INDEX_STORE,
             &INDEXED_SESSION_SQL_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(
+                    162,
+                    "icydb.test.indexed_session.data.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    163,
+                    "icydb.test.indexed_session.index.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    165,
+                    "icydb.test.indexed_session.schema.v1",
+                ),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("indexed SQL session test store registration should succeed");
         reg
@@ -176,6 +195,7 @@ thread_local! {
             &HEAP_SESSION_SQL_INDEX_STORE,
             &HEAP_SESSION_SQL_SCHEMA_STORE,
             crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreRuntimeStorageCapabilities::heap(),
         )
         .expect("heap SQL session test store registration should succeed");
         reg
@@ -187,7 +207,12 @@ thread_local! {
             &SESSION_SQL_DATA_STORE,
             &SESSION_SQL_INDEX_STORE,
             &SESSION_SQL_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(160, "icydb.test.session.data.v1"),
+                crate::db::StoreAllocationIdentity::new(161, "icydb.test.session.index.v1"),
+                crate::db::StoreAllocationIdentity::new(164, "icydb.test.session.schema.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("mixed relation stable store registration should succeed");
         reg.register_store(
@@ -196,6 +221,7 @@ thread_local! {
             &HEAP_SESSION_SQL_INDEX_STORE,
             &HEAP_SESSION_SQL_SCHEMA_STORE,
             crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreRuntimeStorageCapabilities::heap(),
         )
         .expect("mixed relation heap store registration should succeed");
         reg

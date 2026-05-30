@@ -70,7 +70,21 @@ thread_local! {
             &FAST_STREAM_INVARIANT_DATA_STORE,
             &FAST_STREAM_INVARIANT_INDEX_STORE,
             &FAST_STREAM_INVARIANT_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(
+                    170,
+                    "icydb.test.fast_stream.data.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    171,
+                    "icydb.test.fast_stream.index.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    172,
+                    "icydb.test.fast_stream.schema.v1",
+                ),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("fast-stream invariant test store registration should succeed");
         reg

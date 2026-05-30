@@ -168,6 +168,7 @@ pub mod __macro {
         DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, PersistedRow,
         PrimaryKeyComponent, PrimaryKeyValue, SchemaStore, SlotReader, SlotWriter,
         StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
+        StoreRuntimeStorageCapabilities,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{

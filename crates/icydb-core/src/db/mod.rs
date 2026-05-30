@@ -141,7 +141,13 @@ pub use query::{
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
     trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
 };
-pub use registry::{StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry};
+pub use registry::{
+    StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
+    StoreCommitParticipation, StoreDurability, StoreLiveValidationCapability,
+    StoreRecoveryCapability, StoreRegistry, StoreRelationSourceCapability,
+    StoreRelationTargetCapability, StoreRuntimeStorageCapabilities, StoreRuntimeStorageMode,
+    StoreSchemaMetadataCapability,
+};
 pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
     PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, ProjectionResponse,

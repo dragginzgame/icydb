@@ -79,12 +79,6 @@ impl DataStore {
         }
     }
 
-    /// Return whether this data store is heap-backed and volatile.
-    #[must_use]
-    pub(in crate::db) const fn is_heap_storage(&self) -> bool {
-        matches!(self.backend, DataStoreBackend::Heap(_))
-    }
-
     /// Insert or replace one row by raw key.
     pub(in crate::db) fn insert(
         &mut self,

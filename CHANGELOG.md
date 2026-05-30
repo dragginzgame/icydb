@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### Changed
+
+- Hard-cuts runtime store handles and snapshot diagnostics onto explicit
+  storage capability descriptors for the next 0.170 patch.
+
 ## [0.170.x] 🧭 - 2026-05-30 - Storage Capability And Mixed-Durability Contracts
 
 Detailed notes: [docs/changelog/0.170.md](docs/changelog/0.170.md)

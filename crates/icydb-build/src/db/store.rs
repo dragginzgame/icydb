@@ -172,6 +172,7 @@ fn stable_store_registry_entry_tokens(
                     #schema_stable_key,
                 ),
             ),
+            ::icydb::__macro::StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("store registration should succeed");
     };
@@ -223,6 +224,7 @@ fn heap_store_registry_entry_tokens(
             &#index_cell_ident,
             &#schema_cell_ident,
             ::icydb::__macro::StoreAllocationIdentities::absent(),
+            ::icydb::__macro::StoreRuntimeStorageCapabilities::heap(),
         )
         .expect("store registration should succeed");
     };
@@ -355,6 +357,7 @@ mod tests {
             rendered.matches("StoreAllocationIdentity :: new").count(),
             3
         );
+        assert!(rendered.contains("StoreRuntimeStorageCapabilities :: stable"));
         for expected in ["id = 10u8", "id = 11u8", "id = 12u8"] {
             assert!(
                 rendered.contains(expected),
@@ -384,6 +387,7 @@ mod tests {
         assert!(rendered.contains("IndexStore :: init_heap"));
         assert!(rendered.contains("SchemaStore :: init_heap"));
         assert!(rendered.contains("StoreAllocationIdentities :: absent"));
+        assert!(rendered.contains("StoreRuntimeStorageCapabilities :: heap"));
         assert_eq!(rendered.matches("ic_memory_key").count(), 0);
         assert_eq!(
             rendered.matches("StoreAllocationIdentity :: new").count(),

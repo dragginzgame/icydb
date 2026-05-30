@@ -27,7 +27,11 @@ use crate::{
             RawIndexStoreKey,
         },
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
-        registry::{StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry},
+        registry::{
+            StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
+            StoreCommitParticipation, StoreDurability, StoreRecoveryCapability, StoreRegistry,
+            StoreRuntimeStorageCapabilities, StoreSchemaMetadataCapability,
+        },
         relation::validate_delete_strong_relations_for_source,
         schema::{
             AcceptedSchemaSnapshot, SchemaStore, accepted_commit_schema_fingerprint,
@@ -165,7 +169,12 @@ thread_local! {
                 &STORE_Z_DATA,
                 &STORE_Z_INDEX,
                 &STORE_Z_SCHEMA,
-                crate::db::StoreAllocationIdentities::absent(),
+                StoreAllocationIdentities::new(
+                    StoreAllocationIdentity::new(153, "icydb.test.store_z.data.v1"),
+                    StoreAllocationIdentity::new(154, "icydb.test.store_z.index.v1"),
+                    StoreAllocationIdentity::new(157, "icydb.test.store_z.schema.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::stable(),
             )
             .expect("diagnostics test z-store registration should succeed");
         registry
@@ -175,6 +184,7 @@ thread_local! {
                 &STORE_HEAP_INDEX,
                 &STORE_HEAP_SCHEMA,
                 crate::db::StoreAllocationIdentities::absent(),
+                StoreRuntimeStorageCapabilities::heap(),
             )
             .expect("diagnostics test heap-store registration should succeed");
         registry
@@ -188,6 +198,7 @@ thread_local! {
                     StoreAllocationIdentity::new(156, "icydb.test.store_a.index.v1"),
                     StoreAllocationIdentity::new(158, "icydb.test.store_a.schema.v1"),
                 ),
+                StoreRuntimeStorageCapabilities::stable(),
             )
             .expect("diagnostics test a-store registration should succeed");
         registry
@@ -495,16 +506,49 @@ fn assert_heap_store_snapshot_is_volatile(report: &StorageReport) {
         .expect("index snapshot should contain heap store");
     let schema_heap = schema_snapshot(report, STORE_HEAP_PATH);
     assert_eq!(data_heap.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(
+        data_heap.allocation(),
+        StoreAllocationIdentityCapability::Absent
+    );
+    assert_eq!(data_heap.durability(), StoreDurability::Volatile);
+    assert_eq!(data_heap.commit(), StoreCommitParticipation::LiveOnly);
+    assert_eq!(data_heap.recovery(), StoreRecoveryCapability::None);
+    assert_eq!(
+        data_heap.schema_metadata(),
+        StoreSchemaMetadataCapability::LiveRebuiltMetadata
+    );
     assert_eq!(data_heap.memory_id(), None);
     assert_eq!(data_heap.stable_key(), None);
     assert_eq!(data_heap.schema_version(), None);
     assert_eq!(data_heap.schema_fingerprint(), None);
     assert_eq!(index_heap.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(
+        index_heap.allocation(),
+        StoreAllocationIdentityCapability::Absent
+    );
+    assert_eq!(index_heap.durability(), StoreDurability::Volatile);
+    assert_eq!(index_heap.commit(), StoreCommitParticipation::LiveOnly);
+    assert_eq!(index_heap.recovery(), StoreRecoveryCapability::None);
+    assert_eq!(
+        index_heap.schema_metadata(),
+        StoreSchemaMetadataCapability::LiveRebuiltMetadata
+    );
     assert_eq!(index_heap.memory_id(), None);
     assert_eq!(index_heap.stable_key(), None);
     assert_eq!(index_heap.schema_version(), None);
     assert_eq!(index_heap.schema_fingerprint(), None);
     assert_eq!(schema_heap.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(
+        schema_heap.allocation(),
+        StoreAllocationIdentityCapability::Absent
+    );
+    assert_eq!(schema_heap.durability(), StoreDurability::Volatile);
+    assert_eq!(schema_heap.commit(), StoreCommitParticipation::LiveOnly);
+    assert_eq!(schema_heap.recovery(), StoreRecoveryCapability::None);
+    assert_eq!(
+        schema_heap.schema_metadata(),
+        StoreSchemaMetadataCapability::LiveRebuiltMetadata
+    );
     assert_eq!(schema_heap.memory_id(), None);
     assert_eq!(schema_heap.stable_key(), None);
     assert_eq!(schema_heap.schema_version(), None);
@@ -540,28 +584,76 @@ fn expect_record_fields(ty: Type) -> Vec<String> {
     }
 }
 
-#[test]
-fn storage_report_empty_store_snapshot() {
-    reset_stores();
-
-    let report = diagnostics_report(&[]);
-
-    assert_eq!(report.corrupted_keys(), 0);
-    assert_eq!(report.corrupted_entries(), 0);
-    assert!(report.entity_storage().is_empty());
-
+fn assert_stable_data_capabilities(snapshot: &DataStoreSnapshot) {
+    assert_eq!(snapshot.storage(), StoreSnapshotStorageMode::Stable);
     assert_eq!(
-        data_paths(&report),
+        snapshot.allocation(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(snapshot.durability(), StoreDurability::Durable);
+    assert_eq!(snapshot.commit(), StoreCommitParticipation::Durable);
+    assert_eq!(
+        snapshot.recovery(),
+        StoreRecoveryCapability::StableCommitReplay
+    );
+    assert_eq!(
+        snapshot.schema_metadata(),
+        StoreSchemaMetadataCapability::DurableAcceptedHistory
+    );
+}
+
+fn assert_stable_index_capabilities(snapshot: &IndexStoreSnapshot) {
+    assert_eq!(snapshot.storage(), StoreSnapshotStorageMode::Stable);
+    assert_eq!(
+        snapshot.allocation(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(snapshot.durability(), StoreDurability::Durable);
+    assert_eq!(snapshot.commit(), StoreCommitParticipation::Durable);
+    assert_eq!(
+        snapshot.recovery(),
+        StoreRecoveryCapability::StableCommitReplay
+    );
+    assert_eq!(
+        snapshot.schema_metadata(),
+        StoreSchemaMetadataCapability::DurableAcceptedHistory
+    );
+}
+
+fn assert_stable_schema_capabilities(snapshot: &SchemaStoreSnapshot) {
+    assert_eq!(snapshot.storage(), StoreSnapshotStorageMode::Stable);
+    assert_eq!(
+        snapshot.allocation(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(snapshot.durability(), StoreDurability::Durable);
+    assert_eq!(snapshot.commit(), StoreCommitParticipation::Durable);
+    assert_eq!(
+        snapshot.recovery(),
+        StoreRecoveryCapability::StableCommitReplay
+    );
+    assert_eq!(
+        snapshot.schema_metadata(),
+        StoreSchemaMetadataCapability::DurableAcceptedHistory
+    );
+}
+
+fn assert_empty_report_store_paths(report: &StorageReport) {
+    assert_eq!(
+        data_paths(report),
         vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
     );
     assert_eq!(
-        index_paths(&report),
+        index_paths(report),
         vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
     );
     assert_eq!(
-        schema_paths(&report),
+        schema_paths(report),
         vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
     );
+}
+
+fn assert_empty_store_rows_have_no_entries(report: &StorageReport) {
     assert!(
         report
             .storage_data()
@@ -574,6 +666,20 @@ fn storage_report_empty_store_snapshot() {
             .iter()
             .all(|snapshot| snapshot.entries() == 0)
     );
+}
+
+#[test]
+fn storage_report_empty_store_snapshot() {
+    reset_stores();
+
+    let report = diagnostics_report(&[]);
+
+    assert_eq!(report.corrupted_keys(), 0);
+    assert_eq!(report.corrupted_entries(), 0);
+    assert!(report.entity_storage().is_empty());
+
+    assert_empty_report_store_paths(&report);
+    assert_empty_store_rows_have_no_entries(&report);
 
     let data_a = report
         .storage_data()
@@ -585,12 +691,12 @@ fn storage_report_empty_store_snapshot() {
         .iter()
         .find(|snapshot| snapshot.path() == STORE_A_PATH)
         .expect("index snapshot should contain store A");
-    assert_eq!(data_a.storage(), StoreSnapshotStorageMode::Stable);
+    assert_stable_data_capabilities(data_a);
     assert_eq!(data_a.memory_id(), Some(155));
     assert_eq!(data_a.stable_key(), Some("icydb.test.store_a.data.v1"));
     assert_eq!(data_a.schema_version(), Some(1));
     assert!(data_a.schema_fingerprint().is_some());
-    assert_eq!(index_a.storage(), StoreSnapshotStorageMode::Stable);
+    assert_stable_index_capabilities(index_a);
     assert_eq!(index_a.memory_id(), Some(156));
     assert_eq!(index_a.stable_key(), Some("icydb.test.store_a.index.v1"));
     assert_eq!(index_a.schema_version(), Some(1));
@@ -598,7 +704,7 @@ fn storage_report_empty_store_snapshot() {
 
     let populated_schema = schema_snapshot(&report, STORE_A_PATH);
     let empty_schema = schema_snapshot(&report, STORE_Z_PATH);
-    assert_eq!(populated_schema.storage(), StoreSnapshotStorageMode::Stable);
+    assert_stable_schema_capabilities(populated_schema);
     assert_eq!(populated_schema.memory_id(), Some(158));
     assert_eq!(
         populated_schema.stable_key(),
@@ -622,9 +728,12 @@ fn storage_report_empty_store_snapshot() {
         populated_schema.schema_fingerprint(),
         "index and schema snapshots should use role-specific schema metadata"
     );
-    assert_eq!(empty_schema.memory_id(), None);
-    assert_eq!(empty_schema.storage(), StoreSnapshotStorageMode::Stable);
-    assert_eq!(empty_schema.stable_key(), None);
+    assert_stable_schema_capabilities(empty_schema);
+    assert_eq!(empty_schema.memory_id(), Some(157));
+    assert_eq!(
+        empty_schema.stable_key(),
+        Some("icydb.test.store_z.schema.v1")
+    );
     assert_eq!(empty_schema.schema_version(), None);
     assert_eq!(empty_schema.schema_fingerprint(), None);
     assert_eq!(empty_schema.entity_count(), 0);
@@ -641,10 +750,14 @@ fn storage_report_empty_store_snapshot() {
         .iter()
         .find(|snapshot| snapshot.path() == STORE_Z_PATH)
         .expect("index snapshot should contain store Z");
-    assert_eq!(data_z.storage(), StoreSnapshotStorageMode::Stable);
+    assert_stable_data_capabilities(data_z);
+    assert_eq!(data_z.memory_id(), Some(153));
+    assert_eq!(data_z.stable_key(), Some("icydb.test.store_z.data.v1"));
     assert_eq!(data_z.schema_version(), None);
     assert_eq!(data_z.schema_fingerprint(), None);
-    assert_eq!(index_z.storage(), StoreSnapshotStorageMode::Stable);
+    assert_stable_index_capabilities(index_z);
+    assert_eq!(index_z.memory_id(), Some(154));
+    assert_eq!(index_z.stable_key(), Some("icydb.test.store_z.index.v1"));
     assert_eq!(index_z.schema_version(), None);
     assert_eq!(index_z.schema_fingerprint(), None);
 }
@@ -1041,6 +1154,11 @@ fn data_store_snapshot_candid_shape_is_stable() {
     for field in [
         "path",
         "storage",
+        "allocation",
+        "durability",
+        "commit",
+        "recovery",
+        "schema_metadata",
         "memory_id",
         "stable_key",
         "schema_version",
@@ -1062,6 +1180,11 @@ fn index_store_snapshot_candid_shape_is_stable() {
     for field in [
         "path",
         "storage",
+        "allocation",
+        "durability",
+        "commit",
+        "recovery",
+        "schema_metadata",
         "memory_id",
         "stable_key",
         "schema_version",
@@ -1086,6 +1209,11 @@ fn schema_store_snapshot_candid_shape_is_stable() {
     for field in [
         "path",
         "storage",
+        "allocation",
+        "durability",
+        "commit",
+        "recovery",
+        "schema_metadata",
         "memory_id",
         "stable_key",
         "schema_version",

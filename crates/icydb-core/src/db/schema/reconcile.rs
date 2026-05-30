@@ -1401,7 +1401,21 @@ mod tests {
                     &RECONCILE_DATA_STORE,
                     &RECONCILE_INDEX_STORE,
                     &RECONCILE_SCHEMA_STORE,
-                    crate::db::StoreAllocationIdentities::absent(),
+                    crate::db::StoreAllocationIdentities::new(
+                        crate::db::StoreAllocationIdentity::new(
+                            252,
+                            "icydb.test.reconcile.data.v1",
+                        ),
+                        crate::db::StoreAllocationIdentity::new(
+                            253,
+                            "icydb.test.reconcile.index.v1",
+                        ),
+                        crate::db::StoreAllocationIdentity::new(
+                            254,
+                            "icydb.test.reconcile.schema.v1",
+                        ),
+                    ),
+                    crate::db::StoreRuntimeStorageCapabilities::stable(),
                 )
                 .expect("schema reconcile test store should register");
             registry

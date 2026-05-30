@@ -101,7 +101,12 @@ thread_local! {
             &SOURCE_DATA_STORE,
             &UNIQUE_INDEX_STORE,
             &SOURCE_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(0, "icydb.test.mutation.source.data.v1"),
+                crate::db::StoreAllocationIdentity::new(2, "icydb.test.mutation.source.index.v1"),
+                crate::db::StoreAllocationIdentity::new(4, "icydb.test.mutation.source.schema.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
             .expect("source store registration should succeed");
         reg.register_store(
@@ -109,7 +114,12 @@ thread_local! {
             &TARGET_DATA_STORE,
             &TARGET_INDEX_STORE,
             &TARGET_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(1, "icydb.test.mutation.target.data.v1"),
+                crate::db::StoreAllocationIdentity::new(3, "icydb.test.mutation.target.index.v1"),
+                crate::db::StoreAllocationIdentity::new(5, "icydb.test.mutation.target.schema.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
             .expect("target store registration should succeed");
         reg

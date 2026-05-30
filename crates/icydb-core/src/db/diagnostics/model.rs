@@ -3,7 +3,13 @@
 //! Does not own: store traversal, integrity scanning, or execution trace policy.
 //! Boundary: report assembly modules construct these DTOs; public callers read them.
 
-use crate::db::index::IndexState;
+use crate::db::{
+    index::IndexState,
+    registry::{
+        StoreAllocationIdentityCapability, StoreCommitParticipation, StoreDurability,
+        StoreRecoveryCapability, StoreRuntimeStorageCapabilities, StoreSchemaMetadataCapability,
+    },
+};
 use candid::CandidType;
 use serde::Deserialize;
 
@@ -318,6 +324,11 @@ impl StorageReport {
 pub struct SchemaStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
+    pub(crate) allocation: StoreAllocationIdentityCapability,
+    pub(crate) durability: StoreDurability,
+    pub(crate) commit: StoreCommitParticipation,
+    pub(crate) recovery: StoreRecoveryCapability,
+    pub(crate) schema_metadata: StoreSchemaMetadataCapability,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
@@ -429,6 +440,7 @@ impl SchemaStoreSnapshot {
     pub(crate) fn new(
         path: String,
         storage: StoreSnapshotStorageMode,
+        capabilities: StoreRuntimeStorageCapabilities,
         allocation: Option<StoreSnapshotAllocationIdentity>,
         schema_metadata: StoreSnapshotSchemaMetadata,
         entity_count: u64,
@@ -443,6 +455,11 @@ impl SchemaStoreSnapshot {
         Self {
             path,
             storage,
+            allocation: capabilities.allocation_identity(),
+            durability: capabilities.durability(),
+            commit: capabilities.commit_participation(),
+            recovery: capabilities.recovery(),
+            schema_metadata: capabilities.schema_metadata(),
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
@@ -461,6 +478,36 @@ impl SchemaStoreSnapshot {
     #[must_use]
     pub const fn storage(&self) -> StoreSnapshotStorageMode {
         self.storage
+    }
+
+    /// Return allocation-identity capability metadata.
+    #[must_use]
+    pub const fn allocation(&self) -> StoreAllocationIdentityCapability {
+        self.allocation
+    }
+
+    /// Return durability capability metadata.
+    #[must_use]
+    pub const fn durability(&self) -> StoreDurability {
+        self.durability
+    }
+
+    /// Return commit participation capability metadata.
+    #[must_use]
+    pub const fn commit(&self) -> StoreCommitParticipation {
+        self.commit
+    }
+
+    /// Return recovery capability metadata.
+    #[must_use]
+    pub const fn recovery(&self) -> StoreRecoveryCapability {
+        self.recovery
+    }
+
+    /// Return schema-metadata persistence capability metadata.
+    #[must_use]
+    pub const fn schema_metadata(&self) -> StoreSchemaMetadataCapability {
+        self.schema_metadata
     }
 
     /// Return stable-memory manager ID, when generated wiring supplied it.
@@ -505,6 +552,11 @@ impl SchemaStoreSnapshot {
 pub struct DataStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
+    pub(crate) allocation: StoreAllocationIdentityCapability,
+    pub(crate) durability: StoreDurability,
+    pub(crate) commit: StoreCommitParticipation,
+    pub(crate) recovery: StoreRecoveryCapability,
+    pub(crate) schema_metadata: StoreSchemaMetadataCapability,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
@@ -519,6 +571,7 @@ impl DataStoreSnapshot {
     pub(crate) fn new(
         path: String,
         storage: StoreSnapshotStorageMode,
+        capabilities: StoreRuntimeStorageCapabilities,
         allocation: Option<StoreSnapshotAllocationIdentity>,
         schema_metadata: StoreSnapshotSchemaMetadata,
         entries: u64,
@@ -534,6 +587,11 @@ impl DataStoreSnapshot {
         Self {
             path,
             storage,
+            allocation: capabilities.allocation_identity(),
+            durability: capabilities.durability(),
+            commit: capabilities.commit_participation(),
+            recovery: capabilities.recovery(),
+            schema_metadata: capabilities.schema_metadata(),
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
@@ -553,6 +611,36 @@ impl DataStoreSnapshot {
     #[must_use]
     pub const fn storage(&self) -> StoreSnapshotStorageMode {
         self.storage
+    }
+
+    /// Return allocation-identity capability metadata.
+    #[must_use]
+    pub const fn allocation(&self) -> StoreAllocationIdentityCapability {
+        self.allocation
+    }
+
+    /// Return durability capability metadata.
+    #[must_use]
+    pub const fn durability(&self) -> StoreDurability {
+        self.durability
+    }
+
+    /// Return commit participation capability metadata.
+    #[must_use]
+    pub const fn commit(&self) -> StoreCommitParticipation {
+        self.commit
+    }
+
+    /// Return recovery capability metadata.
+    #[must_use]
+    pub const fn recovery(&self) -> StoreRecoveryCapability {
+        self.recovery
+    }
+
+    /// Return schema-metadata persistence capability metadata.
+    #[must_use]
+    pub const fn schema_metadata(&self) -> StoreSchemaMetadataCapability {
+        self.schema_metadata
     }
 
     /// Return stable-memory manager ID, when generated wiring supplied it.
@@ -603,6 +691,11 @@ impl DataStoreSnapshot {
 pub struct IndexStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
+    pub(crate) allocation: StoreAllocationIdentityCapability,
+    pub(crate) durability: StoreDurability,
+    pub(crate) commit: StoreCommitParticipation,
+    pub(crate) recovery: StoreRecoveryCapability,
+    pub(crate) schema_metadata: StoreSchemaMetadataCapability,
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
@@ -620,6 +713,7 @@ impl IndexStoreSnapshot {
     pub(crate) fn new(
         path: String,
         storage: StoreSnapshotStorageMode,
+        capabilities: StoreRuntimeStorageCapabilities,
         allocation: Option<StoreSnapshotAllocationIdentity>,
         schema_metadata: StoreSnapshotSchemaMetadata,
         stats: IndexStoreSnapshotStats,
@@ -634,6 +728,11 @@ impl IndexStoreSnapshot {
         Self {
             path,
             storage,
+            allocation: capabilities.allocation_identity(),
+            durability: capabilities.durability(),
+            commit: capabilities.commit_participation(),
+            recovery: capabilities.recovery(),
+            schema_metadata: capabilities.schema_metadata(),
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
@@ -656,6 +755,36 @@ impl IndexStoreSnapshot {
     #[must_use]
     pub const fn storage(&self) -> StoreSnapshotStorageMode {
         self.storage
+    }
+
+    /// Return allocation-identity capability metadata.
+    #[must_use]
+    pub const fn allocation(&self) -> StoreAllocationIdentityCapability {
+        self.allocation
+    }
+
+    /// Return durability capability metadata.
+    #[must_use]
+    pub const fn durability(&self) -> StoreDurability {
+        self.durability
+    }
+
+    /// Return commit participation capability metadata.
+    #[must_use]
+    pub const fn commit(&self) -> StoreCommitParticipation {
+        self.commit
+    }
+
+    /// Return recovery capability metadata.
+    #[must_use]
+    pub const fn recovery(&self) -> StoreRecoveryCapability {
+        self.recovery
+    }
+
+    /// Return schema-metadata persistence capability metadata.
+    #[must_use]
+    pub const fn schema_metadata(&self) -> StoreSchemaMetadataCapability {
+        self.schema_metadata
     }
 
     /// Return stable-memory manager ID, when generated wiring supplied it.

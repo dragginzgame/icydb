@@ -2,7 +2,12 @@ use crate::{
     db::{
         data::DataStore,
         index::IndexStore,
-        registry::{StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry},
+        registry::{
+            StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
+            StoreCommitParticipation, StoreDurability, StoreRecoveryCapability, StoreRegistry,
+            StoreRuntimeStorageCapabilities, StoreRuntimeStorageMode,
+            StoreSchemaMetadataCapability,
+        },
         schema::SchemaStore,
     },
     error::{ErrorClass, ErrorOrigin},
@@ -19,6 +24,11 @@ thread_local! {
         RefCell::new(IndexStore::init(test_memory(152)));
     static TEST_SCHEMA_STORE: RefCell<SchemaStore> =
         RefCell::new(SchemaStore::init(test_memory(153)));
+    static TEST_HEAP_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+    static TEST_HEAP_INDEX_STORE: RefCell<IndexStore> =
+        const { RefCell::new(IndexStore::init_heap()) };
+    static TEST_HEAP_SCHEMA_STORE: RefCell<SchemaStore> =
+        const { RefCell::new(SchemaStore::init_heap()) };
 }
 
 fn test_registry() -> StoreRegistry {
@@ -26,10 +36,11 @@ fn test_registry() -> StoreRegistry {
     registry
         .register_store(
             STORE_PATH,
-            &TEST_DATA_STORE,
-            &TEST_INDEX_STORE,
-            &TEST_SCHEMA_STORE,
+            &TEST_HEAP_DATA_STORE,
+            &TEST_HEAP_INDEX_STORE,
+            &TEST_HEAP_SCHEMA_STORE,
             StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
         )
         .expect("test store registration without allocation identities should succeed");
     registry
@@ -43,15 +54,15 @@ fn register_store_with_absent_allocation_identities_binds_store_handles() {
         .expect("registered store path should resolve");
 
     assert!(
-        ptr::eq(handle.data_store(), &TEST_DATA_STORE),
+        ptr::eq(handle.data_store(), &TEST_HEAP_DATA_STORE),
         "store handle should expose the registered data store accessor"
     );
     assert!(
-        ptr::eq(handle.index_store(), &TEST_INDEX_STORE),
+        ptr::eq(handle.index_store(), &TEST_HEAP_INDEX_STORE),
         "store handle should expose the registered index store accessor"
     );
     assert!(
-        ptr::eq(handle.schema_store(), &TEST_SCHEMA_STORE),
+        ptr::eq(handle.schema_store(), &TEST_HEAP_SCHEMA_STORE),
         "store handle should expose the registered schema store accessor"
     );
 
@@ -71,6 +82,22 @@ fn register_store_with_absent_allocation_identities_binds_store_handles() {
         handle.schema_allocation().is_none(),
         "registration without allocation identities should keep schema allocation absent"
     );
+    let capabilities = handle.storage_capabilities();
+    assert_eq!(capabilities.storage_mode(), StoreRuntimeStorageMode::Heap);
+    assert_eq!(
+        capabilities.allocation_identity(),
+        StoreAllocationIdentityCapability::Absent
+    );
+    assert_eq!(capabilities.durability(), StoreDurability::Volatile);
+    assert_eq!(
+        capabilities.commit_participation(),
+        StoreCommitParticipation::LiveOnly
+    );
+    assert_eq!(capabilities.recovery(), StoreRecoveryCapability::None);
+    assert_eq!(
+        capabilities.schema_metadata(),
+        StoreSchemaMetadataCapability::LiveRebuiltMetadata
+    );
 }
 
 #[test]
@@ -87,6 +114,7 @@ fn register_store_with_stable_allocation_identities_binds_metadata() {
                 StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
                 StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
             ),
+            StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("test store registration with allocation identities should succeed");
 
@@ -115,6 +143,48 @@ fn register_store_with_stable_allocation_identities_binds_metadata() {
             "icydb.test.store.schema.v1"
         ))
     );
+    let capabilities = handle.storage_capabilities();
+    assert_eq!(capabilities.storage_mode(), StoreRuntimeStorageMode::Stable);
+    assert_eq!(
+        capabilities.allocation_identity(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(capabilities.durability(), StoreDurability::Durable);
+    assert_eq!(
+        capabilities.commit_participation(),
+        StoreCommitParticipation::Durable
+    );
+    assert_eq!(
+        capabilities.recovery(),
+        StoreRecoveryCapability::StableCommitReplay
+    );
+    assert_eq!(
+        capabilities.schema_metadata(),
+        StoreSchemaMetadataCapability::DurableAcceptedHistory
+    );
+}
+
+#[test]
+fn register_store_rejects_allocation_capability_mismatch() {
+    let mut registry = StoreRegistry::new();
+    let err = registry
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+            StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::stable(),
+        )
+        .expect_err("stable capabilities require explicit allocation identities");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("allocation identities do not match storage capabilities"),
+        "allocation/capability mismatch should be diagnosed"
+    );
 }
 
 #[test]
@@ -139,20 +209,22 @@ fn duplicate_store_registration_is_rejected() {
     registry
         .register_store(
             STORE_PATH,
-            &TEST_DATA_STORE,
-            &TEST_INDEX_STORE,
-            &TEST_SCHEMA_STORE,
+            &TEST_HEAP_DATA_STORE,
+            &TEST_HEAP_INDEX_STORE,
+            &TEST_HEAP_SCHEMA_STORE,
             StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
         )
         .expect("initial store registration should succeed");
 
     let err = registry
         .register_store(
             STORE_PATH,
-            &TEST_DATA_STORE,
-            &TEST_INDEX_STORE,
-            &TEST_SCHEMA_STORE,
+            &TEST_HEAP_DATA_STORE,
+            &TEST_HEAP_INDEX_STORE,
+            &TEST_HEAP_SCHEMA_STORE,
             StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
         )
         .expect_err("duplicate registration should fail");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
@@ -170,20 +242,22 @@ fn alias_store_registration_reusing_same_store_triplet_is_rejected() {
     registry
         .register_store(
             STORE_PATH,
-            &TEST_DATA_STORE,
-            &TEST_INDEX_STORE,
-            &TEST_SCHEMA_STORE,
+            &TEST_HEAP_DATA_STORE,
+            &TEST_HEAP_INDEX_STORE,
+            &TEST_HEAP_SCHEMA_STORE,
             StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
         )
         .expect("initial store registration should succeed");
 
     let err = registry
         .register_store(
             ALIAS_STORE_PATH,
-            &TEST_DATA_STORE,
-            &TEST_INDEX_STORE,
-            &TEST_SCHEMA_STORE,
+            &TEST_HEAP_DATA_STORE,
+            &TEST_HEAP_INDEX_STORE,
+            &TEST_HEAP_SCHEMA_STORE,
             StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
         )
         .expect_err("alias registration reusing the same store triplet should fail");
     assert_eq!(err.class, ErrorClass::InvariantViolation);

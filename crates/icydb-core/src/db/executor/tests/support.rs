@@ -157,7 +157,12 @@ thread_local! {
             &TEST_DATA_STORE,
             &TEST_INDEX_STORE,
             &TEST_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(0, "icydb.test.executor.data.v1"),
+                crate::db::StoreAllocationIdentity::new(1, "icydb.test.executor.index.v1"),
+                crate::db::StoreAllocationIdentity::new(2, "icydb.test.executor.schema.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
             .expect("test store registration should succeed");
         reg
@@ -453,7 +458,21 @@ thread_local! {
             &REL_SOURCE_DATA_STORE,
             &REL_SOURCE_INDEX_STORE,
             &REL_SOURCE_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(
+                    40,
+                    "icydb.test.relation_source.data.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    42,
+                    "icydb.test.relation_source.index.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    44,
+                    "icydb.test.relation_source.schema.v1",
+                ),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("relation source store registration should succeed");
         reg.register_store(
@@ -461,7 +480,21 @@ thread_local! {
             &REL_TARGET_DATA_STORE,
             &REL_TARGET_INDEX_STORE,
             &REL_TARGET_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(
+                    41,
+                    "icydb.test.relation_target.data.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    43,
+                    "icydb.test.relation_target.index.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    45,
+                    "icydb.test.relation_target.schema.v1",
+                ),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
         .expect("relation target store registration should succeed");
         reg

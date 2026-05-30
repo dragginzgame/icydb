@@ -23,15 +23,18 @@ pub enum StoreRegistryError {
         "store '{name}' reuses the same row/index/schema store triplet already registered as '{existing_name}'"
     )]
     StoreHandleTripletAlreadyRegistered { name: String, existing_name: String },
+
+    #[error("store '{0}' allocation identities do not match storage capabilities")]
+    StoreAllocationCapabilityMismatch(String),
 }
 
 impl StoreRegistryError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
             Self::StoreNotFound(_) => ErrorClass::Internal,
-            Self::StoreAlreadyRegistered(_) | Self::StoreHandleTripletAlreadyRegistered { .. } => {
-                ErrorClass::InvariantViolation
-            }
+            Self::StoreAlreadyRegistered(_)
+            | Self::StoreHandleTripletAlreadyRegistered { .. }
+            | Self::StoreAllocationCapabilityMismatch(_) => ErrorClass::InvariantViolation,
         }
     }
 }

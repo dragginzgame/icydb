@@ -387,12 +387,6 @@ impl SchemaStore {
         }
     }
 
-    /// Return whether this schema store is heap-backed and volatile.
-    #[must_use]
-    pub(in crate::db) const fn is_heap_storage(&self) -> bool {
-        matches!(self.backend, SchemaStoreBackend::Heap(_))
-    }
-
     /// Insert or replace one typed persisted schema snapshot.
     pub(in crate::db) fn insert_persisted_snapshot(
         &mut self,
