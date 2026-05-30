@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.169.md](docs/changelog/0.169.md)
 
+- `0.169.3` proves heap store reinitialization loses live data/index contents
+  while rebuilding heap schema metadata only for live validation diagnostics.
+
 - `0.169.2` proves heap-backed stores support live public write/read and
   indexed SQL query behavior while keeping heap allocation metadata absent.
 

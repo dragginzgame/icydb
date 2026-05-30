@@ -2367,6 +2367,18 @@ fn reset_heap_session_sql_store() {
     session.clear_sql_caches_for_tests();
 }
 
+fn reinitialize_heap_session_sql_store() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    HEAP_SESSION_SQL_DATA_STORE.with_borrow_mut(|store| *store = DataStore::init_heap());
+    HEAP_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| *store = IndexStore::init_heap());
+    HEAP_SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| *store = SchemaStore::init_heap());
+    ensure_recovered(&HEAP_SESSION_SQL_DB)
+        .expect("heap write-side recovery after reinit should succeed");
+    let session = heap_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
+}
+
 fn heap_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(HEAP_SESSION_SQL_DB)
 }

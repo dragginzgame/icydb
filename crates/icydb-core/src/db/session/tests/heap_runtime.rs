@@ -45,6 +45,44 @@ fn seed_heap_session_entities(session: &DbSession<SessionSqlCanister>) {
     }
 }
 
+fn heap_snapshot_counts(
+    session: &DbSession<SessionSqlCanister>,
+) -> (u64, u64, u64, Option<u32>, Option<String>) {
+    let report = session
+        .storage_report_default()
+        .expect("heap storage report should build");
+    let data = report
+        .storage_data()
+        .iter()
+        .find(|snapshot| snapshot.path() == HeapSessionSqlStore::PATH)
+        .expect("heap data snapshot should be present");
+    let index = report
+        .storage_index()
+        .iter()
+        .find(|snapshot| snapshot.path() == HeapSessionSqlStore::PATH)
+        .expect("heap index snapshot should be present");
+    let schema = report
+        .schema_storage()
+        .iter()
+        .find(|snapshot| snapshot.path() == HeapSessionSqlStore::PATH)
+        .expect("heap schema snapshot should be present");
+
+    assert_eq!(data.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(data.memory_id(), None);
+    assert_eq!(index.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(index.memory_id(), None);
+    assert_eq!(schema.storage(), StoreSnapshotStorageMode::Heap);
+    assert_eq!(schema.memory_id(), None);
+
+    (
+        data.entries(),
+        index.entries(),
+        schema.entity_count(),
+        schema.schema_version(),
+        schema.schema_fingerprint().map(ToOwned::to_owned),
+    )
+}
+
 #[test]
 fn heap_backed_session_write_read_and_index_query_round_trip_while_live() {
     reset_heap_session_sql_store();
@@ -96,23 +134,58 @@ fn heap_backed_session_write_read_and_index_query_round_trip_while_live() {
         "heap indexed query should not collapse to a full scan: {explain}",
     );
 
-    let report = session
-        .storage_report_default()
-        .expect("heap storage report should build");
-    let data = report
-        .storage_data()
-        .iter()
-        .find(|snapshot| snapshot.path() == HeapSessionSqlStore::PATH)
-        .expect("heap data snapshot should be present");
-    let index = report
-        .storage_index()
-        .iter()
-        .find(|snapshot| snapshot.path() == HeapSessionSqlStore::PATH)
-        .expect("heap index snapshot should be present");
-    assert_eq!(data.storage(), StoreSnapshotStorageMode::Heap);
-    assert_eq!(data.memory_id(), None);
-    assert_eq!(data.entries(), 3);
-    assert_eq!(index.storage(), StoreSnapshotStorageMode::Heap);
-    assert_eq!(index.memory_id(), None);
-    assert_eq!(index.entries(), 3);
+    let (data_entries, index_entries, schema_entities, schema_version, schema_fingerprint) =
+        heap_snapshot_counts(&session);
+    assert_eq!(data_entries, 3);
+    assert_eq!(index_entries, 3);
+    assert_eq!(schema_entities, 1);
+    assert!(schema_version.is_some());
+    assert!(schema_fingerprint.is_some());
+}
+
+#[test]
+fn heap_backed_session_reinit_loses_rows_and_indexes_but_reconciles_live_schema() {
+    reset_heap_session_sql_store();
+    let session = heap_sql_session();
+    seed_heap_session_entities(&session);
+    assert_eq!(heap_snapshot_counts(&session).0, 3);
+
+    reinitialize_heap_session_sql_store();
+    let session = heap_sql_session();
+
+    let loaded = session
+        .load::<HeapSessionSqlEntity>()
+        .order_term(crate::db::asc("id"))
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("heap fluent load should read after reinit")
+        .entities();
+    assert_eq!(
+        loaded,
+        Vec::<HeapSessionSqlEntity>::new(),
+        "heap rows must not be recovered from stable commit state after store reinit",
+    );
+
+    let rows = public_projection_rows::<HeapSessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM HeapSessionSqlEntity \
+         WHERE name >= 'A' \
+         ORDER BY name ASC",
+    );
+    assert_eq!(
+        rows,
+        Vec::<Vec<Value>>::new(),
+        "heap SQL query should observe an empty live store after reinit",
+    );
+
+    let (data_entries, index_entries, schema_entities, schema_version, schema_fingerprint) =
+        heap_snapshot_counts(&session);
+    assert_eq!(data_entries, 0);
+    assert_eq!(index_entries, 0);
+    assert_eq!(
+        schema_entities, 1,
+        "heap schema metadata is rebuilt for live validation/diagnostics, not recovered as rows",
+    );
+    assert!(schema_version.is_some());
+    assert!(schema_fingerprint.is_some());
 }
