@@ -411,8 +411,8 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
 
 #[test]
 fn sql_ddl_drop_index_uses_persisted_index_origin() {
-    let ddl = read_source("src/db/sql/ddl.rs");
-    let mutation = read_source("src/db/schema/mutation/mod.rs");
+    let ddl = read_rust_sources_under("src/db/sql/ddl");
+    let mutation = read_rust_sources_under("src/db/schema/mutation");
     let session_sql = read_source("src/db/session/sql/mod.rs");
 
     assert!(
@@ -1728,7 +1728,7 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
     let session_sql_cache = read_source("src/db/session/sql/cache.rs");
     let session_sql_execute = read_source("src/db/session/sql/execute/mod.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
-    let session_sql_write = read_source("src/db/session/sql/execute/write.rs");
+    let session_sql_write = read_rust_sources_under("src/db/session/sql/execute/write");
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
 
     assert!(
