@@ -2308,7 +2308,7 @@ fn journaled_storage_remains_reserved_outside_runtime_capability_surfaces() {
 
     assert!(
         violations.is_empty(),
-        "0.172 reserves journaled storage at the parser boundary; accepted schema, generated wiring, registry, diagnostics, relation, executor, and commit/recovery surfaces must not expose runtime journaled storage:\n{}",
+        "0.173 keeps journaled storage reserved at the parser boundary; accepted schema, generated wiring, registry, diagnostics, relation, executor, and commit/recovery surfaces must not expose runtime journaled storage:\n{}",
         violations.join("\n"),
     );
 }
@@ -2639,5 +2639,113 @@ fn journaled_protocol_foundation_records_fold_watermark_replay_boundary() {
             && changelog.contains("fold watermark as the durable replay boundary")
             && changelog.contains("tail cleanup is space reclamation"),
         "0.173.3 changelog should record the fold watermark replay-boundary model",
+    );
+}
+
+#[test]
+fn journaled_protocol_foundation_records_schema_replay_and_index_truth() {
+    let design =
+        read_source("../../docs/design/0.173-journaled-protocol-foundation/0.173-design.md");
+    let changelog = read_source("../../docs/changelog/0.173.md");
+
+    assert!(
+        design.contains("## Index Truth")
+            && design.contains("0.173.4 defines index truth")
+            && design.contains("canonical data and schema BTrees")
+            && design.contains("logical")
+            && design.contains("durable truth")
+            && design.contains("index BTree is durable materialized state")
+            && design.contains("journal records contain no durable index records")
+            && design.contains("recovered rows plus the reconstructed accepted schema")
+            && design.contains("deterministic from row bytes, primary keys")
+            && design.contains("index codecs are unchanged"),
+        "0.173.4 must define index state as derived materialized state, not independent journal truth",
+    );
+    assert!(
+        design.contains("durable index BTree contains entries missing")
+            && design.contains("delete/rebuild them or fail closed")
+            && design.contains("durable index BTree is missing entries")
+            && design.contains("insert/rebuild them or fail closed")
+            && design.contains("expression, relation, or field-path index derivation")
+            && design.contains("recovery must fail closed"),
+        "0.173.4 must define index divergence handling",
+    );
+    assert!(
+        design.contains("## Schema Replay Invariant")
+            && design.contains("0.173.4 defines schema replay")
+            && design.contains("canonical stable schema BTree snapshots are loaded first")
+            && design.contains("SchemaPut` records above the fold watermark")
+            && design.contains("applied in journal order")
+            && design.contains("reconstructed schema timeline is the only authority")
+            && design.contains("fingerprint introduced by a later")
+            && design.contains("fails closed as out-of-order")
+            && design.contains("accepted")
+            && design.contains("schema snapshot codec and bounds")
+            && design.contains("not through generated model fallback"),
+        "0.173.4 must define schema replay ordering and generated-model exclusion",
+    );
+    assert!(
+        changelog.contains("## 0.173.4")
+            && changelog.contains("journaled index truth")
+            && changelog.contains("schema replay ordering")
+            && changelog.contains("generated-model fallback")
+            && changelog.contains("independent index journal")
+            && changelog.contains("truth"),
+        "0.173.4 changelog should record schema replay and index truth model",
+    );
+}
+
+#[test]
+fn journaled_protocol_foundation_closeout_records_non_admission_and_handoff() {
+    let design =
+        read_source("../../docs/design/0.173-journaled-protocol-foundation/0.173-design.md");
+    let changelog = read_source("../../docs/changelog/0.173.md");
+    let root_changelog = read_source("../../CHANGELOG.md");
+
+    assert!(
+        design.contains("Closed protocol-foundation design")
+            && design.contains("0.173.5 closes the protocol foundation")
+            && design.contains("without admitting journaled runtime")
+            && design.contains("0.173 does not introduce journaled row/index/schema codecs")
+            && design.contains("journaled capabilities")
+            && !design.contains("| Planned |"),
+        "0.173.5 must close the proof matrix without admitting runtime journaled storage",
+    );
+    assert!(
+        design.contains("public `storage(journaled(...))` remains reserved")
+            && design.contains("runtime store handles")
+            && design.contains("embedded bounded journal batch payload strategy")
+            && design.contains("monotonic `journal_sequence`")
+            && design.contains("fold watermark")
+            && design.contains("schema replay and index materialization")
+            && design.contains("stable and heap capability")
+            && design.contains("codec behavior")
+            && design.contains("0.174 public admission gates"),
+        "0.173.5 closeout evidence must cover reserved syntax, non-admission, protocol decisions, stable/heap regressions, codecs, and 0.174 gates",
+    );
+    assert!(
+        design
+            .contains("0.174 may publicly admit `storage(journaled(...))` only after 0.173 closes")
+            && design.contains("generated wiring")
+            && design.contains("runtime store wrappers")
+            && design.contains("recovery from canonical stable BTrees plus committed journal tail")
+            && design.contains("fold implementation and interruption safety")
+            && design.contains("source-audit closeout"),
+        "0.173.5 must leave public journaled runtime admission gated to 0.174",
+    );
+    assert!(
+        changelog.contains("## 0.173.5")
+            && changelog.contains("Closes the journaled protocol-foundation proof matrix")
+            && changelog.contains("runtime")
+            && changelog.contains("non-admission")
+            && changelog.contains("0.174")
+            && changelog.contains("admission")
+            && changelog.contains("source/design guard"),
+        "0.173.5 changelog should record protocol closeout and 0.174 handoff",
+    );
+    assert!(
+        root_changelog.contains("`0.173.5` closes the journaled protocol-foundation proof matrix")
+            && root_changelog.contains("public journaled runtime admission gated to 0.174"),
+        "root changelog should summarize 0.173.5 closeout",
     );
 }

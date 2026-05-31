@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.173.md](docs/changelog/0.173.md)
 
+- `0.173.5` closes the journaled protocol-foundation proof matrix while
+  keeping public journaled runtime admission gated to 0.174.
+
+- `0.173.4` defines future journaled schema replay and index materialization
+  rules, keeping generated models and independent index journal truth out of
+  recovery authority.
+
 - `0.173.3` defines fold watermark semantics and replay-boundary restart rules
   for future journaled storage.
 
