@@ -1,5 +1,11 @@
 use super::*;
-use crate::{db::StoreSnapshotStorageMode, metrics::sink::MutationCommitClass};
+use crate::{
+    db::{
+        StoreSnapshotStorageMode,
+        commit::{CommitMarker, begin_commit},
+    },
+    metrics::sink::MutationCommitClass,
+};
 
 fn mutation_commit_classes_for_entity(
     events: &[MetricsEvent],
@@ -108,6 +114,16 @@ fn heap_snapshot_counts(
         schema.schema_version(),
         schema.schema_fingerprint().map(ToOwned::to_owned),
     )
+}
+
+fn mixed_relation_stable_index_entries() -> u64 {
+    MIXED_HEAP_RELATION_DB
+        .with_store_registry(|registry| {
+            registry
+                .try_get_store(SessionSqlStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("mixed relation stable store should be registered")
 }
 
 #[test]
@@ -401,4 +417,64 @@ fn failed_heap_source_to_stable_target_write_leaves_no_heap_side_effects() {
         Vec::<HeapSessionSqlSourceToStableTargetEntity>::new(),
         "failed mixed write must not leave heap source side effects"
     );
+}
+
+#[test]
+fn mixed_heap_source_reinit_recovery_purges_stable_reverse_index_state() {
+    reset_mixed_heap_relation_stores();
+    let session = mixed_heap_relation_sql_session();
+    let target_id = 171_300;
+    let source_id = 171_301;
+
+    session
+        .insert(SessionSqlSelfRelationEntity {
+            id: target_id,
+            parent: None,
+        })
+        .expect("stable target seed should succeed");
+    let stable_index_baseline = mixed_relation_stable_index_entries();
+    let (result, classes) =
+        capture_mutation_commit_classes(HeapSessionSqlSourceToStableTargetEntity::PATH, || {
+            session.insert(HeapSessionSqlSourceToStableTargetEntity {
+                id: source_id,
+                target_id,
+            })
+        });
+    result.expect("heap source to stable target should validate while live");
+    assert_eq!(
+        classes,
+        vec![MutationCommitClass::MixedDurableAndLive],
+        "successful heap-source to stable-target write should remain classified as mixed",
+    );
+    assert!(
+        mixed_relation_stable_index_entries() > stable_index_baseline,
+        "live mixed write should maintain stable reverse-index state while the heap source exists",
+    );
+
+    reinitialize_heap_session_sql_store();
+    let marker = CommitMarker::new(Vec::new()).expect("empty recovery marker should build");
+    begin_commit(marker).expect("empty recovery marker should force startup rebuild");
+    ensure_recovered(&MIXED_HEAP_RELATION_DB)
+        .expect("mixed recovery should purge volatile reverse-index state");
+    let session = mixed_heap_relation_sql_session();
+
+    let heap_sources = session
+        .load::<HeapSessionSqlSourceToStableTargetEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("heap source load after reinit should succeed")
+        .entities();
+    assert_eq!(
+        heap_sources,
+        Vec::<HeapSessionSqlSourceToStableTargetEntity>::new(),
+        "heap source rows must not be recovered after heap store reinit",
+    );
+    let delete_sql = format!("DELETE FROM SessionSqlSelfRelationEntity WHERE id = {target_id}");
+    let delete = session
+        .execute_sql_update::<SessionSqlSelfRelationEntity>(delete_sql.as_str())
+        .expect("stable target should be deletable after volatile relation state is purged");
+    let SqlStatementResult::Count { row_count } = delete else {
+        panic!("DELETE without RETURNING should emit a count payload");
+    };
+    assert_eq!(row_count, 1);
 }

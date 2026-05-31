@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.171.md](docs/changelog/0.171.md)
 
+- `0.171.3` proves successful mixed durable/live relation writes do not recover
+  heap-source state after heap reinitialization and do not leave stable targets
+  blocked by volatile relation state.
+
 - `0.171.2` gates commit-marker recovery and startup index rebuild through
   store recovery capabilities so live-only heap rows and indexes are not
   replayed as durable state.
