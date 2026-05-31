@@ -6,7 +6,7 @@
 use super::support::*;
 use crate::db::{
     commit::CommitSchemaFingerprint,
-    data::{DataStore, DecodedDataStoreKey, RawDataStoreKey},
+    data::{DataStore, DecodedDataStoreKey},
     schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
 };
 
@@ -1405,9 +1405,10 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         target: target_b,
     });
 
-    let mut malformed_key = vec![0u8; RawDataStoreKey::MAX_STORED_SIZE_USIZE];
-    malformed_key[RawDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
-    let malformed_raw_key = RawDataStoreKey::from_persisted_bytes(malformed_key);
+    let mismatched_entity_key = DecodedDataStoreKey::try_new::<RelationTargetEntity>(target_b)
+        .expect("mismatched target key should build")
+        .to_raw()
+        .expect("mismatched target key should encode");
 
     let marker = CommitMarker::new(vec![
         crate::db::commit::CommitRowOp::new(
@@ -1419,7 +1420,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
-            malformed_raw_key,
+            mismatched_entity_key,
             None,
             Some(vec![1]),
             relation_source_accepted_commit_schema_fingerprint(),
@@ -1429,17 +1430,17 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
     crate::db::commit::persist_raw_commit_marker_for_tests(&marker)
         .expect("raw corrupt marker fixture should persist");
 
-    let err =
-        ensure_recovered(&REL_DB).expect_err("recovery should fail when a later row op is invalid");
+    let err = ensure_recovered(&REL_DB)
+        .expect_err("recovery should fail when a later row op targets the wrong entity key");
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Corruption,
-        "prepare failure should surface corruption for malformed key shape",
+        "prepare failure should surface corruption for mismatched entity key shape",
     );
     assert_eq!(
         err.origin,
         crate::error::ErrorOrigin::Recovery,
-        "malformed key bytes should surface recovery-boundary origin",
+        "mismatched entity key bytes should surface recovery-boundary origin",
     );
 
     let marker_still_present = match commit_marker_present() {

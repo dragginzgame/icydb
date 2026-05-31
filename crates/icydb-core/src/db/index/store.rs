@@ -264,9 +264,11 @@ impl IndexStore {
                 live,
                 tombstones,
             } => {
-                canonical.clear_new();
                 live.clear();
                 tombstones.clear();
+                for entry in canonical.iter() {
+                    tombstones.insert(entry.key().clone());
+                }
             }
         }
         self.bump_generation();

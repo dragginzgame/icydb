@@ -20,6 +20,7 @@ use crate::{
     db::{
         Db,
         commit::{
+            CommitMarker,
             memory::configure_commit_memory_id,
             rebuild::rebuild_secondary_indexes_from_rows,
             replay::replay_commit_marker_row_ops,
@@ -28,8 +29,14 @@ use crate::{
                 mark_commit_marker_verified_absent, with_commit_store,
             },
         },
+        data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
         diagnostics::integrity_report_after_recovery,
-        schema::reconcile_runtime_schemas,
+        journal::{JournalBatch, JournalRecord, JournalSequence, JournalTailVisit},
+        registry::{StoreHandle, StoreRecoveryCapability},
+        schema::{
+            SchemaStore, accepted_commit_schema_fingerprint, decode_persisted_schema_snapshot,
+            ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
+        },
     },
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
@@ -87,30 +94,29 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
-        if !marker.journal_batches().is_empty() {
-            return Err(InternalError::store_unsupported(
-                "journaled recovery replay is not implemented before journaled runtime recovery",
-            ));
-        }
+        publish_marker_bound_journal_batches(db, &marker)?;
         // Phase 1: replay persisted row operations while marker authority is active.
         replay_commit_marker_row_ops(db, &marker.row_ops)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
-    // Phase 2: rebuild secondary indexes from authoritative data rows.
+    // Phase 2: rebuild journaled live projections from durable base + tail.
+    rebuild_journaled_live_projections(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+
+    // Phase 3: rebuild secondary indexes from authoritative data rows.
     rebuild_secondary_indexes_from_rows(db)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 3: enforce post-recovery integrity before clearing marker authority.
+    // Phase 4: enforce post-recovery integrity before clearing marker authority.
     validate_recovery_integrity(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 4: clear marker only after replay + rebuild + integrity validation succeed.
+    // Phase 5: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
         with_commit_store(super::store::CommitStore::clear_verified)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
-    // Phase 5: authoritative rebuild succeeded, so every registered index is
+    // Phase 6: authoritative rebuild succeeded, so every registered index is
     // query-visible again.
     db.mark_all_registered_index_stores_ready();
     mark_commit_marker_verified_absent();
@@ -118,6 +124,251 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     let _ = RECOVERED.set(());
 
     Ok(())
+}
+
+fn publish_marker_bound_journal_batches<C: CanisterKind>(
+    db: &Db<C>,
+    marker: &CommitMarker,
+) -> Result<(), InternalError> {
+    for batch in marker.journal_batches() {
+        let (_, handle) = journal_batch_store_handle(db, batch)?;
+        let journal_store = handle.journal_tail_store().ok_or_else(|| {
+            InternalError::store_corruption(
+                "marker-bound journal batch resolved to store without journal tail",
+            )
+        })?;
+        journal_store.with_borrow_mut(|store| store.append_batch(batch))?;
+    }
+
+    Ok(())
+}
+
+fn rebuild_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    let stores = sorted_journaled_store_handles(db);
+    for (_, handle) in &stores {
+        handle.with_data_mut(DataStore::reset_journaled_live_projection)?;
+        handle.with_schema_mut(SchemaStore::reset_journaled_live_projection)?;
+    }
+
+    for (store_path, handle) in stores {
+        let journal_store = handle.journal_tail_store().ok_or_else(|| {
+            InternalError::store_corruption(
+                "journaled recovery handle does not expose journal-tail storage",
+            )
+        })?;
+        journal_store.with_borrow(|store| {
+            store.visit_batches_after(JournalSequence::new(0), |batch| {
+                replay_journal_batch(db, store_path, handle, batch)?;
+                Ok(JournalTailVisit::Continue)
+            })
+        })?;
+    }
+
+    Ok(())
+}
+
+fn sorted_journaled_store_handles<C: CanisterKind>(db: &Db<C>) -> Vec<(&'static str, StoreHandle)> {
+    let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+    stores.retain(|(_, handle)| {
+        handle.storage_capabilities().recovery()
+            == StoreRecoveryCapability::StableBasePlusJournalReplay
+    });
+    stores.sort_by_key(|(path, _)| *path);
+    stores
+}
+
+fn replay_journal_batch<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    batch: &JournalBatch,
+) -> Result<(), InternalError> {
+    let (_, batch_handle) = journal_batch_store_handle(db, batch)?;
+    if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
+        return Err(InternalError::store_corruption(
+            "journal batch replay resolved to a different store handle than its journal tail",
+        ));
+    }
+
+    for record in batch.records() {
+        replay_journal_record(db, expected_store_path, expected_handle, record)?;
+    }
+
+    Ok(())
+}
+
+fn replay_journal_record<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    record: &JournalRecord,
+) -> Result<(), InternalError> {
+    match record {
+        JournalRecord::RowPut {
+            entity_path,
+            primary_key,
+            row_bytes,
+            schema_fingerprint,
+        } => {
+            validate_journal_row_record(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            )?;
+            let row =
+                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            expected_handle.with_data_mut(|store| {
+                store
+                    .apply_recovered_journal_put(primary_key.clone(), row)
+                    .map(|_| ())
+            })
+        }
+        JournalRecord::RowDelete {
+            entity_path,
+            primary_key,
+            schema_fingerprint,
+        } => {
+            validate_journal_row_record(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            )?;
+            expected_handle.with_data_mut(|store| {
+                store
+                    .apply_recovered_journal_delete(primary_key)
+                    .map(|_| ())
+            })
+        }
+        JournalRecord::SchemaPut {
+            store_path,
+            schema_snapshot_bytes,
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption(format!(
+                    "journal schema record store mismatch: expected '{expected_store_path}', found '{store_path}'",
+                )));
+            }
+            let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
+            let hooks = db.runtime_hook_for_entity_path(snapshot.entity_path())?;
+            if hooks.store_path != expected_store_path {
+                return Err(InternalError::store_corruption(format!(
+                    "journal schema record entity '{}' belongs to store '{}' not '{}'",
+                    snapshot.entity_path(),
+                    hooks.store_path,
+                    expected_store_path,
+                )));
+            }
+            expected_handle.with_schema_mut(|schema_store| {
+                schema_store.insert_persisted_snapshot(hooks.entity_tag, &snapshot)
+            })
+        }
+    }
+}
+
+fn validate_journal_row_record<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    schema_fingerprint: &[u8; 16],
+) -> Result<(), InternalError> {
+    let hooks = db.runtime_hook_for_entity_path(entity_path)?;
+    if hooks.store_path != expected_store_path {
+        return Err(InternalError::store_corruption(format!(
+            "journal row record entity '{entity_path}' belongs to store '{}' not '{expected_store_path}'",
+            hooks.store_path,
+        )));
+    }
+    let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key).map_err(|err| {
+        InternalError::store_corruption(format!("journal row record key decode failed: {err}"))
+    })?;
+    if decoded_key.entity_tag() != hooks.entity_tag {
+        return Err(InternalError::store_corruption(format!(
+            "journal row record key tag does not match entity '{entity_path}'",
+        )));
+    }
+    let accepted = expected_handle.with_schema_mut(|schema_store| {
+        ensure_accepted_schema_snapshot(
+            schema_store,
+            hooks.entity_tag,
+            hooks.entity_path,
+            hooks.model,
+        )
+    })?;
+    let expected_fingerprint = accepted_commit_schema_fingerprint(&accepted)?;
+    if &expected_fingerprint != schema_fingerprint {
+        return Err(InternalError::store_corruption(format!(
+            "journal row record schema fingerprint mismatch for '{entity_path}'",
+        )));
+    }
+
+    Ok(())
+}
+
+fn journal_batch_store_handle<C: CanisterKind>(
+    db: &Db<C>,
+    batch: &JournalBatch,
+) -> Result<(&'static str, StoreHandle), InternalError> {
+    let mut resolved = None::<(&'static str, StoreHandle)>;
+    for record in batch.records() {
+        let (path, handle) = journal_record_store_handle(db, record)?;
+        if let Some((existing_path, _)) = resolved {
+            if existing_path != path {
+                return Err(InternalError::store_corruption(format!(
+                    "journal batch contains records for multiple stores: '{existing_path}' and '{path}'",
+                )));
+            }
+        } else {
+            resolved = Some((path, handle));
+        }
+    }
+
+    let Some((path, handle)) = resolved else {
+        return Err(InternalError::store_corruption(
+            "journal batch contains no records",
+        ));
+    };
+    if handle.storage_capabilities().recovery()
+        != StoreRecoveryCapability::StableBasePlusJournalReplay
+    {
+        return Err(InternalError::store_corruption(format!(
+            "journal batch resolved to non-journaled store '{path}'",
+        )));
+    }
+
+    Ok((path, handle))
+}
+
+fn journal_record_store_handle<C: CanisterKind>(
+    db: &Db<C>,
+    record: &JournalRecord,
+) -> Result<(&'static str, StoreHandle), InternalError> {
+    let store_path = match record {
+        JournalRecord::RowPut { entity_path, .. }
+        | JournalRecord::RowDelete { entity_path, .. } => {
+            db.runtime_hook_for_entity_path(entity_path.as_str())?
+                .store_path
+        }
+        JournalRecord::SchemaPut { store_path, .. } => store_path.as_str(),
+    };
+
+    db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .find(|(path, _)| *path == store_path)
+            .ok_or_else(|| {
+                InternalError::store_corruption(format!(
+                    "journal record resolved to unknown store '{store_path}'",
+                ))
+            })
+    })
 }
 
 // Reconcile generated entity metadata with the schema store once per generated

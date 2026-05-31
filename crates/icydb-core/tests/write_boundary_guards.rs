@@ -2313,17 +2313,20 @@ fn journaled_storage_schema_build_admission_stays_out_of_runtime_backends() {
         executor_mutation.contains("StoreRecoveryCapability::StableBasePlusJournalReplay")
             && executor_mutation.contains("commit_window_payload_for_prepared_row_ops")
             && executor_mutation.contains("append_prepared_journal_batches")
-            && commit.contains("journaled recovery replay is not implemented"),
-        "0.174.3 commit should append marker-bound journal batches while recovery remains fail-closed until the recovery slice lands",
+            && commit.contains("publish_marker_bound_journal_batches")
+            && commit.contains("rebuild_journaled_live_projections")
+            && commit.contains("JournalTailVisit"),
+        "0.174.4 commit/recovery should append, repair, and replay marker-bound journal batches through the journal tail",
     );
 }
 
 #[test]
-fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
+fn commit_recovery_boundary_keeps_journal_replay_marker_bound_without_fold() {
     let commit_root = read_source("src/db/commit/mod.rs");
     let commit_guard = read_source("src/db/commit/guard.rs");
     let commit_window = read_source("src/db/executor/mutation/commit_window.rs");
     let commit_replay = read_source("src/db/commit/replay.rs");
+    let commit_recovery = read_source("src/db/commit/recovery.rs");
     let commit_rebuild = read_source("src/db/commit/rebuild.rs");
     let commit_store = read_source("src/db/commit/store/mod.rs");
 
@@ -2355,13 +2358,29 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
     assert!(
         commit_rebuild.contains("handle.storage_capabilities().recovery()")
             && commit_rebuild.contains("StoreRecoveryCapability::StableCommitReplay")
+            && commit_rebuild.contains("StoreRecoveryCapability::StableBasePlusJournalReplay")
             && commit_rebuild.contains("rebuild_secondary_indexes_from_rows"),
-        "startup index rebuild should stay scoped to stable-commit-replay stores",
+        "startup index rebuild should consume recovery capabilities for stable and journaled durable stores",
+    );
+    assert!(
+        commit_recovery.contains("fn publish_marker_bound_journal_batches")
+            && commit_recovery.contains("fn rebuild_journaled_live_projections")
+            && commit_recovery.contains("store.visit_batches_after(JournalSequence::new(0)")
+            && commit_recovery.contains("JournalTailVisit::Continue")
+            && commit_recovery.contains("apply_recovered_journal_put")
+            && commit_recovery.contains("apply_recovered_journal_delete"),
+        "0.174.4 recovery should repair marker-bound journal publication and rebuild live projections from committed tail batches",
+    );
+    assert!(
+        commit_replay.contains(
+            "journaled row-op recovery is unsupported; journaled recovery must use marker-bound journal batches",
+        ),
+        "journaled recovery must stay on marker-bound journal batches instead of treating journaled rows as stable marker row ops",
     );
     assert!(
         commit_store.contains("struct RawCommitMarker(Vec<u8>)")
             && commit_store.contains("StableCell<RawCommitMarker"),
-        "0.172 should not replace the existing stable-cell commit-marker store",
+        "0.174 recovery should keep the existing stable-cell commit-marker store as publication authority",
     );
 
     let checked_roots = [
@@ -2371,13 +2390,7 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
         "src/db/index",
         "src/db/schema",
     ];
-    let forbidden = [
-        "JournalFold",
-        "CommittedJournal",
-        "journal_replay",
-        "replay_journal",
-        "fold_journal",
-    ];
+    let forbidden = ["JournalFold", "CommittedJournal", "fold_journal"];
     let mut violations = Vec::new();
 
     for root in checked_roots {
@@ -2402,7 +2415,7 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
 
     assert!(
         violations.is_empty(),
-        "0.172.3 is a commit/recovery inventory slice only; production commit, mutation, data, index, and schema code must not implement journal replay or fold surfaces:\n{}",
+        "0.174.4 may add marker-bound journal replay but must not introduce fold surfaces before the fold slice:\n{}",
         violations.join("\n"),
     );
 }

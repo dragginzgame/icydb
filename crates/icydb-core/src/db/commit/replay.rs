@@ -41,7 +41,7 @@ pub(in crate::db) fn replay_commit_marker_row_ops(
             StoreRecoveryCapability::StableBasePlusJournalReplay => {
                 rollback_prepared_row_ops_reverse(rollbacks);
                 return Err(InternalError::store_unsupported(
-                    "journaled recovery replay is not implemented before journaled runtime recovery",
+                    "journaled row-op recovery is unsupported; journaled recovery must use marker-bound journal batches",
                 ));
             }
             StoreRecoveryCapability::None => continue,

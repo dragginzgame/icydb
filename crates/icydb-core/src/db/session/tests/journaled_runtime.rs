@@ -44,6 +44,20 @@ fn seed_journaled_session_entities(session: &DbSession<SessionSqlCanister>) {
     }
 }
 
+fn first_journaled_session_batch() -> JournalBatch {
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {
+        let mut captured = None;
+        store
+            .visit_batches_after(JournalSequence::new(0), |batch| {
+                captured = Some(batch.clone());
+                Ok(JournalTailVisit::Stop)
+            })
+            .expect("journal tail should be readable");
+
+        captured.expect("journal tail should contain at least one committed batch")
+    })
+}
+
 #[test]
 fn journaled_session_write_read_and_index_query_round_trip_while_live() {
     reset_journaled_session_sql_store();
@@ -131,6 +145,115 @@ fn journaled_session_writes_append_journal_and_leave_canonical_btrees_untouched(
             store.len(),
             3,
             "each committed row mutation should append one marker-bound journal batch",
+        );
+    });
+}
+
+#[test]
+fn journaled_session_recovery_rebuilds_live_rows_and_indexes_from_journal_tail() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    seed_journaled_session_entities(&session);
+
+    reinitialize_journaled_session_sql_store();
+    let recovered_session = journaled_sql_session();
+
+    let loaded = recovered_session
+        .load::<JournaledSessionSqlEntity>()
+        .order_term(crate::db::asc("id"))
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("journaled recovery should restore live rows from the tail")
+        .entities();
+    assert_eq!(
+        loaded
+            .iter()
+            .map(|entity| (entity.id, entity.name.as_str(), entity.age))
+            .collect::<Vec<_>>(),
+        vec![(1, "Atlas", 20), (2, "Beryl", 30), (3, "Cato", 40)],
+    );
+
+    let rows = public_projection_rows::<JournaledSessionSqlEntity>(
+        &recovered_session,
+        "SELECT name, age FROM JournaledSessionSqlEntity \
+         WHERE name >= 'B' AND name < 'D' \
+         ORDER BY name ASC",
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("Beryl".to_string()), Value::Nat64(30)],
+            vec![Value::Text("Cato".to_string()), Value::Nat64(40)],
+        ],
+    );
+
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        assert_eq!(store.len(), 3);
+        assert_eq!(
+            store.canonical_len_for_tests(),
+            0,
+            "recovery must rebuild journaled row visibility without folding into canonical data",
+        );
+    });
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(store.len(), 3);
+        assert_eq!(
+            store.canonical_len_for_tests(),
+            0,
+            "recovery must rebuild live indexes without folding into canonical index",
+        );
+    });
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {
+        assert_eq!(store.len(), 3);
+    });
+}
+
+#[test]
+fn journaled_session_recovery_repairs_missing_marker_bound_journal_tail_batch() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 1,
+            name: "Atlas".to_string(),
+            age: 20,
+        })
+        .expect("journaled typed insert should succeed while live");
+
+    let batch = first_journaled_session_batch();
+    JOURNALED_SESSION_SQL_DATA_STORE
+        .with_borrow_mut(|store| *store = DataStore::init_journaled(test_memory(180)));
+    JOURNALED_SESSION_SQL_INDEX_STORE
+        .with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(181)));
+    JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+
+    let marker = crate::db::commit::CommitMarker::from_parts(
+        batch.commit_marker_id(),
+        Vec::new(),
+        vec![batch],
+    )
+    .expect("marker-bound journal recovery fixture should build");
+    crate::db::commit::begin_commit(marker)
+        .expect("marker-bound journal recovery fixture should persist marker");
+    ensure_recovered(&JOURNALED_SESSION_SQL_DB)
+        .expect("journaled recovery should repair marker-bound journal publication");
+
+    let recovered_session = journaled_sql_session();
+    let loaded = recovered_session
+        .load::<JournaledSessionSqlEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("journaled recovery should replay repaired journal batch")
+        .entities();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].name, "Atlas");
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            1,
+            "recovery should publish the embedded marker-bound batch once",
         );
     });
 }

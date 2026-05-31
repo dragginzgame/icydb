@@ -100,7 +100,11 @@ impl IndexStoreSnapshot {
 fn sorted_store_handles(db: &Db<impl CanisterKind>) -> Vec<(&'static str, StoreHandle)> {
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
     stores.retain(|(_, handle)| {
-        handle.storage_capabilities().recovery() == StoreRecoveryCapability::StableCommitReplay
+        matches!(
+            handle.storage_capabilities().recovery(),
+            StoreRecoveryCapability::StableCommitReplay
+                | StoreRecoveryCapability::StableBasePlusJournalReplay
+        )
     });
     // StoreRegistry iteration is HashMap-backed and intentionally unordered.
     // Recovery semantics must remain deterministic, so sort explicitly by path.

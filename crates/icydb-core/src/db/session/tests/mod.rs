@@ -45,7 +45,7 @@ mod verbose_route_choice;
 use super::*;
 use crate::{
     db::{
-        Db, MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError,
+        Db, EntityRuntimeHooks, MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError,
         access::lower_access,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
@@ -56,7 +56,7 @@ use crate::{
         direction::Direction,
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
         index::{IndexKey, IndexStore, IndexStoreVisit, key_within_envelope},
-        journal::JournalTailStore,
+        journal::{JournalBatch, JournalSequence, JournalTailStore, JournalTailVisit},
         key_taxonomy::PrimaryKeyComponent,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
@@ -280,8 +280,12 @@ static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
 static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&HEAP_SESSION_SQL_STORE_REGISTRY);
 static MIXED_HEAP_RELATION_DB: Db<SessionSqlCanister> =
     Db::new(&MIXED_HEAP_RELATION_STORE_REGISTRY);
-static JOURNALED_SESSION_SQL_DB: Db<SessionSqlCanister> =
-    Db::new(&JOURNALED_SESSION_SQL_STORE_REGISTRY);
+static JOURNALED_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] =
+    &[EntityRuntimeHooks::for_entity::<JournaledSessionSqlEntity>()];
+static JOURNALED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+    &JOURNALED_SESSION_SQL_STORE_REGISTRY,
+    JOURNALED_SESSION_SQL_RUNTIME_HOOKS,
+);
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
 static ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE: LazyLock<Predicate> = LazyLock::new(|| {
@@ -2539,6 +2543,25 @@ fn reset_journaled_session_sql_store() {
     JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
     ensure_recovered(&JOURNALED_SESSION_SQL_DB)
         .expect("journaled write-side recovery boundary should initialize");
+    let session = journaled_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
+}
+
+fn reinitialize_journaled_session_sql_store() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    JOURNALED_SESSION_SQL_DATA_STORE
+        .with_borrow_mut(|store| *store = DataStore::init_journaled(test_memory(180)));
+    JOURNALED_SESSION_SQL_INDEX_STORE
+        .with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(181)));
+    JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
+    let marker = crate::db::commit::CommitMarker::new(Vec::new())
+        .expect("empty recovery marker should build");
+    crate::db::commit::begin_commit(marker)
+        .expect("empty recovery marker should force journaled startup rebuild");
+    ensure_recovered(&JOURNALED_SESSION_SQL_DB)
+        .expect("journaled recovery should rebuild live projections from tail");
     let session = journaled_sql_session();
     session.clear_query_plan_cache_for_tests();
     session.clear_sql_caches_for_tests();

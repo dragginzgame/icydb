@@ -421,6 +421,24 @@ impl SchemaStore {
         Ok(())
     }
 
+    /// Reset the volatile projection for journaled recovery without mutating
+    /// the canonical stable schema base.
+    pub(in crate::db) fn reset_journaled_live_projection(&mut self) -> Result<(), InternalError> {
+        let SchemaStoreBackend::Journaled {
+            live, tombstones, ..
+        } = &mut self.backend
+        else {
+            return Err(InternalError::store_invariant(
+                "journaled live projection reset requires a journaled schema store",
+            ));
+        };
+
+        live.clear();
+        tombstones.clear();
+
+        Ok(())
+    }
+
     /// Load and decode one typed persisted schema snapshot.
     #[cfg(test)]
     pub(in crate::db) fn get_persisted_snapshot(
@@ -611,9 +629,11 @@ impl SchemaStore {
                 live,
                 tombstones,
             } => {
-                canonical.clear_new();
                 live.clear();
                 tombstones.clear();
+                for entry in canonical.iter() {
+                    tombstones.insert(*entry.key());
+                }
             }
         }
     }

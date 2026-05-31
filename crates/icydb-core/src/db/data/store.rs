@@ -170,6 +170,81 @@ impl DataStore {
         }
     }
 
+    /// Reset the volatile projection for journaled recovery without mutating
+    /// the canonical stable base.
+    pub(in crate::db) fn reset_journaled_live_projection(
+        &mut self,
+    ) -> Result<(), crate::error::InternalError> {
+        let DataStoreBackend::Journaled {
+            live, tombstones, ..
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant(
+                "journaled live projection reset requires a journaled data store",
+            ));
+        };
+
+        live.clear();
+        tombstones.clear();
+
+        Ok(())
+    }
+
+    /// Apply one recovered journal row put into the volatile projection.
+    pub(in crate::db) fn apply_recovered_journal_put(
+        &mut self,
+        key: RawDataStoreKey,
+        row: RawRow,
+    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant(
+                "journal row replay requires a journaled data store",
+            ));
+        };
+
+        let previous = if tombstones.contains(&key) {
+            None
+        } else {
+            live.get(&key).cloned().or_else(|| canonical.get(&key))
+        };
+        tombstones.remove(&key);
+        live.insert(key, row);
+
+        Ok(previous)
+    }
+
+    /// Apply one recovered journal row delete into the volatile projection.
+    pub(in crate::db) fn apply_recovered_journal_delete(
+        &mut self,
+        key: &RawDataStoreKey,
+    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant(
+                "journal row replay requires a journaled data store",
+            ));
+        };
+
+        let previous = if tombstones.contains(key) {
+            None
+        } else {
+            live.get(key).cloned().or_else(|| canonical.get(key))
+        };
+        live.remove(key);
+        tombstones.insert(key.clone());
+
+        Ok(previous)
+    }
+
     /// Load one row by raw key.
     pub(in crate::db) fn get(&self, key: &RawDataStoreKey) -> Option<RawRow> {
         #[cfg(feature = "diagnostics")]
@@ -205,9 +280,11 @@ impl DataStore {
                 live,
                 tombstones,
             } => {
-                canonical.clear_new();
                 live.clear();
                 tombstones.clear();
+                for entry in canonical.iter() {
+                    tombstones.insert(entry.key().clone());
+                }
             }
         }
     }

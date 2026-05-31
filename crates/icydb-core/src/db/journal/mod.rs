@@ -19,5 +19,4 @@ pub(in crate::db) use codec::{
     journal_batch_encoded_len,
 };
 pub use store::JournalTailStore;
-#[cfg(test)]
 pub(in crate::db) use store::JournalTailVisit;

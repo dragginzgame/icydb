@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.174.md](docs/changelog/0.174.md)
 
+- `0.174.4` adds journaled recovery from marker-bound journal-tail batches
+  while keeping fold, diagnostics, and relation closeout planned.
+
 - `0.174.3` adds journaled runtime store wrappers and live write/read/index
   behavior while keeping normal writes out of canonical stable BTrees.
 
