@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.172.x] 🧭 - 2026-05-31 - Journaled Store Reserved Contract
+
+Detailed notes: [docs/changelog/0.172.md](docs/changelog/0.172.md)
+
+- `0.172.0` starts the journaled-store reserved-contract line with a design
+  that reserves `storage(journaled(...))` for a future cached-stable durable
+  store while keeping `storage(heap())` volatile and production journaled
+  runtime storage unadmitted.
+
 ## [0.171.x] 🧭 - 2026-05-31 - Capability-Gated Recovery And Write Semantics
 
 Detailed notes: [docs/changelog/0.171.md](docs/changelog/0.171.md)
