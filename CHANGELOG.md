@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.172.md](docs/changelog/0.172.md)
 
+- `0.172.5` closes the journaled-store reserved-contract proof matrix while
+  keeping production journaled runtime storage unadmitted.
+
 - `0.172.4` defines future journal format requirements while proving 0.172
   adds no journal persisted format or codec changes.
 
