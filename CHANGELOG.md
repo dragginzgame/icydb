@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.171.x] 🧭 - 2026-05-31 - Capability-Gated Recovery And Write Semantics
+
+Detailed notes: [docs/changelog/0.171.md](docs/changelog/0.171.md)
+
+- `0.171.0` starts the capability-gated recovery and write-semantics line with
+  a design and boundary inventory for affected-store classification,
+  write-stage mapping, failure-injection seams, and source-audit guard
+  coverage.
+
 ## [0.170.x] 🧭 - 2026-05-30 - Storage Capability And Mixed-Durability Contracts
 
 Detailed notes: [docs/changelog/0.170.md](docs/changelog/0.170.md)
