@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.173.x] 🧭 - 2026-05-31 - Journaled Protocol Foundation
+
+Detailed notes: [docs/changelog/0.173.md](docs/changelog/0.173.md)
+
+- `0.173.0` starts the journaled protocol-foundation line, keeping public
+  journaled storage reserved while inventorying protocol boundaries and
+  splitting runtime admission into 0.174.
+
 ## [0.172.x] 🧭 - 2026-05-31 - Journaled Store Reserved Contract
 
 Detailed notes: [docs/changelog/0.172.md](docs/changelog/0.172.md)
