@@ -2708,6 +2708,12 @@ fn journaled_protocol_foundation_closeout_records_non_admission_and_handoff() {
             && design.contains("without admitting journaled runtime")
             && design.contains("0.173 does not introduce journaled row/index/schema codecs")
             && design.contains("journaled capabilities")
+            && design.contains("Closeout validation:")
+            && design.contains("cargo test -p icydb-schema-tests compile_fail")
+            && design.contains("cargo clippy -p icydb-core --all-targets -- -D warnings")
+            && design.contains(
+                "The only hits are in `crates/icydb-core/tests/write_boundary_guards.rs`"
+            )
             && !design.contains("| Planned |"),
         "0.173.5 must close the proof matrix without admitting runtime journaled storage",
     );
@@ -2744,8 +2750,76 @@ fn journaled_protocol_foundation_closeout_records_non_admission_and_handoff() {
         "0.173.5 changelog should record protocol closeout and 0.174 handoff",
     );
     assert!(
+        changelog.contains("Closes proof rows P9 and P10 only")
+            && changelog.contains("full protocol-foundation closeout remains")
+            && changelog.contains("Records closeout validation"),
+        "0.173.4 and 0.173.5 changelog notes should keep schema/index proof separate from closeout validation",
+    );
+    assert!(
         root_changelog.contains("`0.173.5` closes the journaled protocol-foundation proof matrix")
             && root_changelog.contains("public journaled runtime admission gated to 0.174"),
         "root changelog should summarize 0.173.5 closeout",
+    );
+}
+
+#[test]
+fn journaled_runtime_admission_readiness_keeps_public_syntax_reserved() {
+    let runtime_design = read_source(
+        "../../docs/design/0.174-journaled-cached-stable-runtime-admission/0.174-design.md",
+    );
+    let foundation_design =
+        read_source("../../docs/design/0.173-journaled-protocol-foundation/0.173-design.md");
+    let changelog = read_source("../../docs/changelog/0.174.md");
+    let root_changelog = read_source("../../CHANGELOG.md");
+
+    assert!(
+        foundation_design.contains("Closed protocol-foundation design")
+            && foundation_design.contains("0.173.5 closes the protocol foundation")
+            && foundation_design.contains("without admitting journaled runtime"),
+        "0.174.0 must start only after the 0.173 protocol foundation is closed",
+    );
+    assert!(
+        runtime_design.contains("Active runtime-admission design")
+            && runtime_design.contains("0.174.0 completed the admission-readiness")
+            && runtime_design.contains("Runtime behavior")
+            && runtime_design.contains("remains unchanged")
+            && runtime_design.contains("## 0.174.0 Readiness Baseline"),
+        "0.174.0 must be an admission-readiness slice, not runtime admission",
+    );
+    assert!(
+        runtime_design.contains("embedded bounded journal batch payload strategy is binding")
+            && runtime_design.contains("monotonic `journal_sequence`")
+            && runtime_design.contains("fold watermark remains the durable replay boundary")
+            && runtime_design.contains("reconstructed accepted schema timeline")
+            && runtime_design.contains("derived materialized state")
+            && runtime_design.contains("must revise the design before changing any 0.173")
+            && runtime_design.contains("protocol decision"),
+        "0.174.0 must preserve the binding 0.173 protocol decisions",
+    );
+    assert!(
+        runtime_design.contains("Public derive admission is the last step")
+            && runtime_design.contains("public derive syntax remains reserved")
+            && runtime_design.contains("generated wiring")
+            && runtime_design.contains("runtime construction")
+            && runtime_design.contains("recovery")
+            && runtime_design.contains("fold")
+            && runtime_design.contains("source audits all pass in the same branch"),
+        "0.174.0 must keep public journaled syntax reserved until the full admission gate is satisfied",
+    );
+    assert!(
+        changelog.contains("## 0.174.0")
+            && changelog.contains("admission-readiness check")
+            && changelog.contains("0.173 protocol decisions as binding")
+            && changelog.contains("public `storage(journaled(...))` reserved")
+            && changelog.contains("runtime behavior unchanged"),
+        "0.174.0 changelog should record readiness, binding protocol decisions, and no runtime behavior change",
+    );
+    assert!(
+        root_changelog.contains("[0.174.x]")
+            && root_changelog.contains("Journaled Cached-Stable Runtime Admission")
+            && root_changelog
+                .contains("`0.174.0` starts the journaled cached-stable runtime-admission line")
+            && root_changelog.contains("keeps public journaled storage reserved"),
+        "root changelog should summarize the 0.174.0 readiness slice",
     );
 }

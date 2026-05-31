@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.174.x] 🧭 - 2026-05-31 - Journaled Cached-Stable Runtime Admission
+
+Detailed notes: [docs/changelog/0.174.md](docs/changelog/0.174.md)
+
+- `0.174.0` starts the journaled cached-stable runtime-admission line with a
+  readiness check that keeps public journaled storage reserved.
+
 ## [0.173.x] 🧭 - 2026-05-31 - Journaled Protocol Foundation
 
 Detailed notes: [docs/changelog/0.173.md](docs/changelog/0.173.md)
