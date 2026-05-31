@@ -245,6 +245,35 @@ impl DataStore {
         Ok(previous)
     }
 
+    /// Apply one folded journal row put into the canonical stable base.
+    pub(in crate::db) fn fold_recovered_journal_put(
+        &mut self,
+        key: RawDataStoreKey,
+        row: RawRow,
+    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+        let DataStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(crate::error::InternalError::store_invariant(
+                "journal row fold requires a journaled data store",
+            ));
+        };
+
+        Ok(canonical.insert(key, row))
+    }
+
+    /// Apply one folded journal row delete into the canonical stable base.
+    pub(in crate::db) fn fold_recovered_journal_delete(
+        &mut self,
+        key: &RawDataStoreKey,
+    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+        let DataStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(crate::error::InternalError::store_invariant(
+                "journal row fold requires a journaled data store",
+            ));
+        };
+
+        Ok(canonical.remove(key))
+    }
+
     /// Load one row by raw key.
     pub(in crate::db) fn get(&self, key: &RawDataStoreKey) -> Option<RawRow> {
         #[cfg(feature = "diagnostics")]

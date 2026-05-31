@@ -2321,7 +2321,7 @@ fn journaled_storage_schema_build_admission_stays_out_of_runtime_backends() {
 }
 
 #[test]
-fn commit_recovery_boundary_keeps_journal_replay_marker_bound_without_fold() {
+fn commit_recovery_boundary_keeps_journal_replay_marker_bound_and_folds_via_watermark() {
     let commit_root = read_source("src/db/commit/mod.rs");
     let commit_guard = read_source("src/db/commit/guard.rs");
     let commit_window = read_source("src/db/executor/mutation/commit_window.rs");
@@ -2329,6 +2329,10 @@ fn commit_recovery_boundary_keeps_journal_replay_marker_bound_without_fold() {
     let commit_recovery = read_source("src/db/commit/recovery.rs");
     let commit_rebuild = read_source("src/db/commit/rebuild.rs");
     let commit_store = read_source("src/db/commit/store/mod.rs");
+    let journal_store = read_source("src/db/journal/store.rs");
+    let data_store = read_source("src/db/data/store.rs");
+    let index_store = read_source("src/db/index/store.rs");
+    let schema_store = read_source("src/db/schema/store.rs");
 
     assert!(
         commit_root.contains("The `CommitMarker` fully specifies every row mutation")
@@ -2364,12 +2368,37 @@ fn commit_recovery_boundary_keeps_journal_replay_marker_bound_without_fold() {
     );
     assert!(
         commit_recovery.contains("fn publish_marker_bound_journal_batches")
+            && commit_recovery.contains("fn fold_journaled_tails")
             && commit_recovery.contains("fn rebuild_journaled_live_projections")
-            && commit_recovery.contains("store.visit_batches_after(JournalSequence::new(0)")
+            && commit_recovery
+                .contains("store.fold_watermark()?.highest_folded_journal_sequence()")
+            && commit_recovery.contains("store.persist_fold_watermark(next_watermark)")
+            && commit_recovery.contains("store.clear_batches_through(highest_folded)")
             && commit_recovery.contains("JournalTailVisit::Continue")
             && commit_recovery.contains("apply_recovered_journal_put")
-            && commit_recovery.contains("apply_recovered_journal_delete"),
-        "0.174.4 recovery should repair marker-bound journal publication and rebuild live projections from committed tail batches",
+            && commit_recovery.contains("fold_recovered_journal_put")
+            && commit_recovery.contains("fold_recovered_journal_delete")
+            && commit_recovery.contains("fold_journaled_materialized_view"),
+        "0.174.5 recovery should repair marker-bound journal publication, fold committed tail batches, and replay only above the fold watermark",
+    );
+    assert!(
+        journal_store.contains("pub(in crate::db) struct FoldWatermark")
+            && journal_store.contains("FOLD_WATERMARK_CONTROL_SEQUENCE")
+            && journal_store.contains("pub(in crate::db) fn persist_fold_watermark")
+            && journal_store.contains("pub(in crate::db) fn clear_batches_through")
+            && journal_store.contains(
+                "Values above sequence `0` are complete encoded `JournalBatch` envelopes"
+            )
+            && journal_store.contains("so real")
+            && journal_store.contains("journal batches start at sequence `1`"),
+        "0.174.5 journal tail storage should own the fold-watermark replay boundary without a fifth memory id",
+    );
+    assert!(
+        data_store.contains("fn fold_recovered_journal_put")
+            && data_store.contains("fn fold_recovered_journal_delete")
+            && schema_store.contains("fn fold_persisted_snapshot")
+            && index_store.contains("fn fold_journaled_materialized_view"),
+        "0.174.5 should fold row/schema records and derived index materializations through store-wrapper APIs",
     );
     assert!(
         commit_replay.contains(
@@ -2383,40 +2412,11 @@ fn commit_recovery_boundary_keeps_journal_replay_marker_bound_without_fold() {
         "0.174 recovery should keep the existing stable-cell commit-marker store as publication authority",
     );
 
-    let checked_roots = [
-        "src/db/commit",
-        "src/db/executor/mutation",
-        "src/db/data",
-        "src/db/index",
-        "src/db/schema",
-    ];
-    let forbidden = ["JournalFold", "CommittedJournal", "fold_journal"];
-    let mut violations = Vec::new();
-
-    for root in checked_roots {
-        for path in rust_sources_under(root) {
-            let relative = relative_source_path(&path);
-            if relative.ends_with("/tests.rs") || relative.contains("/tests/") {
-                continue;
-            }
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
-            let production_source = strip_cfg_test_items(&source);
-            let symbols = forbidden
-                .iter()
-                .copied()
-                .filter(|symbol| production_source.contains(symbol))
-                .collect::<Vec<_>>();
-            if !symbols.is_empty() {
-                violations.push(format!("{relative} ({})", symbols.join(", ")));
-            }
-        }
-    }
-
+    let executor_mutation = read_rust_sources_under("src/db/executor/mutation");
+    let relation = read_rust_sources_under("src/db/relation");
     assert!(
-        violations.is_empty(),
-        "0.174.4 may add marker-bound journal replay but must not introduce fold surfaces before the fold slice:\n{}",
-        violations.join("\n"),
+        !executor_mutation.contains("fold_journal") && !relation.contains("fold_journal"),
+        "fold policy should stay in recovery/store-wrapper boundaries, not executor or relation policy roots",
     );
 }
 

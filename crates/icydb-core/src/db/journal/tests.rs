@@ -1,5 +1,6 @@
 use super::{
-    JournalBatch, JournalRecord, JournalSequence, JournalTailStore, JournalTailVisit,
+    FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
+    JournalTailVisit,
     codec::{
         JOURNAL_BATCH_FORMAT_VERSION_CURRENT, MAX_JOURNAL_BATCH_BYTES, RawJournalBatch,
         decode_journal_batch, encode_journal_batch,
@@ -154,6 +155,60 @@ fn journal_tail_store_skips_batches_at_or_below_watermark() {
 }
 
 #[test]
+fn journal_tail_store_persists_fold_watermark_without_counting_it_as_tail_batch() {
+    let mut store = JournalTailStore::init(test_memory(216));
+    store.append_batch(&batch(1)).expect("batch should append");
+    store.append_batch(&batch(2)).expect("batch should append");
+
+    store
+        .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(2), 1))
+        .expect("fold watermark should persist");
+
+    let watermark = store
+        .fold_watermark()
+        .expect("fold watermark should be readable");
+    assert_eq!(watermark.highest_folded_journal_sequence().get(), 2);
+    assert_eq!(watermark.fold_epoch(), 1);
+    assert_eq!(store.len(), 2);
+}
+
+#[test]
+fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
+    let mut store = JournalTailStore::init(test_memory(217));
+    store.append_batch(&batch(1)).expect("batch should append");
+    store.append_batch(&batch(2)).expect("batch should append");
+    store
+        .persist_fold_watermark(FoldWatermark::new(JournalSequence::new(2), 1))
+        .expect("fold watermark should persist");
+
+    store.clear_batches_through(JournalSequence::new(2));
+
+    let mut visited = Vec::new();
+    store
+        .visit_batches_after(
+            store
+                .fold_watermark()
+                .expect("fold watermark should be readable")
+                .highest_folded_journal_sequence(),
+            |batch| {
+                visited.push(batch.journal_sequence().get());
+                Ok(JournalTailVisit::Continue)
+            },
+        )
+        .expect("folded tail should read as empty replay tail");
+
+    assert_eq!(visited, Vec::<u64>::new());
+    assert_eq!(store.len(), 0);
+    assert_eq!(
+        store
+            .next_append_sequence()
+            .expect("next append sequence should account for watermark")
+            .get(),
+        3,
+    );
+}
+
+#[test]
 fn journal_tail_store_treats_identical_duplicate_append_as_idempotent() {
     let mut store = JournalTailStore::init(test_memory(212));
     let batch = batch(1);
@@ -163,6 +218,25 @@ fn journal_tail_store_treats_identical_duplicate_append_as_idempotent() {
         .expect("same batch append should be idempotent");
 
     assert_eq!(store.len(), 1);
+}
+
+#[test]
+fn journal_tail_store_rejects_batch_at_fold_watermark_control_sequence() {
+    let mut store = JournalTailStore::init(test_memory(218));
+    let control_sequence_batch = JournalBatch::new(
+        [0x01; 16],
+        [0xAA; 16],
+        JournalSequence::new(0),
+        vec![row_put_record(1)],
+    )
+    .expect("control-sequence batch shape should build before tail append rejects it");
+
+    let err = store
+        .append_batch(&control_sequence_batch)
+        .expect_err("sequence zero is reserved for fold-watermark control");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
 #[test]

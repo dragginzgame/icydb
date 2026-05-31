@@ -274,6 +274,34 @@ impl IndexStore {
         self.bump_generation();
     }
 
+    /// Fold the current journaled materialized index view into the canonical
+    /// stable base and clear volatile projection state.
+    pub(in crate::db) fn fold_journaled_materialized_view(
+        &mut self,
+    ) -> Result<(), crate::error::InternalError> {
+        let entries = Self::journaled_entries_snapshot(&self.backend);
+        let IndexStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &mut self.backend
+        else {
+            return Err(crate::error::InternalError::store_invariant(
+                "journal index fold requires a journaled index store",
+            ));
+        };
+
+        canonical.clear_new();
+        for (key, value) in entries {
+            canonical.insert(key, value);
+        }
+        live.clear();
+        tombstones.clear();
+        self.bump_generation();
+
+        Ok(())
+    }
+
     /// Sum of bytes used by all stored index entries.
     pub fn memory_bytes(&self) -> u64 {
         let mut bytes = 0u64;

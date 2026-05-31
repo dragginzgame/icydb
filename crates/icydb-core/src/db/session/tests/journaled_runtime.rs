@@ -150,7 +150,7 @@ fn journaled_session_writes_append_journal_and_leave_canonical_btrees_untouched(
 }
 
 #[test]
-fn journaled_session_recovery_rebuilds_live_rows_and_indexes_from_journal_tail() {
+fn journaled_session_recovery_folds_committed_tail_into_canonical_btrees() {
     reset_journaled_session_sql_store();
     let session = journaled_sql_session();
     seed_journaled_session_entities(&session);
@@ -191,20 +191,25 @@ fn journaled_session_recovery_rebuilds_live_rows_and_indexes_from_journal_tail()
         assert_eq!(store.len(), 3);
         assert_eq!(
             store.canonical_len_for_tests(),
-            0,
-            "recovery must rebuild journaled row visibility without folding into canonical data",
+            3,
+            "recovery fold must apply committed row batches to canonical data",
         );
     });
     JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(|store| {
         assert_eq!(store.len(), 3);
         assert_eq!(
             store.canonical_len_for_tests(),
-            0,
-            "recovery must rebuild live indexes without folding into canonical index",
+            3,
+            "recovery fold must materialize derived indexes into canonical index",
         );
     });
     JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {
-        assert_eq!(store.len(), 3);
+        let watermark = store
+            .fold_watermark()
+            .expect("journal fold watermark should be readable");
+        assert_eq!(store.len(), 0);
+        assert_eq!(watermark.highest_folded_journal_sequence().get(), 3);
+        assert_eq!(watermark.fold_epoch(), 1);
     });
 }
 
@@ -250,10 +255,21 @@ fn journaled_session_recovery_repairs_missing_marker_bound_journal_tail_batch() 
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].name, "Atlas");
     JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {
+        let watermark = store
+            .fold_watermark()
+            .expect("journal fold watermark should be readable");
         assert_eq!(
             store.len(),
+            0,
+            "recovery should publish then fold the embedded marker-bound batch",
+        );
+        assert_eq!(watermark.highest_folded_journal_sequence().get(), 1);
+    });
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.canonical_len_for_tests(),
             1,
-            "recovery should publish the embedded marker-bound batch once",
+            "repaired marker-bound batch should fold into canonical data",
         );
     });
 }

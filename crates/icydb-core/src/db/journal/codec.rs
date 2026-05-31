@@ -210,6 +210,10 @@ impl RawJournalBatch {
         encode_journal_batch(batch).map(Self)
     }
 
+    pub(in crate::db::journal) const fn from_control_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
     pub(in crate::db::journal) fn decode(&self) -> Result<JournalBatch, InternalError> {
         decode_journal_batch(self.as_bytes())
     }

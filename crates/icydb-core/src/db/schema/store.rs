@@ -439,6 +439,25 @@ impl SchemaStore {
         Ok(())
     }
 
+    /// Apply one folded journal schema snapshot into the canonical stable base.
+    pub(in crate::db) fn fold_persisted_snapshot(
+        &mut self,
+        entity: EntityTag,
+        snapshot: &PersistedSchemaSnapshot,
+    ) -> Result<(), InternalError> {
+        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+            return Err(InternalError::store_invariant(
+                "journal schema fold requires a journaled schema store",
+            ));
+        };
+
+        let key = RawSchemaKey::from_entity_version(entity, snapshot.version());
+        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
+        canonical.insert(key, raw_snapshot);
+
+        Ok(())
+    }
+
     /// Load and decode one typed persisted schema snapshot.
     #[cfg(test)]
     pub(in crate::db) fn get_persisted_snapshot(

@@ -31,7 +31,11 @@ use crate::{
         },
         data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow},
         diagnostics::integrity_report_after_recovery,
-        journal::{JournalBatch, JournalRecord, JournalSequence, JournalTailVisit},
+        index::IndexStore,
+        journal::{
+            FoldWatermark, JournalBatch, JournalRecord, JournalSequence, JournalTailStore,
+            JournalTailVisit,
+        },
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             SchemaStore, accepted_commit_schema_fingerprint, decode_persisted_schema_snapshot,
@@ -100,23 +104,33 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
-    // Phase 2: rebuild journaled live projections from durable base + tail.
+    // Phase 2: fold committed journal-tail records into the canonical stable
+    // base, then use the fold watermark as the replay boundary.
+    fold_journaled_tails(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+
+    // Phase 3: rebuild journaled live projections from durable base + any
+    // committed tail that remains above the fold watermark.
     rebuild_journaled_live_projections(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 3: rebuild secondary indexes from authoritative data rows.
+    // Phase 4: rebuild secondary indexes from authoritative data rows.
     rebuild_secondary_indexes_from_rows(db)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 4: enforce post-recovery integrity before clearing marker authority.
+    // Phase 5: fold rebuilt journaled index materializations into canonical
+    // index storage. Indexes are derived state, not independent journal truth.
+    fold_journaled_index_materialized_views(db)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+
+    // Phase 6: enforce post-recovery integrity before clearing marker authority.
     validate_recovery_integrity(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
-    // Phase 5: clear marker only after replay + rebuild + integrity validation succeed.
+    // Phase 7: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
         with_commit_store(super::store::CommitStore::clear_verified)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
-    // Phase 6: authoritative rebuild succeeded, so every registered index is
+    // Phase 8: authoritative rebuild succeeded, so every registered index is
     // query-visible again.
     db.mark_all_registered_index_stores_ready();
     mark_commit_marker_verified_absent();
@@ -157,11 +171,63 @@ fn rebuild_journaled_live_projections<C: CanisterKind>(db: &Db<C>) -> Result<(),
             )
         })?;
         journal_store.with_borrow(|store| {
-            store.visit_batches_after(JournalSequence::new(0), |batch| {
+            let watermark = store.fold_watermark()?.highest_folded_journal_sequence();
+            store.visit_batches_after(watermark, |batch| {
                 replay_journal_batch(db, store_path, handle, batch)?;
                 Ok(JournalTailVisit::Continue)
             })
         })?;
+    }
+
+    Ok(())
+}
+
+fn fold_journaled_tails<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    for (store_path, handle) in sorted_journaled_store_handles(db) {
+        let journal_store = handle.journal_tail_store().ok_or_else(|| {
+            InternalError::store_corruption(
+                "journaled fold handle does not expose journal-tail storage",
+            )
+        })?;
+        let watermark = journal_store.with_borrow(JournalTailStore::fold_watermark)?;
+        let mut highest_folded = watermark.highest_folded_journal_sequence();
+
+        journal_store.with_borrow(|store| {
+            store.visit_batches_after(watermark.highest_folded_journal_sequence(), |batch| {
+                fold_journal_batch(db, store_path, handle, batch)?;
+                highest_folded = batch.journal_sequence();
+                Ok(JournalTailVisit::Continue)
+            })
+        })?;
+
+        if highest_folded > watermark.highest_folded_journal_sequence() {
+            let next_epoch = watermark.fold_epoch().checked_add(1).ok_or_else(|| {
+                InternalError::store_corruption("journal fold epoch space exhausted")
+            })?;
+            let next_watermark = FoldWatermark::new(highest_folded, next_epoch);
+            journal_store.with_borrow_mut(|store| {
+                store.persist_fold_watermark(next_watermark)?;
+                store.clear_batches_through(highest_folded);
+
+                Ok::<(), InternalError>(())
+            })?;
+        } else if watermark.highest_folded_journal_sequence() > JournalSequence::new(0) {
+            journal_store.with_borrow_mut(|store| {
+                store.clear_batches_through(watermark.highest_folded_journal_sequence());
+
+                Ok::<(), InternalError>(())
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn fold_journaled_index_materialized_views<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), InternalError> {
+    for (_, handle) in sorted_journaled_store_handles(db) {
+        handle.with_index_mut(IndexStore::fold_journaled_materialized_view)?;
     }
 
     Ok(())
@@ -192,6 +258,26 @@ fn replay_journal_batch<C: CanisterKind>(
 
     for record in batch.records() {
         replay_journal_record(db, expected_store_path, expected_handle, record)?;
+    }
+
+    Ok(())
+}
+
+fn fold_journal_batch<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    batch: &JournalBatch,
+) -> Result<(), InternalError> {
+    let (_, batch_handle) = journal_batch_store_handle(db, batch)?;
+    if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
+        return Err(InternalError::store_corruption(
+            "journal batch fold resolved to a different store handle than its journal tail",
+        ));
+    }
+
+    for record in batch.records() {
+        fold_journal_record(db, expected_store_path, expected_handle, record)?;
     }
 
     Ok(())
@@ -266,6 +352,77 @@ fn replay_journal_record<C: CanisterKind>(
             }
             expected_handle.with_schema_mut(|schema_store| {
                 schema_store.insert_persisted_snapshot(hooks.entity_tag, &snapshot)
+            })
+        }
+    }
+}
+
+fn fold_journal_record<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    record: &JournalRecord,
+) -> Result<(), InternalError> {
+    match record {
+        JournalRecord::RowPut {
+            entity_path,
+            primary_key,
+            row_bytes,
+            schema_fingerprint,
+        } => {
+            validate_journal_row_record(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            )?;
+            let row =
+                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            expected_handle.with_data_mut(|store| {
+                store
+                    .fold_recovered_journal_put(primary_key.clone(), row)
+                    .map(|_| ())
+            })
+        }
+        JournalRecord::RowDelete {
+            entity_path,
+            primary_key,
+            schema_fingerprint,
+        } => {
+            validate_journal_row_record(
+                db,
+                expected_store_path,
+                expected_handle,
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            )?;
+            expected_handle
+                .with_data_mut(|store| store.fold_recovered_journal_delete(primary_key).map(|_| ()))
+        }
+        JournalRecord::SchemaPut {
+            store_path,
+            schema_snapshot_bytes,
+        } => {
+            if store_path != expected_store_path {
+                return Err(InternalError::store_corruption(format!(
+                    "journal schema record store mismatch: expected '{expected_store_path}', found '{store_path}'",
+                )));
+            }
+            let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
+            let hooks = db.runtime_hook_for_entity_path(snapshot.entity_path())?;
+            if hooks.store_path != expected_store_path {
+                return Err(InternalError::store_corruption(format!(
+                    "journal schema record entity '{}' belongs to store '{}' not '{}'",
+                    snapshot.entity_path(),
+                    hooks.store_path,
+                    expected_store_path,
+                )));
+            }
+            expected_handle.with_schema_mut(|schema_store| {
+                schema_store.fold_persisted_snapshot(hooks.entity_tag, &snapshot)
             })
         }
     }
