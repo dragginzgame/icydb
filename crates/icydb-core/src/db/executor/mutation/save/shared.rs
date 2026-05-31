@@ -9,13 +9,14 @@ use crate::{
                 PreparedRowOpDelta, affected_store_handles_for_prepared_row_ops,
                 classify_mutation_commit_plan, commit_prepared_single_save_row_op_with_window,
                 commit_save_row_ops_with_window_and_schema_fingerprint,
+                record_mutation_commit_plan,
                 save::{SaveExecutor, SaveRule},
             },
         },
         schema::{AcceptedRowDecodeContract, SchemaInfo},
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, Span, record},
+    metrics::sink::Span,
     traits::EntityValue,
 };
 
@@ -134,10 +135,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let affected_store_handles =
             affected_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
         let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-        record(MetricsEvent::MutationCommitPlan {
-            entity_path: E::PATH,
-            class: commit_class,
-        });
+        record_mutation_commit_plan(E::PATH, commit_class);
         let synchronized_store_handles =
             crate::db::executor::mutation::synchronized_store_handles_for_prepared_row_ops(
                 db,

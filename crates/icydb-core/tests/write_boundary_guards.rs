@@ -2170,3 +2170,32 @@ fn relation_and_commit_policy_consume_storage_capability_axes() {
         "commit recovery replay/rebuild must consume recovery capabilities instead of replaying every registered store",
     );
 }
+
+#[test]
+fn mutation_durability_trace_stays_proof_facing_and_not_diagnostics_authority() {
+    let commit_window = read_source("src/db/executor/mutation/commit_window.rs");
+    let save_shared = read_source("src/db/executor/mutation/save/shared.rs");
+    let metrics_sink = read_source("src/metrics/sink.rs");
+    let diagnostics = read_rust_sources_under("src/db/diagnostics");
+
+    assert!(
+        commit_window.contains("fn record_mutation_commit_plan(")
+            && commit_window.contains("record(MetricsEvent::MutationCommitPlan"),
+        "mutation durability classification should have one executor-owned trace emitter",
+    );
+    assert!(
+        save_shared.contains("record_mutation_commit_plan(E::PATH, commit_class);")
+            && !save_shared.contains("MetricsEvent::MutationCommitPlan"),
+        "save-row fast paths should use the executor-owned mutation durability trace helper",
+    );
+    assert!(
+        metrics_sink.contains("MetricsEvent::MutationCommitPlan { .. } => {}"),
+        "mutation durability trace events should remain proof-facing instead of becoming global diagnostics authority",
+    );
+    assert!(
+        !diagnostics.contains("MutationCommitPlan")
+            && !diagnostics.contains("MutationCommitClass")
+            && !diagnostics.contains("classify_mutation_commit_plan"),
+        "diagnostics must project store capabilities, not own mutation durability classification",
+    );
+}

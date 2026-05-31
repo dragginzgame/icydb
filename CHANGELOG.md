@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.171.md](docs/changelog/0.171.md)
 
+- `0.171.4` keeps mutation durability classification proof-facing by
+  centralizing trace emission and guarding diagnostics from becoming
+  classification authority.
+
 - `0.171.3` proves successful mixed durable/live relation writes do not recover
   heap-source state after heap reinitialization and do not leave stable targets
   blocked by volatile relation state.

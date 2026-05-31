@@ -1257,7 +1257,10 @@ pub(in crate::db::executor) fn classify_mutation_commit_plan(
     }
 }
 
-fn record_mutation_commit_plan(entity_path: &'static str, class: MutationCommitClass) {
+pub(in crate::db::executor) fn record_mutation_commit_plan(
+    entity_path: &'static str,
+    class: MutationCommitClass,
+) {
     record(MetricsEvent::MutationCommitPlan { entity_path, class });
 }
 
