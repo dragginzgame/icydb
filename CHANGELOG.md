@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.172.md](docs/changelog/0.172.md)
 
+- `0.172.3` inventories the commit/recovery boundary and proves 0.172 keeps
+  the existing commit-marker authority without journal replay or fold runtime.
+
 - `0.172.2` proves journaled capabilities remain design-only in 0.172 while
   stable and heap stay the only runtime storage capability surfaces.
 

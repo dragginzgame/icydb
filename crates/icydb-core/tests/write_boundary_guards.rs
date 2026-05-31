@@ -2312,3 +2312,98 @@ fn journaled_storage_remains_reserved_outside_runtime_capability_surfaces() {
         violations.join("\n"),
     );
 }
+
+#[test]
+fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
+    let commit_root = read_source("src/db/commit/mod.rs");
+    let commit_guard = read_source("src/db/commit/guard.rs");
+    let commit_window = read_source("src/db/executor/mutation/commit_window.rs");
+    let commit_replay = read_source("src/db/commit/replay.rs");
+    let commit_rebuild = read_source("src/db/commit/rebuild.rs");
+    let commit_store = read_source("src/db/commit/store/mod.rs");
+
+    assert!(
+        commit_root.contains("The `CommitMarker` fully specifies every row mutation")
+            && commit_root.contains("Recovery replays row ops as recorded, not planner logic"),
+        "current durable recovery authority should remain the existing commit-marker protocol",
+    );
+    assert!(
+        commit_guard.contains("pub(crate) fn begin_commit(marker: CommitMarker)")
+            && commit_guard.contains("pub(crate) fn finish_commit(")
+            && commit_guard.contains("Err(_)` => marker remains persisted for recovery replay"),
+        "commit visibility inventory should remain begin_commit/finish_commit marker authority",
+    );
+    assert!(
+        commit_window.contains("fn recovery_marker_row_ops_for_prepared_row_ops")
+            && commit_window.contains(
+                "StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone())"
+            )
+            && commit_window.contains("StoreRecoveryCapability::None => {}"),
+        "commit markers should project only durable-recovery row ops from capability axes",
+    );
+    assert!(
+        commit_replay.contains("handle.storage_capabilities().recovery()")
+            && commit_replay.contains("StoreRecoveryCapability::None")
+            && commit_replay.contains("continue;"),
+        "recovery replay should consume recovery capabilities and skip live-only stores",
+    );
+    assert!(
+        commit_rebuild.contains("handle.storage_capabilities().recovery()")
+            && commit_rebuild.contains("StoreRecoveryCapability::StableCommitReplay")
+            && commit_rebuild.contains("rebuild_secondary_indexes_from_rows"),
+        "startup index rebuild should stay scoped to stable-commit-replay stores",
+    );
+    assert!(
+        commit_store.contains("struct RawCommitMarker(Vec<u8>)")
+            && commit_store.contains("StableCell<RawCommitMarker"),
+        "0.172 should not replace the existing stable-cell commit-marker store",
+    );
+
+    let checked_roots = [
+        "src/db/commit",
+        "src/db/executor/mutation",
+        "src/db/data",
+        "src/db/index",
+        "src/db/schema",
+    ];
+    let forbidden = [
+        "JournalRecord",
+        "JournalStore",
+        "JournalReplay",
+        "JournalFold",
+        "Journaled",
+        "CommittedJournal",
+        "journal_memory_id",
+        "journal_tail",
+        "journal_replay",
+        "replay_journal",
+        "fold_journal",
+    ];
+    let mut violations = Vec::new();
+
+    for root in checked_roots {
+        for path in rust_sources_under(root) {
+            let relative = relative_source_path(&path);
+            if relative.ends_with("/tests.rs") || relative.contains("/tests/") {
+                continue;
+            }
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            let production_source = strip_cfg_test_items(&source);
+            let symbols = forbidden
+                .iter()
+                .copied()
+                .filter(|symbol| production_source.contains(symbol))
+                .collect::<Vec<_>>();
+            if !symbols.is_empty() {
+                violations.push(format!("{relative} ({})", symbols.join(", ")));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "0.172.3 is a commit/recovery inventory slice only; production commit, mutation, data, index, and schema code must not implement journal replay or fold surfaces:\n{}",
+        violations.join("\n"),
+    );
+}
