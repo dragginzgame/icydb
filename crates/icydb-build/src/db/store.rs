@@ -191,6 +191,32 @@ fn stable_store_cell_tokens(
     }
 }
 
+fn journaled_store_cell_tokens(
+    cell_ident: &Ident,
+    store_ty: TokenStream,
+    stable_key: &str,
+    memory_id: u8,
+) -> TokenStream {
+    quote! {
+        thread_local! {
+            static #cell_ident: ::std::cell::RefCell<
+                #store_ty
+            > = ::std::cell::RefCell::new(
+                #store_ty::init_journaled(
+                    {
+                        ensure_memory_bootstrap();
+                        ::icydb::__macro::ic_memory_key!(
+                            key = #stable_key,
+                            ty = #store_ty,
+                            id = #memory_id,
+                        )
+                    }
+                )
+            );
+        }
+    }
+}
+
 /// Render one volatile heap store registry entry into data/index/schema cells plus registration.
 fn heap_store_registry_entry_tokens(
     store_path: &str,
@@ -286,19 +312,19 @@ fn journaled_store_registry_entry_tokens(
         journal_stable_key,
         journal_memory_id,
     );
-    let data_def = stable_store_cell_tokens(
+    let data_def = journaled_store_cell_tokens(
         &data_cell_ident,
         quote!(::icydb::__macro::DataStore),
         data_stable_key,
         data_memory_id,
     );
-    let index_def = stable_store_cell_tokens(
+    let index_def = journaled_store_cell_tokens(
         &index_cell_ident,
         quote!(::icydb::__macro::IndexStore),
         index_stable_key,
         index_memory_id,
     );
-    let schema_def = stable_store_cell_tokens(
+    let schema_def = journaled_store_cell_tokens(
         &schema_cell_ident,
         quote!(::icydb::__macro::SchemaStore),
         schema_stable_key,
@@ -485,6 +511,7 @@ mod tests {
         assert!(rendered.contains("icydb.demo.demo.data.v1"));
         assert!(rendered.contains("icydb.demo.demo.index.v1"));
         assert!(rendered.contains("icydb.demo.demo.schema.v1"));
+        assert!(!rendered.contains("init_journaled"));
         assert!(!rendered.contains("heap"));
     }
 
@@ -535,6 +562,7 @@ mod tests {
             4
         );
         assert!(rendered.contains("JournalTailStore :: init"));
+        assert_eq!(rendered.matches("init_journaled").count(), 3);
         assert!(rendered.contains("register_journaled_store"));
         assert!(rendered.contains("StoreAllocationIdentities :: new_journaled"));
         assert!(rendered.contains("StoreRuntimeStorageCapabilities :: journaled"));

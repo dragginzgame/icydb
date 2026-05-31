@@ -45,6 +45,7 @@ pub(in crate::db) use guard::{
 };
 pub(in crate::db) use marker::{
     CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
+    generate_commit_id,
 };
 pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity_with_structural_readers,

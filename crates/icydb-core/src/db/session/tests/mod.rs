@@ -24,6 +24,7 @@ mod filtered_prefix;
 mod heap_runtime;
 mod indexed_covering;
 mod indexed_prefix;
+mod journaled_runtime;
 mod lane_metrics;
 mod predicate_convergence;
 mod prefix_offsets;
@@ -55,6 +56,7 @@ use crate::{
         direction::Direction,
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
         index::{IndexKey, IndexStore, IndexStoreVisit, key_within_envelope},
+        journal::JournalTailStore,
         key_taxonomy::PrimaryKeyComponent,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
@@ -122,6 +124,11 @@ crate::test_store! {
 
 crate::test_store! {
     ident = HeapSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_store! {
+    ident = JournaledSessionSqlStore,
     canister = SessionSqlCanister,
 }
 
@@ -226,6 +233,45 @@ thread_local! {
         .expect("mixed relation heap store registration should succeed");
         reg
     };
+    static JOURNALED_SESSION_SQL_DATA_STORE: RefCell<DataStore> =
+        RefCell::new(DataStore::init_journaled(test_memory(180)));
+    static JOURNALED_SESSION_SQL_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init_journaled(test_memory(181)));
+    static JOURNALED_SESSION_SQL_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init_journaled(test_memory(182)));
+    static JOURNALED_SESSION_SQL_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(183)));
+    static JOURNALED_SESSION_SQL_STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_journaled_store(
+            JournaledSessionSqlStore::PATH,
+            &JOURNALED_SESSION_SQL_DATA_STORE,
+            &JOURNALED_SESSION_SQL_INDEX_STORE,
+            &JOURNALED_SESSION_SQL_SCHEMA_STORE,
+            &JOURNALED_SESSION_SQL_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
+                crate::db::StoreAllocationIdentity::new(
+                    180,
+                    "icydb.test.journaled_session.data.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    181,
+                    "icydb.test.journaled_session.index.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    182,
+                    "icydb.test.journaled_session.schema.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    183,
+                    "icydb.test.journaled_session.journal.v1",
+                ),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
+        )
+        .expect("journaled SQL session test store registration should succeed");
+        reg
+    };
 }
 
 static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
@@ -234,6 +280,8 @@ static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
 static HEAP_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&HEAP_SESSION_SQL_STORE_REGISTRY);
 static MIXED_HEAP_RELATION_DB: Db<SessionSqlCanister> =
     Db::new(&MIXED_HEAP_RELATION_STORE_REGISTRY);
+static JOURNALED_SESSION_SQL_DB: Db<SessionSqlCanister> =
+    Db::new(&JOURNALED_SESSION_SQL_STORE_REGISTRY);
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
 static ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE: LazyLock<Predicate> = LazyLock::new(|| {
@@ -1634,6 +1682,13 @@ static HEAP_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     &HEAP_SESSION_SQL_INDEX_FIELDS,
     false,
 )];
+static JOURNALED_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
+static JOURNALED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
+    "name",
+    JournaledSessionSqlStore::PATH,
+    &JOURNALED_SESSION_SQL_INDEX_FIELDS,
+    false,
+)];
 
 crate::test_entity! {
     ident = SessionSqlEntity,
@@ -2018,6 +2073,29 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [&HEAP_SESSION_SQL_INDEX_MODELS[0]],
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct JournaledSessionSqlEntity {
+    id: u64,
+    name: String,
+    age: u64,
+}
+
+crate::test_entity! {
+    ident = JournaledSessionSqlEntity,
+    entity_name = "JournaledSessionSqlEntity",
+    tag = EntityTag::new(0x1075),
+    store = JournaledSessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = u64,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: u64 => FieldKind::Nat64 },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [&JOURNALED_SESSION_SQL_INDEX_MODELS[0]],
 }
 
 static SESSION_SQL_HEAP_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -2448,6 +2526,26 @@ fn reinitialize_heap_session_sql_store() {
 
 fn heap_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(HEAP_SESSION_SQL_DB)
+}
+
+fn reset_journaled_session_sql_store() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow_mut(DataStore::clear);
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow_mut(|store| {
+        store.clear();
+        store.mark_ready();
+    });
+    JOURNALED_SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    ensure_recovered(&JOURNALED_SESSION_SQL_DB)
+        .expect("journaled write-side recovery boundary should initialize");
+    let session = journaled_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
+}
+
+fn journaled_sql_session() -> DbSession<SessionSqlCanister> {
+    DbSession::new(JOURNALED_SESSION_SQL_DB)
 }
 
 fn reset_mixed_heap_relation_stores() {

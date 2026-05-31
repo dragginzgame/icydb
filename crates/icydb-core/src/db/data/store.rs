@@ -15,7 +15,7 @@ use ic_memory::stable_structures::{
 };
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
-use std::collections::BTreeMap as HeapBTreeMap;
+use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ops::RangeBounds;
 
@@ -47,6 +47,11 @@ pub struct DataStore {
 enum DataStoreBackend {
     Stable(StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>),
     Heap(HeapBTreeMap<RawDataStoreKey, RawRow>),
+    Journaled {
+        canonical: StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
+        live: HeapBTreeMap<RawDataStoreKey, RawRow>,
+        tombstones: BTreeSet<RawDataStoreKey>,
+    },
 }
 
 /// Control-flow result for store traversal visitors.
@@ -79,6 +84,22 @@ impl DataStore {
         }
     }
 
+    /// Initialize a journaled cached-stable data store.
+    ///
+    /// Normal writes update only the live projection. The canonical stable map
+    /// is the future fold target and is not mutated by this wrapper's write
+    /// methods.
+    #[must_use]
+    pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+        Self {
+            backend: DataStoreBackend::Journaled {
+                canonical: StableBTreeMap::init(memory),
+                live: HeapBTreeMap::new(),
+                tombstones: BTreeSet::new(),
+            },
+        }
+    }
+
     /// Insert or replace one row by raw key.
     pub(in crate::db) fn insert(
         &mut self,
@@ -86,9 +107,21 @@ impl DataStore {
         row: CanonicalRow,
     ) -> Option<RawRow> {
         let row = row.into_raw_row();
+        let previous_journaled = if matches!(self.backend, DataStoreBackend::Journaled { .. }) {
+            self.get(&key)
+        } else {
+            None
+        };
         match &mut self.backend {
             DataStoreBackend::Stable(map) => map.insert(key, row),
             DataStoreBackend::Heap(map) => map.insert(key, row),
+            DataStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                tombstones.remove(&key);
+                live.insert(key, row);
+                previous_journaled
+            }
         }
     }
 
@@ -99,17 +132,41 @@ impl DataStore {
         key: RawDataStoreKey,
         row: RawRow,
     ) -> Option<RawRow> {
+        let previous_journaled = if matches!(self.backend, DataStoreBackend::Journaled { .. }) {
+            self.get(&key)
+        } else {
+            None
+        };
         match &mut self.backend {
             DataStoreBackend::Stable(map) => map.insert(key, row),
             DataStoreBackend::Heap(map) => map.insert(key, row),
+            DataStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                tombstones.remove(&key);
+                live.insert(key, row);
+                previous_journaled
+            }
         }
     }
 
     /// Remove one row by raw key.
     pub(in crate::db) fn remove(&mut self, key: &RawDataStoreKey) -> Option<RawRow> {
+        let previous_journaled = if matches!(self.backend, DataStoreBackend::Journaled { .. }) {
+            self.get(key)
+        } else {
+            None
+        };
         match &mut self.backend {
             DataStoreBackend::Stable(map) => map.remove(key),
             DataStoreBackend::Heap(map) => map.remove(key),
+            DataStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                live.remove(key);
+                tombstones.insert(key.clone());
+                previous_journaled
+            }
         }
     }
 
@@ -121,6 +178,7 @@ impl DataStore {
         match &self.backend {
             DataStoreBackend::Stable(map) => map.get(key),
             DataStoreBackend::Heap(map) => map.get(key).cloned(),
+            DataStoreBackend::Journaled { .. } => Self::journaled_get_raw(&self.backend, key),
         }
     }
 
@@ -130,6 +188,9 @@ impl DataStore {
         match &self.backend {
             DataStoreBackend::Stable(map) => map.contains_key(key),
             DataStoreBackend::Heap(map) => map.contains_key(key),
+            DataStoreBackend::Journaled { .. } => {
+                Self::journaled_get_raw(&self.backend, key).is_some()
+            }
         }
     }
 
@@ -139,6 +200,15 @@ impl DataStore {
         match &mut self.backend {
             DataStoreBackend::Stable(map) => map.clear_new(),
             DataStoreBackend::Heap(map) => map.clear(),
+            DataStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => {
+                canonical.clear_new();
+                live.clear();
+                tombstones.clear();
+            }
         }
     }
 
@@ -148,6 +218,10 @@ impl DataStore {
         match &self.backend {
             DataStoreBackend::Stable(map) => map.len(),
             DataStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
+            DataStoreBackend::Journaled { .. } => {
+                u64::try_from(Self::journaled_entries_snapshot(&self.backend).len())
+                    .unwrap_or(u64::MAX)
+            }
         }
     }
 
@@ -158,6 +232,9 @@ impl DataStore {
         match &self.backend {
             DataStoreBackend::Stable(map) => map.is_empty(),
             DataStoreBackend::Heap(map) => map.is_empty(),
+            DataStoreBackend::Journaled { .. } => {
+                Self::journaled_entries_snapshot(&self.backend).is_empty()
+            }
         }
     }
 
@@ -177,6 +254,13 @@ impl DataStore {
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map {
                     if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Journaled { .. } => {
+                for (key, row) in Self::journaled_entries_snapshot(&self.backend) {
+                    if visitor(&key, &row)?.should_stop() {
                         break;
                     }
                 }
@@ -202,6 +286,16 @@ impl DataStore {
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map.iter().rev() {
                     if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Journaled { .. } => {
+                for (key, row) in Self::journaled_entries_snapshot(&self.backend)
+                    .into_iter()
+                    .rev()
+                {
+                    if visitor(&key, &row)?.should_stop() {
                         break;
                     }
                 }
@@ -232,6 +326,14 @@ impl DataStore {
                     }
                 }
             }
+            DataStoreBackend::Journaled { .. } => {
+                let entries = Self::journaled_entries_snapshot(&self.backend);
+                for (key, row) in entries.range(key_range) {
+                    if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -253,6 +355,14 @@ impl DataStore {
             }
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map.range(key_range).rev() {
+                    if visitor(key, row)?.should_stop() {
+                        break;
+                    }
+                }
+            }
+            DataStoreBackend::Journaled { .. } => {
+                let entries = Self::journaled_entries_snapshot(&self.backend);
+                for (key, row) in entries.range(key_range).rev() {
                     if visitor(key, row)?.should_stop() {
                         break;
                     }
@@ -288,6 +398,61 @@ impl DataStore {
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
+        match &self.backend {
+            DataStoreBackend::Stable(map) | DataStoreBackend::Journaled { canonical: map, .. } => {
+                map.len()
+            }
+            DataStoreBackend::Heap(_) => 0,
+        }
+    }
+
+    fn journaled_get_raw(backend: &DataStoreBackend, key: &RawDataStoreKey) -> Option<RawRow> {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = backend
+        else {
+            return None;
+        };
+
+        if tombstones.contains(key) {
+            return None;
+        }
+        live.get(key).cloned().or_else(|| canonical.get(key))
+    }
+
+    fn journaled_entries_snapshot(
+        backend: &DataStoreBackend,
+    ) -> HeapBTreeMap<RawDataStoreKey, RawRow> {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = backend
+        else {
+            return HeapBTreeMap::new();
+        };
+
+        let mut entries = HeapBTreeMap::new();
+        for entry in canonical.iter() {
+            let key = entry.key().clone();
+            if !tombstones.contains(&key) {
+                entries.insert(key, entry.value());
+            }
+        }
+        for (key, row) in live {
+            if !tombstones.contains(key) {
+                entries.insert(key.clone(), row.clone());
+            }
+        }
+
+        entries
     }
 }
 

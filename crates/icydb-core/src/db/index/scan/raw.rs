@@ -49,6 +49,14 @@ impl IndexStore {
                         }
                     }
                 }
+                IndexStoreBackend::Journaled { .. } => {
+                    let entries = Self::journaled_entries_snapshot(&self.backend);
+                    for (key, value) in entries.range((bounds.0.clone(), bounds.1.clone())) {
+                        if visit(key, value)? {
+                            return Ok(());
+                        }
+                    }
+                }
             },
             Direction::Desc => match &self.backend {
                 IndexStoreBackend::Stable(map) => {
@@ -60,6 +68,14 @@ impl IndexStore {
                 }
                 IndexStoreBackend::Heap(map) => {
                     for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())).rev() {
+                        if visit(key, value)? {
+                            return Ok(());
+                        }
+                    }
+                }
+                IndexStoreBackend::Journaled { .. } => {
+                    let entries = Self::journaled_entries_snapshot(&self.backend);
+                    for (key, value) in entries.range((bounds.0.clone(), bounds.1.clone())).rev() {
                         if visit(key, value)? {
                             return Ok(());
                         }

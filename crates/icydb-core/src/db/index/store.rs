@@ -10,7 +10,7 @@ use ic_memory::stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
 };
 use serde::Deserialize;
-use std::collections::BTreeMap as HeapBTreeMap;
+use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 
 //
 // IndexState
@@ -56,6 +56,12 @@ pub struct IndexStore {
 pub(super) enum IndexStoreBackend {
     Stable(StableBTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>),
     Heap(HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>),
+    Journaled {
+        canonical:
+            StableBTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>,
+        live: HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
+        tombstones: BTreeSet<RawIndexStoreKey>,
+    },
 }
 
 /// Control-flow result for index-store traversal visitors.
@@ -97,6 +103,23 @@ impl IndexStore {
         }
     }
 
+    /// Initialize a journaled cached-stable index store.
+    ///
+    /// Normal writes update only the live materialized projection. The
+    /// canonical stable index is updated by future fold/rebuild paths.
+    #[must_use]
+    pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+        Self {
+            backend: IndexStoreBackend::Journaled {
+                canonical: StableBTreeMap::init(memory),
+                live: HeapBTreeMap::new(),
+                tombstones: BTreeSet::new(),
+            },
+            generation: 0,
+            state: IndexState::Ready,
+        }
+    }
+
     /// Visit all index entries in canonical store order without exposing the
     /// backing stable-map iterator.
     pub(in crate::db) fn visit_entries<E>(
@@ -118,6 +141,13 @@ impl IndexStore {
                     }
                 }
             }
+            IndexStoreBackend::Journaled { .. } => {
+                for (key, value) in Self::journaled_entries_snapshot(&self.backend) {
+                    if visitor(&key, &value)?.should_stop() {
+                        return Ok(());
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -127,6 +157,7 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Stable(map) => map.get(key),
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
+            IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key),
         }
     }
 
@@ -134,6 +165,10 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Stable(map) => map.len(),
             IndexStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
+            IndexStoreBackend::Journaled { .. } => {
+                u64::try_from(Self::journaled_entries_snapshot(&self.backend).len())
+                    .unwrap_or(u64::MAX)
+            }
         }
     }
 
@@ -141,6 +176,9 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Stable(map) => map.is_empty(),
             IndexStoreBackend::Heap(map) => map.is_empty(),
+            IndexStoreBackend::Journaled { .. } => {
+                Self::journaled_entries_snapshot(&self.backend).is_empty()
+            }
         }
     }
 
@@ -176,18 +214,42 @@ impl IndexStore {
         key: RawIndexStoreKey,
         entry: IndexEntryValue,
     ) -> Option<IndexEntryValue> {
+        let previous_journaled = if matches!(self.backend, IndexStoreBackend::Journaled { .. }) {
+            self.get(&key)
+        } else {
+            None
+        };
         let previous = match &mut self.backend {
             IndexStoreBackend::Stable(map) => map.insert(key, entry),
             IndexStoreBackend::Heap(map) => map.insert(key, entry),
+            IndexStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                tombstones.remove(&key);
+                live.insert(key, entry);
+                previous_journaled
+            }
         };
         self.bump_generation();
         previous
     }
 
     pub(crate) fn remove(&mut self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
+        let previous_journaled = if matches!(self.backend, IndexStoreBackend::Journaled { .. }) {
+            self.get(key)
+        } else {
+            None
+        };
         let previous = match &mut self.backend {
             IndexStoreBackend::Stable(map) => map.remove(key),
             IndexStoreBackend::Heap(map) => map.remove(key),
+            IndexStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                live.remove(key);
+                tombstones.insert(key.clone());
+                previous_journaled
+            }
         };
         self.bump_generation();
         previous
@@ -197,6 +259,15 @@ impl IndexStore {
         match &mut self.backend {
             IndexStoreBackend::Stable(map) => map.clear_new(),
             IndexStoreBackend::Heap(map) => map.clear(),
+            IndexStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => {
+                canonical.clear_new();
+                live.clear();
+                tombstones.clear();
+            }
         }
         self.bump_generation();
     }
@@ -213,5 +284,62 @@ impl IndexStore {
 
     const fn bump_generation(&mut self) {
         self.generation = self.generation.saturating_add(1);
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
+        match &self.backend {
+            IndexStoreBackend::Stable(map)
+            | IndexStoreBackend::Journaled { canonical: map, .. } => map.len(),
+            IndexStoreBackend::Heap(_) => 0,
+        }
+    }
+
+    fn journaled_get(
+        backend: &IndexStoreBackend,
+        key: &RawIndexStoreKey,
+    ) -> Option<IndexEntryValue> {
+        let IndexStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = backend
+        else {
+            return None;
+        };
+
+        if tombstones.contains(key) {
+            return None;
+        }
+        live.get(key).cloned().or_else(|| canonical.get(key))
+    }
+
+    pub(super) fn journaled_entries_snapshot(
+        backend: &IndexStoreBackend,
+    ) -> HeapBTreeMap<RawIndexStoreKey, IndexEntryValue> {
+        let IndexStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = backend
+        else {
+            return HeapBTreeMap::new();
+        };
+
+        let mut entries = HeapBTreeMap::new();
+        for entry in canonical.iter() {
+            let key = entry.key().clone();
+            if !tombstones.contains(&key) {
+                entries.insert(key, entry.value());
+            }
+        }
+        for (key, value) in live {
+            if !tombstones.contains(key) {
+                entries.insert(key.clone(), value.clone());
+            }
+        }
+
+        entries
     }
 }

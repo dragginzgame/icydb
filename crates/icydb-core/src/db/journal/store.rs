@@ -72,6 +72,17 @@ impl JournalTailStore {
         Ok(())
     }
 
+    /// Return the next contiguous append sequence for this tail.
+    pub(in crate::db) fn next_append_sequence(&self) -> Result<JournalSequence, InternalError> {
+        let Some(last) = self.map.iter().next_back() else {
+            return Ok(JournalSequence::new(1));
+        };
+
+        last.key().next().ok_or_else(|| {
+            InternalError::store_corruption("journal tail sequence space exhausted before append")
+        })
+    }
+
     /// Visit complete batches after the durable fold watermark in replay order.
     ///
     /// This read boundary validates the first journal-tail invariants needed by
@@ -133,5 +144,11 @@ impl JournalTailStore {
     #[must_use]
     pub(in crate::db) fn is_empty(&self) -> bool {
         self.map.is_empty()
+    }
+
+    /// Clear all journal-tail batches from this test store.
+    #[cfg(test)]
+    pub(in crate::db) fn clear(&mut self) {
+        self.map.clear_new();
     }
 }

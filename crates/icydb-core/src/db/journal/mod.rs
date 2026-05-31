@@ -5,7 +5,7 @@
 
 #![allow(
     dead_code,
-    reason = "0.174.2 lands the journal codec/tail boundary before runtime wrappers consume it"
+    reason = "recovery and fold will consume the remaining journal-tail surface after 0.174.3"
 )]
 
 mod codec;
@@ -13,7 +13,6 @@ mod store;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
 pub(in crate::db) use codec::JournalRecord;
 pub(in crate::db) use codec::{
     JournalBatch, JournalSequence, decode_journal_batch, encode_journal_batch,

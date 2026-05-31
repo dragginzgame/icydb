@@ -4,12 +4,13 @@
 //! Boundary: shared commit marker and prepared-op apply pipeline for mutations.
 
 use crate::{
+    db::journal::{JournalBatch, JournalRecord},
     db::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, CommitSchemaFingerprint,
             PreparedIndexMutation, PreparedRowCommitOp, begin_commit, begin_single_row_commit,
-            finish_commit,
+            finish_commit, generate_commit_id,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             rollback_prepared_row_ops_reverse,
         },
@@ -85,9 +86,21 @@ impl PreparedRowOpDelta {
 pub(in crate::db::executor) struct OpenCommitWindow {
     pub(in crate::db::executor) commit: CommitGuard,
     pub(in crate::db::executor) prepared_row_ops: Vec<PreparedRowCommitOp>,
+    journal_appends: Vec<PreparedJournalAppend>,
     pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
     pub(in crate::db::executor) delta: PreparedRowOpDelta,
     pub(in crate::db::executor) commit_class: MutationCommitClass,
+}
+
+#[derive(Clone)]
+pub(in crate::db::executor) struct PreparedJournalAppend {
+    journal_store: &'static LocalKey<RefCell<crate::db::journal::JournalTailStore>>,
+    batch: JournalBatch,
+}
+
+struct CommitWindowPayload {
+    marker: CommitMarker,
+    journal_appends: Vec<PreparedJournalAppend>,
 }
 
 ///
@@ -681,14 +694,16 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     } = preflight_prepare_row_op_batch::<E>(db, &row_ops)?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let recovery_row_ops =
-        recovery_marker_row_ops_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
-    let marker = CommitMarker::new(recovery_row_ops)?;
-    let commit = begin_commit(marker)?;
+    let CommitWindowPayload {
+        marker,
+        journal_appends,
+    } = commit_window_payload_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
+    let commit = begin_commit_window_payload(marker)?;
 
     Ok(OpenCommitWindow {
         commit,
         prepared_row_ops,
+        journal_appends,
         index_store_guards,
         delta,
         commit_class,
@@ -707,14 +722,16 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     } = preflight_prepare_row_op_batch_structural(db, &row_ops)?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let recovery_row_ops =
-        recovery_marker_row_ops_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
-    let marker = CommitMarker::new(recovery_row_ops)?;
-    let commit = begin_commit(marker)?;
+    let CommitWindowPayload {
+        marker,
+        journal_appends,
+    } = commit_window_payload_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
+    let commit = begin_commit_window_payload(marker)?;
 
     Ok(OpenCommitWindow {
         commit,
         prepared_row_ops,
+        journal_appends,
         index_store_guards,
         delta,
         commit_class,
@@ -726,6 +743,7 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_ops: Vec<PreparedRowCommitOp>,
+    journal_appends: Vec<PreparedJournalAppend>,
     index_store_guards: Vec<IndexStoreGenerationGuard>,
     on_index_applied: impl FnOnce(),
     on_data_applied: impl FnOnce(),
@@ -738,6 +756,7 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
         for index_store_guard in &index_store_guards {
             index_store_guard.verify()?;
         }
+        append_prepared_journal_batches(&journal_appends)?;
 
         // Single-row writes dominate the hot write lanes, so avoid the extra
         // rollback vector and reverse-apply scaffolding when only one prepared
@@ -780,6 +799,7 @@ fn apply_prepared_single_row_op(
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_op: PreparedRowCommitOp,
+    journal_appends: Vec<PreparedJournalAppend>,
     index_store_guards: SingleRowIndexStoreGuards,
     on_index_applied: impl FnOnce(),
     on_data_applied: impl FnOnce(),
@@ -790,6 +810,7 @@ fn apply_prepared_single_row_op(
 
         // Enforce that index stores are unchanged between preflight and apply.
         index_store_guards.verify()?;
+        append_prepared_journal_batches(&journal_appends)?;
 
         apply_guard.record_single_row_rollback(prepared_row_op.snapshot_rollback());
 
@@ -816,6 +837,7 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
+        journal_appends,
         index_store_guards,
         delta,
         commit_class,
@@ -828,6 +850,7 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
         commit,
         apply_phase,
         prepared_row_ops,
+        journal_appends,
         index_store_guards,
         || on_index_applied(&delta),
         on_data_applied,
@@ -869,10 +892,11 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_finger
     )?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let recovery_row_ops =
-        recovery_marker_row_ops_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
-    let marker = CommitMarker::new(recovery_row_ops)?;
-    let commit = begin_commit(marker)?;
+    let CommitWindowPayload {
+        marker,
+        journal_appends,
+    } = commit_window_payload_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
+    let commit = begin_commit_window_payload(marker)?;
     record_mutation_commit_plan(E::PATH, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
@@ -881,6 +905,7 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_finger
         commit,
         apply_phase,
         prepared_row_ops,
+        journal_appends,
         index_store_guards,
         || emit_index_delta_metrics::<E>(&delta),
         on_data_applied,
@@ -937,6 +962,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
+        journal_appends,
         index_store_guards,
         delta,
         commit_class,
@@ -949,6 +975,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         commit,
         apply_phase,
         prepared_row_ops,
+        journal_appends,
         index_store_guards,
         || emit_delete_index_delta_metrics_for_path(entity_path, &delta),
         || {},
@@ -1032,17 +1059,21 @@ fn commit_prepared_single_row_op_with_window(
         guards: index_store_guards,
         delta,
     } = prepare_single_row_apply(&prepared_row_op);
-    let recovery_row_ops = recovery_marker_row_ops_for_prepared_row_ops(
+    let CommitWindowPayload {
+        marker,
+        journal_appends,
+    } = commit_window_payload_for_prepared_row_ops(
         db,
         &[row_op],
         std::slice::from_ref(&prepared_row_op),
     )?;
-    let commit = begin_recovery_commit_window(recovery_row_ops)?;
+    let commit = begin_commit_window_payload(marker)?;
 
     apply_prepared_single_row_op(
         commit,
         apply_phase,
         prepared_row_op,
+        journal_appends,
         index_store_guards,
         || on_index_applied(&delta),
         on_data_applied,
@@ -1186,20 +1217,23 @@ pub(in crate::db::executor) fn affected_store_handles_for_prepared_row_ops<C: Ca
         .collect()
 }
 
-// Project only durable-recovery row operations into commit markers. Prepared
-// row ops still apply live-only stores in-process, but recovery markers must
-// never promise heap replay.
-fn recovery_marker_row_ops_for_prepared_row_ops<C: CanisterKind>(
+// Project durable recovery payloads into one marker-bound commit payload.
+// Stable stores keep row-op replay authority. Journaled stores embed logical
+// journal records in the marker so journal publication can happen before live
+// projections are updated. Heap stores remain live-only and absent from
+// durable recovery payloads.
+fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
     db: &Db<C>,
     row_ops: &[CommitRowOp],
     prepared_row_ops: &[PreparedRowCommitOp],
-) -> Result<Vec<CommitRowOp>, InternalError> {
+) -> Result<CommitWindowPayload, InternalError> {
     if row_ops.len() != prepared_row_ops.len() {
         return Err(InternalError::executor_invariant(
             "commit marker recovery projection requires row-op and prepared-op parity",
         ));
     }
 
+    let marker_id = generate_commit_id()?;
     let registered_handles = db.with_store_registry(|registry| {
         registry
             .iter()
@@ -1207,6 +1241,7 @@ fn recovery_marker_row_ops_for_prepared_row_ops<C: CanisterKind>(
             .collect::<Vec<StoreHandle>>()
     });
     let mut recovery_row_ops = Vec::new();
+    let mut journal_records = Vec::<(StoreHandle, Vec<JournalRecord>)>::new();
 
     for (row_op, prepared_row_op) in row_ops.iter().zip(prepared_row_ops) {
         let handle = registered_handles
@@ -1222,22 +1257,86 @@ fn recovery_marker_row_ops_for_prepared_row_ops<C: CanisterKind>(
         match handle.storage_capabilities().recovery() {
             StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone()),
             StoreRecoveryCapability::StableBasePlusJournalReplay => {
-                return Err(InternalError::store_unsupported(
-                    "journaled recovery marker projection is not implemented before journaled runtime store wrappers",
-                ));
+                let record = journal_record_for_row_op(row_op)?;
+                push_journal_record(&mut journal_records, *handle, record);
             }
             StoreRecoveryCapability::None => {}
         }
     }
 
-    Ok(recovery_row_ops)
+    let mut journal_appends = Vec::with_capacity(journal_records.len());
+    let mut marker_batches = Vec::with_capacity(journal_records.len());
+    for (handle, records) in journal_records {
+        let journal_store = handle.journal_tail_store().ok_or_else(|| {
+            InternalError::executor_invariant(
+                "journaled store does not expose journal-tail storage",
+            )
+        })?;
+        let sequence = journal_store
+            .with_borrow(crate::db::journal::JournalTailStore::next_append_sequence)?;
+        let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;
+        marker_batches.push(batch.clone());
+        journal_appends.push(PreparedJournalAppend {
+            journal_store,
+            batch,
+        });
+    }
+
+    let marker = CommitMarker::from_parts(marker_id, recovery_row_ops, marker_batches)?;
+
+    Ok(CommitWindowPayload {
+        marker,
+        journal_appends,
+    })
 }
 
-fn begin_recovery_commit_window(row_ops: Vec<CommitRowOp>) -> Result<CommitGuard, InternalError> {
-    match row_ops.as_slice() {
-        [row_op] => begin_single_row_commit(row_op.clone()),
-        _ => begin_commit(CommitMarker::new(row_ops)?),
+fn begin_commit_window_payload(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
+    match (marker.row_ops.as_slice(), marker.journal_batches.as_slice()) {
+        ([row_op], []) => begin_single_row_commit(row_op.clone()),
+        _ => begin_commit(marker),
     }
+}
+
+fn journal_record_for_row_op(row_op: &CommitRowOp) -> Result<JournalRecord, InternalError> {
+    match row_op.after.as_ref() {
+        Some(after) => JournalRecord::row_put(
+            row_op.entity_path.as_ref(),
+            row_op.key.clone(),
+            after.clone(),
+            row_op.schema_fingerprint,
+        ),
+        None => JournalRecord::row_delete(
+            row_op.entity_path.as_ref(),
+            row_op.key.clone(),
+            row_op.schema_fingerprint,
+        ),
+    }
+}
+
+fn push_journal_record(
+    journal_records: &mut Vec<(StoreHandle, Vec<JournalRecord>)>,
+    handle: StoreHandle,
+    record: JournalRecord,
+) {
+    if let Some((_, records)) = journal_records
+        .iter_mut()
+        .find(|(existing, _)| ptr::eq(existing.data_store(), handle.data_store()))
+    {
+        records.push(record);
+        return;
+    }
+
+    journal_records.push((handle, vec![record]));
+}
+
+fn append_prepared_journal_batches(appends: &[PreparedJournalAppend]) -> Result<(), InternalError> {
+    for append in appends {
+        append
+            .journal_store
+            .with_borrow_mut(|store| store.append_batch(&append.batch))?;
+    }
+
+    Ok(())
 }
 
 /// Classify the durable/live commit footprint represented by affected stores.

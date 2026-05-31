@@ -26,7 +26,7 @@ use ic_memory::stable_structures::{
 };
 use sha2::Digest;
 use std::borrow::Cow;
-use std::collections::BTreeMap as StdBTreeMap;
+use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
 
 const SCHEMA_KEY_BYTES_USIZE: usize = 12;
 const SCHEMA_KEY_BYTES: u32 = 12;
@@ -351,6 +351,12 @@ pub struct SchemaStore {
 enum SchemaStoreBackend {
     Stable(StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>),
     Heap(StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>),
+    Journaled {
+        canonical:
+            StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>,
+        live: StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
+        tombstones: BTreeSet<RawSchemaKey>,
+    },
 }
 
 /// Control-flow result for schema-store traversal visitors.
@@ -384,6 +390,21 @@ impl SchemaStore {
     pub const fn init_heap() -> Self {
         Self {
             backend: SchemaStoreBackend::Heap(StdBTreeMap::new()),
+        }
+    }
+
+    /// Initialize a journaled cached-stable schema store.
+    ///
+    /// Normal schema publication writes only the live projection. Canonical
+    /// stable schema history is updated by future journal fold/recovery paths.
+    #[must_use]
+    pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+        Self {
+            backend: SchemaStoreBackend::Journaled {
+                canonical: StableBTreeMap::init(memory),
+                live: StdBTreeMap::new(),
+                tombstones: BTreeSet::new(),
+            },
         }
     }
 
@@ -513,9 +534,21 @@ impl SchemaStore {
         key: RawSchemaKey,
         snapshot: RawSchemaSnapshot,
     ) -> Option<RawSchemaSnapshot> {
+        let previous_journaled = if matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
+            self.get_raw_snapshot_for_backend(&key)
+        } else {
+            None
+        };
         match &mut self.backend {
             SchemaStoreBackend::Stable(map) => map.insert(key, snapshot),
             SchemaStoreBackend::Heap(map) => map.insert(key, snapshot),
+            SchemaStoreBackend::Journaled {
+                live, tombstones, ..
+            } => {
+                tombstones.remove(&key);
+                live.insert(key, snapshot);
+                previous_journaled
+            }
         }
     }
 
@@ -526,6 +559,7 @@ impl SchemaStore {
         match &self.backend {
             SchemaStoreBackend::Stable(map) => map.get(key),
             SchemaStoreBackend::Heap(map) => map.get(key).cloned(),
+            SchemaStoreBackend::Journaled { .. } => self.get_raw_snapshot_for_backend(key),
         }
     }
 
@@ -536,6 +570,9 @@ impl SchemaStore {
         match &self.backend {
             SchemaStoreBackend::Stable(map) => map.contains_key(key),
             SchemaStoreBackend::Heap(map) => map.contains_key(key),
+            SchemaStoreBackend::Journaled { .. } => {
+                self.get_raw_snapshot_for_backend(key).is_some()
+            }
         }
     }
 
@@ -546,6 +583,9 @@ impl SchemaStore {
         match &self.backend {
             SchemaStoreBackend::Stable(map) => map.len(),
             SchemaStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
+            SchemaStoreBackend::Journaled { .. } => {
+                u64::try_from(self.journaled_snapshots().len()).unwrap_or(u64::MAX)
+            }
         }
     }
 
@@ -556,6 +596,7 @@ impl SchemaStore {
         match &self.backend {
             SchemaStoreBackend::Stable(map) => map.is_empty(),
             SchemaStoreBackend::Heap(map) => map.is_empty(),
+            SchemaStoreBackend::Journaled { .. } => self.journaled_snapshots().is_empty(),
         }
     }
 
@@ -565,6 +606,15 @@ impl SchemaStore {
         match &mut self.backend {
             SchemaStoreBackend::Stable(map) => map.clear_new(),
             SchemaStoreBackend::Heap(map) => map.clear(),
+            SchemaStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+            } => {
+                canonical.clear_new();
+                live.clear();
+                tombstones.clear();
+            }
         }
     }
 
@@ -613,9 +663,68 @@ impl SchemaStore {
                     }
                 }
             }
+            SchemaStoreBackend::Journaled { .. } => {
+                for (key, snapshot) in self.journaled_snapshots() {
+                    if visitor(&key, &snapshot)?.should_stop() {
+                        break;
+                    }
+                }
+            }
         }
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
+        match &self.backend {
+            SchemaStoreBackend::Stable(map)
+            | SchemaStoreBackend::Journaled { canonical: map, .. } => map.len(),
+            SchemaStoreBackend::Heap(_) => 0,
+        }
+    }
+
+    fn get_raw_snapshot_for_backend(&self, key: &RawSchemaKey) -> Option<RawSchemaSnapshot> {
+        let SchemaStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &self.backend
+        else {
+            return None;
+        };
+
+        if tombstones.contains(key) {
+            return None;
+        }
+        live.get(key).cloned().or_else(|| canonical.get(key))
+    }
+
+    fn journaled_snapshots(&self) -> StdBTreeMap<RawSchemaKey, RawSchemaSnapshot> {
+        let SchemaStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &self.backend
+        else {
+            return StdBTreeMap::new();
+        };
+
+        let mut snapshots = StdBTreeMap::new();
+        for entry in canonical.iter() {
+            let key = *entry.key();
+            if !tombstones.contains(&key) {
+                snapshots.insert(key, entry.value());
+            }
+        }
+        for (key, snapshot) in live {
+            if !tombstones.contains(key) {
+                snapshots.insert(*key, snapshot.clone());
+            }
+        }
+
+        snapshots
     }
 }
 

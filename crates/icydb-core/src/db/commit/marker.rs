@@ -180,6 +180,7 @@ pub(crate) struct CommitMarker {
 
 impl CommitMarker {
     /// Construct a new commit marker with a deterministic marker id.
+    #[cfg(test)]
     pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = generate_commit_id()?;
 

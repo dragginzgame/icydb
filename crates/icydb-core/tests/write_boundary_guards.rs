@@ -2293,30 +2293,14 @@ fn journaled_storage_schema_build_admission_stays_out_of_runtime_backends() {
         "0.174.1 should add runtime capability projection without using diagnostics as authority",
     );
 
-    let forbidden_backend_symbols = [
-        "DataStoreBackend::Journaled",
-        "IndexStoreBackend::Journaled",
-        "SchemaStoreBackend::Journaled",
-        "init_journaled",
-    ];
-    let checked_backends = [
-        ("data store", data_store.as_str()),
-        ("index store", index_store.as_str()),
-        ("schema store", schema_runtime_store.as_str()),
-    ];
-    let mut violations = Vec::new();
-    for (label, source) in checked_backends {
-        for symbol in forbidden_backend_symbols {
-            if source.contains(symbol) {
-                violations.push(format!("{label} contains {symbol}"));
-            }
-        }
-    }
-
     assert!(
-        violations.is_empty(),
-        "0.174.1 admits schema/build journaled wiring but must not add runtime journaled store backends:\n{}",
-        violations.join("\n"),
+        data_store.contains("DataStoreBackend::Journaled")
+            && data_store.contains("pub fn init_journaled")
+            && index_store.contains("IndexStoreBackend::Journaled")
+            && index_store.contains("pub fn init_journaled")
+            && schema_runtime_store.contains("SchemaStoreBackend::Journaled")
+            && schema_runtime_store.contains("pub fn init_journaled"),
+        "0.174.3 should admit journaled runtime store wrappers after schema/build wiring lands",
     );
     assert!(
         !relation.contains("Journaled")
@@ -2327,10 +2311,10 @@ fn journaled_storage_schema_build_admission_stays_out_of_runtime_backends() {
     );
     assert!(
         executor_mutation.contains("StoreRecoveryCapability::StableBasePlusJournalReplay")
-            && executor_mutation
-                .contains("journaled recovery marker projection is not implemented")
+            && executor_mutation.contains("commit_window_payload_for_prepared_row_ops")
+            && executor_mutation.contains("append_prepared_journal_batches")
             && commit.contains("journaled recovery replay is not implemented"),
-        "0.174.1/0.174.2 commit/recovery should fail closed until journal runtime recovery lands",
+        "0.174.3 commit should append marker-bound journal batches while recovery remains fail-closed until the recovery slice lands",
     );
 }
 
@@ -2355,12 +2339,12 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
         "commit visibility inventory should remain begin_commit/finish_commit marker authority",
     );
     assert!(
-        commit_window.contains("fn recovery_marker_row_ops_for_prepared_row_ops")
+        commit_window.contains("fn commit_window_payload_for_prepared_row_ops")
             && commit_window.contains(
                 "StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone())"
             )
             && commit_window.contains("StoreRecoveryCapability::None => {}"),
-        "commit markers should project only durable-recovery row ops from capability axes",
+        "commit markers should project durable row ops and journal batches from capability axes",
     );
     assert!(
         commit_replay.contains("handle.storage_capabilities().recovery()")
@@ -2388,11 +2372,8 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
         "src/db/schema",
     ];
     let forbidden = [
-        "JournalRecord",
-        "JournalStore",
         "JournalFold",
         "CommittedJournal",
-        "journal_tail",
         "journal_replay",
         "replay_journal",
         "fold_journal",
@@ -2577,8 +2558,8 @@ fn journaled_runtime_store_and_codec_slice_is_bounded_and_marker_bound() {
         ("schema", schema_store.as_str()),
     ] {
         assert!(
-            !source.contains("Backend::Journaled") && !source.contains("init_journaled"),
-            "{label} store wrappers must not admit journaled runtime backends before the wrapper slice",
+            source.contains("Backend::Journaled") && source.contains("init_journaled"),
+            "{label} store wrappers should admit journaled live projections in the wrapper slice",
         );
     }
     assert!(

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.174.md](docs/changelog/0.174.md)
 
+- `0.174.3` adds journaled runtime store wrappers and live write/read/index
+  behavior while keeping normal writes out of canonical stable BTrees.
+
 - `0.174.2` adds bounded journal batch encoding and journal-tail storage bound
   to the existing commit-marker authority.
 

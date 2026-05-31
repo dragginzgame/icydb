@@ -87,6 +87,11 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
+        if !marker.journal_batches().is_empty() {
+            return Err(InternalError::store_unsupported(
+                "journaled recovery replay is not implemented before journaled runtime recovery",
+            ));
+        }
         // Phase 1: replay persisted row operations while marker authority is active.
         replay_commit_marker_row_ops(db, &marker.row_ops)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
