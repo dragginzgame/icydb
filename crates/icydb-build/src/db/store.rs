@@ -279,13 +279,13 @@ fn journaled_store_registry_entry_tokens(
     let schema_stable_key = schema_allocation.stable_key();
     let journal_stable_key = journal_allocation.stable_key();
 
-    let journal_def = quote! {
-        ::icydb::__macro::ic_memory_declaration!(
-            key = #journal_stable_key,
-            label = "JournalTail",
-            id = #journal_memory_id,
-        );
-    };
+    let journal_cell_ident = format_ident!("{}_JOURNAL", store.ident());
+    let journal_def = stable_store_cell_tokens(
+        &journal_cell_ident,
+        quote!(::icydb::__macro::JournalTailStore),
+        journal_stable_key,
+        journal_memory_id,
+    );
     let data_def = stable_store_cell_tokens(
         &data_cell_ident,
         quote!(::icydb::__macro::DataStore),
@@ -305,11 +305,12 @@ fn journaled_store_registry_entry_tokens(
         schema_memory_id,
     );
     let store_init = quote! {
-        reg.register_store(
+        reg.register_journaled_store(
             #store_path,
             &#data_cell_ident,
             &#index_cell_ident,
             &#schema_cell_ident,
+            &#journal_cell_ident,
             ::icydb::__macro::StoreAllocationIdentities::new_journaled(
                 ::icydb::__macro::StoreAllocationIdentity::new(
                     #data_memory_id,
@@ -528,13 +529,13 @@ mod tests {
         }
         .to_string();
 
-        assert_eq!(rendered.matches("ic_memory_key").count(), 3);
+        assert_eq!(rendered.matches("ic_memory_key").count(), 4);
         assert_eq!(
             rendered.matches("StoreAllocationIdentity :: new").count(),
             4
         );
-        assert!(rendered.contains("ic_memory_declaration"));
-        assert!(rendered.contains("JournalTail"));
+        assert!(rendered.contains("JournalTailStore :: init"));
+        assert!(rendered.contains("register_journaled_store"));
         assert!(rendered.contains("StoreAllocationIdentities :: new_journaled"));
         assert!(rendered.contains("StoreRuntimeStorageCapabilities :: journaled"));
         for expected in ["id = 20u8", "id = 21u8", "id = 22u8", "id = 23u8"] {

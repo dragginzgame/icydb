@@ -11,10 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.174.md](docs/changelog/0.174.md)
 
-- `0.174.0` starts the journaled cached-stable runtime-admission line with a
-  readiness check that keeps public journaled storage reserved.
+- `0.174.2` adds bounded journal batch encoding and journal-tail storage bound
+  to the existing commit-marker authority.
+
 - `0.174.1` admits the full four-ID journaled schema/build wiring surface while
   keeping journaled runtime write/recovery behavior fail-closed.
+
+- `0.174.0` starts the journaled cached-stable runtime-admission line with a
+  readiness check that keeps public journaled storage reserved.
 
 ## [0.173.x] 🧭 - 2026-05-31 - Journaled Protocol Foundation
 

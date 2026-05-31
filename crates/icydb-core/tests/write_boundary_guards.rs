@@ -2330,7 +2330,7 @@ fn journaled_storage_schema_build_admission_stays_out_of_runtime_backends() {
             && executor_mutation
                 .contains("journaled recovery marker projection is not implemented")
             && commit.contains("journaled recovery replay is not implemented"),
-        "0.174.1 commit/recovery should fail closed until journal runtime recovery lands",
+        "0.174.1/0.174.2 commit/recovery should fail closed until journal runtime recovery lands",
     );
 }
 
@@ -2427,11 +2427,14 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
 }
 
 #[test]
-fn journal_format_boundary_remains_design_only_and_codecs_unchanged() {
+fn journal_format_boundary_preserves_row_index_schema_codecs() {
     let design =
         read_source("../../docs/design/0.172-journaled-store-reserved-contract/0.172-design.md");
     let commit_marker = read_source("src/db/commit/marker.rs");
     let schema_codec = read_source("src/db/schema/codec.rs");
+    let runtime_design = read_source(
+        "../../docs/design/0.174-journaled-cached-stable-runtime-admission/0.174-design.md",
+    );
 
     assert!(
         design.contains("## Journal Format Boundary")
@@ -2450,10 +2453,16 @@ fn journal_format_boundary_remains_design_only_and_codecs_unchanged() {
     );
     assert!(
         commit_marker
-            .contains("pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1")
+            .contains("pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2")
             && commit_marker.contains("CommitIndexOp")
             && commit_marker.contains("Not persisted in commit markers"),
-        "existing commit-marker format should remain the row-op authority and should not add persisted index/journal records",
+        "0.174.2 should hard-cut commit markers for embedded journal batches without making index records durable marker truth",
+    );
+    assert!(
+        runtime_design.contains("0.174.2 — Journal Runtime Store And Codec")
+            && runtime_design.contains("bounded/fallible journal batch codec")
+            && runtime_design.contains("Bind journal batches to existing commit-marker authority"),
+        "0.174.2 design should own the first journal persisted-byte implementation",
     );
     assert!(
         schema_codec.contains("const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 6"),
@@ -2464,20 +2473,16 @@ fn journal_format_boundary_remains_design_only_and_codecs_unchanged() {
         "src/db/codec",
         "src/db/data/persisted_row/codec",
         "src/db/index/key/codec",
-        "src/db/commit/store",
     ];
-    let checked_files = ["src/db/schema/codec.rs", "src/db/commit/marker.rs"];
+    let checked_files = ["src/db/schema/codec.rs"];
     let forbidden = [
         "JournalRecord",
         "JournalRecordEnvelope",
         "JournalCodec",
-        "JournalStore",
         "JournalReplay",
         "JournalFold",
         "Journaled",
         "CommittedJournal",
-        "journal_memory_id",
-        "journal_tail",
         "journal_record",
         "journal_format",
         "journal_replay",
@@ -2516,8 +2521,72 @@ fn journal_format_boundary_remains_design_only_and_codecs_unchanged() {
 
     assert!(
         violations.is_empty(),
-        "0.172.4 defines future journal format requirements only; production row, index, schema, and commit-marker codec surfaces must not introduce journal records or format state:\n{}",
+        "journaled codec work must stay out of existing row, index, and schema codec surfaces:\n{}",
         violations.join("\n"),
+    );
+}
+
+#[test]
+fn journaled_runtime_store_and_codec_slice_is_bounded_and_marker_bound() {
+    let journal_codec = read_source("src/db/journal/codec.rs");
+    let journal_store = read_source("src/db/journal/store.rs");
+    let commit_marker = read_source("src/db/commit/marker.rs");
+    let build_store = read_source("../icydb-build/src/db/store.rs");
+    let registry = read_source("src/db/registry/registry.rs");
+    let registry_handle = read_source("src/db/registry/handle.rs");
+    let data_store = read_source("src/db/data/store.rs");
+    let index_store = read_source("src/db/index/store.rs");
+    let schema_store = read_source("src/db/schema/store.rs");
+    let changelog = read_source("../../docs/changelog/0.174.md");
+
+    assert!(
+        journal_codec.contains("JOURNAL_BATCH_FORMAT_VERSION_CURRENT")
+            && journal_codec.contains("MAX_JOURNAL_BATCH_BYTES")
+            && journal_codec.contains("pub(in crate::db) struct JournalBatch")
+            && journal_codec.contains("pub(in crate::db) enum JournalRecord")
+            && journal_codec.contains("decode_journal_batch")
+            && journal_codec.contains("serialize_incompatible_persisted_format"),
+        "0.174.2 should introduce bounded/fallible journal batch codec",
+    );
+    assert!(
+        journal_store.contains(
+            "StableBTreeMap<JournalSequence, RawJournalBatch, VirtualMemory<DefaultMemoryImpl>>",
+        ) && journal_store.contains("pub(in crate::db) fn append_batch")
+            && journal_store.contains("pub(in crate::db) fn visit_batches_after")
+            && journal_store.contains("sequence gap")
+            && journal_store.contains("duplicate batch id"),
+        "0.174.2 should add ordered append/read journal-tail storage",
+    );
+    assert!(
+        commit_marker.contains("journal_batches: Vec<JournalBatch>")
+            && commit_marker.contains("COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2")
+            && commit_marker.contains("commit marker journal batch count")
+            && commit_marker.contains("batch.commit_marker_id() != marker.id"),
+        "0.174.2 should bind embedded journal batches to the existing commit marker id",
+    );
+    assert!(
+        build_store.contains("JournalTailStore :: init")
+            && build_store.contains("register_journaled_store")
+            && registry.contains("pub fn register_journaled_store")
+            && registry_handle.contains("pub const fn journal_tail_store"),
+        "0.174.2 should wire generated journal-tail storage through the registry handle",
+    );
+    for (label, source) in [
+        ("data", data_store.as_str()),
+        ("index", index_store.as_str()),
+        ("schema", schema_store.as_str()),
+    ] {
+        assert!(
+            !source.contains("Backend::Journaled") && !source.contains("init_journaled"),
+            "{label} store wrappers must not admit journaled runtime backends before the wrapper slice",
+        );
+    }
+    assert!(
+        changelog.contains("## 0.174.2")
+            && changelog.contains("bounded/fallible journal batch codec")
+            && changelog.contains("journal-tail storage")
+            && changelog.contains("commit-marker-bound"),
+        "0.174.2 changelog should record codec, tail storage, and marker-bound publication work",
     );
 }
 

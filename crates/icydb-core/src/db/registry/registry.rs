@@ -2,9 +2,10 @@ use crate::{
     db::{
         data::DataStore,
         index::IndexStore,
+        journal::JournalTailStore,
         registry::{
             StoreAllocationIdentities, StoreHandle, StoreRegistryError,
-            StoreRuntimeStorageCapabilities,
+            StoreRuntimeStorageCapabilities, StoreRuntimeStorageMode,
         },
         schema::SchemaStore,
     },
@@ -58,6 +59,70 @@ impl StoreRegistry {
         allocations: StoreAllocationIdentities,
         capabilities: StoreRuntimeStorageCapabilities,
     ) -> Result<(), InternalError> {
+        self.validate_register_store_shape(name, data, index, schema, allocations, capabilities)?;
+        if capabilities.storage_mode() == StoreRuntimeStorageMode::Journaled {
+            return Err(
+                StoreRegistryError::StoreAllocationCapabilityMismatch(name.to_string()).into(),
+            );
+        }
+
+        self.stores.push((
+            name,
+            StoreHandle::new(data, index, schema, allocations, capabilities),
+        ));
+
+        Ok(())
+    }
+
+    /// Register one journaled store with its journal-tail storage handle.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "generated journaled registration adds one journal-tail handle to the existing store triplet"
+    )]
+    pub fn register_journaled_store(
+        &mut self,
+        name: &'static str,
+        data: &'static LocalKey<RefCell<DataStore>>,
+        index: &'static LocalKey<RefCell<IndexStore>>,
+        schema: &'static LocalKey<RefCell<SchemaStore>>,
+        journal: &'static LocalKey<RefCell<JournalTailStore>>,
+        allocations: StoreAllocationIdentities,
+        capabilities: StoreRuntimeStorageCapabilities,
+    ) -> Result<(), InternalError> {
+        self.validate_register_store_shape(name, data, index, schema, allocations, capabilities)?;
+        if capabilities.storage_mode() != StoreRuntimeStorageMode::Journaled
+            || allocations.journal().is_none()
+        {
+            return Err(
+                StoreRegistryError::StoreAllocationCapabilityMismatch(name.to_string()).into(),
+            );
+        }
+
+        self.stores.push((
+            name,
+            StoreHandle::new_journaled(data, index, schema, journal, allocations, capabilities),
+        ));
+
+        Ok(())
+    }
+
+    /// Look up a store handle by path.
+    pub fn try_get_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
+        self.stores
+            .iter()
+            .find_map(|(existing_path, handle)| (*existing_path == path).then_some(*handle))
+            .ok_or_else(|| StoreRegistryError::StoreNotFound(path.to_string()).into())
+    }
+
+    fn validate_register_store_shape(
+        &self,
+        name: &'static str,
+        data: &'static LocalKey<RefCell<DataStore>>,
+        index: &'static LocalKey<RefCell<IndexStore>>,
+        schema: &'static LocalKey<RefCell<SchemaStore>>,
+        allocations: StoreAllocationIdentities,
+        capabilities: StoreRuntimeStorageCapabilities,
+    ) -> Result<(), InternalError> {
         if self
             .stores
             .iter()
@@ -93,19 +158,6 @@ impl StoreRegistry {
             );
         }
 
-        self.stores.push((
-            name,
-            StoreHandle::new(data, index, schema, allocations, capabilities),
-        ));
-
         Ok(())
-    }
-
-    /// Look up a store handle by path.
-    pub fn try_get_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
-        self.stores
-            .iter()
-            .find_map(|(existing_path, handle)| (*existing_path == path).then_some(*handle))
-            .ok_or_else(|| StoreRegistryError::StoreNotFound(path.to_string()).into())
     }
 }

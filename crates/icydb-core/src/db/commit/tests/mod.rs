@@ -1992,6 +1992,7 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
     marker_payload.extend_from_slice(&initial_accepted_commit_schema_fingerprint_for_entity::<
         RecoveryTestEntity,
     >());
+    marker_payload.extend_from_slice(&0u32.to_le_bytes());
 
     let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
         COMMIT_MARKER_FORMAT_VERSION_CURRENT,
@@ -2031,6 +2032,7 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
     let marker = CommitMarker {
         id: [0xAB; 16],
         row_ops: Vec::new(),
+        journal_batches: Vec::new(),
     };
     let marker_payload =
         encode_commit_marker_payload(&marker).expect("marker payload encode should succeed");
@@ -2140,6 +2142,7 @@ fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() 
                 })),
             ),
         ],
+        journal_batches: Vec::new(),
     };
     let marker_payload = encode_commit_marker_payload(&marker)
         .expect("multi-row marker payload encode should succeed");

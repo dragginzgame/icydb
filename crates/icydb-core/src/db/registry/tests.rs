@@ -2,6 +2,7 @@ use crate::{
     db::{
         data::DataStore,
         index::IndexStore,
+        journal::JournalTailStore,
         registry::{
             StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
             StoreCommitParticipation, StoreDurability, StoreRecoveryCapability, StoreRegistry,
@@ -24,6 +25,8 @@ thread_local! {
         RefCell::new(IndexStore::init(test_memory(152)));
     static TEST_SCHEMA_STORE: RefCell<SchemaStore> =
         RefCell::new(SchemaStore::init(test_memory(153)));
+    static TEST_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(154)));
     static TEST_HEAP_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
     static TEST_HEAP_INDEX_STORE: RefCell<IndexStore> =
         const { RefCell::new(IndexStore::init_heap()) };
@@ -168,11 +171,12 @@ fn register_store_with_stable_allocation_identities_binds_metadata() {
 fn register_store_with_journaled_allocation_identities_binds_four_role_metadata() {
     let mut registry = StoreRegistry::new();
     registry
-        .register_store(
+        .register_journaled_store(
             STORE_PATH,
             &TEST_DATA_STORE,
             &TEST_INDEX_STORE,
             &TEST_SCHEMA_STORE,
+            &TEST_JOURNAL_STORE,
             StoreAllocationIdentities::new_journaled(
                 StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
                 StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
@@ -214,6 +218,15 @@ fn register_store_with_journaled_allocation_identities_binds_four_role_metadata(
             154,
             "icydb.test.store.journal.v1"
         ))
+    );
+    assert!(
+        ptr::eq(
+            handle
+                .journal_tail_store()
+                .expect("journaled handle should expose journal tail store"),
+            &TEST_JOURNAL_STORE,
+        ),
+        "journaled registration should bind the journal tail store accessor",
     );
     let capabilities = handle.storage_capabilities();
     assert_eq!(
@@ -287,6 +300,29 @@ fn register_store_rejects_journaled_capabilities_without_journal_allocation_iden
             .contains("allocation identities do not match storage capabilities"),
         "journal allocation/capability mismatch should be diagnosed"
     );
+}
+
+#[test]
+fn register_store_rejects_journaled_capabilities_without_journal_tail_store() {
+    let mut registry = StoreRegistry::new();
+    let err = registry
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+            StoreAllocationIdentities::new_journaled(
+                StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
+                StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
+                StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
+                StoreAllocationIdentity::new(154, "icydb.test.store.journal.v1"),
+            ),
+            StoreRuntimeStorageCapabilities::journaled(),
+        )
+        .expect_err("journaled capabilities require explicit journal tail store");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
 #[test]

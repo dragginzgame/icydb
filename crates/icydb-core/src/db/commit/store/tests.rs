@@ -7,6 +7,7 @@ use crate::{
             decode_commit_marker_payload, encode_commit_marker_payload,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
+        journal::{JournalBatch, JournalRecord, JournalSequence},
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
@@ -67,6 +68,7 @@ fn encode_test_single_row_payload_from_fields(
     }
 
     payload.extend_from_slice(&schema_fingerprint);
+    payload.extend_from_slice(&0u32.to_le_bytes());
 
     encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &payload)
         .expect("test marker envelope encode should succeed")
@@ -77,6 +79,7 @@ fn commit_marker_rejects_trailing_payload_bytes() {
     let marker = CommitMarker {
         id: [0u8; 16],
         row_ops: Vec::new(),
+        journal_batches: Vec::new(),
     };
 
     let mut bytes = encode_test_marker_payload(&marker);
@@ -100,6 +103,7 @@ fn commit_marker_payload_decode_allows_bytes_over_row_limit() {
             None,
             [0x22; 16],
         )],
+        journal_batches: Vec::new(),
     };
 
     let bytes =
@@ -123,6 +127,7 @@ fn commit_marker_current_version_round_trip_succeeds() {
     let marker = CommitMarker {
         id: [9u8; 16],
         row_ops: Vec::new(),
+        journal_batches: Vec::new(),
     };
     let encoded = encode_test_marker_payload(&marker);
     let decoded = RawCommitMarker(encoded)
@@ -132,6 +137,57 @@ fn commit_marker_current_version_round_trip_succeeds() {
 
     assert_eq!(decoded.id, marker.id);
     assert_eq!(decoded.row_ops.len(), 0);
+    assert!(decoded.journal_batches().is_empty());
+}
+
+#[test]
+fn commit_marker_embeds_marker_bound_journal_batches() {
+    let marker_id = [0xAB; 16];
+    let journal_batch = JournalBatch::new(
+        [0x44; 16],
+        marker_id,
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::row_put(
+                "test::Entity",
+                raw_data_store_key(4),
+                vec![0x77; 3],
+                [0x55; 16],
+            )
+            .expect("journal row record should build"),
+        ],
+    )
+    .expect("journal batch should build");
+    let marker = CommitMarker::from_parts(marker_id, Vec::new(), vec![journal_batch.clone()])
+        .expect("marker-bound journal batch should build");
+
+    let bytes =
+        encode_commit_marker_payload(&marker).expect("marker payload should encode journal batch");
+    let decoded = decode_commit_marker_payload(&bytes)
+        .expect("marker payload should decode embedded journal batch");
+
+    assert_eq!(decoded.journal_batches(), &[journal_batch]);
+}
+
+#[test]
+fn commit_marker_rejects_unbound_journal_batch() {
+    let marker_id = [0xAB; 16];
+    let journal_batch = JournalBatch::new(
+        [0x44; 16],
+        [0xCD; 16],
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::row_delete("test::Entity", raw_data_store_key(4), [0x55; 16])
+                .expect("journal row-delete record should build"),
+        ],
+    )
+    .expect("journal batch should build");
+
+    let err = CommitMarker::from_parts(marker_id, Vec::new(), vec![journal_batch])
+        .expect_err("journal batch must be bound to enclosing marker id");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
 #[test]
@@ -139,6 +195,7 @@ fn commit_marker_future_version_fails_closed() {
     let marker = CommitMarker {
         id: [6u8; 16],
         row_ops: Vec::new(),
+        journal_batches: Vec::new(),
     };
     let marker_payload = encode_commit_marker_payload(&marker)
         .expect("marker payload encode for future-version test should work");
@@ -158,6 +215,7 @@ fn commit_marker_older_version_fails_closed() {
     let marker = CommitMarker {
         id: [5u8; 16],
         row_ops: Vec::new(),
+        journal_batches: Vec::new(),
     };
     let marker_payload = encode_commit_marker_payload(&marker)
         .expect("marker payload encode for old-version test should work");
@@ -195,6 +253,7 @@ fn direct_multi_row_control_slot_rejects_oversized_payload_before_persist() {
             Some(oversized_after),
             [0u8; 16],
         )],
+        journal_batches: Vec::new(),
     };
 
     let err = super::CommitStore::encode_raw_direct_control_slot_for_tests(&marker)
@@ -215,6 +274,7 @@ fn commit_marker_rejects_row_op_without_before_or_after() {
             None,
             [0u8; 16],
         )],
+        journal_batches: Vec::new(),
     };
 
     let bytes = encode_test_marker_payload(&marker);
@@ -237,6 +297,7 @@ fn direct_multi_row_control_slot_rejects_row_op_without_before_or_after_before_p
             None,
             [0u8; 16],
         )],
+        journal_batches: Vec::new(),
     };
 
     let err = super::CommitStore::encode_raw_direct_control_slot_for_tests(&marker)
@@ -286,6 +347,7 @@ fn commit_marker_rejects_row_op_with_empty_entity_path() {
             None,
             [0u8; 16],
         )],
+        journal_batches: Vec::new(),
     };
 
     let bytes = encode_test_marker_payload(&marker);
@@ -345,6 +407,7 @@ fn commit_marker_rejects_row_op_with_oversized_payload() {
             None,
             [0u8; 16],
         )],
+        journal_batches: Vec::new(),
     };
 
     let bytes = encode_test_marker_payload(&marker);

@@ -1,6 +1,7 @@
 use crate::db::{
     data::DataStore,
     index::{IndexState, IndexStore},
+    journal::JournalTailStore,
     schema::SchemaStore,
 };
 use candid::CandidType;
@@ -21,6 +22,7 @@ pub struct StoreHandle {
     data: &'static LocalKey<RefCell<DataStore>>,
     index: &'static LocalKey<RefCell<IndexStore>>,
     schema: &'static LocalKey<RefCell<SchemaStore>>,
+    journal: Option<&'static LocalKey<RefCell<JournalTailStore>>>,
     allocations: StoreAllocationIdentities,
     capabilities: StoreRuntimeStorageCapabilities,
 }
@@ -487,6 +489,27 @@ impl StoreHandle {
             data,
             index,
             schema,
+            journal: None,
+            allocations,
+            capabilities,
+        }
+    }
+
+    /// Build a journaled store handle with an explicit journal-tail store.
+    #[must_use]
+    pub const fn new_journaled(
+        data: &'static LocalKey<RefCell<DataStore>>,
+        index: &'static LocalKey<RefCell<IndexStore>>,
+        schema: &'static LocalKey<RefCell<SchemaStore>>,
+        journal: &'static LocalKey<RefCell<JournalTailStore>>,
+        allocations: StoreAllocationIdentities,
+        capabilities: StoreRuntimeStorageCapabilities,
+    ) -> Self {
+        Self {
+            data,
+            index,
+            schema,
+            journal: Some(journal),
             allocations,
             capabilities,
         }
@@ -574,6 +597,12 @@ impl StoreHandle {
     #[must_use]
     pub const fn schema_store(&self) -> &'static LocalKey<RefCell<SchemaStore>> {
         self.schema
+    }
+
+    /// Return the raw journal-tail store accessor when this store is journaled.
+    #[must_use]
+    pub const fn journal_tail_store(&self) -> Option<&'static LocalKey<RefCell<JournalTailStore>>> {
+        self.journal
     }
 
     /// Return the data-memory allocation identity when generated wiring

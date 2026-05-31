@@ -62,9 +62,9 @@ pub mod prelude {
 pub mod __macro {
     pub use crate::db::{
         CompositePrimaryKeyValue, CompositePrimaryKeyValueError, GeneratedStructuralEnumPayload,
-        GeneratedStructuralMapPayloadSlices, PersistedRow, PersistedScalar, PrimaryKeyComponent,
-        PrimaryKeyValue, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
-        StoreRuntimeStorageCapabilities,
+        GeneratedStructuralMapPayloadSlices, JournalTailStore, PersistedRow, PersistedScalar,
+        PrimaryKeyComponent, PrimaryKeyValue, ScalarSlotValueRef, ScalarValueRef, SlotReader,
+        SlotWriter, StoreRuntimeStorageCapabilities,
     };
     pub use crate::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use crate::traits::{

@@ -27,6 +27,7 @@ pub(in crate::db) mod data;
 pub(in crate::db) mod direction;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
+pub(in crate::db) mod journal;
 pub(in crate::db) mod key_taxonomy;
 pub(in crate::db) mod numeric;
 pub(in crate::db) mod relation;
@@ -101,6 +102,8 @@ pub(crate) use executor::{
 };
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
+#[doc(hidden)]
+pub use journal::JournalTailStore;
 #[doc(hidden)]
 pub use key_taxonomy::{
     CompositePrimaryKeyValue, CompositePrimaryKeyValueError, PrimaryKeyComponent, PrimaryKeyValue,

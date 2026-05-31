@@ -43,7 +43,9 @@ const TEST_COMMIT_STABLE_KEY: &str = "icydb.test.commit.v1";
 pub(in crate::db) use guard::{
     CommitApplyGuard, CommitGuard, begin_commit, begin_single_row_commit, finish_commit,
 };
-pub(in crate::db) use marker::{CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint};
+pub(in crate::db) use marker::{
+    CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
+};
 pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity_with_structural_readers,
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,

@@ -9,6 +9,9 @@ use crate::{
         commit::prepared_op::PreparedIndexDeltaKind,
         data::{DecodedDataStoreKey, RawDataStoreKey},
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
+        journal::{
+            JournalBatch, decode_journal_batch, encode_journal_batch, journal_batch_encoded_len,
+        },
     },
     error::InternalError,
     runtime::now_millis,
@@ -17,6 +20,7 @@ use ic_memory::stable_structures::Storable;
 use std::{
     borrow::Cow,
     cell::RefCell,
+    collections::BTreeSet,
     sync::atomic::{AtomicU64, Ordering},
     thread::LocalKey,
 };
@@ -30,7 +34,7 @@ use std::{
 /// Stored commit-id byte width shared by marker and guard paths.
 pub(in crate::db) const COMMIT_ID_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
-pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;
+pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
 
@@ -171,6 +175,7 @@ impl CommitIndexOp {
 pub(crate) struct CommitMarker {
     pub(crate) id: [u8; COMMIT_ID_BYTES],
     pub(crate) row_ops: Vec<CommitRowOp>,
+    pub(in crate::db) journal_batches: Vec<JournalBatch>,
 }
 
 impl CommitMarker {
@@ -178,7 +183,36 @@ impl CommitMarker {
     pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = generate_commit_id()?;
 
-        Ok(Self { id, row_ops })
+        Self::from_parts(id, row_ops, Vec::new())
+    }
+
+    /// Construct one marker from already-derived durable payload parts.
+    ///
+    /// Journal batches are embedded in the marker so recovery can repair or
+    /// verify marker-bound journal publication before replay.
+    pub(in crate::db) fn from_parts(
+        id: [u8; COMMIT_ID_BYTES],
+        row_ops: Vec<CommitRowOp>,
+        journal_batches: Vec<JournalBatch>,
+    ) -> Result<Self, InternalError> {
+        let marker = Self {
+            id,
+            row_ops,
+            journal_batches,
+        };
+        validate_commit_marker_shape(&marker)?;
+
+        Ok(marker)
+    }
+
+    /// Borrow marker-bound journal batches embedded in this commit marker.
+    #[allow(
+        dead_code,
+        reason = "journal runtime recovery consumes embedded batches in a later 0.174 slice"
+    )]
+    #[must_use]
+    pub(in crate::db) fn journal_batches(&self) -> &[JournalBatch] {
+        &self.journal_batches
     }
 
     // Build the canonical payload corruption for truncated variable-length fields.
@@ -217,6 +251,7 @@ const COMMIT_MARKER_FLAG_BEFORE: u8 = 0b0000_0001;
 const COMMIT_MARKER_FLAG_AFTER: u8 = 0b0000_0010;
 const COMMIT_MARKER_FLAG_MASK: u8 = COMMIT_MARKER_FLAG_BEFORE | COMMIT_MARKER_FLAG_AFTER;
 const COMMIT_MARKER_ROW_COUNT_BYTES: usize = 4;
+const COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES: usize = 4;
 
 /// Generate one deterministic commit id for marker persistence.
 ///
@@ -288,6 +323,7 @@ pub(in crate::db) fn single_row_commit_marker_payload_capacity(row_op: &CommitRo
     COMMIT_MARKER_ID_BYTES
         .saturating_add(COMMIT_MARKER_ROW_COUNT_BYTES)
         .saturating_add(commit_row_op_payload_capacity(row_op))
+        .saturating_add(COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES)
 }
 
 /// Return the canonical multi-row marker payload size without allocating it.
@@ -295,6 +331,10 @@ pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> us
     let mut capacity = COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES;
     for row_op in &marker.row_ops {
         capacity = capacity.saturating_add(commit_row_op_payload_capacity(row_op));
+    }
+    capacity = capacity.saturating_add(COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES);
+    for batch in &marker.journal_batches {
+        capacity = capacity.saturating_add(4 + journal_batch_encoded_len(batch));
     }
 
     capacity
@@ -309,6 +349,7 @@ pub(in crate::db) fn write_single_row_commit_marker_payload(
     out.extend_from_slice(&marker_id);
     write_len_u32(out, 1, "commit marker row count")?;
     write_commit_row_op(out, row_op)?;
+    write_len_u32(out, 0, "commit marker journal batch count")?;
 
     Ok(())
 }
@@ -322,6 +363,15 @@ pub(in crate::db) fn write_commit_marker_payload(
     write_len_u32(out, marker.row_ops.len(), "commit marker row count")?;
     for row_op in &marker.row_ops {
         write_commit_row_op(out, row_op)?;
+    }
+    write_len_u32(
+        out,
+        marker.journal_batches.len(),
+        "commit marker journal batch count",
+    )?;
+    for batch in &marker.journal_batches {
+        let encoded = encode_journal_batch(batch)?;
+        write_len_prefixed_bytes(out, &encoded, "commit marker journal batch")?;
     }
 
     Ok(())
@@ -439,6 +489,14 @@ pub(in crate::db) fn decode_commit_marker_payload(
         )?);
     }
 
+    let journal_batch_count =
+        read_len_u32(bytes, &mut cursor, "commit marker journal batch count")? as usize;
+    let mut journal_batches = Vec::with_capacity(journal_batch_count);
+    for _ in 0..journal_batch_count {
+        let encoded = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker journal batch")?;
+        journal_batches.push(decode_journal_batch(encoded)?);
+    }
+
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
         return Err(InternalError::commit_corruption(
@@ -446,7 +504,11 @@ pub(in crate::db) fn decode_commit_marker_payload(
         ));
     }
 
-    Ok(CommitMarker { id, row_ops })
+    Ok(CommitMarker {
+        id,
+        row_ops,
+        journal_batches,
+    })
 }
 
 // Write one bounded little-endian u32 length field.
@@ -551,6 +613,28 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     // Phase 1: validate every row op under the shared marker invariant gate.
     for row_op in &marker.row_ops {
         validate_commit_row_op_shape(row_op)?;
+    }
+
+    // Phase 2: validate every embedded journal batch is bound to this marker
+    // and has a unique batch identity and replay sequence.
+    let mut batch_ids = BTreeSet::new();
+    let mut sequences = BTreeSet::new();
+    for batch in &marker.journal_batches {
+        if batch.commit_marker_id() != marker.id {
+            return Err(InternalError::commit_corruption(
+                "journal batch commit marker id does not match marker id",
+            ));
+        }
+        if !batch_ids.insert(batch.batch_id()) {
+            return Err(InternalError::commit_corruption(
+                "duplicate journal batch id in commit marker",
+            ));
+        }
+        if !sequences.insert(batch.journal_sequence()) {
+            return Err(InternalError::commit_corruption(
+                "duplicate journal batch sequence in commit marker",
+            ));
+        }
     }
 
     Ok(())

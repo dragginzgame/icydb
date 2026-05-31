@@ -118,7 +118,9 @@ pub(in crate::db) use snapshot::{
     SchemaFieldDefault, SchemaFieldWritePolicy,
 };
 pub use store::SchemaStore;
-pub(in crate::db) use store::{SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata};
+pub(in crate::db) use store::{
+    MAX_SCHEMA_SNAPSHOT_BYTES, SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
+};
 pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
