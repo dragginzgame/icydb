@@ -58,7 +58,7 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 getrandom = "0.4"
 ic-cdk = "0.20.1"
-ic-memory = "0.6.2"
+ic-memory = "0.7.0"
 ic-testkit = "0.1.10"
 icrc-ledger-types = "0.2.0"
 icydb = { path = "crates/icydb", version = "0.173.0" }
