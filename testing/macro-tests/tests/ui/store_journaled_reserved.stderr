@@ -1,0 +1,5 @@
+error: storage(journaled(...)) is reserved for a future journaled cached-stable durable store and is not admitted in 0.172
+  --> tests/ui/store_journaled_reserved.rs:10:13
+   |
+10 |     storage(journaled(
+   |             ^^^^^^^^^

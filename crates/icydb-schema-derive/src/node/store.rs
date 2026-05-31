@@ -179,8 +179,15 @@ fn parse_store_storage(list: &syn::MetaList) -> Result<ParsedStoreStorage, Darli
         NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("heap") => {
             parse_heap_config(mode).map(ParsedStoreStorage::Heap)
         }
+        NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("journaled") => {
+            parse_reserved_journaled_config(mode)
+        }
         NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("heap") => Err(
             DarlingError::custom("storage(heap) must be written as storage(heap())")
+                .with_span(path),
+        ),
+        NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("journaled") => Err(
+            DarlingError::custom("storage(journaled) must be written as storage(journaled(...))")
                 .with_span(path),
         ),
         NestedMeta::Meta(syn::Meta::List(mode)) => Err(DarlingError::custom(
@@ -206,6 +213,110 @@ fn parse_heap_config(list: &syn::MetaList) -> Result<ParsedStoreHeapConfig, Darl
     }
 
     Ok(ParsedStoreHeapConfig)
+}
+
+fn parse_reserved_journaled_config(
+    list: &syn::MetaList,
+) -> Result<ParsedStoreStorage, DarlingError> {
+    let items = NestedMeta::parse_meta_list(list.tokens.clone())?;
+    let mut data_memory_id = None;
+    let mut index_memory_id = None;
+    let mut schema_memory_id = None;
+    let mut journal_memory_id = None;
+
+    for item in items {
+        match item {
+            NestedMeta::Meta(syn::Meta::NameValue(name_value)) => {
+                if name_value.path.is_ident("data_memory_id") {
+                    set_once(
+                        &mut data_memory_id,
+                        u8::from_expr(&name_value.value)?,
+                        "storage(journaled(...)) accepts only one data_memory_id = ... argument",
+                        &name_value.path,
+                    )?;
+                    continue;
+                }
+
+                if name_value.path.is_ident("index_memory_id") {
+                    set_once(
+                        &mut index_memory_id,
+                        u8::from_expr(&name_value.value)?,
+                        "storage(journaled(...)) accepts only one index_memory_id = ... argument",
+                        &name_value.path,
+                    )?;
+                    continue;
+                }
+
+                if name_value.path.is_ident("schema_memory_id") {
+                    set_once(
+                        &mut schema_memory_id,
+                        u8::from_expr(&name_value.value)?,
+                        "storage(journaled(...)) accepts only one schema_memory_id = ... argument",
+                        &name_value.path,
+                    )?;
+                    continue;
+                }
+
+                if name_value.path.is_ident("journal_memory_id") {
+                    set_once(
+                        &mut journal_memory_id,
+                        u8::from_expr(&name_value.value)?,
+                        "storage(journaled(...)) accepts only one journal_memory_id = ... argument",
+                        &name_value.path,
+                    )?;
+                    continue;
+                }
+
+                return Err(DarlingError::custom(
+                    "storage(journaled(...)) supports data_memory_id, index_memory_id, schema_memory_id, and journal_memory_id",
+                )
+                .with_span(&name_value.path));
+            }
+            NestedMeta::Meta(syn::Meta::Path(path)) => {
+                return Err(DarlingError::custom(
+                    "storage(journaled(...)) requires named memory id arguments",
+                )
+                .with_span(&path));
+            }
+            NestedMeta::Meta(syn::Meta::List(list)) => {
+                return Err(DarlingError::custom(
+                    "storage(journaled(...)) does not support nested storage options",
+                )
+                .with_span(&list.path));
+            }
+            _ => {
+                return Err(DarlingError::custom(
+                    "storage(journaled(...)) supports data_memory_id, index_memory_id, schema_memory_id, and journal_memory_id",
+                ));
+            }
+        }
+    }
+
+    let mut missing = Vec::new();
+    if data_memory_id.is_none() {
+        missing.push("data_memory_id");
+    }
+    if index_memory_id.is_none() {
+        missing.push("index_memory_id");
+    }
+    if schema_memory_id.is_none() {
+        missing.push("schema_memory_id");
+    }
+    if journal_memory_id.is_none() {
+        missing.push("journal_memory_id");
+    }
+    if !missing.is_empty() {
+        let message = format!(
+            "malformed journaled storage: missing {}",
+            missing.join(", ")
+        );
+        return Err(DarlingError::custom(message).with_span(&list.path));
+    }
+
+    Err(DarlingError::custom(
+        "storage(journaled(...)) is reserved for a future journaled cached-stable durable store and is not admitted in 0.172",
+    )
+    .with_span(&list.path))
 }
 
 fn parse_stable_memory_config(
@@ -508,6 +619,60 @@ mod tests {
 
         assert!(
             err.to_string().contains("does not accept arguments"),
+            "unexpected error: {err}",
+        );
+    }
+
+    #[test]
+    fn from_list_rejects_reserved_journaled_storage() {
+        let err = parse_store(quote!(
+            ident = "USER_STORE",
+            store_name = "users",
+            canister = "AppCanister",
+            storage(journaled(
+                data_memory_id = 10,
+                index_memory_id = 11,
+                schema_memory_id = 12,
+                journal_memory_id = 13,
+            ))
+        ))
+        .expect_err("journaled storage should be reserved in 0.172");
+
+        assert!(
+            err.to_string().contains("reserved for a future journaled"),
+            "unexpected error: {err}",
+        );
+    }
+
+    #[test]
+    fn from_list_rejects_journaled_storage_missing_stable_source_ids_as_malformed() {
+        let err = parse_store(quote!(
+            ident = "USER_STORE",
+            store_name = "users",
+            canister = "AppCanister",
+            storage(journaled(journal_memory_id = 13))
+        ))
+        .expect_err("journal-only storage should be malformed");
+
+        assert!(
+            err.to_string()
+                .contains("missing data_memory_id, index_memory_id, schema_memory_id"),
+            "unexpected error: {err}",
+        );
+    }
+
+    #[test]
+    fn from_list_rejects_journaled_storage_unknown_field_as_malformed() {
+        let err = parse_store(quote!(
+            ident = "USER_STORE",
+            store_name = "users",
+            canister = "AppCanister",
+            storage(journaled(foo = 13))
+        ))
+        .expect_err("unknown journaled field should be malformed");
+
+        assert!(
+            err.to_string().contains("supports data_memory_id"),
             "unexpected error: {err}",
         );
     }

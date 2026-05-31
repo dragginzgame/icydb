@@ -2254,3 +2254,61 @@ fn storage_capability_policy_stays_out_of_codecs_and_commit_marker_format() {
         violations.join("\n"),
     );
 }
+
+#[test]
+fn journaled_storage_remains_reserved_outside_runtime_capability_surfaces() {
+    let schema_store = read_source("../icydb-schema/src/node/store.rs");
+    let schema_derive_store = read_source("../icydb-schema-derive/src/node/store.rs");
+    let build_store = read_source("../icydb-build/src/db/store.rs");
+    let runtime_capabilities = read_source("src/db/registry/handle.rs");
+    let registry = read_source("src/db/registry/registry.rs");
+    let diagnostics = read_rust_sources_under("src/db/diagnostics");
+    let relation = read_rust_sources_under("src/db/relation");
+    let commit = read_rust_sources_under("src/db/commit");
+    let executor_mutation = read_rust_sources_under("src/db/executor/mutation");
+
+    assert!(
+        schema_derive_store.contains("fn parse_reserved_journaled_config(")
+            && schema_derive_store
+                .contains("is reserved for a future journaled cached-stable durable store"),
+        "journaled storage should be recognized only by the derive parser as a reserved diagnostic form",
+    );
+
+    let forbidden_runtime_symbols = [
+        "StoreStorage::Journaled",
+        "ParsedStoreStorage::Journaled",
+        "StoreStorageMode::Journaled",
+        "StoreRuntimeStorageMode::Journaled",
+        "StoreRuntimeStorageCapabilities::journaled",
+        "fn journaled(",
+        "new_journaled",
+        "DataStoreBackend::Journaled",
+        "IndexStoreBackend::Journaled",
+        "SchemaStoreBackend::Journaled",
+        "journal_memory_id",
+    ];
+    let checked_surfaces = [
+        ("schema store model", schema_store.as_str()),
+        ("generated store wiring", build_store.as_str()),
+        ("runtime capabilities", runtime_capabilities.as_str()),
+        ("registry", registry.as_str()),
+        ("diagnostics", diagnostics.as_str()),
+        ("relation policy", relation.as_str()),
+        ("commit/recovery", commit.as_str()),
+        ("executor mutation", executor_mutation.as_str()),
+    ];
+    let mut violations = Vec::new();
+    for (label, source) in checked_surfaces {
+        for symbol in forbidden_runtime_symbols {
+            if source.contains(symbol) {
+                violations.push(format!("{label} contains {symbol}"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "0.172 reserves journaled storage at the parser boundary; accepted schema, generated wiring, registry, diagnostics, relation, executor, and commit/recovery surfaces must not expose runtime journaled storage:\n{}",
+        violations.join("\n"),
+    );
+}

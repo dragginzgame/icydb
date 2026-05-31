@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.172.md](docs/changelog/0.172.md)
 
+- `0.172.2` proves journaled capabilities remain design-only in 0.172 while
+  stable and heap stay the only runtime storage capability surfaces.
+
+- `0.172.1` reserves `storage(journaled(...))` at the derive syntax boundary
+  with exact diagnostics while keeping accepted schemas and runtime storage
+  limited to stable and heap modes.
+
 - `0.172.0` starts the journaled-store reserved-contract line with a design
   that reserves `storage(journaled(...))` for a future cached-stable durable
   store while keeping `storage(heap())` volatile and production journaled

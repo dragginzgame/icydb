@@ -1,0 +1,5 @@
+error: storage(journaled(...)) supports data_memory_id, index_memory_id, schema_memory_id, and journal_memory_id
+  --> tests/ui/store_journaled_unknown_field.rs:10:23
+   |
+10 |     storage(journaled(foo = 103))
+   |                       ^^^

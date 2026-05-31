@@ -1,0 +1,5 @@
+error: malformed journaled storage: missing data_memory_id, index_memory_id, schema_memory_id
+  --> tests/ui/store_journaled_missing_source_ids.rs:10:13
+   |
+10 |     storage(journaled(journal_memory_id = 103))
+   |             ^^^^^^^^^
