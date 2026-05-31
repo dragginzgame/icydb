@@ -2199,3 +2199,58 @@ fn mutation_durability_trace_stays_proof_facing_and_not_diagnostics_authority() 
         "diagnostics must project store capabilities, not own mutation durability classification",
     );
 }
+
+#[test]
+fn storage_capability_policy_stays_out_of_codecs_and_commit_marker_format() {
+    let checked_roots = [
+        "src/db/codec",
+        "src/db/data/persisted_row/codec",
+        "src/db/index/key/codec",
+        "src/db/commit/store",
+    ];
+    let checked_files = ["src/db/schema/codec.rs", "src/db/commit/marker.rs"];
+    let forbidden = [
+        "StoreRuntimeStorageCapabilities",
+        "StoreCommitParticipation",
+        "StoreRecoveryCapability",
+        "MutationCommitClass",
+        "storage_capabilities()",
+        "commit_participation()",
+        "recovery()",
+    ];
+    let mut sources = Vec::new();
+    for root in checked_roots {
+        sources.extend(rust_sources_under(root));
+    }
+    sources.extend(checked_files.iter().map(|path| {
+        let mut absolute = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        absolute.push(path);
+        absolute
+    }));
+    sources.sort();
+
+    let mut violations = Vec::new();
+    for path in sources {
+        let relative = relative_source_path(&path);
+        if relative.ends_with("/tests.rs") || relative.contains("/tests/") {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let production_source = strip_cfg_test_items(&source);
+        let symbols = forbidden
+            .iter()
+            .copied()
+            .filter(|symbol| production_source.contains(symbol))
+            .collect::<Vec<_>>();
+        if !symbols.is_empty() {
+            violations.push(format!("{relative} ({})", symbols.join(", ")));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "row/index/schema codecs and commit-marker format must stay independent of storage capability policy:\n{}",
+        violations.join("\n"),
+    );
+}

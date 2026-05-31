@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.171.md](docs/changelog/0.171.md)
 
+- `0.171.5` closes the capability-gated recovery and write-semantics proof
+  matrix with codec/marker-format independence evidence and explicit
+  failure-ordering gap records.
+
 - `0.171.4` keeps mutation durability classification proof-facing by
   centralizing trace emission and guarding diagnostics from becoming
   classification authority.
