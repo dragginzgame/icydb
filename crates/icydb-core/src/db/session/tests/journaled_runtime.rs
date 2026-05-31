@@ -1,4 +1,32 @@
 use super::*;
+use crate::metrics::sink::MutationCommitClass;
+
+fn mutation_commit_classes_for_entity(
+    events: &[MetricsEvent],
+    entity_path: &'static str,
+) -> Vec<MutationCommitClass> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            MetricsEvent::MutationCommitPlan {
+                entity_path: path,
+                class,
+            } if *path == entity_path => Some(*class),
+            _ => None,
+        })
+        .collect()
+}
+
+fn capture_mutation_commit_classes<R>(
+    entity_path: &'static str,
+    run: impl FnOnce() -> R,
+) -> (R, Vec<MutationCommitClass>) {
+    let sink = SessionMetricsCaptureSink::default();
+    let output = with_metrics_sink(&sink, run);
+    let classes = mutation_commit_classes_for_entity(&sink.into_events(), entity_path);
+
+    (output, classes)
+}
 
 fn public_projection_rows<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<Vec<Value>>
 where
@@ -272,4 +300,47 @@ fn journaled_session_recovery_repairs_missing_marker_bound_journal_tail_batch() 
             "repaired marker-bound batch should fold into canonical data",
         );
     });
+}
+
+#[test]
+fn stable_source_strong_relation_to_journaled_target_uses_durable_capabilities() {
+    reset_mixed_journaled_relation_stores();
+    let session = mixed_journaled_relation_sql_session();
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 1,
+            name: "Atlas".to_string(),
+            age: 20,
+        })
+        .expect("journaled relation target should seed while live");
+
+    let (result, classes) = capture_mutation_commit_classes(
+        StableSessionSqlSourceToJournaledTargetEntity::PATH,
+        || {
+            session.insert(StableSessionSqlSourceToJournaledTargetEntity {
+                id: 10,
+                target_id: 1,
+            })
+        },
+    );
+    result.expect("stable source strong relation to journaled target should validate as durable");
+    assert_eq!(
+        classes,
+        vec![MutationCommitClass::DurableOnly],
+        "journaled durable targets must not make stable-source relation writes live-only or mixed",
+    );
+
+    let persisted = session
+        .load::<StableSessionSqlSourceToJournaledTargetEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("stable-source journaled-target relation load should succeed")
+        .entities();
+    assert_eq!(
+        persisted,
+        vec![StableSessionSqlSourceToJournaledTargetEntity {
+            id: 10,
+            target_id: 1,
+        }],
+    );
 }

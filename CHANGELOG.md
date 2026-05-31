@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.174.md](docs/changelog/0.174.md)
 
+- `0.174.6` closes journaled runtime admission with diagnostics, relation,
+  capability-boundary, stable, and heap regression evidence.
+
 - `0.174.5` folds committed journal-tail records into canonical stable BTrees
   behind a durable journal watermark while keeping normal writes cache-only.
 

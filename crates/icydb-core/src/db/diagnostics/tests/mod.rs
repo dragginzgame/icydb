@@ -26,6 +26,7 @@ use crate::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
         },
+        journal::JournalTailStore,
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         registry::{
             StoreAllocationIdentities, StoreAllocationIdentity, StoreAllocationIdentityCapability,
@@ -56,6 +57,7 @@ crate::test_canister! {
 const STORE_Z_PATH: &str = "diagnostics_tests::z_store";
 const STORE_A_PATH: &str = "diagnostics_tests::a_store";
 const STORE_HEAP_PATH: &str = "diagnostics_tests::heap_store";
+const STORE_JOURNALED_PATH: &str = "diagnostics_tests::journaled_store";
 const SINGLE_ENTITY_NAME: &str = "diag_single_entity";
 const SINGLE_ENTITY_PATH: &str = "diagnostics_tests::entity::single";
 const FIRST_ENTITY_NAME: &str = "diag_first_entity";
@@ -163,6 +165,14 @@ thread_local! {
     static STORE_HEAP_INDEX: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
     static STORE_HEAP_SCHEMA: RefCell<SchemaStore> =
         const { RefCell::new(SchemaStore::init_heap()) };
+    static STORE_JOURNALED_DATA: RefCell<DataStore> =
+        RefCell::new(DataStore::init_journaled(test_memory(159)));
+    static STORE_JOURNALED_INDEX: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init_journaled(test_memory(166)));
+    static STORE_JOURNALED_SCHEMA: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init_journaled(test_memory(167)));
+    static STORE_JOURNALED_JOURNAL: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(168)));
     static DIAGNOSTICS_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry
@@ -203,6 +213,22 @@ thread_local! {
                 StoreRuntimeStorageCapabilities::stable(),
             )
             .expect("diagnostics test a-store registration should succeed");
+        registry
+            .register_journaled_store(
+                STORE_JOURNALED_PATH,
+                &STORE_JOURNALED_DATA,
+                &STORE_JOURNALED_INDEX,
+                &STORE_JOURNALED_SCHEMA,
+                &STORE_JOURNALED_JOURNAL,
+                StoreAllocationIdentities::new_journaled(
+                    StoreAllocationIdentity::new(159, "icydb.test.store_journaled.data.v1"),
+                    StoreAllocationIdentity::new(166, "icydb.test.store_journaled.index.v1"),
+                    StoreAllocationIdentity::new(167, "icydb.test.store_journaled.schema.v1"),
+                    StoreAllocationIdentity::new(168, "icydb.test.store_journaled.journal.v1"),
+                ),
+                StoreRuntimeStorageCapabilities::journaled(),
+            )
+            .expect("diagnostics test journaled-store registration should succeed");
         registry
     };
 }
@@ -558,6 +584,99 @@ fn assert_heap_store_snapshot_is_volatile(report: &StorageReport) {
     assert_eq!(schema_heap.entity_count(), 0);
 }
 
+fn assert_journaled_store_snapshot_is_durable(report: &StorageReport) {
+    let data_journaled = report
+        .storage_data()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_JOURNALED_PATH)
+        .expect("data snapshot should contain journaled store");
+    let index_journaled = report
+        .storage_index()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_JOURNALED_PATH)
+        .expect("index snapshot should contain journaled store");
+    let schema_journaled = schema_snapshot(report, STORE_JOURNALED_PATH);
+
+    assert_eq!(
+        data_journaled.storage(),
+        StoreSnapshotStorageMode::Journaled
+    );
+    assert_eq!(
+        data_journaled.allocation(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(data_journaled.durability(), StoreDurability::Durable);
+    assert_eq!(data_journaled.commit(), StoreCommitParticipation::Durable);
+    assert_eq!(
+        data_journaled.recovery(),
+        StoreRecoveryCapability::StableBasePlusJournalReplay
+    );
+    assert_eq!(
+        data_journaled.schema_metadata(),
+        StoreSchemaMetadataCapability::CanonicalStableHistoryPlusJournalTail
+    );
+    assert_eq!(data_journaled.memory_id(), Some(159));
+    assert_eq!(
+        data_journaled.stable_key(),
+        Some("icydb.test.store_journaled.data.v1")
+    );
+    assert_eq!(data_journaled.schema_version(), None);
+    assert_eq!(data_journaled.schema_fingerprint(), None);
+
+    assert_eq!(
+        index_journaled.storage(),
+        StoreSnapshotStorageMode::Journaled
+    );
+    assert_eq!(
+        index_journaled.allocation(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(index_journaled.durability(), StoreDurability::Durable);
+    assert_eq!(index_journaled.commit(), StoreCommitParticipation::Durable);
+    assert_eq!(
+        index_journaled.recovery(),
+        StoreRecoveryCapability::StableBasePlusJournalReplay
+    );
+    assert_eq!(
+        index_journaled.schema_metadata(),
+        StoreSchemaMetadataCapability::CanonicalStableHistoryPlusJournalTail
+    );
+    assert_eq!(index_journaled.memory_id(), Some(166));
+    assert_eq!(
+        index_journaled.stable_key(),
+        Some("icydb.test.store_journaled.index.v1")
+    );
+    assert_eq!(index_journaled.schema_version(), None);
+    assert_eq!(index_journaled.schema_fingerprint(), None);
+
+    assert_eq!(
+        schema_journaled.storage(),
+        StoreSnapshotStorageMode::Journaled
+    );
+    assert_eq!(
+        schema_journaled.allocation(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(schema_journaled.durability(), StoreDurability::Durable);
+    assert_eq!(schema_journaled.commit(), StoreCommitParticipation::Durable);
+    assert_eq!(
+        schema_journaled.recovery(),
+        StoreRecoveryCapability::StableBasePlusJournalReplay
+    );
+    assert_eq!(
+        schema_journaled.schema_metadata(),
+        StoreSchemaMetadataCapability::CanonicalStableHistoryPlusJournalTail
+    );
+    assert_eq!(schema_journaled.memory_id(), Some(167));
+    assert_eq!(
+        schema_journaled.stable_key(),
+        Some("icydb.test.store_journaled.schema.v1")
+    );
+    assert_eq!(schema_journaled.schema_version(), None);
+    assert_eq!(schema_journaled.schema_fingerprint(), None);
+    assert_eq!(schema_journaled.entity_count(), 0);
+}
+
 fn entity_snapshot_rows(report: &StorageReport) -> Vec<(&str, &str, u64, u64)> {
     report
         .entity_storage()
@@ -643,15 +762,30 @@ fn assert_stable_schema_capabilities(snapshot: &SchemaStoreSnapshot) {
 fn assert_empty_report_store_paths(report: &StorageReport) {
     assert_eq!(
         data_paths(report),
-        vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
+        vec![
+            STORE_A_PATH,
+            STORE_HEAP_PATH,
+            STORE_JOURNALED_PATH,
+            STORE_Z_PATH
+        ]
     );
     assert_eq!(
         index_paths(report),
-        vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
+        vec![
+            STORE_A_PATH,
+            STORE_HEAP_PATH,
+            STORE_JOURNALED_PATH,
+            STORE_Z_PATH
+        ]
     );
     assert_eq!(
         schema_paths(report),
-        vec![STORE_A_PATH, STORE_HEAP_PATH, STORE_Z_PATH]
+        vec![
+            STORE_A_PATH,
+            STORE_HEAP_PATH,
+            STORE_JOURNALED_PATH,
+            STORE_Z_PATH
+        ]
     );
 }
 
@@ -741,6 +875,7 @@ fn storage_report_empty_store_snapshot() {
     assert_eq!(empty_schema.entity_count(), 0);
 
     assert_heap_store_snapshot_is_volatile(&report);
+    assert_journaled_store_snapshot_is_durable(&report);
 
     let data_z = report
         .storage_data()

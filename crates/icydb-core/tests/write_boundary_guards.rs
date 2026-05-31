@@ -2087,11 +2087,16 @@ fn storage_capability_policy_roots_do_not_branch_on_concrete_storage_modes() {
     let forbidden = [
         "StoreStorage::Heap",
         "StoreStorage::Stable",
+        "StoreStorage::Journaled",
         "StoreRuntimeStorageMode::Heap",
         "StoreRuntimeStorageMode::Stable",
+        "StoreRuntimeStorageMode::Journaled",
         "DataStoreBackend::Heap",
+        "DataStoreBackend::Journaled",
         "IndexStoreBackend::Heap",
+        "IndexStoreBackend::Journaled",
         "SchemaStoreBackend::Heap",
+        "SchemaStoreBackend::Journaled",
         ".storage_mode()",
     ];
     let mut sources = Vec::new();
@@ -2151,6 +2156,7 @@ fn relation_and_commit_policy_consume_storage_capability_axes() {
             && relation_save_validate.contains("StoreRelationSourceCapability::DurableSource")
             && relation_save_validate.contains("StoreRelationTargetCapability::VolatileTarget")
             && !relation_save_validate.contains("data_is_heap_storage")
+            && !relation_save_validate.contains("StoreRuntimeStorageMode::Journaled")
             && !relation_save_validate.contains("strong_relation_heap_target_unsupported"),
         "strong relation admission must be expressed through source/target relation capability axes",
     );

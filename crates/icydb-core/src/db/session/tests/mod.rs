@@ -272,6 +272,50 @@ thread_local! {
         .expect("journaled SQL session test store registration should succeed");
         reg
     };
+    static MIXED_JOURNALED_RELATION_STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(
+            SessionSqlStore::PATH,
+            &SESSION_SQL_DATA_STORE,
+            &SESSION_SQL_INDEX_STORE,
+            &SESSION_SQL_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::new(
+                crate::db::StoreAllocationIdentity::new(160, "icydb.test.session.data.v1"),
+                crate::db::StoreAllocationIdentity::new(161, "icydb.test.session.index.v1"),
+                crate::db::StoreAllocationIdentity::new(164, "icydb.test.session.schema.v1"),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::stable(),
+        )
+        .expect("mixed journaled relation stable store registration should succeed");
+        reg.register_journaled_store(
+            JournaledSessionSqlStore::PATH,
+            &JOURNALED_SESSION_SQL_DATA_STORE,
+            &JOURNALED_SESSION_SQL_INDEX_STORE,
+            &JOURNALED_SESSION_SQL_SCHEMA_STORE,
+            &JOURNALED_SESSION_SQL_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
+                crate::db::StoreAllocationIdentity::new(
+                    180,
+                    "icydb.test.journaled_session.data.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    181,
+                    "icydb.test.journaled_session.index.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    182,
+                    "icydb.test.journaled_session.schema.v1",
+                ),
+                crate::db::StoreAllocationIdentity::new(
+                    183,
+                    "icydb.test.journaled_session.journal.v1",
+                ),
+            ),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
+        )
+        .expect("mixed journaled relation journaled store registration should succeed");
+        reg
+    };
 }
 
 static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
@@ -285,6 +329,14 @@ static JOURNALED_SESSION_SQL_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanis
 static JOURNALED_SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
     &JOURNALED_SESSION_SQL_STORE_REGISTRY,
     JOURNALED_SESSION_SQL_RUNTIME_HOOKS,
+);
+static MIXED_JOURNALED_RELATION_RUNTIME_HOOKS: &[EntityRuntimeHooks<SessionSqlCanister>] = &[
+    EntityRuntimeHooks::for_entity::<JournaledSessionSqlEntity>(),
+    EntityRuntimeHooks::for_entity::<StableSessionSqlSourceToJournaledTargetEntity>(),
+];
+static MIXED_JOURNALED_RELATION_DB: Db<SessionSqlCanister> = Db::new_with_hooks(
+    &MIXED_JOURNALED_RELATION_STORE_REGISTRY,
+    MIXED_JOURNALED_RELATION_RUNTIME_HOOKS,
 );
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
@@ -2129,6 +2181,15 @@ static SESSION_SQL_STABLE_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation 
     strength: RelationStrength::Strong,
 };
 
+static SESSION_SQL_JOURNALED_TARGET_RELATION_KIND: FieldKind = FieldKind::Relation {
+    target_path: JournaledSessionSqlEntity::PATH,
+    target_entity_name: "JournaledSessionSqlEntity",
+    target_entity_tag: JournaledSessionSqlEntity::ENTITY_TAG,
+    target_store_path: JournaledSessionSqlStore::PATH,
+    key_kind: &FieldKind::Nat64,
+    strength: RelationStrength::Strong,
+};
+
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct StableSessionSqlSourceToHeapTargetEntity {
     id: u64,
@@ -2146,6 +2207,27 @@ crate::test_entity! {
     fields = [
         crate::test_field! { id: u64 => FieldKind::Nat64 },
         crate::test_field! { target_id: u64 => SESSION_SQL_HEAP_TARGET_RELATION_KIND },
+    ],
+    indexes = [],
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct StableSessionSqlSourceToJournaledTargetEntity {
+    id: u64,
+    target_id: u64,
+}
+
+crate::test_entity! {
+    ident = StableSessionSqlSourceToJournaledTargetEntity,
+    entity_name = "StableSessionSqlSourceToJournaledTargetEntity",
+    tag = EntityTag::new(0x1076),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = u64,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: u64 => FieldKind::Nat64 },
+        crate::test_field! { target_id: u64 => SESSION_SQL_JOURNALED_TARGET_RELATION_KIND },
     ],
     indexes = [],
 }
@@ -2583,6 +2665,20 @@ fn reset_mixed_heap_relation_stores() {
 
 fn mixed_heap_relation_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(MIXED_HEAP_RELATION_DB)
+}
+
+fn reset_mixed_journaled_relation_stores() {
+    reset_session_sql_store();
+    reset_journaled_session_sql_store();
+    ensure_recovered(&MIXED_JOURNALED_RELATION_DB)
+        .expect("mixed journaled relation recovery boundary should initialize");
+    let session = mixed_journaled_relation_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
+}
+
+fn mixed_journaled_relation_sql_session() -> DbSession<SessionSqlCanister> {
+    DbSession::new(MIXED_JOURNALED_RELATION_DB)
 }
 
 // Resolve the indexed SQL store handle through the recovered DB boundary.
