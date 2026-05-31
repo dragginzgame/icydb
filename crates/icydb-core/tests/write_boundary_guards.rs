@@ -2407,3 +2407,98 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
         violations.join("\n"),
     );
 }
+
+#[test]
+fn journal_format_boundary_remains_design_only_and_codecs_unchanged() {
+    let design =
+        read_source("../../docs/design/0.172-journaled-store-reserved-contract/0.172-design.md");
+    let commit_marker = read_source("src/db/commit/marker.rs");
+    let schema_codec = read_source("src/db/schema/codec.rs");
+
+    assert!(
+        design.contains("## Journal Format Boundary")
+            && design.contains("0.172 must not introduce a journal persisted format")
+            && design
+                .contains("a versioned envelope with one current runtime-supported format version")
+            && design.contains(
+                "bounded transaction, record-count, key, row, schema, and payload lengths"
+            )
+            && design
+                .contains("fallible decode for malformed, partial, unsupported, or future-version")
+            && design.contains(
+                "fold crash-safety rules for advancing or clearing the durable journal tail"
+            ),
+        "the 0.172 format boundary must define future journal versioning, bounds, fallible decode, and fold-safety without adding runtime bytes",
+    );
+    assert!(
+        commit_marker
+            .contains("pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1")
+            && commit_marker.contains("CommitIndexOp")
+            && commit_marker.contains("Not persisted in commit markers"),
+        "existing commit-marker format should remain the row-op authority and should not add persisted index/journal records",
+    );
+    assert!(
+        schema_codec.contains("const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 6"),
+        "0.172 must not change the accepted schema snapshot codec version",
+    );
+
+    let checked_roots = [
+        "src/db/codec",
+        "src/db/data/persisted_row/codec",
+        "src/db/index/key/codec",
+        "src/db/commit/store",
+    ];
+    let checked_files = ["src/db/schema/codec.rs", "src/db/commit/marker.rs"];
+    let forbidden = [
+        "JournalRecord",
+        "JournalRecordEnvelope",
+        "JournalCodec",
+        "JournalStore",
+        "JournalReplay",
+        "JournalFold",
+        "Journaled",
+        "CommittedJournal",
+        "journal_memory_id",
+        "journal_tail",
+        "journal_record",
+        "journal_format",
+        "journal_replay",
+        "replay_journal",
+        "fold_journal",
+    ];
+    let mut sources = Vec::new();
+    for root in checked_roots {
+        sources.extend(rust_sources_under(root));
+    }
+    sources.extend(checked_files.iter().map(|path| {
+        let mut absolute = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        absolute.push(path);
+        absolute
+    }));
+    sources.sort();
+
+    let mut violations = Vec::new();
+    for path in sources {
+        let relative = relative_source_path(&path);
+        if relative.ends_with("/tests.rs") || relative.contains("/tests/") {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let production_source = strip_cfg_test_items(&source);
+        let symbols = forbidden
+            .iter()
+            .copied()
+            .filter(|symbol| production_source.contains(symbol))
+            .collect::<Vec<_>>();
+        if !symbols.is_empty() {
+            violations.push(format!("{relative} ({})", symbols.join(", ")));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "0.172.4 defines future journal format requirements only; production row, index, schema, and commit-marker codec surfaces must not introduce journal records or format state:\n{}",
+        violations.join("\n"),
+    );
+}

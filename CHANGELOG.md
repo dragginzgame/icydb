@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.172.md](docs/changelog/0.172.md)
 
+- `0.172.4` defines future journal format requirements while proving 0.172
+  adds no journal persisted format or codec changes.
+
 - `0.172.3` inventories the commit/recovery boundary and proves 0.172 keeps
   the existing commit-marker authority without journal replay or fold runtime.
 
