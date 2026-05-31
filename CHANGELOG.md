@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.171.md](docs/changelog/0.171.md)
 
+- `0.171.1` hardens public write proof for capability-derived mutation commit
+  classification across durable-only, live-only, and mixed durable/live
+  relation paths.
+
 - `0.171.0` starts the capability-gated recovery and write-semantics line with
   a design and boundary inventory for affected-store classification,
   write-stage mapping, failure-injection seams, and source-audit guard

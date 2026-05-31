@@ -223,13 +223,20 @@ fn stable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
     let session = mixed_heap_relation_sql_session();
     seed_heap_session_entities(&session);
 
-    let err = session
-        .insert(StableSessionSqlSourceToHeapTargetEntity {
-            id: 10,
-            target_id: 1,
-        })
-        .expect_err("stable source strong relation to heap target should fail closed");
+    let (result, classes) =
+        capture_mutation_commit_classes(StableSessionSqlSourceToHeapTargetEntity::PATH, || {
+            session.insert(StableSessionSqlSourceToHeapTargetEntity {
+                id: 10,
+                target_id: 1,
+            })
+        });
+    let err = result.expect_err("stable source strong relation to heap target should fail closed");
     assert_eq!(err.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        classes,
+        Vec::<MutationCommitClass>::new(),
+        "failed relation policy must not emit a commit classification",
+    );
 
     let persisted = session
         .load::<StableSessionSqlSourceToHeapTargetEntity>()
@@ -249,12 +256,19 @@ fn stable_source_weak_relation_to_heap_target_remains_non_enforcing() {
     reset_mixed_heap_relation_stores();
     let session = mixed_heap_relation_sql_session();
 
-    session
-        .insert(StableSessionSqlWeakSourceToHeapTargetEntity {
-            id: 11,
-            target_id: 9_999,
-        })
-        .expect("weak stable-source relation to heap target should not take strong policy");
+    let (result, classes) =
+        capture_mutation_commit_classes(StableSessionSqlWeakSourceToHeapTargetEntity::PATH, || {
+            session.insert(StableSessionSqlWeakSourceToHeapTargetEntity {
+                id: 11,
+                target_id: 9_999,
+            })
+        });
+    result.expect("weak stable-source relation to heap target should not take strong policy");
+    assert_eq!(
+        classes,
+        vec![MutationCommitClass::DurableOnly],
+        "a non-enforcing heap target reference must not make the stable source write live-only or mixed",
+    );
 
     let persisted = session
         .load::<StableSessionSqlWeakSourceToHeapTargetEntity>()
@@ -278,12 +292,19 @@ fn heap_source_strong_relation_to_heap_target_keeps_live_validation_semantics() 
     let session = heap_sql_session();
     seed_heap_session_entities(&session);
 
-    session
-        .insert(HeapSessionSqlSourceToHeapTargetEntity {
-            id: 20,
-            target_id: 1,
-        })
-        .expect("heap source relation to heap target should validate while live");
+    let (result, classes) =
+        capture_mutation_commit_classes(HeapSessionSqlSourceToHeapTargetEntity::PATH, || {
+            session.insert(HeapSessionSqlSourceToHeapTargetEntity {
+                id: 20,
+                target_id: 1,
+            })
+        });
+    result.expect("heap source relation to heap target should validate while live");
+    assert_eq!(
+        classes,
+        vec![MutationCommitClass::LiveOnly],
+        "heap source plus heap relation maintenance should stay live-only",
+    );
 
     let persisted = session
         .load::<HeapSessionSqlSourceToHeapTargetEntity>()
