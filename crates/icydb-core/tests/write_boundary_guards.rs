@@ -2591,3 +2591,53 @@ fn journaled_protocol_foundation_records_journal_tail_ordering_model() {
         "0.173.2 changelog should record the journal-tail ordering model",
     );
 }
+
+#[test]
+fn journaled_protocol_foundation_records_fold_watermark_replay_boundary() {
+    let design =
+        read_source("../../docs/design/0.173-journaled-protocol-foundation/0.173-design.md");
+    let changelog = read_source("../../docs/changelog/0.173.md");
+
+    assert!(
+        design.contains("## Fold Watermark And Replay Boundary")
+            && design.contains("struct FoldWatermark")
+            && design.contains("highest_folded_journal_sequence: JournalSequence")
+            && design.contains("fold_epoch: u64"),
+        "0.173.3 must define an explicit fold watermark shape",
+    );
+    assert!(
+        design.contains("recovery must replay only complete committed journal batches with",)
+            && design.contains("journal_sequence > highest_folded_journal_sequence")
+            && design.contains("journal_sequence <= highest_folded_journal_sequence")
+            && design.contains("skip")
+            && design.contains("empty replay tail")
+            && design.contains("bytes that disagree")
+            && design.contains("recorded fold watermark fails closed")
+            && design.contains("missing batch with sequence above the watermark fails closed"),
+        "0.173.3 must define replay behavior around the durable fold watermark",
+    );
+    assert!(
+        design.contains("persist fold intent containing the selected range")
+            && design
+                .contains("apply row and schema records in the range to canonical stable BTrees")
+            && design.contains("rebuild or validate affected index materialized state")
+            && design.contains("persist the new fold watermark")
+            && design.contains("advance or clear journal-tail bytes covered by the watermark")
+            && design.contains("clear fold intent"),
+        "0.173.3 must define durable fold phases",
+    );
+    assert!(
+        design.contains("after persisted fold intent but before stable-BTree apply")
+            && design.contains("after partial stable-BTree apply but before watermark persist")
+            && design.contains("after watermark persist but before tail cleanup")
+            && design.contains("after partial tail cleanup")
+            && design.contains("space reclamation, not durability authority"),
+        "0.173.3 must define restart behavior and keep watermark as durability authority",
+    );
+    assert!(
+        changelog.contains("## 0.173.3")
+            && changelog.contains("fold watermark as the durable replay boundary")
+            && changelog.contains("tail cleanup is space reclamation"),
+        "0.173.3 changelog should record the fold watermark replay-boundary model",
+    );
+}

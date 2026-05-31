@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.173.md](docs/changelog/0.173.md)
 
+- `0.173.3` defines fold watermark semantics and replay-boundary restart rules
+  for future journaled storage.
+
 - `0.173.2` chooses monotonic journal sequence ordering for future journal
   batches and records deterministic fail-closed tail recovery rules.
 
