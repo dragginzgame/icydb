@@ -146,6 +146,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
         // FIRST STABLE WRITE: commit marker is persisted before any mutations.
         commit_prepared_single_save_row_op_with_window(
+            db,
             marker_row_op,
             prepared_row_op,
             synchronized_store_handles,

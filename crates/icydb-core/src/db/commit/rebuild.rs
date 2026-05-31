@@ -9,7 +9,7 @@ use crate::{
         commit::CommitRowOp,
         data::{DecodedDataStoreKey, StoreVisit},
         index::{IndexEntryValue, IndexState, IndexStore, IndexStoreVisit, RawIndexStoreKey},
-        registry::StoreHandle,
+        registry::{StoreHandle, StoreRecoveryCapability},
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
@@ -99,6 +99,9 @@ impl IndexStoreSnapshot {
 /// Collect store handles in deterministic path order for stable rebuild behavior.
 fn sorted_store_handles(db: &Db<impl CanisterKind>) -> Vec<(&'static str, StoreHandle)> {
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+    stores.retain(|(_, handle)| {
+        handle.storage_capabilities().recovery() == StoreRecoveryCapability::StableCommitReplay
+    });
     // StoreRegistry iteration is HashMap-backed and intentionally unordered.
     // Recovery semantics must remain deterministic, so sort explicitly by path.
     stores.sort_by_key(|(path, _)| *path);

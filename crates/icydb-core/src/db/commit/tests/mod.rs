@@ -82,6 +82,11 @@ crate::test_store! {
     canister = RecoveryTestCanister,
 }
 
+crate::test_store! {
+    ident = HeapRecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
 ///
 /// RecoveryTestEntity
 ///
@@ -128,6 +133,12 @@ crate::test_entity! {
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryIndexedEntity {
+    id: Ulid,
+    group: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct HeapRecoveryIndexedEntity {
     id: Ulid,
     group: u32,
 }
@@ -273,6 +284,13 @@ static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     &RECOVERY_INDEXED_INDEX_FIELDS,
     false,
 )];
+static HEAP_RECOVERY_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
+static HEAP_RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
+    "group",
+    HeapRecoveryTestDataStore::PATH,
+    &HEAP_RECOVERY_INDEXED_INDEX_FIELDS,
+    false,
+)];
 static RECOVERY_NULLABLE_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
 static RECOVERY_NULLABLE_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "group_nullable",
@@ -368,6 +386,21 @@ crate::test_entity! {
         crate::test_field! { group: u32 => FieldKind::Nat64 },
     ],
     indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
+}
+
+crate::test_entity! {
+    ident = HeapRecoveryIndexedEntity,
+    entity_name = "HeapRecoveryIndexedEntity",
+    tag = EntityTag::new(0x1712),
+    store = HeapRecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { group: u32 => FieldKind::Nat64 },
+    ],
+    indexes = [&HEAP_RECOVERY_INDEXED_INDEX_MODELS[0]],
 }
 
 const RECOVERY_NULLABLE_INDEXED_ENTITY_TAG: EntityTag = EntityTag::new(0x103A);
@@ -522,6 +555,14 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
+        HeapRecoveryIndexedEntity::ENTITY_TAG,
+        <HeapRecoveryIndexedEntity as EntitySchema>::MODEL,
+        HeapRecoveryIndexedEntity::PATH,
+        HeapRecoveryTestDataStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<HeapRecoveryIndexedEntity>,
+        validate_delete_strong_relations_for_source::<HeapRecoveryIndexedEntity>,
+    ),
+    EntityRuntimeHooks::new(
         RecoveryNullableIndexedEntity::ENTITY_TAG,
         <RecoveryNullableIndexedEntity as EntitySchema>::MODEL,
         RecoveryNullableIndexedEntity::PATH,
@@ -595,6 +636,12 @@ thread_local! {
         RefCell::new(IndexStore::init(test_memory(20)));
     static RECOVERY_SCHEMA_STORE: RefCell<SchemaStore> =
         RefCell::new(SchemaStore::init(test_memory(21)));
+    static HEAP_RECOVERY_DATA_STORE: RefCell<DataStore> =
+        const { RefCell::new(DataStore::init_heap()) };
+    static HEAP_RECOVERY_INDEX_STORE: RefCell<IndexStore> =
+        const { RefCell::new(IndexStore::init_heap()) };
+    static HEAP_RECOVERY_SCHEMA_STORE: RefCell<SchemaStore> =
+        const { RefCell::new(SchemaStore::init_heap()) };
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_store(
@@ -610,6 +657,15 @@ thread_local! {
             crate::db::StoreRuntimeStorageCapabilities::stable(),
         )
             .expect("test store registration should succeed");
+        reg.register_store(
+            HeapRecoveryTestDataStore::PATH,
+            &HEAP_RECOVERY_DATA_STORE,
+            &HEAP_RECOVERY_INDEX_STORE,
+            &HEAP_RECOVERY_SCHEMA_STORE,
+            crate::db::StoreAllocationIdentities::absent(),
+            crate::db::StoreRuntimeStorageCapabilities::heap(),
+        )
+            .expect("heap recovery test store registration should succeed");
         reg
     };
 }
@@ -680,6 +736,11 @@ fn with_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
         .expect("recovery test store access should succeed")
 }
 
+fn with_heap_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
+    DB.with_store_registry(|reg| reg.try_get_store(HeapRecoveryTestDataStore::PATH).map(f))
+        .expect("heap recovery test store access should succeed")
+}
+
 // Reset marker + data store to isolate recovery tests.
 fn reset_recovery_state() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -690,6 +751,11 @@ fn reset_recovery_state() {
     .expect("commit marker reset should succeed");
 
     with_recovery_store(|store| {
+        store.with_data_mut(DataStore::clear);
+        store.with_index_mut(IndexStore::clear);
+        store.with_schema_mut(SchemaStore::clear);
+    });
+    with_heap_recovery_store(|store| {
         store.with_data_mut(DataStore::clear);
         store.with_index_mut(IndexStore::clear);
         store.with_schema_mut(SchemaStore::clear);
@@ -3090,6 +3156,49 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
     let indexed_ids = indexed_ids_for(&first).expect("index entry should exist after replay");
     let expected_ids = std::iter::once(first.id).collect::<BTreeSet<_>>();
     assert_eq!(indexed_ids, expected_ids);
+}
+
+#[test]
+fn recovery_ignores_live_only_heap_marker_rows_and_indexes() {
+    reset_recovery_state();
+
+    let entity = HeapRecoveryIndexedEntity {
+        id: Ulid::from_u128(917),
+        group: 70,
+    };
+    let data_key = DecodedDataStoreKey::try_new::<HeapRecoveryIndexedEntity>(entity.id)
+        .expect("heap recovery data key should build")
+        .to_raw()
+        .expect("heap recovery data key should encode");
+    let row = canonical_row_bytes(&entity);
+
+    let marker = CommitMarker::new(vec![row_op_for_path(
+        HeapRecoveryIndexedEntity::PATH,
+        data_key.as_bytes().to_vec(),
+        None,
+        Some(row),
+    )])
+    .expect("heap marker creation should succeed");
+    begin_commit(marker).expect("heap marker should persist through the generic commit gate");
+
+    ensure_recovered(&DB).expect("recovery should skip live-only heap marker rows");
+
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "heap-only marker should be cleared after recovery proves no durable replay",
+    );
+    with_heap_recovery_store(|store| {
+        assert_eq!(
+            store.with_data(DataStore::len),
+            0,
+            "recovery must not replay live-only heap data rows",
+        );
+        assert_eq!(
+            store.with_index(IndexStore::len),
+            0,
+            "recovery must not rebuild live-only heap index entries",
+        );
+    });
 }
 
 #[test]

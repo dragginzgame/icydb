@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.171.md](docs/changelog/0.171.md)
 
+- `0.171.2` gates commit-marker recovery and startup index rebuild through
+  store recovery capabilities so live-only heap rows and indexes are not
+  replayed as durable state.
+
 - `0.171.1` hardens public write proof for capability-derived mutation commit
   classification across durable-only, live-only, and mixed durable/live
   relation paths.

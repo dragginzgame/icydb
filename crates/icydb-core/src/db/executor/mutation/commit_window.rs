@@ -22,7 +22,7 @@ use crate::{
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
         key_taxonomy::PrimaryKeyValue,
-        registry::{StoreCommitParticipation, StoreHandle},
+        registry::{StoreCommitParticipation, StoreHandle, StoreRecoveryCapability},
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
@@ -681,7 +681,9 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     } = preflight_prepare_row_op_batch::<E>(db, &row_ops)?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let marker = CommitMarker::new(row_ops)?;
+    let recovery_row_ops =
+        recovery_marker_row_ops_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
+    let marker = CommitMarker::new(recovery_row_ops)?;
     let commit = begin_commit(marker)?;
 
     Ok(OpenCommitWindow {
@@ -705,7 +707,9 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     } = preflight_prepare_row_op_batch_structural(db, &row_ops)?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let marker = CommitMarker::new(row_ops)?;
+    let recovery_row_ops =
+        recovery_marker_row_ops_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
+    let marker = CommitMarker::new(recovery_row_ops)?;
     let commit = begin_commit(marker)?;
 
     Ok(OpenCommitWindow {
@@ -865,7 +869,9 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_finger
     )?;
     let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let marker = CommitMarker::new(row_ops)?;
+    let recovery_row_ops =
+        recovery_marker_row_ops_for_prepared_row_ops(db, &row_ops, &prepared_row_ops)?;
+    let marker = CommitMarker::new(recovery_row_ops)?;
     let commit = begin_commit(marker)?;
     record_mutation_commit_plan(E::PATH, commit_class);
     let synchronized_store_handles =
@@ -981,6 +987,7 @@ pub(in crate::db::executor) fn commit_single_save_row_op_with_window_and_schema_
     );
 
     commit_prepared_single_save_row_op_with_window(
+        db,
         row_op,
         prepared_row_op,
         synchronized_store_handles,
@@ -992,6 +999,7 @@ pub(in crate::db::executor) fn commit_single_save_row_op_with_window_and_schema_
 
 // Commit one already-prepared save row op through the single-row fast path.
 pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
+    db: &Db<impl CanisterKind>,
     row_op: CommitRowOp,
     prepared_row_op: PreparedRowCommitOp,
     synchronized_store_handles: Vec<StoreHandle>,
@@ -1000,6 +1008,7 @@ pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
     on_data_applied: impl FnOnce(),
 ) -> Result<(), InternalError> {
     commit_prepared_single_row_op_with_window(
+        db,
         row_op,
         prepared_row_op,
         synchronized_store_handles,
@@ -1011,6 +1020,7 @@ pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
 
 // Commit one already-prepared row op through the shared single-row fast path.
 fn commit_prepared_single_row_op_with_window(
+    db: &Db<impl CanisterKind>,
     row_op: CommitRowOp,
     prepared_row_op: PreparedRowCommitOp,
     synchronized_store_handles: Vec<StoreHandle>,
@@ -1022,7 +1032,12 @@ fn commit_prepared_single_row_op_with_window(
         guards: index_store_guards,
         delta,
     } = prepare_single_row_apply(&prepared_row_op);
-    let commit = begin_single_row_commit(row_op)?;
+    let recovery_row_ops = recovery_marker_row_ops_for_prepared_row_ops(
+        db,
+        &[row_op],
+        std::slice::from_ref(&prepared_row_op),
+    )?;
+    let commit = begin_recovery_commit_window(recovery_row_ops)?;
 
     apply_prepared_single_row_op(
         commit,
@@ -1062,6 +1077,7 @@ fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
         classify_mutation_commit_plan(affected_store_handles.as_slice()),
     );
     commit_prepared_single_row_op_with_window(
+        db,
         row_op,
         prepared_row_op,
         synchronized_store_handles,
@@ -1089,6 +1105,7 @@ fn commit_single_delete_row_op_with_window_for_path<C: CanisterKind>(
         classify_mutation_commit_plan(affected_store_handles.as_slice()),
     );
     commit_prepared_single_row_op_with_window(
+        db,
         row_op,
         prepared_row_op,
         synchronized_store_handles,
@@ -1167,6 +1184,55 @@ pub(in crate::db::executor) fn affected_store_handles_for_prepared_row_ops<C: Ca
             })
         })
         .collect()
+}
+
+// Project only durable-recovery row operations into commit markers. Prepared
+// row ops still apply live-only stores in-process, but recovery markers must
+// never promise heap replay.
+fn recovery_marker_row_ops_for_prepared_row_ops<C: CanisterKind>(
+    db: &Db<C>,
+    row_ops: &[CommitRowOp],
+    prepared_row_ops: &[PreparedRowCommitOp],
+) -> Result<Vec<CommitRowOp>, InternalError> {
+    if row_ops.len() != prepared_row_ops.len() {
+        return Err(InternalError::executor_invariant(
+            "commit marker recovery projection requires row-op and prepared-op parity",
+        ));
+    }
+
+    let registered_handles = db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .map(|(_, handle)| handle)
+            .collect::<Vec<StoreHandle>>()
+    });
+    let mut recovery_row_ops = Vec::new();
+
+    for (row_op, prepared_row_op) in row_ops.iter().zip(prepared_row_ops) {
+        let handle = registered_handles
+            .iter()
+            .find(|handle| ptr::eq(handle.data_store(), prepared_row_op.data_store))
+            .ok_or_else(|| {
+                InternalError::executor_invariant(format!(
+                    "prepared row op for '{}' does not map to a registered data store",
+                    row_op.entity_path
+                ))
+            })?;
+
+        match handle.storage_capabilities().recovery() {
+            StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone()),
+            StoreRecoveryCapability::None => {}
+        }
+    }
+
+    Ok(recovery_row_ops)
+}
+
+fn begin_recovery_commit_window(row_ops: Vec<CommitRowOp>) -> Result<CommitGuard, InternalError> {
+    match row_ops.as_slice() {
+        [row_op] => begin_single_row_commit(row_op.clone()),
+        _ => begin_commit(CommitMarker::new(row_ops)?),
+    }
 }
 
 /// Classify the durable/live commit footprint represented by affected stores.

@@ -2142,6 +2142,8 @@ fn storage_capability_policy_roots_do_not_branch_on_concrete_storage_modes() {
 fn relation_and_commit_policy_consume_storage_capability_axes() {
     let relation_save_validate = read_source("src/db/relation/save_validate.rs");
     let commit_window = read_source("src/db/executor/mutation/commit_window.rs");
+    let commit_replay = read_source("src/db/commit/replay.rs");
+    let commit_rebuild = read_source("src/db/commit/rebuild.rs");
 
     assert!(
         relation_save_validate.contains(".storage_capabilities().relation_source()")
@@ -2159,5 +2161,12 @@ fn relation_and_commit_policy_consume_storage_capability_axes() {
             && !commit_window.contains(".storage_mode()")
             && !commit_window.contains("StoreRuntimeStorageMode::"),
         "mutation commit classification must consume commit-participation capabilities",
+    );
+    assert!(
+        commit_replay.contains(".storage_capabilities().recovery()")
+            && commit_replay.contains("StoreRecoveryCapability::None")
+            && commit_rebuild.contains(".storage_capabilities().recovery()")
+            && commit_rebuild.contains("StoreRecoveryCapability::StableCommitReplay"),
+        "commit recovery replay/rebuild must consume recovery capabilities instead of replaying every registered store",
     );
 }
