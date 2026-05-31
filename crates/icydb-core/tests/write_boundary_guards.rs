@@ -2541,3 +2541,53 @@ fn journaled_protocol_foundation_records_embedded_commit_marker_publication_stra
         "0.173.1 changelog should record the strategy choice and non-admission boundary",
     );
 }
+
+#[test]
+fn journaled_protocol_foundation_records_journal_tail_ordering_model() {
+    let design =
+        read_source("../../docs/design/0.173-journaled-protocol-foundation/0.173-design.md");
+    let changelog = read_source("../../docs/changelog/0.173.md");
+
+    assert!(
+        design.contains("## Journal Batch Envelope")
+            && design.contains("journal_sequence: JournalSequence")
+            && design.contains("records: BoundedVec<JournalRecord>")
+            && design.contains("commit_marker_id: CommitMarkerId"),
+        "0.173.2 must define the journal batch envelope with sequence, marker binding, and bounded records",
+    );
+    assert!(
+        design.contains("monotonic journal_sequence assigned to each complete journal batch")
+            && design.contains("journal key   = journal_sequence")
+            && design.contains("journal value = encoded JournalBatch")
+            && design.contains("Replay order is ascending `journal_sequence`")
+            && design.contains("after the durable fold watermark")
+            && design.contains("`batch_id` is idempotence identity, not replay order")
+            && design.contains("`commit_marker_id` binds")
+            && design.contains("visibility to the existing commit-marker authority")
+            && design.contains("not replay order"),
+        "0.173.2 must choose one physical journal-tail ordering authority",
+    );
+    assert!(
+        !design.contains("must choose whether replay order is keyed by")
+            && !design.contains("- batch sequence;\n- batch ID;\n- commit-marker order;"),
+        "0.173.2 must not leave journal-tail ordering as a candidate list",
+    );
+    assert!(
+        design.contains("duplicate batch ID at the same sequence with identical bytes")
+            && design.contains("duplicate batch ID at a different sequence: fail closed")
+            && design.contains("duplicate sequence with different bytes or identity: fail closed")
+            && design.contains("sequence gap after the fold watermark: fail closed")
+            && design.contains("out-of-order physical iteration: fail closed")
+            && design.contains("commit-marker binding mismatch: fail closed")
+            && design.contains("batch sequence at or below the fold watermark: skip")
+            && design.contains("batch sequence after the fold watermark: replay only if complete"),
+        "0.173.2 must define deterministic duplicate/gap/order/marker/watermark handling",
+    );
+    assert!(
+        changelog.contains("## 0.173.2")
+            && changelog.contains("monotonic `journal_sequence`")
+            && changelog.contains("journal_sequence -> encoded JournalBatch")
+            && changelog.contains("fail-closed handling"),
+        "0.173.2 changelog should record the journal-tail ordering model",
+    );
+}

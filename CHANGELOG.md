@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.173.md](docs/changelog/0.173.md)
 
+- `0.173.2` chooses monotonic journal sequence ordering for future journal
+  batches and records deterministic fail-closed tail recovery rules.
+
 - `0.173.1` chooses embedded bounded journal batch payload in the existing
   commit marker as the journal publication strategy while keeping journaled
   runtime storage unadmitted.
