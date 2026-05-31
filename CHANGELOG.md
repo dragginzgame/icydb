@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.173.md](docs/changelog/0.173.md)
 
+- `0.173.1` chooses embedded bounded journal batch payload in the existing
+  commit marker as the journal publication strategy while keeping journaled
+  runtime storage unadmitted.
+
 - `0.173.0` starts the journaled protocol-foundation line, keeping public
   journaled storage reserved while inventorying protocol boundaries and
   splitting runtime admission into 0.174.

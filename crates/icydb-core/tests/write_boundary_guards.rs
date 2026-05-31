@@ -2502,3 +2502,42 @@ fn journal_format_boundary_remains_design_only_and_codecs_unchanged() {
         violations.join("\n"),
     );
 }
+
+#[test]
+fn journaled_protocol_foundation_records_embedded_commit_marker_publication_strategy() {
+    let design =
+        read_source("../../docs/design/0.173-journaled-protocol-foundation/0.173-design.md");
+    let changelog = read_source("../../docs/changelog/0.173.md");
+
+    assert!(
+        design.contains("## Commit-Marker Journal Publication Strategy")
+            && design.contains("Chosen strategy:")
+            && design
+                .contains("embedded bounded journal batch payload in the existing commit marker")
+            && !design.contains("Candidate strategies:"),
+        "0.173.1 must record one chosen journal publication strategy, not leave runtime admission with candidate strategies",
+    );
+    assert!(
+        design.contains("missing journal batch: recovery reconstructs and appends")
+            && design
+                .contains("partial journal batch: partial raw tail bytes are not committed state")
+            && design
+                .contains("duplicate journal batch: recovery verifies the existing complete batch")
+            && design.contains("mismatched journal batch: recovery fails closed")
+            && design.contains("already-present marker-bound journal batch")
+            && design.contains("bytes-present-but-not-committed batch"),
+        "0.173.1 must define recovery behavior for all marker-bound journal batch publication cases",
+    );
+    assert!(
+        design.contains("0.174 may implement this by hard-cutting the commit-marker payload shape")
+            && design.contains("silently switching")
+            && design.contains("locator, digest-only, or hybrid strategy"),
+        "runtime admission must not silently switch away from the 0.173 embedded-payload strategy",
+    );
+    assert!(
+        changelog.contains("## 0.173.1")
+            && changelog.contains("embedded bounded journal batch payload")
+            && changelog.contains("strategy design-only"),
+        "0.173.1 changelog should record the strategy choice and non-admission boundary",
+    );
+}
