@@ -165,6 +165,81 @@ fn register_store_with_stable_allocation_identities_binds_metadata() {
 }
 
 #[test]
+fn register_store_with_journaled_allocation_identities_binds_four_role_metadata() {
+    let mut registry = StoreRegistry::new();
+    registry
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+            StoreAllocationIdentities::new_journaled(
+                StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
+                StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
+                StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
+                StoreAllocationIdentity::new(154, "icydb.test.store.journal.v1"),
+            ),
+            StoreRuntimeStorageCapabilities::journaled(),
+        )
+        .expect("test journaled store registration should succeed");
+
+    let handle = registry
+        .try_get_store(STORE_PATH)
+        .expect("registered store path should resolve");
+
+    assert_eq!(
+        handle.data_allocation(),
+        Some(StoreAllocationIdentity::new(
+            151,
+            "icydb.test.store.data.v1"
+        ))
+    );
+    assert_eq!(
+        handle.index_allocation(),
+        Some(StoreAllocationIdentity::new(
+            152,
+            "icydb.test.store.index.v1"
+        ))
+    );
+    assert_eq!(
+        handle.schema_allocation(),
+        Some(StoreAllocationIdentity::new(
+            153,
+            "icydb.test.store.schema.v1"
+        ))
+    );
+    assert_eq!(
+        handle.journal_allocation(),
+        Some(StoreAllocationIdentity::new(
+            154,
+            "icydb.test.store.journal.v1"
+        ))
+    );
+    let capabilities = handle.storage_capabilities();
+    assert_eq!(
+        capabilities.storage_mode(),
+        StoreRuntimeStorageMode::Journaled
+    );
+    assert_eq!(
+        capabilities.allocation_identity(),
+        StoreAllocationIdentityCapability::Present
+    );
+    assert_eq!(capabilities.durability(), StoreDurability::Durable);
+    assert_eq!(
+        capabilities.commit_participation(),
+        StoreCommitParticipation::Durable
+    );
+    assert_eq!(
+        capabilities.recovery(),
+        StoreRecoveryCapability::StableBasePlusJournalReplay
+    );
+    assert_eq!(
+        capabilities.schema_metadata(),
+        StoreSchemaMetadataCapability::CanonicalStableHistoryPlusJournalTail
+    );
+}
+
+#[test]
 fn register_store_rejects_allocation_capability_mismatch() {
     let mut registry = StoreRegistry::new();
     let err = registry
@@ -184,6 +259,61 @@ fn register_store_rejects_allocation_capability_mismatch() {
         err.message
             .contains("allocation identities do not match storage capabilities"),
         "allocation/capability mismatch should be diagnosed"
+    );
+}
+
+#[test]
+fn register_store_rejects_journaled_capabilities_without_journal_allocation_identity() {
+    let mut registry = StoreRegistry::new();
+    let err = registry
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+            StoreAllocationIdentities::new(
+                StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
+                StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
+                StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
+            ),
+            StoreRuntimeStorageCapabilities::journaled(),
+        )
+        .expect_err("journaled capabilities require explicit journal allocation identity");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("allocation identities do not match storage capabilities"),
+        "journal allocation/capability mismatch should be diagnosed"
+    );
+}
+
+#[test]
+fn register_store_rejects_stable_capabilities_with_journal_allocation_identity() {
+    let mut registry = StoreRegistry::new();
+    let err = registry
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+            StoreAllocationIdentities::new_journaled(
+                StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
+                StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
+                StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
+                StoreAllocationIdentity::new(154, "icydb.test.store.journal.v1"),
+            ),
+            StoreRuntimeStorageCapabilities::stable(),
+        )
+        .expect_err("stable capabilities must not accept journal allocation identity");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("allocation identities do not match storage capabilities"),
+        "stable/journal allocation mismatch should be diagnosed"
     );
 }
 

@@ -35,6 +35,8 @@ pub enum StoreRuntimeStorageMode {
     Stable,
     /// Volatile in-process heap storage.
     Heap,
+    /// Journaled cached-stable durable storage.
+    Journaled,
 }
 
 impl StoreRuntimeStorageMode {
@@ -44,6 +46,7 @@ impl StoreRuntimeStorageMode {
         match self {
             Self::Stable => "stable",
             Self::Heap => "heap",
+            Self::Journaled => "journaled",
         }
     }
 }
@@ -96,6 +99,9 @@ pub enum StoreRecoveryCapability {
     /// Store contents can be recovered through stable commit replay.
     #[default]
     StableCommitReplay,
+    /// Store contents can be recovered from canonical stable BTrees plus a
+    /// committed journal tail.
+    StableBasePlusJournalReplay,
     /// Store contents are not recovered.
     None,
 }
@@ -106,6 +112,7 @@ impl StoreRecoveryCapability {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::StableCommitReplay => "stable-replay",
+            Self::StableBasePlusJournalReplay => "stable-base-plus-journal-replay",
             Self::None => "none",
         }
     }
@@ -140,6 +147,8 @@ pub enum StoreSchemaMetadataCapability {
     DurableAcceptedHistory,
     /// Schema metadata is rebuilt live and is not durable history.
     LiveRebuiltMetadata,
+    /// Schema metadata is canonical stable history plus committed journal tail.
+    CanonicalStableHistoryPlusJournalTail,
 }
 
 impl StoreSchemaMetadataCapability {
@@ -149,6 +158,9 @@ impl StoreSchemaMetadataCapability {
         match self {
             Self::DurableAcceptedHistory => "durable-accepted-history",
             Self::LiveRebuiltMetadata => "live-rebuilt-metadata",
+            Self::CanonicalStableHistoryPlusJournalTail => {
+                "canonical-stable-history-plus-journal-tail"
+            }
         }
     }
 }
@@ -226,6 +238,22 @@ impl StoreRuntimeStorageCapabilities {
             schema_metadata: StoreSchemaMetadataCapability::LiveRebuiltMetadata,
             relation_source: StoreRelationSourceCapability::LiveSource,
             relation_target: StoreRelationTargetCapability::VolatileTarget,
+            live_validation: StoreLiveValidationCapability::Supported,
+        }
+    }
+
+    /// Capability descriptor for journaled cached-stable stores.
+    #[must_use]
+    pub const fn journaled() -> Self {
+        Self {
+            storage_mode: StoreRuntimeStorageMode::Journaled,
+            allocation_identity: StoreAllocationIdentityCapability::Present,
+            durability: StoreDurability::Durable,
+            recovery: StoreRecoveryCapability::StableBasePlusJournalReplay,
+            commit_participation: StoreCommitParticipation::Durable,
+            schema_metadata: StoreSchemaMetadataCapability::CanonicalStableHistoryPlusJournalTail,
+            relation_source: StoreRelationSourceCapability::DurableSource,
+            relation_target: StoreRelationTargetCapability::DurableTarget,
             live_validation: StoreLiveValidationCapability::Supported,
         }
     }
@@ -332,6 +360,7 @@ pub struct StoreAllocationIdentities {
     data: Option<StoreAllocationIdentity>,
     index: Option<StoreAllocationIdentity>,
     schema: Option<StoreAllocationIdentity>,
+    journal: Option<StoreAllocationIdentity>,
 }
 
 impl StoreAllocationIdentities {
@@ -342,6 +371,7 @@ impl StoreAllocationIdentities {
             data: None,
             index: None,
             schema: None,
+            journal: None,
         }
     }
 
@@ -356,6 +386,23 @@ impl StoreAllocationIdentities {
             data: Some(data),
             index: Some(index),
             schema: Some(schema),
+            journal: None,
+        }
+    }
+
+    /// Build one journaled cached-stable allocation identity bundle.
+    #[must_use]
+    pub const fn new_journaled(
+        data: StoreAllocationIdentity,
+        index: StoreAllocationIdentity,
+        schema: StoreAllocationIdentity,
+        journal: StoreAllocationIdentity,
+    ) -> Self {
+        Self {
+            data: Some(data),
+            index: Some(index),
+            schema: Some(schema),
+            journal: Some(journal),
         }
     }
 
@@ -377,14 +424,51 @@ impl StoreAllocationIdentities {
         self.schema
     }
 
+    /// Return journal-tail allocation identity.
+    #[must_use]
+    pub const fn journal(self) -> Option<StoreAllocationIdentity> {
+        self.journal
+    }
+
     /// Return the allocation capability represented by this triplet, or
     /// `None` if the triplet is partially populated and therefore invalid.
     #[must_use]
     pub const fn allocation_identity_capability(self) -> Option<StoreAllocationIdentityCapability> {
         match (self.data, self.index, self.schema) {
             (Some(_), Some(_), Some(_)) => Some(StoreAllocationIdentityCapability::Present),
-            (None, None, None) => Some(StoreAllocationIdentityCapability::Absent),
+            (None, None, None) if self.journal.is_none() => {
+                Some(StoreAllocationIdentityCapability::Absent)
+            }
             _ => None,
+        }
+    }
+
+    /// Return whether this allocation shape matches the concrete storage
+    /// capability descriptor.
+    #[must_use]
+    pub const fn matches_storage_capabilities(
+        self,
+        capabilities: StoreRuntimeStorageCapabilities,
+    ) -> bool {
+        match capabilities.storage_mode() {
+            StoreRuntimeStorageMode::Stable => {
+                self.data.is_some()
+                    && self.index.is_some()
+                    && self.schema.is_some()
+                    && self.journal.is_none()
+            }
+            StoreRuntimeStorageMode::Heap => {
+                self.data.is_none()
+                    && self.index.is_none()
+                    && self.schema.is_none()
+                    && self.journal.is_none()
+            }
+            StoreRuntimeStorageMode::Journaled => {
+                self.data.is_some()
+                    && self.index.is_some()
+                    && self.schema.is_some()
+                    && self.journal.is_some()
+            }
         }
     }
 }
@@ -511,6 +595,13 @@ impl StoreHandle {
     #[must_use]
     pub const fn schema_allocation(&self) -> Option<StoreAllocationIdentity> {
         self.allocations.schema()
+    }
+
+    /// Return the journal-tail allocation identity when generated wiring
+    /// supplied it.
+    #[must_use]
+    pub const fn journal_allocation(&self) -> Option<StoreAllocationIdentity> {
+        self.allocations.journal()
     }
 
     /// Return this store's explicit runtime storage capabilities.

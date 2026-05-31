@@ -36,8 +36,15 @@ pub(in crate::db) fn replay_commit_marker_row_ops(
                 return Err(err);
             }
         };
-        if recovery == StoreRecoveryCapability::None {
-            continue;
+        match recovery {
+            StoreRecoveryCapability::StableCommitReplay => {}
+            StoreRecoveryCapability::StableBasePlusJournalReplay => {
+                rollback_prepared_row_ops_reverse(rollbacks);
+                return Err(InternalError::store_unsupported(
+                    "journaled recovery replay is not implemented before journaled runtime recovery",
+                ));
+            }
+            StoreRecoveryCapability::None => continue,
         }
 
         let prepared = match db.prepare_row_commit_op(row_op) {

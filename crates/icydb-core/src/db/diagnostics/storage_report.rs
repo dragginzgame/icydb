@@ -139,6 +139,7 @@ const fn snapshot_storage_mode(mode: StoreRuntimeStorageMode) -> StoreSnapshotSt
     match mode {
         StoreRuntimeStorageMode::Stable => StoreSnapshotStorageMode::Stable,
         StoreRuntimeStorageMode::Heap => StoreSnapshotStorageMode::Heap,
+        StoreRuntimeStorageMode::Journaled => StoreSnapshotStorageMode::Journaled,
     }
 }
 

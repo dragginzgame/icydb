@@ -2256,50 +2256,57 @@ fn storage_capability_policy_stays_out_of_codecs_and_commit_marker_format() {
 }
 
 #[test]
-fn journaled_storage_remains_reserved_outside_runtime_capability_surfaces() {
+fn journaled_storage_schema_build_admission_stays_out_of_runtime_backends() {
     let schema_store = read_source("../icydb-schema/src/node/store.rs");
     let schema_derive_store = read_source("../icydb-schema-derive/src/node/store.rs");
     let build_store = read_source("../icydb-build/src/db/store.rs");
     let runtime_capabilities = read_source("src/db/registry/handle.rs");
     let registry = read_source("src/db/registry/registry.rs");
+    let data_store = read_source("src/db/data/store.rs");
+    let index_store = read_source("src/db/index/store.rs");
+    let schema_runtime_store = read_source("src/db/schema/store.rs");
     let diagnostics = read_rust_sources_under("src/db/diagnostics");
     let relation = read_rust_sources_under("src/db/relation");
     let commit = read_rust_sources_under("src/db/commit");
     let executor_mutation = read_rust_sources_under("src/db/executor/mutation");
 
     assert!(
-        schema_derive_store.contains("fn parse_reserved_journaled_config(")
-            && schema_derive_store
-                .contains("is reserved for a future journaled cached-stable durable store"),
-        "journaled storage should be recognized only by the derive parser as a reserved diagnostic form",
+        schema_store.contains("StoreStorage::Journaled")
+            && schema_store.contains("StoreJournaledMemoryConfig")
+            && schema_store.contains("StoreStorageCapabilities::journaled")
+            && schema_derive_store.contains("ParsedStoreStorage::Journaled")
+            && schema_derive_store.contains("fn parse_journaled_memory_config("),
+        "0.174.1 should admit journaled storage at the schema/derive model boundary",
+    );
+    assert!(
+        build_store.contains("journaled_store_registry_entry_tokens")
+            && build_store.contains("StoreAllocationIdentities::new_journaled")
+            && build_store.contains("StoreRuntimeStorageCapabilities::journaled")
+            && build_store.contains("JournalTail"),
+        "0.174.1 should add generated journaled wiring and four-role allocation metadata",
+    );
+    assert!(
+        runtime_capabilities.contains("StoreRuntimeStorageMode::Journaled")
+            && runtime_capabilities.contains("pub const fn journaled()")
+            && runtime_capabilities.contains("StableBasePlusJournalReplay")
+            && registry.contains("matches_storage_capabilities"),
+        "0.174.1 should add runtime capability projection without using diagnostics as authority",
     );
 
-    let forbidden_runtime_symbols = [
-        "StoreStorage::Journaled",
-        "ParsedStoreStorage::Journaled",
-        "StoreStorageMode::Journaled",
-        "StoreRuntimeStorageMode::Journaled",
-        "StoreRuntimeStorageCapabilities::journaled",
-        "fn journaled(",
-        "new_journaled",
+    let forbidden_backend_symbols = [
         "DataStoreBackend::Journaled",
         "IndexStoreBackend::Journaled",
         "SchemaStoreBackend::Journaled",
-        "journal_memory_id",
+        "init_journaled",
     ];
-    let checked_surfaces = [
-        ("schema store model", schema_store.as_str()),
-        ("generated store wiring", build_store.as_str()),
-        ("runtime capabilities", runtime_capabilities.as_str()),
-        ("registry", registry.as_str()),
-        ("diagnostics", diagnostics.as_str()),
-        ("relation policy", relation.as_str()),
-        ("commit/recovery", commit.as_str()),
-        ("executor mutation", executor_mutation.as_str()),
+    let checked_backends = [
+        ("data store", data_store.as_str()),
+        ("index store", index_store.as_str()),
+        ("schema store", schema_runtime_store.as_str()),
     ];
     let mut violations = Vec::new();
-    for (label, source) in checked_surfaces {
-        for symbol in forbidden_runtime_symbols {
+    for (label, source) in checked_backends {
+        for symbol in forbidden_backend_symbols {
             if source.contains(symbol) {
                 violations.push(format!("{label} contains {symbol}"));
             }
@@ -2308,8 +2315,22 @@ fn journaled_storage_remains_reserved_outside_runtime_capability_surfaces() {
 
     assert!(
         violations.is_empty(),
-        "0.173 keeps journaled storage reserved at the parser boundary; accepted schema, generated wiring, registry, diagnostics, relation, executor, and commit/recovery surfaces must not expose runtime journaled storage:\n{}",
+        "0.174.1 admits schema/build journaled wiring but must not add runtime journaled store backends:\n{}",
         violations.join("\n"),
+    );
+    assert!(
+        !relation.contains("Journaled")
+            && !diagnostics.contains("DataStoreBackend::Journaled")
+            && !diagnostics.contains("IndexStoreBackend::Journaled")
+            && !diagnostics.contains("SchemaStoreBackend::Journaled"),
+        "0.174.1 should not add relation policy or diagnostics authority branches for concrete journaled backends",
+    );
+    assert!(
+        executor_mutation.contains("StoreRecoveryCapability::StableBasePlusJournalReplay")
+            && executor_mutation
+                .contains("journaled recovery marker projection is not implemented")
+            && commit.contains("journaled recovery replay is not implemented"),
+        "0.174.1 commit/recovery should fail closed until journal runtime recovery lands",
     );
 }
 
@@ -2344,7 +2365,7 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
     assert!(
         commit_replay.contains("handle.storage_capabilities().recovery()")
             && commit_replay.contains("StoreRecoveryCapability::None")
-            && commit_replay.contains("continue;"),
+            && commit_replay.contains("StoreRecoveryCapability::None => continue"),
         "recovery replay should consume recovery capabilities and skip live-only stores",
     );
     assert!(
@@ -2369,11 +2390,8 @@ fn commit_recovery_boundary_remains_marker_only_and_without_journal_replay() {
     let forbidden = [
         "JournalRecord",
         "JournalStore",
-        "JournalReplay",
         "JournalFold",
-        "Journaled",
         "CommittedJournal",
-        "journal_memory_id",
         "journal_tail",
         "journal_replay",
         "replay_journal",
@@ -2781,8 +2799,8 @@ fn journaled_runtime_admission_readiness_keeps_public_syntax_reserved() {
     assert!(
         runtime_design.contains("Active runtime-admission design")
             && runtime_design.contains("0.174.0 completed the admission-readiness")
-            && runtime_design.contains("Runtime behavior")
-            && runtime_design.contains("remains unchanged")
+            && runtime_design.contains("0.174.0 starts the runtime-admission line")
+            && runtime_design.contains("no runtime behavior changes")
             && runtime_design.contains("## 0.174.0 Readiness Baseline"),
         "0.174.0 must be an admission-readiness slice, not runtime admission",
     );
@@ -2797,7 +2815,7 @@ fn journaled_runtime_admission_readiness_keeps_public_syntax_reserved() {
         "0.174.0 must preserve the binding 0.173 protocol decisions",
     );
     assert!(
-        runtime_design.contains("Public derive admission is the last step")
+        runtime_design.contains("Runtime admission closeout is the last step")
             && runtime_design.contains("public derive syntax remains reserved")
             && runtime_design.contains("generated wiring")
             && runtime_design.contains("runtime construction")

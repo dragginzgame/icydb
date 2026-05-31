@@ -86,6 +86,7 @@ impl StoreRegistry {
         }
 
         if allocations.allocation_identity_capability() != Some(capabilities.allocation_identity())
+            || !allocations.matches_storage_capabilities(capabilities)
         {
             return Err(
                 StoreRegistryError::StoreAllocationCapabilityMismatch(name.to_string()).into(),

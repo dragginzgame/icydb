@@ -1221,6 +1221,11 @@ fn recovery_marker_row_ops_for_prepared_row_ops<C: CanisterKind>(
 
         match handle.storage_capabilities().recovery() {
             StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone()),
+            StoreRecoveryCapability::StableBasePlusJournalReplay => {
+                return Err(InternalError::store_unsupported(
+                    "journaled recovery marker projection is not implemented before journaled runtime store wrappers",
+                ));
+            }
             StoreRecoveryCapability::None => {}
         }
     }

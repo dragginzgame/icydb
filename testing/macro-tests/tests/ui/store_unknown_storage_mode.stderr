@@ -1,4 +1,4 @@
-error: unknown store storage mode; expected storage(stable(...)) or storage(heap())
+error: unknown store storage mode; expected storage(stable(...)), storage(heap()), or storage(journaled(...))
   --> tests/ui/store_unknown_storage_mode.rs:10:13
    |
 10 |     storage(memory())

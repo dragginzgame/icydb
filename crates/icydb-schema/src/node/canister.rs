@@ -112,7 +112,7 @@ impl ValidateNode for Canister {
         // Check all Store nodes for this canister
         for (path, store) in schema.filter_nodes::<Store>(|node| node.canister() == canister_path) {
             match store.storage() {
-                StoreStorage::Stable(_) => {
+                StoreStorage::Stable(_) | StoreStorage::Journaled(_) => {
                     assert_unique_memory_allocation(
                         store
                             .stable_data_allocation(self.memory_namespace())
@@ -157,6 +157,23 @@ impl ValidateNode for Canister {
                         &mut seen_keys,
                         &mut errs,
                     );
+
+                    if store.is_journaled_storage() {
+                        assert_unique_memory_allocation(
+                            store
+                                .journal_allocation(self.memory_namespace())
+                                .memory_id(),
+                            store
+                                .journal_allocation(self.memory_namespace())
+                                .stable_key()
+                                .to_string(),
+                            format!("Store `{path}`.journal_memory"),
+                            &canister_path,
+                            &mut seen_ids,
+                            &mut seen_keys,
+                            &mut errs,
+                        );
+                    }
                 }
                 StoreStorage::Heap(_) => {}
             }

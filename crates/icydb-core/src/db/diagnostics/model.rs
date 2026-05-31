@@ -345,6 +345,7 @@ pub enum StoreSnapshotStorageMode {
     #[default]
     Stable,
     Heap,
+    Journaled,
 }
 
 impl StoreSnapshotStorageMode {
@@ -354,6 +355,7 @@ impl StoreSnapshotStorageMode {
         match self {
             Self::Stable => "stable",
             Self::Heap => "heap",
+            Self::Journaled => "journaled",
         }
     }
 }

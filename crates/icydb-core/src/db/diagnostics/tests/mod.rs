@@ -768,6 +768,7 @@ fn storage_report_empty_store_snapshot() {
 fn store_snapshot_storage_mode_renders_stable_label() {
     assert_eq!(StoreSnapshotStorageMode::Stable.as_str(), "stable");
     assert_eq!(StoreSnapshotStorageMode::Heap.as_str(), "heap");
+    assert_eq!(StoreSnapshotStorageMode::Journaled.as_str(), "journaled");
 }
 
 #[test]
