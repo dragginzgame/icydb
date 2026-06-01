@@ -64,7 +64,9 @@ pub(in crate::db::session::sql) use cache::{
 pub(in crate::db::session::sql) use compile::{
     SqlCompileAttributionBuilder, SqlCompilePhaseAttribution,
 };
-pub(in crate::db) use compiled::{CompiledSqlCommand, SqlProjectionContract};
+pub(in crate::db) use compiled::{
+    CompiledSqlCommand, SqlCompiledCommandExecutionContext, SqlProjectionContract,
+};
 pub use result::SqlStatementResult;
 
 /// Parsed SQL endpoint surface used by generated SQL helper dispatch.
@@ -93,9 +95,9 @@ pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, Quer
 
 /// Return the entity identifier targeted by one reduced SQL statement.
 ///
-/// `SHOW ENTITIES` and `SHOW STORES` intentionally have no entity target;
-/// callers that dispatch across canister-owned entities may route them through
-/// any accepted entity.
+/// `SHOW ENTITIES`, `SHOW STORES`, and `SHOW MEMORY` intentionally have no
+/// entity target; callers that dispatch across canister-owned entities may
+/// route them through any accepted entity.
 #[doc(hidden)]
 pub fn sql_statement_entity_name(sql: &str) -> Result<Option<String>, QueryError> {
     let (statement, _) =
@@ -125,7 +127,8 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_)
-        | SqlStatement::ShowStores(_) => SqlStatementSurface::Query,
+        | SqlStatement::ShowStores(_)
+        | SqlStatement::ShowMemory(_) => SqlStatementSurface::Query,
     }
 }
 
@@ -161,7 +164,9 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::Describe(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowIndexes(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowColumns(statement) => Some(statement.entity.as_str()),
-        SqlStatement::ShowEntities(_) | SqlStatement::ShowStores(_) => None,
+        SqlStatement::ShowEntities(_)
+        | SqlStatement::ShowStores(_)
+        | SqlStatement::ShowMemory(_) => None,
     }
 }
 
@@ -192,10 +197,37 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
+        let schema_fingerprint =
+            crate::db::schema::accepted_schema_cache_fingerprint(accepted_schema)
+                .map_err(QueryError::execute)?;
+
+        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
+            query,
+            authority,
+            accepted_schema,
+            schema_fingerprint,
+        )
+    }
+
+    fn sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+        ),
+        QueryError,
+    > {
         let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority(
+            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
                 authority.clone(),
                 accepted_schema,
+                schema_fingerprint,
                 query,
             )?;
         Ok(Self::sql_select_projection_from_prepared_plan(
@@ -207,6 +239,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve one typed SQL SELECT through accepted schema authority selected
     // at the session boundary.
+    #[allow(
+        dead_code,
+        reason = "explicit compiled SQL execution can still plan without an attached compile context; immediate SQL query entrypoints use the context-aware sibling"
+    )]
     fn sql_select_prepared_plan_for_entity<E>(
         &self,
         query: &StructuralQuery,
@@ -268,7 +304,8 @@ impl<C: CanisterKind> DbSession<C> {
                 | SqlStatement::ShowIndexes(_)
                 | SqlStatement::ShowColumns(_)
                 | SqlStatement::ShowEntities(_)
-                | SqlStatement::ShowStores(_),
+                | SqlStatement::ShowStores(_)
+                | SqlStatement::ShowMemory(_),
             )
             | (
                 SqlCompiledCommandSurface::Update,
@@ -327,6 +364,11 @@ impl<C: CanisterKind> DbSession<C> {
                     "execute_sql_update rejects SHOW STORES; use execute_sql_query::<E>()",
                 ))
             }
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowMemory(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects SHOW MEMORY; use execute_sql_query::<E>()",
+                ))
+            }
         }
     }
 
@@ -338,9 +380,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let compiled = self.compile_sql_query::<E>(sql)?;
+        let (compiled, _, _) = self.compile_sql_query_with_execution_context::<E>(sql)?;
 
-        self.execute_compiled_sql_owned::<E>(compiled)
+        self.execute_compiled_sql_context_owned::<E>(compiled)
     }
 
     /// Execute one reduced SQL query while reporting the compile/execute split
@@ -357,7 +399,7 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: measure the compile side of the new seam, including parse,
         // surface validation, and semantic command construction.
         let (compile_local_instructions, compiled) =
-            measure_sql_stage(|| self.compile_sql_query_with_cache_attribution::<E>(sql));
+            measure_sql_stage(|| self.compile_sql_query_with_execution_context::<E>(sql));
         let (compiled, compile_cache_attribution, compile_phase_attribution) = compiled?;
 
         // Phase 2: measure the execute side separately so repeat-run cache
@@ -367,7 +409,7 @@ impl<C: CanisterKind> DbSession<C> {
         let pure_covering_row_assembly_before =
             current_pure_covering_row_assembly_local_instructions();
         let (result, execute_cache_attribution, execute_phase_attribution) =
-            self.execute_compiled_sql_with_phase_attribution::<E>(&compiled)?;
+            self.execute_compiled_sql_context_with_phase_attribution::<E>(&compiled)?;
         let store_get_calls =
             DataStore::current_get_call_count().saturating_sub(store_get_calls_before);
         let pure_covering_decode_local_instructions =

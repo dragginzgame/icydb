@@ -69,6 +69,7 @@ pub(crate) fn sql_query_result_from_statement(
         SqlStatementResult::ShowStores { stores, verbose } => {
             SqlQueryResult::ShowStores { stores, verbose }
         }
+        SqlStatementResult::ShowMemory(memory) => SqlQueryResult::ShowMemory { memory },
         SqlStatementResult::Ddl(report) => SqlQueryResult::Ddl {
             entity: entity_name,
             mutation_kind: report.mutation_kind().as_str().to_string(),

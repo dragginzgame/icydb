@@ -290,10 +290,20 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
             entity: entity.clone(),
             row_count: columns.len(),
         },
-        SqlQueryResult::ShowEntities { entities } => SqlPerfOutcome {
+        SqlQueryResult::ShowEntities { entities, .. } => SqlPerfOutcome {
             result_kind: "show_entities",
             entity: String::new(),
             row_count: entities.len(),
+        },
+        SqlQueryResult::ShowStores { stores, .. } => SqlPerfOutcome {
+            result_kind: "show_stores",
+            entity: String::new(),
+            row_count: stores.len(),
+        },
+        SqlQueryResult::ShowMemory { memory } => SqlPerfOutcome {
+            result_kind: "show_memory",
+            entity: String::new(),
+            row_count: memory.len(),
         },
         SqlQueryResult::Ddl { entity, .. } => SqlPerfOutcome {
             result_kind: "__icydb_ddl",

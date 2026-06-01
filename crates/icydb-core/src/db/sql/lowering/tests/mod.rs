@@ -1673,6 +1673,17 @@ fn compile_sql_command_show_stores_lowers_to_show_stores_lane() {
 }
 
 #[test]
+fn compile_sql_command_show_memory_lowers_to_show_memory_lane() {
+    let command = compile_sql_command::<SqlLowerEntity>("SHOW MEMORY", MissingRowPolicy::Ignore)
+        .expect("SHOW MEMORY should lower");
+
+    assert!(
+        matches!(command, SqlCommand::ShowMemory),
+        "SHOW MEMORY should lower to dedicated show-memory command lane",
+    );
+}
+
+#[test]
 fn compile_sql_command_explain_execution_wraps_lowered_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN EXECUTION SELECT * FROM SqlLowerEntity LIMIT 1",

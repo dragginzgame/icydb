@@ -10,8 +10,9 @@ use crate::{
         schema::SchemaInfo,
         session::sql::{
             CompiledSqlCommand, SqlCacheAttribution, SqlCompileAttributionBuilder,
-            SqlCompilePhaseAttribution, SqlCompiledCommandCacheKey, SqlCompiledCommandSurface,
-            measured, sql_compiled_command_cache_miss_reason,
+            SqlCompilePhaseAttribution, SqlCompiledCommandCacheKey,
+            SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface, measured,
+            sql_compiled_command_cache_miss_reason,
         },
         sql::parser::parse_sql_with_attribution,
     },
@@ -26,6 +27,10 @@ use crate::{
 impl<C: CanisterKind> DbSession<C> {
     // Compile one SQL query-surface string into the session-owned generic-free
     // semantic command artifact before execution.
+    #[allow(
+        dead_code,
+        reason = "crate-local tests and explicit compile/execute callers use this API; immediate SQL query execution uses the context-returning variant"
+    )]
     pub(in crate::db) fn compile_sql_query<E>(
         &self,
         sql: &str,
@@ -37,6 +42,10 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|(compiled, _, _)| compiled)
     }
 
+    #[allow(
+        dead_code,
+        reason = "kept for compile-cache tests and explicit compile diagnostics; immediate SQL query execution needs the accepted-schema context"
+    )]
     pub(in crate::db::session::sql) fn compile_sql_query_with_cache_attribution<E>(
         &self,
         sql: &str,
@@ -51,7 +60,28 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.compile_sql_surface_with_cache_attribution::<E>(sql, SqlCompiledCommandSurface::Query)
+        self.compile_sql_query_with_execution_context::<E>(sql).map(
+            |(context, cache_attribution, phase_attribution)| {
+                (context.into_command(), cache_attribution, phase_attribution)
+            },
+        )
+    }
+
+    pub(in crate::db::session::sql) fn compile_sql_query_with_execution_context<E>(
+        &self,
+        sql: &str,
+    ) -> Result<
+        (
+            SqlCompiledCommandExecutionContext,
+            SqlCacheAttribution,
+            SqlCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Query)
     }
 
     // Compile one SQL update-surface string into the session-owned generic-free
@@ -81,19 +111,22 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.compile_sql_surface_with_cache_attribution::<E>(sql, SqlCompiledCommandSurface::Update)
+        self.compile_sql_surface_with_execution_context::<E>(sql, SqlCompiledCommandSurface::Update)
+            .map(|(context, cache_attribution, phase_attribution)| {
+                (context.into_command(), cache_attribution, phase_attribution)
+            })
     }
 
     // Reuse one internal compile shell for both outward SQL surfaces so query
     // and update no longer duplicate cache-key construction and surface
     // validation plumbing before they reach the real compile/cache owner.
-    fn compile_sql_surface_with_cache_attribution<E>(
+    fn compile_sql_surface_with_execution_context<E>(
         &self,
         sql: &str,
         surface: SqlCompiledCommandSurface,
     ) -> Result<
         (
-            CompiledSqlCommand,
+            SqlCompiledCommandExecutionContext,
             SqlCacheAttribution,
             SqlCompilePhaseAttribution,
         ),
@@ -114,14 +147,24 @@ impl<C: CanisterKind> DbSession<C> {
         let mut attribution = SqlCompileAttributionBuilder::default();
         attribution.record_cache_key(cache_key_local_instructions);
         let (cache_key, accepted_schema) = context.into_cache_inputs();
+        let schema_fingerprint = cache_key.schema_fingerprint();
 
-        self.compile_sql_statement_with_cache::<E>(
-            cache_key,
+        let (compiled, cache_attribution, phase_attribution, accepted_authority) = self
+            .compile_sql_statement_with_cache::<E>(
+                cache_key,
+                &accepted_schema,
+                attribution,
+                sql,
+                surface,
+            )?;
+        let context = SqlCompiledCommandExecutionContext::new(
+            compiled,
             accepted_schema,
-            attribution,
-            sql,
-            surface,
-        )
+            schema_fingerprint,
+            accepted_authority,
+        );
+
+        Ok((context, cache_attribution, phase_attribution))
     }
 
     // Reuse one previously compiled SQL artifact when the session-local cache
@@ -129,7 +172,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_sql_statement_with_cache<E>(
         &self,
         cache_key: SqlCompiledCommandCacheKey,
-        accepted_schema: crate::db::schema::AcceptedSchemaSnapshot,
+        accepted_schema: &crate::db::schema::AcceptedSchemaSnapshot,
         mut attribution: SqlCompileAttributionBuilder,
         sql: &str,
         surface: SqlCompiledCommandSurface,
@@ -138,6 +181,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand,
             SqlCacheAttribution,
             SqlCompilePhaseAttribution,
+            Option<crate::db::executor::EntityAuthority>,
         ),
         QueryError,
     >
@@ -163,6 +207,7 @@ impl<C: CanisterKind> DbSession<C> {
                 compiled,
                 SqlCacheAttribution::sql_compiled_command_cache_hit(),
                 attribution.finish(),
+                None,
             ));
         }
         record_cache_event_for_path(CacheKind::SqlCompiledCommand, CacheOutcome::Miss, E::PATH);
@@ -170,10 +215,10 @@ impl<C: CanisterKind> DbSession<C> {
             record_cache_miss_reason_for_path(CacheKind::SqlCompiledCommand, reason, E::PATH);
         }
 
-        let authority = Self::accepted_entity_authority_for_schema::<E>(&accepted_schema)
+        let authority = Self::accepted_entity_authority_for_schema::<E>(accepted_schema)
             .map_err(QueryError::execute)?;
         let schema =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
 
         let parse_result =
             measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error));
@@ -186,7 +231,7 @@ impl<C: CanisterKind> DbSession<C> {
         };
         attribution.record_parse(parse_local_instructions, parse_attribution);
         let compile_result =
-            Self::compile_sql_statement_measured(&parsed, surface, authority, &schema);
+            Self::compile_sql_statement_measured(&parsed, surface, authority.clone(), &schema);
         let (artifacts, compile_attribution) = match compile_result {
             Ok(compiled) => compiled,
             Err(error) => {
@@ -212,6 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
             compiled,
             SqlCacheAttribution::sql_compiled_command_cache_miss(),
             attribution.finish(),
+            Some(authority),
         ))
     }
 }

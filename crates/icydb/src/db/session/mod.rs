@@ -7,8 +7,8 @@ mod macros;
 use crate::db::sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text};
 use crate::{
     db::{
-        EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription, StorageReport,
-        StoreCatalogDescription,
+        EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
+        MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::QueryResponse,
     },
@@ -532,10 +532,23 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.show_entities()
     }
 
+    /// Return one stable list of runtime-registered entity catalog entries.
+    pub fn try_show_entities(
+        &self,
+    ) -> Result<Vec<EntityCatalogDescription>, core::error::InternalError> {
+        self.inner.try_show_entities()
+    }
+
     /// Return one stable list of runtime-registered store catalog entries.
     #[must_use]
     pub fn show_stores(&self) -> Vec<StoreCatalogDescription> {
         self.inner.show_stores()
+    }
+
+    /// Return one stable list of runtime-registered stable-memory allocations.
+    #[must_use]
+    pub fn show_memory(&self) -> Vec<MemoryCatalogDescription> {
+        self.inner.show_memory()
     }
 
     /// Return one structured schema description for the entity.

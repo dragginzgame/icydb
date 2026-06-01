@@ -15,7 +15,8 @@ use crate::db::{
         SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
         SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
         SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+        SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement,
+        SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
@@ -93,6 +94,9 @@ impl Parser {
             )),
             SqlStatement::ShowStores(_) => {
                 Some(SqlParseError::unsupported_feature("SHOW STORES modifiers"))
+            }
+            SqlStatement::ShowMemory(_) => {
+                Some(SqlParseError::unsupported_feature("SHOW MEMORY modifiers"))
             }
         }
     }
@@ -487,9 +491,12 @@ impl Parser {
                 verbose: self.eat_keyword(Keyword::Verbose),
             }));
         }
+        if self.eat_keyword(Keyword::Memory) {
+            return Ok(SqlStatement::ShowMemory(SqlShowMemoryStatement));
+        }
 
         Err(SqlParseError::unsupported_feature(
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
         ))
     }
 

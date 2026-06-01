@@ -46,8 +46,8 @@ mod verbose_route_choice;
 use super::*;
 use crate::{
     db::{
-        Db, EntityCatalogDescription, EntityRuntimeHooks, MissingRowPolicy,
-        PagedGroupedExecutionWithTrace, PlanError, StoreCatalogDescription,
+        Db, EntityCatalogDescription, EntityRuntimeHooks, MemoryCatalogDescription,
+        MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError, StoreCatalogDescription,
         access::lower_access,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
@@ -419,7 +419,7 @@ impl SelectTestSurface {
             (
                 Self::Lowering,
                 "EXPLAIN" | "DESCRIBE" | "SHOW INDEXES" | "SHOW COLUMNS" | "SHOW ENTITIES"
-                | "SHOW STORES",
+                | "SHOW STORES" | "SHOW MEMORY",
             ) => QueryError::unsupported_query(format!(
                 "{} rejects {statement_kind}; use execute_sql_query::<E>()",
                 self.helper_label(),
@@ -459,6 +459,7 @@ impl SelectTestSurface {
             SqlStatement::ShowColumns(_) => Some(self.reject_statement("SHOW COLUMNS")),
             SqlStatement::ShowEntities(_) => Some(self.reject_statement("SHOW ENTITIES")),
             SqlStatement::ShowStores(_) => Some(self.reject_statement("SHOW STORES")),
+            SqlStatement::ShowMemory(_) => Some(self.reject_statement("SHOW MEMORY")),
             SqlStatement::Select(statement)
                 if sql_select_has_text_specific_computed_projection(statement)
                     && self == Self::Lowering =>
@@ -3007,6 +3008,7 @@ enum SqlStatementPayloadKind {
     ShowIndexes,
     ShowColumns,
     ShowStores,
+    ShowMemory,
 }
 
 impl SqlStatementPayloadKind {
@@ -3025,6 +3027,7 @@ impl SqlStatementPayloadKind {
             Self::ShowIndexes => "SHOW INDEXES FROM SQL requires a SHOW INDEXES FROM statement",
             Self::ShowColumns => "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
             Self::ShowStores => "SHOW STORES SQL requires a SHOW STORES statement",
+            Self::ShowMemory => "SHOW MEMORY SQL requires a SHOW MEMORY statement",
         }
     }
 }
@@ -3338,6 +3341,20 @@ fn statement_show_stores_sql(
         SqlStatementPayloadKind::ShowStores,
         |result| match result {
             SqlStatementResult::ShowStores { stores, .. } => Some(stores),
+            _ => None,
+        },
+    )
+}
+
+fn statement_show_memory_sql(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<MemoryCatalogDescription>, QueryError> {
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)?,
+        SqlStatementPayloadKind::ShowMemory,
+        |result| match result {
+            SqlStatementResult::ShowMemory(memory) => Some(memory),
             _ => None,
         },
     )

@@ -13,8 +13,8 @@ use super::{
     SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement,
     SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
     SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowStoresStatement, SqlStatement,
-    SqlUpdateStatement, parse_sql,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
+    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1862,6 +1862,13 @@ fn parse_show_stores_verbose_statement() {
         statement,
         SqlStatement::ShowStores(SqlShowStoresStatement { verbose: true })
     );
+}
+
+#[test]
+fn parse_show_memory_statement() {
+    let statement = parse_sql("SHOW MEMORY").expect("show memory statement should parse");
+
+    assert_eq!(statement, SqlStatement::ShowMemory(SqlShowMemoryStatement));
 }
 
 #[test]
@@ -4008,11 +4015,11 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (
             "SHOW DATABASES",
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
         ),
         (
             "SHOW TABLES",
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
         ),
         (
             "SHOW INDEXES FROM users WHERE age > 1",
@@ -4021,6 +4028,7 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
         ("SHOW STORES users", "SHOW STORES modifiers"),
+        ("SHOW MEMORY users", "SHOW MEMORY modifiers"),
         (
             "CREATE INDEX user_age_idx ON users (age DESC)",
             "SQL DDL CREATE INDEX key ordering modifiers",

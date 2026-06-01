@@ -51,6 +51,7 @@ enum ExplainSqlLane {
     ShowColumns,
     ShowEntities,
     ShowStores,
+    ShowMemory,
 }
 
 // Render one shell-facing SQL execution explain report with a phase legend and
@@ -125,6 +126,7 @@ impl<C: CanisterKind> DbSession<C> {
             LoweredSqlLaneKind::ShowColumns => ExplainSqlLane::ShowColumns,
             LoweredSqlLaneKind::ShowEntities => ExplainSqlLane::ShowEntities,
             LoweredSqlLaneKind::ShowStores => ExplainSqlLane::ShowStores,
+            LoweredSqlLaneKind::ShowMemory => ExplainSqlLane::ShowMemory,
         };
         if lane != ExplainSqlLane::Explain {
             let message = match lane {
@@ -133,6 +135,7 @@ impl<C: CanisterKind> DbSession<C> {
                 ExplainSqlLane::ShowColumns => "explain_sql rejects SHOW COLUMNS",
                 ExplainSqlLane::ShowEntities => "explain_sql rejects SHOW ENTITIES",
                 ExplainSqlLane::ShowStores => "explain_sql rejects SHOW STORES",
+                ExplainSqlLane::ShowMemory => "explain_sql rejects SHOW MEMORY",
                 ExplainSqlLane::Query | ExplainSqlLane::Explain => "explain_sql requires EXPLAIN",
             };
 

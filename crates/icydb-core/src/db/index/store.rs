@@ -6,6 +6,7 @@
 use crate::db::{
     direction::Direction,
     index::{IndexEntryValue, key::RawIndexStoreKey},
+    ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
 };
 
 use candid::CandidType;
@@ -15,7 +16,6 @@ use ic_memory::stable_structures::{
 use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 use std::ops::Bound;
 
@@ -97,10 +97,6 @@ pub(super) enum IndexStoreBackend {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum IndexStoreVisit {
     Continue,
-    #[allow(
-        dead_code,
-        reason = "index traversal exposes early-stop semantics for bounded future callers; focused tests cover it before live call sites need it"
-    )]
     Stop,
 }
 
@@ -197,8 +193,12 @@ impl IndexStore {
             IndexStoreBackend::Stable(map) => map.len(),
             IndexStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
             IndexStoreBackend::Journaled { .. } => {
-                u64::try_from(Self::journaled_entries_snapshot(&self.backend).len())
-                    .unwrap_or(u64::MAX)
+                let mut count = 0_u64;
+                let _: Result<(), std::convert::Infallible> = self.visit_entries(|_key, _value| {
+                    count = count.saturating_add(1);
+                    Ok(IndexStoreVisit::Continue)
+                });
+                count
             }
         }
     }
@@ -208,7 +208,12 @@ impl IndexStore {
             IndexStoreBackend::Stable(map) => map.is_empty(),
             IndexStoreBackend::Heap(map) => map.is_empty(),
             IndexStoreBackend::Journaled { .. } => {
-                Self::journaled_entries_snapshot(&self.backend).is_empty()
+                let mut empty = true;
+                let _: Result<(), std::convert::Infallible> = self.visit_entries(|_key, _value| {
+                    empty = false;
+                    Ok(IndexStoreVisit::Stop)
+                });
+                empty
             }
         }
     }
@@ -310,7 +315,7 @@ impl IndexStore {
     pub(in crate::db) fn fold_journaled_materialized_view(
         &mut self,
     ) -> Result<(), crate::error::InternalError> {
-        let entries = Self::journaled_entries_snapshot(&self.backend);
+        let entries = Self::journaled_entries_snapshot_for_fold(&self.backend);
         let IndexStoreBackend::Journaled {
             canonical,
             live,
@@ -376,7 +381,7 @@ impl IndexStore {
         live.get(key).cloned().or_else(|| canonical.get(key))
     }
 
-    pub(super) fn journaled_entries_snapshot(
+    pub(super) fn journaled_entries_snapshot_for_fold(
         backend: &IndexStoreBackend,
     ) -> HeapBTreeMap<RawIndexStoreKey, IndexEntryValue> {
         #[cfg(test)]
@@ -454,173 +459,54 @@ impl IndexStore {
                 }
             }
             Direction::Asc => {
-                Self::visit_journaled_merged_entries(
-                    canonical,
-                    live,
-                    tombstones,
-                    (lower, upper),
-                    visit,
+                visit_ordered_overlay(
+                    canonical.range((lower.clone(), upper.clone())),
+                    live.range((lower, upper)),
+                    direction,
+                    |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
+                    |canonical_entry| !tombstones.contains(canonical_entry.key()),
+                    |live_entry| !tombstones.contains(live_entry.0),
+                    |entry| {
+                        let should_stop = match entry {
+                            OrderedOverlayEntry::Canonical(canonical_entry) => {
+                                visit(canonical_entry.key(), &canonical_entry.value())?
+                            }
+                            OrderedOverlayEntry::Live((key, value)) => visit(key, value)?,
+                        };
+                        Ok(if should_stop {
+                            OrderedOverlayVisit::Stop
+                        } else {
+                            OrderedOverlayVisit::Continue
+                        })
+                    },
                 )?;
             }
             Direction::Desc => {
-                Self::visit_journaled_merged_entries_rev(
-                    canonical,
-                    live,
-                    tombstones,
-                    (lower, upper),
-                    visit,
+                visit_ordered_overlay(
+                    canonical.range((lower.clone(), upper.clone())).rev(),
+                    live.range((lower, upper)).rev(),
+                    direction,
+                    |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
+                    |canonical_entry| !tombstones.contains(canonical_entry.key()),
+                    |live_entry| !tombstones.contains(live_entry.0),
+                    |entry| {
+                        let should_stop = match entry {
+                            OrderedOverlayEntry::Canonical(canonical_entry) => {
+                                visit(canonical_entry.key(), &canonical_entry.value())?
+                            }
+                            OrderedOverlayEntry::Live((key, value)) => visit(key, value)?,
+                        };
+                        Ok(if should_stop {
+                            OrderedOverlayVisit::Stop
+                        } else {
+                            OrderedOverlayVisit::Continue
+                        })
+                    },
                 )?;
             }
         }
 
         Ok(())
-    }
-
-    #[allow(clippy::redundant_closure_for_method_calls)]
-    fn visit_journaled_merged_entries<E>(
-        canonical: &StableBTreeMap<
-            RawIndexStoreKey,
-            IndexEntryValue,
-            VirtualMemory<DefaultMemoryImpl>,
-        >,
-        live: &HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
-        tombstones: &BTreeSet<RawIndexStoreKey>,
-        bounds: (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>),
-        mut visit: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
-    ) -> Result<(), E> {
-        enum MergeStep {
-            Canonical,
-            Live,
-            Both,
-            Done,
-        }
-
-        let mut canonical_iter = canonical
-            .range((bounds.0.clone(), bounds.1.clone()))
-            .peekable();
-        let mut live_iter = live.range((bounds.0, bounds.1)).peekable();
-
-        loop {
-            let step = {
-                let canonical_key = canonical_iter.peek().map(|entry| entry.key());
-                let live_key = live_iter.peek().map(|(key, _)| *key);
-                match (canonical_key, live_key) {
-                    (None, None) => MergeStep::Done,
-                    (Some(_), None) => MergeStep::Canonical,
-                    (None, Some(_)) => MergeStep::Live,
-                    (Some(canonical_key), Some(live_key)) => match canonical_key.cmp(live_key) {
-                        Ordering::Less => MergeStep::Canonical,
-                        Ordering::Equal => MergeStep::Both,
-                        Ordering::Greater => MergeStep::Live,
-                    },
-                }
-            };
-
-            match step {
-                MergeStep::Canonical => {
-                    let entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled index entry should exist");
-                    if !tombstones.contains(entry.key()) && visit(entry.key(), &entry.value())? {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Live => {
-                    let (key, value) = live_iter
-                        .next()
-                        .expect("peeked live journaled index entry should exist");
-                    if !tombstones.contains(key) && visit(key, value)? {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Both => {
-                    let _canonical_entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled index entry should exist");
-                    let (key, value) = live_iter
-                        .next()
-                        .expect("peeked live journaled index entry should exist");
-                    if !tombstones.contains(key) && visit(key, value)? {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Done => return Ok(()),
-            }
-        }
-    }
-
-    #[allow(clippy::redundant_closure_for_method_calls)]
-    fn visit_journaled_merged_entries_rev<E>(
-        canonical: &StableBTreeMap<
-            RawIndexStoreKey,
-            IndexEntryValue,
-            VirtualMemory<DefaultMemoryImpl>,
-        >,
-        live: &HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
-        tombstones: &BTreeSet<RawIndexStoreKey>,
-        bounds: (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>),
-        mut visit: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
-    ) -> Result<(), E> {
-        enum MergeStep {
-            Canonical,
-            Live,
-            Both,
-            Done,
-        }
-
-        let mut canonical_iter = canonical
-            .range((bounds.0.clone(), bounds.1.clone()))
-            .rev()
-            .peekable();
-        let mut live_iter = live.range((bounds.0, bounds.1)).rev().peekable();
-
-        loop {
-            let step = {
-                let canonical_key = canonical_iter.peek().map(|entry| entry.key());
-                let live_key = live_iter.peek().map(|(key, _)| *key);
-                match (canonical_key, live_key) {
-                    (None, None) => MergeStep::Done,
-                    (Some(_), None) => MergeStep::Canonical,
-                    (None, Some(_)) => MergeStep::Live,
-                    (Some(canonical_key), Some(live_key)) => match canonical_key.cmp(live_key) {
-                        Ordering::Less => MergeStep::Live,
-                        Ordering::Equal => MergeStep::Both,
-                        Ordering::Greater => MergeStep::Canonical,
-                    },
-                }
-            };
-
-            match step {
-                MergeStep::Canonical => {
-                    let entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled index entry should exist");
-                    if !tombstones.contains(entry.key()) && visit(entry.key(), &entry.value())? {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Live => {
-                    let (key, value) = live_iter
-                        .next()
-                        .expect("peeked live journaled index entry should exist");
-                    if !tombstones.contains(key) && visit(key, value)? {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Both => {
-                    let _canonical_entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled index entry should exist");
-                    let (key, value) = live_iter
-                        .next()
-                        .expect("peeked live journaled index entry should exist");
-                    if !tombstones.contains(key) && visit(key, value)? {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Done => return Ok(()),
-            }
-        }
     }
 }
 

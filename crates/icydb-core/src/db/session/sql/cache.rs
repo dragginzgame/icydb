@@ -228,6 +228,11 @@ impl SqlCompiledCommandCacheKey {
             sql: sql.to_string(),
         }
     }
+
+    #[must_use]
+    pub(in crate::db::session::sql) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.schema_fingerprint
+    }
 }
 
 #[cfg(test)]
@@ -295,7 +300,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let accepted_schema = self
-            .ensure_accepted_schema_snapshot::<E>()
+            .accepted_schema_snapshot_for_query::<E>()
             .map_err(QueryError::execute)?;
         let schema_fingerprint =
             accepted_schema_cache_fingerprint(&accepted_schema).map_err(QueryError::execute)?;

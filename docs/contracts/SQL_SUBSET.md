@@ -121,9 +121,12 @@ Supported commands:
 - `SHOW COLUMNS entity`
 - `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
 - `SHOW STORES` / `SHOW STORES VERBOSE`
+- `SHOW MEMORY`
 
-`SHOW ENTITIES` lists registered runtime entities. `SHOW STORES` lists
-registered stores and their storage modes. The default shell rendering stays
+`SHOW ENTITIES` lists registered runtime entities with owning store, storage
+mode, compact schema counts, and `sv` schema version. `SHOW STORES` lists
+registered stores and their storage modes. `SHOW MEMORY` lists stable-memory
+tags, memory IDs, and their owning stores. The default shell rendering stays
 compact; `VERBOSE` exposes full entity and store paths for debugging.
 
 `SHOW INDEXES` includes index lifecycle and origin annotations. Generated

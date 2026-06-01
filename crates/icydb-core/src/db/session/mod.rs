@@ -367,6 +367,14 @@ impl<C: CanisterKind> DbSession<C> {
     /// Return one stable list of runtime-registered entity catalog entries.
     #[must_use]
     pub fn show_entities(&self) -> Vec<crate::db::EntityCatalogDescription> {
+        self.try_show_entities()
+            .expect("SHOW ENTITIES metadata requires accepted schema authority")
+    }
+
+    /// Return one stable list of runtime-registered entity catalog entries.
+    pub fn try_show_entities(
+        &self,
+    ) -> Result<Vec<crate::db::EntityCatalogDescription>, InternalError> {
         self.db.runtime_entity_catalog()
     }
 
@@ -374,6 +382,12 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn show_stores(&self) -> Vec<StoreCatalogDescription> {
         self.db.runtime_store_catalog()
+    }
+
+    /// Return one stable list of runtime-registered stable-memory allocations.
+    #[must_use]
+    pub fn show_memory(&self) -> Vec<crate::db::MemoryCatalogDescription> {
+        self.db.runtime_memory_catalog()
     }
 
     // Resolve the exact secondary-index set that is visible to planner-owned
@@ -454,6 +468,33 @@ impl<C: CanisterKind> DbSession<C> {
         let store = self.db.recovered_store(E::Store::PATH)?;
 
         store.with_schema_mut(|schema_store| {
+            ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+        })
+    }
+
+    // Load the current accepted schema snapshot for read/query paths without
+    // rerunning generated proposal reconciliation on every cold query call.
+    // Startup and write paths still own reconciliation; the fallback only keeps
+    // first-use test stores and freshly initialized local stores functional.
+    fn accepted_schema_snapshot_for_query<E>(&self) -> Result<AcceptedSchemaSnapshot, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let store = self.db.recovered_store(E::Store::PATH)?;
+
+        store.with_schema_mut(|schema_store| {
+            if let Some(snapshot) = schema_store.latest_persisted_snapshot(E::ENTITY_TAG)? {
+                let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+                if AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+                    &accepted,
+                    E::MODEL,
+                )
+                .is_ok()
+                {
+                    return Ok(accepted);
+                }
+            }
+
             ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
         })
     }

@@ -66,6 +66,7 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok(Self::compile_show_entities(statement.verbose))
             }
             SqlStatement::ShowStores(statement) => Ok(Self::compile_show_stores(statement.verbose)),
+            SqlStatement::ShowMemory(_) => Ok(Self::compile_show_memory()),
         }
     }
 
@@ -372,6 +373,19 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_stores(verbose: bool) -> SqlCompileArtifacts {
         SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowStores { verbose },
+            SqlQueryShape::metadata(),
+            0,
+            0,
+            0,
+            0,
+        )
+    }
+
+    // Compile SHOW MEMORY without entity-bound preparation because the command
+    // is catalog-wide and historically reports no compile sub-stages.
+    fn compile_show_memory() -> SqlCompileArtifacts {
+        SqlCompileArtifacts::new(
+            CompiledSqlCommand::ShowMemory,
             SqlQueryShape::metadata(),
             0,
             0,

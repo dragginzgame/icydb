@@ -48,5 +48,6 @@ pub enum SqlStatementResult {
         stores: Vec<crate::db::StoreCatalogDescription>,
         verbose: bool,
     },
+    ShowMemory(Vec<crate::db::MemoryCatalogDescription>),
     Ddl(SqlDdlPreparationReport),
 }

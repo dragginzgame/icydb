@@ -1,6 +1,6 @@
 use crate::db::{
     EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
-    StoreCatalogDescription,
+    MemoryCatalogDescription, StoreCatalogDescription,
     sql::{SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryRowsOutput},
 };
 
@@ -245,13 +245,26 @@ pub fn render_show_entities_lines(entities: &[EntityCatalogDescription]) -> Vec<
             vec![
                 entity.entity_name().to_string(),
                 render_catalog_path_tail(entity.store_path()).to_string(),
+                entity.storage().to_string(),
+                entity.columns().to_string(),
+                entity.indexes().to_string(),
+                entity.relations().to_string(),
+                entity.schema_version().to_string(),
             ]
         })
         .collect::<Vec<_>>();
-    let mut lines = vec!["entities:".to_string()];
+    let mut lines = Vec::new();
     render_table_section(
         &mut lines,
-        &["name".to_string(), "store".to_string()],
+        &[
+            "name".to_string(),
+            "store".to_string(),
+            "storage".to_string(),
+            "cols".to_string(),
+            "indexes".to_string(),
+            "relations".to_string(),
+            "sv".to_string(),
+        ],
         rows.as_slice(),
     );
     lines.push(String::new());
@@ -273,13 +286,27 @@ pub fn render_show_entities_verbose_lines(entities: &[EntityCatalogDescription])
                 entity.entity_name().to_string(),
                 entity.entity_path().to_string(),
                 entity.store_path().to_string(),
+                entity.storage().to_string(),
+                entity.columns().to_string(),
+                entity.indexes().to_string(),
+                entity.relations().to_string(),
+                entity.schema_version().to_string(),
             ]
         })
         .collect::<Vec<_>>();
-    let mut lines = vec!["entities:".to_string()];
+    let mut lines = Vec::new();
     render_table_section(
         &mut lines,
-        &["name".to_string(), "path".to_string(), "store".to_string()],
+        &[
+            "name".to_string(),
+            "path".to_string(),
+            "store".to_string(),
+            "storage".to_string(),
+            "cols".to_string(),
+            "indexes".to_string(),
+            "relations".to_string(),
+            "sv".to_string(),
+        ],
         rows.as_slice(),
     );
     lines.push(String::new());
@@ -303,7 +330,7 @@ pub fn render_show_stores_lines(stores: &[StoreCatalogDescription]) -> Vec<Strin
             ]
         })
         .collect::<Vec<_>>();
-    let mut lines = vec!["stores:".to_string()];
+    let mut lines = Vec::new();
     render_table_section(
         &mut lines,
         &["store".to_string(), "storage".to_string()],
@@ -325,7 +352,7 @@ pub fn render_show_stores_verbose_lines(stores: &[StoreCatalogDescription]) -> V
         .iter()
         .map(|store| vec![store.store_path().to_string(), store.storage().to_string()])
         .collect::<Vec<_>>();
-    let mut lines = vec!["stores:".to_string()];
+    let mut lines = Vec::new();
     render_table_section(
         &mut lines,
         &["path".to_string(), "storage".to_string()],
@@ -333,6 +360,38 @@ pub fn render_show_stores_verbose_lines(stores: &[StoreCatalogDescription]) -> V
     );
     lines.push(String::new());
     lines.push(render_result_store_count_line(stores.len()));
+
+    lines
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one helper-level `SHOW MEMORY` payload into deterministic lines."
+)]
+#[must_use]
+pub fn render_show_memory_lines(memory: &[MemoryCatalogDescription]) -> Vec<String> {
+    let rows = memory
+        .iter()
+        .map(|entry| {
+            vec![
+                entry.tag().to_string(),
+                entry.memory_id().to_string(),
+                render_catalog_path_tail(entry.store_path()).to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut lines = Vec::new();
+    render_table_section(
+        &mut lines,
+        &[
+            "tag".to_string(),
+            "memory_id".to_string(),
+            "store".to_string(),
+        ],
+        rows.as_slice(),
+    );
+    lines.push(String::new());
+    lines.push(render_result_memory_count_line(memory.len()));
 
     lines
 }
@@ -436,6 +495,15 @@ fn render_result_entity_count_line(entity_count: usize) -> String {
 fn render_result_store_count_line(store_count: usize) -> String {
     let noun = if store_count == 1 { "store" } else { "stores" };
     format!("{} {noun},", render_grouped_decimal_usize(store_count))
+}
+
+fn render_result_memory_count_line(memory_count: usize) -> String {
+    let noun = if memory_count == 1 {
+        "memory"
+    } else {
+        "memories"
+    };
+    format!("{} {noun},", render_grouped_decimal_usize(memory_count))
 }
 
 // Render one count with ASCII thousands separators so shell count footers

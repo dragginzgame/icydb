@@ -223,7 +223,8 @@ impl SqlCompileArtifacts {
             | CompiledSqlCommand::ShowIndexesEntity
             | CompiledSqlCommand::ShowColumnsEntity
             | CompiledSqlCommand::ShowEntities { .. }
-            | CompiledSqlCommand::ShowStores { .. } => false,
+            | CompiledSqlCommand::ShowStores { .. }
+            | CompiledSqlCommand::ShowMemory => false,
         }
     }
 

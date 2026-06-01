@@ -178,6 +178,14 @@ impl EntityAuthority {
         )
     }
 
+    /// Borrow the accepted schema view attached to this executor authority.
+    #[must_use]
+    pub(in crate::db) fn accepted_schema_info(&self) -> Option<&SchemaInfo> {
+        self.accepted_schema_info
+            .as_ref()
+            .map(std::convert::AsRef::as_ref)
+    }
+
     /// Return whether `field` is exactly the scalar primary-key field.
     ///
     /// Composite primary keys deliberately return false here because aggregate

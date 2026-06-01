@@ -1772,6 +1772,7 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
     let session_mod = read_source("src/db/session/mod.rs");
     let session_query_cache = read_source("src/db/session/query/cache.rs");
     let session_sql_cache = read_source("src/db/session/sql/cache.rs");
+    let session_sql_compile_cache = read_source("src/db/session/sql/compile_cache.rs");
     let session_sql_execute = read_source("src/db/session/sql/execute/mod.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
     let session_sql_write = read_rust_sources_under("src/db/session/sql/execute/write");
@@ -1789,10 +1790,18 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
             && session_query_cache.contains("accepted_entity_authority::<E>()")
             && session_query_cache.contains("cached_shared_query_plan_for_accepted_authority(")
             && !session_query_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
-            && session_sql_cache.contains("accepted_entity_authority::<E>()")
+            && session_sql_cache.contains("accepted_schema_snapshot_for_query::<E>()")
             && !session_sql_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
+            && session_sql_compile_cache
+                .contains("Self::accepted_entity_authority_for_schema::<E>(accepted_schema)")
+            && session_sql_compile_cache.contains("Some(authority)")
+            && session_sql_compile_cache.contains("None")
+            && !session_sql_compile_cache
+                .contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && session_sql_execute.contains("sql_select_prepared_plan_for_entity::<E>(query)")
             && session_sql_execute.contains("accepted_entity_authority::<E>()")
+            && session_sql_execute.contains("context.accepted_authority()")
+            && session_sql_execute.contains("Self::accepted_entity_authority_for_schema::<E>(")
             && !session_sql_execute.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && session_sql_explain.contains("accepted_schema: &AcceptedSchemaSnapshot")
             && session_sql_explain.contains("cached_shared_query_plan_for_accepted_authority(")
@@ -2424,6 +2433,69 @@ fn commit_recovery_boundary_keeps_journal_replay_marker_bound_and_folds_via_wate
         !executor_mutation.contains("fold_journal") && !relation.contains("fold_journal"),
         "fold policy should stay in recovery/store-wrapper boundaries, not executor or relation policy roots",
     );
+}
+
+#[test]
+fn journaled_ordered_overlay_traversal_stays_streaming_and_fold_only() {
+    let data_store = strip_cfg_test_items(&read_source("src/db/data/store.rs"));
+    let index_store = strip_cfg_test_items(&read_source("src/db/index/store.rs"));
+    let schema_store = strip_cfg_test_items(&read_source("src/db/schema/store.rs"));
+    let session_sql_cache = strip_cfg_test_items(&read_source("src/db/session/sql/cache.rs"));
+    let executor = read_rust_sources_under("src/db/executor");
+    let query = read_rust_sources_under("src/db/query");
+    let session_query = read_rust_sources_under("src/db/session/query");
+    let session_sql = read_rust_sources_under("src/db/session/sql");
+
+    assert!(
+        data_store.contains("visit_ordered_overlay(")
+            && !data_store.contains("journaled_entries_snapshot"),
+        "journaled data traversal must keep streaming through ordered_overlay without a materialized snapshot helper",
+    );
+
+    let index_store_compact = compact_source(&index_store);
+    assert!(
+        index_store.contains("visit_ordered_overlay(")
+            && index_store.contains("fn journaled_entries_snapshot_for_fold(")
+            && index_store_compact
+                .contains("letentries=Self::journaled_entries_snapshot_for_fold(&self.backend);")
+            && !index_store.contains("fn journaled_entries_snapshot("),
+        "journaled index traversal must stream through ordered_overlay and keep snapshot materialization named fold-only",
+    );
+
+    assert!(
+        schema_store.contains("visit_ordered_overlay(")
+            && !schema_store.contains("journaled_snapshots"),
+        "journaled schema traversal must keep latest-snapshot reads streaming through ordered_overlay without materialized snapshot maps",
+    );
+
+    let session_sql_compact = compact_source(&session_sql);
+    assert!(
+        session_sql_compact.contains("compile_sql_query_with_execution_context::<E>(sql)")
+            && session_sql_compact
+                .contains("execute_compiled_sql_context_with_phase_attribution::<E>(&compiled)")
+            && session_sql.contains("SqlCompiledCommandExecutionContext"),
+        "cold SQL query execution must carry accepted schema context from compile into plan lookup instead of rebuilding it inside the same query call",
+    );
+    assert!(
+        session_sql_cache.contains("accepted_schema_snapshot_for_query::<E>()")
+            && !session_sql_cache.contains("ensure_accepted_schema_snapshot::<E>()"),
+        "SQL query cache-key construction must load accepted runtime schema directly instead of rerunning generated reconciliation on every query call",
+    );
+
+    for (label, source) in [
+        ("executor", executor),
+        ("query", query),
+        ("session query", session_query),
+        ("session sql", session_sql),
+    ] {
+        assert!(
+            !source.contains("journaled_entries_snapshot")
+                && !source.contains("journaled_entries_snapshot_for_fold")
+                && !source.contains("journaled_snapshots")
+                && !source.contains("latest_raw_snapshots_by_entity"),
+            "{label} hot paths must not call journaled snapshot materialization helpers",
+        );
+    }
 }
 
 #[test]

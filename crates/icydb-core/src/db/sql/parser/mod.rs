@@ -33,7 +33,7 @@ pub(crate) use model::{
     SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection,
     SqlScalarFunction, SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement,
     SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+    SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
 };
 #[cfg(test)]
 pub(in crate::db) use order_expr::{
@@ -288,9 +288,9 @@ const fn sql_unsupported_feature(kind: Option<&TokenKind>) -> Option<&'static st
         Some(TokenKind::Keyword(Keyword::Filter)) => Some("aggregate FILTER clauses"),
         Some(TokenKind::Keyword(Keyword::Over)) => Some("window functions / OVER"),
         Some(TokenKind::Keyword(Keyword::Returning)) => Some("RETURNING"),
-        Some(TokenKind::Keyword(Keyword::Show)) => {
-            Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES")
-        }
+        Some(TokenKind::Keyword(Keyword::Show)) => Some(
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
+        ),
         Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
         Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
             Some("UNION/INTERSECT/EXCEPT")

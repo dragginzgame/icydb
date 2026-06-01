@@ -13,7 +13,10 @@ use crate::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
-        schema::{AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint},
+        schema::{
+            AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+            SchemaInfo, accepted_schema_cache_fingerprint,
+        },
     },
     metrics::sink::{
         CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
@@ -137,6 +140,36 @@ impl QueryPlanCacheAttribution {
     }
 }
 
+fn schema_info_for_plan_cache_authority(
+    authority: &EntityAuthority,
+    accepted_schema: &AcceptedSchemaSnapshot,
+) -> SchemaInfo {
+    if !accepted_schema_has_expression_indexes(accepted_schema)
+        && let Some(schema_info) = authority.accepted_schema_info()
+    {
+        return schema_info.clone();
+    }
+
+    SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+        authority.model(),
+        accepted_schema,
+        true,
+    )
+}
+
+fn accepted_schema_has_expression_indexes(accepted_schema: &AcceptedSchemaSnapshot) -> bool {
+    accepted_schema
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .any(|index| match index.key() {
+            PersistedIndexKeySnapshot::FieldPath(_) => false,
+            PersistedIndexKeySnapshot::Items(items) => items
+                .iter()
+                .any(|item| matches!(item, PersistedIndexKeyItemSnapshot::Expression(_))),
+        })
+}
+
 // Map one shared query-plan cache attribution outcome onto the explicit reuse
 // event shipped in `0.109.0`.
 pub(in crate::db::session) const fn query_plan_cache_reuse_event(
@@ -218,9 +251,25 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema: &AcceptedSchemaSnapshot,
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let schema_fingerprint =
             accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
+
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
+            authority,
+            accepted_schema,
+            schema_fingerprint,
+            query,
+        )
+    }
+
+    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
+        &self,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        schema_fingerprint: CommitSchemaFingerprint,
+        query: &StructuralQuery,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         if let Some(cached) = self.try_cached_filterless_query_plan_for_authority(
             &authority,
             schema_fingerprint,
@@ -229,11 +278,7 @@ impl<C: CanisterKind> DbSession<C> {
         ) {
             return Ok(cached);
         }
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
-            authority.model(),
-            accepted_schema,
-            true,
-        );
+        let schema_info = schema_info_for_plan_cache_authority(&authority, accepted_schema);
         if query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
             return self.cached_trivial_scalar_load_plan_for_authority(
                 authority,

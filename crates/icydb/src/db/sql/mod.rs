@@ -12,8 +12,8 @@ pub(crate) use convert::sql_query_result_from_statement;
 pub use table_render::{
     render_count_lines, render_describe_lines, render_explain_lines, render_grouped_lines,
     render_projection_lines, render_show_columns_lines, render_show_entities_lines,
-    render_show_entities_verbose_lines, render_show_indexes_lines, render_show_stores_lines,
-    render_show_stores_verbose_lines,
+    render_show_entities_verbose_lines, render_show_indexes_lines, render_show_memory_lines,
+    render_show_stores_lines, render_show_stores_verbose_lines,
 };
 pub use types::{SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput};
 pub use value_render::render_value_text;
@@ -31,13 +31,13 @@ mod tests {
     use crate::db::sql::{
         SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_describe_lines,
         render_show_columns_lines, render_show_entities_lines, render_show_entities_verbose_lines,
-        render_show_indexes_lines, render_show_stores_lines, render_show_stores_verbose_lines,
-        sql_query_result_from_statement,
+        render_show_indexes_lines, render_show_memory_lines, render_show_stores_lines,
+        render_show_stores_verbose_lines, sql_query_result_from_statement,
     };
     use crate::db::{
         EntityCatalogDescription, EntityFieldDescription, EntityIndexDescription,
         EntityRelationCardinality, EntityRelationDescription, EntityRelationStrength,
-        EntitySchemaDescription, StoreCatalogDescription,
+        EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
     };
 
     #[test]
@@ -188,30 +188,51 @@ mod tests {
                 "ExampleEntity".to_string(),
                 "schema.public.ExampleEntity".to_string(),
                 "stores::main".to_string(),
+                "stable".to_string(),
+                2,
+                1,
+                0,
+                1,
             ),
             EntityCatalogDescription::new(
                 "Order".to_string(),
                 "schema.public.Order".to_string(),
                 "stores::sales".to_string(),
+                "stable".to_string(),
+                5,
+                2,
+                1,
+                3,
             ),
             EntityCatalogDescription::new(
                 "User".to_string(),
                 "schema.public.User".to_string(),
                 "stores::main".to_string(),
+                "journaled".to_string(),
+                4,
+                0,
+                2,
+                4,
             ),
         ];
 
         assert_eq!(
             render_show_entities_lines(entities.as_slice()),
             vec![
-                "entities:".to_string(),
-                "+---------------+-------+".to_string(),
-                "| name          | store |".to_string(),
-                "+---------------+-------+".to_string(),
-                "| ExampleEntity | main  |".to_string(),
-                "| Order         | sales |".to_string(),
-                "| User          | main  |".to_string(),
-                "+---------------+-------+".to_string(),
+                "+---------------+-------+-----------+------+---------+-----------+----+"
+                    .to_string(),
+                "| name          | store | storage   | cols | indexes | relations | sv |"
+                    .to_string(),
+                "+---------------+-------+-----------+------+---------+-----------+----+"
+                    .to_string(),
+                "| ExampleEntity | main  | stable    | 2    | 1       | 0         | 1  |"
+                    .to_string(),
+                "| Order         | sales | stable    | 5    | 2       | 1         | 3  |"
+                    .to_string(),
+                "| User          | main  | journaled | 4    | 0       | 2         | 4  |"
+                    .to_string(),
+                "+---------------+-------+-----------+------+---------+-----------+----+"
+                    .to_string(),
                 String::new(),
                 "3 entities,".to_string(),
             ],
@@ -225,17 +246,21 @@ mod tests {
             "ExampleEntity".to_string(),
             "schema.public.ExampleEntity".to_string(),
             "stores::main".to_string(),
+            "stable".to_string(),
+            2,
+            1,
+            0,
+            1,
         )];
 
         assert_eq!(
             render_show_entities_verbose_lines(entities.as_slice()),
             vec![
-                "entities:".to_string(),
-                "+---------------+-----------------------------+--------------+".to_string(),
-                "| name          | path                        | store        |".to_string(),
-                "+---------------+-----------------------------+--------------+".to_string(),
-                "| ExampleEntity | schema.public.ExampleEntity | stores::main |".to_string(),
-                "+---------------+-----------------------------+--------------+".to_string(),
+                "+---------------+-----------------------------+--------------+---------+------+---------+-----------+----+".to_string(),
+                "| name          | path                        | store        | storage | cols | indexes | relations | sv |".to_string(),
+                "+---------------+-----------------------------+--------------+---------+------+---------+-----------+----+".to_string(),
+                "| ExampleEntity | schema.public.ExampleEntity | stores::main | stable  | 2    | 1       | 0         | 1  |".to_string(),
+                "+---------------+-----------------------------+--------------+---------+------+---------+-----------+----+".to_string(),
                 String::new(),
                 "1 entity,".to_string(),
             ],
@@ -254,7 +279,6 @@ mod tests {
         assert_eq!(
             render_show_stores_lines(stores.as_slice()),
             vec![
-                "stores:".to_string(),
                 "+-----------+-----------+".to_string(),
                 "| store     | storage   |".to_string(),
                 "+-----------+-----------+".to_string(),
@@ -279,7 +303,6 @@ mod tests {
         assert_eq!(
             render_show_stores_verbose_lines(stores.as_slice()),
             vec![
-                "stores:".to_string(),
                 "+-------------------+-----------+".to_string(),
                 "| path              | storage   |".to_string(),
                 "+-------------------+-----------+".to_string(),
@@ -289,6 +312,37 @@ mod tests {
                 "1 store,".to_string(),
             ],
             "verbose show-stores output should keep full paths behind an explicit surface",
+        );
+    }
+
+    #[test]
+    fn render_show_memory_lines_output_contract_vector_is_stable() {
+        let memory = vec![
+            MemoryCatalogDescription::new(
+                "icydb.demo.main.data.v1".to_string(),
+                100,
+                "stores::main".to_string(),
+            ),
+            MemoryCatalogDescription::new(
+                "icydb.demo.main.index.v1".to_string(),
+                101,
+                "stores::main".to_string(),
+            ),
+        ];
+
+        assert_eq!(
+            render_show_memory_lines(memory.as_slice()),
+            vec![
+                "+--------------------------+-----------+-------+".to_string(),
+                "| tag                      | memory_id | store |".to_string(),
+                "+--------------------------+-----------+-------+".to_string(),
+                "| icydb.demo.main.data.v1  | 100       | main  |".to_string(),
+                "| icydb.demo.main.index.v1 | 101       | main  |".to_string(),
+                "+--------------------------+-----------+-------+".to_string(),
+                String::new(),
+                "2 memories,".to_string(),
+            ],
+            "show-memory shell output should expose stable keys, memory ids, and owning stores",
         );
     }
 

@@ -4,7 +4,10 @@
 //! Boundary: carries generic-free compiled SQL state between session compile and execute phases.
 
 use crate::db::{
+    commit::CommitSchemaFingerprint,
+    executor::EntityAuthority,
     query::intent::StructuralQuery,
+    schema::AcceptedSchemaSnapshot,
     sql::{
         lowering::{LoweredSqlCommand, StructuralSqlGlobalAggregateCommand},
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
@@ -44,6 +47,66 @@ pub(in crate::db) enum CompiledSqlCommand {
     ShowStores {
         verbose: bool,
     },
+    ShowMemory,
+}
+
+///
+/// SqlCompiledCommandExecutionContext
+///
+/// SqlCompiledCommandExecutionContext carries the accepted schema facts loaded
+/// while compiling one SQL command through to immediate execution. Query calls
+/// cannot rely on heap cache writes persisting, so the cold path must avoid
+/// reloading the same accepted schema between compile and plan lookup.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct SqlCompiledCommandExecutionContext {
+    command: CompiledSqlCommand,
+    accepted_schema: AcceptedSchemaSnapshot,
+    schema_fingerprint: CommitSchemaFingerprint,
+    accepted_authority: Option<EntityAuthority>,
+}
+
+impl SqlCompiledCommandExecutionContext {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        command: CompiledSqlCommand,
+        accepted_schema: AcceptedSchemaSnapshot,
+        schema_fingerprint: CommitSchemaFingerprint,
+        accepted_authority: Option<EntityAuthority>,
+    ) -> Self {
+        Self {
+            command,
+            accepted_schema,
+            schema_fingerprint,
+            accepted_authority,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn command(&self) -> &CompiledSqlCommand {
+        &self.command
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_command(self) -> CompiledSqlCommand {
+        self.command
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
+        &self.accepted_schema
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.schema_fingerprint
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_authority(&self) -> Option<&EntityAuthority> {
+        self.accepted_authority.as_ref()
+    }
 }
 
 ///

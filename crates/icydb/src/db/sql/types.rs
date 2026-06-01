@@ -1,11 +1,12 @@
 use crate::db::{
     EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
-    StoreCatalogDescription,
+    MemoryCatalogDescription, StoreCatalogDescription,
     sql::table_render::{
         SqlDdlRenderInput, render_count_lines, render_describe_lines, render_explain_lines,
         render_grouped_lines, render_query_rows_lines, render_show_columns_lines,
         render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
-        render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
+        render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
+        render_sql_ddl_lines,
     },
 };
 use candid::CandidType;
@@ -125,6 +126,9 @@ pub enum SqlQueryResult {
         stores: Vec<StoreCatalogDescription>,
         verbose: bool,
     },
+    ShowMemory {
+        memory: Vec<MemoryCatalogDescription>,
+    },
     Ddl {
         entity: String,
         mutation_kind: String,
@@ -167,6 +171,7 @@ impl SqlQueryResult {
                     render_show_stores_lines(stores.as_slice())
                 }
             }
+            Self::ShowMemory { memory } => render_show_memory_lines(memory.as_slice()),
             Self::Ddl {
                 entity,
                 mutation_kind,

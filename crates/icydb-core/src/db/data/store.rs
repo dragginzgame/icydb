@@ -6,7 +6,9 @@
 use crate::{
     db::{
         data::{CanonicalRow, RawDataStoreKey, RawRow},
+        direction::Direction,
         key_taxonomy::RawDataStoreKeyRange,
+        ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
     },
     types::EntityTag,
 };
@@ -15,9 +17,6 @@ use ic_memory::stable_structures::{
 };
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
-#[cfg(test)]
-use std::cell::Cell as TestCell;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ops::{Bound, RangeBounds};
@@ -27,33 +26,11 @@ thread_local! {
     static DATA_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(test)]
-thread_local! {
-    static JOURNALED_SNAPSHOT_CALL_COUNT: TestCell<u64> = const { TestCell::new(0) };
-}
-
 #[cfg(feature = "diagnostics")]
 fn record_data_store_get_call() {
     DATA_STORE_GET_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
-}
-
-#[cfg(test)]
-fn record_journaled_snapshot_call() {
-    JOURNALED_SNAPSHOT_CALL_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
-
-#[cfg(test)]
-fn reset_journaled_snapshot_call_count() {
-    JOURNALED_SNAPSHOT_CALL_COUNT.with(|count| count.set(0));
-}
-
-#[cfg(test)]
-fn journaled_snapshot_call_count() -> u64 {
-    JOURNALED_SNAPSHOT_CALL_COUNT.with(TestCell::get)
 }
 
 ///
@@ -350,8 +327,12 @@ impl DataStore {
             DataStoreBackend::Stable(map) => map.len(),
             DataStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
             DataStoreBackend::Journaled { .. } => {
-                u64::try_from(Self::journaled_entries_snapshot(&self.backend).len())
-                    .unwrap_or(u64::MAX)
+                let mut count = 0_u64;
+                let _: Result<(), Infallible> = self.visit_entries(|_key, _row| {
+                    count = count.saturating_add(1);
+                    Ok(StoreVisit::Continue)
+                });
+                count
             }
         }
     }
@@ -364,7 +345,12 @@ impl DataStore {
             DataStoreBackend::Stable(map) => map.is_empty(),
             DataStoreBackend::Heap(map) => map.is_empty(),
             DataStoreBackend::Journaled { .. } => {
-                Self::journaled_entries_snapshot(&self.backend).is_empty()
+                let mut empty = true;
+                let _: Result<(), Infallible> = self.visit_entries(|_key, _row| {
+                    empty = false;
+                    Ok(StoreVisit::Stop)
+                });
+                empty
             }
         }
     }
@@ -557,37 +543,6 @@ impl DataStore {
         live.get(key).cloned().or_else(|| canonical.get(key))
     }
 
-    fn journaled_entries_snapshot(
-        backend: &DataStoreBackend,
-    ) -> HeapBTreeMap<RawDataStoreKey, RawRow> {
-        #[cfg(test)]
-        record_journaled_snapshot_call();
-
-        let DataStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-        } = backend
-        else {
-            return HeapBTreeMap::new();
-        };
-
-        let mut entries = HeapBTreeMap::new();
-        for entry in canonical.iter() {
-            let key = entry.key().clone();
-            if !tombstones.contains(&key) {
-                entries.insert(key, entry.value());
-            }
-        }
-        for (key, row) in live {
-            if !tombstones.contains(key) {
-                entries.insert(key.clone(), row.clone());
-            }
-        }
-
-        entries
-    }
-
     fn owned_range_bounds(
         key_range: &impl RangeBounds<RawDataStoreKey>,
     ) -> (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>) {
@@ -654,153 +609,53 @@ impl DataStore {
             return Ok(());
         }
 
-        if reverse {
-            Self::visit_journaled_merged_entries_rev(canonical, live, tombstones, bounds, visitor)
+        match if reverse {
+            Direction::Desc
         } else {
-            Self::visit_journaled_merged_entries(canonical, live, tombstones, bounds, visitor)
-        }
-    }
-
-    #[allow(clippy::redundant_closure_for_method_calls)]
-    fn visit_journaled_merged_entries<E>(
-        canonical: &StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
-        live: &HeapBTreeMap<RawDataStoreKey, RawRow>,
-        tombstones: &BTreeSet<RawDataStoreKey>,
-        bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
-        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
-    ) -> Result<(), E> {
-        enum MergeStep {
-            Canonical,
-            Live,
-            Both,
-            Done,
-        }
-
-        let mut canonical_iter = canonical
-            .range((bounds.0.clone(), bounds.1.clone()))
-            .peekable();
-        let mut live_iter = live.range((bounds.0, bounds.1)).peekable();
-
-        loop {
-            let step = {
-                let canonical_key = canonical_iter.peek().map(|entry| entry.key());
-                let live_key = live_iter.peek().map(|(key, _)| *key);
-                match (canonical_key, live_key) {
-                    (None, None) => MergeStep::Done,
-                    (Some(_), None) => MergeStep::Canonical,
-                    (None, Some(_)) => MergeStep::Live,
-                    (Some(canonical_key), Some(live_key)) => match canonical_key.cmp(live_key) {
-                        Ordering::Less => MergeStep::Canonical,
-                        Ordering::Equal => MergeStep::Both,
-                        Ordering::Greater => MergeStep::Live,
-                    },
-                }
-            };
-
-            match step {
-                MergeStep::Canonical => {
-                    let entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled entry should exist");
-                    if !tombstones.contains(entry.key())
-                        && visitor(entry.key(), &entry.value())?.should_stop()
-                    {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Live => {
-                    let (key, row) = live_iter
-                        .next()
-                        .expect("peeked live journaled entry should exist");
-                    if !tombstones.contains(key) && visitor(key, row)?.should_stop() {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Both => {
-                    let _canonical_entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled entry should exist");
-                    let (key, row) = live_iter
-                        .next()
-                        .expect("peeked live journaled entry should exist");
-                    if !tombstones.contains(key) && visitor(key, row)?.should_stop() {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Done => return Ok(()),
-            }
-        }
-    }
-
-    #[allow(clippy::redundant_closure_for_method_calls)]
-    fn visit_journaled_merged_entries_rev<E>(
-        canonical: &StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
-        live: &HeapBTreeMap<RawDataStoreKey, RawRow>,
-        tombstones: &BTreeSet<RawDataStoreKey>,
-        bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
-        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
-    ) -> Result<(), E> {
-        enum MergeStep {
-            Canonical,
-            Live,
-            Both,
-            Done,
-        }
-
-        let mut canonical_iter = canonical
-            .range((bounds.0.clone(), bounds.1.clone()))
-            .rev()
-            .peekable();
-        let mut live_iter = live.range((bounds.0, bounds.1)).rev().peekable();
-
-        loop {
-            let step = {
-                let canonical_key = canonical_iter.peek().map(|entry| entry.key());
-                let live_key = live_iter.peek().map(|(key, _)| *key);
-                match (canonical_key, live_key) {
-                    (None, None) => MergeStep::Done,
-                    (Some(_), None) => MergeStep::Canonical,
-                    (None, Some(_)) => MergeStep::Live,
-                    (Some(canonical_key), Some(live_key)) => match canonical_key.cmp(live_key) {
-                        Ordering::Less => MergeStep::Live,
-                        Ordering::Equal => MergeStep::Both,
-                        Ordering::Greater => MergeStep::Canonical,
-                    },
-                }
-            };
-
-            match step {
-                MergeStep::Canonical => {
-                    let entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled entry should exist");
-                    if !tombstones.contains(entry.key())
-                        && visitor(entry.key(), &entry.value())?.should_stop()
-                    {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Live => {
-                    let (key, row) = live_iter
-                        .next()
-                        .expect("peeked live journaled entry should exist");
-                    if !tombstones.contains(key) && visitor(key, row)?.should_stop() {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Both => {
-                    let _canonical_entry = canonical_iter
-                        .next()
-                        .expect("peeked canonical journaled entry should exist");
-                    let (key, row) = live_iter
-                        .next()
-                        .expect("peeked live journaled entry should exist");
-                    if !tombstones.contains(key) && visitor(key, row)?.should_stop() {
-                        return Ok(());
-                    }
-                }
-                MergeStep::Done => return Ok(()),
-            }
+            Direction::Asc
+        } {
+            Direction::Asc => visit_ordered_overlay(
+                canonical.range((bounds.0.clone(), bounds.1.clone())),
+                live.range((bounds.0, bounds.1)),
+                Direction::Asc,
+                |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
+                |canonical_entry| !tombstones.contains(canonical_entry.key()),
+                |live_entry| !tombstones.contains(live_entry.0),
+                |entry| {
+                    let visit = match entry {
+                        OrderedOverlayEntry::Canonical(canonical_entry) => {
+                            visitor(canonical_entry.key(), &canonical_entry.value())?
+                        }
+                        OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
+                    };
+                    Ok(if visit.should_stop() {
+                        OrderedOverlayVisit::Stop
+                    } else {
+                        OrderedOverlayVisit::Continue
+                    })
+                },
+            ),
+            Direction::Desc => visit_ordered_overlay(
+                canonical.range((bounds.0.clone(), bounds.1.clone())).rev(),
+                live.range((bounds.0, bounds.1)).rev(),
+                Direction::Desc,
+                |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
+                |canonical_entry| !tombstones.contains(canonical_entry.key()),
+                |live_entry| !tombstones.contains(live_entry.0),
+                |entry| {
+                    let visit = match entry {
+                        OrderedOverlayEntry::Canonical(canonical_entry) => {
+                            visitor(canonical_entry.key(), &canonical_entry.value())?
+                        }
+                        OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
+                    };
+                    Ok(if visit.should_stop() {
+                        OrderedOverlayVisit::Stop
+                    } else {
+                        OrderedOverlayVisit::Continue
+                    })
+                },
+            ),
         }
     }
 }
@@ -979,7 +834,6 @@ mod tests {
             .apply_recovered_journal_delete(&raw_key(1, 1))
             .expect("live delete should apply");
 
-        reset_journaled_snapshot_call_count();
         let mut asc = Vec::new();
         let _: Result<(), Infallible> = store.visit_range(
             (
@@ -996,13 +850,7 @@ mod tests {
             },
         );
         assert_eq!(asc, vec![(raw_key(1, 0), 10), (raw_key(1, 3), 13)]);
-        assert_eq!(
-            journaled_snapshot_call_count(),
-            0,
-            "mixed journaled range traversal should preserve early stop without materializing a snapshot",
-        );
 
-        reset_journaled_snapshot_call_count();
         let mut desc = Vec::new();
         let _: Result<(), Infallible> = store.visit_range_rev(
             (
@@ -1019,10 +867,5 @@ mod tests {
             },
         );
         assert_eq!(desc, vec![(raw_key(1, 5), 55), (raw_key(1, 4), 14)]);
-        assert_eq!(
-            journaled_snapshot_call_count(),
-            0,
-            "mixed reverse journaled range traversal should preserve early stop without materializing a snapshot",
-        );
     }
 }

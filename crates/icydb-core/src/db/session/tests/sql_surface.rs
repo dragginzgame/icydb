@@ -592,6 +592,8 @@ fn sql_metadata_surfaces_match_typed_payloads() {
         .expect("show_entities_sql should succeed");
     let show_stores_from_sql =
         statement_show_stores_sql(&session, "SHOW STORES").expect("show stores should succeed");
+    let show_memory_from_sql =
+        statement_show_memory_sql(&session, "SHOW MEMORY").expect("show memory should succeed");
 
     assert_eq!(
         describe_from_sql,
@@ -614,13 +616,20 @@ fn sql_metadata_surfaces_match_typed_payloads() {
     );
     assert_eq!(
         show_entities_from_sql,
-        session.show_entities(),
+        session
+            .try_show_entities()
+            .expect("typed SHOW ENTITIES metadata should derive"),
         "show_entities_sql should project through canonical show_entities payload",
     );
     assert_eq!(
         show_stores_from_sql,
         session.show_stores(),
         "SHOW STORES should project through canonical show_stores payload",
+    );
+    assert_eq!(
+        show_memory_from_sql,
+        session.show_memory(),
+        "SHOW MEMORY should project through canonical show_memory payload",
     );
 }
 
@@ -686,7 +695,9 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
     };
     assert_eq!(
         show_entities,
-        session.show_entities(),
+        session
+            .try_show_entities()
+            .expect("typed SHOW ENTITIES metadata should derive"),
         "SHOW ENTITIES should expose the same public payload as the typed metadata surface",
     );
 
@@ -703,6 +714,18 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         show_stores,
         session.show_stores(),
         "SHOW STORES should expose the same public payload as the typed metadata surface",
+    );
+
+    let SqlStatementResult::ShowMemory(show_memory) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW MEMORY")
+        .expect("SHOW MEMORY should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW MEMORY should return a memory metadata payload");
+    };
+    assert_eq!(
+        show_memory,
+        session.show_memory(),
+        "SHOW MEMORY should expose the same public payload as the typed metadata surface",
     );
 }
 
@@ -725,8 +748,13 @@ fn sql_catalog_surfaces_include_store_metadata() {
             entry.entity_name() == "JournaledSessionSqlEntity"
                 && entry.entity_path() == JournaledSessionSqlEntity::PATH
                 && entry.store_path() == JournaledSessionSqlStore::PATH
+                && entry.storage() == "journaled"
+                && entry.columns() == 3
+                && entry.indexes() == 1
+                && entry.relations() == 0
+                && entry.schema_version() == 1
         }),
-        "SHOW ENTITIES should include the owning store path: {entities:?}",
+        "SHOW ENTITIES should include store, schema, and compact entity counts: {entities:?}",
     );
 
     let SqlStatementResult::ShowStores {
@@ -743,6 +771,20 @@ fn sql_catalog_surfaces_include_store_metadata() {
             entry.store_path() == JournaledSessionSqlStore::PATH && entry.storage() == "journaled"
         }),
         "SHOW STORES should include the registered store and storage mode: {stores:?}",
+    );
+
+    let SqlStatementResult::ShowMemory(memory) = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW MEMORY")
+        .expect("SHOW MEMORY should execute for journaled catalog")
+    else {
+        panic!("SHOW MEMORY should return memory catalog metadata");
+    };
+    assert!(
+        memory.iter().any(|entry| {
+            entry.store_path() == JournaledSessionSqlStore::PATH
+                && entry.tag().ends_with(".journal.v1")
+        }),
+        "SHOW MEMORY should include journaled stable-memory tags and owning stores: {memory:?}",
     );
 
     let SqlStatementResult::ShowEntities {
@@ -7516,9 +7558,16 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         },
     );
 
+    assert_query_compile_cache_artifact(&session, "SHOW MEMORY", "SHOW MEMORY", |compiled| {
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::ShowMemory
+        )
+    });
+
     assert_eq!(
         session.sql_compiled_command_cache_len(),
-        9,
+        10,
         "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
     );
 }

@@ -30,6 +30,7 @@ pub(crate) enum SqlStatement {
     ShowColumns(SqlShowColumnsStatement),
     ShowEntities(SqlShowEntitiesStatement),
     ShowStores(SqlShowStoresStatement),
+    ShowMemory(SqlShowMemoryStatement),
 }
 
 ///
@@ -1251,3 +1252,13 @@ pub(crate) struct SqlShowEntitiesStatement {
 pub(crate) struct SqlShowStoresStatement {
     pub(crate) verbose: bool,
 }
+
+///
+/// SqlShowMemoryStatement
+///
+/// Canonical parsed `SHOW MEMORY` statement.
+/// This lane carries no entity identifier and targets SQL helper introspection.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlShowMemoryStatement;

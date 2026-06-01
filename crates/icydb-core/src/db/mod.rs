@@ -31,6 +31,7 @@ pub(in crate::db) mod index;
 pub(in crate::db) mod journal;
 pub(in crate::db) mod key_taxonomy;
 pub(in crate::db) mod numeric;
+pub(in crate::db) mod ordered_overlay;
 pub(in crate::db) mod relation;
 pub(in crate::db) mod sql_shared;
 #[cfg(test)]
@@ -42,6 +43,7 @@ use crate::{
         data::RawDataStoreKey,
         executor::Context,
         registry::StoreHandle,
+        schema::{PersistedFieldKind, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -49,7 +51,7 @@ use crate::{
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
-pub use catalog::{EntityCatalogDescription, StoreCatalogDescription};
+pub use catalog::{EntityCatalogDescription, MemoryCatalogDescription, StoreCatalogDescription};
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
 pub use cursor::{decode_cursor, encode_cursor};
@@ -426,17 +428,41 @@ impl<C: CanisterKind> Db<C> {
 
     /// Return one deterministic list of registered runtime entity catalog rows.
     #[must_use]
-    pub(crate) fn runtime_entity_catalog(&self) -> Vec<EntityCatalogDescription> {
-        self.entity_runtime_hooks
-            .iter()
-            .map(|hooks| {
-                EntityCatalogDescription::new(
-                    hooks.model.name().to_string(),
-                    hooks.entity_path.to_string(),
-                    hooks.store_path.to_string(),
+    pub(crate) fn runtime_entity_catalog(
+        &self,
+    ) -> Result<Vec<EntityCatalogDescription>, InternalError> {
+        let mut entities = Vec::with_capacity(self.entity_runtime_hooks.len());
+
+        for hooks in self.entity_runtime_hooks {
+            let store = self.recovered_store(hooks.store_path)?;
+            let storage = store
+                .storage_capabilities()
+                .storage_mode()
+                .as_str()
+                .to_string();
+            let accepted = store.with_schema_mut(|schema_store| {
+                ensure_accepted_schema_snapshot(
+                    schema_store,
+                    hooks.entity_tag,
+                    hooks.entity_path,
+                    hooks.model,
                 )
-            })
-            .collect()
+            })?;
+            let snapshot = accepted.persisted_snapshot();
+
+            entities.push(EntityCatalogDescription::new(
+                snapshot.entity_name().to_string(),
+                snapshot.entity_path().to_string(),
+                hooks.store_path.to_string(),
+                storage,
+                u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),
+                u32::try_from(snapshot.indexes().len()).unwrap_or(u32::MAX),
+                u32::try_from(relation_field_count(snapshot.fields())).unwrap_or(u32::MAX),
+                snapshot.version().get(),
+            ));
+        }
+
+        Ok(entities)
     }
 
     /// Return one deterministic list of registered runtime stores.
@@ -461,6 +487,40 @@ impl<C: CanisterKind> Db<C> {
         stores
     }
 
+    /// Return one deterministic list of registered stable-memory allocations.
+    #[must_use]
+    pub(crate) fn runtime_memory_catalog(&self) -> Vec<MemoryCatalogDescription> {
+        let mut memory = self.with_store_registry(|registry| {
+            registry
+                .iter()
+                .flat_map(|(store_path, handle)| {
+                    [
+                        handle.data_allocation(),
+                        handle.index_allocation(),
+                        handle.schema_allocation(),
+                        handle.journal_allocation(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .map(move |allocation| {
+                        MemoryCatalogDescription::new(
+                            allocation.stable_key().to_string(),
+                            allocation.memory_id(),
+                            store_path.to_string(),
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        memory.sort_by(|left, right| {
+            left.memory_id()
+                .cmp(&right.memory_id())
+                .then_with(|| left.tag().cmp(right.tag()))
+                .then_with(|| left.store_path().cmp(right.store_path()))
+        });
+        memory
+    }
+
     // Resolve exactly one runtime hook for a persisted entity tag.
     // Duplicate matches are treated as store invariants.
     pub(crate) fn runtime_hook_for_entity_tag(
@@ -477,6 +537,23 @@ impl<C: CanisterKind> Db<C> {
         entity_path: &str,
     ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
         runtime_hooks::resolve_runtime_hook_by_path(self.entity_runtime_hooks, entity_path)
+    }
+}
+
+fn relation_field_count(fields: &[crate::db::schema::PersistedFieldSnapshot]) -> usize {
+    fields
+        .iter()
+        .filter(|field| persisted_kind_is_relation_field(field.kind()))
+        .count()
+}
+
+fn persisted_kind_is_relation_field(kind: &PersistedFieldKind) -> bool {
+    match kind {
+        PersistedFieldKind::Relation { .. } => true,
+        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+            matches!(inner.as_ref(), PersistedFieldKind::Relation { .. })
+        }
+        _ => false,
     }
 }
 

@@ -55,6 +55,7 @@ const KEYWORDS_LEN_6: &[(&str, Keyword)] = &[
     ("FILTER", Keyword::Filter),
     ("HAVING", Keyword::Having),
     ("INSERT", Keyword::Insert),
+    ("MEMORY", Keyword::Memory),
     ("OFFSET", Keyword::Offset),
     ("SELECT", Keyword::Select),
     ("STORES", Keyword::Stores),
