@@ -94,6 +94,12 @@ pub struct QueryExecutionAttribution {
     pub plan_lookup_local_instructions: u64,
     pub executor_invocation_local_instructions: u64,
     pub response_finalization_local_instructions: u64,
+    pub load_plan_local_instructions: u64,
+    pub row_layout_local_instructions: u64,
+    pub continuation_signature_local_instructions: u64,
+    pub scalar_runtime_handoff_local_instructions: u64,
+    pub route_plan_local_instructions: u64,
+    pub runtime_prepare_local_instructions: u64,
     pub runtime_local_instructions: u64,
     pub finalize_local_instructions: u64,
     pub direct_data_row: Option<DirectDataRowAttribution>,
@@ -119,6 +125,12 @@ struct QueryExecutePhaseAttribution {
     response_finalization_local_instructions: u64,
     runtime_local_instructions: u64,
     finalize_local_instructions: u64,
+    load_plan_local_instructions: u64,
+    row_layout_local_instructions: u64,
+    continuation_signature_local_instructions: u64,
+    scalar_runtime_handoff_local_instructions: u64,
+    route_plan_local_instructions: u64,
+    runtime_prepare_local_instructions: u64,
     direct_data_row: Option<DirectDataRowAttribution>,
     grouped: Option<GroupedExecutionAttribution>,
 }
@@ -128,6 +140,12 @@ impl<C: CanisterKind> DbSession<C> {
         QueryExecutePhaseAttribution {
             executor_invocation_local_instructions: 0,
             response_finalization_local_instructions: 0,
+            load_plan_local_instructions: 0,
+            row_layout_local_instructions: 0,
+            continuation_signature_local_instructions: 0,
+            scalar_runtime_handoff_local_instructions: 0,
+            route_plan_local_instructions: 0,
+            runtime_prepare_local_instructions: 0,
             runtime_local_instructions: 0,
             finalize_local_instructions: 0,
             direct_data_row: None,
@@ -142,6 +160,14 @@ impl<C: CanisterKind> DbSession<C> {
         QueryExecutePhaseAttribution {
             executor_invocation_local_instructions,
             response_finalization_local_instructions: 0,
+            load_plan_local_instructions: phase.load_plan_local_instructions,
+            row_layout_local_instructions: phase.row_layout_local_instructions,
+            continuation_signature_local_instructions: phase
+                .continuation_signature_local_instructions,
+            scalar_runtime_handoff_local_instructions: phase
+                .scalar_runtime_handoff_local_instructions,
+            route_plan_local_instructions: phase.route_plan_local_instructions,
+            runtime_prepare_local_instructions: phase.runtime_prepare_local_instructions,
             runtime_local_instructions: phase.runtime_local_instructions,
             finalize_local_instructions: phase.finalize_local_instructions,
             direct_data_row: Some(DirectDataRowAttribution {
@@ -167,6 +193,12 @@ impl<C: CanisterKind> DbSession<C> {
         QueryExecutePhaseAttribution {
             executor_invocation_local_instructions,
             response_finalization_local_instructions,
+            load_plan_local_instructions: 0,
+            row_layout_local_instructions: 0,
+            continuation_signature_local_instructions: 0,
+            scalar_runtime_handoff_local_instructions: 0,
+            route_plan_local_instructions: 0,
+            runtime_prepare_local_instructions: 0,
             runtime_local_instructions: phase
                 .stream_local_instructions
                 .saturating_add(phase.fold_local_instructions),
@@ -226,6 +258,18 @@ impl<C: CanisterKind> DbSession<C> {
                     .executor_invocation_local_instructions,
                 response_finalization_local_instructions: execute_phase_attribution
                     .response_finalization_local_instructions,
+                load_plan_local_instructions: execute_phase_attribution
+                    .load_plan_local_instructions,
+                row_layout_local_instructions: execute_phase_attribution
+                    .row_layout_local_instructions,
+                continuation_signature_local_instructions: execute_phase_attribution
+                    .continuation_signature_local_instructions,
+                scalar_runtime_handoff_local_instructions: execute_phase_attribution
+                    .scalar_runtime_handoff_local_instructions,
+                route_plan_local_instructions: execute_phase_attribution
+                    .route_plan_local_instructions,
+                runtime_prepare_local_instructions: execute_phase_attribution
+                    .runtime_prepare_local_instructions,
                 runtime_local_instructions: execute_phase_attribution.runtime_local_instructions,
                 finalize_local_instructions: execute_phase_attribution.finalize_local_instructions,
                 direct_data_row: execute_phase_attribution.direct_data_row,

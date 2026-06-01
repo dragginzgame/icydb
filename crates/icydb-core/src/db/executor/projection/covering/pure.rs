@@ -35,10 +35,11 @@ use crate::{
 
 #[cfg(feature = "sql")]
 #[expect(clippy::too_many_lines)]
-pub(super) fn try_execute_covering_projection_rows_for_canister<C>(
+pub(super) fn try_execute_covering_projection_rows_with_plan_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
+    covering: &CoveringReadExecutionPlan,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
     C: CanisterKind,
@@ -47,11 +48,6 @@ where
         return Ok(None);
     }
 
-    // Phase 1: admit only planner-proven pure covering routes that need no
-    // row-backed fields in projection materialization.
-    let Some(covering) = authority.covering_read_execution_plan(plan, true) else {
-        return Ok(None);
-    };
     if covering
         .fields
         .iter()
@@ -64,7 +60,7 @@ where
         db,
         authority.clone(),
         plan,
-        &covering,
+        covering,
     )? {
         return Ok(Some(projected_rows));
     }

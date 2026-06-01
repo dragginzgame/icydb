@@ -1790,7 +1790,8 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
             && session_query_cache.contains("accepted_entity_authority::<E>()")
             && session_query_cache.contains("cached_shared_query_plan_for_accepted_authority(")
             && !session_query_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
-            && session_sql_cache.contains("accepted_schema_snapshot_for_query::<E>()")
+            && session_sql_cache
+                .contains("accepted_schema_snapshot_and_cache_fingerprint_for_query::<E>()")
             && !session_sql_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && session_sql_compile_cache
                 .contains("Self::accepted_entity_authority_for_schema::<E>(accepted_schema)")
@@ -2686,7 +2687,8 @@ fn journaled_ordered_overlay_traversal_stays_streaming_and_fold_only() {
         "cold SQL query execution must carry accepted schema context from compile into plan lookup instead of rebuilding it inside the same query call",
     );
     assert!(
-        session_sql_cache.contains("accepted_schema_snapshot_for_query::<E>()")
+        session_sql_cache
+            .contains("accepted_schema_snapshot_and_cache_fingerprint_for_query::<E>()")
             && !session_sql_cache.contains("ensure_accepted_schema_snapshot::<E>()"),
         "SQL query cache-key construction must load accepted runtime schema directly instead of rerunning generated reconciliation on every query call",
     );

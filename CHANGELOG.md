@@ -11,8 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
 
+- `0.175.6` caches post-recovery schema reconciliation for warmed journaled
+  reads and pins the `LIMIT 1` path against recovery/runtime-prep regressions.
+
 - `0.175.5` adds stable-vs-journaled SQL perf guards and removes warmed-query
-  schema/plan cache drift from the journaled `LIMIT 1` path.
+  schema and plan-cache drift from the journaled `LIMIT 1` path.
 
 - `0.175.4` closes stable, heap, codec/marker, public docs, and closeout proof
   rows for the journaled hardening line.

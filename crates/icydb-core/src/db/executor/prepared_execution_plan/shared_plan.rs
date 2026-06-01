@@ -73,6 +73,42 @@ impl SharedPreparedExecutionPlan {
         self.core.plan()
     }
 
+    #[must_use]
+    pub(in crate::db::executor) fn authority(&self) -> EntityAuthority {
+        self.authority.clone()
+    }
+
+    pub(in crate::db::executor) fn validate_lowered_access_specs(
+        &self,
+    ) -> Result<(), InternalError> {
+        if self.core.residents.index_prefix_spec_invalid {
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
+        }
+        if self.core.residents.index_range_spec_invalid {
+            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
+        }
+
+        Ok(())
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn projection_covering_read_execution_plan(
+        &self,
+    ) -> Option<std::sync::Arc<crate::db::query::plan::CoveringReadExecutionPlan>> {
+        self.core
+            .get_or_init_projection_covering_read_execution_plan(self.authority.clone())
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn hybrid_covering_read_plan(
+        &self,
+    ) -> Option<std::sync::Arc<crate::db::query::plan::CoveringReadPlan>> {
+        self.core
+            .get_or_init_hybrid_covering_read_plan(self.authority.clone())
+    }
+
     // Projection runtime adapters consume these three shared prepared residents
     // together, so hand them off as one bundle instead of re-reading the same
     // plan shell through parallel field-level accessors.

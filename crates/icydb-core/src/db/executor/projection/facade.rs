@@ -12,7 +12,7 @@ use crate::{
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             projection::{
                 MaterializedProjectionRows, ProjectionDistinctWindow, project, project_distinct,
-                try_execute_covering_projection_rows_for_canister,
+                try_execute_prepared_covering_projection_rows_for_canister,
             },
             saturating_u32_len,
         },
@@ -108,12 +108,32 @@ where
         covering_metrics,
         materialization_metrics,
     } = request;
+    prepared_plan.validate_lowered_access_specs()?;
+    let distinct = prepared_plan.logical_plan().scalar_plan().distinct;
+
+    // Phase 1: choose the covering projection lane only for non-DISTINCT
+    // requests. DISTINCT must see final projected rows in scalar execution order
+    // before executor-owned deduplication and windowing.
+    if !distinct
+        && let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
+            db,
+            prepared_plan.authority(),
+            prepared_plan.logical_plan(),
+            prepared_plan.projection_covering_read_execution_plan(),
+            || prepared_plan.hybrid_covering_read_plan(),
+            covering_metrics,
+        )?
+    {
+        let rows = MaterializedProjectionRows::from_value_rows(projected.into_value_rows());
+
+        return Ok(StructuralProjectionResult::new(rows));
+    }
+
     let SharedPreparedProjectionRuntimeHandoff {
         authority,
         prepared_projection_contract,
         scalar_runtime,
     } = prepared_plan.into_projection_runtime_handoff()?;
-    let distinct = scalar_runtime.plan_core.plan().scalar_plan().distinct;
     let distinct_window = distinct.then(|| {
         ProjectionDistinctWindow::from_page(
             scalar_runtime.plan_core.plan().scalar_plan().page.as_ref(),
@@ -124,23 +144,6 @@ where
     } else {
         scalar_runtime
     };
-    let execution_plan = scalar_runtime.plan_core.plan();
-
-    // Phase 1: choose the covering projection lane only for non-DISTINCT
-    // requests. DISTINCT must see final projected rows in scalar execution order
-    // before executor-owned deduplication and windowing.
-    if !distinct
-        && let Some(projected) = try_execute_covering_projection_rows_for_canister(
-            db,
-            authority.clone(),
-            execution_plan,
-            covering_metrics,
-        )?
-    {
-        let rows = MaterializedProjectionRows::from_value_rows(projected.into_value_rows());
-
-        return Ok(StructuralProjectionResult::new(rows));
-    }
 
     // Phase 2: execute the canonical scalar retained-slot path and let the
     // projection materializer choose slot-row, data-row, or scalar fallback

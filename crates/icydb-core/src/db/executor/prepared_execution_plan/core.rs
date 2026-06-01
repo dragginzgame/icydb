@@ -3,8 +3,9 @@ use crate::{
         commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, ValidatedCursor, ValidatedGroupedCursor},
         executor::{
-            EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
-            LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_access,
+            EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
+            GroupedPaginationWindow, LoweredAccessError, LoweredIndexPrefixSpec,
+            LoweredIndexRangeSpec, ScalarContinuationContext, lower_access,
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::{
@@ -13,14 +14,15 @@ use crate::{
                 },
             },
             planning::preparation::slot_map_for_model_plan,
+            planning::route::{RoutePlanRequest, build_execution_route_plan},
             projection::{PreparedProjectionContract, prepare_projection_contract_from_plan},
             terminal::RetainedSlotLayout,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, ExecutionOrdering, OrderSpec, PlannedContinuationContract,
-            QueryMode,
+            AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan, ExecutionOrdering,
+            OrderSpec, PlannedContinuationContract, QueryMode,
         },
     },
     error::InternalError,
@@ -51,19 +53,24 @@ pub enum ExecutionFamily {
 /// preparation products without duplicating logical plans.
 ///
 
-#[derive(Debug)]
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanResidents {
     pub(in crate::db::executor::prepared_execution_plan) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor::prepared_execution_plan) schema_fingerprint:
         Option<CommitSchemaFingerprint>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_projection_contract:
         OnceLock<Option<Arc<PreparedProjectionContract>>>,
+    pub(in crate::db::executor::prepared_execution_plan) projection_covering_read_execution_plan:
+        OnceLock<Option<Arc<CoveringReadExecutionPlan>>>,
+    pub(in crate::db::executor::prepared_execution_plan) hybrid_covering_read_plan:
+        OnceLock<Option<Arc<CoveringReadPlan>>>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_grouped_runtime_residents:
         OnceLock<Option<Arc<PreparedGroupedRuntimeResidents>>>,
     pub(in crate::db::executor::prepared_execution_plan) aggregate_execution_preparation:
         OnceLock<ExecutionPreparation>,
     pub(in crate::db::executor::prepared_execution_plan) scalar_execution_preparation:
         OnceLock<ExecutionPreparation>,
+    pub(in crate::db::executor::prepared_execution_plan) initial_scalar_route_plan:
+        OnceLock<ExecutionPlan>,
     pub(in crate::db::executor::prepared_execution_plan) shared_validation_emit_retained_slot_layout:
         OnceLock<Option<RetainedSlotLayout>>,
     pub(in crate::db::executor::prepared_execution_plan) retain_slot_rows_suppress_retained_slot_layout:
@@ -80,17 +87,28 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) index_range_spec_invalid: bool,
 }
 
+impl std::fmt::Debug for PreparedExecutionPlanResidents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PreparedExecutionPlanResidents(..)")
+    }
+}
+
 impl Clone for PreparedExecutionPlanResidents {
     fn clone(&self) -> Self {
         Self {
             plan: Arc::clone(&self.plan),
             schema_fingerprint: self.schema_fingerprint,
             prepared_projection_contract: clone_once_lock(&self.prepared_projection_contract),
+            projection_covering_read_execution_plan: clone_once_lock(
+                &self.projection_covering_read_execution_plan,
+            ),
+            hybrid_covering_read_plan: clone_once_lock(&self.hybrid_covering_read_plan),
             prepared_grouped_runtime_residents: clone_once_lock(
                 &self.prepared_grouped_runtime_residents,
             ),
             aggregate_execution_preparation: clone_once_lock(&self.aggregate_execution_preparation),
             scalar_execution_preparation: clone_once_lock(&self.scalar_execution_preparation),
+            initial_scalar_route_plan: clone_once_lock(&self.initial_scalar_route_plan),
             shared_validation_emit_retained_slot_layout: clone_once_lock(
                 &self.shared_validation_emit_retained_slot_layout,
             ),
@@ -225,6 +243,23 @@ impl PreparedScalarPlanCore {
 
         Ok(self.core.residents.index_range_specs.as_ref())
     }
+
+    pub(in crate::db::executor) fn get_or_init_initial_scalar_route_plan(
+        &self,
+        authority: EntityAuthority,
+    ) -> Result<ExecutionPlan, InternalError> {
+        self.core.get_or_init_initial_scalar_route_plan(authority)
+    }
+
+    pub(in crate::db::executor) fn get_or_init_scalar_layout(
+        &self,
+        authority: EntityAuthority,
+        projection_materialization: ProjectionMaterializationMode,
+        cursor_emission: CursorEmissionMode,
+    ) -> Option<RetainedSlotLayout> {
+        self.core
+            .get_or_init_scalar_layout(authority, projection_materialization, cursor_emission)
+    }
 }
 
 impl PreparedExecutionPlanCore {
@@ -243,9 +278,12 @@ impl PreparedExecutionPlanCore {
                 plan,
                 schema_fingerprint,
                 prepared_projection_contract: OnceLock::new(),
+                projection_covering_read_execution_plan: OnceLock::new(),
+                hybrid_covering_read_plan: OnceLock::new(),
                 prepared_grouped_runtime_residents: OnceLock::new(),
                 aggregate_execution_preparation: OnceLock::new(),
                 scalar_execution_preparation: OnceLock::new(),
+                initial_scalar_route_plan: OnceLock::new(),
                 shared_validation_emit_retained_slot_layout: OnceLock::new(),
                 retain_slot_rows_suppress_retained_slot_layout: OnceLock::new(),
                 none_suppress_retained_slot_layout: OnceLock::new(),
@@ -278,6 +316,34 @@ impl PreparedExecutionPlanCore {
                         &self.residents.plan,
                     ))
                 })
+            })
+            .clone()
+    }
+
+    pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_covering_read_execution_plan(
+        &self,
+        authority: EntityAuthority,
+    ) -> Option<Arc<CoveringReadExecutionPlan>> {
+        self.residents
+            .projection_covering_read_execution_plan
+            .get_or_init(|| {
+                authority
+                    .covering_read_execution_plan(&self.residents.plan, true)
+                    .map(Arc::new)
+            })
+            .clone()
+    }
+
+    pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_hybrid_covering_read_plan(
+        &self,
+        authority: EntityAuthority,
+    ) -> Option<Arc<CoveringReadPlan>> {
+        self.residents
+            .hybrid_covering_read_plan
+            .get_or_init(|| {
+                authority
+                    .covering_hybrid_projection_plan(&self.residents.plan)
+                    .map(Arc::new)
             })
             .clone()
     }
@@ -334,6 +400,32 @@ impl PreparedExecutionPlanCore {
                 )
             })
             .clone()
+    }
+
+    pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_initial_scalar_route_plan(
+        &self,
+        authority: EntityAuthority,
+    ) -> Result<ExecutionPlan, InternalError> {
+        if let Some(route_plan) = self.residents.initial_scalar_route_plan.get() {
+            return Ok(route_plan.clone());
+        }
+
+        let continuation = ScalarContinuationContext::initial();
+        let route_plan = build_execution_route_plan(
+            &self.residents.plan,
+            RoutePlanRequest::Load {
+                continuation: &continuation,
+                probe_fetch_hint: None,
+                authority: Some(authority),
+                load_terminal_fast_path: None,
+            },
+        )?;
+        let _ = self
+            .residents
+            .initial_scalar_route_plan
+            .set(route_plan.clone());
+
+        Ok(route_plan)
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_aggregate_execution_preparation(

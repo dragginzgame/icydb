@@ -45,9 +45,20 @@ use crate::{
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
 };
-use std::sync::OnceLock;
+use std::{cell::RefCell, sync::OnceLock};
 
 static RECOVERED: OnceLock<()> = OnceLock::new();
+
+thread_local! {
+    static SCHEMA_RECONCILED_KEYS: RefCell<Vec<SchemaReconciliationKey>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SchemaReconciliationKey {
+    store_registry: usize,
+    runtime_hooks: usize,
+}
 
 /// Ensure global database invariants are restored before proceeding.
 ///
@@ -72,6 +83,7 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         // decode stored rows with the generated runtime layout.
         ensure_schema_reconciled(db)?;
         perform_recovery(db)?;
+        mark_schema_reconciliation_dirty(db);
 
         return ensure_schema_reconciled(db);
     }
@@ -85,6 +97,7 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         // so fail schema drift before any row decode path runs.
         ensure_schema_reconciled(db)?;
         perform_recovery(db)?;
+        mark_schema_reconciliation_dirty(db);
 
         return ensure_schema_reconciled(db);
     }
@@ -537,8 +550,43 @@ fn ensure_schema_reconciled<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalE
         return Ok(());
     }
 
+    let key = schema_reconciliation_key(db);
+    if schema_reconciliation_clean(key) {
+        return Ok(());
+    }
+
     reconcile_runtime_schemas(db, db.entity_runtime_hooks)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    mark_schema_reconciliation_clean(key);
+
+    Ok(())
+}
+
+fn schema_reconciliation_key<C: CanisterKind>(db: &Db<C>) -> SchemaReconciliationKey {
+    SchemaReconciliationKey {
+        store_registry: std::ptr::from_ref(db.store).cast::<()>() as usize,
+        runtime_hooks: db.entity_runtime_hooks.as_ptr().cast::<()>() as usize,
+    }
+}
+
+fn schema_reconciliation_clean(key: SchemaReconciliationKey) -> bool {
+    SCHEMA_RECONCILED_KEYS.with(|keys| keys.borrow().contains(&key))
+}
+
+fn mark_schema_reconciliation_clean(key: SchemaReconciliationKey) {
+    SCHEMA_RECONCILED_KEYS.with(|keys| {
+        let mut keys = keys.borrow_mut();
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    });
+}
+
+fn mark_schema_reconciliation_dirty<C: CanisterKind>(db: &Db<C>) {
+    let key = schema_reconciliation_key(db);
+    SCHEMA_RECONCILED_KEYS.with(|keys| {
+        keys.borrow_mut().retain(|existing| *existing != key);
+    });
 }
 // Fail closed if recovery leaves any index/data divergence findings.
 fn validate_recovery_integrity<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {

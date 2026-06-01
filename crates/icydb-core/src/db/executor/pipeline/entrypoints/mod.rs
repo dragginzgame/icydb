@@ -149,12 +149,16 @@ where
     ) -> Result<(EntityResponse<E>, ScalarExecutePhaseAttribution, u64), InternalError> {
         // Phase 1: execute the scalar runtime through the shared structural
         // page boundary.
-        let plan = plan.into_prepared_load_plan();
-        let row_layout = plan.authority().row_layout();
-        let (page, phase_attribution) =
+        let (load_plan_local_instructions, plan) =
+            measure_load_entry_phase(|| plan.into_prepared_load_plan());
+        let (row_layout_local_instructions, row_layout) =
+            measure_load_entry_phase(|| plan.authority().row_layout());
+        let (page, mut phase_attribution) =
             execute_prepared_scalar_rows_for_canister_with_phase_attribution(
                 &self.db, self.debug, plan,
             )?;
+        phase_attribution.load_plan_local_instructions = load_plan_local_instructions;
+        phase_attribution.row_layout_local_instructions = row_layout_local_instructions;
         let (data_rows, _) = page.into_data_rows_and_cursor();
 
         // Phase 2: decode the structural data rows into typed response rows.

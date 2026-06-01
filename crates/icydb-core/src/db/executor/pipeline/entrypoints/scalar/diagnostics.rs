@@ -35,6 +35,12 @@ use crate::{
 #[allow(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct ScalarExecutePhaseAttribution {
+    pub(in crate::db) load_plan_local_instructions: u64,
+    pub(in crate::db) row_layout_local_instructions: u64,
+    pub(in crate::db) continuation_signature_local_instructions: u64,
+    pub(in crate::db) scalar_runtime_handoff_local_instructions: u64,
+    pub(in crate::db) route_plan_local_instructions: u64,
+    pub(in crate::db) runtime_prepare_local_instructions: u64,
     pub(in crate::db) runtime_local_instructions: u64,
     pub(in crate::db) finalize_local_instructions: u64,
     pub(in crate::db) direct_data_row_scan_local_instructions: u64,
@@ -79,6 +85,12 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
         page,
         trace,
         ScalarExecutePhaseAttribution {
+            load_plan_local_instructions: 0,
+            row_layout_local_instructions: 0,
+            continuation_signature_local_instructions: 0,
+            scalar_runtime_handoff_local_instructions: 0,
+            route_plan_local_instructions: 0,
+            runtime_prepare_local_instructions: 0,
             runtime_local_instructions,
             finalize_local_instructions,
             direct_data_row_scan_local_instructions: direct_data_row_phase_attribution

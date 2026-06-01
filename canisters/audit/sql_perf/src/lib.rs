@@ -37,6 +37,18 @@ struct SqlQueryPerfResult {
     attribution: SqlQueryExecutionAttribution,
 }
 
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+struct SqlTotalOnlyPerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+}
+
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+struct FluentTotalOnlyPerfResult {
+    row_count: u32,
+    instructions: u64,
+}
+
 // FluentQueryPerfOutcome
 //
 // Dedicated fluent audit summary keeps the canister response stable and small:
@@ -278,6 +290,12 @@ fn average_fluent_attribution(
     total_plan_lookup_local_instructions: u64,
     total_executor_invocation_local_instructions: u64,
     total_response_finalization_local_instructions: u64,
+    total_load_plan_local_instructions: u64,
+    total_row_layout_local_instructions: u64,
+    total_continuation_signature_local_instructions: u64,
+    total_scalar_runtime_handoff_local_instructions: u64,
+    total_route_plan_local_instructions: u64,
+    total_runtime_prepare_local_instructions: u64,
     total_runtime_local_instructions: u64,
     total_finalize_local_instructions: u64,
     total_direct_data_row_scan_local_instructions: u64,
@@ -316,6 +334,15 @@ fn average_fluent_attribution(
         total_executor_invocation_local_instructions / divisor;
     attribution.response_finalization_local_instructions =
         total_response_finalization_local_instructions / divisor;
+    attribution.load_plan_local_instructions = total_load_plan_local_instructions / divisor;
+    attribution.row_layout_local_instructions = total_row_layout_local_instructions / divisor;
+    attribution.continuation_signature_local_instructions =
+        total_continuation_signature_local_instructions / divisor;
+    attribution.scalar_runtime_handoff_local_instructions =
+        total_scalar_runtime_handoff_local_instructions / divisor;
+    attribution.route_plan_local_instructions = total_route_plan_local_instructions / divisor;
+    attribution.runtime_prepare_local_instructions =
+        total_runtime_prepare_local_instructions / divisor;
     attribution.runtime_local_instructions = total_runtime_local_instructions / divisor;
     attribution.finalize_local_instructions = total_finalize_local_instructions / divisor;
     if saw_direct_data_row {
@@ -731,6 +758,30 @@ fn run_account_fluent_scenario_once(
 }
 
 #[cfg(feature = "sql")]
+fn run_journaled_user_fluent_scenario_once(
+    session: &icydb::db::DbSession<PerfAuditCanister>,
+    scenario: &str,
+) -> Result<(FluentQueryPerfOutcome, QueryExecutionAttribution), icydb::Error> {
+    match scenario {
+        "journaled_user.id.order_only.asc.limit1" => {
+            let query = session
+                .load::<PerfAuditJournaledUser>()
+                .order_asc("id")
+                .limit(1);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        _ => Err(icydb::Error::new(
+            ErrorKind::Query(QueryErrorKind::Validate),
+            ErrorOrigin::Query,
+            format!("unknown fluent journaled user perf scenario: {scenario}"),
+        )),
+    }
+}
+
+#[cfg(feature = "sql")]
 #[expect(clippy::too_many_lines)]
 fn query_fluent_scenario_loop(
     surface: &str,
@@ -747,6 +798,12 @@ fn query_fluent_scenario_loop(
     let mut total_plan_lookup_local_instructions = 0_u64;
     let mut total_executor_invocation_local_instructions = 0_u64;
     let mut total_response_finalization_local_instructions = 0_u64;
+    let mut total_load_plan_local_instructions = 0_u64;
+    let mut total_row_layout_local_instructions = 0_u64;
+    let mut total_continuation_signature_local_instructions = 0_u64;
+    let mut total_scalar_runtime_handoff_local_instructions = 0_u64;
+    let mut total_route_plan_local_instructions = 0_u64;
+    let mut total_runtime_prepare_local_instructions = 0_u64;
     let mut total_runtime_local_instructions = 0_u64;
     let mut total_finalize_local_instructions = 0_u64;
     let mut total_direct_data_row_scan_local_instructions = 0_u64;
@@ -772,6 +829,7 @@ fn query_fluent_scenario_loop(
         let (outcome, attribution) = match surface {
             "user" => run_user_fluent_scenario_once(&session, scenario)?,
             "account" => run_account_fluent_scenario_once(&session, scenario)?,
+            "journaled_user" => run_journaled_user_fluent_scenario_once(&session, scenario)?,
             _ => {
                 return Err(icydb::Error::new(
                     ErrorKind::Query(QueryErrorKind::Validate),
@@ -794,6 +852,20 @@ fn query_fluent_scenario_loop(
         total_response_finalization_local_instructions =
             total_response_finalization_local_instructions
                 .saturating_add(attribution.response_finalization_local_instructions);
+        total_load_plan_local_instructions = total_load_plan_local_instructions
+            .saturating_add(attribution.load_plan_local_instructions);
+        total_row_layout_local_instructions = total_row_layout_local_instructions
+            .saturating_add(attribution.row_layout_local_instructions);
+        total_continuation_signature_local_instructions =
+            total_continuation_signature_local_instructions
+                .saturating_add(attribution.continuation_signature_local_instructions);
+        total_scalar_runtime_handoff_local_instructions =
+            total_scalar_runtime_handoff_local_instructions
+                .saturating_add(attribution.scalar_runtime_handoff_local_instructions);
+        total_route_plan_local_instructions = total_route_plan_local_instructions
+            .saturating_add(attribution.route_plan_local_instructions);
+        total_runtime_prepare_local_instructions = total_runtime_prepare_local_instructions
+            .saturating_add(attribution.runtime_prepare_local_instructions);
         total_runtime_local_instructions =
             total_runtime_local_instructions.saturating_add(attribution.runtime_local_instructions);
         total_finalize_local_instructions = total_finalize_local_instructions
@@ -851,6 +923,12 @@ fn query_fluent_scenario_loop(
             total_plan_lookup_local_instructions,
             total_executor_invocation_local_instructions,
             total_response_finalization_local_instructions,
+            total_load_plan_local_instructions,
+            total_row_layout_local_instructions,
+            total_continuation_signature_local_instructions,
+            total_scalar_runtime_handoff_local_instructions,
+            total_route_plan_local_instructions,
+            total_runtime_prepare_local_instructions,
             total_runtime_local_instructions,
             total_finalize_local_instructions,
             total_direct_data_row_scan_local_instructions,
@@ -961,6 +1039,56 @@ fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icy
         result,
         attribution,
     })
+}
+
+/// Execute one PerfAuditJournaledUser-only SQL query through the normal
+/// non-attributed path and measure only the top-level canister-local delta.
+#[cfg(feature = "sql")]
+#[query]
+fn query_journaled_user_total_only_perf(
+    sql: String,
+) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
+    let start = ic_cdk::api::performance_counter(1);
+    let result = db().execute_sql_query::<PerfAuditJournaledUser>(sql.as_str())?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    Ok(SqlTotalOnlyPerfResult {
+        result,
+        instructions,
+    })
+}
+
+/// Execute the journaled LIMIT 1 shape through the fluent query path and
+/// measure only the top-level canister-local delta.
+#[cfg(feature = "sql")]
+#[query]
+fn query_journaled_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icydb::Error>
+{
+    let start = ic_cdk::api::performance_counter(1);
+    let response = db()
+        .load::<PerfAuditJournaledUser>()
+        .order_asc("id")
+        .limit(1)
+        .execute()?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let outcome = summarize_fluent_outcome(&response);
+
+    Ok(FluentTotalOnlyPerfResult {
+        row_count: outcome.row_count,
+        instructions,
+    })
+}
+
+/// Execute the journaled LIMIT 1 shape through the fluent query path and
+/// attach the shared fluent query phase attribution.
+#[cfg(feature = "sql")]
+#[query]
+fn query_journaled_user_fluent_with_perf() -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop(
+        "journaled_user",
+        "journaled_user.id.order_only.asc.limit1",
+        1,
+    )
 }
 
 /// Execute one PerfAuditJournaledUser-only SQL query through the update surface

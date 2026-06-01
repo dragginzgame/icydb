@@ -16,6 +16,7 @@ use crate::{
     traits::CanisterKind,
     value::Value,
 };
+use std::sync::Arc;
 
 ///
 /// CoveringProjectionRows
@@ -89,23 +90,36 @@ impl CoveringProjectionMetricsRecorder {
 }
 
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) fn try_execute_covering_projection_rows_for_canister<C>(
+pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
+    covering: Option<Arc<crate::db::query::plan::CoveringReadExecutionPlan>>,
+    hybrid: impl FnOnce() -> Option<Arc<crate::db::query::plan::CoveringReadPlan>>,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Option<CoveringProjectionRows>, InternalError>
 where
     C: CanisterKind,
 {
-    if let Some(projected) =
-        pure::try_execute_covering_projection_rows_for_canister(db, authority.clone(), plan)?
+    if let Some(covering) = covering
+        && let Some(projected) = pure::try_execute_covering_projection_rows_with_plan_for_canister(
+            db,
+            authority.clone(),
+            plan,
+            &covering,
+        )?
     {
         return Ok(Some(CoveringProjectionRows::new(projected)));
     }
 
-    hybrid::try_execute_hybrid_covering_projection_rows_for_canister(db, authority, plan, metrics)
-        .map(|projected| projected.map(CoveringProjectionRows::new))
+    let Some(hybrid) = hybrid() else {
+        return Ok(None);
+    };
+
+    hybrid::try_execute_hybrid_covering_projection_rows_with_plan_for_canister(
+        db, authority, plan, metrics, &hybrid,
+    )
+    .map(|projected| projected.map(CoveringProjectionRows::new))
 }
 
 ///

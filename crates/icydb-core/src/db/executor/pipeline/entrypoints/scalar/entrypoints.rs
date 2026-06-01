@@ -22,7 +22,6 @@ use crate::{
                         PreparedScalarRouteRuntime, ScalarPlanValidationMode,
                         ScalarPreparedRuntimeOptions, ScalarProjectionRuntimeMode,
                         ScalarRoutePlanFamily, prepare_scalar_route_runtime_from_inputs,
-                        reusable_initial_scalar_route_plan,
                     },
                     streaming::execute_prepared_scalar_kernel_row_sink_execution,
                 },
@@ -172,11 +171,11 @@ where
     )?;
     let continuation =
         ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
-    let prebuilt_route_plan = reusable_initial_scalar_route_plan(
-        prepared.plan_core.plan(),
-        prepared.authority.clone(),
-        &continuation,
-    )?;
+    let prebuilt_route_plan = Some(
+        prepared
+            .plan_core
+            .get_or_init_initial_scalar_route_plan(prepared.authority.clone())?,
+    );
     let prepared = prepare_scalar_route_runtime_from_inputs(
         db,
         debug,
@@ -216,41 +215,61 @@ where
 {
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
-    let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let prepared = plan.into_scalar_runtime_handoff(
-        ScalarProjectionRuntimeMode::None,
-        CursorEmissionMode::Suppress,
-    )?;
+    let (continuation_signature_local_instructions, continuation_signature) =
+        crate::db::diagnostics::measure_local_instruction_delta(|| {
+            plan.continuation_signature_for_runtime()
+        });
+    let continuation_signature = continuation_signature?;
+    let (scalar_runtime_handoff_local_instructions, prepared) =
+        crate::db::diagnostics::measure_local_instruction_delta(|| {
+            plan.into_scalar_runtime_handoff(
+                ScalarProjectionRuntimeMode::None,
+                CursorEmissionMode::Suppress,
+            )
+        });
+    let prepared = prepared?;
     let continuation =
         ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
-    let prebuilt_route_plan = reusable_initial_scalar_route_plan(
-        prepared.plan_core.plan(),
-        prepared.authority.clone(),
-        &continuation,
-    )?;
-    let prepared = prepare_scalar_route_runtime_from_inputs(
-        db,
-        debug,
-        prepared.authority,
-        prepared.execution_preparation,
-        prepared.prepared_projection_contract,
-        prepared.retained_slot_layout,
-        prepared.plan_core,
-        ScalarPreparedRuntimeOptions {
-            continuation,
-            unpaged_rows_mode: true,
-            cursor_emission: CursorEmissionMode::Suppress,
-            projection_runtime_mode: ScalarProjectionRuntimeMode::None,
-            route_plan_family: ScalarRoutePlanFamily::Initial,
-            prebuilt_route_plan,
-            suppress_route_scan_hints: false,
-            plan_validation: ScalarPlanValidationMode::AlreadyValidated,
-        },
-    )?;
+    let (route_plan_local_instructions, prebuilt_route_plan) =
+        crate::db::diagnostics::measure_local_instruction_delta(|| {
+            prepared
+                .plan_core
+                .get_or_init_initial_scalar_route_plan(prepared.authority.clone())
+        });
+    let prebuilt_route_plan = Some(prebuilt_route_plan?);
+    let (runtime_prepare_local_instructions, prepared) =
+        crate::db::diagnostics::measure_local_instruction_delta(|| {
+            prepare_scalar_route_runtime_from_inputs(
+                db,
+                debug,
+                prepared.authority,
+                prepared.execution_preparation,
+                prepared.prepared_projection_contract,
+                prepared.retained_slot_layout,
+                prepared.plan_core,
+                ScalarPreparedRuntimeOptions {
+                    continuation,
+                    unpaged_rows_mode: true,
+                    cursor_emission: CursorEmissionMode::Suppress,
+                    projection_runtime_mode: ScalarProjectionRuntimeMode::None,
+                    route_plan_family: ScalarRoutePlanFamily::Initial,
+                    prebuilt_route_plan,
+                    suppress_route_scan_hints: false,
+                    plan_validation: ScalarPlanValidationMode::AlreadyValidated,
+                },
+            )
+        });
+    let prepared = prepared?;
 
     // Phase 2: execute the shared scalar runtime and return the structural page.
-    let (page, _, phase_attribution) =
+    let (page, _, mut phase_attribution) =
         execute_prepared_scalar_route_runtime_with_phase_attribution(prepared)?;
+    phase_attribution.continuation_signature_local_instructions =
+        continuation_signature_local_instructions;
+    phase_attribution.scalar_runtime_handoff_local_instructions =
+        scalar_runtime_handoff_local_instructions;
+    phase_attribution.route_plan_local_instructions = route_plan_local_instructions;
+    phase_attribution.runtime_prepare_local_instructions = runtime_prepare_local_instructions;
 
     Ok((page, phase_attribution))
 }
@@ -277,11 +296,11 @@ where
     let continuation_signature = prepared.plan_core.continuation_signature_for_runtime()?;
     let continuation =
         ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
-    let prebuilt_route_plan = reusable_initial_scalar_route_plan(
-        prepared.plan_core.plan(),
-        prepared.authority.clone(),
-        &continuation,
-    )?;
+    let prebuilt_route_plan = Some(
+        prepared
+            .plan_core
+            .get_or_init_initial_scalar_route_plan(prepared.authority.clone())?,
+    );
     let projection_requires_data_rows =
         prepared
             .prepared_projection_contract
@@ -292,17 +311,37 @@ where
                     .iter()
                     .any(CompiledExpr::contains_field_path)
             });
+    let bounded_direct_row_projection = prepared
+        .plan_core
+        .plan()
+        .direct_data_row_keep_cap()
+        .is_some();
+    let projection_should_return_data_rows =
+        projection_requires_data_rows || bounded_direct_row_projection;
     let identity_projection_passthrough =
         prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints;
     let projection_runtime_mode = if identity_projection_passthrough {
         ScalarProjectionRuntimeMode::None
-    } else if projection_requires_data_rows {
-        ScalarProjectionRuntimeMode::SharedValidation
+    } else if projection_should_return_data_rows {
+        // SQL row-backed projection materializes the same projection directly
+        // from the returned data rows. Asking the scalar executor to run the
+        // shared validation pass first forces retained kernel rows and disables
+        // the direct raw-row path before the outer projection materializer can
+        // do the real work.
+        ScalarProjectionRuntimeMode::None
     } else {
         ScalarProjectionRuntimeMode::RetainSlotRows
     };
     let retained_slot_layout = if identity_projection_passthrough {
         None
+    } else if projection_runtime_mode.validate_projection()
+        || projection_runtime_mode.retain_slot_rows()
+    {
+        prepared.plan_core.get_or_init_scalar_layout(
+            prepared.authority.clone(),
+            projection_runtime_mode,
+            CursorEmissionMode::Suppress,
+        )
     } else {
         prepared.retained_slot_layout
     };
@@ -355,11 +394,11 @@ where
     )?;
     let continuation =
         ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
-    let prebuilt_route_plan = reusable_initial_scalar_route_plan(
-        prepared.plan_core.plan(),
-        prepared.authority.clone(),
-        &continuation,
-    )?;
+    let prebuilt_route_plan = Some(
+        prepared
+            .plan_core
+            .get_or_init_initial_scalar_route_plan(prepared.authority.clone())?,
+    );
     let prepared = prepare_scalar_route_runtime_from_inputs(
         db,
         debug,
@@ -404,11 +443,11 @@ where
     )?;
     let continuation =
         ScalarContinuationContext::for_runtime(ValidatedCursor::none(), continuation_signature);
-    let prebuilt_route_plan = reusable_initial_scalar_route_plan(
-        prepared.plan_core.plan(),
-        prepared.authority.clone(),
-        &continuation,
-    )?;
+    let prebuilt_route_plan = Some(
+        prepared
+            .plan_core
+            .get_or_init_initial_scalar_route_plan(prepared.authority.clone())?,
+    );
 
     // Phase 1: execute the shared scalar runtime through the same prepared
     // route bundle used by the other scalar entrypoint families.

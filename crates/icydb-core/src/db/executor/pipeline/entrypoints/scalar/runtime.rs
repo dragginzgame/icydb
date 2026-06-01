@@ -254,21 +254,3 @@ pub(super) fn build_initial_scalar_route_plan(
         },
     )
 }
-
-// Prebuild an initial route only when the runtime continuation is still the
-// no-cursor shape. A signed continuation context without boundary state is
-// equivalent to `ScalarContinuationContext::initial()` for route derivation.
-pub(super) fn reusable_initial_scalar_route_plan(
-    logical_plan: &AccessPlannedQuery,
-    authority: EntityAuthority,
-    continuation: &ScalarContinuationContext,
-) -> Result<Option<ExecutionPlan>, InternalError> {
-    if continuation.has_cursor_boundary() || continuation.has_index_range_anchor() {
-        return Ok(None);
-    }
-
-    Ok(Some(build_initial_scalar_route_plan(
-        logical_plan,
-        authority,
-    )?))
-}
