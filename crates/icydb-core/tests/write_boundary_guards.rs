@@ -2318,6 +2318,108 @@ fn storage_capability_policy_stays_out_of_codecs_and_commit_marker_format() {
 }
 
 #[test]
+fn stable_and_heap_compatibility_contracts_remain_distinct_from_journaled() {
+    let registry_handle = read_source("src/db/registry/handle.rs");
+    let registry_tests = read_source("src/db/registry/tests.rs");
+    let heap_runtime_tests = read_source("src/db/session/tests/heap_runtime.rs");
+    let commit_window = read_source("src/db/executor/mutation/commit_window.rs");
+    let commit_replay = read_source("src/db/commit/replay.rs");
+    let commit_rebuild = read_source("src/db/commit/rebuild.rs");
+    let registry_handle_compact = compact_source(&registry_handle);
+    let commit_window_compact = compact_source(&commit_window);
+
+    assert!(
+        registry_handle_compact.contains("pubconstfnstable()->Self{Self{storage_mode:StoreRuntimeStorageMode::Stable,allocation_identity:StoreAllocationIdentityCapability::Present,durability:StoreDurability::Durable,recovery:StoreRecoveryCapability::StableCommitReplay,commit_participation:StoreCommitParticipation::Durable,schema_metadata:StoreSchemaMetadataCapability::DurableAcceptedHistory,relation_source:StoreRelationSourceCapability::DurableSource,relation_target:StoreRelationTargetCapability::DurableTarget,live_validation:StoreLiveValidationCapability::Supported,}}")
+            && registry_handle_compact.contains("pubconstfnheap()->Self{Self{storage_mode:StoreRuntimeStorageMode::Heap,allocation_identity:StoreAllocationIdentityCapability::Absent,durability:StoreDurability::Volatile,recovery:StoreRecoveryCapability::None,commit_participation:StoreCommitParticipation::LiveOnly,schema_metadata:StoreSchemaMetadataCapability::LiveRebuiltMetadata,relation_source:StoreRelationSourceCapability::LiveSource,relation_target:StoreRelationTargetCapability::VolatileTarget,live_validation:StoreLiveValidationCapability::Supported,}}"),
+        "stable and heap capability descriptors must keep their pre-journaled allocation, durability, recovery, commit, schema, relation, and validation contracts",
+    );
+    assert!(
+        registry_handle_compact.contains("pubconstfnabsent()->Self{Self{data:None,index:None,schema:None,journal:None,}}")
+            && registry_handle_compact.contains("pubconstfnnew(data:StoreAllocationIdentity,index:StoreAllocationIdentity,schema:StoreAllocationIdentity,)->Self{Self{data:Some(data),index:Some(index),schema:Some(schema),journal:None,}}")
+            && registry_handle_compact.contains("StoreRuntimeStorageMode::Stable=>{self.data.is_some()&&self.index.is_some()&&self.schema.is_some()&&self.journal.is_none()}")
+            && registry_handle_compact.contains("StoreRuntimeStorageMode::Heap=>{self.data.is_none()&&self.index.is_none()&&self.schema.is_none()&&self.journal.is_none()}"),
+        "stable allocation identity must stay three-role durable metadata and heap allocation identity must stay explicitly absent",
+    );
+    assert!(
+        registry_tests
+            .contains("fn register_store_with_stable_allocation_identities_binds_metadata()")
+            && registry_tests.contains("StoreRuntimeStorageMode::Stable")
+            && registry_tests.contains("StoreRecoveryCapability::StableCommitReplay")
+            && registry_tests.contains(
+                "fn register_store_with_absent_allocation_identities_binds_store_handles()"
+            )
+            && registry_tests.contains("StoreRuntimeStorageMode::Heap")
+            && registry_tests.contains("StoreCommitParticipation::LiveOnly")
+            && registry_tests.contains("StoreRecoveryCapability::None"),
+        "registry tests must continue proving stable metadata is present and heap metadata is absent",
+    );
+    assert!(
+        heap_runtime_tests.contains(
+            "fn heap_backed_session_reinit_loses_rows_and_indexes_but_reconciles_live_schema()"
+        ) && heap_runtime_tests.contains(
+            "heap rows must not be recovered from stable commit state after store reinit"
+        ) && heap_runtime_tests.contains(
+            "heap schema metadata is rebuilt for live validation/diagnostics, not recovered as rows"
+        ) && heap_runtime_tests
+            .contains("assert_eq!(heap_classes, vec![MutationCommitClass::LiveOnly]);"),
+        "heap runtime tests must continue proving volatility, live-only commit classification, and rebuilt live schema metadata",
+    );
+    assert!(
+        commit_window_compact.contains(
+            "StoreRecoveryCapability::StableCommitReplay=>recovery_row_ops.push(row_op.clone())"
+        ) && commit_window_compact.contains("StoreRecoveryCapability::None=>{}")
+            && commit_replay.contains("StoreRecoveryCapability::None => continue")
+            && commit_rebuild.contains("StoreRecoveryCapability::StableCommitReplay")
+            && commit_rebuild.contains("StoreRecoveryCapability::StableBasePlusJournalReplay"),
+        "commit/recovery code must keep stable row-op replay and heap no-recovery participation distinct from journaled replay",
+    );
+}
+
+#[test]
+fn public_docs_describe_storage_tradeoffs_without_heap_durability() {
+    let readme = read_source("../../README.md");
+    let sql_contract = read_source("../../docs/contracts/SQL_SUBSET.md");
+    let demo_schema = read_source("../../schema/demo/rpg/src/schema/relations.rs");
+    let readme_compact = compact_source(&readme);
+    let sql_contract_compact = compact_source(&sql_contract);
+
+    assert!(
+        readme.contains("## Storage Modes")
+            && readme.contains("`storage(stable(...))`: durable stable-memory BTrees")
+            && readme.contains("`storage(heap())`: volatile Rust `BTreeMap` storage")
+            && readme.contains("rows and indexes are not recovered")
+            && readme.contains("`storage(journaled(...))`: journaled cached-stable storage")
+            && readme.contains("marker-bound journal batches")
+            && readme.contains("canonical stable data/index/schema")
+            && readme.contains("BTrees")
+            && readme.contains("it does not make `heap()` durable"),
+        "README storage-mode docs must distinguish direct stable, volatile heap, and journaled cached-stable contracts",
+    );
+    assert!(
+        readme_compact.contains(
+            "`data_memory_id`,`index_memory_id`,`schema_memory_id`,and`journal_memory_id`"
+        ) && readme.contains("the durable journal tail")
+            && readme.contains("not the same contract as direct `stable(...)`"),
+        "README must describe journaled memory-id roles without presenting journaled as plain stable storage",
+    );
+    assert!(
+        sql_contract_compact.contains("`stable`isdirectdurablestable-memorystorage")
+            && sql_contract_compact.contains("`heap`isvolatilelivestoragewithabsentstableallocationidentityandnorow/indexrecovery")
+            && sql_contract_compact.contains("`journaled`isadurablecached-stablestore")
+            && sql_contract_compact.contains("thefourthjournal-tailmemoryroleseparatelyfromthethreecanonicalstableroles"),
+        "SQL contract docs must explain the storage-mode tradeoffs shown by catalog commands",
+    );
+    assert!(
+        demo_schema.contains("storage(journaled(")
+            && demo_schema.contains("data_memory_id = 104")
+            && demo_schema.contains("index_memory_id = 105")
+            && demo_schema.contains("schema_memory_id = 106")
+            && demo_schema.contains("journal_memory_id = 107"),
+        "demo RPG schema should remain an explicit four-ID journaled example",
+    );
+}
+
+#[test]
 fn journaled_storage_schema_build_admission_stays_out_of_runtime_backends() {
     let schema_store = read_source("../icydb-schema/src/node/store.rs");
     let schema_derive_store = read_source("../icydb-schema-derive/src/node/store.rs");

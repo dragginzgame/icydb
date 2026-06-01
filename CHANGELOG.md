@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
 
+- `0.175.4` closes stable, heap, codec/marker, public docs, and closeout proof
+  rows for the journaled hardening line.
+
 - `0.175.3` proves journaled canonical stable BTrees remain fold-only and
   validates journaled indexed queries keep secondary-index routes.
 

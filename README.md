@@ -13,7 +13,7 @@ accepted schema catalogs, indexes, fluent queries, a reduced single-entity SQL
 surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
 generated observability endpoints.
 
-Current workspace version: `0.175.3`
+Current workspace version: `0.175.4`
 
 IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
 public `icydb` crate path. Repository development, formatting, Clippy, tests,
@@ -44,14 +44,14 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.3" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.4" }
 ```
 
 SQL is enabled by default. For typed/fluent-only builds:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.3", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.4", default-features = false }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs` and use a build
@@ -103,6 +103,26 @@ pub struct User {}
 The main branch also accepts strict scalar shorthand such as `pk(field = "id")`
 and `index(field = "name")`. Composite keys use ordered field lists such as
 `pk(fields = ["tenant_id", "local_id"])`.
+
+## Storage Modes
+
+Stores choose one explicit storage contract:
+
+- `storage(stable(...))`: durable stable-memory BTrees for data, index, and
+  schema roles. This is the direct stable backend.
+- `storage(heap())`: volatile Rust `BTreeMap` storage. It is useful for live
+  in-process state and tests, but rows and indexes are not recovered across
+  upgrade/reinitialization.
+- `storage(journaled(...))`: journaled cached-stable storage. Reads use live
+  Rust BTree projections, writes publish marker-bound journal batches, and fold
+  applies committed journal records into canonical stable data/index/schema
+  BTrees.
+
+Journaled stores use four memory IDs: `data_memory_id`, `index_memory_id`,
+`schema_memory_id`, and `journal_memory_id`. The first three are the canonical
+stable source-of-truth roles; the fourth is the durable journal tail. Journaled
+storage is durable, but it is not the same contract as direct `stable(...)`
+storage, and it does not make `heap()` durable.
 
 ## Query From Rust
 

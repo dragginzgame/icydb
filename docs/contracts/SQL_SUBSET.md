@@ -129,6 +129,14 @@ registered stores and their storage modes. `SHOW MEMORY` lists stable-memory
 tags, memory IDs, and their owning stores. The default shell rendering stays
 compact; `VERBOSE` exposes full entity and store paths for debugging.
 
+Storage modes have distinct contracts. `stable` is direct durable
+stable-memory storage. `heap` is volatile live storage with absent stable
+allocation identity and no row/index recovery. `journaled` is a durable
+cached-stable store: live reads use Rust BTree projections, committed journal
+records are folded into canonical stable data/index/schema BTrees, and
+`SHOW MEMORY` reports the fourth journal-tail memory role separately from the
+three canonical stable roles.
+
 `SHOW INDEXES` includes index lifecycle and origin annotations. Generated
 entity-model indexes report `origin=generated`; indexes added through SQL DDL
 report `origin=ddl`. Only DDL-origin field-path indexes are droppable through
