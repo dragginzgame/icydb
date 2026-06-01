@@ -300,7 +300,7 @@
     "avg_local_instructions": 50924
   },
   {
-    "scenario_key": "user.show_tables",
+    "scenario_key": "user.show_entities",
     "avg_compile_local_instructions": 18235,
     "avg_execute_local_instructions": 1467,
     "avg_local_instructions": 19702

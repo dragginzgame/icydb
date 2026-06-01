@@ -2468,16 +2468,15 @@ fn sql_canister_query_endpoint_executes_not_like_prefix_queries() {
 }
 
 #[test]
-fn sql_canister_query_endpoint_preserves_show_tables_alias() {
+fn sql_canister_query_endpoint_rejects_show_tables_alias() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
-    let tables = query_sql(&fixture, "SHOW TABLES").expect("SHOW TABLES should succeed");
-    let entities = query_sql(&fixture, "SHOW ENTITIES").expect("SHOW ENTITIES should succeed");
+    let err = query_sql(&fixture, "SHOW TABLES").expect_err("SHOW TABLES should reject");
 
-    assert_eq!(
-        tables, entities,
-        "SHOW TABLES should stay an alias for SHOW ENTITIES at the live canister boundary",
+    assert!(
+        err.message().contains("unsupported SQL feature"),
+        "SHOW TABLES should remain outside the current SQL catalog vocabulary: {err:?}",
     );
 }
 

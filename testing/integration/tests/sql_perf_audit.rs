@@ -1123,11 +1123,11 @@ fn user_aggregate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             "SHOW COLUMNS PerfAuditUser",
         ),
         scenario(
-            "user.show_tables",
+            "user.show_entities",
             SqlPerfSurface::User,
             "metadata",
-            "show_tables",
-            "SHOW TABLES",
+            "show_entities",
+            "SHOW ENTITIES",
         ),
     ]
 }

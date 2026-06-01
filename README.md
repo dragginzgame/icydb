@@ -154,7 +154,7 @@ let ddl = db!().execute_sql_ddl::<User>(
 IcyDB supports a focused, canister-friendly SQL subset:
 
 - `SELECT`, `EXPLAIN`, `DESCRIBE`, `SHOW ENTITIES`, `SHOW STORES`,
-  `SHOW MEMORY`, `SHOW TABLES`, `SHOW COLUMNS`, and `SHOW INDEXES`
+  `SHOW MEMORY`, `SHOW COLUMNS`, and `SHOW INDEXES`
 - `INSERT`, `UPDATE`, and `DELETE`, including supported `RETURNING` shapes
 - `CREATE INDEX`, `CREATE UNIQUE INDEX`, `CREATE INDEX IF NOT EXISTS`,
   `DROP INDEX`, and `DROP INDEX IF EXISTS`
