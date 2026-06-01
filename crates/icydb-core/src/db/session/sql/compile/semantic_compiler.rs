@@ -62,7 +62,10 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
             SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, entity_name),
             SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, entity_name),
-            SqlStatement::ShowEntities(_) => Ok(Self::compile_show_entities()),
+            SqlStatement::ShowEntities(statement) => {
+                Ok(Self::compile_show_entities(statement.verbose))
+            }
+            SqlStatement::ShowStores(statement) => Ok(Self::compile_show_stores(statement.verbose)),
         }
     }
 
@@ -353,9 +356,22 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Compile SHOW ENTITIES without entity-bound preparation because the
     // command is catalog-wide and historically reports no compile sub-stages.
-    fn compile_show_entities() -> SqlCompileArtifacts {
+    fn compile_show_entities(verbose: bool) -> SqlCompileArtifacts {
         SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowEntities,
+            CompiledSqlCommand::ShowEntities { verbose },
+            SqlQueryShape::metadata(),
+            0,
+            0,
+            0,
+            0,
+        )
+    }
+
+    // Compile SHOW STORES without entity-bound preparation because the command
+    // is catalog-wide and historically reports no compile sub-stages.
+    fn compile_show_stores(verbose: bool) -> SqlCompileArtifacts {
+        SqlCompileArtifacts::new(
+            CompiledSqlCommand::ShowStores { verbose },
             SqlQueryShape::metadata(),
             0,
             0,

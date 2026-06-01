@@ -93,8 +93,9 @@ pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, Quer
 
 /// Return the entity identifier targeted by one reduced SQL statement.
 ///
-/// `SHOW ENTITIES` intentionally has no entity target; callers that dispatch
-/// across canister-owned entities may route it through any accepted entity.
+/// `SHOW ENTITIES` and `SHOW STORES` intentionally have no entity target;
+/// callers that dispatch across canister-owned entities may route them through
+/// any accepted entity.
 #[doc(hidden)]
 pub fn sql_statement_entity_name(sql: &str) -> Result<Option<String>, QueryError> {
     let (statement, _) =
@@ -123,7 +124,8 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
         | SqlStatement::Describe(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
-        | SqlStatement::ShowEntities(_) => SqlStatementSurface::Query,
+        | SqlStatement::ShowEntities(_)
+        | SqlStatement::ShowStores(_) => SqlStatementSurface::Query,
     }
 }
 
@@ -159,7 +161,7 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::Describe(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowIndexes(statement) => Some(statement.entity.as_str()),
         SqlStatement::ShowColumns(statement) => Some(statement.entity.as_str()),
-        SqlStatement::ShowEntities(_) => None,
+        SqlStatement::ShowEntities(_) | SqlStatement::ShowStores(_) => None,
     }
 }
 
@@ -265,7 +267,8 @@ impl<C: CanisterKind> DbSession<C> {
                 | SqlStatement::Describe(_)
                 | SqlStatement::ShowIndexes(_)
                 | SqlStatement::ShowColumns(_)
-                | SqlStatement::ShowEntities(_),
+                | SqlStatement::ShowEntities(_)
+                | SqlStatement::ShowStores(_),
             )
             | (
                 SqlCompiledCommandSurface::Update,
@@ -317,6 +320,11 @@ impl<C: CanisterKind> DbSession<C> {
             (SqlCompiledCommandSurface::Update, SqlStatement::ShowEntities(_)) => {
                 Err(QueryError::unsupported_query(
                     "execute_sql_update rejects SHOW ENTITIES; use execute_sql_query::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowStores(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects SHOW STORES; use execute_sql_query::<E>()",
                 ))
             }
         }

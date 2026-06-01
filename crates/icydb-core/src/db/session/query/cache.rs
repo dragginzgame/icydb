@@ -221,6 +221,14 @@ impl<C: CanisterKind> DbSession<C> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let schema_fingerprint =
             accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
+        if let Some(cached) = self.try_cached_filterless_query_plan_for_authority(
+            &authority,
+            schema_fingerprint,
+            visibility,
+            query,
+        ) {
+            return Ok(cached);
+        }
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
             authority.model(),
             accepted_schema,
@@ -303,6 +311,44 @@ impl<C: CanisterKind> DbSession<C> {
         );
 
         Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
+    }
+
+    fn try_cached_filterless_query_plan_for_authority(
+        &self,
+        authority: &EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+    ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)> {
+        if query.has_scalar_filter() {
+            return None;
+        }
+
+        let cache_key =
+            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
+                authority.clone(),
+                schema_fingerprint,
+                visibility,
+                query,
+                None,
+                SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
+            );
+        let (cached, entries) = self.with_query_plan_cache(|cache| {
+            let cached = cache.get(&cache_key).cloned();
+
+            (cached, cache.len())
+        });
+        record_cache_entries(CacheKind::SharedQueryPlan, entries);
+        if let Some(prepared_plan) = cached {
+            record_cache_event_for_path(
+                CacheKind::SharedQueryPlan,
+                CacheOutcome::Hit,
+                authority.entity_path(),
+            );
+            return Some((prepared_plan, QueryPlanCacheAttribution::hit()));
+        }
+
+        None
     }
 
     fn cached_trivial_scalar_load_plan_for_authority(

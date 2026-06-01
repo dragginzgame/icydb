@@ -119,11 +119,12 @@ Supported commands:
 - `SHOW INDEXES FROM entity`
 - `SHOW INDEXES IN entity`
 - `SHOW COLUMNS entity`
-- `SHOW ENTITIES`
-- `SHOW TABLES`
+- `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
+- `SHOW STORES` / `SHOW STORES VERBOSE`
 
-`SHOW TABLES` is not a separate metadata family.
-It is an alias for `SHOW ENTITIES` and should return the same payload.
+`SHOW ENTITIES` lists registered runtime entities. `SHOW STORES` lists
+registered stores and their storage modes. The default shell rendering stays
+compact; `VERBOSE` exposes full entity and store paths for debugging.
 
 `SHOW INDEXES` includes index lifecycle and origin annotations. Generated
 entity-model indexes report `origin=generated`; indexes added through SQL DDL

@@ -29,6 +29,7 @@ pub(crate) enum SqlStatement {
     ShowIndexes(SqlShowIndexesStatement),
     ShowColumns(SqlShowColumnsStatement),
     ShowEntities(SqlShowEntitiesStatement),
+    ShowStores(SqlShowStoresStatement),
 }
 
 ///
@@ -1235,4 +1236,18 @@ pub(crate) struct SqlShowColumnsStatement {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SqlShowEntitiesStatement;
+pub(crate) struct SqlShowEntitiesStatement {
+    pub(crate) verbose: bool,
+}
+
+///
+/// SqlShowStoresStatement
+///
+/// Canonical parsed `SHOW STORES` statement.
+/// This lane carries no entity identifier and targets SQL helper introspection.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlShowStoresStatement {
+    pub(crate) verbose: bool,
+}

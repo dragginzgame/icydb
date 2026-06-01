@@ -39,13 +39,15 @@ mod sql_projection;
 mod sql_scalar;
 mod sql_surface;
 mod sql_write;
+mod storage_backend_perf;
 mod temporal;
 mod verbose_route_choice;
 
 use super::*;
 use crate::{
     db::{
-        Db, EntityRuntimeHooks, MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError,
+        Db, EntityCatalogDescription, EntityRuntimeHooks, MissingRowPolicy,
+        PagedGroupedExecutionWithTrace, PlanError, StoreCatalogDescription,
         access::lower_access,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
@@ -416,7 +418,8 @@ impl SelectTestSurface {
             )),
             (
                 Self::Lowering,
-                "EXPLAIN" | "DESCRIBE" | "SHOW INDEXES" | "SHOW COLUMNS" | "SHOW ENTITIES",
+                "EXPLAIN" | "DESCRIBE" | "SHOW INDEXES" | "SHOW COLUMNS" | "SHOW ENTITIES"
+                | "SHOW STORES",
             ) => QueryError::unsupported_query(format!(
                 "{} rejects {statement_kind}; use execute_sql_query::<E>()",
                 self.helper_label(),
@@ -455,6 +458,7 @@ impl SelectTestSurface {
             SqlStatement::ShowIndexes(_) => Some(self.reject_statement("SHOW INDEXES")),
             SqlStatement::ShowColumns(_) => Some(self.reject_statement("SHOW COLUMNS")),
             SqlStatement::ShowEntities(_) => Some(self.reject_statement("SHOW ENTITIES")),
+            SqlStatement::ShowStores(_) => Some(self.reject_statement("SHOW STORES")),
             SqlStatement::Select(statement)
                 if sql_select_has_text_specific_computed_projection(statement)
                     && self == Self::Lowering =>
@@ -1731,6 +1735,13 @@ static SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
         false,
     ),
 ];
+static STORAGE_PERF_STABLE_INDEX_FIELDS: [&str; 1] = ["name"];
+static STORAGE_PERF_STABLE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
+    "name",
+    SessionSqlStore::PATH,
+    &STORAGE_PERF_STABLE_INDEX_FIELDS,
+    false,
+)];
 static HEAP_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
 static HEAP_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "name",
@@ -1855,6 +1866,29 @@ crate::test_entity! {
         crate::test_field! { age: u64 => FieldKind::Nat64 },
     ],
     indexes = [],
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct StoragePerfStableEntity {
+    id: u64,
+    name: String,
+    age: u64,
+}
+
+crate::test_entity! {
+    ident = StoragePerfStableEntity,
+    entity_name = "StoragePerfStableEntity",
+    tag = EntityTag::new(0x1077),
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = u64,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: u64 => FieldKind::Nat64 },
+        crate::test_field! { name: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { age: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [&STORAGE_PERF_STABLE_INDEX_MODELS[0]],
 }
 
 crate::test_entity! {
@@ -2972,6 +3006,7 @@ enum SqlStatementPayloadKind {
     Describe,
     ShowIndexes,
     ShowColumns,
+    ShowStores,
 }
 
 impl SqlStatementPayloadKind {
@@ -2989,6 +3024,7 @@ impl SqlStatementPayloadKind {
             Self::Describe => "DESCRIBE SQL requires a DESCRIBE statement",
             Self::ShowIndexes => "SHOW INDEXES FROM SQL requires a SHOW INDEXES FROM statement",
             Self::ShowColumns => "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
+            Self::ShowStores => "SHOW STORES SQL requires a SHOW STORES statement",
         }
     }
 }
@@ -3282,7 +3318,7 @@ where
 fn statement_show_entities_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> Result<Vec<String>, QueryError> {
+) -> Result<Vec<EntityCatalogDescription>, QueryError> {
     let statement = parse_sql_statement_for_tests(session, sql)?;
     if !matches!(statement, SqlStatement::ShowEntities(_)) {
         return Err(unsupported_sql_statement_query_error(
@@ -3291,6 +3327,20 @@ fn statement_show_entities_sql(
     }
 
     Ok(session.show_entities())
+}
+
+fn statement_show_stores_sql(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<StoreCatalogDescription>, QueryError> {
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)?,
+        SqlStatementPayloadKind::ShowStores,
+        |result| match result {
+            SqlStatementResult::ShowStores { stores, .. } => Some(stores),
+            _ => None,
+        },
+    )
 }
 
 // Insert one fixture row stream through one shared session-owner helper so the

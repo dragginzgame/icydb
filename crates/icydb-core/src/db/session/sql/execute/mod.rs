@@ -510,7 +510,8 @@ impl<C: CanisterKind> DbSession<C> {
             | CompiledSqlCommand::DescribeEntity
             | CompiledSqlCommand::ShowIndexesEntity
             | CompiledSqlCommand::ShowColumnsEntity
-            | CompiledSqlCommand::ShowEntities => {
+            | CompiledSqlCommand::ShowEntities { .. }
+            | CompiledSqlCommand::ShowStores { .. } => {
                 self.execute_non_select_compiled_sql_with_phase_attribution::<E>(compiled)
             }
         }
@@ -604,8 +605,18 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)
     }
 
-    fn show_entities_sql_statement_result(&self) -> SqlStatementResult {
-        SqlStatementResult::ShowEntities(self.show_entities())
+    fn show_entities_sql_statement_result(&self, verbose: bool) -> SqlStatementResult {
+        SqlStatementResult::ShowEntities {
+            entities: self.show_entities(),
+            verbose,
+        }
+    }
+
+    fn show_stores_sql_statement_result(&self, verbose: bool) -> SqlStatementResult {
+        SqlStatementResult::ShowStores {
+            stores: self.show_stores(),
+            verbose,
+        }
     }
 
     #[cfg(any(test, feature = "diagnostics"))]
@@ -651,8 +662,12 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::ShowColumnsEntity => sql_statement_result_with_default_cache(
                 self.show_columns_sql_statement_result::<E>(),
             ),
-            CompiledSqlCommand::ShowEntities => Ok((
-                self.show_entities_sql_statement_result(),
+            CompiledSqlCommand::ShowEntities { verbose } => Ok((
+                self.show_entities_sql_statement_result(*verbose),
+                SqlCacheAttribution::default(),
+            )),
+            CompiledSqlCommand::ShowStores { verbose } => Ok((
+                self.show_stores_sql_statement_result(*verbose),
                 SqlCacheAttribution::default(),
             )),
         }
@@ -701,8 +716,12 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::ShowColumnsEntity => sql_statement_result_with_default_cache(
                 self.show_columns_sql_statement_result::<E>(),
             ),
-            CompiledSqlCommand::ShowEntities => Ok((
-                self.show_entities_sql_statement_result(),
+            CompiledSqlCommand::ShowEntities { verbose } => Ok((
+                self.show_entities_sql_statement_result(verbose),
+                SqlCacheAttribution::default(),
+            )),
+            CompiledSqlCommand::ShowStores { verbose } => Ok((
+                self.show_stores_sql_statement_result(verbose),
                 SqlCacheAttribution::default(),
             )),
         }
@@ -730,7 +749,8 @@ impl<C: CanisterKind> DbSession<C> {
             | crate::db::sql::parser::SqlStatement::Describe(_)
             | crate::db::sql::parser::SqlStatement::ShowIndexes(_)
             | crate::db::sql::parser::SqlStatement::ShowColumns(_)
-            | crate::db::sql::parser::SqlStatement::ShowEntities(_) => {
+            | crate::db::sql::parser::SqlStatement::ShowEntities(_)
+            | crate::db::sql::parser::SqlStatement::ShowStores(_) => {
                 self.compile_sql_query_with_cache_attribution::<E>(sql)?
             }
             crate::db::sql::parser::SqlStatement::Ddl(_) => {

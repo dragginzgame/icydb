@@ -13,7 +13,8 @@ use super::{
     SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement,
     SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
     SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement, parse_sql,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowStoresStatement, SqlStatement,
+    SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1827,17 +1828,39 @@ fn parse_show_entities_statement() {
 
     assert_eq!(
         statement,
-        SqlStatement::ShowEntities(SqlShowEntitiesStatement)
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement { verbose: false })
     );
 }
 
 #[test]
-fn parse_show_tables_statement() {
-    let statement = parse_sql("SHOW TABLES").expect("show tables statement should parse");
+fn parse_show_entities_verbose_statement() {
+    let statement =
+        parse_sql("SHOW ENTITIES VERBOSE").expect("show entities verbose statement should parse");
 
     assert_eq!(
         statement,
-        SqlStatement::ShowEntities(SqlShowEntitiesStatement)
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement { verbose: true })
+    );
+}
+
+#[test]
+fn parse_show_stores_statement() {
+    let statement = parse_sql("SHOW STORES").expect("show stores statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowStores(SqlShowStoresStatement { verbose: false })
+    );
+}
+
+#[test]
+fn parse_show_stores_verbose_statement() {
+    let statement =
+        parse_sql("SHOW STORES VERBOSE").expect("show stores verbose statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowStores(SqlShowStoresStatement { verbose: true })
     );
 }
 
@@ -3985,7 +4008,11 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (
             "SHOW DATABASES",
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES",
+        ),
+        (
+            "SHOW TABLES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES",
         ),
         (
             "SHOW INDEXES FROM users WHERE age > 1",
@@ -3993,6 +4020,7 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
+        ("SHOW STORES users", "SHOW STORES modifiers"),
         (
             "CREATE INDEX user_age_idx ON users (age DESC)",
             "SQL DDL CREATE INDEX key ordering modifiers",

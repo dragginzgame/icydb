@@ -105,6 +105,7 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     ShowIndexesEntity,
     ShowColumnsEntity,
     ShowEntities,
+    ShowStores,
 }
 
 ///
@@ -133,6 +134,7 @@ pub(crate) enum SqlCommand<E: EntityKind> {
     ShowIndexesEntity,
     ShowColumnsEntity,
     ShowEntities,
+    ShowStores,
 }
 
 impl LoweredSqlCommand {
@@ -146,7 +148,8 @@ impl LoweredSqlCommand {
             | LoweredSqlCommandInner::DescribeEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
-            | LoweredSqlCommandInner::ShowEntities => None,
+            | LoweredSqlCommandInner::ShowEntities
+            | LoweredSqlCommandInner::ShowStores => None,
         }
     }
 
@@ -160,7 +163,8 @@ impl LoweredSqlCommand {
             | LoweredSqlCommandInner::DescribeEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
-            | LoweredSqlCommandInner::ShowEntities => None,
+            | LoweredSqlCommandInner::ShowEntities
+            | LoweredSqlCommandInner::ShowStores => None,
         }
     }
 
@@ -179,7 +183,8 @@ impl LoweredSqlCommand {
             | LoweredSqlCommandInner::DescribeEntity
             | LoweredSqlCommandInner::ShowIndexesEntity
             | LoweredSqlCommandInner::ShowColumnsEntity
-            | LoweredSqlCommandInner::ShowEntities => None,
+            | LoweredSqlCommandInner::ShowEntities
+            | LoweredSqlCommandInner::ShowStores => None,
         }
     }
 }
@@ -430,6 +435,7 @@ pub(crate) enum LoweredSqlLaneKind {
     ShowIndexes,
     ShowColumns,
     ShowEntities,
+    ShowStores,
 }
 
 /// Parse and lower one SQL statement into canonical query intent for `E`.
@@ -483,6 +489,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
         LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),
         LoweredSqlCommandInner::ShowColumnsEntity => Ok(SqlCommand::ShowColumnsEntity),
         LoweredSqlCommandInner::ShowEntities => Ok(SqlCommand::ShowEntities),
+        LoweredSqlCommandInner::ShowStores => Ok(SqlCommand::ShowStores),
     }
 }
 
@@ -495,5 +502,6 @@ pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> Low
         LoweredSqlCommandInner::ShowIndexesEntity => LoweredSqlLaneKind::ShowIndexes,
         LoweredSqlCommandInner::ShowColumnsEntity => LoweredSqlLaneKind::ShowColumns,
         LoweredSqlCommandInner::ShowEntities => LoweredSqlLaneKind::ShowEntities,
+        LoweredSqlCommandInner::ShowStores => LoweredSqlLaneKind::ShowStores,
     }
 }

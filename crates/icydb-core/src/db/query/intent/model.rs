@@ -165,6 +165,11 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     #[must_use]
+    pub(in crate::db::query) const fn has_scalar_filter(&self) -> bool {
+        self.intent.scalar().filter.is_some()
+    }
+
+    #[must_use]
     pub(in crate::db::query::intent) const fn scalar_intent_for_cache_key(
         &self,
     ) -> &crate::db::query::intent::state::ScalarIntent<K> {

@@ -1,5 +1,6 @@
 use crate::db::{
-    EntityFieldDescription, EntitySchemaDescription,
+    EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
+    StoreCatalogDescription,
     sql::{SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryRowsOutput},
 };
 
@@ -237,17 +238,110 @@ pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription
     doc = "Render one helper-level `SHOW ENTITIES` payload into deterministic lines."
 )]
 #[must_use]
-pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
+pub fn render_show_entities_lines(entities: &[EntityCatalogDescription]) -> Vec<String> {
     let rows = entities
         .iter()
-        .map(|entity| vec![entity.clone()])
+        .map(|entity| {
+            vec![
+                entity.entity_name().to_string(),
+                render_catalog_path_tail(entity.store_path()).to_string(),
+            ]
+        })
         .collect::<Vec<_>>();
-    let mut lines = vec!["tables:".to_string()];
-    render_table_section(&mut lines, &["name".to_string()], rows.as_slice());
+    let mut lines = vec!["entities:".to_string()];
+    render_table_section(
+        &mut lines,
+        &["name".to_string(), "store".to_string()],
+        rows.as_slice(),
+    );
     lines.push(String::new());
-    lines.push(render_result_table_count_line(entities.len()));
+    lines.push(render_result_entity_count_line(entities.len()));
 
     lines
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one verbose `SHOW ENTITIES` payload with full catalog paths."
+)]
+#[must_use]
+pub fn render_show_entities_verbose_lines(entities: &[EntityCatalogDescription]) -> Vec<String> {
+    let rows = entities
+        .iter()
+        .map(|entity| {
+            vec![
+                entity.entity_name().to_string(),
+                entity.entity_path().to_string(),
+                entity.store_path().to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut lines = vec!["entities:".to_string()];
+    render_table_section(
+        &mut lines,
+        &["name".to_string(), "path".to_string(), "store".to_string()],
+        rows.as_slice(),
+    );
+    lines.push(String::new());
+    lines.push(render_result_entity_count_line(entities.len()));
+
+    lines
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one helper-level `SHOW STORES` payload into deterministic lines."
+)]
+#[must_use]
+pub fn render_show_stores_lines(stores: &[StoreCatalogDescription]) -> Vec<String> {
+    let rows = stores
+        .iter()
+        .map(|store| {
+            vec![
+                render_catalog_path_tail(store.store_path()).to_string(),
+                store.storage().to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut lines = vec!["stores:".to_string()];
+    render_table_section(
+        &mut lines,
+        &["store".to_string(), "storage".to_string()],
+        rows.as_slice(),
+    );
+    lines.push(String::new());
+    lines.push(render_result_store_count_line(stores.len()));
+
+    lines
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one verbose `SHOW STORES` payload with full catalog paths."
+)]
+#[must_use]
+pub fn render_show_stores_verbose_lines(stores: &[StoreCatalogDescription]) -> Vec<String> {
+    let rows = stores
+        .iter()
+        .map(|store| vec![store.store_path().to_string(), store.storage().to_string()])
+        .collect::<Vec<_>>();
+    let mut lines = vec!["stores:".to_string()];
+    render_table_section(
+        &mut lines,
+        &["path".to_string(), "storage".to_string()],
+        rows.as_slice(),
+    );
+    lines.push(String::new());
+    lines.push(render_result_store_count_line(stores.len()));
+
+    lines
+}
+
+fn render_catalog_path_tail(path: &str) -> &str {
+    path.rsplit_once("::").map_or_else(
+        || path.rsplit_once('.').map_or(path, |(_, tail)| tail),
+        |(_, tail)| tail,
+    )
 }
 
 #[cfg_attr(
@@ -330,9 +424,18 @@ fn render_result_row_count_line(row_count: u32) -> String {
     )
 }
 
-fn render_result_table_count_line(table_count: usize) -> String {
-    let noun = if table_count == 1 { "table" } else { "tables" };
-    format!("{} {noun},", render_grouped_decimal_usize(table_count))
+fn render_result_entity_count_line(entity_count: usize) -> String {
+    let noun = if entity_count == 1 {
+        "entity"
+    } else {
+        "entities"
+    };
+    format!("{} {noun},", render_grouped_decimal_usize(entity_count))
+}
+
+fn render_result_store_count_line(store_count: usize) -> String {
+    let noun = if store_count == 1 { "store" } else { "stores" };
+    format!("{} {noun},", render_grouped_decimal_usize(store_count))
 }
 
 // Render one count with ASCII thousands separators so shell count footers

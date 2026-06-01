@@ -72,7 +72,8 @@ fn first_statement_parameter_index(statement: &SqlStatement) -> Option<usize> {
         | SqlStatement::Describe(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
-        | SqlStatement::ShowEntities(_) => None,
+        | SqlStatement::ShowEntities(_)
+        | SqlStatement::ShowStores(_) => None,
     }
 }
 
@@ -326,6 +327,7 @@ fn prepare_statement(
             Ok(SqlStatement::ShowColumns(statement.clone()))
         }
         SqlStatement::ShowEntities(statement) => Ok(SqlStatement::ShowEntities(statement.clone())),
+        SqlStatement::ShowStores(statement) => Ok(SqlStatement::ShowStores(statement.clone())),
     }
 }
 
@@ -454,6 +456,7 @@ fn lower_prepared_statement_for_model_only(
         SqlStatement::ShowEntities(_) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowEntities))
         }
+        SqlStatement::ShowStores(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowStores)),
     }
 }
 
@@ -486,6 +489,7 @@ fn lower_prepared_statement_with_schema(
         SqlStatement::ShowEntities(_) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowEntities))
         }
+        SqlStatement::ShowStores(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowStores)),
     }
 }
 

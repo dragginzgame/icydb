@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.174.md](docs/changelog/0.174.md)
 
+- `0.174.7` switches the demo RPG store to journaled storage, adds native
+  stable/journaled timing evidence, tightens hot SELECT paths, and hard-cuts
+  SQL catalog output onto store-aware `SHOW ENTITIES`/`SHOW STORES` surfaces.
+
 - `0.174.6` closes journaled runtime admission with diagnostics, relation,
   capability-boundary, stable, and heap regression evidence.
 

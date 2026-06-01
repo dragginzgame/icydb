@@ -1662,6 +1662,17 @@ fn compile_sql_command_show_entities_lowers_to_show_entities_lane() {
 }
 
 #[test]
+fn compile_sql_command_show_stores_lowers_to_show_stores_lane() {
+    let command = compile_sql_command::<SqlLowerEntity>("SHOW STORES", MissingRowPolicy::Ignore)
+        .expect("SHOW STORES should lower");
+
+    assert!(
+        matches!(command, SqlCommand::ShowStores),
+        "SHOW STORES should lower to dedicated show-stores command lane",
+    );
+}
+
+#[test]
 fn compile_sql_command_explain_execution_wraps_lowered_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN EXECUTION SELECT * FROM SqlLowerEntity LIMIT 1",

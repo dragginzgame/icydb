@@ -12,7 +12,8 @@ pub(crate) use convert::sql_query_result_from_statement;
 pub use table_render::{
     render_count_lines, render_describe_lines, render_explain_lines, render_grouped_lines,
     render_projection_lines, render_show_columns_lines, render_show_entities_lines,
-    render_show_indexes_lines,
+    render_show_entities_verbose_lines, render_show_indexes_lines, render_show_stores_lines,
+    render_show_stores_verbose_lines,
 };
 pub use types::{SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput};
 pub use value_render::render_value_text;
@@ -29,12 +30,14 @@ mod tests {
     use crate::__macro::Value;
     use crate::db::sql::{
         SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_describe_lines,
-        render_show_columns_lines, render_show_entities_lines, render_show_indexes_lines,
+        render_show_columns_lines, render_show_entities_lines, render_show_entities_verbose_lines,
+        render_show_indexes_lines, render_show_stores_lines, render_show_stores_verbose_lines,
         sql_query_result_from_statement,
     };
     use crate::db::{
-        EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-        EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+        EntityCatalogDescription, EntityFieldDescription, EntityIndexDescription,
+        EntityRelationCardinality, EntityRelationDescription, EntityRelationStrength,
+        EntitySchemaDescription, StoreCatalogDescription,
     };
 
     #[test]
@@ -181,26 +184,111 @@ mod tests {
     #[test]
     fn render_show_entities_lines_output_contract_vector_is_stable() {
         let entities = vec![
-            "ExampleEntity".to_string(),
-            "Order".to_string(),
-            "User".to_string(),
+            EntityCatalogDescription::new(
+                "ExampleEntity".to_string(),
+                "schema.public.ExampleEntity".to_string(),
+                "stores::main".to_string(),
+            ),
+            EntityCatalogDescription::new(
+                "Order".to_string(),
+                "schema.public.Order".to_string(),
+                "stores::sales".to_string(),
+            ),
+            EntityCatalogDescription::new(
+                "User".to_string(),
+                "schema.public.User".to_string(),
+                "stores::main".to_string(),
+            ),
         ];
 
         assert_eq!(
             render_show_entities_lines(entities.as_slice()),
             vec![
-                "tables:".to_string(),
-                "+---------------+".to_string(),
-                "| name          |".to_string(),
-                "+---------------+".to_string(),
-                "| ExampleEntity |".to_string(),
-                "| Order         |".to_string(),
-                "| User          |".to_string(),
-                "+---------------+".to_string(),
+                "entities:".to_string(),
+                "+---------------+-------+".to_string(),
+                "| name          | store |".to_string(),
+                "+---------------+-------+".to_string(),
+                "| ExampleEntity | main  |".to_string(),
+                "| Order         | sales |".to_string(),
+                "| User          | main  |".to_string(),
+                "+---------------+-------+".to_string(),
                 String::new(),
-                "3 tables,".to_string(),
+                "3 entities,".to_string(),
             ],
             "show-entities shell output must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn render_show_entities_verbose_lines_output_contract_vector_is_stable() {
+        let entities = vec![EntityCatalogDescription::new(
+            "ExampleEntity".to_string(),
+            "schema.public.ExampleEntity".to_string(),
+            "stores::main".to_string(),
+        )];
+
+        assert_eq!(
+            render_show_entities_verbose_lines(entities.as_slice()),
+            vec![
+                "entities:".to_string(),
+                "+---------------+-----------------------------+--------------+".to_string(),
+                "| name          | path                        | store        |".to_string(),
+                "+---------------+-----------------------------+--------------+".to_string(),
+                "| ExampleEntity | schema.public.ExampleEntity | stores::main |".to_string(),
+                "+---------------+-----------------------------+--------------+".to_string(),
+                String::new(),
+                "1 entity,".to_string(),
+            ],
+            "verbose show-entities output should keep full paths behind an explicit surface",
+        );
+    }
+
+    #[test]
+    fn render_show_stores_lines_output_contract_vector_is_stable() {
+        let stores = vec![
+            StoreCatalogDescription::new("stores::main".to_string(), "stable".to_string()),
+            StoreCatalogDescription::new("stores::scratch".to_string(), "heap".to_string()),
+            StoreCatalogDescription::new("stores::journaled".to_string(), "journaled".to_string()),
+        ];
+
+        assert_eq!(
+            render_show_stores_lines(stores.as_slice()),
+            vec![
+                "stores:".to_string(),
+                "+-----------+-----------+".to_string(),
+                "| store     | storage   |".to_string(),
+                "+-----------+-----------+".to_string(),
+                "| main      | stable    |".to_string(),
+                "| scratch   | heap      |".to_string(),
+                "| journaled | journaled |".to_string(),
+                "+-----------+-----------+".to_string(),
+                String::new(),
+                "3 stores,".to_string(),
+            ],
+            "show-stores shell output must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn render_show_stores_verbose_lines_output_contract_vector_is_stable() {
+        let stores = vec![StoreCatalogDescription::new(
+            "stores::journaled".to_string(),
+            "journaled".to_string(),
+        )];
+
+        assert_eq!(
+            render_show_stores_verbose_lines(stores.as_slice()),
+            vec![
+                "stores:".to_string(),
+                "+-------------------+-----------+".to_string(),
+                "| path              | storage   |".to_string(),
+                "+-------------------+-----------+".to_string(),
+                "| stores::journaled | journaled |".to_string(),
+                "+-------------------+-----------+".to_string(),
+                String::new(),
+                "1 store,".to_string(),
+            ],
+            "verbose show-stores output should keep full paths behind an explicit surface",
         );
     }
 

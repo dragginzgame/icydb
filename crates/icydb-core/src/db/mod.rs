@@ -5,6 +5,7 @@
 //! Boundary: top-level db API and internal orchestration entrypoints.
 
 pub(crate) mod access;
+pub(crate) mod catalog;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
@@ -48,6 +49,7 @@ use crate::{
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
+pub use catalog::{EntityCatalogDescription, StoreCatalogDescription};
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
 pub use cursor::{decode_cursor, encode_cursor};
@@ -422,13 +424,41 @@ impl<C: CanisterKind> Db<C> {
         runtime_hooks::has_runtime_hooks(self.entity_runtime_hooks)
     }
 
-    /// Return one deterministic list of registered runtime entity names.
+    /// Return one deterministic list of registered runtime entity catalog rows.
     #[must_use]
-    pub(crate) fn runtime_entity_names(&self) -> Vec<String> {
+    pub(crate) fn runtime_entity_catalog(&self) -> Vec<EntityCatalogDescription> {
         self.entity_runtime_hooks
             .iter()
-            .map(|hooks| hooks.model.name().to_string())
+            .map(|hooks| {
+                EntityCatalogDescription::new(
+                    hooks.model.name().to_string(),
+                    hooks.entity_path.to_string(),
+                    hooks.store_path.to_string(),
+                )
+            })
             .collect()
+    }
+
+    /// Return one deterministic list of registered runtime stores.
+    #[must_use]
+    pub(crate) fn runtime_store_catalog(&self) -> Vec<StoreCatalogDescription> {
+        let mut stores = self.with_store_registry(|registry| {
+            registry
+                .iter()
+                .map(|(store_path, handle)| {
+                    StoreCatalogDescription::new(
+                        store_path.to_string(),
+                        handle
+                            .storage_capabilities()
+                            .storage_mode()
+                            .as_str()
+                            .to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        stores.sort_by(|left, right| left.store_path().cmp(right.store_path()));
+        stores
     }
 
     // Resolve exactly one runtime hook for a persisted entity tag.

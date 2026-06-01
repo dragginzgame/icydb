@@ -1,9 +1,11 @@
 use crate::db::{
-    EntityFieldDescription, EntitySchemaDescription,
+    EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
+    StoreCatalogDescription,
     sql::table_render::{
         SqlDdlRenderInput, render_count_lines, render_describe_lines, render_explain_lines,
         render_grouped_lines, render_query_rows_lines, render_show_columns_lines,
-        render_show_entities_lines, render_show_indexes_lines, render_sql_ddl_lines,
+        render_show_entities_lines, render_show_entities_verbose_lines, render_show_indexes_lines,
+        render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
     },
 };
 use candid::CandidType;
@@ -116,7 +118,12 @@ pub enum SqlQueryResult {
         columns: Vec<EntityFieldDescription>,
     },
     ShowEntities {
-        entities: Vec<String>,
+        entities: Vec<EntityCatalogDescription>,
+        verbose: bool,
+    },
+    ShowStores {
+        stores: Vec<StoreCatalogDescription>,
+        verbose: bool,
     },
     Ddl {
         entity: String,
@@ -146,7 +153,20 @@ impl SqlQueryResult {
             Self::ShowColumns { entity, columns } => {
                 render_show_columns_lines(entity.as_str(), columns.as_slice())
             }
-            Self::ShowEntities { entities } => render_show_entities_lines(entities.as_slice()),
+            Self::ShowEntities { entities, verbose } => {
+                if *verbose {
+                    render_show_entities_verbose_lines(entities.as_slice())
+                } else {
+                    render_show_entities_lines(entities.as_slice())
+                }
+            }
+            Self::ShowStores { stores, verbose } => {
+                if *verbose {
+                    render_show_stores_verbose_lines(stores.as_slice())
+                } else {
+                    render_show_stores_lines(stores.as_slice())
+                }
+            }
             Self::Ddl {
                 entity,
                 mutation_kind,

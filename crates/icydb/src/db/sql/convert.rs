@@ -63,7 +63,12 @@ pub(crate) fn sql_query_result_from_statement(
             entity: entity_name,
             columns,
         },
-        SqlStatementResult::ShowEntities(entities) => SqlQueryResult::ShowEntities { entities },
+        SqlStatementResult::ShowEntities { entities, verbose } => {
+            SqlQueryResult::ShowEntities { entities, verbose }
+        }
+        SqlStatementResult::ShowStores { stores, verbose } => {
+            SqlQueryResult::ShowStores { stores, verbose }
+        }
         SqlStatementResult::Ddl(report) => SqlQueryResult::Ddl {
             entity: entity_name,
             mutation_kind: report.mutation_kind().as_str().to_string(),

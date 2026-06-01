@@ -7,8 +7,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         commit::CommitSchemaFingerprint,
-        executor::EntityAuthority,
-        schema::{SchemaInfo, accepted_schema_cache_fingerprint},
+        schema::{AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint},
         session::sql::compiled::CompiledSqlCommand,
     },
     metrics::sink::CacheMissReason,
@@ -17,7 +16,7 @@ use crate::{
 use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(test)]
-use crate::db::schema::{AcceptedSchemaSnapshot, compiled_schema_proposal_for_model};
+use crate::db::schema::compiled_schema_proposal_for_model;
 #[cfg(test)]
 use crate::metrics::sink::{CacheKind, record_cache_entries};
 
@@ -136,16 +135,15 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
 #[derive(Debug)]
 pub(in crate::db::session::sql) struct SqlCompiledCommandCacheContext {
     key: SqlCompiledCommandCacheKey,
-    authority: EntityAuthority,
-    schema: SchemaInfo,
+    accepted_schema: AcceptedSchemaSnapshot,
 }
 
 impl SqlCompiledCommandCacheContext {
     #[must_use]
     pub(in crate::db::session::sql) fn into_cache_inputs(
         self,
-    ) -> (SqlCompiledCommandCacheKey, EntityAuthority, SchemaInfo) {
-        (self.key, self.authority, self.schema)
+    ) -> (SqlCompiledCommandCacheKey, AcceptedSchemaSnapshot) {
+        (self.key, self.accepted_schema)
     }
 }
 
@@ -296,24 +294,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (accepted_schema, authority) = self
-            .accepted_entity_authority::<E>()
+        let accepted_schema = self
+            .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let schema_fingerprint =
             accepted_schema_cache_fingerprint(&accepted_schema).map_err(QueryError::execute)?;
 
         Ok(SqlCompiledCommandCacheContext {
-            key: SqlCompiledCommandCacheKey::new(
-                surface,
-                authority.entity_path(),
-                schema_fingerprint,
-                sql,
-            ),
-            authority: authority.clone(),
-            schema: SchemaInfo::from_accepted_snapshot_for_model(
-                authority.model(),
-                &accepted_schema,
-            ),
+            key: SqlCompiledCommandCacheKey::new(surface, E::PATH, schema_fingerprint, sql),
+            accepted_schema,
         })
     }
 

@@ -262,8 +262,8 @@ SQL parsing still owns route metadata for:
 - `DESCRIBE`
 - `SHOW INDEXES`
 - `SHOW COLUMNS`
-- `SHOW ENTITIES`
-- `SHOW TABLES` as an alias of `SHOW ENTITIES`
+- `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
+- `SHOW STORES` / `SHOW STORES VERBOSE`
 
 But the public operational helpers remain typed/session-owned:
 
@@ -271,7 +271,7 @@ But the public operational helpers remain typed/session-owned:
 - `show_indexes(...)`
 - `show_columns(...)`
 - `show_entities()`
-- `show_tables()`
+- `show_stores()`
 
 ## Cursor Pagination Boundary
 

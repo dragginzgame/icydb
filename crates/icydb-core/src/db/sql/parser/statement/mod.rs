@@ -15,7 +15,7 @@ use crate::db::{
         SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
         SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
         SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
+        SqlShowIndexesStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
@@ -91,6 +91,9 @@ impl Parser {
             SqlStatement::ShowEntities(_) => Some(SqlParseError::unsupported_feature(
                 "SHOW ENTITIES modifiers",
             )),
+            SqlStatement::ShowStores(_) => {
+                Some(SqlParseError::unsupported_feature("SHOW STORES modifiers"))
+            }
         }
     }
 
@@ -475,14 +478,18 @@ impl Parser {
             ));
         }
         if self.eat_keyword(Keyword::Entities) {
-            return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
+            return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement {
+                verbose: self.eat_keyword(Keyword::Verbose),
+            }));
         }
-        if self.eat_keyword(Keyword::Tables) {
-            return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
+        if self.eat_keyword(Keyword::Stores) {
+            return Ok(SqlStatement::ShowStores(SqlShowStoresStatement {
+                verbose: self.eat_keyword(Keyword::Verbose),
+            }));
         }
 
         Err(SqlParseError::unsupported_feature(
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES",
         ))
     }
 

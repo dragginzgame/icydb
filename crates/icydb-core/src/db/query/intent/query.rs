@@ -110,6 +110,11 @@ impl StructuralQuery {
     }
 
     #[must_use]
+    pub(in crate::db) const fn has_scalar_filter(&self) -> bool {
+        self.intent.has_scalar_filter()
+    }
+
+    #[must_use]
     const fn load_spec(&self) -> Option<LoadSpec> {
         match self.intent.mode() {
             QueryMode::Load(spec) => Some(spec),

@@ -12,9 +12,10 @@ define_fixture_canister!(
 define_fixture_store!(
     DemoRpgStore = "DEMO_RPG_STORE",
     canister = "DemoRpgCanister",
-    storage(stable(
+    storage(journaled(
         data_memory_id = 104,
         index_memory_id = 105,
         schema_memory_id = 106,
+        journal_memory_id = 107,
     )),
 );

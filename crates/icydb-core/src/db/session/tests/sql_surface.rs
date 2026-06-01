@@ -363,6 +363,10 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
                 "SQL query lowering must reject SHOW ENTITIES statements",
             ),
             (
+                "SHOW STORES",
+                "SQL query lowering must reject SHOW STORES statements",
+            ),
+            (
                 "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
                 "SQL query lowering must reject INSERT statements",
             ),
@@ -401,6 +405,7 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
             "SHOW ENTITIES",
             "scalar SELECT helper rejects SHOW ENTITIES",
         ),
+        ("SHOW STORES", "scalar SELECT helper rejects SHOW STORES"),
         (
             "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
             "scalar SELECT helper rejects INSERT",
@@ -441,6 +446,7 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
             "SHOW ENTITIES",
             "grouped SELECT helper rejects SHOW ENTITIES",
         ),
+        ("SHOW STORES", "grouped SELECT helper rejects SHOW STORES"),
         (
             "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
             "grouped SELECT helper rejects INSERT",
@@ -584,8 +590,8 @@ fn sql_metadata_surfaces_match_typed_payloads() {
             .expect("show_columns_sql should succeed");
     let show_entities_from_sql = statement_show_entities_sql(&session, "SHOW ENTITIES")
         .expect("show_entities_sql should succeed");
-    let show_tables_from_sql = statement_show_entities_sql(&session, "SHOW TABLES")
-        .expect("show tables alias should succeed");
+    let show_stores_from_sql =
+        statement_show_stores_sql(&session, "SHOW STORES").expect("show stores should succeed");
 
     assert_eq!(
         describe_from_sql,
@@ -612,14 +618,9 @@ fn sql_metadata_surfaces_match_typed_payloads() {
         "show_entities_sql should project through canonical show_entities payload",
     );
     assert_eq!(
-        session.show_tables(),
-        session.show_entities(),
-        "typed show_tables helper should stay a direct alias of show_entities",
-    );
-    assert_eq!(
-        show_tables_from_sql,
-        session.show_entities(),
-        "SHOW TABLES should stay a direct alias of SHOW ENTITIES",
+        show_stores_from_sql,
+        session.show_stores(),
+        "SHOW STORES should project through canonical show_stores payload",
     );
 }
 
@@ -674,26 +675,106 @@ fn sql_metadata_surfaces_execute_through_public_query_entrypoint() {
         "SHOW INDEXES IN should stay a direct SQL alias of SHOW INDEXES FROM",
     );
 
-    let SqlStatementResult::ShowEntities(show_entities) = session
+    let SqlStatementResult::ShowEntities {
+        entities: show_entities,
+        verbose: false,
+    } = session
         .execute_sql_query::<SessionSqlEntity>("SHOW ENTITIES")
         .expect("SHOW ENTITIES should execute through public SQL query entrypoint")
     else {
         panic!("SHOW ENTITIES should return an entity metadata payload");
-    };
-    let SqlStatementResult::ShowEntities(show_tables) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW TABLES")
-        .expect("SHOW TABLES should execute through public SQL query entrypoint")
-    else {
-        panic!("SHOW TABLES should return an entity metadata payload");
     };
     assert_eq!(
         show_entities,
         session.show_entities(),
         "SHOW ENTITIES should expose the same public payload as the typed metadata surface",
     );
+
+    let SqlStatementResult::ShowStores {
+        stores: show_stores,
+        verbose: false,
+    } = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW STORES")
+        .expect("SHOW STORES should execute through public SQL query entrypoint")
+    else {
+        panic!("SHOW STORES should return a store metadata payload");
+    };
     assert_eq!(
-        show_tables, show_entities,
-        "SHOW TABLES should stay a direct SQL alias of SHOW ENTITIES",
+        show_stores,
+        session.show_stores(),
+        "SHOW STORES should expose the same public payload as the typed metadata surface",
+    );
+}
+
+#[test]
+fn sql_catalog_surfaces_include_store_metadata() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+
+    let SqlStatementResult::ShowEntities {
+        entities,
+        verbose: false,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES")
+        .expect("SHOW ENTITIES should execute for journaled catalog")
+    else {
+        panic!("SHOW ENTITIES should return entity catalog metadata");
+    };
+    assert!(
+        entities.iter().any(|entry| {
+            entry.entity_name() == "JournaledSessionSqlEntity"
+                && entry.entity_path() == JournaledSessionSqlEntity::PATH
+                && entry.store_path() == JournaledSessionSqlStore::PATH
+        }),
+        "SHOW ENTITIES should include the owning store path: {entities:?}",
+    );
+
+    let SqlStatementResult::ShowStores {
+        stores,
+        verbose: false,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW STORES")
+        .expect("SHOW STORES should execute for journaled catalog")
+    else {
+        panic!("SHOW STORES should return store catalog metadata");
+    };
+    assert!(
+        stores.iter().any(|entry| {
+            entry.store_path() == JournaledSessionSqlStore::PATH && entry.storage() == "journaled"
+        }),
+        "SHOW STORES should include the registered store and storage mode: {stores:?}",
+    );
+
+    let SqlStatementResult::ShowEntities {
+        entities,
+        verbose: true,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES VERBOSE")
+        .expect("SHOW ENTITIES VERBOSE should execute for journaled catalog")
+    else {
+        panic!("SHOW ENTITIES VERBOSE should return verbose entity catalog metadata");
+    };
+    assert!(
+        entities
+            .iter()
+            .any(|entry| entry.entity_path() == JournaledSessionSqlEntity::PATH),
+        "SHOW ENTITIES VERBOSE should carry full entity paths: {entities:?}",
+    );
+
+    let SqlStatementResult::ShowStores {
+        stores,
+        verbose: true,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW STORES VERBOSE")
+        .expect("SHOW STORES VERBOSE should execute for journaled catalog")
+    else {
+        panic!("SHOW STORES VERBOSE should return verbose store catalog metadata");
+    };
+    assert!(
+        stores
+            .iter()
+            .any(|entry| entry.store_path() == JournaledSessionSqlStore::PATH),
+        "SHOW STORES VERBOSE should carry full store paths: {stores:?}",
     );
 }
 
@@ -730,6 +811,10 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "SHOW ENTITIES",
                 "describe_sql should reject SHOW ENTITIES statements",
             ),
+            (
+                "SHOW STORES",
+                "describe_sql should reject SHOW STORES statements",
+            ),
         ],
         |sql| statement_describe_sql::<SessionSqlEntity>(&session, sql),
     );
@@ -754,6 +839,10 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
             (
                 "SHOW ENTITIES",
                 "show_indexes_sql should reject SHOW ENTITIES statements",
+            ),
+            (
+                "SHOW STORES",
+                "show_indexes_sql should reject SHOW STORES statements",
             ),
         ],
         |sql| statement_show_indexes_sql::<SessionSqlEntity>(&session, sql),
@@ -780,6 +869,10 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "SHOW ENTITIES",
                 "show_columns_sql should reject SHOW ENTITIES statements",
             ),
+            (
+                "SHOW STORES",
+                "show_columns_sql should reject SHOW STORES statements",
+            ),
         ],
         |sql| statement_show_columns_sql::<SessionSqlEntity>(&session, sql),
     );
@@ -805,8 +898,41 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "SHOW COLUMNS SessionSqlEntity",
                 "show_entities_sql should reject SHOW COLUMNS statements",
             ),
+            (
+                "SHOW STORES",
+                "show_entities_sql should reject SHOW STORES statements",
+            ),
         ],
         |sql| statement_show_entities_sql(&session, sql),
+    );
+    assert_sql_surface_rejects_statement_lanes(
+        &[
+            (
+                "SELECT * FROM SessionSqlEntity",
+                "show_stores_sql should reject SELECT statements",
+            ),
+            (
+                "EXPLAIN SELECT * FROM SessionSqlEntity",
+                "show_stores_sql should reject EXPLAIN statements",
+            ),
+            (
+                "DESCRIBE SessionSqlEntity",
+                "show_stores_sql should reject DESCRIBE statements",
+            ),
+            (
+                "SHOW INDEXES FROM SessionSqlEntity",
+                "show_stores_sql should reject SHOW INDEXES FROM statements",
+            ),
+            (
+                "SHOW COLUMNS SessionSqlEntity",
+                "show_stores_sql should reject SHOW COLUMNS statements",
+            ),
+            (
+                "SHOW ENTITIES",
+                "show_stores_sql should reject SHOW ENTITIES statements",
+            ),
+        ],
+        |sql| statement_show_stores_sql(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -825,6 +951,10 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
             (
                 "SHOW ENTITIES",
                 "explain_sql should reject SHOW ENTITIES statements",
+            ),
+            (
+                "SHOW STORES",
+                "explain_sql should reject SHOW STORES statements",
             ),
         ],
         |sql| statement_explain_sql::<SessionSqlEntity>(&session, sql),
@@ -1004,6 +1134,10 @@ fn execute_sql_query_rejects_unsupported_sql_families() {
         (
             "SHOW ENTITIES SessionSqlEntity",
             "SHOW ENTITIES modifiers should stay outside the SQL metadata surface",
+        ),
+        (
+            "SHOW STORES SessionSqlEntity",
+            "SHOW STORES modifiers should stay outside the SQL metadata surface",
         ),
         (
             "BEGIN",
@@ -7293,10 +7427,108 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         "new SQL session should start with an empty compiled-command cache",
     );
 
-    let scalar = session
-        .compile_sql_query::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+    let scalar_repeat = assert_scalar_query_compile_cache_reuses_entry(&session);
+    assert_scalar_compiled_select_executes_through_shared_query_plan(&session, &scalar_repeat);
+
+    assert_query_compile_cache_artifact(
+        &session,
+        "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        "EXPLAIN",
+        |compiled| {
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::Explain(_)
+            )
+        },
+    );
+
+    assert_query_compile_cache_artifact(
+        &session,
+        "DESCRIBE SessionSqlEntity",
+        "DESCRIBE",
+        |compiled| {
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::DescribeEntity
+            )
+        },
+    );
+
+    assert_query_compile_cache_artifact(
+        &session,
+        "SHOW INDEXES FROM SessionSqlEntity",
+        "SHOW INDEXES FROM",
+        |compiled| {
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::ShowIndexesEntity
+            )
+        },
+    );
+
+    assert_query_compile_cache_artifact(
+        &session,
+        "SHOW COLUMNS SessionSqlEntity",
+        "SHOW COLUMNS",
+        |compiled| {
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::ShowColumnsEntity
+            )
+        },
+    );
+
+    assert_query_compile_cache_artifact(&session, "SHOW ENTITIES", "SHOW ENTITIES", |compiled| {
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::ShowEntities { verbose: false }
         )
+    });
+
+    assert_query_compile_cache_artifact(
+        &session,
+        "SHOW ENTITIES VERBOSE",
+        "SHOW ENTITIES VERBOSE",
+        |compiled| {
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::ShowEntities { verbose: true }
+            )
+        },
+    );
+
+    assert_query_compile_cache_artifact(&session, "SHOW STORES", "SHOW STORES", |compiled| {
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::ShowStores { verbose: false }
+        )
+    });
+
+    assert_query_compile_cache_artifact(
+        &session,
+        "SHOW STORES VERBOSE",
+        "SHOW STORES VERBOSE",
+        |compiled| {
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::ShowStores { verbose: true }
+            )
+        },
+    );
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        9,
+        "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
+    );
+}
+
+fn assert_scalar_query_compile_cache_reuses_entry(
+    session: &DbSession<SessionSqlCanister>,
+) -> crate::db::session::sql::CompiledSqlCommand {
+    let scalar_sql = "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1";
+    let scalar = session
+        .compile_sql_query::<SessionSqlEntity>(scalar_sql)
         .expect("scalar SELECT should compile into the query-surface cache");
     assert!(
         matches!(
@@ -7312,9 +7544,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 
     let scalar_repeat = session
-        .compile_sql_query::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-        )
+        .compile_sql_query::<SessionSqlEntity>(scalar_sql)
         .expect("same scalar SELECT should compile from the existing cache entry");
     assert!(
         matches!(
@@ -7328,69 +7558,22 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         1,
         "repeating one identical query-surface compile must not grow the cache",
     );
-    assert_scalar_compiled_select_executes_through_shared_query_plan(&session, &scalar_repeat);
 
-    let explain = session
-        .compile_sql_query::<SessionSqlEntity>(
-            "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-        )
-        .expect("EXPLAIN should compile into the query-surface cache");
+    scalar_repeat
+}
+
+fn assert_query_compile_cache_artifact(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    label: &str,
+    matches_artifact: impl FnOnce(&crate::db::session::sql::CompiledSqlCommand) -> bool,
+) {
+    let compiled = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("{label} should compile into the query-surface cache: {err}"));
     assert!(
-        matches!(
-            explain,
-            crate::db::session::sql::CompiledSqlCommand::Explain(_)
-        ),
-        "EXPLAIN should use its dedicated compiled artifact family",
-    );
-
-    let describe = session
-        .compile_sql_query::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
-        .expect("DESCRIBE should compile into the query-surface cache");
-    assert!(
-        matches!(
-            describe,
-            crate::db::session::sql::CompiledSqlCommand::DescribeEntity
-        ),
-        "DESCRIBE should cache its dedicated metadata artifact",
-    );
-
-    let show_indexes = session
-        .compile_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
-        .expect("SHOW INDEXES FROM should compile into the query-surface cache");
-    assert!(
-        matches!(
-            show_indexes,
-            crate::db::session::sql::CompiledSqlCommand::ShowIndexesEntity
-        ),
-        "SHOW INDEXES FROM should cache its dedicated metadata artifact",
-    );
-
-    let show_columns = session
-        .compile_sql_query::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
-        .expect("SHOW COLUMNS should compile into the query-surface cache");
-    assert!(
-        matches!(
-            show_columns,
-            crate::db::session::sql::CompiledSqlCommand::ShowColumnsEntity
-        ),
-        "SHOW COLUMNS should cache its dedicated metadata artifact",
-    );
-
-    let show_entities = session
-        .compile_sql_query::<SessionSqlEntity>("SHOW ENTITIES")
-        .expect("SHOW ENTITIES should compile into the query-surface cache");
-    assert!(
-        matches!(
-            show_entities,
-            crate::db::session::sql::CompiledSqlCommand::ShowEntities
-        ),
-        "SHOW ENTITIES should cache its dedicated metadata artifact",
-    );
-
-    assert_eq!(
-        session.sql_compiled_command_cache_len(),
-        6,
-        "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
+        matches_artifact(&compiled),
+        "{label} should cache its dedicated query-surface artifact",
     );
 }
 

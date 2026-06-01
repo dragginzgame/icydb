@@ -68,6 +68,67 @@ fn seeded_projection_bounded_order_session() -> DbSession<SessionSqlCanister> {
     session
 }
 
+#[test]
+fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21), ("Bob", 32), ("Cara", 43)]);
+
+    let (_, stable_scanned) = capture_rows_scanned_for_entity(SessionSqlEntity::PATH, || {
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT name FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+        )
+        .expect("stable primary-order projection should execute")
+    });
+    assert_eq!(
+        stable_scanned, 1,
+        "stable primary-key ORDER BY LIMIT 1 should retain the bounded scan path",
+    );
+
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    for (id, name) in [(3_u64, "Cara"), (1, "Ada"), (2, "Bob")] {
+        session
+            .insert(JournaledSessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age: 20 + id,
+            })
+            .expect("journaled seed insert should succeed");
+    }
+
+    let (_, journaled_scanned) =
+        capture_rows_scanned_for_entity(JournaledSessionSqlEntity::PATH, || {
+            statement_projection_rows::<JournaledSessionSqlEntity>(
+                &session,
+                "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 1",
+            )
+            .expect("journaled primary-order projection should execute")
+        });
+    assert_eq!(
+        journaled_scanned, 1,
+        "journaled primary-key ORDER BY LIMIT 1 should retain the bounded scan path",
+    );
+
+    #[cfg(feature = "diagnostics")]
+    {
+        let (_result, attribution) = session
+            .execute_sql_query_with_attribution::<JournaledSessionSqlEntity>(
+                "SELECT name FROM JournaledSessionSqlEntity ORDER BY id ASC LIMIT 1",
+            )
+            .expect("journaled repeated projection should execute with attribution");
+        assert_eq!(
+            attribution.cache.sql_compiled_command_hits, 1,
+            "journaled repeated projection should reuse the compiled SQL command",
+        );
+        assert_eq!(
+            attribution.cache.shared_query_plan_hits, 1,
+            "journaled repeated projection should reuse the shared query plan",
+        );
+    }
+}
+
 // Seed the aggregate rows used by the bounded computed ORDER BY coverage in
 // this file.
 fn seed_projection_alias_order_aggregate_fixture(session: &DbSession<SessionSqlCanister>) {

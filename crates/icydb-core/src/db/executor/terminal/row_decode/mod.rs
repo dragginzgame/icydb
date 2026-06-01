@@ -287,6 +287,14 @@ impl RowDecoder {
             return decode_dense_raw_row_with_contract(row, layout.contract.clone(), expected_key);
         }
 
+        if let [required_slot] = retained_slot_layout.required_slots() {
+            return Ok(vec![layout.decode_required_value(
+                row,
+                expected_key,
+                *required_slot,
+            )?]);
+        }
+
         // Phase 2: reuse the canonical row-open validation boundary once, then
         // materialize only the caller-declared retained slots into compact
         // layout order.

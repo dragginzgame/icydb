@@ -18,7 +18,7 @@ use crate::{
     db::{
         Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
         FluentLoadQuery, IndexState, IntegrityReport, MissingRowPolicy, PersistedRow, Query,
-        QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
+        QueryError, StorageReport, StoreCatalogDescription, StoreRegistry, WriteBatchResponse,
         commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
@@ -364,19 +364,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(describe_entity_fields_with_persisted_schema(&snapshot))
     }
 
-    /// Return one stable list of runtime-registered entity names.
+    /// Return one stable list of runtime-registered entity catalog entries.
     #[must_use]
-    pub fn show_entities(&self) -> Vec<String> {
-        self.db.runtime_entity_names()
+    pub fn show_entities(&self) -> Vec<crate::db::EntityCatalogDescription> {
+        self.db.runtime_entity_catalog()
     }
 
-    /// Return one stable list of runtime-registered entity names.
-    ///
-    /// `SHOW TABLES` is only an alias for `SHOW ENTITIES`, so the typed
-    /// metadata surface keeps the same alias relationship.
+    /// Return one stable list of runtime-registered stores.
     #[must_use]
-    pub fn show_tables(&self) -> Vec<String> {
-        self.show_entities()
+    pub fn show_stores(&self) -> Vec<StoreCatalogDescription> {
+        self.db.runtime_store_catalog()
     }
 
     // Resolve the exact secondary-index set that is visible to planner-owned

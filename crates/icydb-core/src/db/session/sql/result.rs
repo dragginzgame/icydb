@@ -40,6 +40,13 @@ pub enum SqlStatementResult {
     Describe(crate::db::EntitySchemaDescription),
     ShowIndexes(Vec<String>),
     ShowColumns(Vec<crate::db::EntityFieldDescription>),
-    ShowEntities(Vec<String>),
+    ShowEntities {
+        entities: Vec<crate::db::EntityCatalogDescription>,
+        verbose: bool,
+    },
+    ShowStores {
+        stores: Vec<crate::db::StoreCatalogDescription>,
+        verbose: bool,
+    },
     Ddl(SqlDdlPreparationReport),
 }

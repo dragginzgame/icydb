@@ -38,7 +38,12 @@ pub(in crate::db) enum CompiledSqlCommand {
     DescribeEntity,
     ShowIndexesEntity,
     ShowColumnsEntity,
-    ShowEntities,
+    ShowEntities {
+        verbose: bool,
+    },
+    ShowStores {
+        verbose: bool,
+    },
 }
 
 ///
