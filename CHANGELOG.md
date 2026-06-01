@@ -15,6 +15,9 @@ Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
   streaming ordered-overlay traversal, cold-query hot-path cleanup,
   accepted-schema-backed entity metadata, and `SHOW MEMORY` catalog inspection.
 
+- `0.175.1` closes the ordered-overlay DRY boundary with data, index, and schema
+  store traversal proof plus hot-path snapshot materialization guards.
+
 ## [0.174.x] 🧭 - 2026-05-31 - Journaled Cached-Stable Runtime Admission
 
 Detailed notes: [docs/changelog/0.174.md](docs/changelog/0.174.md)
