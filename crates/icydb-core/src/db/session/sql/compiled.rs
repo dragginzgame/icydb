@@ -5,7 +5,7 @@
 
 use crate::db::{
     commit::CommitSchemaFingerprint,
-    executor::EntityAuthority,
+    executor::{EntityAuthority, SharedPreparedExecutionPlan},
     query::intent::StructuralQuery,
     schema::AcceptedSchemaSnapshot,
     sql::{
@@ -13,7 +13,44 @@ use crate::db::{
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+#[derive(Debug)]
+pub(in crate::db) struct SqlSelectPlanCacheEntry {
+    schema_fingerprint: CommitSchemaFingerprint,
+    prepared_plan: SharedPreparedExecutionPlan,
+    projection: SqlProjectionContract,
+}
+
+impl SqlSelectPlanCacheEntry {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        schema_fingerprint: CommitSchemaFingerprint,
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: SqlProjectionContract,
+    ) -> Self {
+        Self {
+            schema_fingerprint,
+            prepared_plan,
+            projection,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.schema_fingerprint
+    }
+
+    #[must_use]
+    pub(in crate::db) fn prepared_plan(&self) -> SharedPreparedExecutionPlan {
+        self.prepared_plan.clone()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn projection(&self) -> SqlProjectionContract {
+        self.projection.clone()
+    }
+}
 
 ///
 /// CompiledSqlCommand
@@ -27,6 +64,7 @@ use std::sync::Arc;
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
         query: Arc<StructuralQuery>,
+        plan_cache: Arc<OnceLock<Arc<SqlSelectPlanCacheEntry>>>,
     },
     Delete {
         query: Arc<StructuralQuery>,
@@ -48,6 +86,47 @@ pub(in crate::db) enum CompiledSqlCommand {
         verbose: bool,
     },
     ShowMemory,
+}
+
+impl CompiledSqlCommand {
+    #[must_use]
+    pub(in crate::db) fn select(query: StructuralQuery) -> Self {
+        Self::Select {
+            query: Arc::new(query),
+            plan_cache: Arc::new(OnceLock::new()),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn cached_select_plan(
+        &self,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Option<(SharedPreparedExecutionPlan, SqlProjectionContract)> {
+        let Self::Select { plan_cache, .. } = self else {
+            return None;
+        };
+        let entry = plan_cache.get()?;
+        if entry.schema_fingerprint() != schema_fingerprint {
+            return None;
+        }
+
+        Some((entry.prepared_plan(), entry.projection()))
+    }
+
+    pub(in crate::db) fn set_cached_select_plan(
+        &self,
+        schema_fingerprint: CommitSchemaFingerprint,
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: SqlProjectionContract,
+    ) {
+        if let Self::Select { plan_cache, .. } = self {
+            let _ = plan_cache.set(Arc::new(SqlSelectPlanCacheEntry::new(
+                schema_fingerprint,
+                prepared_plan,
+                projection,
+            )));
+        }
+    }
 }
 
 ///

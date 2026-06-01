@@ -24,6 +24,8 @@ use crate::{
     traits::{EntityKind, KeyValueCodec, SingletonEntity},
     value::{InputValue, Value},
 };
+use std::sync::OnceLock;
+
 use core::marker::PhantomData;
 
 ///
@@ -38,6 +40,7 @@ use core::marker::PhantomData;
 pub(in crate::db) struct StructuralQuery {
     intent: QueryModel<'static, Value>,
     access_requirements: AccessRequirements,
+    structural_cache_key: OnceLock<crate::db::query::intent::StructuralQueryCacheKey>,
 }
 
 impl StructuralQuery {
@@ -49,6 +52,7 @@ impl StructuralQuery {
         Self {
             intent: QueryModel::new(model, consistency),
             access_requirements: AccessRequirements::new(),
+            structural_cache_key: OnceLock::new(),
         }
     }
 
@@ -62,6 +66,7 @@ impl StructuralQuery {
         Self {
             intent,
             access_requirements,
+            structural_cache_key: OnceLock::new(),
         }
     }
 
@@ -74,6 +79,7 @@ impl StructuralQuery {
         let Self {
             intent,
             access_requirements,
+            ..
         } = self;
 
         Self::from_intent_and_access_requirements(map(intent), access_requirements)
@@ -88,6 +94,7 @@ impl StructuralQuery {
         let Self {
             intent,
             access_requirements,
+            ..
         } = self;
 
         map(intent)
@@ -372,6 +379,16 @@ impl StructuralQuery {
         &self,
         predicate_fingerprint: Option<[u8; 32]>,
     ) -> crate::db::query::intent::StructuralQueryCacheKey {
+        if predicate_fingerprint.is_none() {
+            return self
+                .structural_cache_key
+                .get_or_init(|| {
+                    self.intent
+                        .structural_cache_key_with_normalized_predicate_fingerprint(None)
+                })
+                .clone();
+        }
+
         self.intent
             .structural_cache_key_with_normalized_predicate_fingerprint(predicate_fingerprint)
     }

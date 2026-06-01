@@ -524,7 +524,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match compiled {
-            CompiledSqlCommand::Select { query } => self
+            CompiledSqlCommand::Select { query, .. } => self
                 .execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(
                     query,
                     || self.sql_select_prepared_plan_for_entity::<E>(query),
@@ -561,24 +561,44 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match context.command() {
-            CompiledSqlCommand::Select { query } => {
-                let authority = match context.accepted_authority() {
-                    Some(authority) => authority.clone(),
-                    None => {
-                        Self::accepted_entity_authority_for_schema::<E>(context.accepted_schema())
-                            .map_err(QueryError::execute)?
-                    }
-                };
-
+            CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_phase_attribution_from_resolver::<E>(
                     query,
                     || {
-                        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
+                        if let Some((prepared_plan, projection)) =
+                            context.command().cached_select_plan(context.schema_fingerprint())
+                        {
+                            return Ok((
+                                prepared_plan,
+                                projection,
+                                SqlCacheAttribution::shared_query_plan_cache_hit(),
+                            ));
+                        }
+
+                        let authority = match context.accepted_authority() {
+                            Some(authority) => authority.clone(),
+                            None => Self::accepted_entity_authority_for_schema::<E>(
+                                context.accepted_schema(),
+                            )
+                            .map_err(QueryError::execute)?,
+                        };
+
+                        let resolved = self
+                            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
                             query,
                             authority,
                             context.accepted_schema(),
                             context.schema_fingerprint(),
-                        )
+                        );
+                        if let Ok((prepared_plan, projection, _)) = &resolved {
+                            context.command().set_cached_select_plan(
+                                context.schema_fingerprint(),
+                                prepared_plan.clone(),
+                                projection.clone(),
+                            );
+                        }
+
+                        resolved
                     },
                 )
             }
@@ -612,17 +632,45 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        if let Some((prepared_plan, projection)) = context
+            .command()
+            .cached_select_plan(context.schema_fingerprint())
+        {
+            return self.execute_select_compiled_sql_from_prepared_plan::<E>(
+                query,
+                prepared_plan,
+                projection,
+                SqlCacheAttribution::shared_query_plan_cache_hit(),
+            );
+        }
+
         let authority = match context.accepted_authority() {
             Some(authority) => authority.clone(),
             None => Self::accepted_entity_authority_for_schema::<E>(context.accepted_schema())
                 .map_err(QueryError::execute)?,
         };
 
-        self.execute_select_compiled_sql_with_authority_schema_and_fingerprint::<E>(
+        let resolved = self
+            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
+                query,
+                authority,
+                context.accepted_schema(),
+                context.schema_fingerprint(),
+            );
+        if let Ok((prepared_plan, projection, _)) = &resolved {
+            context.command().set_cached_select_plan(
+                context.schema_fingerprint(),
+                prepared_plan.clone(),
+                projection.clone(),
+            );
+        }
+        let (prepared_plan, projection, cache_attribution) = resolved?;
+
+        self.execute_select_compiled_sql_from_prepared_plan::<E>(
             query,
-            authority,
-            context.accepted_schema(),
-            context.schema_fingerprint(),
+            prepared_plan,
+            projection,
+            cache_attribution,
         )
     }
 
@@ -657,14 +705,33 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
+                query,
+                authority,
+                accepted_schema,
+                schema_fingerprint,
+            )?;
+
+        self.execute_select_compiled_sql_from_prepared_plan::<E>(
+            query,
+            prepared_plan,
+            projection,
+            cache_attribution,
+        )
+    }
+
+    fn execute_select_compiled_sql_from_prepared_plan<E>(
+        &self,
+        query: &StructuralQuery,
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: crate::db::session::sql::SqlProjectionContract,
+        cache_attribution: SqlCacheAttribution,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         if query.has_grouping() {
-            let (prepared_plan, projection, cache_attribution) = self
-                .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-                    query,
-                    authority,
-                    accepted_schema,
-                    schema_fingerprint,
-                )?;
             let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(
                 prepared_plan,
                 projection,
@@ -678,14 +745,6 @@ impl<C: CanisterKind> DbSession<C> {
 
             return Ok((statement_result, cache_attribution));
         }
-
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-                query,
-                authority,
-                accepted_schema,
-                schema_fingerprint,
-            )?;
 
         self.execute_sql_statement_from_structural_prepared_plan(
             prepared_plan,
@@ -777,7 +836,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match compiled {
-            CompiledSqlCommand::Select { query } => {
+            CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query)
             }
             CompiledSqlCommand::Delete { query, returning } => {
@@ -840,7 +899,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match context.command() {
-            CompiledSqlCommand::Select { query } => {
+            CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context::<E>(query, context)
             }
             compiled => self.execute_compiled_sql_with_cache_attribution::<E>(compiled),
@@ -855,7 +914,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match compiled {
-            CompiledSqlCommand::Select { query } => {
+            CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query.as_ref())
             }
             CompiledSqlCommand::Delete { query, returning } => {
@@ -914,7 +973,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match context.command() {
-            CompiledSqlCommand::Select { query } => {
+            CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context::<E>(query, &context)
             }
             _ => {

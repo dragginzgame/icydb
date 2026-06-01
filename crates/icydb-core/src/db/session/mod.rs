@@ -24,10 +24,11 @@ use crate::{
         query::plan::VisibleIndexes,
         schema::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            SchemaInfo, accepted_commit_schema_fingerprint, describe_entity_fields,
-            describe_entity_fields_with_persisted_schema, describe_entity_model,
-            describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
-            show_indexes_for_model, show_indexes_for_model_with_runtime_state,
+            SchemaInfo, accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
+            describe_entity_fields, describe_entity_fields_with_persisted_schema,
+            describe_entity_model, describe_entity_model_with_persisted_schema,
+            ensure_accepted_schema_snapshot, show_indexes_for_model,
+            show_indexes_for_model_with_runtime_state,
             show_indexes_for_schema_info_with_runtime_state,
         },
     },
@@ -37,7 +38,7 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
-use std::thread::LocalKey;
+use std::{cell::RefCell, collections::HashMap, thread::LocalKey};
 
 #[cfg(feature = "diagnostics")]
 pub use query::{
@@ -69,6 +70,21 @@ pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
     debug: bool,
     metrics: Option<&'static dyn MetricsSink>,
+}
+
+#[derive(Clone, Debug)]
+struct AcceptedSchemaQueryCacheEntry {
+    snapshot: AcceptedSchemaSnapshot,
+    fingerprint: CommitSchemaFingerprint,
+}
+
+thread_local! {
+    // Query-side SQL/fluent cache setup needs accepted runtime schema authority,
+    // but repeated read calls should not reload the stable schema snapshot just
+    // to prove an already-warmed cache key. SQL DDL publication invalidates this
+    // heap cache before the next query observes the new accepted schema.
+    static ACCEPTED_SCHEMA_QUERY_CACHES: RefCell<HashMap<(usize, &'static str), AcceptedSchemaQueryCacheEntry>> =
+        RefCell::new(HashMap::default());
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -476,7 +492,47 @@ impl<C: CanisterKind> DbSession<C> {
     // rerunning generated proposal reconciliation on every cold query call.
     // Startup and write paths still own reconciliation; the fallback only keeps
     // first-use test stores and freshly initialized local stores functional.
-    fn accepted_schema_snapshot_for_query<E>(&self) -> Result<AcceptedSchemaSnapshot, InternalError>
+    pub(in crate::db::session) fn accepted_schema_snapshot_and_cache_fingerprint_for_query<E>(
+        &self,
+    ) -> Result<(AcceptedSchemaSnapshot, CommitSchemaFingerprint), InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let cache_key = (self.db.cache_scope_id(), E::PATH);
+        if let Some(entry) =
+            ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned())
+        {
+            return Ok((entry.snapshot, entry.fingerprint));
+        }
+
+        let snapshot = self.load_accepted_schema_snapshot_for_query::<E>()?;
+        let fingerprint = accepted_schema_cache_fingerprint(&snapshot)?;
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow_mut().insert(
+                cache_key,
+                AcceptedSchemaQueryCacheEntry {
+                    snapshot: snapshot.clone(),
+                    fingerprint,
+                },
+            );
+        });
+
+        Ok((snapshot, fingerprint))
+    }
+
+    fn invalidate_accepted_schema_query_cache_for_entity<E>(&self)
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let cache_key = (self.db.cache_scope_id(), E::PATH);
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow_mut().remove(&cache_key);
+        });
+    }
+
+    fn load_accepted_schema_snapshot_for_query<E>(
+        &self,
+    ) -> Result<AcceptedSchemaSnapshot, InternalError>
     where
         E: EntityKind<Canister = C>,
     {

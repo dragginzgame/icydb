@@ -298,8 +298,7 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one reduced SQL query and report the top-level compile/execute
-    /// cost split at the SQL seam.
+    /// Execute one SQL query and return the shell perf envelope shape.
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     #[doc(hidden)]
     pub fn execute_sql_query_with_perf_attribution<E>(
@@ -309,18 +308,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: crate::traits::EntityFor<C>,
     {
-        let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
-        let entity_name = E::MODEL.name().to_string();
-
-        // Phase 1: measure the outward SQL response packaging step separately
-        // so shell/dev perf output can distinguish executor work from result
-        // decode and formatting prep.
-        let (response_decode_local_instructions, result) =
-            measure_sql_response_decode_stage(|| {
-                crate::db::sql::sql_query_result_from_statement(result, entity_name)
-            });
-        attribution =
-            finalize_public_sql_query_attribution(attribution, response_decode_local_instructions);
+        let (result, attribution) = self.execute_sql_query_with_attribution::<E>(sql)?;
 
         Ok((result, SqlQueryPerfAttribution::from(attribution)))
     }

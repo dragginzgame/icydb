@@ -174,9 +174,7 @@ impl<C: CanisterKind> DbSession<C> {
         })?;
 
         Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::Select {
-                query: Arc::new(query),
-            },
+            CompiledSqlCommand::select(query),
             SqlQueryShape::read_rows(false),
             aggregate_lane_check_local_instructions,
             prepare_local_instructions,

@@ -5,10 +5,8 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
-        commit::CommitSchemaFingerprint,
-        schema::{AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint},
-        session::sql::compiled::CompiledSqlCommand,
+        DbSession, PersistedRow, QueryError, commit::CommitSchemaFingerprint,
+        schema::AcceptedSchemaSnapshot, session::sql::compiled::CompiledSqlCommand,
     },
     metrics::sink::CacheMissReason,
     traits::{CanisterKind, EntityValue},
@@ -16,7 +14,7 @@ use crate::{
 use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(test)]
-use crate::db::schema::compiled_schema_proposal_for_model;
+use crate::db::schema::{accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model};
 #[cfg(test)]
 use crate::metrics::sink::{CacheKind, record_cache_entries};
 
@@ -183,6 +181,14 @@ impl SqlCacheAttribution {
     }
 
     #[must_use]
+    pub(in crate::db::session::sql) const fn shared_query_plan_cache_hit() -> Self {
+        Self {
+            shared_query_plan_cache_hits: 1,
+            ..Self::none()
+        }
+    }
+
+    #[must_use]
     pub(in crate::db) const fn from_shared_query_plan_cache(
         attribution: crate::db::session::query::QueryPlanCacheAttribution,
     ) -> Self {
@@ -299,11 +305,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let accepted_schema = self
-            .accepted_schema_snapshot_for_query::<E>()
+        let (accepted_schema, schema_fingerprint) = self
+            .accepted_schema_snapshot_and_cache_fingerprint_for_query::<E>()
             .map_err(QueryError::execute)?;
-        let schema_fingerprint =
-            accepted_schema_cache_fingerprint(&accepted_schema).map_err(QueryError::execute)?;
 
         Ok(SqlCompiledCommandCacheContext {
             key: SqlCompiledCommandCacheKey::new(surface, E::PATH, schema_fingerprint, sql),

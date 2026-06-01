@@ -593,6 +593,7 @@ impl<C: CanisterKind> DbSession<C> {
             derivation,
             &prepared,
         )?;
+        self.invalidate_accepted_schema_query_cache_for_entity::<E>();
 
         Ok(SqlStatementResult::Ddl(
             prepared

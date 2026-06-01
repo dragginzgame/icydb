@@ -19,6 +19,19 @@ define_fixture_store!(
     )),
 );
 
+#[store(
+    ident = "PERF_AUDIT_JOURNALED_STORE",
+    store_name = "journaled",
+    canister = "PerfAuditCanister",
+    storage(journaled(
+        data_memory_id = 184,
+        index_memory_id = 185,
+        schema_memory_id = 186,
+        journal_memory_id = 187,
+    ))
+)]
+pub struct PerfAuditJournaledStore {}
+
 ///
 /// PerfAuditUser
 ///
@@ -42,6 +55,25 @@ define_fixture_store!(
     )
 )]
 pub struct PerfAuditUser {}
+
+///
+/// PerfAuditJournaledUser
+///
+/// Journaled mirror of the primary-key user perf shape. It exists only so the
+/// integration harness can sample IC local instructions for the journaled
+/// bounded-query path that previously regressed.
+///
+
+#[entity(
+    store = "PerfAuditJournaledStore",
+    pk(fields = ["id"]),
+    fields(
+        field(ident = "id", value(item(prim = "Int32"))),
+        field(ident = "name", value(item(prim = "Text", unbounded))),
+        field(ident = "age", value(item(prim = "Int32")))
+    )
+)]
+pub struct PerfAuditJournaledUser {}
 
 ///
 /// PerfAuditBlob

@@ -21,7 +21,7 @@ use icydb::{
     traits::EntityFor,
 };
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
-    PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditUser,
+    PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditJournaledUser, PerfAuditUser,
 };
 
 icydb::start!();
@@ -888,6 +888,7 @@ fn query_fluent_scenario_loop(
 fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
     db().delete::<PerfAuditAccount>().execute()?;
     db().delete::<PerfAuditBlob>().execute()?;
+    db().delete::<PerfAuditJournaledUser>().execute()?;
     db().delete::<PerfAuditUser>().execute()?;
 
     Ok(())
@@ -898,6 +899,7 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
 fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
     db().insert_many_atomic(perf_audit_users())?;
+    db().insert_many_atomic(perf_audit_journaled_users())?;
     db().insert_many_atomic(perf_audit_blobs())?;
     db().insert_many_atomic(perf_audit_accounts())?;
 
@@ -945,6 +947,46 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[query]
 fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
     query_entity_with_perf_loop::<PerfAuditUser>(sql.as_str(), runs)
+}
+
+/// Execute one PerfAuditJournaledUser-only SQL query and attach one local
+/// instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
+/// Execute one PerfAuditJournaledUser-only SQL query through the update surface
+/// so the canister can persist any warmed in-heap query caches for later query
+/// calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_journaled_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditJournaledUser>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
+/// Execute the same PerfAuditJournaledUser-only SQL query repeatedly inside
+/// one canister query call and report the per-run average instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_journaled_user_loop_with_perf(
+    sql: String,
+    runs: u32,
+) -> Result<SqlQueryPerfResult, icydb::Error> {
+    query_entity_with_perf_loop::<PerfAuditJournaledUser>(sql.as_str(), runs)
 }
 
 /// Execute one PerfAuditAccount-only SQL query.
@@ -1157,6 +1199,20 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             updated_at: Timestamp::default(),
         },
     ]
+}
+
+/// Build a larger deterministic journaled fixture window used by the
+/// bounded-query instruction regression guard.
+fn perf_audit_journaled_users() -> Vec<PerfAuditJournaledUser> {
+    (1..=512)
+        .map(|id| PerfAuditJournaledUser {
+            id,
+            name: format!("journaled-user-{id:04}"),
+            age: 18 + (id % 47),
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
+        })
+        .collect()
 }
 
 /// Build one deterministic blob payload for perf fixture rows.
