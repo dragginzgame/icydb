@@ -2147,7 +2147,7 @@ fn storage_capability_policy_roots_do_not_branch_on_concrete_storage_modes() {
 
     assert!(
         violations.is_empty(),
-        "runtime policy roots must consume storage capability axes, not concrete stable/heap storage modes:\n{}",
+        "runtime policy roots must consume storage capability axes, not concrete storage modes:\n{}",
         violations.join("\n"),
     );
 }
@@ -2213,6 +2213,53 @@ fn mutation_durability_trace_stays_proof_facing_and_not_diagnostics_authority() 
             && !diagnostics.contains("classify_mutation_commit_plan"),
         "diagnostics must project store capabilities, not own mutation durability classification",
     );
+}
+
+#[test]
+fn journaled_diagnostics_project_registry_capabilities_without_backend_authority() {
+    let diagnostics = rust_sources_under("src/db/diagnostics")
+        .into_iter()
+        .filter(|path| !relative_source_path(path).contains("/tests/"))
+        .map(|path| {
+            fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let diagnostics = strip_cfg_test_items(&diagnostics);
+    let storage_report = read_source("src/db/diagnostics/storage_report.rs");
+    let storage_report_compact = compact_source(&storage_report);
+
+    assert!(
+        storage_report_compact.contains("letcapabilities=store_handle.storage_capabilities();")
+            && storage_report_compact
+                .contains("letstorage_mode=snapshot_storage_mode(capabilities.storage_mode());")
+            && storage_report.contains("DataStoreSnapshot::new(")
+            && storage_report.contains("IndexStoreSnapshot::new(")
+            && storage_report.contains("SchemaStoreSnapshot::new("),
+        "storage diagnostics must project capabilities from registry store handles",
+    );
+    assert!(
+        storage_report.contains("StoreRuntimeStorageMode::Journaled")
+            && storage_report.contains("StoreSnapshotStorageMode::Journaled"),
+        "diagnostics may render journaled storage mode as a projection",
+    );
+
+    for forbidden in [
+        "StoreRuntimeStorageCapabilities::stable()",
+        "StoreRuntimeStorageCapabilities::heap()",
+        "StoreRuntimeStorageCapabilities::journaled()",
+        "DataStoreBackend::",
+        "IndexStoreBackend::",
+        "SchemaStoreBackend::",
+        "EntityModel",
+        "IndexModel",
+    ] {
+        assert!(
+            !diagnostics.contains(forbidden),
+            "diagnostics production code must not derive authority from {forbidden}",
+        );
+    }
 }
 
 #[test]
@@ -2496,6 +2543,70 @@ fn journaled_ordered_overlay_traversal_stays_streaming_and_fold_only() {
             "{label} hot paths must not call journaled snapshot materialization helpers",
         );
     }
+}
+
+#[test]
+fn journaled_read_hot_paths_stay_off_recovery_fold_diagnostics_and_authority_rebuilds() {
+    let read_hot_paths = [
+        (
+            "executor stream",
+            read_rust_sources_under("src/db/executor/stream"),
+        ),
+        (
+            "executor scan",
+            read_rust_sources_under("src/db/executor/scan"),
+        ),
+        (
+            "executor pipeline",
+            read_rust_sources_under("src/db/executor/pipeline"),
+        ),
+        (
+            "executor runtime context",
+            read_rust_sources_under("src/db/executor/runtime_context"),
+        ),
+        ("query", read_rust_sources_under("src/db/query")),
+        (
+            "session query",
+            read_rust_sources_under("src/db/session/query"),
+        ),
+        ("session sql", read_rust_sources_under("src/db/session/sql")),
+    ];
+
+    for (label, source) in read_hot_paths {
+        for forbidden in [
+            "storage_report",
+            "StoreDiagnostics",
+            "fold_journaled",
+            "recover_journaled",
+            "read_committed_batches_after",
+            "journaled_entries_snapshot",
+            "journaled_entries_snapshot_for_fold",
+            "journaled_snapshots",
+            "latest_raw_snapshots_by_entity",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{label} read hot path must not call {forbidden}",
+            );
+        }
+    }
+
+    let session_sql_compile_cache =
+        compact_source(&read_source("src/db/session/sql/compile_cache.rs"));
+    let cache_hit = session_sql_compile_cache
+        .find("ifletSome(compiled)=cached")
+        .expect("SQL compile cache should retain an explicit cache-hit branch");
+    let accepted_authority = session_sql_compile_cache
+        .find("letauthority=Self::accepted_entity_authority_for_schema::<E>(accepted_schema)")
+        .expect("SQL compile cache miss should construct accepted authority from cached schema");
+    assert!(
+        cache_hit < accepted_authority,
+        "SQL compiled-command cache hits must return before accepted authority construction",
+    );
+    assert!(
+        session_sql_compile_cache.contains("returnOk((compiled,SqlCacheAttribution::sql_compiled_command_cache_hit(),attribution.finish(),None,));"),
+        "SQL compiled-command cache hits should carry no rebuilt accepted authority",
+    );
 }
 
 #[test]

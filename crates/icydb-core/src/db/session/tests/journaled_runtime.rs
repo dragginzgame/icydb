@@ -303,6 +303,130 @@ fn journaled_session_recovery_repairs_missing_marker_bound_journal_tail_batch() 
 }
 
 #[test]
+fn journaled_session_recovery_reuses_matching_marker_bound_journal_tail_batch() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 1,
+            name: "Atlas".to_string(),
+            age: 20,
+        })
+        .expect("journaled typed insert should succeed while live");
+
+    let batch = first_journaled_session_batch();
+    JOURNALED_SESSION_SQL_DATA_STORE
+        .with_borrow_mut(|store| *store = DataStore::init_journaled(test_memory(180)));
+    JOURNALED_SESSION_SQL_INDEX_STORE
+        .with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(181)));
+    JOURNALED_SESSION_SQL_SCHEMA_STORE
+        .with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(182)));
+
+    let marker = crate::db::commit::CommitMarker::from_parts(
+        batch.commit_marker_id(),
+        Vec::new(),
+        vec![batch],
+    )
+    .expect("marker-bound journal recovery fixture should build");
+    crate::db::commit::begin_commit(marker)
+        .expect("marker-bound journal recovery fixture should persist marker");
+    ensure_recovered(&JOURNALED_SESSION_SQL_DB)
+        .expect("journaled recovery should treat an existing matching journal batch as idempotent");
+
+    let recovered_session = journaled_sql_session();
+    let loaded = recovered_session
+        .load::<JournaledSessionSqlEntity>()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("journaled recovery should replay the idempotent journal batch once")
+        .entities();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].name, "Atlas");
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {
+        let watermark = store
+            .fold_watermark()
+            .expect("journal fold watermark should be readable");
+        assert_eq!(
+            store.len(),
+            0,
+            "recovery should fold the already-persisted matching batch exactly once",
+        );
+        assert_eq!(watermark.highest_folded_journal_sequence().get(), 1);
+    });
+    JOURNALED_SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.canonical_len_for_tests(),
+            1,
+            "idempotent marker-bound recovery should not duplicate canonical rows",
+        );
+    });
+    JOURNALED_SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.canonical_len_for_tests(),
+            1,
+            "idempotent marker-bound recovery should not duplicate derived index rows",
+        );
+    });
+}
+
+#[test]
+fn journaled_session_recovery_rejects_mismatched_marker_bound_journal_tail_batch() {
+    reset_journaled_session_sql_store();
+    let session = journaled_sql_session();
+    session
+        .insert(JournaledSessionSqlEntity {
+            id: 1,
+            name: "Atlas".to_string(),
+            age: 20,
+        })
+        .expect("journaled typed insert should succeed while live");
+
+    let existing = first_journaled_session_batch();
+    let conflicting = JournalBatch::new(
+        [0xE1; 16],
+        [0xE2; 16],
+        existing.journal_sequence(),
+        existing.records().to_vec(),
+    )
+    .expect("conflicting same-sequence journal batch should build");
+    let marker = crate::db::commit::CommitMarker::from_parts(
+        conflicting.commit_marker_id(),
+        Vec::new(),
+        vec![conflicting],
+    )
+    .expect("conflicting marker-bound journal fixture should build");
+    crate::db::commit::begin_commit(marker)
+        .expect("conflicting marker-bound journal fixture should persist marker");
+
+    let err = ensure_recovered(&JOURNALED_SESSION_SQL_DB)
+        .expect_err("recovery should reject marker payload that conflicts with journal tail bytes");
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        crate::db::commit::commit_marker_present().expect("commit marker check should succeed"),
+        "failed journal publication must keep the marker persisted for retry",
+    );
+    JOURNALED_SESSION_SQL_JOURNAL_STORE.with_borrow(|store| {
+        let watermark = store
+            .fold_watermark()
+            .expect("journal fold watermark should be readable");
+        assert_eq!(
+            watermark.highest_folded_journal_sequence().get(),
+            0,
+            "conflicting marker-bound batch must fail before fold watermark advances",
+        );
+        assert_eq!(
+            store.len(),
+            1,
+            "conflicting marker-bound recovery must not mutate the existing journal tail",
+        );
+    });
+
+    crate::db::commit::clear_commit_marker_for_tests()
+        .expect("failed marker cleanup should succeed");
+}
+
+#[test]
 fn stable_source_strong_relation_to_journaled_target_uses_durable_capabilities() {
     reset_mixed_journaled_relation_stores();
     let session = mixed_journaled_relation_sql_session();

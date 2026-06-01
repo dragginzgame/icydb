@@ -11,12 +11,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
 
-- `0.175.0` starts the journaled hardening line with the active design,
-  streaming ordered-overlay traversal, cold-query hot-path cleanup,
-  accepted-schema-backed entity metadata, and `SHOW MEMORY` catalog inspection.
+- `0.175.2` tightens journaled hot-path, recovery/fold, and diagnostics
+  authority guards for the current hardening batch.
 
 - `0.175.1` closes the ordered-overlay DRY boundary with data, index, and schema
   store traversal proof plus hot-path snapshot materialization guards.
+
+- `0.175.0` starts the journaled hardening line with the active design,
+  streaming ordered-overlay traversal, cold-query hot-path cleanup,
+  accepted-schema-backed entity metadata, and `SHOW MEMORY` catalog inspection.
 
 ## [0.174.x] 🧭 - 2026-05-31 - Journaled Cached-Stable Runtime Admission
 
