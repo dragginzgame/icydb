@@ -35,9 +35,10 @@ mod tests {
         render_show_stores_verbose_lines, sql_query_result_from_statement,
     };
     use crate::db::{
-        EntityCatalogDescription, EntityFieldDescription, EntityIndexDescription,
-        EntityRelationCardinality, EntityRelationDescription, EntityRelationStrength,
-        EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
+        EntityCatalogCounts, EntityCatalogDescription, EntityFieldDescription,
+        EntityIndexDescription, EntityRelationCardinality, EntityRelationDescription,
+        EntityRelationStrength, EntitySchemaDescription, MemoryCatalogDescription,
+        StoreCatalogDescription,
     };
 
     #[test]
@@ -189,30 +190,21 @@ mod tests {
                 "schema.public.ExampleEntity".to_string(),
                 "stores::main".to_string(),
                 "stable".to_string(),
-                2,
-                1,
-                0,
-                1,
+                EntityCatalogCounts::new(2, 1, 0, 1),
             ),
             EntityCatalogDescription::new(
                 "Order".to_string(),
                 "schema.public.Order".to_string(),
                 "stores::sales".to_string(),
                 "stable".to_string(),
-                5,
-                2,
-                1,
-                3,
+                EntityCatalogCounts::new(5, 2, 1, 3),
             ),
             EntityCatalogDescription::new(
                 "User".to_string(),
                 "schema.public.User".to_string(),
                 "stores::main".to_string(),
                 "journaled".to_string(),
-                4,
-                0,
-                2,
-                4,
+                EntityCatalogCounts::new(4, 0, 2, 4),
             ),
         ];
 
@@ -247,10 +239,7 @@ mod tests {
             "schema.public.ExampleEntity".to_string(),
             "stores::main".to_string(),
             "stable".to_string(),
-            2,
-            1,
-            0,
-            1,
+            EntityCatalogCounts::new(2, 1, 0, 1),
         )];
 
         assert_eq!(

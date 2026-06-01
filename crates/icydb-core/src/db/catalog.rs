@@ -7,10 +7,35 @@ use candid::CandidType;
 use serde::Deserialize;
 
 ///
-/// EntityCatalogDescription
+/// EntityCatalogCounts
 ///
-/// One runtime-registered entity entry for `SHOW ENTITIES`.
+/// Compact count metadata for one `SHOW ENTITIES` row.
 ///
+
+#[cfg_attr(
+    doc,
+    doc = "EntityCatalogCounts\n\nCompact count metadata for one SHOW ENTITIES row."
+)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct EntityCatalogCounts {
+    columns: u32,
+    indexes: u32,
+    relations: u32,
+    schema_version: u32,
+}
+
+impl EntityCatalogCounts {
+    /// Construct compact entity catalog count metadata.
+    #[must_use]
+    pub const fn new(columns: u32, indexes: u32, relations: u32, schema_version: u32) -> Self {
+        Self {
+            columns,
+            indexes,
+            relations,
+            schema_version,
+        }
+    }
+}
 
 #[cfg_attr(
     doc,
@@ -36,20 +61,17 @@ impl EntityCatalogDescription {
         entity_path: String,
         store_path: String,
         storage: String,
-        columns: u32,
-        indexes: u32,
-        relations: u32,
-        schema_version: u32,
+        counts: EntityCatalogCounts,
     ) -> Self {
         Self {
             entity_name,
             entity_path,
             store_path,
             storage,
-            columns,
-            indexes,
-            relations,
-            schema_version,
+            columns: counts.columns,
+            indexes: counts.indexes,
+            relations: counts.relations,
+            schema_version: counts.schema_version,
         }
     }
 

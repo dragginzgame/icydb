@@ -51,7 +51,10 @@ use crate::{
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
-pub use catalog::{EntityCatalogDescription, MemoryCatalogDescription, StoreCatalogDescription};
+pub use catalog::{
+    EntityCatalogCounts, EntityCatalogDescription, MemoryCatalogDescription,
+    StoreCatalogDescription,
+};
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
 pub use cursor::{decode_cursor, encode_cursor};
@@ -427,7 +430,6 @@ impl<C: CanisterKind> Db<C> {
     }
 
     /// Return one deterministic list of registered runtime entity catalog rows.
-    #[must_use]
     pub(crate) fn runtime_entity_catalog(
         &self,
     ) -> Result<Vec<EntityCatalogDescription>, InternalError> {
@@ -455,10 +457,12 @@ impl<C: CanisterKind> Db<C> {
                 snapshot.entity_path().to_string(),
                 hooks.store_path.to_string(),
                 storage,
-                u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),
-                u32::try_from(snapshot.indexes().len()).unwrap_or(u32::MAX),
-                u32::try_from(relation_field_count(snapshot.fields())).unwrap_or(u32::MAX),
-                snapshot.version().get(),
+                EntityCatalogCounts::new(
+                    u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),
+                    u32::try_from(snapshot.indexes().len()).unwrap_or(u32::MAX),
+                    u32::try_from(relation_field_count(snapshot.fields())).unwrap_or(u32::MAX),
+                    snapshot.version().get(),
+                ),
             ));
         }
 
