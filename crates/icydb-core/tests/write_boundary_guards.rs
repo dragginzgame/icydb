@@ -2483,6 +2483,66 @@ fn commit_recovery_boundary_keeps_journal_replay_marker_bound_and_folds_via_wate
 }
 
 #[test]
+fn journaled_canonical_btree_mutation_stays_fold_recovery_only() {
+    let data_store = strip_cfg_test_items(&read_source("src/db/data/store.rs"));
+    let index_store = strip_cfg_test_items(&read_source("src/db/index/store.rs"));
+    let schema_store = strip_cfg_test_items(&read_source("src/db/schema/store.rs"));
+    let data_compact = compact_source(&data_store);
+    let index_compact = compact_source(&index_store);
+    let schema_compact = compact_source(&schema_store);
+
+    assert!(
+        data_compact.contains("DataStoreBackend::Journaled{live,tombstones,..}=>{tombstones.remove(&key);live.insert(key,row);previous_journaled}")
+            && data_compact.contains("DataStoreBackend::Journaled{live,tombstones,..}=>{live.remove(key);tombstones.insert(key.clone());previous_journaled}")
+            && !data_compact.contains("DataStoreBackend::Journaled{canonical,..}=>canonical.insert")
+            && !data_compact.contains("DataStoreBackend::Journaled{canonical,..}=>canonical.remove"),
+        "normal journaled data writes must update only the live/tombstone projection",
+    );
+    assert!(
+        data_compact.contains("fnfold_recovered_journal_put(")
+            && data_compact.contains("Ok(canonical.insert(key,row))")
+            && data_compact.contains("fnfold_recovered_journal_delete(")
+            && data_compact.contains("Ok(canonical.remove(key))"),
+        "journaled data canonical mutation should stay behind explicit fold helpers",
+    );
+
+    assert!(
+        index_compact.contains("IndexStoreBackend::Journaled{live,tombstones,..}=>{tombstones.remove(&key);live.insert(key,entry);previous_journaled}")
+            && index_compact.contains("IndexStoreBackend::Journaled{live,tombstones,..}=>{live.remove(key);tombstones.insert(key.clone());previous_journaled}")
+            && index_compact.contains("fnfold_journaled_materialized_view(")
+            && index_compact.contains("canonical.clear_new();")
+            && index_compact.contains("canonical.insert(key,value);"),
+        "journaled index writes should update live projection while canonical materialization stays fold-only",
+    );
+
+    assert!(
+        schema_compact.contains("SchemaStoreBackend::Journaled{live,tombstones,..}=>{tombstones.remove(&key);live.insert(key,snapshot);previous_journaled}")
+            && schema_compact.contains("fnfold_persisted_snapshot(")
+            && schema_compact.contains("canonical.insert(key,raw_snapshot);"),
+        "journaled schema writes should update live projection while canonical snapshot publication stays fold-only",
+    );
+
+    for (label, source) in [
+        ("executor", read_rust_sources_under("src/db/executor")),
+        ("query", read_rust_sources_under("src/db/query")),
+        ("session", read_rust_sources_under("src/db/session")),
+        ("relation", read_rust_sources_under("src/db/relation")),
+    ] {
+        for forbidden in [
+            "fold_recovered_journal_put",
+            "fold_recovered_journal_delete",
+            "fold_persisted_snapshot",
+            "fold_journaled_materialized_view",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{label} policy roots must not call journaled canonical fold helper {forbidden}",
+            );
+        }
+    }
+}
+
+#[test]
 fn journaled_ordered_overlay_traversal_stays_streaming_and_fold_only() {
     let data_store = strip_cfg_test_items(&read_source("src/db/data/store.rs"));
     let index_store = strip_cfg_test_items(&read_source("src/db/index/store.rs"));

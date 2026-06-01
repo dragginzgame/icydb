@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
 
+- `0.175.3` proves journaled canonical stable BTrees remain fold-only and
+  validates journaled indexed queries keep secondary-index routes.
+
 - `0.175.2` tightens journaled hot-path, recovery/fold, and diagnostics
   authority guards for the current hardening batch.
 
