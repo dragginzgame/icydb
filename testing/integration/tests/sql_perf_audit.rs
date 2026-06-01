@@ -1834,6 +1834,293 @@ fn assert_update_warm_persists_compiled_and_shared_cache_path(
     );
 }
 
+const STABLE_PRIMARY_LIMIT_ONE_SQL: &str =
+    "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1";
+const JOURNALED_PRIMARY_LIMIT_ONE_SQL: &str =
+    "SELECT id, name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1";
+
+fn query_sql_limit_one_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    method: &str,
+    sql: &str,
+    decode_expectation: &str,
+    success_expectation: &str,
+) -> SqlQueryPerfResult {
+    let result: Result<SqlQueryPerfResult, Error> = fixture
+        .query_call(method, (sql.to_string(),))
+        .expect(decode_expectation);
+
+    result.expect(success_expectation)
+}
+
+fn query_sql_loop_limit_one_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    method: &str,
+    sql: &str,
+    query_loop_count: u32,
+    decode_expectation: &str,
+    success_expectation: &str,
+) -> SqlQueryPerfResult {
+    let result: Result<SqlQueryPerfResult, Error> = fixture
+        .query_call(method, (sql.to_string(), query_loop_count))
+        .expect(decode_expectation);
+
+    result.expect(success_expectation)
+}
+
+fn warm_sql_limit_one_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    method: &str,
+    sql: &str,
+    decode_expectation: &str,
+    success_expectation: &str,
+) {
+    let result: Result<SqlQueryPerfResult, Error> = fixture
+        .update_call(method, (sql.to_string(),))
+        .expect(decode_expectation);
+
+    result.expect(success_expectation);
+}
+
+fn print_sql_limit_one_attribution(label: &str, perf: &SqlQueryPerfResult) {
+    let attribution = &perf.attribution;
+    let execution = &attribution.execution;
+    let cache = &attribution.cache;
+
+    println!(
+        "{label}: compile={} plan_lookup={} planner={} store={} executor_invocation={} executor={} response_finalize={} execute={} response_decode={} total={} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
+        attribution.compile_local_instructions,
+        attribution.plan_lookup_local_instructions,
+        execution.planner_local_instructions,
+        execution.store_local_instructions,
+        execution.executor_invocation_local_instructions,
+        execution.executor_local_instructions,
+        execution.response_finalization_local_instructions,
+        attribution.execute_local_instructions,
+        attribution.response_decode_local_instructions,
+        attribution.total_local_instructions,
+        cache.sql_compiled_command_hits,
+        cache.sql_compiled_command_misses,
+        cache.shared_query_plan_hits,
+        cache.shared_query_plan_misses,
+    );
+}
+
+fn print_cached_journaled_sql_limit_one_attribution(perf: &SqlQueryPerfResult) {
+    let attribution = &perf.attribution;
+    let compile = &attribution.compile;
+    let execution = &attribution.execution;
+    let cache = &attribution.cache;
+
+    println!(
+        "journaled cached limit1 attribution: compile={} cache_key={} cache_lookup={} parse={} prepare={} lower={} bind={} plan_lookup={} planner={} store={} executor_invocation={} executor={} response_finalize={} execute={} response_decode={} total={} pure={:?} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
+        attribution.compile_local_instructions,
+        compile.cache_key_local_instructions,
+        compile.cache_lookup_local_instructions,
+        compile.parse_local_instructions,
+        compile.prepare_local_instructions,
+        compile.lower_local_instructions,
+        compile.bind_local_instructions,
+        attribution.plan_lookup_local_instructions,
+        execution.planner_local_instructions,
+        execution.store_local_instructions,
+        execution.executor_invocation_local_instructions,
+        execution.executor_local_instructions,
+        execution.response_finalization_local_instructions,
+        attribution.execute_local_instructions,
+        attribution.response_decode_local_instructions,
+        attribution.total_local_instructions,
+        &attribution.pure_covering,
+        cache.sql_compiled_command_hits,
+        cache.sql_compiled_command_misses,
+        cache.shared_query_plan_hits,
+        cache.shared_query_plan_misses,
+    );
+}
+
+fn print_journaled_fluent_limit_one_attribution(perf: &FluentQueryPerfResult) {
+    let attribution = &perf.attribution;
+
+    println!(
+        "journaled fluent attributed limit1: compile={} plan_lookup={} executor_invocation={} load_plan={} row_layout={} continuation={} handoff={} route_plan={} runtime_prepare={} runtime={} finalize={} response_finalize={} response_decode={} execute={} total={} shared_hits={} shared_misses={} direct={:?}",
+        attribution.compile_local_instructions,
+        attribution.plan_lookup_local_instructions,
+        attribution.executor_invocation_local_instructions,
+        attribution.load_plan_local_instructions,
+        attribution.row_layout_local_instructions,
+        attribution.continuation_signature_local_instructions,
+        attribution.scalar_runtime_handoff_local_instructions,
+        attribution.route_plan_local_instructions,
+        attribution.runtime_prepare_local_instructions,
+        attribution.runtime_local_instructions,
+        attribution.finalize_local_instructions,
+        attribution.response_finalization_local_instructions,
+        attribution.response_decode_local_instructions,
+        attribution.execute_local_instructions,
+        attribution.total_local_instructions,
+        attribution.shared_query_plan_cache_hits,
+        attribution.shared_query_plan_cache_misses,
+        &attribution.direct_data_row,
+    );
+}
+
+fn assert_journaled_primary_limit_one_stays_bounded(
+    stable: &SqlQueryPerfResult,
+    perf: &SqlQueryPerfResult,
+) {
+    let outcome = summarize_perf_outcome(&perf.result);
+
+    assert_eq!(
+        outcome.row_count, 1,
+        "journaled primary-key LIMIT 1 perf query should return one row",
+    );
+    assert!(
+        perf.attribution.execution.store_local_instructions < 1_000_000,
+        "journaled primary-key LIMIT 1 store phase should stay bounded, got {}",
+        perf.attribution.execution.store_local_instructions,
+    );
+    assert!(
+        perf.attribution.execution.store_local_instructions
+            <= stable
+                .attribution
+                .execution
+                .store_local_instructions
+                .saturating_mul(4)
+                .saturating_add(100_000),
+        "journaled primary-key LIMIT 1 store phase should stay close to stable, stable={} journaled={}",
+        stable.attribution.execution.store_local_instructions,
+        perf.attribution.execution.store_local_instructions,
+    );
+}
+
+fn assert_cached_journaled_primary_limit_one_stays_bounded(
+    cached: &SqlQueryPerfResult,
+    cold: &SqlQueryPerfResult,
+) {
+    assert_eq!(
+        cached.attribution.cache.sql_compiled_command_hits, 1,
+        "journaled cached LIMIT 1 should reuse the compiled SQL artifact",
+    );
+    assert_eq!(
+        cached.attribution.cache.sql_compiled_command_misses, 0,
+        "journaled cached LIMIT 1 should not recompile",
+    );
+    assert_eq!(
+        cached.attribution.cache.shared_query_plan_hits, 1,
+        "journaled cached LIMIT 1 should reuse the prepared query plan",
+    );
+    assert_eq!(
+        cached.attribution.cache.shared_query_plan_misses, 0,
+        "journaled cached LIMIT 1 should not rebuild the prepared query plan",
+    );
+    assert!(
+        cached.attribution.compile_local_instructions < 500_000,
+        "journaled cached LIMIT 1 should not reload/re-fingerprint accepted schema before cache hit, got {}",
+        cached.attribution.compile_local_instructions,
+    );
+    assert!(
+        cached.attribution.plan_lookup_local_instructions < 100_000,
+        "journaled cached LIMIT 1 should not re-enter the expensive plan lookup path, got {}",
+        cached.attribution.plan_lookup_local_instructions,
+    );
+    assert!(
+        cached.attribution.total_local_instructions
+            < cold.attribution.total_local_instructions.saturating_div(2),
+        "journaled cached LIMIT 1 should stay below half the cold query cost, cold={} cached={}",
+        cold.attribution.total_local_instructions,
+        cached.attribution.total_local_instructions,
+    );
+    assert!(
+        cached
+            .attribution
+            .execution
+            .executor_invocation_local_instructions
+            < 1_000_000,
+        "journaled cached LIMIT 1 should not re-run recovery/schema reconciliation in executor prep, got {}",
+        cached
+            .attribution
+            .execution
+            .executor_invocation_local_instructions,
+    );
+    assert!(
+        cached.attribution.total_local_instructions < 1_000_000,
+        "journaled cached LIMIT 1 should stay bounded after caches are warm, got {}",
+        cached.attribution.total_local_instructions,
+    );
+}
+
+fn query_journaled_total_only_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> SqlTotalOnlyPerfResult {
+    let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_journaled_user_total_only_perf", (sql.to_string(),))
+        .expect("journaled total-only LIMIT 1 perf query should decode");
+
+    result.expect("journaled total-only LIMIT 1 perf query should succeed")
+}
+
+fn assert_journaled_total_only_limit_one_variants_stay_bounded(
+    fixture: &StandaloneCanisterFixture,
+) {
+    let total_only =
+        query_journaled_total_only_limit_one_perf(fixture, JOURNALED_PRIMARY_LIMIT_ONE_SQL);
+    println!(
+        "journaled total-only limit1 attribution: total={}",
+        total_only.instructions,
+    );
+
+    for (label, sql) in [
+        (
+            "journaled total-only id limit1",
+            "SELECT id FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1",
+        ),
+        (
+            "journaled total-only name limit1",
+            "SELECT name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1",
+        ),
+    ] {
+        let variant = query_journaled_total_only_limit_one_perf(fixture, sql);
+        println!("{label}: total={}", variant.instructions);
+        assert!(
+            variant.instructions < 1_000_000,
+            "{label} should stay under the warmed LIMIT 1 budget, got {}",
+            variant.instructions,
+        );
+    }
+}
+
+fn query_journaled_fluent_total_only_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+) -> FluentTotalOnlyPerfResult {
+    let result: Result<FluentTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_journaled_user_fluent_total_only_perf", ())
+        .expect("journaled fluent total-only LIMIT 1 perf query should decode");
+
+    result.expect("journaled fluent total-only LIMIT 1 perf query should succeed")
+}
+
+fn query_journaled_fluent_attributed_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+) -> FluentQueryPerfResult {
+    let result: Result<FluentQueryPerfResult, Error> = fixture
+        .query_call("query_journaled_user_fluent_with_perf", ())
+        .expect("journaled fluent attributed LIMIT 1 perf query should decode");
+
+    result.expect("journaled fluent attributed LIMIT 1 perf query should succeed")
+}
+
+fn assert_journaled_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
+    let fluent_total = query_journaled_fluent_total_only_limit_one_perf(fixture);
+    println!(
+        "journaled fluent total-only limit1 attribution: total={}",
+        fluent_total.instructions,
+    );
+
+    let fluent_attributed = query_journaled_fluent_attributed_limit_one_perf(fixture);
+    print_journaled_fluent_limit_one_attribution(&fluent_attributed);
+}
+
 #[test]
 fn sql_perf_audit_harness_reports_instruction_samples() {
     let fixture = install_sql_perf_canister_fixture();
@@ -1954,330 +2241,64 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     let fixture = install_sql_perf_canister_fixture();
     reset_sql_perf_fixtures(&fixture);
 
-    let stable_sql = "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1";
-    let journaled_sql = "SELECT id, name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1";
-    let stable: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call("query_user_with_perf", (stable_sql.to_string(),))
-        .expect("stable primary LIMIT 1 perf query should decode");
-    let stable = stable.expect("stable primary LIMIT 1 perf query should succeed");
-    let perf: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call(
-            "query_journaled_user_with_perf",
-            (journaled_sql.to_string(),),
-        )
-        .expect("journaled primary LIMIT 1 perf query should decode");
-    let perf = perf.expect("journaled primary LIMIT 1 perf query should succeed");
-    let outcome = summarize_perf_outcome(&perf.result);
-    println!(
-        "stable limit1 attribution: compile={} plan_lookup={} planner={} store={} executor_invocation={} executor={} response_finalize={} execute={} response_decode={} total={} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
-        stable.attribution.compile_local_instructions,
-        stable.attribution.plan_lookup_local_instructions,
-        stable.attribution.execution.planner_local_instructions,
-        stable.attribution.execution.store_local_instructions,
-        stable
-            .attribution
-            .execution
-            .executor_invocation_local_instructions,
-        stable.attribution.execution.executor_local_instructions,
-        stable
-            .attribution
-            .execution
-            .response_finalization_local_instructions,
-        stable.attribution.execute_local_instructions,
-        stable.attribution.response_decode_local_instructions,
-        stable.attribution.total_local_instructions,
-        stable.attribution.cache.sql_compiled_command_hits,
-        stable.attribution.cache.sql_compiled_command_misses,
-        stable.attribution.cache.shared_query_plan_hits,
-        stable.attribution.cache.shared_query_plan_misses,
+    let stable = query_sql_limit_one_with_perf(
+        &fixture,
+        "query_user_with_perf",
+        STABLE_PRIMARY_LIMIT_ONE_SQL,
+        "stable primary LIMIT 1 perf query should decode",
+        "stable primary LIMIT 1 perf query should succeed",
     );
-    println!(
-        "journaled limit1 attribution: compile={} plan_lookup={} planner={} store={} executor_invocation={} executor={} response_finalize={} execute={} response_decode={} total={} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
-        perf.attribution.compile_local_instructions,
-        perf.attribution.plan_lookup_local_instructions,
-        perf.attribution.execution.planner_local_instructions,
-        perf.attribution.execution.store_local_instructions,
-        perf.attribution
-            .execution
-            .executor_invocation_local_instructions,
-        perf.attribution.execution.executor_local_instructions,
-        perf.attribution
-            .execution
-            .response_finalization_local_instructions,
-        perf.attribution.execute_local_instructions,
-        perf.attribution.response_decode_local_instructions,
-        perf.attribution.total_local_instructions,
-        perf.attribution.cache.sql_compiled_command_hits,
-        perf.attribution.cache.sql_compiled_command_misses,
-        perf.attribution.cache.shared_query_plan_hits,
-        perf.attribution.cache.shared_query_plan_misses,
+    let perf = query_sql_limit_one_with_perf(
+        &fixture,
+        "query_journaled_user_with_perf",
+        JOURNALED_PRIMARY_LIMIT_ONE_SQL,
+        "journaled primary LIMIT 1 perf query should decode",
+        "journaled primary LIMIT 1 perf query should succeed",
     );
 
-    assert_eq!(
-        outcome.row_count, 1,
-        "journaled primary-key LIMIT 1 perf query should return one row",
-    );
-    assert!(
-        perf.attribution.execution.store_local_instructions < 1_000_000,
-        "journaled primary-key LIMIT 1 store phase should stay bounded, got {}",
-        perf.attribution.execution.store_local_instructions,
-    );
-    assert!(
-        perf.attribution.execution.store_local_instructions
-            <= stable
-                .attribution
-                .execution
-                .store_local_instructions
-                .saturating_mul(4)
-                .saturating_add(100_000),
-        "journaled primary-key LIMIT 1 store phase should stay close to stable, stable={} journaled={}",
-        stable.attribution.execution.store_local_instructions,
-        perf.attribution.execution.store_local_instructions,
-    );
-    let stable_looped: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call(
-            "query_user_loop_with_perf",
-            (stable_sql.to_string(), 10_u32),
-        )
-        .expect("stable loop LIMIT 1 perf query should decode");
-    let stable_looped = stable_looped.expect("stable loop LIMIT 1 perf query should succeed");
-    println!(
-        "stable loop limit1 attribution: compile={} plan_lookup={} planner={} store={} executor_invocation={} executor={} response_finalize={} execute={} response_decode={} total={} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
-        stable_looped.attribution.compile_local_instructions,
-        stable_looped.attribution.plan_lookup_local_instructions,
-        stable_looped
-            .attribution
-            .execution
-            .planner_local_instructions,
-        stable_looped.attribution.execution.store_local_instructions,
-        stable_looped
-            .attribution
-            .execution
-            .executor_invocation_local_instructions,
-        stable_looped
-            .attribution
-            .execution
-            .executor_local_instructions,
-        stable_looped
-            .attribution
-            .execution
-            .response_finalization_local_instructions,
-        stable_looped.attribution.execute_local_instructions,
-        stable_looped.attribution.response_decode_local_instructions,
-        stable_looped.attribution.total_local_instructions,
-        stable_looped.attribution.cache.sql_compiled_command_hits,
-        stable_looped.attribution.cache.sql_compiled_command_misses,
-        stable_looped.attribution.cache.shared_query_plan_hits,
-        stable_looped.attribution.cache.shared_query_plan_misses,
-    );
+    print_sql_limit_one_attribution("stable limit1 attribution", &stable);
+    print_sql_limit_one_attribution("journaled limit1 attribution", &perf);
+    assert_journaled_primary_limit_one_stays_bounded(&stable, &perf);
 
-    let warm_sql = "SELECT id, name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1";
-    let warm: Result<SqlQueryPerfResult, Error> = fixture
-        .update_call(
-            "warm_journaled_user_query_with_perf",
-            (warm_sql.to_string(),),
-        )
-        .expect("journaled warm LIMIT 1 perf query should decode");
-    warm.expect("journaled warm LIMIT 1 perf query should succeed");
-    let cached: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call("query_journaled_user_with_perf", (warm_sql.to_string(),))
-        .expect("journaled cached LIMIT 1 perf query should decode");
-    let cached = cached.expect("journaled cached LIMIT 1 perf query should succeed");
+    let stable_looped = query_sql_loop_limit_one_with_perf(
+        &fixture,
+        "query_user_loop_with_perf",
+        STABLE_PRIMARY_LIMIT_ONE_SQL,
+        10,
+        "stable loop LIMIT 1 perf query should decode",
+        "stable loop LIMIT 1 perf query should succeed",
+    );
+    print_sql_limit_one_attribution("stable loop limit1 attribution", &stable_looped);
 
-    println!(
-        "journaled cached limit1 attribution: compile={} cache_key={} cache_lookup={} parse={} prepare={} lower={} bind={} plan_lookup={} planner={} store={} executor_invocation={} executor={} response_finalize={} execute={} response_decode={} total={} pure={:?} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
-        cached.attribution.compile_local_instructions,
-        cached.attribution.compile.cache_key_local_instructions,
-        cached.attribution.compile.cache_lookup_local_instructions,
-        cached.attribution.compile.parse_local_instructions,
-        cached.attribution.compile.prepare_local_instructions,
-        cached.attribution.compile.lower_local_instructions,
-        cached.attribution.compile.bind_local_instructions,
-        cached.attribution.plan_lookup_local_instructions,
-        cached.attribution.execution.planner_local_instructions,
-        cached.attribution.execution.store_local_instructions,
-        cached
-            .attribution
-            .execution
-            .executor_invocation_local_instructions,
-        cached.attribution.execution.executor_local_instructions,
-        cached
-            .attribution
-            .execution
-            .response_finalization_local_instructions,
-        cached.attribution.execute_local_instructions,
-        cached.attribution.response_decode_local_instructions,
-        cached.attribution.total_local_instructions,
-        cached.attribution.pure_covering,
-        cached.attribution.cache.sql_compiled_command_hits,
-        cached.attribution.cache.sql_compiled_command_misses,
-        cached.attribution.cache.shared_query_plan_hits,
-        cached.attribution.cache.shared_query_plan_misses,
+    warm_sql_limit_one_with_perf(
+        &fixture,
+        "warm_journaled_user_query_with_perf",
+        JOURNALED_PRIMARY_LIMIT_ONE_SQL,
+        "journaled warm LIMIT 1 perf query should decode",
+        "journaled warm LIMIT 1 perf query should succeed",
     );
-    assert_eq!(
-        cached.attribution.cache.sql_compiled_command_hits, 1,
-        "journaled cached LIMIT 1 should reuse the compiled SQL artifact",
+    let cached = query_sql_limit_one_with_perf(
+        &fixture,
+        "query_journaled_user_with_perf",
+        JOURNALED_PRIMARY_LIMIT_ONE_SQL,
+        "journaled cached LIMIT 1 perf query should decode",
+        "journaled cached LIMIT 1 perf query should succeed",
     );
-    assert_eq!(
-        cached.attribution.cache.sql_compiled_command_misses, 0,
-        "journaled cached LIMIT 1 should not recompile",
-    );
-    assert_eq!(
-        cached.attribution.cache.shared_query_plan_hits, 1,
-        "journaled cached LIMIT 1 should reuse the prepared query plan",
-    );
-    assert_eq!(
-        cached.attribution.cache.shared_query_plan_misses, 0,
-        "journaled cached LIMIT 1 should not rebuild the prepared query plan",
-    );
-    assert!(
-        cached.attribution.compile_local_instructions < 500_000,
-        "journaled cached LIMIT 1 should not reload/re-fingerprint accepted schema before cache hit, got {}",
-        cached.attribution.compile_local_instructions,
-    );
-    assert!(
-        cached.attribution.plan_lookup_local_instructions < 100_000,
-        "journaled cached LIMIT 1 should not re-enter the expensive plan lookup path, got {}",
-        cached.attribution.plan_lookup_local_instructions,
-    );
-    assert!(
-        cached.attribution.total_local_instructions
-            < perf.attribution.total_local_instructions.saturating_div(2),
-        "journaled cached LIMIT 1 should stay below half the cold query cost, cold={} cached={}",
-        perf.attribution.total_local_instructions,
-        cached.attribution.total_local_instructions,
-    );
-    assert!(
-        cached
-            .attribution
-            .execution
-            .executor_invocation_local_instructions
-            < 1_000_000,
-        "journaled cached LIMIT 1 should not re-run recovery/schema reconciliation in executor prep, got {}",
-        cached
-            .attribution
-            .execution
-            .executor_invocation_local_instructions,
-    );
-    assert!(
-        cached.attribution.total_local_instructions < 1_000_000,
-        "journaled cached LIMIT 1 should stay bounded after caches are warm, got {}",
-        cached.attribution.total_local_instructions,
-    );
+    print_cached_journaled_sql_limit_one_attribution(&cached);
+    assert_cached_journaled_primary_limit_one_stays_bounded(&cached, &perf);
 
-    let looped: Result<SqlQueryPerfResult, Error> = fixture
-        .query_call(
-            "query_journaled_user_loop_with_perf",
-            (warm_sql.to_string(), 10_u32),
-        )
-        .expect("journaled loop LIMIT 1 perf query should decode");
-    let looped = looped.expect("journaled loop LIMIT 1 perf query should succeed");
-    println!(
-        "journaled loop limit1 attribution: compile={} plan_lookup={} planner={} store={} executor_invocation={} executor={} response_finalize={} execute={} response_decode={} total={} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
-        looped.attribution.compile_local_instructions,
-        looped.attribution.plan_lookup_local_instructions,
-        looped.attribution.execution.planner_local_instructions,
-        looped.attribution.execution.store_local_instructions,
-        looped
-            .attribution
-            .execution
-            .executor_invocation_local_instructions,
-        looped.attribution.execution.executor_local_instructions,
-        looped
-            .attribution
-            .execution
-            .response_finalization_local_instructions,
-        looped.attribution.execute_local_instructions,
-        looped.attribution.response_decode_local_instructions,
-        looped.attribution.total_local_instructions,
-        looped.attribution.cache.sql_compiled_command_hits,
-        looped.attribution.cache.sql_compiled_command_misses,
-        looped.attribution.cache.shared_query_plan_hits,
-        looped.attribution.cache.shared_query_plan_misses,
+    let looped = query_sql_loop_limit_one_with_perf(
+        &fixture,
+        "query_journaled_user_loop_with_perf",
+        JOURNALED_PRIMARY_LIMIT_ONE_SQL,
+        10,
+        "journaled loop LIMIT 1 perf query should decode",
+        "journaled loop LIMIT 1 perf query should succeed",
     );
+    print_sql_limit_one_attribution("journaled loop limit1 attribution", &looped);
 
-    let total_only: Result<SqlTotalOnlyPerfResult, Error> = fixture
-        .query_call(
-            "query_journaled_user_total_only_perf",
-            (warm_sql.to_string(),),
-        )
-        .expect("journaled total-only LIMIT 1 perf query should decode");
-    let total_only = total_only.expect("journaled total-only LIMIT 1 perf query should succeed");
-    println!(
-        "journaled total-only limit1 attribution: total={}",
-        total_only.instructions,
-    );
-
-    for (label, sql) in [
-        (
-            "journaled total-only id limit1",
-            "SELECT id FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1",
-        ),
-        (
-            "journaled total-only name limit1",
-            "SELECT name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1",
-        ),
-    ] {
-        let variant: Result<SqlTotalOnlyPerfResult, Error> = fixture
-            .query_call("query_journaled_user_total_only_perf", (sql.to_string(),))
-            .expect("journaled total-only LIMIT 1 variant should decode");
-        let variant = variant.expect("journaled total-only LIMIT 1 variant should succeed");
-        println!("{label}: total={}", variant.instructions);
-        assert!(
-            variant.instructions < 1_000_000,
-            "{label} should stay under the warmed LIMIT 1 budget, got {}",
-            variant.instructions,
-        );
-    }
-
-    let fluent_total: Result<FluentTotalOnlyPerfResult, Error> = fixture
-        .query_call("query_journaled_user_fluent_total_only_perf", ())
-        .expect("journaled fluent total-only LIMIT 1 perf query should decode");
-    let fluent_total =
-        fluent_total.expect("journaled fluent total-only LIMIT 1 perf query should succeed");
-    println!(
-        "journaled fluent total-only limit1 attribution: total={}",
-        fluent_total.instructions,
-    );
-
-    let fluent_attributed: Result<FluentQueryPerfResult, Error> = fixture
-        .query_call("query_journaled_user_fluent_with_perf", ())
-        .expect("journaled fluent attributed LIMIT 1 perf query should decode");
-    let fluent_attributed =
-        fluent_attributed.expect("journaled fluent attributed LIMIT 1 perf query should succeed");
-    println!(
-        "journaled fluent attributed limit1: compile={} plan_lookup={} executor_invocation={} load_plan={} row_layout={} continuation={} handoff={} route_plan={} runtime_prepare={} runtime={} finalize={} response_finalize={} response_decode={} execute={} total={} shared_hits={} shared_misses={} direct={:?}",
-        fluent_attributed.attribution.compile_local_instructions,
-        fluent_attributed.attribution.plan_lookup_local_instructions,
-        fluent_attributed
-            .attribution
-            .executor_invocation_local_instructions,
-        fluent_attributed.attribution.load_plan_local_instructions,
-        fluent_attributed.attribution.row_layout_local_instructions,
-        fluent_attributed
-            .attribution
-            .continuation_signature_local_instructions,
-        fluent_attributed
-            .attribution
-            .scalar_runtime_handoff_local_instructions,
-        fluent_attributed.attribution.route_plan_local_instructions,
-        fluent_attributed
-            .attribution
-            .runtime_prepare_local_instructions,
-        fluent_attributed.attribution.runtime_local_instructions,
-        fluent_attributed.attribution.finalize_local_instructions,
-        fluent_attributed
-            .attribution
-            .response_finalization_local_instructions,
-        fluent_attributed
-            .attribution
-            .response_decode_local_instructions,
-        fluent_attributed.attribution.execute_local_instructions,
-        fluent_attributed.attribution.total_local_instructions,
-        fluent_attributed.attribution.shared_query_plan_cache_hits,
-        fluent_attributed.attribution.shared_query_plan_cache_misses,
-        fluent_attributed.attribution.direct_data_row,
-    );
+    assert_journaled_total_only_limit_one_variants_stay_bounded(&fixture);
+    assert_journaled_fluent_limit_one_reports(&fixture);
 }
 
 #[test]
