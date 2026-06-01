@@ -505,10 +505,6 @@ impl<C: CanisterKind> DbSession<C> {
     // cache, planning, executor, and response-finalization phase attribution
     // at the session/executor handoff.
     #[cfg(feature = "diagnostics")]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "diagnostics phase attribution keeps the SQL command-family split explicit at one session boundary"
-    )]
     #[allow(
         dead_code,
         reason = "explicit compiled SQL diagnostics can still enter without a compile context; query endpoint diagnostics use the context-aware sibling"
