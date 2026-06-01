@@ -46,6 +46,16 @@ struct FluentQueryPerfResult {
     attribution: QueryExecutionAttribution,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct StorageWritePerfResult {
+    first_insert_local_instructions: u64,
+    steady_insert_avg_local_instructions: u64,
+    steady_update_avg_local_instructions: u64,
+    steady_delete_avg_local_instructions: u64,
+    write_then_read_back_local_instructions: u64,
+    read_back_rows: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
     Account,
@@ -1835,7 +1845,9 @@ fn assert_update_warm_persists_compiled_and_shared_cache_path(
 }
 
 const STABLE_PRIMARY_LIMIT_ONE_SQL: &str =
-    "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1";
+    "SELECT id, name FROM PerfAuditStableUser ORDER BY id ASC LIMIT 1";
+const HEAP_PRIMARY_LIMIT_ONE_SQL: &str =
+    "SELECT id, name FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1";
 const JOURNALED_PRIMARY_LIMIT_ONE_SQL: &str =
     "SELECT id, name FROM PerfAuditJournaledUser ORDER BY id ASC LIMIT 1";
 
@@ -1938,11 +1950,11 @@ fn print_cached_journaled_sql_limit_one_attribution(perf: &SqlQueryPerfResult) {
     );
 }
 
-fn print_journaled_fluent_limit_one_attribution(perf: &FluentQueryPerfResult) {
+fn print_fluent_limit_one_attribution(label: &str, perf: &FluentQueryPerfResult) {
     let attribution = &perf.attribution;
 
     println!(
-        "journaled fluent attributed limit1: compile={} plan_lookup={} executor_invocation={} load_plan={} row_layout={} continuation={} handoff={} route_plan={} runtime_prepare={} runtime={} finalize={} response_finalize={} response_decode={} execute={} total={} shared_hits={} shared_misses={} direct={:?}",
+        "{label} fluent attributed limit1: compile={} plan_lookup={} executor_invocation={} load_plan={} row_layout={} continuation={} handoff={} route_plan={} runtime_prepare={} runtime={} finalize={} response_finalize={} response_decode={} execute={} total={} shared_hits={} shared_misses={} direct={:?}",
         attribution.compile_local_instructions,
         attribution.plan_lookup_local_instructions,
         attribution.executor_invocation_local_instructions,
@@ -1964,7 +1976,8 @@ fn print_journaled_fluent_limit_one_attribution(perf: &FluentQueryPerfResult) {
     );
 }
 
-fn assert_journaled_primary_limit_one_stays_bounded(
+fn assert_storage_primary_limit_one_stays_bounded(
+    label: &str,
     stable: &SqlQueryPerfResult,
     perf: &SqlQueryPerfResult,
 ) {
@@ -1972,11 +1985,11 @@ fn assert_journaled_primary_limit_one_stays_bounded(
 
     assert_eq!(
         outcome.row_count, 1,
-        "journaled primary-key LIMIT 1 perf query should return one row",
+        "{label} primary-key LIMIT 1 perf query should return one row",
     );
     assert!(
         perf.attribution.execution.store_local_instructions < 1_000_000,
-        "journaled primary-key LIMIT 1 store phase should stay bounded, got {}",
+        "{label} primary-key LIMIT 1 store phase should stay bounded, got {}",
         perf.attribution.execution.store_local_instructions,
     );
     assert!(
@@ -1987,46 +2000,47 @@ fn assert_journaled_primary_limit_one_stays_bounded(
                 .store_local_instructions
                 .saturating_mul(4)
                 .saturating_add(100_000),
-        "journaled primary-key LIMIT 1 store phase should stay close to stable, stable={} journaled={}",
+        "{label} primary-key LIMIT 1 store phase should stay close to stable, stable={} {label}={}",
         stable.attribution.execution.store_local_instructions,
         perf.attribution.execution.store_local_instructions,
     );
 }
 
-fn assert_cached_journaled_primary_limit_one_stays_bounded(
+fn assert_cached_primary_limit_one_stays_bounded(
+    label: &str,
     cached: &SqlQueryPerfResult,
     cold: &SqlQueryPerfResult,
 ) {
     assert_eq!(
         cached.attribution.cache.sql_compiled_command_hits, 1,
-        "journaled cached LIMIT 1 should reuse the compiled SQL artifact",
+        "{label} cached LIMIT 1 should reuse the compiled SQL artifact",
     );
     assert_eq!(
         cached.attribution.cache.sql_compiled_command_misses, 0,
-        "journaled cached LIMIT 1 should not recompile",
+        "{label} cached LIMIT 1 should not recompile",
     );
     assert_eq!(
         cached.attribution.cache.shared_query_plan_hits, 1,
-        "journaled cached LIMIT 1 should reuse the prepared query plan",
+        "{label} cached LIMIT 1 should reuse the prepared query plan",
     );
     assert_eq!(
         cached.attribution.cache.shared_query_plan_misses, 0,
-        "journaled cached LIMIT 1 should not rebuild the prepared query plan",
+        "{label} cached LIMIT 1 should not rebuild the prepared query plan",
     );
     assert!(
         cached.attribution.compile_local_instructions < 500_000,
-        "journaled cached LIMIT 1 should not reload/re-fingerprint accepted schema before cache hit, got {}",
+        "{label} cached LIMIT 1 should not reload/re-fingerprint accepted schema before cache hit, got {}",
         cached.attribution.compile_local_instructions,
     );
     assert!(
         cached.attribution.plan_lookup_local_instructions < 100_000,
-        "journaled cached LIMIT 1 should not re-enter the expensive plan lookup path, got {}",
+        "{label} cached LIMIT 1 should not re-enter the expensive plan lookup path, got {}",
         cached.attribution.plan_lookup_local_instructions,
     );
     assert!(
         cached.attribution.total_local_instructions
             < cold.attribution.total_local_instructions.saturating_div(2),
-        "journaled cached LIMIT 1 should stay below half the cold query cost, cold={} cached={}",
+        "{label} cached LIMIT 1 should stay below half the cold query cost, cold={} cached={}",
         cold.attribution.total_local_instructions,
         cached.attribution.total_local_instructions,
     );
@@ -2036,7 +2050,7 @@ fn assert_cached_journaled_primary_limit_one_stays_bounded(
             .execution
             .executor_invocation_local_instructions
             < 1_000_000,
-        "journaled cached LIMIT 1 should not re-run recovery/schema reconciliation in executor prep, got {}",
+        "{label} cached LIMIT 1 should not re-run recovery/schema reconciliation in executor prep, got {}",
         cached
             .attribution
             .execution
@@ -2044,7 +2058,7 @@ fn assert_cached_journaled_primary_limit_one_stays_bounded(
     );
     assert!(
         cached.attribution.total_local_instructions < 1_000_000,
-        "journaled cached LIMIT 1 should stay bounded after caches are warm, got {}",
+        "{label} cached LIMIT 1 should stay bounded after caches are warm, got {}",
         cached.attribution.total_local_instructions,
     );
 }
@@ -2058,6 +2072,55 @@ fn query_journaled_total_only_limit_one_perf(
         .expect("journaled total-only LIMIT 1 perf query should decode");
 
     result.expect("journaled total-only LIMIT 1 perf query should succeed")
+}
+
+fn query_heap_total_only_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> SqlTotalOnlyPerfResult {
+    let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_heap_user_total_only_perf", (sql.to_string(),))
+        .expect("heap total-only LIMIT 1 perf query should decode");
+
+    result.expect("heap total-only LIMIT 1 perf query should succeed")
+}
+
+fn query_stable_total_only_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> SqlTotalOnlyPerfResult {
+    let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_stable_user_total_only_perf", (sql.to_string(),))
+        .expect("stable total-only LIMIT 1 perf query should decode");
+
+    result.expect("stable total-only LIMIT 1 perf query should succeed")
+}
+
+fn assert_stable_total_only_limit_one_variants_stay_bounded(fixture: &StandaloneCanisterFixture) {
+    let total_only = query_stable_total_only_limit_one_perf(fixture, STABLE_PRIMARY_LIMIT_ONE_SQL);
+    println!(
+        "stable total-only limit1 attribution: total={}",
+        total_only.instructions,
+    );
+
+    for (label, sql) in [
+        (
+            "stable total-only id limit1",
+            "SELECT id FROM PerfAuditStableUser ORDER BY id ASC LIMIT 1",
+        ),
+        (
+            "stable total-only name limit1",
+            "SELECT name FROM PerfAuditStableUser ORDER BY id ASC LIMIT 1",
+        ),
+    ] {
+        let variant = query_stable_total_only_limit_one_perf(fixture, sql);
+        println!("{label}: total={}", variant.instructions);
+        assert!(
+            variant.instructions < 1_000_000,
+            "{label} should stay under the warmed LIMIT 1 budget, got {}",
+            variant.instructions,
+        );
+    }
 }
 
 fn assert_journaled_total_only_limit_one_variants_stay_bounded(
@@ -2090,6 +2153,33 @@ fn assert_journaled_total_only_limit_one_variants_stay_bounded(
     }
 }
 
+fn assert_heap_total_only_limit_one_variants_stay_bounded(fixture: &StandaloneCanisterFixture) {
+    let total_only = query_heap_total_only_limit_one_perf(fixture, HEAP_PRIMARY_LIMIT_ONE_SQL);
+    println!(
+        "heap total-only limit1 attribution: total={}",
+        total_only.instructions,
+    );
+
+    for (label, sql) in [
+        (
+            "heap total-only id limit1",
+            "SELECT id FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1",
+        ),
+        (
+            "heap total-only name limit1",
+            "SELECT name FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1",
+        ),
+    ] {
+        let variant = query_heap_total_only_limit_one_perf(fixture, sql);
+        println!("{label}: total={}", variant.instructions);
+        assert!(
+            variant.instructions < 1_000_000,
+            "{label} should stay under the warmed LIMIT 1 budget, got {}",
+            variant.instructions,
+        );
+    }
+}
+
 fn query_journaled_fluent_total_only_limit_one_perf(
     fixture: &StandaloneCanisterFixture,
 ) -> FluentTotalOnlyPerfResult {
@@ -2098,6 +2188,26 @@ fn query_journaled_fluent_total_only_limit_one_perf(
         .expect("journaled fluent total-only LIMIT 1 perf query should decode");
 
     result.expect("journaled fluent total-only LIMIT 1 perf query should succeed")
+}
+
+fn query_heap_fluent_total_only_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+) -> FluentTotalOnlyPerfResult {
+    let result: Result<FluentTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_heap_user_fluent_total_only_perf", ())
+        .expect("heap fluent total-only LIMIT 1 perf query should decode");
+
+    result.expect("heap fluent total-only LIMIT 1 perf query should succeed")
+}
+
+fn query_stable_fluent_total_only_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+) -> FluentTotalOnlyPerfResult {
+    let result: Result<FluentTotalOnlyPerfResult, Error> = fixture
+        .query_call("query_stable_user_fluent_total_only_perf", ())
+        .expect("stable fluent total-only LIMIT 1 perf query should decode");
+
+    result.expect("stable fluent total-only LIMIT 1 perf query should succeed")
 }
 
 fn query_journaled_fluent_attributed_limit_one_perf(
@@ -2110,6 +2220,37 @@ fn query_journaled_fluent_attributed_limit_one_perf(
     result.expect("journaled fluent attributed LIMIT 1 perf query should succeed")
 }
 
+fn query_heap_fluent_attributed_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+) -> FluentQueryPerfResult {
+    let result: Result<FluentQueryPerfResult, Error> = fixture
+        .query_call("query_heap_user_fluent_with_perf", ())
+        .expect("heap fluent attributed LIMIT 1 perf query should decode");
+
+    result.expect("heap fluent attributed LIMIT 1 perf query should succeed")
+}
+
+fn query_stable_fluent_attributed_limit_one_perf(
+    fixture: &StandaloneCanisterFixture,
+) -> FluentQueryPerfResult {
+    let result: Result<FluentQueryPerfResult, Error> = fixture
+        .query_call("query_stable_user_fluent_with_perf", ())
+        .expect("stable fluent attributed LIMIT 1 perf query should decode");
+
+    result.expect("stable fluent attributed LIMIT 1 perf query should succeed")
+}
+
+fn assert_stable_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
+    let fluent_total = query_stable_fluent_total_only_limit_one_perf(fixture);
+    println!(
+        "stable fluent total-only limit1 attribution: total={}",
+        fluent_total.instructions,
+    );
+
+    let fluent_attributed = query_stable_fluent_attributed_limit_one_perf(fixture);
+    print_fluent_limit_one_attribution("stable", &fluent_attributed);
+}
+
 fn assert_journaled_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
     let fluent_total = query_journaled_fluent_total_only_limit_one_perf(fixture);
     println!(
@@ -2118,7 +2259,142 @@ fn assert_journaled_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture
     );
 
     let fluent_attributed = query_journaled_fluent_attributed_limit_one_perf(fixture);
-    print_journaled_fluent_limit_one_attribution(&fluent_attributed);
+    print_fluent_limit_one_attribution("journaled", &fluent_attributed);
+}
+
+fn assert_heap_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
+    let fluent_total = query_heap_fluent_total_only_limit_one_perf(fixture);
+    println!(
+        "heap fluent total-only limit1 attribution: total={}",
+        fluent_total.instructions,
+    );
+
+    let fluent_attributed = query_heap_fluent_attributed_limit_one_perf(fixture);
+    print_fluent_limit_one_attribution("heap", &fluent_attributed);
+}
+
+fn measure_storage_write_matrix(
+    fixture: &StandaloneCanisterFixture,
+    method: &str,
+    label: &str,
+) -> StorageWritePerfResult {
+    let result: Result<StorageWritePerfResult, Error> = fixture
+        .update_call(method, ())
+        .unwrap_or_else(|err| panic!("{label} write matrix perf result should decode: {err}"));
+
+    result.unwrap_or_else(|err| panic!("{label} write matrix perf endpoint should succeed: {err}"))
+}
+
+fn print_storage_write_matrix(label: &str, result: &StorageWritePerfResult) {
+    println!(
+        "{label} write matrix: first_insert={} steady_insert_avg={} steady_update_avg={} steady_delete_avg={} write_then_read_back={} read_back_rows={}",
+        result.first_insert_local_instructions,
+        result.steady_insert_avg_local_instructions,
+        result.steady_update_avg_local_instructions,
+        result.steady_delete_avg_local_instructions,
+        result.write_then_read_back_local_instructions,
+        result.read_back_rows,
+    );
+}
+
+fn assert_storage_write_matrix_stays_bounded(label: &str, result: &StorageWritePerfResult) {
+    assert_eq!(
+        result.read_back_rows, 1,
+        "{label} write-then-read-back should return exactly one row",
+    );
+
+    for (metric, instructions, budget) in [
+        (
+            "first insert",
+            result.first_insert_local_instructions,
+            25_000_000,
+        ),
+        (
+            "steady insert avg",
+            result.steady_insert_avg_local_instructions,
+            25_000_000,
+        ),
+        (
+            "steady update avg",
+            result.steady_update_avg_local_instructions,
+            25_000_000,
+        ),
+        (
+            "steady delete avg",
+            result.steady_delete_avg_local_instructions,
+            150_000_000,
+        ),
+        (
+            "write then read back",
+            result.write_then_read_back_local_instructions,
+            100_000_000,
+        ),
+    ] {
+        assert!(
+            instructions < budget,
+            "{label} {metric} should stay bounded, got {instructions} >= {budget}",
+        );
+    }
+}
+
+fn assert_storage_write_matrix_relative_to_stable(
+    label: &str,
+    stable: &StorageWritePerfResult,
+    result: &StorageWritePerfResult,
+) {
+    for (metric, stable_value, value) in [
+        (
+            "first insert",
+            stable.first_insert_local_instructions,
+            result.first_insert_local_instructions,
+        ),
+        (
+            "steady insert avg",
+            stable.steady_insert_avg_local_instructions,
+            result.steady_insert_avg_local_instructions,
+        ),
+        (
+            "steady update avg",
+            stable.steady_update_avg_local_instructions,
+            result.steady_update_avg_local_instructions,
+        ),
+        (
+            "steady delete avg",
+            stable.steady_delete_avg_local_instructions,
+            result.steady_delete_avg_local_instructions,
+        ),
+        (
+            "write then read back",
+            stable.write_then_read_back_local_instructions,
+            result.write_then_read_back_local_instructions,
+        ),
+    ] {
+        assert!(
+            value <= stable_value.saturating_mul(8).saturating_add(500_000),
+            "{label} {metric} should stay within the stable comparison envelope, stable={stable_value} {label}={value}",
+        );
+    }
+}
+
+fn assert_storage_write_matrix_reports(fixture: &StandaloneCanisterFixture) {
+    let stable =
+        measure_storage_write_matrix(fixture, "measure_stable_user_write_matrix_perf", "stable");
+    let heap = measure_storage_write_matrix(fixture, "measure_heap_user_write_matrix_perf", "heap");
+    let journaled = measure_storage_write_matrix(
+        fixture,
+        "measure_journaled_user_write_matrix_perf",
+        "journaled",
+    );
+
+    print_storage_write_matrix("stable", &stable);
+    print_storage_write_matrix("heap", &heap);
+    print_storage_write_matrix("journaled", &journaled);
+
+    assert_storage_write_matrix_stays_bounded("stable", &stable);
+    assert_storage_write_matrix_stays_bounded("heap", &heap);
+    assert_storage_write_matrix_stays_bounded("journaled", &journaled);
+    assert_storage_write_matrix_relative_to_stable("heap", &stable, &heap);
+    assert_storage_write_matrix_relative_to_stable("journaled", &stable, &journaled);
 }
 
 #[test]
@@ -2243,10 +2519,17 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
 
     let stable = query_sql_limit_one_with_perf(
         &fixture,
-        "query_user_with_perf",
+        "query_stable_user_with_perf",
         STABLE_PRIMARY_LIMIT_ONE_SQL,
         "stable primary LIMIT 1 perf query should decode",
         "stable primary LIMIT 1 perf query should succeed",
+    );
+    let heap = query_sql_limit_one_with_perf(
+        &fixture,
+        "query_heap_user_with_perf",
+        HEAP_PRIMARY_LIMIT_ONE_SQL,
+        "heap primary LIMIT 1 perf query should decode",
+        "heap primary LIMIT 1 perf query should succeed",
     );
     let perf = query_sql_limit_one_with_perf(
         &fixture,
@@ -2257,18 +2540,67 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     );
 
     print_sql_limit_one_attribution("stable limit1 attribution", &stable);
+    print_sql_limit_one_attribution("heap limit1 attribution", &heap);
     print_sql_limit_one_attribution("journaled limit1 attribution", &perf);
-    assert_journaled_primary_limit_one_stays_bounded(&stable, &perf);
+    assert_storage_primary_limit_one_stays_bounded("heap", &stable, &heap);
+    assert_storage_primary_limit_one_stays_bounded("journaled", &stable, &perf);
 
     let stable_looped = query_sql_loop_limit_one_with_perf(
         &fixture,
-        "query_user_loop_with_perf",
+        "query_stable_user_loop_with_perf",
         STABLE_PRIMARY_LIMIT_ONE_SQL,
         10,
         "stable loop LIMIT 1 perf query should decode",
         "stable loop LIMIT 1 perf query should succeed",
     );
     print_sql_limit_one_attribution("stable loop limit1 attribution", &stable_looped);
+
+    warm_sql_limit_one_with_perf(
+        &fixture,
+        "warm_stable_user_query_with_perf",
+        STABLE_PRIMARY_LIMIT_ONE_SQL,
+        "stable warm LIMIT 1 perf query should decode",
+        "stable warm LIMIT 1 perf query should succeed",
+    );
+    let cached_stable = query_sql_limit_one_with_perf(
+        &fixture,
+        "query_stable_user_with_perf",
+        STABLE_PRIMARY_LIMIT_ONE_SQL,
+        "stable cached LIMIT 1 perf query should decode",
+        "stable cached LIMIT 1 perf query should succeed",
+    );
+    print_sql_limit_one_attribution("stable cached limit1 attribution", &cached_stable);
+    assert_cached_primary_limit_one_stays_bounded("stable", &cached_stable, &stable);
+
+    let stable_warmed_looped = query_sql_loop_limit_one_with_perf(
+        &fixture,
+        "query_stable_user_loop_with_perf",
+        STABLE_PRIMARY_LIMIT_ONE_SQL,
+        10,
+        "stable warmed loop LIMIT 1 perf query should decode",
+        "stable warmed loop LIMIT 1 perf query should succeed",
+    );
+    print_sql_limit_one_attribution(
+        "stable warmed loop limit1 attribution",
+        &stable_warmed_looped,
+    );
+
+    warm_sql_limit_one_with_perf(
+        &fixture,
+        "warm_heap_user_query_with_perf",
+        HEAP_PRIMARY_LIMIT_ONE_SQL,
+        "heap warm LIMIT 1 perf query should decode",
+        "heap warm LIMIT 1 perf query should succeed",
+    );
+    let cached_heap = query_sql_limit_one_with_perf(
+        &fixture,
+        "query_heap_user_with_perf",
+        HEAP_PRIMARY_LIMIT_ONE_SQL,
+        "heap cached LIMIT 1 perf query should decode",
+        "heap cached LIMIT 1 perf query should succeed",
+    );
+    print_sql_limit_one_attribution("heap cached limit1 attribution", &cached_heap);
+    assert_cached_primary_limit_one_stays_bounded("heap", &cached_heap, &heap);
 
     warm_sql_limit_one_with_perf(
         &fixture,
@@ -2285,7 +2617,7 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
         "journaled cached LIMIT 1 perf query should succeed",
     );
     print_cached_journaled_sql_limit_one_attribution(&cached);
-    assert_cached_journaled_primary_limit_one_stays_bounded(&cached, &perf);
+    assert_cached_primary_limit_one_stays_bounded("journaled", &cached, &perf);
 
     let looped = query_sql_loop_limit_one_with_perf(
         &fixture,
@@ -2297,8 +2629,23 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     );
     print_sql_limit_one_attribution("journaled loop limit1 attribution", &looped);
 
+    let heap_looped = query_sql_loop_limit_one_with_perf(
+        &fixture,
+        "query_heap_user_loop_with_perf",
+        HEAP_PRIMARY_LIMIT_ONE_SQL,
+        10,
+        "heap loop LIMIT 1 perf query should decode",
+        "heap loop LIMIT 1 perf query should succeed",
+    );
+    print_sql_limit_one_attribution("heap loop limit1 attribution", &heap_looped);
+
+    assert_stable_total_only_limit_one_variants_stay_bounded(&fixture);
+    assert_heap_total_only_limit_one_variants_stay_bounded(&fixture);
     assert_journaled_total_only_limit_one_variants_stay_bounded(&fixture);
+    assert_stable_fluent_limit_one_reports(&fixture);
+    assert_heap_fluent_limit_one_reports(&fixture);
     assert_journaled_fluent_limit_one_reports(&fixture);
+    assert_storage_write_matrix_reports(&fixture);
 }
 
 #[test]

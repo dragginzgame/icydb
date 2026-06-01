@@ -237,27 +237,27 @@ fn heap_store_registry_entry_tokens(
         thread_local! {
             static #data_cell_ident: ::std::cell::RefCell<
                 ::icydb::__macro::DataStore
-            > = ::std::cell::RefCell::new(
+            > = const { ::std::cell::RefCell::new(
                 ::icydb::__macro::DataStore::init_heap()
-            );
+            ) };
         }
     };
     let index_def = quote! {
         thread_local! {
             static #index_cell_ident: ::std::cell::RefCell<
                 ::icydb::__macro::IndexStore
-            > = ::std::cell::RefCell::new(
+            > = const { ::std::cell::RefCell::new(
                 ::icydb::__macro::IndexStore::init_heap()
-            );
+            ) };
         }
     };
     let schema_def = quote! {
         thread_local! {
             static #schema_cell_ident: ::std::cell::RefCell<
                 ::icydb::__macro::SchemaStore
-            > = ::std::cell::RefCell::new(
+            > = const { ::std::cell::RefCell::new(
                 ::icydb::__macro::SchemaStore::init_heap()
-            );
+            ) };
         }
     };
     let store_init = quote! {

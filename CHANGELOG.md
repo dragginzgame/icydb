@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
 
+- `0.175.7` extends the SQL perf audit matrix so bounded read and write checks
+  compare stable, heap, and journaled storage on matching hot-path probes.
+
 - `0.175.6` caches post-recovery schema reconciliation for warmed journaled
   reads and pins the `LIMIT 1` path against recovery/runtime-prep regressions.
 

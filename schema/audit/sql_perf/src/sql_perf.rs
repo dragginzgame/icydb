@@ -20,6 +20,14 @@ define_fixture_store!(
 );
 
 #[store(
+    ident = "PERF_AUDIT_HEAP_STORE",
+    store_name = "heap",
+    canister = "PerfAuditCanister",
+    storage(heap())
+)]
+pub struct PerfAuditHeapStore {}
+
+#[store(
     ident = "PERF_AUDIT_JOURNALED_STORE",
     store_name = "journaled",
     canister = "PerfAuditCanister",
@@ -55,6 +63,43 @@ pub struct PerfAuditJournaledStore {}
     )
 )]
 pub struct PerfAuditUser {}
+
+///
+/// PerfAuditStableUser
+///
+/// Stable mirror of the primary-key user perf shape. It keeps the storage
+/// backend comparison matrix shape-matched with heap and journaled stores.
+///
+
+#[entity(
+    store = "PerfAuditStore",
+    pk(fields = ["id"]),
+    fields(
+        field(ident = "id", value(item(prim = "Int32"))),
+        field(ident = "name", value(item(prim = "Text", unbounded))),
+        field(ident = "age", value(item(prim = "Int32")))
+    )
+)]
+pub struct PerfAuditStableUser {}
+
+///
+/// PerfAuditHeapUser
+///
+/// Heap mirror of the primary-key user perf shape. It exists only so the
+/// integration harness can sample live volatile heap traversal beside stable
+/// and journaled storage paths.
+///
+
+#[entity(
+    store = "PerfAuditHeapStore",
+    pk(fields = ["id"]),
+    fields(
+        field(ident = "id", value(item(prim = "Int32"))),
+        field(ident = "name", value(item(prim = "Text", unbounded))),
+        field(ident = "age", value(item(prim = "Int32")))
+    )
+)]
+pub struct PerfAuditHeapUser {}
 
 ///
 /// PerfAuditJournaledUser
