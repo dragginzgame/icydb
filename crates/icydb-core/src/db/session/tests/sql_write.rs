@@ -1876,8 +1876,8 @@ fn execute_sql_update_reuses_authority_schema_info_for_selector() {
     };
     assert_eq!(row_count, 1);
     assert_eq!(
-        counters.schema_info_projections, 2,
-        "SQL UPDATE should reuse the authority-carried selector schema view while retaining the write save-contract schema view and skipping no-index commit-preflight schema projection",
+        counters.schema_info_projections, 1,
+        "SQL UPDATE should reuse the authority-carried selector schema view for save execution and skip no-index commit-preflight schema projection",
     );
 }
 

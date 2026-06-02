@@ -1847,9 +1847,18 @@ fn sql_write_selectors_reuse_accepted_authority_schema_info() {
     let insert = read_source("src/db/session/sql/execute/write/insert.rs");
     let update = read_source("src/db/session/sql/execute/write/update.rs");
     let update_compact = compact_source(&update);
+    let write_mod = read_source("src/db/session/sql/execute/write/mod.rs");
+    let write_mod_compact = compact_source(&write_mod);
 
     assert!(
         insert.contains("let schema_info = authority.accepted_schema_info().ok_or_else(|| {")
+            && insert.contains("let save_schema_info = schema_info.clone();")
+            && insert.contains(") -> Result<crate::db::schema::SchemaInfo, QueryError>")
+            && insert.contains("Ok(save_schema_info)")
+            && insert.contains("save_schema_info = Some(self.execute_sql_insert_select_source_patches::<E>(")
+            && insert.contains(
+                "accepted_sql_write_save_contract::<E>(&schema, &descriptor, save_schema_info)",
+            )
             && insert.contains(
                 "QueryError::invariant(\"SQL INSERT SELECT authority must carry accepted schema info\")",
             )
@@ -1859,6 +1868,10 @@ fn sql_write_selectors_reuse_accepted_authority_schema_info() {
     );
     assert!(
         update.contains("let schema_info = authority.accepted_schema_info().ok_or_else(|| {")
+            && update.contains("let save_schema_info = schema_info.clone();")
+            && update.contains(
+                "accepted_sql_write_save_contract::<E>(&schema, &descriptor, Some(save_schema_info))",
+            )
             && update.contains(
                 "QueryError::invariant(\"SQL UPDATE selector authority must carry accepted schema info\")",
             )
@@ -1870,6 +1883,14 @@ fn sql_write_selectors_reuse_accepted_authority_schema_info() {
             )
             && !update.contains("SchemaInfo::from_accepted_snapshot_for_model"),
         "SQL UPDATE selector binding must reuse accepted authority SchemaInfo instead of rebuilding the same accepted schema projection",
+    );
+    assert!(
+        write_mod_compact.contains(
+            "fnaccepted_sql_write_save_contract<E>(schema:&AcceptedSchemaSnapshot,descriptor:&AcceptedRowLayoutRuntimeContract<'_>,schema_info:Option<SchemaInfo>,"
+        ) && write_mod.contains("if let Some(schema_info) = schema_info {")
+            && write_mod.contains("accepted_commit_schema_fingerprint(schema)")
+            && write_mod.contains("accepted_save_contract_for_descriptor::<E>(schema, descriptor)"),
+        "SQL write save-contract construction must reuse caller-provided accepted SchemaInfo when selector authority already built it",
     );
 }
 

@@ -291,7 +291,7 @@ impl<C: CanisterKind> DbSession<C> {
         source: &SqlSelectStatement,
         columns: &[String],
         rows: &mut Vec<(E::Key, StructuralPatch)>,
-    ) -> Result<(), QueryError>
+    ) -> Result<crate::db::schema::SchemaInfo, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -303,6 +303,7 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_info = authority.accepted_schema_info().ok_or_else(|| {
             QueryError::invariant("SQL INSERT SELECT authority must carry accepted schema info")
         })?;
+        let save_schema_info = schema_info.clone();
         let query = bind_prepared_sql_select_statement_structural_with_schema(
             prepared,
             authority.model(),
@@ -326,7 +327,7 @@ impl<C: CanisterKind> DbSession<C> {
             Self::sql_insert_push_patch_row::<E>(descriptor, rows, columns, row.as_slice())?;
         }
 
-        Ok(())
+        Ok(save_schema_info)
     }
 
     // Convert one already-validated INSERT source row into the structural
@@ -363,6 +364,7 @@ impl<C: CanisterKind> DbSession<C> {
         ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = Vec::new();
+        let mut save_schema_info = None;
 
         match &statement.source {
             SqlInsertSource::Values(values) => {
@@ -390,13 +392,13 @@ impl<C: CanisterKind> DbSession<C> {
                     descriptor.primary_key_names(),
                     statement,
                 )?;
-                self.execute_sql_insert_select_source_patches::<E>(
+                save_schema_info = Some(self.execute_sql_insert_select_source_patches::<E>(
                     &schema,
                     &descriptor,
                     &source,
                     columns.as_slice(),
                     &mut rows,
-                )?;
+                )?);
             }
         }
         let source_rows = usize_to_u64_saturating(rows.len());
@@ -409,7 +411,7 @@ impl<C: CanisterKind> DbSession<C> {
             mutation_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
-        ) = accepted_sql_write_save_contract::<E>(&schema, &descriptor)?;
+        ) = accepted_sql_write_save_contract::<E>(&schema, &descriptor, save_schema_info)?;
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,

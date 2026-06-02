@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
 
+- `0.176.8` reuses selector authority schema views for SQL write save-contract
+  execution, removing another duplicate accepted schema projection from UPDATE
+  and INSERT SELECT writes.
+
 - `0.176.7` skips commit-preflight `SchemaInfo` projection for no-index writes
   while preserving expression-aware accepted index planning for indexed commits.
 

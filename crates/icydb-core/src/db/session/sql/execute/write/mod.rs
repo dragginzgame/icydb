@@ -7,8 +7,9 @@ use crate::{
         data::{FieldSlot, StructuralPatch},
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
-            ValidateError, canonicalize_strict_sql_literal_for_persisted_kind,
-            field_type_from_persisted_kind, literal_matches_type,
+            SchemaInfo, ValidateError, accepted_commit_schema_fingerprint,
+            canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
+            literal_matches_type,
         },
         session::{
             AcceptedSaveContract, accepted_save_contract_for_descriptor,
@@ -127,10 +128,25 @@ where
 fn accepted_sql_write_save_contract<E>(
     schema: &AcceptedSchemaSnapshot,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    schema_info: Option<SchemaInfo>,
 ) -> Result<AcceptedSaveContract, QueryError>
 where
     E: EntityKind,
 {
+    if let Some(schema_info) = schema_info {
+        let row_decode_contract = descriptor.row_decode_contract();
+        let mutation_row_decode_contract = row_decode_contract.clone();
+        let schema_fingerprint =
+            accepted_commit_schema_fingerprint(schema).map_err(QueryError::execute)?;
+
+        return Ok((
+            row_decode_contract,
+            mutation_row_decode_contract,
+            schema_info,
+            schema_fingerprint,
+        ));
+    }
+
     accepted_save_contract_for_descriptor::<E>(schema, descriptor).map_err(QueryError::execute)
 }
 

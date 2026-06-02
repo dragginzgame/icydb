@@ -136,6 +136,7 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_info = authority.accepted_schema_info().ok_or_else(|| {
             QueryError::invariant("SQL UPDATE selector authority must carry accepted schema info")
         })?;
+        let save_schema_info = schema_info.clone();
         let selector = Self::sql_update_selector_query::<E>(schema_info, statement)?;
         let patch = Self::sql_structural_patch(&descriptor, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
@@ -157,7 +158,7 @@ impl<C: CanisterKind> DbSession<C> {
             mutation_row_decode_contract,
             accepted_schema_info,
             accepted_schema_fingerprint,
-        ) = accepted_sql_write_save_contract::<E>(&schema, &descriptor)?;
+        ) = accepted_sql_write_save_contract::<E>(&schema, &descriptor, Some(save_schema_info))?;
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,
