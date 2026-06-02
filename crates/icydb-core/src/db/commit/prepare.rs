@@ -53,7 +53,7 @@ struct CommitPrepareAuthority {
 
 struct AcceptedCommitSchemaContracts {
     row_contract: StructuralRowContract,
-    schema_info: SchemaInfo,
+    schema_info: Option<SchemaInfo>,
 }
 
 impl CommitPrepareAuthority {
@@ -287,13 +287,7 @@ where
 
         // Phase 3: derive forward index work from the already validated
         // structural rows when the entity owns secondary indexes.
-        let has_accepted_field_path_indexes =
-            !schema_contracts.schema_info.field_path_indexes().is_empty();
-        let has_accepted_expression_indexes =
-            !schema_contracts.schema_info.expression_indexes().is_empty();
-        let index_plan = if !has_accepted_field_path_indexes && !has_accepted_expression_indexes {
-            empty_forward_index_plan()
-        } else {
+        let index_plan = if schema_contracts.schema_info.is_some() {
             prepare_forward_index_commit_leaf(
                 db,
                 &authority,
@@ -303,6 +297,8 @@ where
                 &structural.data_key,
                 &mut decoded,
             )?
+        } else {
+            empty_forward_index_plan()
         };
         let forward_index_ops = materialize_forward_index_commit_ops(db, index_plan)?;
 
@@ -353,6 +349,9 @@ fn prepare_forward_index_commit_leaf<C>(
 where
     C: crate::traits::CanisterKind,
 {
+    let Some(schema_info) = schema_contracts.schema_info.as_ref() else {
+        return Ok(empty_forward_index_plan());
+    };
     let primary_key = data_key.primary_key_value();
 
     let read_view = CommitIndexPlanReadView {
@@ -364,7 +363,7 @@ where
     match plan_index_mutation_for_slot_reader_structural(
         authority.entity_path,
         authority.entity_tag,
-        &schema_contracts.schema_info,
+        schema_info,
         &read_view,
         &schema_contracts.row_contract,
         decoded.old_slots.as_ref().map(|_| &primary_key),
@@ -453,11 +452,13 @@ where
             authority.entity_path,
             &accepted,
         )?,
-        schema_info: SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
-            authority.model,
-            &accepted,
-            true,
-        ),
+        schema_info: (!accepted.persisted_snapshot().indexes().is_empty()).then(|| {
+            SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+                authority.model,
+                &accepted,
+                true,
+            )
+        }),
     })
 }
 

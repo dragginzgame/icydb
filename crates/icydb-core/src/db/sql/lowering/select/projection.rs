@@ -159,7 +159,7 @@ fn grouped_projection_is_canonical_identity(
 // Enforce the SQL DISTINCT rule at lowering time: every ORDER BY term must be
 // fully expressible as a function of the outward projected distinct tuple
 // rather than from hidden base-row fields.
-pub(in crate::db::sql::lowering) fn validate_distinct_order_terms_against_projection(
+pub(super) fn validate_distinct_order_terms_against_projection(
     projection: &ProjectionSelection,
     order_by: &[LoweredSqlOrderTerm],
     model: &'static EntityModel,

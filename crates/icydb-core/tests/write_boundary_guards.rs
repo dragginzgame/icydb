@@ -853,6 +853,7 @@ fn reverse_relation_runtime_paths_use_accepted_contracts() {
 fn forward_index_write_keys_use_accepted_row_contract_slots() {
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let commit_prepare = read_source("src/db/commit/prepare.rs");
+    let commit_prepare_compact = compact_source(&commit_prepare);
     let index_key_build = read_source("src/db/index/key/build.rs");
     let index_plan = read_source("src/db/index/plan/mod.rs");
     let index_plan_read = read_source("src/db/index/plan/read.rs");
@@ -962,19 +963,21 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && commit_prepare.contains("accepted_commit_schema_contracts(")
             && commit_prepare
                 .contains("SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(")
-            && commit_prepare.contains("&schema_contracts.schema_info")
+            && commit_prepare.contains("schema_info: Option<SchemaInfo>")
+            && commit_prepare_compact
+                .contains("schema_info:(!accepted.persisted_snapshot().indexes().is_empty()).then(||")
+            && commit_prepare
+                .contains("schema_contracts.schema_info.is_some()")
+            && commit_prepare_compact
+                .contains("letSome(schema_info)=schema_contracts.schema_info.as_ref()else{returnOk(empty_forward_index_plan());};")
+            && commit_prepare.contains("schema_info,")
             && commit_prepare.contains("&schema_contracts.row_contract")
-            && commit_prepare.contains("has_accepted_field_path_indexes")
-            && commit_prepare.contains("has_accepted_expression_indexes")
-            && commit_prepare
-                .contains("schema_contracts.schema_info.field_path_indexes().is_empty()")
-            && commit_prepare
-                .contains("schema_contracts.schema_info.expression_indexes().is_empty()")
+            && commit_prepare.contains("fn empty_forward_index_plan() -> IndexMutationPlan")
             && !commit_prepare.contains("has_deferred_expression_indexes")
             && !commit_prepare.contains("authority.model.indexes()")
             && !commit_prepare.contains("index.has_expression_key_items()")
             && !commit_prepare.contains("authority.model.indexes().is_empty()"),
-        "commit preflight must carry expression-aware accepted schema info beside the accepted row contract and gate forward-index planning on accepted index contracts",
+        "commit preflight must build expression-aware accepted schema info only when accepted indexes require forward-index planning",
     );
 }
 
@@ -1033,6 +1036,7 @@ fn unique_index_validation_splits_accepted_and_generated_authority() {
 fn recovery_rebuild_expression_indexes_uses_accepted_commit_preflight() {
     let commit_rebuild = read_source("src/db/commit/rebuild.rs");
     let commit_prepare = read_source("src/db/commit/prepare.rs");
+    let commit_prepare_compact = compact_source(&commit_prepare);
     let index_plan = read_source("src/db/index/plan/mod.rs");
 
     assert!(
@@ -1051,9 +1055,11 @@ fn recovery_rebuild_expression_indexes_uses_accepted_commit_preflight() {
             && commit_prepare
                 .contains("SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(")
             && commit_prepare.contains("true,")
-            && commit_prepare.contains("schema_contracts.schema_info.expression_indexes()")
+            && commit_prepare.contains("schema_contracts.schema_info.is_some()")
+            && commit_prepare_compact
+                .contains("letSome(schema_info)=schema_contracts.schema_info.as_ref()else{returnOk(empty_forward_index_plan());};")
             && commit_prepare.contains("prepare_forward_index_commit_leaf("),
-        "commit preflight used by recovery must build expression-aware accepted SchemaInfo before forward-index planning",
+        "commit preflight used by recovery must build expression-aware accepted SchemaInfo before indexed forward-index planning",
     );
     assert!(
         index_plan.contains("for accepted_index in accepted_expression_indexes")
