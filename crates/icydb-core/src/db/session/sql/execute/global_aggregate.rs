@@ -83,9 +83,10 @@ impl<C: CanisterKind> DbSession<C> {
         let (query, strategies, projection, having) = command.into_execution_inputs();
         let columns = projection_labels_from_projection_spec(&projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
-        let schema_info = self
-            .accepted_schema_info_for_entity::<E>()
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
             .map_err(QueryError::execute)?;
+        let schema_info = catalog.accepted_schema_info_for::<E>();
         let terminals = strategies
             .into_iter()
             .map(|strategy| {
@@ -96,7 +97,7 @@ impl<C: CanisterKind> DbSession<C> {
         let request = StructuralAggregateRequest::new(terminals, projection, having, schema_info);
         let query = Query::<E>::from_inner(query);
         let (prepared_plan, cache_attribution) =
-            self.cached_shared_query_plan_for_entity::<E>(&query)?;
+            self.cached_shared_query_plan_for_entity_with_catalog::<E>(&query, &catalog)?;
         let result = self
             .with_metrics(|| {
                 self.load_executor::<E>()

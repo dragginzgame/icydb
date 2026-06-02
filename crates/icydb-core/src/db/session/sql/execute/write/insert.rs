@@ -1,5 +1,5 @@
 use super::{
-    checked_accepted_write_descriptor, record_sql_write_metrics,
+    accepted_sql_write_save_contract, checked_accepted_write_descriptor, record_sql_write_metrics,
     reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
     sql_returning_rows, sql_write_key_from_component_literals, sql_write_patch_set_accepted_field,
     sql_write_value_for_accepted_field, usize_to_u64_saturating,
@@ -12,7 +12,6 @@ use crate::{
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo,
-            accepted_commit_schema_fingerprint,
         },
         session::sql::{SqlStatementResult, execute::write_returning::sql_write_statement_result},
         sql::{
@@ -403,11 +402,12 @@ impl<C: CanisterKind> DbSession<C> {
             SqlInsertSource::Values(_) => SqlWriteKind::Insert,
             SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
         };
-        let row_decode_contract = descriptor.row_decode_contract();
-        let mutation_row_decode_contract = row_decode_contract.clone();
-        let accepted_schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &schema);
-        let accepted_schema_fingerprint =
-            accepted_commit_schema_fingerprint(&schema).map_err(QueryError::execute)?;
+        let (
+            row_decode_contract,
+            mutation_row_decode_contract,
+            accepted_schema_info,
+            accepted_schema_fingerprint,
+        ) = accepted_sql_write_save_contract::<E>(&schema, &descriptor)?;
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,

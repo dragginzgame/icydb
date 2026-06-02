@@ -5,8 +5,9 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError, commit::CommitSchemaFingerprint,
-        schema::AcceptedSchemaSnapshot, session::sql::compiled::CompiledSqlCommand,
+        DbSession, PersistedRow, QueryError,
+        commit::CommitSchemaFingerprint,
+        session::{AcceptedSchemaCatalogContext, sql::compiled::CompiledSqlCommand},
     },
     metrics::sink::CacheMissReason,
     traits::{CanisterKind, EntityValue},
@@ -14,7 +15,9 @@ use crate::{
 use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(test)]
-use crate::db::schema::{accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model};
+use crate::db::schema::{
+    AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model,
+};
 #[cfg(test)]
 use crate::metrics::sink::{CacheKind, record_cache_entries};
 
@@ -133,15 +136,15 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
 #[derive(Debug)]
 pub(in crate::db::session::sql) struct SqlCompiledCommandCacheContext {
     key: SqlCompiledCommandCacheKey,
-    accepted_schema: AcceptedSchemaSnapshot,
+    catalog: AcceptedSchemaCatalogContext,
 }
 
 impl SqlCompiledCommandCacheContext {
     #[must_use]
     pub(in crate::db::session::sql) fn into_cache_inputs(
         self,
-    ) -> (SqlCompiledCommandCacheKey, AcceptedSchemaSnapshot) {
-        (self.key, self.accepted_schema)
+    ) -> (SqlCompiledCommandCacheKey, AcceptedSchemaCatalogContext) {
+        (self.key, self.catalog)
     }
 }
 
@@ -234,11 +237,6 @@ impl SqlCompiledCommandCacheKey {
             sql: sql.to_string(),
         }
     }
-
-    #[must_use]
-    pub(in crate::db::session::sql) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.schema_fingerprint
-    }
 }
 
 #[cfg(test)]
@@ -305,13 +303,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (accepted_schema, schema_fingerprint) = self
-            .accepted_schema_snapshot_and_cache_fingerprint_for_query::<E>()
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
             .map_err(QueryError::execute)?;
 
         Ok(SqlCompiledCommandCacheContext {
-            key: SqlCompiledCommandCacheKey::new(surface, E::PATH, schema_fingerprint, sql),
-            accepted_schema,
+            key: SqlCompiledCommandCacheKey::new(surface, E::PATH, catalog.fingerprint(), sql),
+            catalog,
         })
     }
 

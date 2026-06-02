@@ -613,14 +613,26 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (accepted_schema, authority) = self
-            .accepted_entity_authority::<E>()
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
+            .map_err(QueryError::execute)?;
+        let authority = catalog
+            .accepted_entity_authority_for::<E>()
             .map_err(QueryError::execute)?;
 
-        self.execute_select_compiled_sql_with_authority_and_schema::<E>(
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
+                query,
+                authority,
+                catalog.snapshot(),
+                catalog.fingerprint(),
+            )?;
+
+        self.execute_select_compiled_sql_from_prepared_plan::<E>(
             query,
-            authority,
-            &accepted_schema,
+            prepared_plan,
+            projection,
+            cache_attribution,
         )
     }
 
@@ -674,53 +686,6 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn execute_select_compiled_sql_with_authority_and_schema<E>(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let schema_fingerprint =
-            crate::db::schema::accepted_schema_cache_fingerprint(accepted_schema)
-                .map_err(QueryError::execute)?;
-
-        self.execute_select_compiled_sql_with_authority_schema_and_fingerprint::<E>(
-            query,
-            authority,
-            accepted_schema,
-            schema_fingerprint,
-        )
-    }
-
-    fn execute_select_compiled_sql_with_authority_schema_and_fingerprint<E>(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
-                query,
-                authority,
-                accepted_schema,
-                schema_fingerprint,
-            )?;
-
-        self.execute_select_compiled_sql_from_prepared_plan::<E>(
-            query,
-            prepared_plan,
-            projection,
-            cache_attribution,
-        )
-    }
-
     fn execute_select_compiled_sql_from_prepared_plan<E>(
         &self,
         query: &StructuralQuery,
@@ -760,14 +725,17 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (accepted_schema, authority) = self
-            .accepted_entity_authority::<E>()
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
+            .map_err(QueryError::execute)?;
+        let authority = catalog
+            .accepted_entity_authority_for::<E>()
             .map_err(QueryError::execute)?;
 
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
             lowered,
             authority.clone(),
-            &accepted_schema,
+            catalog.snapshot(),
         )? {
             return Ok((
                 SqlStatementResult::Explain(explain),
@@ -775,7 +743,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        self.explain_lowered_sql_for_authority(lowered, authority, &accepted_schema)
+        self.explain_lowered_sql_for_authority(lowered, authority, catalog.snapshot())
             .map(SqlStatementResult::Explain)
             .map(|result| (result, SqlCacheAttribution::default()))
     }

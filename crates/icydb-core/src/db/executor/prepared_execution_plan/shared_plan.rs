@@ -74,7 +74,7 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) fn authority(&self) -> EntityAuthority {
+    pub(in crate::db) fn authority(&self) -> EntityAuthority {
         self.authority.clone()
     }
 

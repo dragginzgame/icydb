@@ -29,6 +29,7 @@ DEV_SYSTEM_PACKAGES=(
   python3
   nodejs
   npm
+  bubblewrap
   binaryen
   wabt
   jq

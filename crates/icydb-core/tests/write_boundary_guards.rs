@@ -481,10 +481,8 @@ fn sql_ddl_drop_index_uses_persisted_index_origin() {
     );
     let session_sql_compact = compact_source(&session_sql);
     assert!(
-        session_sql_compact.contains(
-            "SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(E::MODEL,&accepted_schema,true,)"
-        )
-            && session_sql.contains("prepare_sql_ddl_statement(\n            &statement,\n            &accepted_schema,\n            &schema_info,\n            E::Store::PATH,\n        )")
+        session_sql_compact.contains("letschema_info=catalog.accepted_schema_info_for::<E>();")
+            && session_sql.contains("prepare_sql_ddl_statement(\n            &statement,\n            catalog.snapshot(),\n            &schema_info,\n            E::Store::PATH,\n        )")
             && !session_sql.contains("prepare_sql_ddl_statement(\n            &statement,\n            &accepted_schema,\n            &schema_info,\n            E::MODEL,"),
         "session DDL preparation may bridge generated model into accepted SchemaInfo but must not pass it into DDL binding",
     );
@@ -1395,7 +1393,7 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
 #[test]
 fn session_explain_access_choice_uses_accepted_schema_info() {
     let session_query_explain = read_source("src/db/session/query/explain.rs");
-    let session_query_explain_compact = compact_source(&session_query_explain);
+    let session_query_cache = read_source("src/db/session/query/cache.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
     let session_sql_explain_compact = compact_source(&session_sql_explain);
     let sql_aggregate_binding = read_source("src/db/sql/lowering/aggregate/command/binding.rs");
@@ -1411,10 +1409,11 @@ fn session_explain_access_choice_uses_accepted_schema_info() {
             && query_access_plan.contains(
                 "fn finalize_access_choice_for_model_with_accepted_indexes_and_schema("
             )
-            && session_query_explain_compact.contains(
-                "SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(query.structural().model(),&accepted_schema,true,"
-            )
+            && session_query_explain.contains("let authority = prepared_plan.authority();")
+            && session_query_explain.contains("authority.accepted_schema_info()")
+            && !session_query_explain.contains("ensure_accepted_schema_snapshot::<E>()")
             && !session_query_explain.contains("plan.finalize_access_choice_for_model_only_with_indexes(")
+            && session_query_cache.contains("accepted_schema_catalog_context_for_query::<E>()")
             && session_sql_explain.contains(
                 "plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema("
             )
@@ -1433,7 +1432,7 @@ fn session_explain_access_choice_uses_accepted_schema_info() {
             && sql_aggregate_binding.contains(
                 "apply_lowered_base_query_shape_with_schema("
             ),
-        "session explain binding and access-choice finalization must use accepted SchemaInfo instead of generated schema fallback",
+        "session explain binding and access-choice finalization must use accepted authority/catalog SchemaInfo instead of generated schema fallback",
     );
 }
 
@@ -1606,6 +1605,8 @@ fn raw_entity_authority_bootstrap_stays_layout_free() {
     let route_shape = read_source("src/db/executor/planning/route/contracts/shape.rs");
     let query_plan_covering = read_source("src/db/query/plan/covering/mod.rs");
     let session_query_explain = read_source("src/db/session/query/explain.rs");
+    let shared_prepared_plan =
+        read_source("src/db/executor/prepared_execution_plan/shared_plan.rs");
     let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
 
@@ -1627,8 +1628,8 @@ fn raw_entity_authority_bootstrap_stays_layout_free() {
             && executor_explain.contains(
                 "finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator("
             )
-            && session_query_explain
-                .contains("accepted_entity_authority_for_schema::<E>(&accepted_schema)")
+            && shared_prepared_plan.contains("pub(in crate::db) fn authority(&self)")
+            && session_query_explain.contains("let authority = prepared_plan.authority();")
             && session_query_explain.contains(
                 ".explain_execution_descriptor_from_plan_with_authority(&plan, &authority)"
             )
@@ -1771,36 +1772,48 @@ fn sql_command_lowering_uses_accepted_schema_for_runtime_explain() {
 fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary() {
     let session_mod = read_source("src/db/session/mod.rs");
     let session_query_cache = read_source("src/db/session/query/cache.rs");
+    let session_query_cache_compact = compact_source(&session_query_cache);
+    let session_sql = read_source("src/db/session/sql/mod.rs");
     let session_sql_cache = read_source("src/db/session/sql/cache.rs");
     let session_sql_compile_cache = read_source("src/db/session/sql/compile_cache.rs");
+    let session_sql_compile_cache_compact = compact_source(&session_sql_compile_cache);
     let session_sql_execute = read_source("src/db/session/sql/execute/mod.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
     let session_sql_write = read_rust_sources_under("src/db/session/sql/execute/write");
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
 
     assert!(
-        session_mod.contains("pub(in crate::db) fn accepted_entity_authority<E>")
-            && session_mod.contains("pub(in crate::db) fn accepted_entity_authority_for_schema<E>")
+        session_mod.contains("pub(in crate::db) fn accepted_entity_authority_for_schema<E>")
+            && !session_mod.contains("pub(in crate::db) fn accepted_entity_authority<E>")
             && session_mod.contains("EntityAuthority::from_accepted_schema_for_type::<E>(")
             && !session_mod.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && entity_authority.contains("fn from_accepted_schema_for_type<E>")
             && entity_authority
                 .contains("AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(")
             && entity_authority.contains("with_accepted_row_decode_contract(")
-            && session_query_cache.contains("accepted_entity_authority::<E>()")
-            && session_query_cache.contains("cached_shared_query_plan_for_accepted_authority(")
+            && session_query_cache.contains("accepted_schema_catalog_context_for_query::<E>()")
+            && session_query_cache_compact
+                .contains("catalog.accepted_entity_authority_for::<E>()")
+            && session_query_cache.contains(
+                "cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(",
+            )
             && !session_query_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
-            && session_sql_cache
-                .contains("accepted_schema_snapshot_and_cache_fingerprint_for_query::<E>()")
+            && session_sql_cache.contains("accepted_schema_catalog_context_for_query::<E>()")
             && !session_sql_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
-            && session_sql_compile_cache
-                .contains("Self::accepted_entity_authority_for_schema::<E>(accepted_schema)")
+            && session_sql_compile_cache_compact
+                .contains("catalog.accepted_entity_authority_for::<E>()")
             && session_sql_compile_cache.contains("Some(authority)")
             && session_sql_compile_cache.contains("None")
             && !session_sql_compile_cache
                 .contains("EntityAuthority::for_generated_type_for_test::<E>()")
+            && session_sql.contains("accepted_schema_catalog_context_for_query::<E>()")
+            && !session_sql.contains("accepted_entity_authority::<E>()")
+            && session_sql.contains(
+                "sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(",
+            )
             && session_sql_execute.contains("sql_select_prepared_plan_for_entity::<E>(query)")
-            && session_sql_execute.contains("accepted_entity_authority::<E>()")
+            && session_sql_execute.contains("accepted_schema_catalog_context_for_query::<E>()")
+            && !session_sql_execute.contains("accepted_entity_authority::<E>()")
             && session_sql_execute.contains("context.accepted_authority()")
             && session_sql_execute.contains("Self::accepted_entity_authority_for_schema::<E>(")
             && !session_sql_execute.contains("EntityAuthority::for_generated_type_for_test::<E>()")
@@ -1952,7 +1965,9 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
             && aggregate_terminal
                 .contains("schema\n                    .field_nullable(target_slot.field())")
             && !aggregate_terminal.contains("model.fields().get(target_slot.index())")
-            && session_global_aggregate.contains("accepted_schema_info_for_entity::<E>()")
+            && session_global_aggregate
+                .contains("accepted_schema_catalog_context_for_query::<E>()")
+            && session_global_aggregate.contains("catalog.accepted_schema_info_for::<E>()")
             && session_global_aggregate.contains(
                 "StructuralAggregateRequest::new(terminals, projection, having, schema_info)",
             ),
@@ -2013,6 +2028,7 @@ fn fluent_terminal_field_slots_use_accepted_schema_info() {
     );
     assert!(
         session_mod.contains("pub(in crate::db) fn accepted_schema_info_for_entity<E>")
+            && session_mod.contains("pub(in crate::db) fn accepted_schema_info_for<E>")
             && session_mod.contains("SchemaInfo::from_accepted_snapshot_for_model(")
             && symbols
                 .contains("pub(in crate::db) fn resolve_aggregate_target_field_slot_with_schema(")
@@ -2023,9 +2039,13 @@ fn fluent_terminal_field_slots_use_accepted_schema_info() {
         "session and planner symbol helpers must expose accepted-schema field-slot resolution",
     );
     assert!(
-        session_global_aggregate.contains("accepted_schema_info_for_entity::<E>()")
+        session_global_aggregate.contains("accepted_schema_catalog_context_for_query::<E>()")
+            && session_global_aggregate.contains("catalog.accepted_schema_info_for::<E>()")
+            && session_global_aggregate.contains(
+                "cached_shared_query_plan_for_entity_with_catalog::<E>(&query, &catalog)",
+            )
             && !session_global_aggregate.contains("ensure_accepted_schema_snapshot::<E>()"),
-        "SQL global aggregate execution should reuse the session accepted-schema info helper",
+        "SQL global aggregate execution should reuse one accepted catalog context for schema info and shared query-plan cache lookup",
     );
     assert!(
         sql_aggregate_strategy.contains("resolve_aggregate_target_field_slot_with_schema(")
@@ -2687,8 +2707,7 @@ fn journaled_ordered_overlay_traversal_stays_streaming_and_fold_only() {
         "cold SQL query execution must carry accepted schema context from compile into plan lookup instead of rebuilding it inside the same query call",
     );
     assert!(
-        session_sql_cache
-            .contains("accepted_schema_snapshot_and_cache_fingerprint_for_query::<E>()")
+        session_sql_cache.contains("accepted_schema_catalog_context_for_query::<E>()")
             && !session_sql_cache.contains("ensure_accepted_schema_snapshot::<E>()"),
         "SQL query cache-key construction must load accepted runtime schema directly instead of rerunning generated reconciliation on every query call",
     );
@@ -2761,7 +2780,7 @@ fn journaled_read_hot_paths_stay_off_recovery_fold_diagnostics_and_authority_reb
         .find("ifletSome(compiled)=cached")
         .expect("SQL compile cache should retain an explicit cache-hit branch");
     let accepted_authority = session_sql_compile_cache
-        .find("letauthority=Self::accepted_entity_authority_for_schema::<E>(accepted_schema)")
+        .find("letauthority=catalog.accepted_entity_authority_for::<E>()")
         .expect("SQL compile cache miss should construct accepted authority from cached schema");
     assert!(
         cache_hit < accepted_authority,
@@ -2770,6 +2789,60 @@ fn journaled_read_hot_paths_stay_off_recovery_fold_diagnostics_and_authority_reb
     assert!(
         session_sql_compile_cache.contains("returnOk((compiled,SqlCacheAttribution::sql_compiled_command_cache_hit(),attribution.finish(),None,));"),
         "SQL compiled-command cache hits should carry no rebuilt accepted authority",
+    );
+}
+
+#[test]
+fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_projection() {
+    let session_mod = read_source("src/db/session/mod.rs");
+    let session_query_cache = read_source("src/db/session/query/cache.rs");
+    let session_query_cache_compact = compact_source(&session_query_cache);
+    let cached_shared_query_plan_for_entity = session_query_cache_compact
+        .split("pub(incrate::db::session)fncached_shared_query_plan_for_entity<E>")
+        .nth(1)
+        .expect("session query cache should keep typed shared-plan cache helper");
+
+    assert!(
+        session_mod.contains("struct AcceptedSchemaCatalogContext")
+            && session_mod.contains("fn accepted_schema_info_for<E>")
+            && session_mod.contains("fn accepted_schema_catalog_context_for_query<E>")
+            && session_query_cache.contains("accepted_schema_catalog_context_for_query::<E>()")
+            && read_source("src/db/session/sql/cache.rs")
+                .contains("accepted_schema_catalog_context_for_query::<E>()"),
+        "query paths should name accepted catalog context instead of passing raw snapshot/fingerprint pairs everywhere",
+    );
+
+    let catalog_context = cached_shared_query_plan_for_entity
+        .find("accepted_schema_catalog_context_for_query::<E>()")
+        .expect("typed query cache should create accepted catalog context");
+    let cache_hit = cached_shared_query_plan_for_entity
+        .find("try_cached_filterless_query_plan_for_entity_path(")
+        .expect("typed query cache should try eligible cache hits by catalog identity");
+    let authority_projection = cached_shared_query_plan_for_entity
+        .find("accepted_entity_authority_for::<E>(")
+        .expect("cache misses should still construct accepted executor authority");
+
+    assert!(
+        catalog_context < cache_hit && cache_hit < authority_projection,
+        "eligible filterless query-plan cache hits must return before accepted authority and SchemaInfo projection",
+    );
+    assert!(
+        !cached_shared_query_plan_for_entity.contains("accepted_entity_authority::<E>()")
+            && cached_shared_query_plan_for_entity.contains(
+                "cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(",
+            ),
+        "typed query cache should use the catalog snapshot/fingerprint and reuse resolved visibility on misses",
+    );
+
+    let with_query_visible_indexes = session_query_cache_compact
+        .split("pub(incrate::db::session)fnwith_query_visible_indexes<E,T>")
+        .nth(1)
+        .expect("session query cache should keep visible-index helper");
+    assert!(
+        with_query_visible_indexes.contains("accepted_schema_catalog_context_for_query::<E>()")
+            && with_query_visible_indexes.contains("accepted_schema_info_for::<E>()")
+            && !with_query_visible_indexes.contains("ensure_accepted_schema_snapshot::<E>()"),
+        "visible-index diagnostics should derive accepted SchemaInfo from catalog context, not reload a raw snapshot",
     );
 }
 

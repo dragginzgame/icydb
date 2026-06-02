@@ -29,17 +29,17 @@ use crate::{
         DbSession, PersistedRow, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
-        schema::{AcceptedSchemaSnapshot, SchemaInfo},
+        schema::AcceptedSchemaSnapshot,
         schema::{
             execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
             execute_sql_ddl_field_default_change, execute_sql_ddl_field_drop,
             execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
             execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
         },
-        session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
+        session::{AcceptedSchemaCatalogContext, query::QueryPlanCacheAttribution},
         sql::{
             ddl::{PreparedSqlDdlCommand, prepare_sql_ddl_statement},
             parser::{SqlDdlStatement, SqlExplainTarget, SqlStatement, parse_sql_with_attribution},
@@ -257,11 +257,19 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (accepted_schema, authority) = self
-            .accepted_entity_authority::<E>()
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
+            .map_err(QueryError::execute)?;
+        let authority = catalog
+            .accepted_entity_authority_for::<E>()
             .map_err(QueryError::execute)?;
 
-        self.sql_select_prepared_plan_for_accepted_authority(query, authority, &accepted_schema)
+        self.sql_select_prepared_plan_for_accepted_authority_with_schema_fingerprint(
+            query,
+            authority,
+            catalog.snapshot(),
+            catalog.fingerprint(),
+        )
     }
 
     fn sql_select_projection_from_prepared_plan(
@@ -528,23 +536,19 @@ impl<C: CanisterKind> DbSession<C> {
     fn prepare_sql_ddl_command<E>(
         &self,
         sql: &str,
-    ) -> Result<(AcceptedSchemaSnapshot, PreparedSqlDdlCommand), QueryError>
+    ) -> Result<(AcceptedSchemaCatalogContext, PreparedSqlDdlCommand), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (statement, _) =
             parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
-        let (accepted_schema, _) = self
-            .accepted_entity_authority::<E>()
+        let catalog = self
+            .accepted_schema_catalog_context_for_query::<E>()
             .map_err(QueryError::execute)?;
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
-            E::MODEL,
-            &accepted_schema,
-            true,
-        );
+        let schema_info = catalog.accepted_schema_info_for::<E>();
         let prepared = match prepare_sql_ddl_statement(
             &statement,
-            &accepted_schema,
+            catalog.snapshot(),
             &schema_info,
             E::Store::PATH,
         ) {
@@ -556,7 +560,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
         };
 
-        Ok((accepted_schema, prepared))
+        Ok((catalog, prepared))
     }
 
     /// Execute one SQL DDL statement.
@@ -589,7 +593,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         let (rows_scanned, index_keys_written) = Self::execute_prepared_sql_ddl_mutation::<E>(
             store,
-            &accepted_before,
+            accepted_before.snapshot(),
             derivation,
             &prepared,
         )?;

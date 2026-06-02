@@ -8,11 +8,14 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         schema::SchemaInfo,
-        session::sql::{
-            CompiledSqlCommand, SqlCacheAttribution, SqlCompileAttributionBuilder,
-            SqlCompilePhaseAttribution, SqlCompiledCommandCacheKey,
-            SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface, measured,
-            sql_compiled_command_cache_miss_reason,
+        session::{
+            AcceptedSchemaCatalogContext,
+            sql::{
+                CompiledSqlCommand, SqlCacheAttribution, SqlCompileAttributionBuilder,
+                SqlCompilePhaseAttribution, SqlCompiledCommandCacheKey,
+                SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface, measured,
+                sql_compiled_command_cache_miss_reason,
+            },
         },
         sql::parser::parse_sql_with_attribution,
     },
@@ -146,23 +149,18 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let mut attribution = SqlCompileAttributionBuilder::default();
         attribution.record_cache_key(cache_key_local_instructions);
-        let (cache_key, accepted_schema) = context.into_cache_inputs();
-        let schema_fingerprint = cache_key.schema_fingerprint();
+        let (cache_key, catalog) = context.into_cache_inputs();
 
         let (compiled, cache_attribution, phase_attribution, accepted_authority) = self
             .compile_sql_statement_with_cache::<E>(
                 cache_key,
-                &accepted_schema,
+                &catalog,
                 attribution,
                 sql,
                 surface,
             )?;
-        let context = SqlCompiledCommandExecutionContext::new(
-            compiled,
-            accepted_schema,
-            schema_fingerprint,
-            accepted_authority,
-        );
+        let context =
+            SqlCompiledCommandExecutionContext::new(compiled, catalog, accepted_authority);
 
         Ok((context, cache_attribution, phase_attribution))
     }
@@ -172,7 +170,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_sql_statement_with_cache<E>(
         &self,
         cache_key: SqlCompiledCommandCacheKey,
-        accepted_schema: &crate::db::schema::AcceptedSchemaSnapshot,
+        catalog: &AcceptedSchemaCatalogContext,
         mut attribution: SqlCompileAttributionBuilder,
         sql: &str,
         surface: SqlCompiledCommandSurface,
@@ -215,10 +213,11 @@ impl<C: CanisterKind> DbSession<C> {
             record_cache_miss_reason_for_path(CacheKind::SqlCompiledCommand, reason, E::PATH);
         }
 
-        let authority = Self::accepted_entity_authority_for_schema::<E>(accepted_schema)
+        let authority = catalog
+            .accepted_entity_authority_for::<E>()
             .map_err(QueryError::execute)?;
         let schema =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), catalog.snapshot());
 
         let parse_result =
             measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error));

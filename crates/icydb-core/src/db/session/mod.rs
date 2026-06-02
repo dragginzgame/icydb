@@ -78,6 +78,45 @@ struct AcceptedSchemaQueryCacheEntry {
     fingerprint: CommitSchemaFingerprint,
 }
 
+#[derive(Clone, Debug)]
+pub(in crate::db) struct AcceptedSchemaCatalogContext {
+    snapshot: AcceptedSchemaSnapshot,
+    fingerprint: CommitSchemaFingerprint,
+}
+
+impl AcceptedSchemaCatalogContext {
+    #[must_use]
+    pub(in crate::db) const fn snapshot(&self) -> &AcceptedSchemaSnapshot {
+        &self.snapshot
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn fingerprint(&self) -> CommitSchemaFingerprint {
+        self.fingerprint
+    }
+
+    pub(in crate::db) fn accepted_entity_authority_for<E>(
+        &self,
+    ) -> Result<EntityAuthority, InternalError>
+    where
+        E: EntityKind,
+    {
+        EntityAuthority::from_accepted_schema_for_type::<E>(&self.snapshot)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn accepted_schema_info_for<E>(&self) -> SchemaInfo
+    where
+        E: EntityKind,
+    {
+        SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            E::MODEL,
+            &self.snapshot,
+            true,
+        )
+    }
+}
+
 thread_local! {
     // Query-side SQL/fluent cache setup needs accepted runtime schema authority,
     // but repeated read calls should not reload the stable schema snapshot just
@@ -492,9 +531,9 @@ impl<C: CanisterKind> DbSession<C> {
     // rerunning generated proposal reconciliation on every cold query call.
     // Startup and write paths still own reconciliation; the fallback only keeps
     // first-use test stores and freshly initialized local stores functional.
-    pub(in crate::db::session) fn accepted_schema_snapshot_and_cache_fingerprint_for_query<E>(
+    pub(in crate::db::session) fn accepted_schema_catalog_context_for_query<E>(
         &self,
-    ) -> Result<(AcceptedSchemaSnapshot, CommitSchemaFingerprint), InternalError>
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -502,7 +541,10 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(entry) =
             ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned())
         {
-            return Ok((entry.snapshot, entry.fingerprint));
+            return Ok(AcceptedSchemaCatalogContext {
+                snapshot: entry.snapshot,
+                fingerprint: entry.fingerprint,
+            });
         }
 
         let snapshot = self.load_accepted_schema_snapshot_for_query::<E>()?;
@@ -517,7 +559,10 @@ impl<C: CanisterKind> DbSession<C> {
             );
         });
 
-        Ok((snapshot, fingerprint))
+        Ok(AcceptedSchemaCatalogContext {
+            snapshot,
+            fingerprint,
+        })
     }
 
     fn invalidate_accepted_schema_query_cache_for_entity<E>(&self)
@@ -585,21 +630,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         EntityAuthority::from_accepted_schema_for_type::<E>(accepted_schema)
-    }
-
-    // Load the accepted schema snapshot and derive the matching typed executor
-    // authority as one pair so typed session entrypoints cannot accidentally
-    // mix accepted schema fingerprints with generated row-layout authority.
-    pub(in crate::db) fn accepted_entity_authority<E>(
-        &self,
-    ) -> Result<(AcceptedSchemaSnapshot, EntityAuthority), InternalError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
-        let authority = Self::accepted_entity_authority_for_schema::<E>(&accepted_schema)?;
-
-        Ok((accepted_schema, authority))
     }
 
     // Ensure accepted schema metadata is safe for write paths that still encode

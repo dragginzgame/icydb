@@ -8,6 +8,7 @@ use crate::db::{
     executor::{EntityAuthority, SharedPreparedExecutionPlan},
     query::intent::StructuralQuery,
     schema::AcceptedSchemaSnapshot,
+    session::AcceptedSchemaCatalogContext,
     sql::{
         lowering::{LoweredSqlCommand, StructuralSqlGlobalAggregateCommand},
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
@@ -141,8 +142,7 @@ impl CompiledSqlCommand {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SqlCompiledCommandExecutionContext {
     command: CompiledSqlCommand,
-    accepted_schema: AcceptedSchemaSnapshot,
-    schema_fingerprint: CommitSchemaFingerprint,
+    catalog: AcceptedSchemaCatalogContext,
     accepted_authority: Option<EntityAuthority>,
 }
 
@@ -150,14 +150,12 @@ impl SqlCompiledCommandExecutionContext {
     #[must_use]
     pub(in crate::db) const fn new(
         command: CompiledSqlCommand,
-        accepted_schema: AcceptedSchemaSnapshot,
-        schema_fingerprint: CommitSchemaFingerprint,
+        catalog: AcceptedSchemaCatalogContext,
         accepted_authority: Option<EntityAuthority>,
     ) -> Self {
         Self {
             command,
-            accepted_schema,
-            schema_fingerprint,
+            catalog,
             accepted_authority,
         }
     }
@@ -174,12 +172,12 @@ impl SqlCompiledCommandExecutionContext {
 
     #[must_use]
     pub(in crate::db) const fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
-        &self.accepted_schema
+        self.catalog.snapshot()
     }
 
     #[must_use]
     pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.schema_fingerprint
+        self.catalog.fingerprint()
     }
 
     #[must_use]
