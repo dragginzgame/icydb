@@ -31,6 +31,7 @@ use crate::{
 pub(in crate::db) struct CompiledSchemaProposal {
     entity_path: &'static str,
     entity_name: &'static str,
+    declared_schema_version: SchemaVersion,
     primary_key_field_id: FieldId,
     primary_key_field_ids: Vec<FieldId>,
     fields: Vec<CompiledFieldProposal>,
@@ -49,6 +50,12 @@ impl CompiledSchemaProposal {
     #[must_use]
     pub(in crate::db) const fn entity_name(&self) -> &'static str {
         self.entity_name
+    }
+
+    /// Return the generated source-declared schema version carried by this proposal.
+    #[must_use]
+    pub(in crate::db) const fn declared_schema_version(&self) -> SchemaVersion {
+        self.declared_schema_version
     }
 
     /// Return the schema field ID assigned to the generated primary key.
@@ -96,7 +103,7 @@ impl CompiledSchemaProposal {
             .map(|field| (field.id(), field.slot()))
             .collect::<Vec<_>>();
 
-        SchemaRowLayout::new(SchemaVersion::initial(), field_to_slot)
+        SchemaRowLayout::new(self.declared_schema_version(), field_to_slot)
     }
 
     /// Build the initial persisted-schema snapshot implied by this proposal.
@@ -124,7 +131,7 @@ impl CompiledSchemaProposal {
             .collect::<Vec<_>>();
 
         PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            SchemaVersion::initial(),
+            self.declared_schema_version(),
             self.entity_path().to_string(),
             self.entity_name().to_string(),
             self.primary_key_field_ids().to_vec(),
@@ -522,6 +529,7 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
     let proposal = CompiledSchemaProposal {
         entity_path: model.path(),
         entity_name: model.name(),
+        declared_schema_version: SchemaVersion::new(model.declared_schema_version()),
         primary_key_field_id: FieldId::from_initial_slot(model.primary_key_slot()),
         primary_key_field_ids: compiled_primary_key_field_ids(model),
         fields,
@@ -573,10 +581,13 @@ fn debug_assert_compiled_schema_proposal_invariants(
 
     let layout = proposal.initial_row_layout();
     let snapshot = proposal.initial_persisted_schema_snapshot();
-    debug_assert_eq!(layout.version(), SchemaVersion::initial());
-    debug_assert_eq!(layout.version().get(), SchemaVersion::initial().get());
+    debug_assert_eq!(layout.version(), proposal.declared_schema_version());
+    debug_assert_eq!(
+        layout.version().get(),
+        proposal.declared_schema_version().get()
+    );
     debug_assert_eq!(layout.field_to_slot().len(), proposal.fields().len());
-    debug_assert_eq!(snapshot.version(), SchemaVersion::initial());
+    debug_assert_eq!(snapshot.version(), proposal.declared_schema_version());
     debug_assert_eq!(snapshot.entity_path(), proposal.entity_path());
     debug_assert_eq!(snapshot.entity_name(), proposal.entity_name());
     debug_assert_eq!(
@@ -983,16 +994,27 @@ mod tests {
         EntityModel::generated_with_primary_key_model_and_relations(
             "schema::proposal::tests::RelationEntity",
             "RelationEntity",
+            1,
             PrimaryKeyModel::scalar(&FIELDS[0]),
             0,
             &FIELDS,
             &INDEXES,
             &RELATIONS,
         );
+    static VERSIONED_MODEL: EntityModel = EntityModel::generated(
+        "schema::proposal::tests::VersionedEntity",
+        "VersionedEntity",
+        4,
+        &FIELDS[0],
+        0,
+        &FIELDS,
+        &INDEXES,
+    );
     static COMPOSITE_PRIMARY_KEY_FIELDS: [&FieldModel; 2] = [&FIELDS[0], &FIELDS[2]];
     static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
         "schema::proposal::tests::CompositeEntity",
         "CompositeEntity",
+        1,
         PrimaryKeyModel::ordered(&COMPOSITE_PRIMARY_KEY_FIELDS),
         0,
         &FIELDS,
@@ -1005,6 +1027,7 @@ mod tests {
 
         assert_eq!(proposal.entity_path(), "schema::proposal::tests::Entity");
         assert_eq!(proposal.entity_name(), "Entity");
+        assert_eq!(proposal.declared_schema_version(), SchemaVersion::initial());
         assert_eq!(proposal.first_primary_key_field_id(), FieldId::new(1));
         assert_eq!(proposal.primary_key_field_ids(), &[FieldId::new(1)]);
         assert_eq!(proposal.fields().len(), 4);
@@ -1028,6 +1051,20 @@ mod tests {
                 FieldId::new(4),
             ],
         );
+    }
+
+    #[test]
+    fn compiled_schema_proposal_carries_declared_schema_version() {
+        let proposal = compiled_schema_proposal_for_model(&VERSIONED_MODEL);
+        let snapshot = proposal.initial_persisted_schema_snapshot();
+
+        assert_eq!(proposal.declared_schema_version(), SchemaVersion::new(4));
+        assert_eq!(
+            proposal.initial_row_layout().version(),
+            SchemaVersion::new(4)
+        );
+        assert_eq!(snapshot.version(), SchemaVersion::new(4));
+        assert_eq!(snapshot.row_layout().version(), SchemaVersion::new(4));
     }
 
     #[test]

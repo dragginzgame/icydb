@@ -1118,6 +1118,74 @@ fn accepted_schema_fingerprints_are_snapshot_only() {
 }
 
 #[test]
+fn schema_admission_fingerprints_stay_out_of_query_hot_paths() {
+    let transition = read_source("src/db/schema/transition.rs");
+    let reconcile = read_source("src/db/schema/reconcile.rs");
+
+    assert!(
+        transition.contains("SchemaAdmissionIdentityComparison")
+            && transition.contains("accepted_schema_admission_fingerprint(snapshot)?")
+            && reconcile
+                .contains("SchemaAdmissionIdentityComparison::from_snapshots(actual, expected)?")
+            && reconcile.contains("schema_admission_rejection(admission_identity)"),
+        "schema admission identity must stay rooted in schema transition/reconciliation authority",
+    );
+
+    for (label, source) in [
+        ("session", read_rust_sources_under("src/db/session")),
+        ("query", read_rust_sources_under("src/db/query")),
+        ("executor", read_rust_sources_under("src/db/executor")),
+    ] {
+        assert!(
+            !source.contains("accepted_schema_admission_fingerprint"),
+            "{label} hot-path sources must not compute candidate admission fingerprints",
+        );
+        assert!(
+            !source.contains("SchemaAdmissionIdentityComparison"),
+            "{label} hot-path sources must not compare candidate admission identities",
+        );
+        assert!(
+            !source.contains("schema_admission_rejection"),
+            "{label} hot-path sources must not run schema-version admission policy",
+        );
+    }
+}
+
+#[test]
+fn schema_store_publication_stays_version_passive() {
+    let store = read_source("src/db/schema/store.rs");
+    let store_compact = compact_source(&store);
+    let reconcile = read_source("src/db/schema/reconcile.rs");
+    let reconcile_compact = compact_source(&reconcile);
+
+    assert!(
+        store_compact
+            .contains("letkey=RawSchemaKey::from_entity_version(entity,snapshot.version());")
+            && store.contains("RawSchemaSnapshot::from_persisted_snapshot(snapshot)?"),
+        "schema store publication must key persisted snapshots by the snapshot-declared version",
+    );
+    assert!(
+        reconcile_compact.contains(
+            "store.with_schema_mut(|schema_store|schema_store.insert_persisted_snapshot(entity_tag,after))",
+        ),
+        "schema publication callers must pass the accepted-after snapshot through to storage without version synthesis",
+    );
+
+    for (label, source) in [("store", store), ("reconcile", reconcile)] {
+        let compact = compact_source(&source);
+        assert!(
+            !source.contains("next_schema")
+                && !source.contains("next_version")
+                && !compact.contains("snapshot.version().get()+1")
+                && !compact.contains("snapshot.version().get().saturating_add(1)")
+                && !compact.contains("row_layout().version().get()+1")
+                && !compact.contains("row_layout().version().get().saturating_add(1)"),
+            "{label} schema publication code must not auto-increment schema versions",
+        );
+    }
+}
+
+#[test]
 fn predicate_fast_paths_use_accepted_scalar_slot_helpers() {
     let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
 

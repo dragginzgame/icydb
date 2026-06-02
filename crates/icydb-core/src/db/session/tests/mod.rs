@@ -1840,6 +1840,7 @@ crate::test_entity! {
     tag = EntityTag::new(0x104C),
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+    schema_version = 2,
     key_type = Ulid,
     primary_key = [id],
     fields = [

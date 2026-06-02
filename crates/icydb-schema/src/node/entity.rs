@@ -9,6 +9,7 @@ use std::any::Any;
 pub struct Entity {
     def: Def,
     store: &'static str,
+    schema_version: u32,
     primary_key: PrimaryKey,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,6 +34,7 @@ impl Entity {
     pub const fn new(
         def: Def,
         store: &'static str,
+        schema_version: u32,
         primary_key: PrimaryKey,
         name: Option<&'static str>,
         indexes: &'static [Index],
@@ -43,6 +45,7 @@ impl Entity {
         Self {
             def,
             store,
+            schema_version,
             primary_key,
             name,
             indexes,
@@ -60,6 +63,11 @@ impl Entity {
     #[must_use]
     pub const fn store(&self) -> &'static str {
         self.store
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
     }
 
     #[must_use]
@@ -156,6 +164,10 @@ impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
         let schema = schema_read();
+
+        if self.schema_version() == 0 {
+            err!(errs, "entity schema_version must be a positive integer");
+        }
 
         // store
         match schema.cast_node::<Store>(self.store()) {
@@ -295,6 +307,7 @@ mod tests {
         Entity::new(
             Def::new(module, ident),
             store_path,
+            1,
             PrimaryKey::new(pk_fields, PrimaryKeySource::External),
             None,
             &[],
@@ -349,6 +362,24 @@ mod tests {
         source
             .validate()
             .expect("entity-owned matching relation edge should validate");
+    }
+
+    #[test]
+    fn entity_validation_rejects_zero_schema_version() {
+        let store_path = "schema_entity_relation_edge::Store";
+        schema_write().insert_node(SchemaNode::Store(store(store_path)));
+        let fields = Box::leak(vec![field("id", Primitive::Ulid)].into_boxed_slice());
+        let mut source = entity("Versioned", store_path, &["id"], &[], fields);
+        source.schema_version = 0;
+
+        let err = source
+            .validate()
+            .expect_err("zero schema_version should fail schema node validation");
+        assert!(
+            err.to_string()
+                .contains("entity schema_version must be a positive integer"),
+            "unexpected schema_version validation error: {err}",
+        );
     }
 
     #[test]

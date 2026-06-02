@@ -3180,7 +3180,7 @@ fn session_insert_rejects_unsupported_schema_transition_before_write_staging() {
             .contains("schema evolution is not yet supported")
             && err
                 .message
-                .contains("unsupported additive field transition"),
+                .contains("schema changed without schema_version bump"),
         "unexpected schema transition error: {err:?}",
     );
     assert!(
@@ -3221,7 +3221,7 @@ fn session_load_rejects_unsupported_schema_transition_before_row_decode() {
             .contains("schema evolution is not yet supported")
             && err
                 .to_string()
-                .contains("unsupported additive field transition"),
+                .contains("schema changed without schema_version bump"),
         "unexpected schema transition error: {err:?}",
     );
 }
@@ -3260,7 +3260,7 @@ fn session_delete_rejects_unsupported_schema_transition_before_row_decode() {
             .contains("schema evolution is not yet supported")
             && err
                 .to_string()
-                .contains("unsupported additive field transition"),
+                .contains("schema changed without schema_version bump"),
         "unexpected schema transition error: {err:?}",
     );
     assert!(

@@ -225,6 +225,7 @@ mod tests {
     static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
         "schema::format::tests::CompositeEntity",
         "CompositeEntity",
+        1,
         PrimaryKeyModel::ordered(&COMPOSITE_PK_FIELDS),
         0,
         &COMPOSITE_FIELDS,

@@ -175,6 +175,7 @@ impl PlanCompositePrimaryKeyEntity {
             stringify!(PlanCompositePrimaryKeyEntity)
         ),
         "PlanCompositePrimaryKeyEntity",
+        1,
         crate::model::entity::PrimaryKeyModel::ordered(&Self::PRIMARY_KEY_FIELDS),
         0,
         &Self::FIELD_MODELS,

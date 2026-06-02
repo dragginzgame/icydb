@@ -754,6 +754,7 @@ mod tests {
     static FILTER_TEST_MODEL: EntityModel = EntityModel::generated(
         "tests::FilterEntity",
         "FilterEntity",
+        1,
         &FILTER_TEST_FIELDS[0],
         0,
         &FILTER_TEST_FIELDS,

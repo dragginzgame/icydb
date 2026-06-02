@@ -3,10 +3,10 @@ error: composite primary keys are external-only; remove source = "internal" or u
    |
 17 | / #[entity(
 18 | |     store = "UiDataStore",
-19 | |     pk(fields = ["tenant_id", "local_id"], source = "internal"),
-20 | |     fields(
+19 | |     schema_version = 1,
+20 | |     pk(fields = ["tenant_id", "local_id"], source = "internal"),
 ...  |
-24 | | )]
+25 | | )]
    | |__^
    |
    = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

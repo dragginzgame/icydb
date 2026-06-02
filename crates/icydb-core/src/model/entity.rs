@@ -283,6 +283,9 @@ pub struct EntityModel {
     /// Stable external name used in keys and routing.
     pub(crate) entity_name: &'static str,
 
+    /// Source-declared schema version carried by generated proposals.
+    pub(crate) schema_version: u32,
+
     /// Primary key field (points at an entry in `fields`).
     pub(crate) primary_key: &'static FieldModel,
 
@@ -313,6 +316,7 @@ impl EntityModel {
     pub const fn generated(
         path: &'static str,
         entity_name: &'static str,
+        schema_version: u32,
         primary_key: &'static FieldModel,
         primary_key_slot: usize,
         fields: &'static [FieldModel],
@@ -321,6 +325,7 @@ impl EntityModel {
         Self {
             path,
             entity_name,
+            schema_version,
             primary_key,
             primary_key_slot,
             primary_key_model: PrimaryKeyModel::scalar(primary_key),
@@ -337,6 +342,7 @@ impl EntityModel {
     pub const fn generated_with_primary_key_model(
         path: &'static str,
         entity_name: &'static str,
+        schema_version: u32,
         primary_key_model: PrimaryKeyModel,
         primary_key_slot: usize,
         fields: &'static [FieldModel],
@@ -345,6 +351,7 @@ impl EntityModel {
         Self::generated_with_primary_key_model_and_relations(
             path,
             entity_name,
+            schema_version,
             primary_key_model,
             primary_key_slot,
             fields,
@@ -357,18 +364,29 @@ impl EntityModel {
     /// ordered primary-key metadata and relation-edge proposal metadata.
     #[must_use]
     #[doc(hidden)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generated entity model construction keeps path, declared version, key, field, index, and relation metadata explicit"
+    )]
     pub const fn generated_with_primary_key_model_and_relations(
         path: &'static str,
         entity_name: &'static str,
+        schema_version: u32,
         primary_key_model: PrimaryKeyModel,
         primary_key_slot: usize,
         fields: &'static [FieldModel],
         indexes: &'static [&'static IndexModel],
         relations: &'static [RelationEdgeModel],
     ) -> Self {
+        assert!(
+            schema_version > 0,
+            "generated schema_version must be positive"
+        );
+
         Self {
             path,
             entity_name,
+            schema_version,
             primary_key: primary_key_model.first_field(),
             primary_key_slot,
             primary_key_model,
@@ -388,6 +406,15 @@ impl EntityModel {
     #[must_use]
     pub const fn name(&self) -> &'static str {
         self.entity_name
+    }
+
+    /// Return the source-declared generated schema version.
+    ///
+    /// This is proposal metadata only. Runtime accepted-schema authority still
+    /// comes from accepted catalog snapshots and identity/header facts.
+    #[must_use]
+    pub const fn declared_schema_version(&self) -> u32 {
+        self.schema_version
     }
 
     /// Return the primary-key field descriptor.

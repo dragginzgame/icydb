@@ -23,7 +23,10 @@ use crate::{
             SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
             SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeContract,
-            transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
+            transition::{
+                SchemaAdmissionIdentityComparison, SchemaTransitionPlan,
+                SchemaTransitionRejectionKind, schema_admission_rejection,
+            },
         },
     },
     error::InternalError,
@@ -1223,6 +1226,21 @@ fn validate_existing_schema_snapshot(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> Result<SchemaTransitionPlan, InternalError> {
+    // Gate source-declared version/method/fingerprint identity before
+    // compatibility classification. Passing this gate is not publication.
+    let admission_identity = SchemaAdmissionIdentityComparison::from_snapshots(actual, expected)?;
+    if let Some(rejection) = schema_admission_rejection(admission_identity) {
+        let outcome = schema_reconcile_rejection_outcome(rejection.kind());
+        let transition_outcome = schema_transition_rejection_outcome(rejection.kind());
+        record_schema_transition(entity_path, transition_outcome);
+        record_schema_reconcile(entity_path, outcome);
+
+        return Err(InternalError::store_unsupported(format!(
+            "schema evolution is not yet supported for entity '{entity_path}': {}",
+            rejection.detail(),
+        )));
+    }
+
     match decide_schema_transition(actual, expected) {
         SchemaTransitionDecision::Accepted(plan) => {
             record_schema_transition(entity_path, schema_transition_plan_outcome(plan.kind()));
@@ -1330,6 +1348,7 @@ mod tests {
         tag = EntityTag::new(0x696e_6478_7363_6865),
         store = SchemaReconcileTestStore,
         canister = SchemaReconcileTestCanister,
+        schema_version = 2,
         key_type = Ulid,
         primary_key = [id],
         fields = [
@@ -1374,9 +1393,10 @@ mod tests {
         ),
     ];
     static ADDITIVE_NULLABLE_SCHEMA_INDEXES: [&IndexModel; 0] = [];
-    static ADDITIVE_NULLABLE_SCHEMA_MODEL: EntityModel = entity_model_from_static(
+    static ADDITIVE_NULLABLE_SCHEMA_MODEL: EntityModel = EntityModel::generated(
         "schema::reconcile::tests::AdditiveNullableSchemaEntity",
         "AdditiveNullableSchemaEntity",
+        2,
         &ADDITIVE_NULLABLE_SCHEMA_FIELDS[0],
         0,
         &ADDITIVE_NULLABLE_SCHEMA_FIELDS,
@@ -1441,12 +1461,17 @@ mod tests {
     fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_version = SchemaVersion::new(expected.version().get().saturating_sub(1));
         PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            expected.version(),
+            stored_version,
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
             expected.primary_key_field_ids().to_vec(),
-            expected.row_layout().clone(),
+            SchemaRowLayout::new_with_retired_slots(
+                stored_version,
+                expected.row_layout().field_to_slot().to_vec(),
+                expected.row_layout().retired_field_slots().to_vec(),
+            ),
             expected.fields().to_vec(),
             Vec::new(),
         )
@@ -1524,9 +1549,9 @@ mod tests {
         PersistedSchemaSnapshot,
         super::SchemaTransitionPlan,
     ) {
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = indexed_schema_snapshot_without_indexes();
         RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
             store
                 .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
@@ -1622,13 +1647,14 @@ mod tests {
 
         let proposal = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_SCHEMA_MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_version = SchemaVersion::new(expected.version().get().saturating_sub(1));
         let stored_prefix = PersistedSchemaSnapshot::new(
-            expected.version(),
+            stored_version,
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
             expected.primary_key_field_ids().to_vec(),
             SchemaRowLayout::new(
-                expected.row_layout().version(),
+                stored_version,
                 vec![
                     (FieldId::new(1), SchemaFieldSlot::new(0)),
                     (FieldId::new(2), SchemaFieldSlot::new(1)),
@@ -1738,17 +1764,7 @@ mod tests {
         reset_reconcile_stores();
         metrics_reset_all();
 
-        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
-        let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            expected.version(),
-            expected.entity_path().to_string(),
-            expected.entity_name().to_string(),
-            expected.primary_key_field_ids().to_vec(),
-            expected.row_layout().clone(),
-            expected.fields().to_vec(),
-            Vec::new(),
-        );
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
             store
                 .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
@@ -1797,17 +1813,7 @@ mod tests {
         reset_reconcile_stores();
         metrics_reset_all();
 
-        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
-        let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            expected.version(),
-            expected.entity_path().to_string(),
-            expected.entity_name().to_string(),
-            expected.primary_key_field_ids().to_vec(),
-            expected.row_layout().clone(),
-            expected.fields().to_vec(),
-            Vec::new(),
-        );
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
             store
                 .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
@@ -1841,17 +1847,7 @@ mod tests {
         reset_reconcile_stores();
         metrics_reset_all();
 
-        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
-        let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            expected.version(),
-            expected.entity_path().to_string(),
-            expected.entity_name().to_string(),
-            expected.primary_key_field_ids().to_vec(),
-            expected.row_layout().clone(),
-            expected.fields().to_vec(),
-            Vec::new(),
-        );
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
             store
                 .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
@@ -1883,17 +1879,7 @@ mod tests {
         reset_reconcile_stores();
         metrics_reset_all();
 
-        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
-        let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            expected.version(),
-            expected.entity_path().to_string(),
-            expected.entity_name().to_string(),
-            expected.primary_key_field_ids().to_vec(),
-            expected.row_layout().clone(),
-            expected.fields().to_vec(),
-            Vec::new(),
-        );
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
             store
                 .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
@@ -1927,17 +1913,9 @@ mod tests {
     fn field_path_startup_index_store_preflight_classifies_target_and_other_entries() {
         reset_reconcile_stores();
 
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            expected.version(),
-            expected.entity_path().to_string(),
-            expected.entity_name().to_string(),
-            expected.primary_key_field_ids().to_vec(),
-            expected.row_layout().clone(),
-            expected.fields().to_vec(),
-            Vec::new(),
-        );
         let plan = super::validate_existing_schema_snapshot(
             IndexedSchemaEntity::MODEL.path(),
             &stored_without_index,
@@ -1981,9 +1959,9 @@ mod tests {
     fn field_path_startup_rebuild_gate_accepts_unchanged_rows_and_schema() {
         reset_reconcile_stores();
 
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = indexed_schema_snapshot_without_indexes();
         RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
             store
                 .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
@@ -2025,9 +2003,9 @@ mod tests {
     fn field_path_startup_rebuild_gate_rejects_row_changes_before_physical_work() {
         reset_reconcile_stores();
 
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = indexed_schema_snapshot_without_indexes();
         RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
             store
                 .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
@@ -2369,17 +2347,7 @@ mod tests {
         let mut schema_store = SchemaStore::init(test_memory(244));
         metrics_reset_all();
 
-        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
-        let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            expected.version(),
-            expected.entity_path().to_string(),
-            expected.entity_name().to_string(),
-            expected.primary_key_field_ids().to_vec(),
-            expected.row_layout().clone(),
-            expected.fields().to_vec(),
-            Vec::new(),
-        );
+        let stored_without_index = indexed_schema_snapshot_without_indexes();
         schema_store
             .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
             .expect("stored index-free schema snapshot should encode");

@@ -56,6 +56,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
+        schema_version = 1,
         pk(fields = ["id"]),
         fields(
             field(

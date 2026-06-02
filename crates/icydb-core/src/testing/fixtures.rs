@@ -17,6 +17,7 @@ pub(crate) const fn entity_model_from_static(
     EntityModel::generated(
         path,
         entity_name,
+        1,
         primary_key,
         primary_key_slot,
         fields,
@@ -228,6 +229,7 @@ macro_rules! __icydb_test_entity_model {
     (
         $entity:ident,
         $entity_name:expr,
+        schema_version = $schema_version:expr,
         primary_key = [ $pk_field:ident ],
         fields = [ $( $field_model:expr ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
@@ -253,6 +255,7 @@ macro_rules! __icydb_test_entity_model {
                 $crate::model::entity::EntityModel::generated_with_primary_key_model_and_relations(
                     concat!(module_path!(), "::", stringify!($entity)),
                     $entity_name,
+                    $schema_version,
                     $crate::model::entity::PrimaryKeyModel::scalar(
                         $crate::testing::field_model_by_name(
                             &Self::FIELD_MODELS,
@@ -272,6 +275,7 @@ macro_rules! __icydb_test_entity_model {
     (
         $entity:ident,
         $entity_name:expr,
+        schema_version = $schema_version:expr,
         primary_key = [ $pk_field_0:ident, $( $pk_field_rest:ident ),+ $(,)? ],
         fields = [ $( $field_model:expr ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
@@ -311,6 +315,7 @@ macro_rules! __icydb_test_entity_model {
                 $crate::model::entity::EntityModel::generated_with_primary_key_model_and_relations(
                     concat!(module_path!(), "::", stringify!($entity)),
                     $entity_name,
+                    $schema_version,
                     $crate::model::entity::PrimaryKeyModel::ordered(&Self::PRIMARY_KEY_FIELDS),
                     0,
                     &Self::FIELD_MODELS,
@@ -556,6 +561,7 @@ macro_rules! __icydb_test_emit_entity {
         canister = $canister_ty:ty,
         runtime = full,
         singleton = $singleton:tt,
+        schema_version = $schema_version:expr,
         key_type = $key_ty:ty,
         primary_key = [ $( $pk_field:ident ),+ $(,)? ],
         fields = [ $( $field_model:expr ),+ $(,)? ],
@@ -568,6 +574,7 @@ macro_rules! __icydb_test_emit_entity {
         $crate::__icydb_test_entity_model!(
             $entity,
             $entity_name,
+            schema_version = $schema_version,
             primary_key = [ $( $pk_field ),+ ],
             fields = [ $( $field_model ),+ ],
             indexes = [ $( $index ),* ],
@@ -591,6 +598,7 @@ macro_rules! __icydb_test_emit_entity {
         ident = $entity:ident,
         entity_name = $entity_name:expr,
         runtime = schema_only,
+        schema_version = $schema_version:expr,
         key_type = $key_ty:ty,
         primary_key = [ $( $pk_field:ident ),+ $(,)? ],
         fields = [ $( $field_model:expr ),+ $(,)? ],
@@ -602,6 +610,7 @@ macro_rules! __icydb_test_emit_entity {
         $crate::__icydb_test_entity_model!(
             $entity,
             $entity_name,
+            schema_version = $schema_version,
             primary_key = [ $( $pk_field ),+ ],
             fields = [ $( $field_model ),+ ],
             indexes = [ $( $index ),* ],
@@ -625,6 +634,7 @@ macro_rules! test_entity {
         tag = $entity_tag:expr,
         store = $store_ty:ty,
         canister = $canister_ty:ty,
+        schema_version = $schema_version:expr,
         key_type = $key_ty:ty,
         primary_key = [ $( $pk_field:ident ),+ $(,)? ],
         fields = [ $( $field_model:expr ),+ $(,)? ],
@@ -640,6 +650,37 @@ macro_rules! test_entity {
             canister = $canister_ty,
             runtime = full,
             singleton = false,
+            schema_version = $schema_version,
+            key_type = $key_ty,
+            primary_key = [ $( $pk_field ),+ ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [ $( $relation ),* ],
+            entity_value = { $($entity_value)+ },
+        }
+    };
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        key_type = $key_ty:ty,
+        primary_key = [ $( $pk_field:ident ),+ $(,)? ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+        relations = [ $( $relation:expr ),* $(,)? ],
+        entity_value = $($entity_value:tt)+
+    ) => {
+        $crate::__icydb_test_emit_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            runtime = full,
+            singleton = false,
+            schema_version = 1,
             key_type = $key_ty,
             primary_key = [ $( $pk_field ),+ ],
             fields = [ $( $field_model ),+ ],
@@ -650,6 +691,36 @@ macro_rules! test_entity {
     };
     // Compatibility front-end for scalar primary-key fixtures that have not
     // opted into explicit entity-value syntax yet.
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        schema_version = $schema_version:expr,
+        key_type = $key_ty:ty,
+        primary_key = [ $pk_field:ident ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+        relations = [ $( $relation:expr ),* $(,)? ],
+    ) => {
+        $crate::__icydb_test_emit_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            runtime = full,
+            singleton = false,
+            schema_version = $schema_version,
+            key_type = $key_ty,
+            primary_key = [ $pk_field ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [ $( $relation ),* ],
+            entity_value = { id_field($pk_field) },
+        }
+    };
     (
         ident = $entity:ident,
         entity_name = $entity_name:expr,
@@ -670,6 +741,7 @@ macro_rules! test_entity {
             canister = $canister_ty,
             runtime = full,
             singleton = false,
+            schema_version = 1,
             key_type = $key_ty,
             primary_key = [ $pk_field ],
             fields = [ $( $field_model ),+ ],
@@ -680,6 +752,32 @@ macro_rules! test_entity {
     };
     // Compatibility front-end for scalar primary-key fixtures that have not
     // opted into explicit relation syntax yet.
+    (
+        ident = $entity:ident,
+        entity_name = $entity_name:expr,
+        tag = $entity_tag:expr,
+        store = $store_ty:ty,
+        canister = $canister_ty:ty,
+        schema_version = $schema_version:expr,
+        key_type = $key_ty:ty,
+        primary_key = [ $pk_field:ident ],
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+    ) => {
+        $crate::test_entity! {
+            ident = $entity,
+            entity_name = $entity_name,
+            tag = $entity_tag,
+            store = $store_ty,
+            canister = $canister_ty,
+            schema_version = $schema_version,
+            key_type = $key_ty,
+            primary_key = [ $pk_field ],
+            fields = [ $( $field_model ),+ ],
+            indexes = [ $( $index ),* ],
+            relations = [],
+        }
+    };
     (
         ident = $entity:ident,
         entity_name = $entity_name:expr,
@@ -734,6 +832,7 @@ macro_rules! test_singleton_entity {
             canister = $canister_ty,
             runtime = full,
             singleton = true,
+            schema_version = 1,
             key_type = $key_ty,
             primary_key = [ $pk_field ],
             fields = [ $( $field_model ),+ ],
@@ -789,6 +888,7 @@ macro_rules! test_schema_entity {
             ident = $entity,
             entity_name = $entity_name,
             runtime = schema_only,
+            schema_version = 1,
             key_type = $key_ty,
             primary_key = [ $( $pk_field ),+ ],
             fields = [ $( $field_model ),+ ],

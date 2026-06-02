@@ -104,12 +104,14 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
     let model_ident = model_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
     let relations_ident = relations_ident(&ident);
+    let schema_version = LitInt::new(&node.schema_version.to_string(), Span::call_site());
 
     quote! {
         const #model_ident: ::icydb::model::entity::EntityModel =
             ::icydb::model::entity::EntityModel::generated_with_primary_key_model_and_relations(
                 <#ident as ::icydb::traits::Path>::PATH,
                 #entity_name,
+                #schema_version,
                 ::icydb::model::entity::PrimaryKeyModel::ordered(
                     &#primary_key_fields_ident
                 ),

@@ -11,9 +11,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
-- `0.177.0` starts explicit schema-version contracts by aligning accepted
-  catalog/cache identity so schema fingerprints are compared with their
-  fingerprint-method version before broader admission policy lands.
+- `0.177.1` tightens schema-version admission diagnostics with compared
+  version, fingerprint-method, and fingerprint facts while guarding candidate
+  admission fingerprinting out of query hot paths and schema version synthesis
+  out of storage publication.
+
+- `0.177.0` starts explicit schema-version contracts by making accepted
+  cache identity fingerprint-method aware and requiring generated entities to
+  declare positive schema versions carried into schema proposals, then
+  enforcing schema-owned version/fingerprint admission before mutation
+  compatibility.
 
 ## [0.176.x] 🧹 - 2026-06-02 - Accepted Schema Catalog Authority
 

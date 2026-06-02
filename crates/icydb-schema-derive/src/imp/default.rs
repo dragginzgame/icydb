@@ -219,6 +219,7 @@ mod tests {
                 struct RedundantDefaultEntity;
             )),
             store: syn::parse_quote!(UiDataStore),
+            schema_version: 1,
             primary_key: PrimaryKey {
                 fields: vec![format_ident!("id")],
                 source: PrimaryKeySource::Internal,

@@ -146,6 +146,7 @@ fn model_consistency_test_tokens(node: &Entity, ident: &Ident) -> TokenStream {
     let test_mod = format_ident!("__entity_model_test_{ident}");
     let primary_key_len = node.primary_key.fields().len();
     let primary_key_len_lit = syn::LitInt::new(&primary_key_len.to_string(), Span::call_site());
+    let schema_version = syn::LitInt::new(&node.schema_version.to_string(), Span::call_site());
     let scalar_assertion = if primary_key_len == 1 {
         quote! {
             assert!(model.primary_key_model().is_scalar());
@@ -169,6 +170,12 @@ fn model_consistency_test_tokens(node: &Entity, ident: &Ident) -> TokenStream {
             #[test]
             fn model_consistency() {
                 let model = <#ident as ::icydb::traits::EntitySchema>::MODEL;
+
+                assert_eq!(
+                    model.declared_schema_version(),
+                    #schema_version,
+                    "generated entity model should carry declared schema_version",
+                );
 
                 for field in model.fields() {
                     assert!(

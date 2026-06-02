@@ -16,6 +16,7 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
+    schema_version = 1,
     pk(fields = ["a", "b", "c", "d", "e"]),
     fields(
         field(ident = "a", value(item(prim = "Nat64")), default = 1u64),

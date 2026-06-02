@@ -485,6 +485,7 @@ static INDEX_MODELS: [&crate::model::index::IndexModel; 0] = [];
 static TEST_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowFieldCodecEntity",
     "persisted_row_field_codec_entity",
+    1,
     &FIELD_MODELS[0],
     0,
     &FIELD_MODELS,
@@ -493,6 +494,7 @@ static TEST_MODEL: EntityModel = EntityModel::generated(
 static ADDITIVE_NULLABLE_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowAdditiveNullableEntity",
     "persisted_row_additive_nullable_entity",
+    1,
     &ADDITIVE_NULLABLE_FIELD_MODELS[0],
     0,
     &ADDITIVE_NULLABLE_FIELD_MODELS,
@@ -501,6 +503,7 @@ static ADDITIVE_NULLABLE_MODEL: EntityModel = EntityModel::generated(
 static ADDITIVE_PREFIX_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowAdditiveNullableEntity",
     "persisted_row_additive_nullable_entity",
+    1,
     &ADDITIVE_PREFIX_FIELD_MODELS[0],
     0,
     &ADDITIVE_PREFIX_FIELD_MODELS,
@@ -509,6 +512,7 @@ static ADDITIVE_PREFIX_MODEL: EntityModel = EntityModel::generated(
 static ADDITIVE_REQUIRED_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowAdditiveRequiredEntity",
     "persisted_row_additive_required_entity",
+    1,
     &ADDITIVE_REQUIRED_FIELD_MODELS[0],
     0,
     &ADDITIVE_REQUIRED_FIELD_MODELS,
@@ -517,6 +521,7 @@ static ADDITIVE_REQUIRED_MODEL: EntityModel = EntityModel::generated(
 static ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowAdditiveRequiredGeneratedDefaultEntity",
     "persisted_row_additive_required_generated_default_entity",
+    1,
     &ADDITIVE_REQUIRED_GENERATED_DEFAULT_FIELD_MODELS[0],
     0,
     &ADDITIVE_REQUIRED_GENERATED_DEFAULT_FIELD_MODELS,
@@ -525,6 +530,7 @@ static ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL: EntityModel = EntityModel::gen
 static LIST_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowListFieldCodecEntity",
     "persisted_row_list_field_codec_entity",
+    1,
     &LIST_FIELD_MODELS[0],
     0,
     &LIST_FIELD_MODELS,
@@ -533,6 +539,7 @@ static LIST_MODEL: EntityModel = EntityModel::generated(
 static MAP_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowMapFieldCodecEntity",
     "persisted_row_map_field_codec_entity",
+    1,
     &MAP_FIELD_MODELS[0],
     0,
     &MAP_FIELD_MODELS,
@@ -541,6 +548,7 @@ static MAP_MODEL: EntityModel = EntityModel::generated(
 static ENUM_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowEnumFieldCodecEntity",
     "persisted_row_enum_field_codec_entity",
+    1,
     &ENUM_FIELD_MODELS[0],
     0,
     &ENUM_FIELD_MODELS,
@@ -549,6 +557,7 @@ static ENUM_MODEL: EntityModel = EntityModel::generated(
 static ACCOUNT_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowAccountFieldCodecEntity",
     "persisted_row_account_field_codec_entity",
+    1,
     &ACCOUNT_FIELD_MODELS[0],
     0,
     &ACCOUNT_FIELD_MODELS,
@@ -557,6 +566,7 @@ static ACCOUNT_MODEL: EntityModel = EntityModel::generated(
 static OPTIONAL_ACCOUNT_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowOptionalAccountFieldCodecEntity",
     "persisted_row_optional_account_field_codec_entity",
+    1,
     &OPTIONAL_ACCOUNT_FIELD_MODELS[0],
     0,
     &OPTIONAL_ACCOUNT_FIELD_MODELS,
@@ -565,6 +575,7 @@ static OPTIONAL_ACCOUNT_MODEL: EntityModel = EntityModel::generated(
 static OPTIONAL_DECIMAL_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowOptionalDecimalFieldCodecEntity",
     "persisted_row_optional_decimal_field_codec_entity",
+    1,
     &OPTIONAL_DECIMAL_FIELD_MODELS[0],
     0,
     &OPTIONAL_DECIMAL_FIELD_MODELS,
@@ -573,6 +584,7 @@ static OPTIONAL_DECIMAL_MODEL: EntityModel = EntityModel::generated(
 static REQUIRED_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowRequiredStructuredFieldCodecEntity",
     "persisted_row_required_structured_field_codec_entity",
+    1,
     &REQUIRED_STRUCTURED_FIELD_MODELS[0],
     0,
     &REQUIRED_STRUCTURED_FIELD_MODELS,
@@ -581,6 +593,7 @@ static REQUIRED_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
 static OPTIONAL_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowOptionalStructuredFieldCodecEntity",
     "persisted_row_optional_structured_field_codec_entity",
+    1,
     &OPTIONAL_STRUCTURED_FIELD_MODELS[0],
     0,
     &OPTIONAL_STRUCTURED_FIELD_MODELS,
@@ -589,6 +602,7 @@ static OPTIONAL_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
 static VALUE_STORAGE_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowValueStorageStructuredFieldCodecEntity",
     "persisted_row_value_storage_structured_field_codec_entity",
+    1,
     &VALUE_STORAGE_STRUCTURED_FIELD_MODELS[0],
     0,
     &VALUE_STORAGE_STRUCTURED_FIELD_MODELS,
@@ -597,6 +611,7 @@ static VALUE_STORAGE_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
 static STRUCTURED_MAP_VALUE_STORAGE_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowStructuredMapValueStorageEntity",
     "persisted_row_structured_map_value_storage_entity",
+    1,
     &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS[0],
     0,
     &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS,
@@ -617,6 +632,7 @@ static RELATION_PK_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
 static RELATION_PK_MODEL: EntityModel = EntityModel::generated(
     "tests::PersistedRowRelationPkEntity",
     "persisted_row_relation_pk_entity",
+    1,
     &RELATION_PK_FIELD_MODELS[0],
     0,
     &RELATION_PK_FIELD_MODELS,

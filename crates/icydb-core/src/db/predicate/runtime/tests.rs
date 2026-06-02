@@ -25,6 +25,7 @@ static PREDICATE_FIELDS: [FieldModel; 4] = [
 static PREDICATE_MODEL: EntityModel = EntityModel::generated(
     "PredicateTestEntity",
     "PredicateTestEntity",
+    1,
     &PREDICATE_FIELDS[0],
     0,
     &PREDICATE_FIELDS,

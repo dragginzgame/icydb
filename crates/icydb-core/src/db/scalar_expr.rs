@@ -532,6 +532,7 @@ mod tests {
     static SCALAR_EXPR_MODEL: EntityModel = EntityModel::generated(
         "ScalarExprTestEntity",
         "ScalarExprTestEntity",
+        1,
         &SCALAR_EXPR_FIELDS[0],
         0,
         &SCALAR_EXPR_FIELDS,

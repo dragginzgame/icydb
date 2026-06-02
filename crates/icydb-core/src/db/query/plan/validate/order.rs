@@ -169,6 +169,7 @@ mod tests {
     static MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
         "query::plan::validate::order::tests::CompositeOrderEntity",
         "CompositeOrderEntity",
+        1,
         PrimaryKeyModel::ordered(&PK_FIELDS),
         0,
         &FIELDS,

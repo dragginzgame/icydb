@@ -13,6 +13,8 @@ pub struct Entity {
 
     pub(crate) store: Path,
 
+    pub(crate) schema_version: u32,
+
     #[darling(rename = "pk")]
     pub(crate) primary_key: PrimaryKey,
 
@@ -271,6 +273,7 @@ impl ValidateNode for Entity {
         // Phase 1: validate trait configuration and field shapes.
         self.traits.with_type_traits().validate()?;
         self.fields.validate()?;
+        self.validate_schema_version()?;
 
         // Phase 2: validate entity name and index definitions.
         let def_ident = self.def.ident();
@@ -378,6 +381,17 @@ impl Entity {
             }
         }
     }
+
+    fn validate_schema_version(&self) -> Result<(), DarlingError> {
+        if self.schema_version == 0 {
+            return Err(
+                DarlingError::custom("schema_version must be a positive integer")
+                    .with_span(&self.def.ident()),
+            );
+        }
+
+        Ok(())
+    }
 }
 
 impl HasSchema for Entity {
@@ -390,6 +404,7 @@ impl HasSchemaPart for Entity {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
         let store = quote_one(&self.store, to_path);
+        let schema_version = syn::LitInt::new(&self.schema_version.to_string(), Span::call_site());
         let primary_key = self.primary_key.schema_part();
         let name = quote_option(self.name.as_ref(), to_str_lit);
         let indexes = quote_slice(&self.indexes, Index::schema_part);
@@ -406,6 +421,7 @@ impl HasSchemaPart for Entity {
                 ::icydb::schema::node::Entity::new(
                     #def,
                     #store,
+                    #schema_version,
                     #primary_key,
                     #name,
                     __INDEXES,
@@ -919,6 +935,7 @@ mod tests {
                 struct TestEntity;
             )),
             store: syn::parse_quote!(UiDataStore),
+            schema_version: 1,
             primary_key: PrimaryKey {
                 fields: vec![format_ident!("id")],
                 source: PrimaryKeySource::Internal,
@@ -1145,6 +1162,7 @@ mod tests {
     fn from_list_parses_nested_indexes_and_fields() {
         let args = NestedMeta::parse_meta_list(quote!(
             store = "UiDataStore",
+            schema_version = 1,
             pk(fields = ["id"]),
             index(fields = ["missing_field"]),
             fields(field(
@@ -1185,6 +1203,7 @@ mod tests {
     fn from_list_parses_relation_edges() {
         let args = NestedMeta::parse_meta_list(quote!(
             store = "UiDataStore",
+            schema_version = 1,
             pk(fields = ["id"]),
             relation(
                 ident = "author",

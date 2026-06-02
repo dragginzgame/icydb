@@ -1317,6 +1317,7 @@ mod tests {
     static DESCRIBE_RELATION_MODEL: EntityModel = EntityModel::generated(
         "entities::Source",
         "Source",
+        1,
         &DESCRIBE_RELATION_FIELDS[0],
         0,
         &DESCRIBE_RELATION_FIELDS,
@@ -1334,6 +1335,7 @@ mod tests {
     static DESCRIBE_COMPOSITE_PK_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
         "entities::Composite",
         "Composite",
+        1,
         PrimaryKeyModel::ordered(&DESCRIBE_COMPOSITE_PK_FIELD_REFS),
         0,
         &DESCRIBE_COMPOSITE_PK_FIELDS,
@@ -1633,6 +1635,7 @@ mod tests {
         static MODEL: EntityModel = EntityModel::generated(
             "entities::BoundedName",
             "BoundedName",
+            1,
             &FIELDS[0],
             0,
             &FIELDS,
@@ -1664,6 +1667,7 @@ mod tests {
         static MODEL: EntityModel = EntityModel::generated(
             "entities::FixedWidthNumbers",
             "FixedWidthNumbers",
+            1,
             &FIELDS[0],
             0,
             &FIELDS,
@@ -1710,6 +1714,7 @@ mod tests {
         static MODEL: EntityModel = EntityModel::generated(
             "entities::DefaultedScore",
             "DefaultedScore",
+            1,
             &FIELDS[0],
             0,
             &FIELDS,
@@ -1924,6 +1929,7 @@ mod tests {
         static MODEL: EntityModel = EntityModel::generated(
             "entities::Character",
             "Character",
+            1,
             &FIELDS[0],
             0,
             &FIELDS,

@@ -7,7 +7,10 @@ use crate::{
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         commit::CommitSchemaFingerprint,
-        schema::{AcceptedSchemaSnapshot, encode_persisted_schema_snapshot},
+        schema::{
+            AcceptedSchemaSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaRowLayout, SchemaVersion, encode_persisted_schema_snapshot,
+        },
     },
     error::InternalError,
 };
@@ -28,6 +31,7 @@ use sha2::{Digest, Sha256};
 #[cfg(test)]
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 3;
 const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION: u8 = 1;
+const ACCEPTED_SCHEMA_ADMISSION_FINGERPRINT_VERSION: u8 = 1;
 
 #[cfg(test)]
 const INDEX_KEY_ITEM_FIELD_TAG: u8 = 0x00;
@@ -71,6 +75,23 @@ pub(in crate::db) fn accepted_commit_schema_fingerprint(
     accepted_schema_runtime_fingerprint(schema)
 }
 
+/// Compute the accepted-shape fingerprint used by schema-version admission.
+///
+/// Unlike the runtime cache fingerprint, this intentionally normalizes the
+/// declared schema version out of the accepted snapshot before hashing. The
+/// version is compared as an adjacent identity fact by 0.177 admission policy.
+pub(in crate::db::schema) fn accepted_schema_admission_fingerprint(
+    schema: &PersistedSchemaSnapshot,
+) -> Result<CommitSchemaFingerprint, InternalError> {
+    let normalized_schema = schema_with_admission_fingerprint_version(schema);
+    let encoded_snapshot = encode_persisted_schema_snapshot(&normalized_schema)?;
+
+    Ok(accepted_schema_admission_fingerprint_from_raw(
+        normalized_schema.entity_path(),
+        &encoded_snapshot,
+    ))
+}
+
 fn accepted_schema_runtime_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
@@ -85,6 +106,11 @@ fn accepted_schema_runtime_fingerprint(
 #[must_use]
 pub(in crate::db) const fn accepted_schema_cache_fingerprint_method_version() -> u8 {
     ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION
+}
+
+#[must_use]
+pub(in crate::db::schema) const fn accepted_schema_admission_fingerprint_method_version() -> u8 {
+    ACCEPTED_SCHEMA_ADMISSION_FINGERPRINT_VERSION
 }
 
 #[must_use]
@@ -103,6 +129,69 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint_from_raw(
     hasher.update(encoded_snapshot);
 
     truncate_sha256_commit_schema_fingerprint(hasher)
+}
+
+#[must_use]
+fn accepted_schema_admission_fingerprint_from_raw(
+    entity_path: &str,
+    encoded_snapshot: &[u8],
+) -> CommitSchemaFingerprint {
+    let mut hasher = new_hash_sha256();
+    hasher.update([ACCEPTED_SCHEMA_ADMISSION_FINGERPRINT_VERSION]);
+    hash_labeled_str(&mut hasher, "entity_path", entity_path);
+    hash_labeled_len(
+        &mut hasher,
+        "accepted_schema_admission_snapshot_len",
+        encoded_snapshot.len(),
+    );
+    hasher.update(encoded_snapshot);
+
+    truncate_sha256_commit_schema_fingerprint(hasher)
+}
+
+fn schema_with_admission_fingerprint_version(
+    schema: &PersistedSchemaSnapshot,
+) -> PersistedSchemaSnapshot {
+    // Canonical hash sentinel only: this is not an inferred persisted version.
+    let version = SchemaVersion::initial();
+    let row_layout = SchemaRowLayout::new_with_retired_slots(
+        version,
+        schema.row_layout().field_to_slot().to_vec(),
+        schema.row_layout().retired_field_slots().to_vec(),
+    );
+
+    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        version,
+        schema.entity_path().to_string(),
+        schema.entity_name().to_string(),
+        schema.primary_key_field_ids().to_vec(),
+        row_layout,
+        schema.fields().to_vec(),
+        schema
+            .indexes()
+            .iter()
+            .map(index_with_admission_fingerprint_name)
+            .collect(),
+    )
+    .with_relations(schema.relations().to_vec())
+}
+
+fn index_with_admission_fingerprint_name(index: &PersistedIndexSnapshot) -> PersistedIndexSnapshot {
+    let name = if index.generated() {
+        format!("generated-index-{}", index.ordinal())
+    } else {
+        index.name().to_string()
+    };
+
+    PersistedIndexSnapshot::new_with_origin(
+        index.ordinal(),
+        name,
+        index.store().to_string(),
+        index.unique(),
+        index.origin(),
+        index.key().clone(),
+        index.predicate_sql().map(str::to_string),
+    )
 }
 
 #[cfg(test)]
@@ -259,8 +348,14 @@ fn truncate_sha256_commit_schema_fingerprint(hasher: Sha256) -> CommitSchemaFing
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::Predicate,
-        db::schema::fingerprint::{hash_entity_model_for_commit, hash_labeled_str},
+        db::{
+            Predicate,
+            schema::{
+                PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaRowLayout, SchemaVersion,
+                compiled_schema_proposal_for_model,
+                fingerprint::{hash_entity_model_for_commit, hash_labeled_str},
+            },
+        },
         model::{
             entity::{EntityModel, PrimaryKeyModel},
             field::{
@@ -421,6 +516,7 @@ mod tests {
     static MODEL_TRUE_A: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
+        1,
         &FIELD_MODELS[0],
         0,
         &FIELD_MODELS,
@@ -429,6 +525,7 @@ mod tests {
     static MODEL_TRUE_B: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
+        1,
         &FIELD_MODELS[0],
         0,
         &FIELD_MODELS,
@@ -437,6 +534,7 @@ mod tests {
     static MODEL_FALSE: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
+        1,
         &FIELD_MODELS[0],
         0,
         &FIELD_MODELS,
@@ -445,6 +543,7 @@ mod tests {
     static MODEL_KEY_ITEMS_FIELD: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
+        1,
         &FIELD_MODELS[0],
         0,
         &FIELD_MODELS,
@@ -453,6 +552,7 @@ mod tests {
     static MODEL_KEY_ITEMS_EXPR: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
+        1,
         &FIELD_MODELS[0],
         0,
         &FIELD_MODELS,
@@ -461,6 +561,7 @@ mod tests {
     static CONTRACT_BASE_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_BASE_FIELDS[0],
         0,
         &CONTRACT_BASE_FIELDS,
@@ -469,6 +570,7 @@ mod tests {
     static CONTRACT_RENAMED_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_RENAMED_FIELDS[0],
         0,
         &CONTRACT_RENAMED_FIELDS,
@@ -477,6 +579,7 @@ mod tests {
     static CONTRACT_EXTRA_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_EXTRA_FIELDS[0],
         0,
         &CONTRACT_EXTRA_FIELDS,
@@ -485,6 +588,7 @@ mod tests {
     static CONTRACT_TYPE_CHANGED_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_TYPE_CHANGED_FIELDS[0],
         0,
         &CONTRACT_TYPE_CHANGED_FIELDS,
@@ -493,6 +597,7 @@ mod tests {
     static CONTRACT_NULLABLE_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_NULLABLE_FIELDS[0],
         0,
         &CONTRACT_NULLABLE_FIELDS,
@@ -501,6 +606,7 @@ mod tests {
     static CONTRACT_TEXT_MAX_LEN_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_TEXT_MAX_LEN_FIELDS[0],
         0,
         &CONTRACT_TEXT_MAX_LEN_FIELDS,
@@ -509,6 +615,7 @@ mod tests {
     static CONTRACT_WRITE_POLICY_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_WRITE_POLICY_FIELDS[0],
         0,
         &CONTRACT_WRITE_POLICY_FIELDS,
@@ -517,6 +624,7 @@ mod tests {
     static CONTRACT_INSERT_GENERATION_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_INSERT_GENERATION_FIELDS[0],
         0,
         &CONTRACT_INSERT_GENERATION_FIELDS,
@@ -528,6 +636,7 @@ mod tests {
         EntityModel::generated_with_primary_key_model(
             "fingerprint::ContractEntity",
             "ContractEntity",
+            1,
             PrimaryKeyModel::ordered(&CONTRACT_COMPOSITE_PRIMARY_KEY_FIELDS),
             0,
             &CONTRACT_BASE_FIELDS,
@@ -536,6 +645,7 @@ mod tests {
     static CONTRACT_DECIMAL_SCALE_2_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_DECIMAL_SCALE_2_FIELDS[0],
         0,
         &CONTRACT_DECIMAL_SCALE_2_FIELDS,
@@ -544,6 +654,7 @@ mod tests {
     static CONTRACT_DECIMAL_SCALE_4_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_DECIMAL_SCALE_4_FIELDS[0],
         0,
         &CONTRACT_DECIMAL_SCALE_4_FIELDS,
@@ -552,6 +663,7 @@ mod tests {
     static CONTRACT_INDEXED_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
+        1,
         &CONTRACT_BASE_FIELDS[0],
         0,
         &CONTRACT_BASE_FIELDS,
@@ -564,6 +676,111 @@ mod tests {
         hash_labeled_str(&mut hasher, "entity_path", model.path());
         hash_entity_model_for_commit(&mut hasher, model);
         super::truncate_sha256_commit_schema_fingerprint(hasher)
+    }
+
+    fn snapshot_for_model(model: &EntityModel) -> PersistedSchemaSnapshot {
+        compiled_schema_proposal_for_model(model).initial_persisted_schema_snapshot()
+    }
+
+    fn snapshot_with_version(
+        snapshot: &PersistedSchemaSnapshot,
+        version: SchemaVersion,
+    ) -> PersistedSchemaSnapshot {
+        let row_layout = SchemaRowLayout::new_with_retired_slots(
+            version,
+            snapshot.row_layout().field_to_slot().to_vec(),
+            snapshot.row_layout().retired_field_slots().to_vec(),
+        );
+
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            version,
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_ids().to_vec(),
+            row_layout,
+            snapshot.fields().to_vec(),
+            snapshot.indexes().to_vec(),
+        )
+        .with_relations(snapshot.relations().to_vec())
+    }
+
+    fn snapshot_with_generated_index_name(
+        snapshot: &PersistedSchemaSnapshot,
+        index_name: &str,
+    ) -> PersistedSchemaSnapshot {
+        let mut indexes = snapshot.indexes().to_vec();
+        let index = &indexes[0];
+        indexes[0] = PersistedIndexSnapshot::new_with_origin(
+            index.ordinal(),
+            index_name.to_string(),
+            index.store().to_string(),
+            index.unique(),
+            index.origin(),
+            index.key().clone(),
+            index.predicate_sql().map(str::to_string),
+        );
+
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            snapshot.version(),
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_ids().to_vec(),
+            snapshot.row_layout().clone(),
+            snapshot.fields().to_vec(),
+            indexes,
+        )
+        .with_relations(snapshot.relations().to_vec())
+    }
+
+    #[test]
+    fn schema_admission_fingerprint_ignores_declared_schema_version() {
+        let stored = snapshot_for_model(&CONTRACT_BASE_MODEL);
+        let candidate = snapshot_with_version(&stored, SchemaVersion::new(2));
+
+        assert_ne!(stored.version(), candidate.version());
+        assert_eq!(
+            super::accepted_schema_admission_fingerprint(&stored)
+                .expect("stored admission fingerprint should hash"),
+            super::accepted_schema_admission_fingerprint(&candidate)
+                .expect("candidate admission fingerprint should hash"),
+            "declared schema_version is compared beside the admission fingerprint, not inside it",
+        );
+    }
+
+    #[test]
+    fn schema_admission_fingerprint_tracks_accepted_shape_contracts() {
+        assert_ne!(
+            super::accepted_schema_admission_fingerprint(&snapshot_for_model(&CONTRACT_BASE_MODEL))
+                .expect("base admission fingerprint should hash"),
+            super::accepted_schema_admission_fingerprint(&snapshot_for_model(
+                &CONTRACT_EXTRA_MODEL
+            ))
+            .expect("extra-field admission fingerprint should hash"),
+            "field-count changes must change the admission shape fingerprint",
+        );
+        assert_ne!(
+            super::accepted_schema_admission_fingerprint(&snapshot_for_model(&CONTRACT_BASE_MODEL))
+                .expect("base admission fingerprint should hash"),
+            super::accepted_schema_admission_fingerprint(&snapshot_for_model(
+                &CONTRACT_INDEXED_MODEL
+            ))
+            .expect("indexed admission fingerprint should hash"),
+            "accepted index contract changes must change the admission shape fingerprint",
+        );
+    }
+
+    #[test]
+    fn schema_admission_fingerprint_ignores_generated_index_display_name() {
+        let indexed = snapshot_for_model(&CONTRACT_INDEXED_MODEL);
+        let renamed = snapshot_with_generated_index_name(&indexed, "renamed_generated_index");
+
+        assert_eq!(
+            super::accepted_schema_admission_fingerprint(&indexed)
+                .expect("indexed admission fingerprint should hash"),
+            super::accepted_schema_admission_fingerprint(&renamed)
+                .expect("renamed generated-index admission fingerprint should hash"),
+            "generated index names remain metadata-only for admission fingerprinting",
+        );
     }
 
     #[test]

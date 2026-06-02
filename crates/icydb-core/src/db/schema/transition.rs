@@ -5,6 +5,8 @@
 
 use crate::{
     db::{
+        codec::hex::encode_hex_lower,
+        commit::CommitSchemaFingerprint,
         data::decode_runtime_value_from_accepted_field_contract,
         schema::{
             AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationPreflight,
@@ -12,9 +14,12 @@ use crate::{
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
             SchemaMutationExecutionPlan, SchemaMutationRequest, SchemaMutationRunnerContract,
             SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
+            SchemaVersion, accepted_schema_admission_fingerprint,
+            accepted_schema_admission_fingerprint_method_version,
             schema_mutation_request_for_snapshots,
         },
     },
+    error::InternalError,
     value::Value,
 };
 
@@ -32,6 +37,157 @@ use crate::{
 pub(in crate::db::schema) enum SchemaTransitionDecision {
     Accepted(SchemaTransitionPlan),
     Rejected(SchemaTransitionRejection),
+}
+
+///
+/// SchemaAdmissionIdentity
+///
+/// SchemaAdmissionIdentity is the 0.177 version/method/fingerprint tuple that
+/// schema-owned admission compares before mutation compatibility may publish a
+/// changed accepted shape. Query hot paths consume already accepted identity
+/// and must not build this candidate tuple.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaAdmissionIdentity {
+    schema_version: SchemaVersion,
+    fingerprint_method_version: u8,
+    schema_fingerprint: CommitSchemaFingerprint,
+}
+
+impl SchemaAdmissionIdentity {
+    fn from_snapshot(snapshot: &PersistedSchemaSnapshot) -> Result<Self, InternalError> {
+        Ok(Self {
+            schema_version: snapshot.version(),
+            fingerprint_method_version: accepted_schema_admission_fingerprint_method_version(),
+            schema_fingerprint: accepted_schema_admission_fingerprint(snapshot)?,
+        })
+    }
+}
+
+///
+/// SchemaAdmissionIdentityComparison
+///
+/// Pairs stored and candidate admission identity. Enforcement remains separate
+/// so 0.177 can land identity preparation before changing transition policy.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaAdmissionIdentityComparison {
+    stored: SchemaAdmissionIdentity,
+    candidate: SchemaAdmissionIdentity,
+}
+
+impl SchemaAdmissionIdentityComparison {
+    pub(in crate::db::schema) fn from_snapshots(
+        stored: &PersistedSchemaSnapshot,
+        candidate: &PersistedSchemaSnapshot,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
+            stored: SchemaAdmissionIdentity::from_snapshot(stored)?,
+            candidate: SchemaAdmissionIdentity::from_snapshot(candidate)?,
+        })
+    }
+}
+
+// Apply the 0.177 version/method/fingerprint gate before mutation compatibility
+// classification. Passing this gate only admits a candidate to compatibility
+// checks; it does not publish the candidate snapshot by itself.
+pub(in crate::db::schema) fn schema_admission_rejection(
+    comparison: SchemaAdmissionIdentityComparison,
+) -> Option<SchemaTransitionRejection> {
+    if comparison.stored.fingerprint_method_version
+        != comparison.candidate.fingerprint_method_version
+    {
+        return Some(SchemaTransitionRejection::new(
+            SchemaTransitionRejectionKind::SchemaVersion,
+            schema_admission_rejection_detail(
+                "schema fingerprint method changed",
+                comparison,
+                None,
+            ),
+        ));
+    }
+
+    let stored_version = comparison.stored.schema_version.get();
+    let candidate_version = comparison.candidate.schema_version.get();
+    let same_fingerprint =
+        comparison.stored.schema_fingerprint == comparison.candidate.schema_fingerprint;
+
+    if candidate_version < stored_version {
+        return Some(SchemaTransitionRejection::new(
+            SchemaTransitionRejectionKind::SchemaVersion,
+            schema_admission_rejection_detail("schema_version moved backwards", comparison, None),
+        ));
+    }
+
+    if stored_version == candidate_version {
+        return (!same_fingerprint).then(|| {
+            SchemaTransitionRejection::new(
+                SchemaTransitionRejectionKind::SchemaVersion,
+                schema_admission_rejection_detail(
+                    "schema changed without schema_version bump",
+                    comparison,
+                    None,
+                ),
+            )
+        });
+    }
+
+    if same_fingerprint {
+        return Some(SchemaTransitionRejection::new(
+            SchemaTransitionRejectionKind::SchemaVersion,
+            schema_admission_rejection_detail(
+                "schema_version bumped without schema shape change",
+                comparison,
+                None,
+            ),
+        ));
+    }
+
+    match stored_version.checked_add(1) {
+        Some(expected_next) if candidate_version == expected_next => None,
+        Some(expected_next) => Some(SchemaTransitionRejection::new(
+            SchemaTransitionRejectionKind::SchemaVersion,
+            schema_admission_rejection_detail(
+                "schema_version jumped",
+                comparison,
+                Some(format!("expected_next={expected_next}")),
+            ),
+        )),
+        None => Some(SchemaTransitionRejection::new(
+            SchemaTransitionRejectionKind::SchemaVersion,
+            schema_admission_rejection_detail(
+                "schema_version cannot advance beyond maximum",
+                comparison,
+                None,
+            ),
+        )),
+    }
+}
+
+fn schema_admission_rejection_detail(
+    reason: &'static str,
+    comparison: SchemaAdmissionIdentityComparison,
+    extra: Option<String>,
+) -> String {
+    let facts = schema_admission_identity_facts(comparison);
+    match extra {
+        Some(extra) => format!("{reason}: {facts} {extra}"),
+        None => format!("{reason}: {facts}"),
+    }
+}
+
+fn schema_admission_identity_facts(comparison: SchemaAdmissionIdentityComparison) -> String {
+    format!(
+        "stored_version={} candidate_version={} stored_method={} candidate_method={} stored_fingerprint={} candidate_fingerprint={}",
+        comparison.stored.schema_version.get(),
+        comparison.candidate.schema_version.get(),
+        comparison.stored.fingerprint_method_version,
+        comparison.candidate.fingerprint_method_version,
+        encode_hex_lower(&comparison.stored.schema_fingerprint),
+        encode_hex_lower(&comparison.candidate.schema_fingerprint),
+    )
 }
 
 ///
@@ -961,6 +1117,7 @@ fn field_snapshot_storage_mismatch_detail(
 
 #[cfg(test)]
 mod tests {
+    use super::{SchemaAdmissionIdentityComparison, schema_admission_rejection};
     use crate::{
         db::schema::{
             FieldId, MutationCompatibility, PersistedFieldKind, PersistedFieldOrigin,
@@ -1026,6 +1183,204 @@ mod tests {
             expected.row_layout().clone(),
             expected.fields().to_vec(),
         )
+    }
+
+    fn snapshot_with_version(
+        snapshot: &PersistedSchemaSnapshot,
+        version: SchemaVersion,
+    ) -> PersistedSchemaSnapshot {
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            version,
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_ids().to_vec(),
+            SchemaRowLayout::new_with_retired_slots(
+                version,
+                snapshot.row_layout().field_to_slot().to_vec(),
+                snapshot.row_layout().retired_field_slots().to_vec(),
+            ),
+            snapshot.fields().to_vec(),
+            snapshot.indexes().to_vec(),
+        )
+        .with_relations(snapshot.relations().to_vec())
+    }
+
+    fn snapshot_with_renamed_name_field(
+        snapshot: &PersistedSchemaSnapshot,
+        name: &str,
+    ) -> PersistedSchemaSnapshot {
+        let mut changed_fields = snapshot.fields().to_vec();
+        changed_fields[1] = PersistedFieldSnapshot::new(
+            FieldId::new(2),
+            name.to_string(),
+            SchemaFieldSlot::new(1),
+            PersistedFieldKind::Text { max_len: None },
+            Vec::new(),
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        );
+
+        PersistedSchemaSnapshot::new(
+            snapshot.version(),
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.first_primary_key_field_id(),
+            snapshot.row_layout().clone(),
+            changed_fields,
+        )
+    }
+
+    #[test]
+    fn admission_identity_carries_version_method_and_shape_fingerprint() {
+        let stored = expected_snapshot();
+        let candidate = snapshot_with_version(&stored, SchemaVersion::new(2));
+        let comparison = SchemaAdmissionIdentityComparison::from_snapshots(&stored, &candidate)
+            .expect("admission identity should hash snapshots");
+
+        assert_eq!(comparison.stored.schema_version, SchemaVersion::initial());
+        assert_eq!(comparison.candidate.schema_version, SchemaVersion::new(2));
+        assert_eq!(
+            comparison.stored.fingerprint_method_version,
+            comparison.candidate.fingerprint_method_version,
+        );
+        assert_eq!(
+            comparison.stored.schema_fingerprint, comparison.candidate.schema_fingerprint,
+            "schema_version must not be part of the admission shape fingerprint",
+        );
+    }
+
+    #[test]
+    fn admission_identity_fingerprint_changes_with_accepted_shape() {
+        let stored = expected_snapshot();
+        let changed = snapshot_with_renamed_name_field(&stored, "display_name");
+        let comparison = SchemaAdmissionIdentityComparison::from_snapshots(&stored, &changed)
+            .expect("admission identity should hash snapshots");
+
+        assert_ne!(
+            comparison.stored.schema_fingerprint, comparison.candidate.schema_fingerprint,
+            "field-name changes are accepted-shape changes for admission",
+        );
+    }
+
+    #[test]
+    fn admission_matrix_accepts_same_identity_and_single_version_shape_change() {
+        let stored = expected_snapshot();
+        let same = expected_snapshot();
+        let changed = snapshot_with_version(
+            &snapshot_with_renamed_name_field(&stored, "display_name"),
+            SchemaVersion::new(2),
+        );
+
+        assert!(
+            schema_admission_rejection(
+                SchemaAdmissionIdentityComparison::from_snapshots(&stored, &same)
+                    .expect("same admission identity should hash"),
+            )
+            .is_none(),
+            "same version, method, and shape should enter compatibility classification",
+        );
+        assert!(
+            schema_admission_rejection(
+                SchemaAdmissionIdentityComparison::from_snapshots(&stored, &changed)
+                    .expect("changed admission identity should hash"),
+            )
+            .is_none(),
+            "exactly N+1 with changed shape should enter compatibility classification",
+        );
+    }
+
+    #[test]
+    fn admission_matrix_rejects_missing_bump_empty_bump_gap_and_rollback() {
+        let stored = expected_snapshot();
+        let changed_without_bump = snapshot_with_renamed_name_field(&stored, "display_name");
+        let empty_bump = snapshot_with_version(&stored, SchemaVersion::new(2));
+        let version_gap = snapshot_with_version(&changed_without_bump, SchemaVersion::new(3));
+        let rollback = snapshot_with_version(&stored, SchemaVersion::new(0));
+
+        for (candidate, expected_detail) in [
+            (
+                changed_without_bump,
+                "schema changed without schema_version bump",
+            ),
+            (
+                empty_bump,
+                "schema_version bumped without schema shape change",
+            ),
+            (version_gap, "schema_version jumped"),
+            (rollback, "schema_version moved backwards"),
+        ] {
+            let rejection = schema_admission_rejection(
+                SchemaAdmissionIdentityComparison::from_snapshots(&stored, &candidate)
+                    .expect("admission identity should hash"),
+            )
+            .expect("candidate should fail admission");
+
+            assert_eq!(
+                rejection.kind(),
+                SchemaTransitionRejectionKind::SchemaVersion
+            );
+            assert!(
+                rejection.detail().contains(expected_detail),
+                "rejection detail should contain '{expected_detail}', got '{}'",
+                rejection.detail(),
+            );
+            assert!(
+                rejection.detail().contains("stored_version=1")
+                    && rejection.detail().contains("candidate_version=")
+                    && rejection.detail().contains("stored_method=")
+                    && rejection.detail().contains("candidate_method=")
+                    && rejection.detail().contains("stored_fingerprint=")
+                    && rejection.detail().contains("candidate_fingerprint="),
+                "schema admission diagnostics should include compared identity facts, got '{}'",
+                rejection.detail(),
+            );
+            if expected_detail == "schema_version jumped" {
+                assert!(
+                    rejection.detail().contains("expected_next=2"),
+                    "version-gap diagnostics should include the expected next version, got '{}'",
+                    rejection.detail(),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn admission_matrix_rejects_fingerprint_method_mismatch() {
+        let stored = expected_snapshot();
+        let candidate = snapshot_with_version(
+            &snapshot_with_renamed_name_field(&stored, "display_name"),
+            SchemaVersion::new(2),
+        );
+        let mut comparison = SchemaAdmissionIdentityComparison::from_snapshots(&stored, &candidate)
+            .expect("admission identity should hash");
+        comparison.candidate.fingerprint_method_version = comparison
+            .candidate
+            .fingerprint_method_version
+            .saturating_add(1);
+
+        let rejection =
+            schema_admission_rejection(comparison).expect("method mismatch should reject");
+
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::SchemaVersion
+        );
+        assert!(
+            rejection
+                .detail()
+                .contains("schema fingerprint method changed"),
+            "method mismatch should be reported distinctly",
+        );
+        assert!(
+            rejection.detail().contains("stored_method=")
+                && rejection.detail().contains("candidate_method=")
+                && rejection.detail().contains("stored_fingerprint=")
+                && rejection.detail().contains("candidate_fingerprint="),
+            "method mismatch diagnostics should include compared identity facts, got '{}'",
+            rejection.detail(),
+        );
     }
 
     fn name_field_path_index(name: &str) -> PersistedIndexSnapshot {

@@ -1,0 +1,5 @@
+error: schema_version must be a positive integer
+  --> tests/ui/schema_version_zero.rs:23:12
+   |
+23 | pub struct ZeroSchemaVersionEntity;
+   |            ^^^^^^^^^^^^^^^^^^^^^^^

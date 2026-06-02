@@ -115,7 +115,7 @@ fn assert_sql_write_unsupported_transition(
 
     assert!(
         err_text.contains("schema evolution is not yet supported")
-            && err_text.contains("unsupported additive field transition"),
+            && err_text.contains("schema changed without schema_version bump"),
         "{context} should surface the schema-transition barrier: {err_text}",
     );
 }

@@ -17,6 +17,7 @@ pub struct UiDataStore {}
 #[entity(
     name = "~UiIndexedEntity",
     store = "UiDataStore",
+    schema_version = 1,
     pk(fields = ["id"]),
     index(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))

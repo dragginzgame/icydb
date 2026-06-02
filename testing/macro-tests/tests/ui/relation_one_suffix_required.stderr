@@ -1,5 +1,5 @@
 error: relation field ident 'user' must end with '_id'
-  --> tests/ui/relation_one_suffix_required.rs:29:23
+  --> tests/ui/relation_one_suffix_required.rs:31:23
    |
-29 |         field(ident = "user", value(item(rel = "User", prim = "Ulid")))
+31 |         field(ident = "user", value(item(rel = "User", prim = "Ulid")))
    |                       ^^^^^^

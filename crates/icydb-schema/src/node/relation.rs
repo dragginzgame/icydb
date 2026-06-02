@@ -360,6 +360,7 @@ mod tests {
         Entity::new(
             Def::new(module, ident),
             "RelationEdgeStore",
+            1,
             PrimaryKey::new(pk_fields, PrimaryKeySource::External),
             None,
             &[],

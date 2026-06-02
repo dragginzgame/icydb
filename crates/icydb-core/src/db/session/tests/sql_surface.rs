@@ -129,13 +129,15 @@ fn install_nullable_sql_old_accepted_schema_prefix() {
     let proposal =
         compiled_schema_proposal_for_model(<SessionNullableSqlEntity as EntitySchema>::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_version =
+        crate::db::schema::SchemaVersion::new(expected.version().get().saturating_sub(1));
     let stored_prefix = PersistedSchemaSnapshot::new(
-        expected.version(),
+        stored_version,
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.first_primary_key_field_id(),
         SchemaRowLayout::new(
-            expected.row_layout().version(),
+            stored_version,
             vec![
                 (FieldId::new(1), SchemaFieldSlot::new(0)),
                 (FieldId::new(2), SchemaFieldSlot::new(1)),
@@ -1373,7 +1375,7 @@ fn execute_sql_statement_rejects_unsupported_schema_transition_before_select_com
 
     assert!(
         err_text.contains("schema evolution is not yet supported")
-            && err_text.contains("unsupported additive field transition"),
+            && err_text.contains("schema changed without schema_version bump"),
         "SQL SELECT should surface the schema-transition barrier: {err_text}",
     );
 }

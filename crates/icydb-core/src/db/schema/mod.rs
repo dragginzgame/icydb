@@ -44,6 +44,9 @@ pub(in crate::db) use fingerprint::{
     accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
     accepted_schema_cache_fingerprint_from_raw, accepted_schema_cache_fingerprint_method_version,
 };
+pub(in crate::db::schema) use fingerprint::{
+    accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
+};
 pub(in crate::db) use format::{
     show_indexes_for_model, show_indexes_for_model_with_runtime_state,
     show_indexes_for_schema_info_with_runtime_state,

@@ -16,21 +16,10 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    schema_version = 1,
+    schema_version = 0,
     pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
-pub struct User;
-
-#[entity(
-    store = "UiDataStore",
-    schema_version = 1,
-    pk(fields = ["id"]),
-    fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(ident = "users", value(many, item(rel = "User", prim = "Ulid")))
-    )
-)]
-pub struct InvalidManyRelationName;
+pub struct ZeroSchemaVersionEntity;
 
 fn main() {}

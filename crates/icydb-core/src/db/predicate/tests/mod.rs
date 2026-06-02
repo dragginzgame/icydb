@@ -27,6 +27,7 @@ static CAPABILITY_FIELDS: [FieldModel; 3] = [
 static CAPABILITY_MODEL: EntityModel = EntityModel::generated(
     "PredicateCapabilityEntity",
     "PredicateCapabilityEntity",
+    1,
     &CAPABILITY_FIELDS[0],
     0,
     &CAPABILITY_FIELDS,

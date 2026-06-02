@@ -263,6 +263,7 @@ mod tests {
         schema_write().insert_node(SchemaNode::Entity(Entity::new(
             Def::new(module, ident),
             "SchemaItemRelationStore",
+            1,
             PrimaryKey::new(pk_fields, PrimaryKeySource::External),
             None,
             &[],

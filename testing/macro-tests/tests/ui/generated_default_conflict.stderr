@@ -1,5 +1,5 @@
 error: generated(insert = ...) cannot be combined with default = ...; default is a database/schema default
-  --> tests/ui/generated_default_conflict.rs:23:21
+  --> tests/ui/generated_default_conflict.rs:24:21
    |
-23 |             ident = "created_on_insert",
+24 |             ident = "created_on_insert",
    |                     ^^^^^^^^^^^^^^^^^^^
