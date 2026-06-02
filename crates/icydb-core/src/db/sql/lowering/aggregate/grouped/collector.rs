@@ -1,13 +1,15 @@
 use crate::{
     db::sql::{
         lowering::{
-            SqlLoweringError, aggregate::grouped::extend_unique_sql_select_item_aggregate_calls,
-            analyze_lowered_expr, expr::SqlExprPhase, select::lower_select_item_expr,
+            SqlLoweringError, analyze_lowered_expr, expr::SqlExprPhase,
+            select::lower_select_item_expr,
         },
         parser::{SqlAggregateCall, SqlProjection, SqlSelectItem},
     },
     model::entity::EntityModel,
 };
+
+use super::validation::extend_unique_sql_select_item_aggregate_calls;
 
 pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
     projection: &SqlProjection,

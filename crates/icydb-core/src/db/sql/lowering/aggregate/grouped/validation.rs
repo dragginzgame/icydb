@@ -26,7 +26,7 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
 
 // Extend one unique aggregate-call list from one SQL select item while keeping
 // SQL item-order ownership local to shared aggregate collection helpers.
-pub(in crate::db::sql::lowering) fn extend_unique_sql_select_item_aggregate_calls(
+pub(super) fn extend_unique_sql_select_item_aggregate_calls(
     aggregate_calls: &mut Vec<SqlAggregateCall>,
     item: &SqlSelectItem,
 ) {
