@@ -42,7 +42,9 @@ CARGO_WORKSTATION_TOOLS=(
   cargo-audit
   cargo-bloat
   cargo-deny
+  cargo-edit
   cargo-expand
+  cargo-get
   cargo-machete
   cargo-llvm-lines
   cargo-sort
