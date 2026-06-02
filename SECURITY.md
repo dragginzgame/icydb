@@ -6,18 +6,16 @@ that boundary and should be run only on hosts where that is acceptable.
 
 ## Commands With Host Or Supply-Chain Effects
 
-- Local Make targets do not install OS packages or run `sudo`. Install system
-  prerequisites with your normal package manager before running repo targets.
-- There is no repo bootstrap target that installs Rust, OS packages, or
-  user-level GitHub release binaries. Local setup prerequisites are documented
-  in `INSTALLING.md` and remain operator-owned.
+- `make install-dev` is a local workstation bootstrap target. On hosts with
+  `apt-get`, it may run `sudo apt-get update` and `sudo apt-get install` for
+  documented system prerequisites, install Rust through the official rustup
+  script when missing, install Cargo helper tools, install npm-backed ICP CLI
+  tools under `$HOME/.local`, and configure repository hooks.
 - `make update-dev` is a maintainer workstation updater. It updates Rust with
-  `rustup`, installs or updates the standard Cargo helper tools and wasm tools,
-  installs or updates `icp` and `ic-wasm` under `$HOME/.local` through npm, runs
-  `cargo audit`, and refreshes `Cargo.lock` with `cargo update`.
-- `make install-canister-deps` adds the pinned Wasm Rust target and installs
-  `candid-extractor`, `ic-wasm`, and `twiggy` through Cargo. It does not run
-  `sudo` or install OS packages.
+  `rustup`, refreshes the same documented system package list, installs or
+  updates the standard Cargo helper tools and wasm tools, installs or updates
+  `icp` and `ic-wasm` under `$HOME/.local` through npm, runs `cargo audit`, and
+  refreshes `Cargo.lock` with `cargo update`.
 - `make test` may need a PocketIC server binary. The repo test target sets
   `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1` and a repo-local `TMPDIR`, then lets
   `ic-testkit` resolve a trusted `POCKET_IC_BIN`, cached pinned binary, or

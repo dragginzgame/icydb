@@ -1,84 +1,26 @@
-# Installing And Local Development
+# Installing IcyDB
 
-This document is for contributors and maintainers setting up this repository
-locally. The README stays focused on what IcyDB is and how to use it from a
-canister.
+This document covers installing IcyDB in downstream canisters first, then the
+maintainer-only workstation setup for this repository.
 
-The repository does not provide a bootstrap target that installs OS packages or
-Rust. Install system prerequisites explicitly with the tools you trust for your
-machine. The maintainer `make update-dev` target does update user-level Rust,
-Cargo, and ICP development tooling.
+## Downstream Canisters
 
-## System Prerequisites
+Pin IcyDB by tag in the canister crate:
 
-On Ubuntu, install the normal build and script dependencies with your package
-manager:
-
-```bash
-build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep python3 python-is-python3
+```toml
+[dependencies]
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.7" }
 ```
 
-Canister development and wasm inspection also need:
+For typed/fluent-only builds without the SQL feature set:
 
-```bash
-binaryen wabt jq
+```toml
+[dependencies]
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.7", default-features = false }
 ```
 
-Local Make targets do not install OS packages and do not run `sudo`.
-
-## Rust
-
-Use the Rust toolchain pinned by the workspace:
-
-```bash
-rustup toolchain install 1.96.0
-rustup target add wasm32-unknown-unknown
-```
-
-Then update the local maintainer tooling surface:
-
-```bash
-make update-dev
-```
-
-Formatting and lint-oriented Make targets expect the Cargo helper binaries used
-by the repository:
-
-```bash
-cargo install cargo-sort cargo-sort-derives --locked
-```
-
-## ICP And Canister Tools
-
-Local ICP workflows require the current Canic ICP tools with `icp` on `PATH`.
-`make update-dev` installs or updates `@icp-sdk/icp-cli` and
-`@icp-sdk/ic-wasm` under `$HOME/.local` through npm.
-
-Optional canister-operation utilities should be installed explicitly when you
-need them:
-
-- `didc` from DFINITY Candid releases.
-- `idl2json` and `yaml2candid` from DFINITY idl2json releases.
-- `quill` from DFINITY Quill releases.
-
-Cargo-installed wasm helper tools can be installed with:
-
-```bash
-make install-canister-deps
-```
-
-That target installs the pinned Rust toolchain, the wasm target,
-`candid-extractor`, `ic-wasm`, and `twiggy`.
-
-## Common Commands
-
-```bash
-make check      # type-check workspace
-make clippy     # lint with warnings denied
-make test       # unit + integration tests
-make fmt        # format workspace
-make build      # release workspace build; requires a clean worktree
-```
+The public `icydb` crate path supports Rust `1.88.0` and newer. Repository
+maintenance uses the newer internal toolchain listed below.
 
 ## Generated Endpoint Config
 
@@ -86,20 +28,6 @@ Local canisters load generated endpoint switches from `icydb.toml` through
 `icydb-config-build`. Generated canister glue uses fixed `__icydb_*`
 Rust/export names, and the CLI checks the config before calling endpoint
 families.
-
-Install the local CLI binary:
-
-```bash
-make install
-```
-
-Inspect the generated-endpoint config that local CLI commands use:
-
-```bash
-icydb config show
-icydb config show --environment demo
-icydb config check --environment demo
-```
 
 Create or replace a local `icydb.toml` for a canister when setting up a new
 demo or test canister:
@@ -148,6 +76,107 @@ Fixture loading calls a plain non-exported user hook when present:
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
+```
+
+## Local CLI
+
+Install the local CLI binary from this repository:
+
+```bash
+make install
+```
+
+Inspect the generated-endpoint config that local CLI commands use:
+
+```bash
+icydb config show
+icydb config show --environment demo
+icydb config check --environment demo
+```
+
+## Maintainer Workstation Setup
+
+This section is for maintaining this repository. It is not required for ordinary
+downstream canister dependency installation.
+
+The repository provides local maintainer targets for Ubuntu-like hosts with
+`apt-get`. `make install-dev` is the initial workstation bootstrap: it installs
+system packages, Rust, Cargo helper tools, ICP tooling, and repository hooks.
+`make update-dev` refreshes the same system package, Cargo tool, and npm tool
+surface, then runs the maintainer update checks.
+
+### System Prerequisites
+
+On Ubuntu, `make install-dev` installs the normal build and script dependencies:
+
+```bash
+build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep python3 nodejs npm
+```
+
+Canister development and wasm inspection also need:
+
+```bash
+binaryen wabt jq
+```
+
+On other operating systems, install those packages manually before using the
+developer targets.
+
+### Rust
+
+`make install-dev` installs rustup when missing, then installs the Rust
+toolchain pinned by the workspace:
+
+```bash
+rustup toolchain install 1.96.0
+rustup target add wasm32-unknown-unknown
+```
+
+After initial setup, update the local maintainer tooling surface with:
+
+```bash
+make update-dev
+```
+
+Formatting and lint-oriented Make targets expect the Cargo helper binaries used
+by the repository:
+
+```bash
+cargo install cargo-sort cargo-sort-derives --locked
+```
+
+### ICP And Canister Tools
+
+Local ICP workflows require the current Canic ICP tools with `icp` on `PATH`.
+Both `make install-dev` and `make update-dev` install or update
+`@icp-sdk/icp-cli` and `@icp-sdk/ic-wasm` under `$HOME/.local` through npm.
+
+Optional canister-operation utilities should be installed explicitly when you
+need them:
+
+- `didc` from DFINITY Candid releases.
+- `idl2json` and `yaml2candid` from DFINITY idl2json releases.
+- `quill` from DFINITY Quill releases.
+
+Install local developer dependencies and repository hooks with:
+
+```bash
+make install-dev
+```
+
+That target installs apt-backed system prerequisites when `apt-get` is present,
+configures repository git hooks, and installs the pinned Rust toolchain, the
+wasm target, standard Cargo helper tools, `candid-extractor`, `ic-wasm`, `rg`
+from `ripgrep`, `twiggy`, and npm-backed ICP CLI tools.
+
+### Common Commands
+
+```bash
+make check      # type-check workspace
+make clippy     # lint with warnings denied
+make test       # unit + integration tests
+make fmt        # format workspace
+make build      # release workspace build; requires a clean worktree
 ```
 
 ## Local SQL Demo
@@ -263,10 +292,10 @@ is useful secondary context for transport.
 
 ## Troubleshooting
 
-### `make update-dev` says Python is missing
+### `make install-dev` cannot install system packages
 
-Install `python3` and a `python` alias through your system package manager. On
-Ubuntu, `python3` plus `python-is-python3` provides the expected shape.
+On non-apt systems, install the packages listed in System Prerequisites with
+your platform package manager, then re-run `make install-dev`.
 
 ### `make fmt` or `make check` cannot find `cargo sort`
 

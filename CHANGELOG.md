@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
 
+- `0.175.8` cleans up maintainer setup by moving workstation bootstrap/update
+  logic out of the Makefile while pruning stale Makefile and script edges.
+
 - `0.175.7` extends the SQL perf audit matrix so bounded read and write checks
   compare stable, heap, and journaled storage on matching hot-path probes.
 

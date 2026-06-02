@@ -1,12 +1,10 @@
 .PHONY: help version tags patch minor major release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-bump build check clippy fmt fmt-check clean install install-all install-canister-deps update-dev ensure-python3 \
+        test test-bump build check clippy fmt fmt-check clean install install-dev update-dev \
         test-watch all ensure-clean security-check check-versioning \
-        ensure-hooks install-hooks check-index-range-spec-invariants \
-        check-dependency-graph-invariants \
-        wasm-size-report wasm-audit-report test-sql-parity \
-	check-architecture-text-scan-invariants check-invariants \
-        check-module-structure-hub-thresholds check-sql-branch-ownership-invariants \
+        ensure-hooks install-hooks \
+        wasm-size-report wasm-audit-report \
+	check-invariants \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -41,9 +39,8 @@ help:
 	@echo ""
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
-	@echo "  install-all      Install canister dependencies and git hooks"
+	@echo "  install-dev      Install local developer dependencies and git hooks"
 	@echo "  update-dev       Update the local Rust/Cargo/ICP development environment"
-	@echo "  install-canister-deps  Install Wasm target + candid tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
 	@echo "Version Management:"
@@ -91,48 +88,13 @@ help:
 install:
 	cargo install --path "$(ROOT_DIR)/crates/icydb-cli" --bin icydb --locked --force
 
-# Ensure both `python3` and the `python` alias exist for repo scripts and local
-# tooling. This target is check-only; it never installs OS packages or uses sudo.
-ensure-python3:
-	@if command -v python3 >/dev/null 2>&1 && command -v python >/dev/null 2>&1; then \
-		echo "python3 available: $$(python3 --version 2>/dev/null)"; \
-		echo "python available: $$(python --version 2>/dev/null)"; \
-	else \
-		echo "Missing local prerequisites:"; \
-		command -v python3 >/dev/null 2>&1 || echo "  - python3"; \
-		command -v python >/dev/null 2>&1 || echo "  - python alias pointing to python3"; \
-		echo ""; \
-		echo "Install these with your system package manager, then re-run this target."; \
-		exit 1; \
-	fi
-
-# Install canister dependencies and repository hooks.
-install-all: install-canister-deps install-hooks
-	@echo "Canister dependencies and git hooks installed"
+# Install local developer prerequisites, tools, and repository hooks.
+install-dev:
+	scripts/dev/workstation-setup.sh install
 
 # Update the local Rust/Cargo/ICP development environment.
-update-dev: ensure-python3
-	@command -v rustup >/dev/null 2>&1 || { echo "Missing rustup. Install Rust from https://rustup.rs/."; exit 1; }
-	@command -v cargo >/dev/null 2>&1 || { echo "Missing cargo. Install the Rust toolchain pinned in README.md."; exit 1; }
-	@command -v npm >/dev/null 2>&1 || { echo "Missing npm. Install Node/npm before updating ICP CLI tools."; exit 1; }
-	rustup update
-	rustup target add wasm32-unknown-unknown
-	cargo install --quiet \
-		cargo-audit cargo-bloat cargo-deny cargo-expand cargo-machete \
-		cargo-llvm-lines cargo-sort cargo-tarpaulin cargo-sort-derives \
-		ripgrep \
-		candid-extractor ic-wasm twiggy
-	npm install -g --prefix "$$HOME/.local" @icp-sdk/icp-cli @icp-sdk/ic-wasm
-	icp --version
-	ic-wasm --version
-	cargo audit
-	$(CARGO_WORK_ENV) cargo update --quiet
-
-# Install wasm target + candid tools
-install-canister-deps:
-	rustup toolchain install 1.96.0 || true
-	rustup target add wasm32-unknown-unknown
-	cargo install candid-extractor ic-wasm twiggy --locked || true
+update-dev:
+	scripts/dev/workstation-setup.sh update
 
 # Optional explicit install target (idempotent)
 install-hooks ensure-hooks:
@@ -250,26 +212,9 @@ security-check:
 check-versioning: security-check
 	bash scripts/ci/security-check.sh
 
-check-index-range-spec-invariants:
-	bash scripts/ci/check-index-range-spec-invariants.sh
-
-check-layer-authority-invariants:
-	bash scripts/ci/check-layer-authority-invariants.sh
-
-check-architecture-text-scan-invariants:
-	bash scripts/ci/check-architecture-text-scan-invariants.sh
-
-check-module-structure-hub-thresholds:
-	bash scripts/ci/check-module-structure-hub-thresholds.sh
-
-check-sql-branch-ownership-invariants:
-	bash scripts/ci/check-sql-branch-ownership-invariants.sh
-
-check-dependency-graph-invariants:
-	bash scripts/ci/check-dependency-graph-invariants.sh
-
 check-invariants:
 	bash scripts/ci/check-dependency-graph-invariants.sh
+	bash scripts/ci/check-route-planner-import-boundary.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-architecture-text-scan-invariants.sh
