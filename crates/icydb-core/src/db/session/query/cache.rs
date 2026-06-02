@@ -162,8 +162,9 @@ fn schema_info_for_plan_cache_authority(
     authority: &EntityAuthority,
     accepted_schema: &AcceptedSchemaSnapshot,
 ) -> SchemaInfo {
-    if !accepted_schema_has_expression_indexes(accepted_schema)
-        && let Some(schema_info) = authority.accepted_schema_info()
+    if let Some(schema_info) = authority.accepted_schema_info()
+        && (!accepted_schema_has_expression_indexes(accepted_schema)
+            || !schema_info.expression_indexes().is_empty())
     {
         return schema_info.clone();
     }

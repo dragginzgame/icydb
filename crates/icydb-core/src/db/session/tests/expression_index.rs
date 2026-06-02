@@ -285,6 +285,44 @@ fn execute_sql_projection_expression_order_key_only_covering_query_avoids_store_
 }
 
 #[test]
+fn expression_index_query_miss_reuses_authority_schema_info() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_expression_order_fixture(
+        &session,
+        &[
+            (9_263_u128, "sam", 10),
+            (9_264, "Alex", 20),
+            (9_261, "bob", 30),
+            (9_262, "zoe", 40),
+        ],
+    );
+    let compiled = session
+        .compile_sql_query::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id FROM ExpressionIndexedSessionSqlEntity \
+             ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect("expression-index query should compile before counter reset");
+
+    session.clear_query_plan_cache_for_tests();
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let result = session
+        .execute_compiled_sql::<ExpressionIndexedSessionSqlEntity>(&compiled)
+        .expect("compiled expression-index query should execute");
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    let SqlStatementResult::Projection { row_count, .. } = result else {
+        panic!("expression-index query should return projection rows");
+    };
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        counters.schema_info_projections, 1,
+        "expression-index plan miss should reuse the catalog authority SchemaInfo instead of rebuilding expression-aware planner metadata",
+    );
+}
+
+#[test]
 fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

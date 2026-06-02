@@ -618,6 +618,7 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
     let plan_mod_compact = compact_source(&plan_mod);
     let executor_explain = read_source("src/db/executor/explain/mod.rs");
     let session_cache = read_source("src/db/session/query/cache.rs");
+    let session_cache_compact = compact_source(&session_cache);
     let session_mod = read_source("src/db/session/mod.rs");
 
     assert!(
@@ -712,8 +713,10 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && session_cache
                 .contains("SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(")
             && session_cache.contains("true,")
+            && session_cache_compact.contains("ifletSome(schema_info)=authority.accepted_schema_info()&&(!accepted_schema_has_expression_indexes(accepted_schema)||!schema_info.expression_indexes().is_empty())")
+            && session_cache.contains("return schema_info.clone();")
             && !session_cache.contains("fn visible_indexes_for_model("),
-        "shared query planning must build visible indexes from accepted SchemaInfo, not raw generated model indexes",
+        "shared query planning must reuse accepted authority SchemaInfo when it already carries expression metadata and must build visible indexes from accepted SchemaInfo",
     );
     assert!(
         session_mod.contains("fn visible_indexes_for_store_accepted_schema(")

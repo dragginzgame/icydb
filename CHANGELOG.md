@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
 
+- `0.176.9` reuses expression-aware catalog authority schema views on
+  expression-indexed query-plan misses instead of rebuilding planner metadata.
+
 - `0.176.8` reuses selector authority schema views for SQL write save-contract
   execution, removing another duplicate accepted schema projection from UPDATE
   and INSERT SELECT writes.

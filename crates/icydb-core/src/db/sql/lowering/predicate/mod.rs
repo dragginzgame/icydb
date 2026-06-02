@@ -19,7 +19,9 @@ use crate::db::{
 
 // Lower one parser-owned SQL `WHERE` expression onto the runtime predicate
 // authority through the shared SQL-expression seam.
-pub(in crate::db) fn lower_sql_where_expr(expr: &SqlExpr) -> Result<Predicate, SqlLoweringError> {
+pub(in crate::db::sql::lowering) fn lower_sql_where_expr(
+    expr: &SqlExpr,
+) -> Result<Predicate, SqlLoweringError> {
     let expr = lower_sql_where_bool_expr(expr)?;
 
     derive_normalized_bool_expr_predicate_subset(&expr)
