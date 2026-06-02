@@ -660,6 +660,46 @@ fn explain_sql_execution_verbose_keyword_is_accepted_in_sql_surface() {
 }
 
 #[test]
+fn explain_sql_execution_reuses_catalog_schema_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("explain-catalog-a", 20), ("explain-catalog-b", 30)],
+    );
+    let _ = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema bootstrap should publish a cached query catalog");
+
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let explain = public_query_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION VERBOSE SELECT name \
+         FROM SessionSqlEntity \
+         ORDER BY age ASC, id ASC LIMIT 1",
+    );
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    assert!(
+        explain.contains("execution:"),
+        "EXPLAIN EXECUTION VERBOSE should keep the execution explain payload: {explain}",
+    );
+    assert_eq!(
+        counters.schema_info_projections, 1,
+        "one accepted catalog context should build one SchemaInfo projection across explain authority, binding, and verbose route finalization",
+    );
+    assert_eq!(
+        counters.generated_compatible_row_layout_proofs, 1,
+        "EXPLAIN should still construct accepted execution authority once",
+    );
+    assert_eq!(
+        counters.visible_index_projections, 1,
+        "verbose EXPLAIN route finalization should project visible indexes once",
+    );
+}
+
+#[test]
 fn explain_sql_execution_verbose_reports_shared_query_plan_reuse_after_first_build() {
     reset_session_sql_store();
     let session = sql_session();

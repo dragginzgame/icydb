@@ -176,6 +176,11 @@ impl SqlCompiledCommandExecutionContext {
     }
 
     #[must_use]
+    pub(in crate::db) const fn accepted_catalog(&self) -> &AcceptedSchemaCatalogContext {
+        &self.catalog
+    }
+
+    #[must_use]
     pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
         self.catalog.fingerprint()
     }

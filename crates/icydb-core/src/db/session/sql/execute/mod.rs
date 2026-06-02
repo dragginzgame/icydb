@@ -28,7 +28,7 @@ use crate::{
         response::ResponseError,
         schema::AcceptedSchemaSnapshot,
         session::{
-            finalize_structural_grouped_projection_result,
+            AcceptedSchemaCatalogContext, finalize_structural_grouped_projection_result,
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandExecutionContext,
                 SqlStatementResult,
@@ -602,6 +602,29 @@ impl<C: CanisterKind> DbSession<C> {
                     },
                 )
             }
+            CompiledSqlCommand::Explain(lowered) => {
+                let (
+                    scalar_aggregate_terminal,
+                    ((execute_local_instructions, store_local_instructions), result),
+                ) = with_scalar_aggregate_terminal_attribution(|| {
+                    measure_execute_phase_with_physical_access(|| {
+                        self.execute_explain_sql_with_catalog_cache_attribution::<E>(
+                            lowered,
+                            context.accepted_catalog(),
+                            context.accepted_authority(),
+                        )
+                    })
+                });
+                let (result, cache_attribution) = result?;
+                let mut phase_attribution =
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    );
+                phase_attribution.scalar_aggregate_terminal = scalar_aggregate_terminal;
+
+                Ok((result, cache_attribution, phase_attribution))
+            }
             compiled => self.execute_non_select_compiled_sql_with_phase_attribution::<E>(compiled),
         }
     }
@@ -728,14 +751,31 @@ impl<C: CanisterKind> DbSession<C> {
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
             .map_err(QueryError::execute)?;
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
-            .map_err(QueryError::execute)?;
+        self.execute_explain_sql_with_catalog_cache_attribution::<E>(lowered, &catalog, None)
+    }
+
+    fn execute_explain_sql_with_catalog_cache_attribution<E>(
+        &self,
+        lowered: &LoweredSqlCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+        accepted_authority: Option<&EntityAuthority>,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let authority = match accepted_authority {
+            Some(authority) => authority.clone(),
+            None => catalog
+                .accepted_entity_authority_for::<E>()
+                .map_err(QueryError::execute)?,
+        };
+        let schema_info = catalog.accepted_schema_info_for::<E>();
 
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
             lowered,
             authority.clone(),
             catalog.snapshot(),
+            &schema_info,
         )? {
             return Ok((
                 SqlStatementResult::Explain(explain),
@@ -743,7 +783,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        self.explain_lowered_sql_for_authority(lowered, authority, catalog.snapshot())
+        self.explain_lowered_sql_for_authority(lowered, authority, catalog.snapshot(), &schema_info)
             .map(SqlStatementResult::Explain)
             .map(|result| (result, SqlCacheAttribution::default()))
     }
@@ -870,6 +910,12 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context::<E>(query, context)
             }
+            CompiledSqlCommand::Explain(lowered) => self
+                .execute_explain_sql_with_catalog_cache_attribution::<E>(
+                    lowered,
+                    context.accepted_catalog(),
+                    context.accepted_authority(),
+                ),
             compiled => self.execute_compiled_sql_with_cache_attribution::<E>(compiled),
         }
     }
@@ -944,6 +990,12 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_context::<E>(query, &context)
             }
+            CompiledSqlCommand::Explain(lowered) => self
+                .execute_explain_sql_with_catalog_cache_attribution::<E>(
+                    lowered,
+                    context.accepted_catalog(),
+                    context.accepted_authority(),
+                ),
             _ => {
                 self.execute_compiled_sql_owned_with_cache_attribution::<E>(context.into_command())
             }

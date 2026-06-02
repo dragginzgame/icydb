@@ -117,6 +117,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
+        schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
         let lane = match lowered_sql_command_lane(lowered) {
             LoweredSqlLaneKind::Query => ExplainSqlLane::Query,
@@ -142,17 +143,11 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query(message));
         }
 
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
-            authority.model(),
-            accepted_schema,
-            true,
-        );
-
         if let Some(rendered) = self.render_lowered_sql_explain_plan_or_json_for_authority(
             lowered,
             authority.clone(),
             accepted_schema,
-            &schema_info,
+            schema_info,
         )? {
             return Ok(rendered);
         }
@@ -162,7 +157,7 @@ impl<C: CanisterKind> DbSession<C> {
                 lowered,
                 authority.model(),
                 MissingRowPolicy::Ignore,
-                &schema_info,
+                schema_info,
             )
             .map_err(QueryError::from_sql_lowering_error)?
         {
@@ -232,21 +227,17 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
+        schema_info: &SchemaInfo,
     ) -> Result<Option<String>, QueryError> {
         let Some((SqlExplainMode::Execution, verbose, query)) = lowered.explain_query() else {
             return Ok(None);
         };
 
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
-            authority.model(),
-            accepted_schema,
-            true,
-        );
         let structural = bind_lowered_sql_query_structural_with_schema(
             authority.model(),
             query.clone(),
             MissingRowPolicy::Ignore,
-            &schema_info,
+            schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         if verbose {
@@ -257,12 +248,12 @@ impl<C: CanisterKind> DbSession<C> {
                     &structural,
                 )?;
             let visible_indexes = self
-                .visible_indexes_for_store_accepted_schema(authority.store_path(), &schema_info)?;
+                .visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
             plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
                 authority.model(),
                 visible_indexes.accepted_field_path_indexes(),
                 visible_indexes.accepted_expression_indexes(),
-                &schema_info,
+                schema_info,
             );
             let diagnostics = structural
                 .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(

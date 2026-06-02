@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
 
+- `0.176.3` routes SQL EXPLAIN execution through the compile-time accepted
+  catalog context so explain binding, authority, and route finalization share
+  one planner projection.
+
 - `0.176.2` makes accepted catalog context own and reuse its planner
   projection across SQL compile, aggregate execution, accepted authority, and
   shared plan miss paths.
