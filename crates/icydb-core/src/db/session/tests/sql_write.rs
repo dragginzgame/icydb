@@ -1854,6 +1854,34 @@ fn execute_sql_statement_insert_and_update_returning_projection_matrix() {
 }
 
 #[test]
+fn execute_sql_update_reuses_authority_schema_info_for_selector() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+    let compiled = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
+        )
+        .expect("SQL UPDATE RETURNING should compile before counter reset");
+
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let result = session
+        .execute_compiled_sql::<SessionSqlWriteEntity>(&compiled)
+        .expect("compiled SQL UPDATE RETURNING should execute");
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    let SqlStatementResult::Projection { row_count, .. } = result else {
+        panic!("SQL UPDATE RETURNING should project rows");
+    };
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        counters.schema_info_projections, 3,
+        "SQL UPDATE should reuse the authority-carried selector schema view while retaining selector plan and write save-contract schema views",
+    );
+}
+
+#[test]
 fn execute_sql_update_returning_star_public_entrypoint_projects_rows() {
     reset_session_sql_store();
     let session = sql_session();

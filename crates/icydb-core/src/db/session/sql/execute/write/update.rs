@@ -11,7 +11,7 @@ use crate::{
         data::StructuralPatch,
         executor::MutationMode,
         query::intent::StructuralQuery,
-        schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo},
+        schema::AcceptedRowLayoutRuntimeContract,
         session::sql::{SqlStatementResult, execute::write_returning::sql_write_statement_result},
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
@@ -66,13 +66,12 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn sql_update_selector_query<E>(
-        schema: &AcceptedSchemaSnapshot,
+        schema_info: &crate::db::schema::SchemaInfo,
         statement: &SqlUpdateStatement,
     ) -> Result<StructuralQuery, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
         if schema_info.primary_key_names().is_empty() {
             return Err(QueryError::invariant(
                 "SQL UPDATE selector must resolve the primary key from accepted schema metadata",
@@ -87,7 +86,7 @@ impl<C: CanisterKind> DbSession<C> {
             E::MODEL,
             statement,
             MissingRowPolicy::Ignore,
-            &schema_info,
+            schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -132,11 +131,14 @@ impl<C: CanisterKind> DbSession<C> {
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-        let selector = Self::sql_update_selector_query::<E>(&schema, statement)?;
-        let patch = Self::sql_structural_patch(&descriptor, statement)?;
-        let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let authority = Self::accepted_entity_authority_for_schema::<E>(&schema)
             .map_err(QueryError::execute)?;
+        let schema_info = authority.accepted_schema_info().ok_or_else(|| {
+            QueryError::invariant("SQL UPDATE selector authority must carry accepted schema info")
+        })?;
+        let selector = Self::sql_update_selector_query::<E>(schema_info, statement)?;
+        let patch = Self::sql_structural_patch(&descriptor, statement)?;
+        let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 selector, authority, &schema,

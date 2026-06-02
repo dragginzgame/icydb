@@ -11,7 +11,7 @@ use crate::{
         executor::MutationMode,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
-            AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo,
+            AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
         },
         session::sql::{SqlStatementResult, execute::write_returning::sql_write_statement_result},
         sql::{
@@ -300,12 +300,14 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_sql_lowering_error)?;
         let authority =
             Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
+        let schema_info = authority.accepted_schema_info().ok_or_else(|| {
+            QueryError::invariant("SQL INSERT SELECT authority must carry accepted schema info")
+        })?;
         let query = bind_prepared_sql_select_statement_structural_with_schema(
             prepared,
             authority.model(),
             MissingRowPolicy::Ignore,
-            &schema_info,
+            schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let (payload, _) = self

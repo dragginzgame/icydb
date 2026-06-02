@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
 
+- `0.176.5` reuses accepted authority schema views for SQL write selector
+  planning, removing duplicate accepted schema projection in UPDATE and
+  INSERT SELECT selector paths.
+
 - `0.176.4` routes fluent/schema-info helpers through accepted query catalog
   context so read-side field resolution avoids the older ensure/rebuild path.
 
