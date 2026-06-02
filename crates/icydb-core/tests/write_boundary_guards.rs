@@ -1429,7 +1429,10 @@ fn session_explain_access_choice_uses_accepted_schema_info() {
                 "bind_lowered_sql_explain_global_aggregate_structural_with_schema("
             )
             && session_sql_explain_compact.contains(
-                "SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(authority.model(),accepted_schema,true,"
+                "fnexplain_lowered_sql_for_authority(&self,lowered:&LoweredSqlCommand,authority:EntityAuthority,accepted_schema:&AcceptedSchemaSnapshot,schema_info:&SchemaInfo,"
+            )
+            && session_sql_explain_compact.contains(
+                "fnexplain_lowered_sql_execution_for_authority(&self,lowered:&LoweredSqlCommand,authority:EntityAuthority,accepted_schema:&AcceptedSchemaSnapshot,schema_info:&SchemaInfo,"
             )
             && !session_sql_explain.contains("plan.finalize_access_choice_for_model_only_with_indexes(")
             && !session_sql_explain.contains("bind_lowered_sql_query_structural(")
@@ -1834,6 +1837,37 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
 }
 
 #[test]
+fn sql_write_selectors_reuse_accepted_authority_schema_info() {
+    let insert = read_source("src/db/session/sql/execute/write/insert.rs");
+    let update = read_source("src/db/session/sql/execute/write/update.rs");
+    let update_compact = compact_source(&update);
+
+    assert!(
+        insert.contains("let schema_info = authority.accepted_schema_info().ok_or_else(|| {")
+            && insert.contains(
+                "QueryError::invariant(\"SQL INSERT SELECT authority must carry accepted schema info\")",
+            )
+            && insert.contains("bind_prepared_sql_select_statement_structural_with_schema(")
+            && !insert.contains("SchemaInfo::from_accepted_snapshot_for_model"),
+        "SQL INSERT SELECT selector binding must reuse accepted authority SchemaInfo instead of rebuilding the same accepted schema projection",
+    );
+    assert!(
+        update.contains("let schema_info = authority.accepted_schema_info().ok_or_else(|| {")
+            && update.contains(
+                "QueryError::invariant(\"SQL UPDATE selector authority must carry accepted schema info\")",
+            )
+            && update.contains(
+                "fn sql_update_selector_query<E>(\n        schema_info: &crate::db::schema::SchemaInfo,"
+            )
+            && update_compact.contains(
+                "letselector=bind_sql_update_selector_query_structural_with_schema(E::MODEL,statement,MissingRowPolicy::Ignore,schema_info,"
+            )
+            && !update.contains("SchemaInfo::from_accepted_snapshot_for_model"),
+        "SQL UPDATE selector binding must reuse accepted authority SchemaInfo instead of rebuilding the same accepted schema projection",
+    );
+}
+
+#[test]
 fn cursor_boundary_validation_uses_authority_schema_info() {
     let cursor_boundary = read_source("src/db/cursor/boundary.rs");
     let cursor_mod = read_source("src/db/cursor/mod.rs");
@@ -2008,6 +2042,15 @@ fn fluent_terminal_field_slots_use_accepted_schema_info() {
     let query_plan_logical = read_source("src/db/query/plan/semantics/logical.rs");
     let sql_aggregate_strategy = read_source("src/db/sql/lowering/aggregate/strategy.rs");
     let session_global_aggregate = read_source("src/db/session/sql/execute/global_aggregate.rs");
+    let accepted_schema_info_for_entity = compact_source(
+        session_mod
+            .split("pub(in crate::db) fn accepted_schema_info_for_entity<E>")
+            .nth(1)
+            .expect("session should expose accepted schema-info helper")
+            .split("// Derive typed executor authority")
+            .next()
+            .expect("accepted schema-info helper section should be bounded"),
+    );
 
     assert!(
         fluent_validation.contains("accepted_schema_info_for_entity::<E>()")
@@ -2035,7 +2078,13 @@ fn fluent_terminal_field_slots_use_accepted_schema_info() {
     assert!(
         session_mod.contains("pub(in crate::db) fn accepted_schema_info_for_entity<E>")
             && session_mod.contains("pub(in crate::db) fn accepted_schema_info_for<E>")
-            && session_mod.contains("SchemaInfo::from_accepted_snapshot_for_model(")
+            && accepted_schema_info_for_entity
+                .contains("letcatalog=self.accepted_schema_catalog_context_for_query::<E>()?;")
+            && accepted_schema_info_for_entity
+                .contains("Ok(catalog.accepted_schema_info_for::<E>())")
+            && !accepted_schema_info_for_entity.contains("ensure_accepted_schema_snapshot")
+            && !accepted_schema_info_for_entity
+                .contains("SchemaInfo::from_accepted_snapshot_for_model")
             && symbols
                 .contains("pub(in crate::db) fn resolve_aggregate_target_field_slot_with_schema(")
             && symbols.contains("pub(in crate::db) fn resolve_group_field_slot_with_schema(")

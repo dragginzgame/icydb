@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
 
+- `0.176.6` closes the accepted catalog cleanup line with source-boundary
+  guards for catalog-owned schema helpers and SQL write selector reuse.
+
 - `0.176.5` reuses accepted authority schema views for SQL write selector
   planning, removing duplicate accepted schema projection in UPDATE and
   INSERT SELECT selector paths.

@@ -14,7 +14,7 @@ use crate::db::{
 /// expression input consumed by the aggregate runtime.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering) enum AggregateInput {
+pub(in crate::db::sql::lowering::aggregate) enum AggregateInput {
     Rows,
     Field(String),
     Expr(Expr),
@@ -28,7 +28,7 @@ pub(in crate::db::sql::lowering) enum AggregateInput {
 /// a supported aggregate kind does not require another terminal variant family.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering) struct SqlGlobalAggregateTerminal {
+pub(in crate::db::sql::lowering::aggregate) struct SqlGlobalAggregateTerminal {
     pub(in crate::db::sql::lowering::aggregate) kind: AggregateKind,
     pub(in crate::db::sql::lowering::aggregate) input: AggregateInput,
     pub(in crate::db::sql::lowering::aggregate) filter_expr: Option<Expr>,
