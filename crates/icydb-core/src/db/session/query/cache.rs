@@ -647,7 +647,7 @@ impl QueryPlanCacheKey {
         )
     }
 
-    fn from_entity_path_cache_inputs(
+    const fn from_entity_path_cache_inputs(
         entity_path: &'static str,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
