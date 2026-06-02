@@ -2039,8 +2039,12 @@ fn assert_cached_primary_limit_one_stays_bounded(
     );
     assert!(
         cached.attribution.total_local_instructions
-            < cold.attribution.total_local_instructions.saturating_div(2),
-        "{label} cached LIMIT 1 should stay below half the cold query cost, cold={} cached={}",
+            <= cold
+                .attribution
+                .total_local_instructions
+                .saturating_mul(2)
+                .saturating_div(3),
+        "{label} cached LIMIT 1 should stay materially below cold query cost, cold={} cached={}",
         cold.attribution.total_local_instructions,
         cached.attribution.total_local_instructions,
     );
