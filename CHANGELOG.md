@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🧹 Cleanup
+
+- Tightens 0.176 closeout guards for catalog authority reuse and accepted
+  identity/header fingerprint proof before opening the 0.177 schema-version
+  line.
+
 ## [0.176.x] 🧹 - 2026-06-02 - Accepted Schema Catalog Authority
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)

@@ -1796,6 +1796,7 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
     let session_sql_compile_cache = read_source("src/db/session/sql/compile_cache.rs");
     let session_sql_compile_cache_compact = compact_source(&session_sql_compile_cache);
     let session_sql_execute = read_source("src/db/session/sql/execute/mod.rs");
+    let session_sql_execute_compact = compact_source(&session_sql_execute);
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
     let session_sql_write = read_rust_sources_under("src/db/session/sql/execute/write");
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
@@ -1833,7 +1834,8 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
             && session_sql_execute.contains("accepted_schema_catalog_context_for_query::<E>()")
             && !session_sql_execute.contains("accepted_entity_authority::<E>()")
             && session_sql_execute.contains("context.accepted_authority()")
-            && session_sql_execute.contains("Self::accepted_entity_authority_for_schema::<E>(")
+            && session_sql_execute_compact
+                .contains("context.accepted_catalog().accepted_entity_authority_for::<E>()")
             && !session_sql_execute.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && session_sql_explain.contains("accepted_schema: &AcceptedSchemaSnapshot")
             && session_sql_explain.contains("cached_shared_query_plan_for_accepted_authority(")
@@ -2913,6 +2915,24 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
         catalog_context < cache_hit && cache_hit < authority_projection,
         "eligible filterless query-plan cache hits must return before accepted snapshot decode, authority, and SchemaInfo projection",
     );
+    let identity_hit_prefix = &cached_shared_query_plan_for_entity[..cache_hit];
+    for forbidden in [
+        "SchemaInfo",
+        "AcceptedRowLayoutRuntimeContract",
+        "decode_verified",
+        "ensure_accepted_schema_snapshot",
+        "reconcile_runtime_schemas",
+        "latest_raw_snapshots_by_entity",
+        "storage_report",
+        "integrity_report",
+        "show_entities",
+        "show_stores",
+    ] {
+        assert!(
+            !identity_hit_prefix.contains(forbidden),
+            "eligible filterless query-plan cache-hit prefix must not call {forbidden}",
+        );
+    }
     assert!(
         !cached_shared_query_plan_for_entity.contains("accepted_entity_authority::<E>()")
             && cached_shared_query_plan_for_entity.contains(

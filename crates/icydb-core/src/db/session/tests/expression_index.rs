@@ -323,6 +323,58 @@ fn expression_index_query_miss_reuses_authority_schema_info() {
 }
 
 #[test]
+fn sql_compiled_cache_hit_expression_index_plan_miss_reuses_catalog_authority_schema_info() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_expression_order_fixture(
+        &session,
+        &[
+            (9_263_u128, "sam", 10),
+            (9_264, "Alex", 20),
+            (9_261, "bob", 30),
+            (9_262, "zoe", 40),
+        ],
+    );
+    let sql = "SELECT id FROM ExpressionIndexedSessionSqlEntity \
+             ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
+    let _compiled = session
+        .compile_sql_query::<ExpressionIndexedSessionSqlEntity>(sql)
+        .expect("expression-index query should warm the compiled-command cache");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "compile-only warmup should populate one compiled SQL command",
+    );
+    session.clear_query_plan_cache_for_tests();
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let result = session
+        .execute_sql_query::<ExpressionIndexedSessionSqlEntity>(sql)
+        .expect("compiled-cache-hit expression-index query should execute");
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    let SqlStatementResult::Projection { row_count, .. } = result else {
+        panic!("expression-index query should return projection rows");
+    };
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "second execution should reuse the compiled SQL command instead of inserting another entry",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "clearing the shared plan cache should force the compiled-cache-hit execution path to plan once",
+    );
+    assert_eq!(
+        counters.schema_info_projections, 1,
+        "compiled-cache-hit expression-index plan miss should reuse the catalog authority SchemaInfo instead of rebuilding expression-aware planner metadata",
+    );
+}
+
+#[test]
 fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

@@ -7710,6 +7710,10 @@ fn latest_catalog_identity_fingerprint_matches_decoded_accepted_schema() {
         &indexed_sql_session(),
         "indexed SQL entity",
     );
+
+    assert_latest_catalog_identity_fingerprint_matches_decoded_schema::<
+        ExpressionIndexedSessionSqlEntity,
+    >(&indexed_sql_session(), "expression-indexed SQL entity");
 }
 
 #[test]

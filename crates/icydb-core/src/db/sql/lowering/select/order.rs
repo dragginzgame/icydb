@@ -24,7 +24,7 @@ pub(in crate::db::sql::lowering) struct LoweredSqlOrderTerm {
     pub(in crate::db::sql::lowering) direction: SqlOrderDirection,
 }
 
-pub(in crate::db::sql::lowering) fn lower_order_terms(
+pub(super) fn lower_order_terms(
     order_by: Vec<SqlOrderTerm>,
 ) -> Result<Vec<LoweredSqlOrderTerm>, SqlLoweringError> {
     order_by.into_iter().map(lower_order_term).collect()

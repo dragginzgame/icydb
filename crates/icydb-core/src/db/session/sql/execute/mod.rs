@@ -577,10 +577,10 @@ impl<C: CanisterKind> DbSession<C> {
 
                         let authority = match context.accepted_authority() {
                             Some(authority) => authority.clone(),
-                            None => Self::accepted_entity_authority_for_schema::<E>(
-                                context.accepted_schema(),
-                            )
-                            .map_err(QueryError::execute)?,
+                            None => context
+                                .accepted_catalog()
+                                .accepted_entity_authority_for::<E>()
+                                .map_err(QueryError::execute)?,
                         };
 
                         let resolved = self
@@ -681,7 +681,9 @@ impl<C: CanisterKind> DbSession<C> {
 
         let authority = match context.accepted_authority() {
             Some(authority) => authority.clone(),
-            None => Self::accepted_entity_authority_for_schema::<E>(context.accepted_schema())
+            None => context
+                .accepted_catalog()
+                .accepted_entity_authority_for::<E>()
                 .map_err(QueryError::execute)?,
         };
 
