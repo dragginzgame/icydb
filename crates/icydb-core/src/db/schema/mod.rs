@@ -31,12 +31,18 @@ pub use errors::ValidateError;
 
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities};
 pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot};
+#[cfg(test)]
+pub(in crate::db) use codec::{
+    persisted_schema_snapshot_decode_count_for_tests,
+    reset_persisted_schema_snapshot_decode_count_for_tests,
+};
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
 };
 pub(in crate::db) use fingerprint::{
     accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
+    accepted_schema_cache_fingerprint_from_raw, accepted_schema_cache_fingerprint_method_version,
 };
 pub(in crate::db) use format::{
     show_indexes_for_model, show_indexes_for_model_with_runtime_state,
@@ -46,6 +52,11 @@ pub(in crate::db) use identity::FieldId;
 pub(in crate::db) use info::{
     SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
     SchemaIndexInfo, SchemaInfo,
+};
+#[cfg(test)]
+pub(in crate::db) use info::{
+    accepted_schema_info_projection_count_for_tests,
+    reset_accepted_schema_info_projection_count_for_tests,
 };
 pub(in crate::db::schema) use integrity::{
     schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
@@ -107,6 +118,11 @@ pub(in crate::db) use runtime::{
     AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
     OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
 };
+#[cfg(test)]
+pub(in crate::db) use runtime::{
+    generated_compatible_row_layout_proof_count_for_tests,
+    reset_generated_compatible_row_layout_proof_count_for_tests,
+};
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldOrigin,
     PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
@@ -117,7 +133,13 @@ pub(in crate::db) use snapshot::{
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
-    MAX_SCHEMA_SNAPSHOT_BYTES, SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
+    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, MAX_SCHEMA_SNAPSHOT_BYTES,
+    SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
+};
+#[cfg(test)]
+pub(in crate::db) use store::{
+    latest_raw_snapshots_by_entity_call_count_for_tests,
+    reset_latest_raw_snapshots_by_entity_call_count_for_tests,
 };
 pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,

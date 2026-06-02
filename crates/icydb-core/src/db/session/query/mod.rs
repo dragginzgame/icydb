@@ -17,6 +17,10 @@ pub(in crate::db) use cache::QueryPlanCacheAttribution;
 #[cfg(test)]
 pub(in crate::db) use cache::QueryPlanVisibility;
 pub(in crate::db::session) use cache::query_plan_cache_reuse_event;
+#[cfg(test)]
+pub(in crate::db) use cache::{
+    reset_visible_index_projection_count_for_tests, visible_index_projection_count_for_tests,
+};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,

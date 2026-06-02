@@ -23,8 +23,9 @@ use crate::{
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
-            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            SchemaInfo, accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
+            AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedRowDecodeContract,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo,
+            accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
             describe_entity_fields, describe_entity_fields_with_persisted_schema,
             describe_entity_model, describe_entity_model_with_persisted_schema,
             ensure_accepted_schema_snapshot, show_indexes_for_model,
@@ -72,10 +73,20 @@ pub struct DbSession<C: CanisterKind> {
     metrics: Option<&'static dyn MetricsSink>,
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedCatalogRuntimeCounterSnapshot {
+    pub schema_info_projections: u64,
+    pub persisted_schema_decodes: u64,
+    pub generated_compatible_row_layout_proofs: u64,
+    pub latest_by_entity_calls: u64,
+    pub visible_index_projections: u64,
+}
+
 #[derive(Clone, Debug)]
 struct AcceptedSchemaQueryCacheEntry {
     snapshot: AcceptedSchemaSnapshot,
-    fingerprint: CommitSchemaFingerprint,
+    identity: AcceptedCatalogIdentity,
 }
 
 pub(in crate::db) type AcceptedSaveContract = (
@@ -88,10 +99,18 @@ pub(in crate::db) type AcceptedSaveContract = (
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedSchemaCatalogContext {
     snapshot: AcceptedSchemaSnapshot,
-    fingerprint: CommitSchemaFingerprint,
+    identity: AcceptedCatalogIdentity,
 }
 
 impl AcceptedSchemaCatalogContext {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        snapshot: AcceptedSchemaSnapshot,
+        identity: AcceptedCatalogIdentity,
+    ) -> Self {
+        Self { snapshot, identity }
+    }
+
     #[must_use]
     pub(in crate::db) const fn snapshot(&self) -> &AcceptedSchemaSnapshot {
         &self.snapshot
@@ -99,7 +118,7 @@ impl AcceptedSchemaCatalogContext {
 
     #[must_use]
     pub(in crate::db) const fn fingerprint(&self) -> CommitSchemaFingerprint {
-        self.fingerprint
+        self.identity.accepted_schema_fingerprint()
     }
 
     pub(in crate::db) fn accepted_entity_authority_for<E>(
@@ -171,6 +190,31 @@ impl<C: CanisterKind> DbSession<C> {
         entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
     ) -> Self {
         Self::new(Db::new_with_hooks(store, entity_runtime_hooks))
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn reset_accepted_catalog_runtime_counters_for_tests() {
+        crate::db::schema::reset_accepted_schema_info_projection_count_for_tests();
+        crate::db::schema::reset_persisted_schema_snapshot_decode_count_for_tests();
+        crate::db::schema::reset_generated_compatible_row_layout_proof_count_for_tests();
+        crate::db::schema::reset_latest_raw_snapshots_by_entity_call_count_for_tests();
+        query::reset_visible_index_projection_count_for_tests();
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn accepted_catalog_runtime_counter_snapshot_for_tests()
+    -> AcceptedCatalogRuntimeCounterSnapshot {
+        AcceptedCatalogRuntimeCounterSnapshot {
+            schema_info_projections:
+                crate::db::schema::accepted_schema_info_projection_count_for_tests(),
+            persisted_schema_decodes:
+                crate::db::schema::persisted_schema_snapshot_decode_count_for_tests(),
+            generated_compatible_row_layout_proofs:
+                crate::db::schema::generated_compatible_row_layout_proof_count_for_tests(),
+            latest_by_entity_calls:
+                crate::db::schema::latest_raw_snapshots_by_entity_call_count_for_tests(),
+            visible_index_projections: query::visible_index_projection_count_for_tests(),
+        }
     }
 
     /// Enable debug execution behavior where supported by executors.
@@ -568,28 +612,69 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(entry) =
             ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned())
         {
-            return Ok(AcceptedSchemaCatalogContext {
-                snapshot: entry.snapshot,
-                fingerprint: entry.fingerprint,
-            });
+            return Ok(AcceptedSchemaCatalogContext::new(
+                entry.snapshot,
+                entry.identity,
+            ));
         }
 
         let snapshot = self.load_accepted_schema_snapshot_for_query::<E>()?;
         let fingerprint = accepted_schema_cache_fingerprint(&snapshot)?;
+        let identity = AcceptedCatalogIdentity::new(
+            E::ENTITY_TAG,
+            E::PATH,
+            E::Store::PATH,
+            snapshot.persisted_snapshot().version(),
+            fingerprint,
+        );
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow_mut().insert(
                 cache_key,
                 AcceptedSchemaQueryCacheEntry {
                     snapshot: snapshot.clone(),
-                    fingerprint,
+                    identity,
                 },
             );
         });
 
-        Ok(AcceptedSchemaCatalogContext {
-            snapshot,
-            fingerprint,
+        Ok(AcceptedSchemaCatalogContext::new(snapshot, identity))
+    }
+
+    pub(in crate::db::session) fn accepted_catalog_snapshot_selection_for_query<E>(
+        &self,
+    ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let store = self.db.recovered_store(E::Store::PATH)?;
+
+        store.with_schema_mut(|schema_store| {
+            Ok(schema_store.latest_catalog_identity(E::ENTITY_TAG, E::PATH, E::Store::PATH))
         })
+    }
+
+    pub(in crate::db::session) fn accepted_schema_catalog_context_from_selection<E>(
+        &self,
+        selection: &AcceptedCatalogSnapshotSelection,
+    ) -> Result<AcceptedSchemaCatalogContext, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let snapshot = selection.decode_verified()?;
+        let context = AcceptedSchemaCatalogContext::new(snapshot.clone(), selection.identity());
+        let cache_key = (self.db.cache_scope_id(), E::PATH);
+
+        ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
+            cache.borrow_mut().insert(
+                cache_key,
+                AcceptedSchemaQueryCacheEntry {
+                    snapshot,
+                    identity: selection.identity(),
+                },
+            );
+        });
+
+        Ok(context)
     }
 
     fn invalidate_accepted_schema_query_cache_for_entity<E>(&self)

@@ -13,8 +13,10 @@ use crate::{
         direction::Direction,
         ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
         schema::{
-            PersistedFieldKind, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-            PersistedSchemaSnapshot, SchemaVersion, decode_persisted_schema_snapshot,
+            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedSchemaSnapshot, SchemaVersion,
+            accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_from_raw,
+            accepted_schema_cache_fingerprint_method_version, decode_persisted_schema_snapshot,
             encode_persisted_schema_snapshot, schema_snapshot_integrity_detail,
         },
     },
@@ -28,6 +30,8 @@ use ic_memory::stable_structures::{
 };
 use sha2::Digest;
 use std::borrow::Cow;
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::ops::Bound as RangeBound;
@@ -38,6 +42,21 @@ pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 const SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION: u8 = 1;
 const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION: u8 = 2;
 const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION: u8 = 3;
+
+#[cfg(test)]
+thread_local! {
+    static LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_latest_raw_snapshots_by_entity_call_count_for_tests() {
+    LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(in crate::db) fn latest_raw_snapshots_by_entity_call_count_for_tests() -> u64 {
+    LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS.with(Cell::get)
+}
 
 ///
 /// RawSchemaKey
@@ -156,7 +175,6 @@ impl RawSchemaSnapshot {
 
     /// Consume the snapshot into its encoded payload bytes.
     #[must_use]
-    #[cfg(test)]
     fn into_bytes(self) -> Vec<u8> {
         self.0
     }
@@ -164,6 +182,113 @@ impl RawSchemaSnapshot {
     /// Decode this raw store payload into a typed persisted-schema snapshot.
     fn decode_persisted_snapshot(&self) -> Result<PersistedSchemaSnapshot, InternalError> {
         decode_persisted_schema_snapshot(self.as_bytes())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedCatalogIdentity {
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    store_path: &'static str,
+    accepted_schema_version: SchemaVersion,
+    fingerprint_method_version: u8,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
+}
+
+impl AcceptedCatalogIdentity {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        entity_tag: EntityTag,
+        entity_path: &'static str,
+        store_path: &'static str,
+        accepted_schema_version: SchemaVersion,
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Self {
+        Self {
+            entity_tag,
+            entity_path,
+            store_path,
+            accepted_schema_version,
+            fingerprint_method_version: accepted_schema_cache_fingerprint_method_version(),
+            accepted_schema_fingerprint,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn entity_tag(self) -> EntityTag {
+        self.entity_tag
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn entity_path(self) -> &'static str {
+        self.entity_path
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn store_path(self) -> &'static str {
+        self.store_path
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_version(self) -> SchemaVersion {
+        self.accepted_schema_version
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn fingerprint_method_version(self) -> u8 {
+        self.fingerprint_method_version
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_fingerprint(self) -> CommitSchemaFingerprint {
+        self.accepted_schema_fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedCatalogSnapshotSelection {
+    identity: AcceptedCatalogIdentity,
+    raw_snapshot: Vec<u8>,
+}
+
+impl AcceptedCatalogSnapshotSelection {
+    #[must_use]
+    const fn new(identity: AcceptedCatalogIdentity, raw_snapshot: Vec<u8>) -> Self {
+        Self {
+            identity,
+            raw_snapshot,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
+        self.identity
+    }
+
+    pub(in crate::db) fn decode_verified(&self) -> Result<AcceptedSchemaSnapshot, InternalError> {
+        let snapshot = decode_persisted_schema_snapshot(&self.raw_snapshot)?;
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+        let identity = self.identity();
+
+        if accepted.persisted_snapshot().version() != identity.accepted_schema_version() {
+            return Err(InternalError::store_invariant(
+                "accepted catalog identity selected a different schema version than the decoded snapshot",
+            ));
+        }
+        if accepted.entity_path() != identity.entity_path() {
+            return Err(InternalError::store_invariant(
+                "accepted catalog identity selected a different entity path than the decoded snapshot",
+            ));
+        }
+
+        let decoded_fingerprint = accepted_schema_cache_fingerprint(&accepted)?;
+        if decoded_fingerprint != identity.accepted_schema_fingerprint() {
+            return Err(InternalError::store_invariant(
+                "accepted catalog identity fingerprint did not match the decoded snapshot",
+            ));
+        }
+
+        Ok(accepted)
     }
 }
 
@@ -495,6 +620,26 @@ impl SchemaStore {
             .transpose()
     }
 
+    /// Return the latest accepted catalog identity for one entity without
+    /// decoding the selected schema snapshot.
+    pub(in crate::db) fn latest_catalog_identity(
+        &self,
+        entity: EntityTag,
+        entity_path: &'static str,
+        store_path: &'static str,
+    ) -> Option<AcceptedCatalogSnapshotSelection> {
+        let (version, raw_snapshot) = self.latest_raw_snapshot_entry(entity)?;
+        let fingerprint =
+            accepted_schema_cache_fingerprint_from_raw(entity_path, raw_snapshot.as_bytes());
+        let identity =
+            AcceptedCatalogIdentity::new(entity, entity_path, store_path, version, fingerprint);
+
+        Some(AcceptedCatalogSnapshotSelection::new(
+            identity,
+            raw_snapshot.into_bytes(),
+        ))
+    }
+
     /// Return raw schema-store footprint facts for one entity.
     #[must_use]
     pub(in crate::db) fn entity_footprint(&self, entity: EntityTag) -> SchemaStoreFootprint {
@@ -670,6 +815,9 @@ impl SchemaStore {
     fn latest_raw_snapshots_by_entity(
         &self,
     ) -> StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)> {
+        #[cfg(test)]
+        LATEST_RAW_SNAPSHOTS_BY_ENTITY_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
+
         let mut latest_by_entity =
             StdBTreeMap::<EntityTag, (SchemaVersion, RawSchemaSnapshot)>::new();
 
@@ -758,16 +906,24 @@ impl SchemaStore {
     }
 
     fn latest_raw_snapshot(&self, entity: EntityTag) -> Option<RawSchemaSnapshot> {
+        self.latest_raw_snapshot_entry(entity)
+            .map(|(_, snapshot)| snapshot)
+    }
+
+    fn latest_raw_snapshot_entry(
+        &self,
+        entity: EntityTag,
+    ) -> Option<(SchemaVersion, RawSchemaSnapshot)> {
         let bounds = RawSchemaKey::entity_range_bounds(entity);
         match &self.backend {
             SchemaStoreBackend::Stable(map) => map
                 .range((bounds.0, bounds.1))
                 .next_back()
-                .map(|entry| entry.value()),
+                .map(|entry| (SchemaVersion::new(entry.key().version()), entry.value())),
             SchemaStoreBackend::Heap(map) => map
                 .range((bounds.0, bounds.1))
                 .next_back()
-                .map(|(_, snapshot)| snapshot.clone()),
+                .map(|(key, snapshot)| (SchemaVersion::new(key.version()), snapshot.clone())),
             SchemaStoreBackend::Journaled {
                 canonical,
                 live,
@@ -780,8 +936,8 @@ impl SchemaStore {
                     tombstones,
                     bounds,
                     Direction::Desc,
-                    |_, snapshot| {
-                        latest = Some(snapshot.clone());
+                    |key, snapshot| {
+                        latest = Some((SchemaVersion::new(key.version()), snapshot.clone()));
                         Ok(SchemaStoreVisit::Stop)
                     },
                 );

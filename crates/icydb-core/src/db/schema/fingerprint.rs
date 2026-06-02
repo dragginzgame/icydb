@@ -74,10 +74,27 @@ pub(in crate::db) fn accepted_commit_schema_fingerprint(
 fn accepted_schema_runtime_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
+    let encoded_snapshot = encode_persisted_schema_snapshot(schema.persisted_snapshot())?;
+
+    Ok(accepted_schema_cache_fingerprint_from_raw(
+        schema.entity_path(),
+        &encoded_snapshot,
+    ))
+}
+
+#[must_use]
+pub(in crate::db) const fn accepted_schema_cache_fingerprint_method_version() -> u8 {
+    ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION
+}
+
+#[must_use]
+pub(in crate::db) fn accepted_schema_cache_fingerprint_from_raw(
+    entity_path: &str,
+    encoded_snapshot: &[u8],
+) -> CommitSchemaFingerprint {
     let mut hasher = new_hash_sha256();
     hasher.update([ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION]);
-    hash_labeled_str(&mut hasher, "entity_path", schema.entity_path());
-    let encoded_snapshot = encode_persisted_schema_snapshot(schema.persisted_snapshot())?;
+    hash_labeled_str(&mut hasher, "entity_path", entity_path);
     hash_labeled_len(
         &mut hasher,
         "accepted_schema_snapshot_len",
@@ -85,7 +102,7 @@ fn accepted_schema_runtime_fingerprint(
     );
     hasher.update(encoded_snapshot);
 
-    Ok(truncate_sha256_commit_schema_fingerprint(hasher))
+    truncate_sha256_commit_schema_fingerprint(hasher)
 }
 
 #[cfg(test)]

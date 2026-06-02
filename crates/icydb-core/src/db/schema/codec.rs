@@ -20,6 +20,23 @@ use crate::{
     },
     types::EntityTag,
 };
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_persisted_schema_snapshot_decode_count_for_tests() {
+    PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(in crate::db) fn persisted_schema_snapshot_decode_count_for_tests() -> u64 {
+    PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS.with(Cell::get)
+}
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
@@ -312,6 +329,9 @@ pub(in crate::db) fn encode_persisted_schema_snapshot(
 pub(in crate::db) fn decode_persisted_schema_snapshot(
     bytes: &[u8],
 ) -> Result<PersistedSchemaSnapshot, InternalError> {
+    #[cfg(test)]
+    PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
+
     let wire = Decode!(bytes, PersistedSchemaSnapshotWire).map_err(|err| {
         InternalError::store_corruption(format!(
             "failed to decode persisted schema snapshot: {err}"

@@ -7650,6 +7650,68 @@ fn assert_scalar_compiled_select_executes_through_shared_query_plan(
     );
 }
 
+fn assert_latest_catalog_identity_fingerprint_matches_decoded_schema<E>(
+    session: &DbSession<SessionSqlCanister>,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let _ = session
+        .accepted_schema_catalog_context_for_query::<E>()
+        .unwrap_or_else(|err| panic!("{context} accepted schema bootstrap should succeed: {err}"));
+    let selection = session
+        .accepted_catalog_snapshot_selection_for_query::<E>()
+        .unwrap_or_else(|err| panic!("{context} catalog identity lookup should succeed: {err}"))
+        .unwrap_or_else(|| panic!("{context} should have an accepted catalog identity"));
+    let accepted = selection
+        .decode_verified()
+        .unwrap_or_else(|err| panic!("{context} selected snapshot should decode: {err}"));
+    let decoded_fingerprint = accepted_schema_cache_fingerprint(&accepted)
+        .unwrap_or_else(|err| panic!("{context} decoded fingerprint should derive: {err}"));
+    let identity = selection.identity();
+
+    assert_eq!(
+        identity.entity_tag(),
+        E::ENTITY_TAG,
+        "{context} identity must keep the entity tag selected by the schema store",
+    );
+    assert_eq!(
+        identity.entity_path(),
+        E::PATH,
+        "{context} identity must keep the generated entity path used for cache identity",
+    );
+    assert_eq!(
+        identity.store_path(),
+        E::Store::PATH,
+        "{context} identity must keep the store path used for planner visibility",
+    );
+    assert_eq!(
+        identity.accepted_schema_version(),
+        accepted.persisted_snapshot().version(),
+        "{context} identity must report the selected accepted schema version",
+    );
+    assert_eq!(
+        identity.accepted_schema_fingerprint(),
+        decoded_fingerprint,
+        "{context} raw/header fingerprint must match the existing decoded accepted schema fingerprint",
+    );
+}
+
+#[test]
+fn latest_catalog_identity_fingerprint_matches_decoded_accepted_schema() {
+    reset_session_sql_store();
+    assert_latest_catalog_identity_fingerprint_matches_decoded_schema::<SessionSqlEntity>(
+        &sql_session(),
+        "plain SQL entity",
+    );
+
+    reset_indexed_session_sql_store();
+    assert_latest_catalog_identity_fingerprint_matches_decoded_schema::<IndexedSessionSqlEntity>(
+        &indexed_sql_session(),
+        "indexed SQL entity",
+    );
+}
+
 #[test]
 fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
     reset_session_sql_store();
@@ -7688,6 +7750,108 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
         session.query_plan_cache_len(),
         1,
         "equivalent fluent execution should reuse the shared structural query-plan entry",
+    );
+}
+
+#[test]
+fn filterless_shared_query_plan_cache_hit_uses_identity_without_schema_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let query = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(1);
+
+    let _ = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema bootstrap should publish a snapshot before identity lookup");
+    session.clear_query_plan_cache_for_tests();
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let (_, first_attribution) = session
+        .cached_shared_query_plan_for_entity(query.query())
+        .expect("first filterless shared plan lookup should plan");
+    let first_counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+    assert_eq!(
+        first_attribution,
+        crate::db::session::query::QueryPlanCacheAttribution { hits: 0, misses: 1 },
+        "first filterless lookup should populate the shared plan cache",
+    );
+    assert_eq!(
+        first_counters.schema_info_projections, 1,
+        "filterless miss should build accepted SchemaInfo exactly once",
+    );
+    assert_eq!(
+        first_counters.persisted_schema_decodes, 1,
+        "filterless miss should decode the selected accepted snapshot once",
+    );
+    assert_eq!(
+        first_counters.generated_compatible_row_layout_proofs, 1,
+        "filterless miss should prove generated compatibility once while constructing authority",
+    );
+    assert_eq!(
+        first_counters.visible_index_projections, 1,
+        "filterless miss should project visible indexes once",
+    );
+    assert_eq!(
+        first_counters.latest_by_entity_calls, 0,
+        "filterless miss identity lookup must not materialize all-entity schema metadata",
+    );
+
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let (_, warmed_attribution) = session
+        .cached_shared_query_plan_for_entity(query.query())
+        .expect("warmed filterless shared plan lookup should hit");
+    let warmed_counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+    assert_eq!(
+        warmed_attribution,
+        crate::db::session::query::QueryPlanCacheAttribution { hits: 1, misses: 0 },
+        "second filterless lookup should hit the shared plan cache",
+    );
+    assert_eq!(
+        warmed_counters,
+        crate::db::session::AcceptedCatalogRuntimeCounterSnapshot::default(),
+        "warmed filterless shared-plan hit must not decode schema or build accepted planner authority",
+    );
+}
+
+#[test]
+fn filtered_shared_query_plan_cache_path_remains_schema_aware() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let query = session
+        .load::<SessionSqlEntity>()
+        .filter(FieldRef::new("age").gt(20u64))
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(1);
+
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let (_, first_attribution) = session
+        .cached_shared_query_plan_for_entity(query.query())
+        .expect("first filtered shared plan lookup should plan");
+    assert_eq!(
+        first_attribution,
+        crate::db::session::query::QueryPlanCacheAttribution { hits: 0, misses: 1 },
+        "first filtered lookup should populate the shared plan cache",
+    );
+
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let (_, warmed_attribution) = session
+        .cached_shared_query_plan_for_entity(query.query())
+        .expect("warmed filtered shared plan lookup should still execute");
+    let warmed_counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+    assert_eq!(
+        warmed_attribution,
+        crate::db::session::query::QueryPlanCacheAttribution { hits: 1, misses: 0 },
+        "filtered lookup should keep existing shared-plan cache reuse semantics",
+    );
+    assert!(
+        warmed_counters.schema_info_projections > 0,
+        "filtered warmed lookup remains schema-aware because predicate normalization needs accepted schema facts",
     );
 }
 

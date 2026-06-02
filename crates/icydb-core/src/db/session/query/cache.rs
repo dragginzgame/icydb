@@ -25,11 +25,28 @@ use crate::{
     },
     traits::{CanisterKind, EntityKind, Path},
 };
+#[cfg(test)]
+use std::cell::Cell;
 use std::{cell::RefCell, collections::HashMap};
 
 // Bump this when the shared lower query-plan cache key meaning changes in a
 // way that must force old in-heap entries to miss instead of aliasing.
 const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 2;
+
+#[cfg(test)]
+thread_local! {
+    static VISIBLE_INDEX_PROJECTIONS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_visible_index_projection_count_for_tests() {
+    VISIBLE_INDEX_PROJECTIONS.with(|projections| projections.set(0));
+}
+
+#[cfg(test)]
+pub(in crate::db) fn visible_index_projection_count_for_tests() -> u64 {
+    VISIBLE_INDEX_PROJECTIONS.with(Cell::get)
+}
 
 ///
 /// QueryPlanVisibility
@@ -199,6 +216,10 @@ impl<C: CanisterKind> DbSession<C> {
         schema_info: &SchemaInfo,
         visibility: QueryPlanVisibility,
     ) -> VisibleIndexes<'static> {
+        #[cfg(test)]
+        VISIBLE_INDEX_PROJECTIONS
+            .with(|projections| projections.set(projections.get().saturating_add(1)));
+
         match visibility {
             QueryPlanVisibility::StoreReady => {
                 let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info);
@@ -557,6 +578,39 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
+        if !query.structural().has_scalar_filter() {
+            let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
+            if let Some(selection) = self
+                .accepted_catalog_snapshot_selection_for_query::<E>()
+                .map_err(QueryError::execute)?
+            {
+                let identity = selection.identity();
+                debug_assert_eq!(identity.entity_tag(), E::ENTITY_TAG);
+                debug_assert_eq!(identity.entity_path(), E::PATH);
+                debug_assert_eq!(identity.store_path(), E::Store::PATH);
+                debug_assert_eq!(
+                    identity.fingerprint_method_version(),
+                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                );
+                if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path(
+                    E::PATH,
+                    identity.accepted_schema_fingerprint(),
+                    visibility,
+                    query.structural(),
+                ) {
+                    return Ok(cached);
+                }
+
+                let catalog = self
+                    .accepted_schema_catalog_context_from_selection::<E>(&selection)
+                    .map_err(QueryError::execute)?;
+
+                return self.cached_shared_query_plan_for_entity_with_catalog_and_visibility(
+                    query, &catalog, visibility,
+                );
+            }
+        }
+
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
             .map_err(QueryError::execute)?;
@@ -573,6 +627,21 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
+
+        self.cached_shared_query_plan_for_entity_with_catalog_and_visibility(
+            query, catalog, visibility,
+        )
+    }
+
+    fn cached_shared_query_plan_for_entity_with_catalog_and_visibility<E>(
+        &self,
+        query: &Query<E>,
+        catalog: &AcceptedSchemaCatalogContext,
+        visibility: QueryPlanVisibility,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
         if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path(
             E::PATH,
             catalog.fingerprint(),

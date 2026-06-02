@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
 
+- `0.176.1` moves eligible warmed filterless shared query-plan cache hits onto
+  accepted catalog identity lookup before accepted snapshot decode or planner
+  view construction.
+
 - `0.176.0` moves query, SQL, explain, aggregate, DDL preparation, and write
   save-contract paths onto accepted catalog context and shared accepted-schema
   contract helpers, removing duplicate runtime authority reconstruction before

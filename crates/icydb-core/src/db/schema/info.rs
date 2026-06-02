@@ -20,11 +20,28 @@ use crate::{
     },
     value::Value,
 };
+#[cfg(test)]
+use std::cell::Cell;
 use std::sync::{Mutex, OnceLock};
 
 type SchemaFieldEntry = (String, SchemaFieldInfo);
 type CachedSchemaEntries = Vec<(&'static str, &'static SchemaInfo)>;
 const EMPTY_GENERATED_NESTED_FIELDS: &[FieldModel] = &[];
+
+#[cfg(test)]
+thread_local! {
+    static ACCEPTED_SCHEMA_INFO_PROJECTIONS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_accepted_schema_info_projection_count_for_tests() {
+    ACCEPTED_SCHEMA_INFO_PROJECTIONS.with(|projections| projections.set(0));
+}
+
+#[cfg(test)]
+pub(in crate::db) fn accepted_schema_info_projection_count_for_tests() -> u64 {
+    ACCEPTED_SCHEMA_INFO_PROJECTIONS.with(Cell::get)
+}
 
 fn schema_field_info<'a>(
     fields: &'a [SchemaFieldEntry],
@@ -845,6 +862,10 @@ impl SchemaInfo {
         schema: &AcceptedSchemaSnapshot,
         include_expression_indexes: bool,
     ) -> Self {
+        #[cfg(test)]
+        ACCEPTED_SCHEMA_INFO_PROJECTIONS
+            .with(|projections| projections.set(projections.get().saturating_add(1)));
+
         let snapshot = schema.persisted_snapshot();
         let indexed_field_ids = accepted_indexed_field_ids(snapshot);
         let mut fields = snapshot

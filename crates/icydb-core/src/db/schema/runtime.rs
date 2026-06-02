@@ -15,6 +15,23 @@ use crate::{
         field::{FieldModel, FieldStorageDecode, LeafCodec},
     },
 };
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_generated_compatible_row_layout_proof_count_for_tests() {
+    GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS.with(|proofs| proofs.set(0));
+}
+
+#[cfg(test)]
+pub(in crate::db) fn generated_compatible_row_layout_proof_count_for_tests() -> u64 {
+    GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS.with(Cell::get)
+}
 
 ///
 /// AcceptedFieldAbsencePolicy
@@ -618,6 +635,10 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         accepted: &'a AcceptedSchemaSnapshot,
         model: &'static EntityModel,
     ) -> Result<(Self, AcceptedGeneratedRowCompatibilityProof), InternalError> {
+        #[cfg(test)]
+        GENERATED_COMPATIBLE_ROW_LAYOUT_PROOFS
+            .with(|proofs| proofs.set(proofs.get().saturating_add(1)));
+
         let descriptor = Self::from_accepted_schema(accepted)?;
         let row_proof = descriptor.generated_row_compatibility_proof_for_model(model)?;
 
