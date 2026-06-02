@@ -4,15 +4,13 @@
 //! Does not own: commit staging, mutation execution, or persistence encoding.
 //! Boundary: keeps public session write semantics above the executor save surface.
 
+use super::accepted_save_contract_for_descriptor;
 use crate::{
     db::{
         DbSession, PersistedRow, WriteBatchResponse,
         data::{FieldSlot, StructuralPatch},
         executor::MutationMode,
-        schema::{
-            AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeContract, SchemaInfo,
-            accepted_commit_schema_fingerprint,
-        },
+        schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeContract},
     },
     error::InternalError,
     traits::{CanisterKind, EntityCreateInput, EntityValue},
@@ -192,12 +190,12 @@ impl<C: CanisterKind> DbSession<C> {
             E::MODEL,
         )?;
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
-        let accepted_schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
-        let accepted_schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;
-
-        let row_decode_contract = descriptor.row_decode_contract();
-        let mutation_row_decode_contract = row_decode_contract.clone();
+        let (
+            row_decode_contract,
+            mutation_row_decode_contract,
+            accepted_schema_info,
+            accepted_schema_fingerprint,
+        ) = accepted_save_contract_for_descriptor::<E>(&accepted_schema, &descriptor)?;
 
         self.execute_save_with_checked_accepted_row_contract(
             row_decode_contract,

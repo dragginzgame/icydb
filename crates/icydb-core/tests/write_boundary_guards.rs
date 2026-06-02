@@ -1374,7 +1374,9 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     assert!(
         session_mod.contains("self.db.recovered_store(E::Store::PATH)?")
             && session_mod.contains("ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)")
-            && session_mod.contains("SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema)")
+            && session_mod.contains("fn accepted_save_contract_for_descriptor<E>")
+            && session_mod.contains("SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, accepted_schema)")
+            && session_mod.contains("accepted_save_contract_for_descriptor::<E>(&accepted_schema, &accepted_row_layout)")
             && session_mod.contains("self.save_executor::<E>(contract, schema_info, schema_fingerprint)")
             && !session_mod.contains(
                 "self.ensure_accepted_schema_snapshot_for_authority(&EntityAuthority::for_generated_type_for_test::<E>())",

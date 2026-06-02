@@ -78,6 +78,13 @@ struct AcceptedSchemaQueryCacheEntry {
     fingerprint: CommitSchemaFingerprint,
 }
 
+pub(in crate::db) type AcceptedSaveContract = (
+    AcceptedRowDecodeContract,
+    AcceptedRowDecodeContract,
+    SchemaInfo,
+    CommitSchemaFingerprint,
+);
+
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedSchemaCatalogContext {
     snapshot: AcceptedSchemaSnapshot,
@@ -115,6 +122,26 @@ impl AcceptedSchemaCatalogContext {
             true,
         )
     }
+}
+
+pub(in crate::db) fn accepted_save_contract_for_descriptor<E>(
+    accepted_schema: &AcceptedSchemaSnapshot,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+) -> Result<AcceptedSaveContract, InternalError>
+where
+    E: EntityKind,
+{
+    let row_decode_contract = descriptor.row_decode_contract();
+    let mutation_row_decode_contract = row_decode_contract.clone();
+    let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, accepted_schema);
+    let schema_fingerprint = accepted_commit_schema_fingerprint(accepted_schema)?;
+
+    Ok((
+        row_decode_contract,
+        mutation_row_decode_contract,
+        schema_info,
+        schema_fingerprint,
+    ))
 }
 
 thread_local! {
@@ -655,14 +682,10 @@ impl<C: CanisterKind> DbSession<C> {
                 &accepted_schema,
                 E::MODEL,
             )?;
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
-        let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;
+        let (row_decode_contract, _, schema_info, schema_fingerprint) =
+            accepted_save_contract_for_descriptor::<E>(&accepted_schema, &accepted_row_layout)?;
 
-        Ok((
-            accepted_row_layout.row_decode_contract(),
-            schema_info,
-            schema_fingerprint,
-        ))
+        Ok((row_decode_contract, schema_info, schema_fingerprint))
     }
 
     /// Build one point-in-time storage report for observability endpoints.

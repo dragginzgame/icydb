@@ -4,19 +4,20 @@ mod update;
 use crate::{
     db::{
         DbSession, PersistedRow, Query, QueryError,
-        commit::CommitSchemaFingerprint,
         data::{FieldSlot, StructuralPatch},
         schema::{
-            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            SchemaFieldWritePolicy, SchemaInfo, ValidateError, accepted_commit_schema_fingerprint,
-            canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
-            literal_matches_type,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
+            ValidateError, canonicalize_strict_sql_literal_for_persisted_kind,
+            field_type_from_persisted_kind, literal_matches_type,
         },
-        session::sql::{
-            SqlStatementResult,
-            execute::write_returning::{
-                projection_labels_from_accepted_write_descriptor,
-                sql_returning_statement_projection,
+        session::{
+            AcceptedSaveContract, accepted_save_contract_for_descriptor,
+            sql::{
+                SqlStatementResult,
+                execute::write_returning::{
+                    projection_labels_from_accepted_write_descriptor,
+                    sql_returning_statement_projection,
+                },
             },
         },
         sql::parser::SqlReturningProjection,
@@ -126,30 +127,11 @@ where
 fn accepted_sql_write_save_contract<E>(
     schema: &AcceptedSchemaSnapshot,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-) -> Result<
-    (
-        AcceptedRowDecodeContract,
-        AcceptedRowDecodeContract,
-        SchemaInfo,
-        CommitSchemaFingerprint,
-    ),
-    QueryError,
->
+) -> Result<AcceptedSaveContract, QueryError>
 where
     E: EntityKind,
 {
-    let row_decode_contract = descriptor.row_decode_contract();
-    let mutation_row_decode_contract = row_decode_contract.clone();
-    let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
-    let schema_fingerprint =
-        accepted_commit_schema_fingerprint(schema).map_err(QueryError::execute)?;
-
-    Ok((
-        row_decode_contract,
-        mutation_row_decode_contract,
-        schema_info,
-        schema_fingerprint,
-    ))
+    accepted_save_contract_for_descriptor::<E>(schema, descriptor).map_err(QueryError::execute)
 }
 
 fn accepted_write_field_slot(

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.176.x] 🧹 - 2026-06-02 - Accepted Schema Catalog Authority
+
+Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
+
+- `0.176.0` moves query, SQL, explain, aggregate, DDL preparation, and write
+  save-contract paths onto accepted catalog context and shared accepted-schema
+  contract helpers, removing duplicate runtime authority reconstruction before
+  the 0.176 release line.
+
 ## [0.175.x] 🧹 - 2026-06-01 - Journaled Store Audit, Hardening, And DRY Cleanup
 
 Detailed notes: [docs/changelog/0.175.md](docs/changelog/0.175.md)
