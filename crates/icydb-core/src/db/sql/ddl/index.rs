@@ -38,18 +38,21 @@ pub(in crate::db) struct BoundSqlCreateIndexRequest {
 impl BoundSqlCreateIndexRequest {
     /// Borrow the requested index name.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn index_name(&self) -> &str {
         self.index_name.as_str()
     }
 
     /// Borrow the accepted entity name that owns this request.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn entity_name(&self) -> &str {
         self.entity_name.as_str()
     }
 
     /// Borrow the accepted field-path targets.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn field_paths(&self) -> &[BoundSqlDdlFieldPath] {
         self.field_paths.as_slice()
     }
@@ -75,7 +78,6 @@ impl BoundSqlCreateIndexRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct BoundSqlDropIndexRequest {
     index_name: String,
-    entity_name: String,
     dropped_index: PersistedIndexSnapshot,
     field_path: Vec<String>,
 }
@@ -85,12 +87,6 @@ impl BoundSqlDropIndexRequest {
     #[must_use]
     pub(in crate::db) const fn index_name(&self) -> &str {
         self.index_name.as_str()
-    }
-
-    /// Borrow the accepted entity name that owns this request.
-    #[must_use]
-    pub(in crate::db) const fn entity_name(&self) -> &str {
-        self.entity_name.as_str()
     }
 
     /// Borrow the accepted index snapshot that will be removed.
@@ -331,7 +327,6 @@ pub(super) fn bind_drop_index_statement(
     Ok(BoundSqlDdlRequest {
         statement: BoundSqlDdlStatement::DropIndex(BoundSqlDropIndexRequest {
             index_name: statement.name.clone(),
-            entity_name: entity_name.to_string(),
             dropped_index,
             field_path,
         }),

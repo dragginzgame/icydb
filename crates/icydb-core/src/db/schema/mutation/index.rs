@@ -424,6 +424,7 @@ impl SchemaMutationRequest<'_> {
 
 /// Admit one SQL DDL field-path index candidate through the schema-owned
 /// mutation request and supported-runner path.
+#[cfg(test)]
 pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {

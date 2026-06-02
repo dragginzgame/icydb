@@ -910,6 +910,55 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
 }
 
 #[test]
+fn global_aggregate_execution_reuses_catalog_schema_projection_on_shared_plan_miss() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-catalog-a", 10),
+            ("aggregate-catalog-b", 20),
+            ("aggregate-catalog-c", 30),
+        ],
+    );
+
+    let compiled = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
+        )
+        .expect("global aggregate should compile before execution counter reset");
+
+    session.clear_query_plan_cache_for_tests();
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_compiled_sql::<SessionSqlEntity>(&compiled)
+        .expect("compiled global aggregate should execute through shared query planning")
+    else {
+        panic!("compiled global aggregate should return a projection row");
+    };
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    assert_eq!(rows, vec![vec![output(Value::Nat64(2))]]);
+    assert_eq!(
+        counters.schema_info_projections, 1,
+        "one accepted catalog context should build one SchemaInfo projection across aggregate request and shared-plan miss",
+    );
+    assert_eq!(
+        counters.generated_compatible_row_layout_proofs, 1,
+        "shared-plan miss should still construct accepted execution authority once",
+    );
+    assert_eq!(
+        counters.visible_index_projections, 1,
+        "shared-plan miss should still project planner-visible indexes once",
+    );
+    assert_eq!(
+        counters.persisted_schema_decodes, 0,
+        "execution should reuse the accepted snapshot cached during SQL compilation",
+    );
+}
+
+#[test]
 fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with_fluent_count() {
     reset_session_sql_store();
     let session = sql_session();

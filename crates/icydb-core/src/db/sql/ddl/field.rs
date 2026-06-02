@@ -74,6 +74,7 @@ impl BoundSqlAlterColumnDefaultRequest {
 
     /// Borrow the accepted field whose default will change.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
         &self.field
     }
@@ -119,6 +120,7 @@ impl BoundSqlAlterColumnNullabilityRequest {
 
     /// Borrow the accepted field whose nullability will change.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
         &self.field
     }
@@ -162,6 +164,7 @@ impl BoundSqlDropColumnRequest {
 
     /// Borrow the accepted DDL-owned field that will be retired.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
         &self.field
     }
@@ -200,6 +203,7 @@ impl BoundSqlRenameColumnRequest {
 
     /// Borrow the accepted source field.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
         &self.field
     }

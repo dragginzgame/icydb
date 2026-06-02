@@ -7,7 +7,6 @@
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        schema::SchemaInfo,
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
@@ -216,8 +215,7 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = catalog
             .accepted_entity_authority_for::<E>()
             .map_err(QueryError::execute)?;
-        let schema =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), catalog.snapshot());
+        let schema = catalog.accepted_schema_info_for::<E>();
 
         let parse_result =
             measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error));

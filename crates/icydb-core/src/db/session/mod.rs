@@ -39,7 +39,11 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
-use std::{cell::RefCell, collections::HashMap, thread::LocalKey};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::HashMap,
+    thread::LocalKey,
+};
 
 #[cfg(feature = "diagnostics")]
 pub use query::{
@@ -100,6 +104,7 @@ pub(in crate::db) type AcceptedSaveContract = (
 pub(in crate::db) struct AcceptedSchemaCatalogContext {
     snapshot: AcceptedSchemaSnapshot,
     identity: AcceptedCatalogIdentity,
+    schema_info: OnceCell<SchemaInfo>,
 }
 
 impl AcceptedSchemaCatalogContext {
@@ -108,7 +113,11 @@ impl AcceptedSchemaCatalogContext {
         snapshot: AcceptedSchemaSnapshot,
         identity: AcceptedCatalogIdentity,
     ) -> Self {
-        Self { snapshot, identity }
+        Self {
+            snapshot,
+            identity,
+            schema_info: OnceCell::new(),
+        }
     }
 
     #[must_use]
@@ -121,13 +130,35 @@ impl AcceptedSchemaCatalogContext {
         self.identity.accepted_schema_fingerprint()
     }
 
+    fn debug_assert_matches_entity<E>(&self)
+    where
+        E: EntityKind,
+    {
+        debug_assert_eq!(self.identity.entity_tag(), E::ENTITY_TAG);
+        debug_assert_eq!(self.identity.entity_path(), E::PATH);
+        debug_assert_eq!(self.identity.store_path(), E::Store::PATH);
+    }
+
     pub(in crate::db) fn accepted_entity_authority_for<E>(
         &self,
     ) -> Result<EntityAuthority, InternalError>
     where
         E: EntityKind,
     {
-        EntityAuthority::from_accepted_schema_for_type::<E>(&self.snapshot)
+        self.debug_assert_matches_entity::<E>();
+        let authority = EntityAuthority::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH);
+        let (accepted_row_layout, row_proof) =
+            AcceptedRowLayoutRuntimeContract::from_generated_compatible_schema(
+                &self.snapshot,
+                authority.model(),
+            )?;
+        let row_decode_contract = accepted_row_layout.row_decode_contract();
+
+        Ok(authority.with_accepted_row_decode_contract(
+            row_proof,
+            row_decode_contract,
+            self.accepted_schema_info_for::<E>(),
+        ))
     }
 
     #[must_use]
@@ -135,11 +166,16 @@ impl AcceptedSchemaCatalogContext {
     where
         E: EntityKind,
     {
-        SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
-            E::MODEL,
-            &self.snapshot,
-            true,
-        )
+        self.debug_assert_matches_entity::<E>();
+        self.schema_info
+            .get_or_init(|| {
+                SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+                    E::MODEL,
+                    &self.snapshot,
+                    true,
+                )
+            })
+            .clone()
     }
 }
 

@@ -86,21 +86,24 @@ pub(in crate::db::schema) use mutation::{
 };
 pub(in crate::db) use mutation::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
-    SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError,
-    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
-    SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
+    SchemaDdlMutationAdmissionError, SchemaExpressionIndexRebuildExpression,
+    SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget,
+    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
-    SchemaSecondaryIndexDropCleanupTarget, admit_sql_ddl_expression_index_candidate,
-    admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
-    admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
-    admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
-    admit_sql_ddl_secondary_index_drop_candidate, derive_sql_ddl_expression_index_accepted_after,
+    SchemaSecondaryIndexDropCleanupTarget, derive_sql_ddl_expression_index_accepted_after,
     derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
     derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after, resolve_sql_ddl_field_drop_dependent_index,
     resolve_sql_ddl_secondary_index_drop_candidate,
+};
+#[cfg(test)]
+pub(in crate::db) use mutation::{
+    SchemaDdlMutationAdmission, admit_sql_ddl_expression_index_candidate,
+    admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
+    admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
+    admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
+    admit_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};

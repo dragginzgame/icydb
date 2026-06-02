@@ -3,11 +3,6 @@
 //! Does not own: mutation planning, physical index rebuilds, or SQL execution.
 //! Boundary: translates parser-owned DDL syntax into catalog-native requests.
 
-#![allow(
-    dead_code,
-    reason = "DDL binding exposes prepare-only diagnostics and test-only inspection accessors"
-)]
-
 mod field;
 pub(in crate::db) use field::{
     BoundSqlAddColumnRequest, BoundSqlAlterColumnDefaultRequest,
@@ -24,12 +19,8 @@ use index::{bind_create_index_statement, bind_drop_index_statement, ddl_key_item
 
 use crate::db::{
     schema::{
-        AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmission,
-        SchemaDdlMutationAdmissionError, SchemaInfo, admit_sql_ddl_expression_index_candidate,
-        admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
-        admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
-        admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
-        admit_sql_ddl_secondary_index_drop_candidate,
+        AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
+        SchemaDdlMutationAdmissionError, SchemaInfo,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
@@ -39,6 +30,15 @@ use crate::db::{
     sql::parser::{SqlDdlStatement, SqlStatement},
 };
 use thiserror::Error as ThisError;
+
+#[cfg(test)]
+use crate::db::schema::{
+    SchemaDdlMutationAdmission, admit_sql_ddl_expression_index_candidate,
+    admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
+    admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
+    admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
+    admit_sql_ddl_secondary_index_drop_candidate,
+};
 
 ///
 /// PreparedSqlDdlCommand
@@ -288,6 +288,7 @@ impl BoundSqlDdlNoOpRequest {
 
     /// Borrow the accepted entity name that owns this request.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn entity_name(&self) -> &str {
         self.entity_name.as_str()
     }
@@ -317,9 +318,6 @@ pub(in crate::db) enum SqlDdlBindError {
 
     #[error("accepted schema does not expose an entity name")]
     MissingEntityName,
-
-    #[error("accepted schema does not expose an entity path")]
-    MissingEntityPath,
 
     #[error("SQL entity '{sql_entity}' does not match accepted entity '{expected_entity}'")]
     EntityMismatch {
@@ -368,14 +366,6 @@ pub(in crate::db) enum SqlDdlBindError {
     UnsupportedDropIndex { index_name: String },
 
     #[error(
-        "SQL DDL ALTER TABLE ADD COLUMN is not executable yet for accepted entity '{entity_name}' column '{column_name}'"
-    )]
-    UnsupportedAlterTableAddColumn {
-        entity_name: String,
-        column_name: String,
-    },
-
-    #[error(
         "SQL DDL ALTER TABLE ADD COLUMN DEFAULT value is not encodable for accepted entity '{entity_name}' column '{column_name}': {detail}"
     )]
     InvalidAlterTableAddColumnDefault {
@@ -411,15 +401,6 @@ pub(in crate::db) enum SqlDdlBindError {
     UnknownColumn {
         entity_name: String,
         column_name: String,
-    },
-
-    #[error(
-        "SQL DDL ALTER TABLE ALTER COLUMN {action} is not executable yet for accepted entity '{entity_name}' column '{column_name}'"
-    )]
-    UnsupportedAlterTableAlterColumn {
-        entity_name: String,
-        column_name: String,
-        action: String,
     },
 
     #[error(
@@ -486,15 +467,6 @@ pub(in crate::db) enum SqlDdlBindError {
     GeneratedFieldRenameRejected {
         entity_name: String,
         column_name: String,
-    },
-
-    #[error(
-        "SQL DDL ALTER TABLE RENAME COLUMN is not executable for accepted entity '{entity_name}' column '{old_column_name}' to '{new_column_name}'"
-    )]
-    UnsupportedAlterTableRenameColumn {
-        entity_name: String,
-        old_column_name: String,
-        new_column_name: String,
     },
 }
 
@@ -586,6 +558,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
 }
 
 /// Lower one bound SQL DDL request through schema mutation admission.
+#[cfg(test)]
 pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
     request: &BoundSqlDdlRequest,
 ) -> Result<SchemaDdlMutationAdmission, SqlDdlLoweringError> {
