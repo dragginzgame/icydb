@@ -601,13 +601,14 @@ impl<C: CanisterKind> DbSession<C> {
                     return Ok(cached);
                 }
 
-                let catalog = self
+                if let Some(catalog) = self
                     .accepted_schema_catalog_context_from_selection::<E>(&selection)
-                    .map_err(QueryError::execute)?;
-
-                return self.cached_shared_query_plan_for_entity_with_catalog_and_visibility(
-                    query, &catalog, visibility,
-                );
+                    .map_err(QueryError::execute)?
+                {
+                    return self.cached_shared_query_plan_for_entity_with_catalog_and_visibility(
+                        query, &catalog, visibility,
+                    );
+                }
             }
         }
 

@@ -656,11 +656,14 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn accepted_schema_catalog_context_from_selection<E>(
         &self,
         selection: &AcceptedCatalogSnapshotSelection,
-    ) -> Result<AcceptedSchemaCatalogContext, InternalError>
+    ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
         let snapshot = selection.decode_verified()?;
+        if snapshot.persisted_snapshot().fields().len() != E::MODEL.fields().len() {
+            return Ok(None);
+        }
         let context = AcceptedSchemaCatalogContext::new(snapshot.clone(), selection.identity());
         let cache_key = (self.db.cache_scope_id(), E::PATH);
 
@@ -674,7 +677,7 @@ impl<C: CanisterKind> DbSession<C> {
             );
         });
 
-        Ok(context)
+        Ok(Some(context))
     }
 
     fn invalidate_accepted_schema_query_cache_for_entity<E>(&self)
