@@ -760,15 +760,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
+        let catalog = self.accepted_schema_catalog_context_for_query::<E>()?;
 
-        Ok(
-            SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
-                E::MODEL,
-                &accepted_schema,
-                true,
-            ),
-        )
+        Ok(catalog.accepted_schema_info_for::<E>())
     }
 
     // Derive typed executor authority from an accepted snapshot the caller

@@ -14,7 +14,7 @@ use crate::db::{
 /// Lower one supported SQL `ORDER BY` expression term into the canonical
 /// expression tree after parser-owned token parsing.
 #[must_use]
-pub(in crate::db) fn lower_supported_order_expr_text(term: &str) -> Option<Expr> {
+pub(in crate::db::sql::lowering) fn lower_supported_order_expr_text(term: &str) -> Option<Expr> {
     let ast = parse_supported_order_expr_ast(term)?;
 
     lower_sql_expr(&ast, SqlExprPhase::Scalar).ok()
@@ -23,7 +23,9 @@ pub(in crate::db) fn lower_supported_order_expr_text(term: &str) -> Option<Expr>
 /// Lower one grouped post-aggregate SQL `ORDER BY` expression term into the
 /// canonical expression tree after parser-owned token parsing.
 #[must_use]
-pub(in crate::db) fn lower_grouped_post_aggregate_order_expr_text(term: &str) -> Option<Expr> {
+pub(in crate::db::sql::lowering) fn lower_grouped_post_aggregate_order_expr_text(
+    term: &str,
+) -> Option<Expr> {
     let ast = parse_grouped_post_aggregate_order_expr_ast(term)?;
 
     lower_sql_expr(&ast, SqlExprPhase::PostAggregate).ok()

@@ -46,7 +46,7 @@ pub(crate) use aggregate::{
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
 #[cfg(test)]
-pub(in crate::db) use order_expr::{
+pub(in crate::db::sql::lowering) use order_expr::{
     lower_grouped_post_aggregate_order_expr_text, lower_supported_order_expr_text,
 };
 pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural_with_schema;

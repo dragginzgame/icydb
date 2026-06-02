@@ -7818,6 +7818,40 @@ fn filterless_shared_query_plan_cache_hit_uses_identity_without_schema_projectio
 }
 
 #[test]
+fn accepted_schema_info_for_entity_reuses_query_catalog_context() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let _ = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema bootstrap should publish a cached query catalog");
+
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let schema = session
+        .accepted_schema_info_for_entity::<SessionSqlEntity>()
+        .expect("accepted schema info should resolve from query catalog");
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    assert_eq!(schema.entity_name(), Some("SessionSqlEntity"));
+    assert_eq!(
+        counters.schema_info_projections, 1,
+        "schema-info helper should build the accepted planner projection once",
+    );
+    assert_eq!(
+        counters.persisted_schema_decodes, 0,
+        "schema-info helper should reuse the cached accepted query catalog snapshot",
+    );
+    assert_eq!(
+        counters.generated_compatible_row_layout_proofs, 0,
+        "schema-info helper should not run generated-compatible write proof construction",
+    );
+    assert_eq!(
+        counters.latest_by_entity_calls, 0,
+        "schema-info helper should not materialize all-entity schema metadata",
+    );
+}
+
+#[test]
 fn filtered_shared_query_plan_cache_path_remains_schema_aware() {
     reset_session_sql_store();
     let session = sql_session();

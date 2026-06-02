@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
 
+- `0.176.4` routes fluent/schema-info helpers through accepted query catalog
+  context so read-side field resolution avoids the older ensure/rebuild path.
+
 - `0.176.3` routes SQL EXPLAIN execution through the compile-time accepted
   catalog context so explain binding, authority, and route finalization share
   one planner projection.
