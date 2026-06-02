@@ -27,6 +27,7 @@ define_fixture_store!(
 
 #[entity(
     store = "SqlTestStore",
+    schema_version = 1,
     pk(fields = ["id"]),
     index(fields = ["name"]),
     fields(
@@ -51,6 +52,7 @@ pub struct SqlTestUser {}
 
 #[entity(
     store = "SqlTestStore",
+    schema_version = 1,
     pk(fields = ["id"]),
     index(fields = ["label"]),
     fields(

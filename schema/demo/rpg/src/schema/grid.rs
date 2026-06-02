@@ -10,6 +10,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "DemoRpgStore",
+    schema_version = 1,
     pk(fields = ["x", "y"]),
     index(fields = ["terrain"]),
     index(fields = ["danger_level", "terrain"]),

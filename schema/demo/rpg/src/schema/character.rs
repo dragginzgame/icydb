@@ -28,6 +28,7 @@ pub struct CharacterMentor {}
 
 #[entity(
     store = "DemoRpgStore",
+    schema_version = 1,
     pk(fields = ["id"]),
     index(fields = ["name"]),
     index(fields = ["level", "class_name"]),
