@@ -1083,6 +1083,7 @@ fn accepted_schema_fingerprints_are_snapshot_only() {
     let fingerprint = read_source("src/db/schema/fingerprint.rs");
     let commit_prepare = read_source("src/db/commit/prepare.rs");
     let session_query_cache = read_source("src/db/session/query/cache.rs");
+    let session_sql_cache = read_source("src/db/session/sql/cache.rs");
 
     assert!(
         fingerprint.contains("pub(in crate::db) fn accepted_commit_schema_fingerprint(")
@@ -1106,9 +1107,13 @@ fn accepted_schema_fingerprints_are_snapshot_only() {
     assert!(
         commit_prepare.contains("accepted_commit_schema_fingerprint(&accepted)")
             && session_query_cache.contains("accepted_schema_cache_fingerprint(accepted_schema)")
+            && session_query_cache.contains("schema_fingerprint_method_version: u8")
+            && session_sql_cache.contains("schema_fingerprint_method_version: u8")
+            && session_query_cache.contains("accepted_schema_cache_fingerprint_method_version()")
+            && session_sql_cache.contains("accepted_schema_cache_fingerprint_method_version()")
             && !commit_prepare.contains("accepted_commit_schema_fingerprint_for_model(")
             && !session_query_cache.contains("accepted_schema_cache_fingerprint_for_model("),
-        "runtime commit preparation and query cache identity must call accepted-snapshot fingerprint APIs directly",
+        "runtime commit preparation and cache identity must call accepted-snapshot fingerprint APIs directly and carry fingerprint method version with raw fingerprint bytes",
     );
 }
 

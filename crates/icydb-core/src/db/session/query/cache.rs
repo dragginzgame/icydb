@@ -16,6 +16,7 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
             SchemaInfo, accepted_schema_cache_fingerprint,
+            accepted_schema_cache_fingerprint_method_version,
         },
         session::AcceptedSchemaCatalogContext,
     },
@@ -67,12 +68,15 @@ pub(in crate::db) enum QueryPlanVisibility {
 /// QueryPlanCacheKey is the session-level identity for one shared prepared
 /// query plan. It includes store visibility and schema identity so cached
 /// plans cannot cross lifecycle or schema boundaries.
+/// Schema fingerprint bytes are compared together with their fingerprint
+/// method version; raw fingerprint bytes alone are not complete identity.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct QueryPlanCacheKey {
     cache_method_version: u8,
     entity_path: &'static str,
+    schema_fingerprint_method_version: u8,
     schema_fingerprint: CommitSchemaFingerprint,
     visibility: QueryPlanVisibility,
     structural_query: crate::db::query::intent::StructuralQueryCacheKey,
@@ -106,6 +110,7 @@ fn shared_query_plan_cache_miss_reason(
 
     if cache.keys().any(|candidate| {
         candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.visibility == key.visibility
             && candidate.structural_query == key.structural_query
@@ -119,13 +124,16 @@ fn shared_query_plan_cache_miss_reason(
             && candidate.visibility == key.visibility
             && candidate.structural_query == key.structural_query
             && candidate.cache_method_version == key.cache_method_version
-            && candidate.schema_fingerprint != key.schema_fingerprint
+            && (candidate.schema_fingerprint_method_version
+                != key.schema_fingerprint_method_version
+                || candidate.schema_fingerprint != key.schema_fingerprint)
     }) {
         return CacheMissReason::SchemaFingerprint;
     }
 
     if cache.keys().any(|candidate| {
         candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.structural_query == key.structural_query
             && candidate.cache_method_version == key.cache_method_version
@@ -312,6 +320,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         if let Some(cached) = self.try_cached_filterless_query_plan_for_authority(
             &authority,
+            accepted_schema_cache_fingerprint_method_version(),
             schema_fingerprint,
             visibility,
             query,
@@ -337,6 +346,7 @@ impl<C: CanisterKind> DbSession<C> {
         let cache_key =
             QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
                 authority.clone(),
+                accepted_schema_cache_fingerprint_method_version(),
                 schema_fingerprint,
                 visibility,
                 query,
@@ -401,12 +411,14 @@ impl<C: CanisterKind> DbSession<C> {
     fn try_cached_filterless_query_plan_for_authority(
         &self,
         authority: &EntityAuthority,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
     ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)> {
         self.try_cached_filterless_query_plan_for_entity_path(
             authority.entity_path(),
+            schema_fingerprint_method_version,
             schema_fingerprint,
             visibility,
             query,
@@ -416,6 +428,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn try_cached_filterless_query_plan_for_entity_path(
         &self,
         entity_path: &'static str,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
@@ -427,6 +440,7 @@ impl<C: CanisterKind> DbSession<C> {
         let cache_key =
             QueryPlanCacheKey::for_entity_path_with_normalized_predicate_fingerprint_and_method_version(
                 entity_path,
+                schema_fingerprint_method_version,
                 schema_fingerprint,
                 visibility,
                 query,
@@ -458,6 +472,7 @@ impl<C: CanisterKind> DbSession<C> {
         let cache_key =
             QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
                 authority.clone(),
+                accepted_schema_cache_fingerprint_method_version(),
                 schema_fingerprint,
                 visibility,
                 query,
@@ -531,6 +546,26 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> QueryPlanCacheKey {
         QueryPlanCacheKey::for_authority_with_method_version(
             authority,
+            accepted_schema_cache_fingerprint_method_version(),
+            schema_fingerprint,
+            visibility,
+            query,
+            cache_method_version,
+        )
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn query_plan_cache_key_for_tests_with_schema_fingerprint_method_version(
+        authority: EntityAuthority,
+        schema_fingerprint_method_version: u8,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        cache_method_version: u8,
+    ) -> QueryPlanCacheKey {
+        QueryPlanCacheKey::for_authority_with_method_version(
+            authority,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             visibility,
             query,
@@ -595,6 +630,7 @@ impl<C: CanisterKind> DbSession<C> {
                 );
                 if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path(
                     E::PATH,
+                    identity.fingerprint_method_version(),
                     identity.accepted_schema_fingerprint(),
                     visibility,
                     query.structural(),
@@ -646,6 +682,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path(
             E::PATH,
+            catalog.fingerprint_method_version(),
             catalog.fingerprint(),
             visibility,
             query.structural(),
@@ -704,6 +741,7 @@ impl QueryPlanCacheKey {
     // they feed into the shared session cache identity.
     fn from_authority_cache_inputs(
         authority: EntityAuthority,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         structural_query: crate::db::query::intent::StructuralQueryCacheKey,
@@ -711,6 +749,7 @@ impl QueryPlanCacheKey {
     ) -> Self {
         Self::from_entity_path_cache_inputs(
             authority.entity_path(),
+            schema_fingerprint_method_version,
             schema_fingerprint,
             visibility,
             structural_query,
@@ -720,6 +759,7 @@ impl QueryPlanCacheKey {
 
     const fn from_entity_path_cache_inputs(
         entity_path: &'static str,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         structural_query: crate::db::query::intent::StructuralQueryCacheKey,
@@ -728,6 +768,7 @@ impl QueryPlanCacheKey {
         Self {
             cache_method_version,
             entity_path,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             visibility,
             structural_query,
@@ -737,6 +778,7 @@ impl QueryPlanCacheKey {
     #[cfg(test)]
     fn for_authority_with_method_version(
         authority: EntityAuthority,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
@@ -744,6 +786,7 @@ impl QueryPlanCacheKey {
     ) -> Self {
         Self::from_authority_cache_inputs(
             authority,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             visibility,
             query.structural_cache_key(),
@@ -753,6 +796,7 @@ impl QueryPlanCacheKey {
 
     fn for_authority_with_normalized_predicate_fingerprint_and_method_version(
         authority: EntityAuthority,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
@@ -761,6 +805,7 @@ impl QueryPlanCacheKey {
     ) -> Self {
         Self::from_authority_cache_inputs(
             authority,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             visibility,
             query.structural_cache_key_with_normalized_predicate_fingerprint(
@@ -772,6 +817,7 @@ impl QueryPlanCacheKey {
 
     fn for_entity_path_with_normalized_predicate_fingerprint_and_method_version(
         entity_path: &'static str,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
@@ -780,6 +826,7 @@ impl QueryPlanCacheKey {
     ) -> Self {
         Self::from_entity_path_cache_inputs(
             entity_path,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             visibility,
             query.structural_cache_key_with_normalized_predicate_fingerprint(

@@ -16,7 +16,8 @@ use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(test)]
 use crate::db::schema::{
-    AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model,
+    AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint,
+    accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
 };
 #[cfg(test)]
 use crate::metrics::sink::{CacheKind, record_cache_entries};
@@ -64,8 +65,8 @@ pub(in crate::db::session::sql) enum SqlCompiledCommandSurface {
 /// SqlCompiledCommandCacheKey pins one compiled SQL artifact to the exact
 /// session-local semantic boundary that produced it.
 /// The key is intentionally conservative: surface kind, entity path, schema
-/// fingerprint, and raw SQL text must all match before execution can reuse a
-/// prior compile result.
+/// fingerprint method, schema fingerprint, and raw SQL text must all match
+/// before execution can reuse a prior compile result.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -73,6 +74,7 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
     cache_method_version: u8,
     surface: SqlCompiledCommandSurface,
     entity_path: &'static str,
+    schema_fingerprint_method_version: u8,
     schema_fingerprint: CommitSchemaFingerprint,
     sql: String,
 }
@@ -94,6 +96,7 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
     if cache.keys().any(|candidate| {
         candidate.surface == key.surface
             && candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.sql == key.sql
             && candidate.cache_method_version != key.cache_method_version
@@ -106,13 +109,16 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
             && candidate.entity_path == key.entity_path
             && candidate.sql == key.sql
             && candidate.cache_method_version == key.cache_method_version
-            && candidate.schema_fingerprint != key.schema_fingerprint
+            && (candidate.schema_fingerprint_method_version
+                != key.schema_fingerprint_method_version
+                || candidate.schema_fingerprint != key.schema_fingerprint)
     }) {
         return CacheMissReason::SchemaFingerprint;
     }
 
     if cache.keys().any(|candidate| {
         candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
             && candidate.schema_fingerprint == key.schema_fingerprint
             && candidate.sql == key.sql
             && candidate.cache_method_version == key.cache_method_version
@@ -226,6 +232,7 @@ impl SqlCompiledCommandCacheKey {
     fn new(
         surface: SqlCompiledCommandSurface,
         entity_path: &'static str,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         sql: &str,
     ) -> Self {
@@ -233,6 +240,7 @@ impl SqlCompiledCommandCacheKey {
             cache_method_version: SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION,
             surface,
             entity_path,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             sql: sql.to_string(),
         }
@@ -251,6 +259,22 @@ impl SqlCompiledCommandCacheKey {
         Self::for_entity_with_method_version::<E>(
             SqlCompiledCommandSurface::Query,
             sql,
+            cache_method_version,
+        )
+    }
+
+    pub(in crate::db) fn query_for_entity_with_schema_fingerprint_method_version<E>(
+        sql: &str,
+        schema_fingerprint_method_version: u8,
+        cache_method_version: u8,
+    ) -> Self
+    where
+        E: PersistedRow + EntityValue,
+    {
+        Self::for_entity_with_schema_fingerprint_method_version::<E>(
+            SqlCompiledCommandSurface::Query,
+            sql,
+            schema_fingerprint_method_version,
             cache_method_version,
         )
     }
@@ -277,6 +301,23 @@ impl SqlCompiledCommandCacheKey {
     where
         E: PersistedRow + EntityValue,
     {
+        Self::for_entity_with_schema_fingerprint_method_version::<E>(
+            surface,
+            sql,
+            accepted_schema_cache_fingerprint_method_version(),
+            cache_method_version,
+        )
+    }
+
+    fn for_entity_with_schema_fingerprint_method_version<E>(
+        surface: SqlCompiledCommandSurface,
+        sql: &str,
+        schema_fingerprint_method_version: u8,
+        cache_method_version: u8,
+    ) -> Self
+    where
+        E: PersistedRow + EntityValue,
+    {
         let proposal = compiled_schema_proposal_for_model(E::MODEL);
         let accepted =
             AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
@@ -288,6 +329,7 @@ impl SqlCompiledCommandCacheKey {
             cache_method_version,
             surface,
             entity_path: E::PATH,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             sql: sql.to_string(),
         }
@@ -308,7 +350,13 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
 
         Ok(SqlCompiledCommandCacheContext {
-            key: SqlCompiledCommandCacheKey::new(surface, E::PATH, catalog.fingerprint(), sql),
+            key: SqlCompiledCommandCacheKey::new(
+                surface,
+                E::PATH,
+                catalog.fingerprint_method_version(),
+                catalog.fingerprint(),
+                sql,
+            ),
             catalog,
         })
     }

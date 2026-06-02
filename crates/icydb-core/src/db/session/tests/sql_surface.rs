@@ -9,7 +9,8 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldOrigin,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, SchemaInfo,
-            accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model,
+            accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_method_version,
+            compiled_schema_proposal_for_model,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
@@ -8612,6 +8613,15 @@ fn trace_query_reports_reuse_miss_for_distinct_grouping_identity() {
     );
 }
 
+const fn different_schema_fingerprint_method_version() -> u8 {
+    let current = accepted_schema_cache_fingerprint_method_version();
+    if current == u8::MAX {
+        current - 1
+    } else {
+        current + 1
+    }
+}
+
 #[test]
 fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
     reset_session_sql_store();
@@ -8651,6 +8661,50 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
 }
 
 #[test]
+fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let query = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(1);
+    let schema_fingerprint = session_sql_entity_initial_accepted_schema_cache_fingerprint();
+    let authority = EntityAuthority::for_generated_type_for_test::<SessionSqlEntity>();
+    let current_method = accepted_schema_cache_fingerprint_method_version();
+    let different_method = different_schema_fingerprint_method_version();
+    let old_key =
+        DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests_with_schema_fingerprint_method_version(
+            authority.clone(),
+            current_method,
+            schema_fingerprint,
+            QueryPlanVisibility::StoreReady,
+            query.query().structural(),
+            2,
+        );
+    let new_key =
+        DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests_with_schema_fingerprint_method_version(
+            authority,
+            different_method,
+            schema_fingerprint,
+            QueryPlanVisibility::StoreReady,
+            query.query().structural(),
+            2,
+        );
+    let mut cache = HashSet::new();
+    cache.insert(old_key.clone());
+
+    assert_ne!(
+        old_key, new_key,
+        "shared lower-plan cache identity must include the accepted schema fingerprint method version",
+    );
+    assert!(
+        !cache.contains(&new_key),
+        "shared lower-plan cache must not reuse raw schema fingerprint bytes across fingerprint methods",
+    );
+}
+
+#[test]
 fn sql_cache_key_version_mismatch_fails_closed() {
     let compiled_v1 =
         SqlCompiledCommandCacheKey::query_for_entity_with_method_version::<SessionSqlEntity>(
@@ -8672,6 +8726,32 @@ fn sql_cache_key_version_mismatch_fails_closed() {
     assert!(
         !compiled_cache.contains(&compiled_v2),
         "compiled SQL cache version mismatch must fail closed instead of reusing an older entry",
+    );
+}
+
+#[test]
+fn sql_cache_key_schema_fingerprint_method_mismatch_fails_closed() {
+    let sql = "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1";
+    let current_method = accepted_schema_cache_fingerprint_method_version();
+    let different_method = different_schema_fingerprint_method_version();
+    let compiled_v1 =
+        SqlCompiledCommandCacheKey::query_for_entity_with_schema_fingerprint_method_version::<
+            SessionSqlEntity,
+        >(sql, current_method, 1);
+    let compiled_v2 =
+        SqlCompiledCommandCacheKey::query_for_entity_with_schema_fingerprint_method_version::<
+            SessionSqlEntity,
+        >(sql, different_method, 1);
+    let mut compiled_cache = HashSet::new();
+    compiled_cache.insert(compiled_v1.clone());
+
+    assert_ne!(
+        compiled_v1, compiled_v2,
+        "compiled SQL cache identity must include the accepted schema fingerprint method version",
+    );
+    assert!(
+        !compiled_cache.contains(&compiled_v2),
+        "compiled SQL cache must not reuse raw schema fingerprint bytes across fingerprint methods",
     );
 }
 

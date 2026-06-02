@@ -18,6 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 #[derive(Debug)]
 pub(in crate::db) struct SqlSelectPlanCacheEntry {
+    schema_fingerprint_method_version: u8,
     schema_fingerprint: CommitSchemaFingerprint,
     prepared_plan: SharedPreparedExecutionPlan,
     projection: SqlProjectionContract,
@@ -26,15 +27,22 @@ pub(in crate::db) struct SqlSelectPlanCacheEntry {
 impl SqlSelectPlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: SqlProjectionContract,
     ) -> Self {
         Self {
+            schema_fingerprint_method_version,
             schema_fingerprint,
             prepared_plan,
             projection,
         }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
+        self.schema_fingerprint_method_version
     }
 
     #[must_use]
@@ -101,13 +109,16 @@ impl CompiledSqlCommand {
     #[must_use]
     pub(in crate::db) fn cached_select_plan(
         &self,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
     ) -> Option<(SharedPreparedExecutionPlan, SqlProjectionContract)> {
         let Self::Select { plan_cache, .. } = self else {
             return None;
         };
         let entry = plan_cache.get()?;
-        if entry.schema_fingerprint() != schema_fingerprint {
+        if entry.schema_fingerprint_method_version() != schema_fingerprint_method_version
+            || entry.schema_fingerprint() != schema_fingerprint
+        {
             return None;
         }
 
@@ -116,12 +127,14 @@ impl CompiledSqlCommand {
 
     pub(in crate::db) fn set_cached_select_plan(
         &self,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: SqlProjectionContract,
     ) {
         if let Self::Select { plan_cache, .. } = self {
             let _ = plan_cache.set(Arc::new(SqlSelectPlanCacheEntry::new(
+                schema_fingerprint_method_version,
                 schema_fingerprint,
                 prepared_plan,
                 projection,
@@ -183,6 +196,11 @@ impl SqlCompiledCommandExecutionContext {
     #[must_use]
     pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
         self.catalog.fingerprint()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
+        self.catalog.fingerprint_method_version()
     }
 
     #[must_use]

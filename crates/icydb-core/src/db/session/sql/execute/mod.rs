@@ -566,7 +566,10 @@ impl<C: CanisterKind> DbSession<C> {
                     query,
                     || {
                         if let Some((prepared_plan, projection)) =
-                            context.command().cached_select_plan(context.schema_fingerprint())
+                            context.command().cached_select_plan(
+                                context.schema_fingerprint_method_version(),
+                                context.schema_fingerprint(),
+                            )
                         {
                             return Ok((
                                 prepared_plan,
@@ -592,6 +595,7 @@ impl<C: CanisterKind> DbSession<C> {
                         );
                         if let Ok((prepared_plan, projection, _)) = &resolved {
                             context.command().set_cached_select_plan(
+                                context.schema_fingerprint_method_version(),
                                 context.schema_fingerprint(),
                                 prepared_plan.clone(),
                                 projection.clone(),
@@ -667,10 +671,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        if let Some((prepared_plan, projection)) = context
-            .command()
-            .cached_select_plan(context.schema_fingerprint())
-        {
+        if let Some((prepared_plan, projection)) = context.command().cached_select_plan(
+            context.schema_fingerprint_method_version(),
+            context.schema_fingerprint(),
+        ) {
             return self.execute_select_compiled_sql_from_prepared_plan::<E>(
                 query,
                 prepared_plan,
@@ -696,6 +700,7 @@ impl<C: CanisterKind> DbSession<C> {
             );
         if let Ok((prepared_plan, projection, _)) = &resolved {
             context.command().set_cached_select_plan(
+                context.schema_fingerprint_method_version(),
                 context.schema_fingerprint(),
                 prepared_plan.clone(),
                 projection.clone(),

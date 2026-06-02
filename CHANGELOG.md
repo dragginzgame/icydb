@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🧹 Cleanup
+## [0.177.x] 🧭 - 2026-06-02 - Explicit Schema Version Contracts
 
-- Tightens 0.176 closeout guards for catalog authority reuse and accepted
-  identity/header fingerprint proof before opening the 0.177 schema-version
-  line.
+Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
+
+- `0.177.0` starts explicit schema-version contracts by aligning accepted
+  catalog/cache identity so schema fingerprints are compared with their
+  fingerprint-method version before broader admission policy lands.
 
 ## [0.176.x] 🧹 - 2026-06-02 - Accepted Schema Catalog Authority
 
 Detailed notes: [docs/changelog/0.176.md](docs/changelog/0.176.md)
+
+- `0.176.10` closes the accepted catalog authority line with tightened
+  closeout guards, expression-indexed identity/header fingerprint proof, and
+  catalog-authority reuse evidence before opening 0.177.
 
 - `0.176.9` reuses expression-aware catalog authority schema views on
   expression-indexed query-plan misses instead of rebuilding planner metadata.

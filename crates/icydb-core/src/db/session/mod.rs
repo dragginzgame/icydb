@@ -130,6 +130,11 @@ impl AcceptedSchemaCatalogContext {
         self.identity.accepted_schema_fingerprint()
     }
 
+    #[must_use]
+    pub(in crate::db) const fn fingerprint_method_version(&self) -> u8 {
+        self.identity.fingerprint_method_version()
+    }
+
     fn debug_assert_matches_entity<E>(&self)
     where
         E: EntityKind,
