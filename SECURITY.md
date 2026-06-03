@@ -9,13 +9,15 @@ that boundary and should be run only on hosts where that is acceptable.
 - `make install-dev` is a local workstation bootstrap target. On hosts with
   `apt-get`, it may run `sudo apt-get update` and `sudo apt-get install` for
   documented system prerequisites, install Rust through the official rustup
-  script when missing, install Cargo helper tools, install npm-backed ICP CLI
-  tools under `$HOME/.local`, and configure repository hooks.
-- `make update-dev` is a maintainer workstation updater. It updates Rust with
-  `rustup`, refreshes the same documented system package list, installs or
-  updates the standard Cargo helper tools and wasm tools, installs or updates
-  `icp` and `ic-wasm` under `$HOME/.local` through npm, runs `cargo audit`, and
-  refreshes `Cargo.lock` with `cargo update`.
+  script when missing, install the workspace-pinned Rust toolchain and wasm
+  target, install Cargo helper tools, install npm-backed ICP CLI tools under
+  `$HOME/.local`, and configure repository hooks.
+- `make update-dev` is a maintainer workstation updater. It refreshes the same
+  documented system package list, installs the workspace-pinned Rust toolchain
+  and wasm target with `rustup`, installs or updates the standard Cargo helper
+  tools and wasm tools, installs or updates `icp` and `ic-wasm` under
+  `$HOME/.local` through npm, runs `cargo audit`, and refreshes `Cargo.lock`
+  with `cargo update`.
 - `make test` may need a PocketIC server binary. The repo test target sets
   `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1` and a repo-local `TMPDIR`, then lets
   `ic-testkit` resolve a trusted `POCKET_IC_BIN`, cached pinned binary, or

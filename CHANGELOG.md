@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.11` cleans up CI and maintainer setup by centralizing workflow
+  toolchain constants, making CI cargo invocations lockfile-strict, and
+  tightening workstation Rust/tool installation around the pinned toolchain.
+
 - `0.177.10` adds structured schema-version admission classification before
   diagnostic formatting, keeping method mismatch, missing bump, empty bump,
   version gap, and rollback distinct without matching reason strings.

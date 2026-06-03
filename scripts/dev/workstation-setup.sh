@@ -15,7 +15,6 @@ case "$MODE" in
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RUST_TOOLCHAIN="1.96.0"
 
 DEV_SYSTEM_PACKAGES=(
   build-essential
@@ -38,7 +37,6 @@ DEV_SYSTEM_PACKAGES=(
 CARGO_WORKSTATION_TOOLS=(
   candid-extractor
   ic-wasm
-  ripgrep
   twiggy
   cargo-audit
   cargo-bloat
@@ -99,11 +97,12 @@ install_tooling() {
       echo "Missing cargo after workstation setup." >&2
       exit 1
     }
-    rustup update
   fi
 
-  rustup toolchain install "$RUST_TOOLCHAIN"
-  rustup target add wasm32-unknown-unknown
+  (
+    cd "$ROOT"
+    rustup toolchain install --target wasm32-unknown-unknown
+  )
 
   if [[ "$MODE" == "update" ]]; then
     cargo install --quiet "${CARGO_WORKSTATION_TOOLS[@]}" --locked

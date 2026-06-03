@@ -116,7 +116,7 @@ build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep python3 nodej
 Canister development and wasm inspection also need:
 
 ```bash
-binaryen wabt jq
+bubblewrap binaryen wabt jq
 ```
 
 On other operating systems, install those packages manually before using the
@@ -124,12 +124,11 @@ developer targets.
 
 ### Rust
 
-`make install-dev` installs rustup when missing, then installs the Rust
-toolchain pinned by the workspace:
+`make install-dev` installs rustup when missing, then installs the Rust channel
+declared in `rust-toolchain.toml`:
 
 ```bash
-rustup toolchain install 1.96.0
-rustup target add wasm32-unknown-unknown
+rustup toolchain install --target wasm32-unknown-unknown
 ```
 
 After initial setup, update the local maintainer tooling surface with:
@@ -166,8 +165,8 @@ make install-dev
 
 That target installs apt-backed system prerequisites when `apt-get` is present,
 configures repository git hooks, and installs the pinned Rust toolchain, the
-wasm target, standard Cargo helper tools, `candid-extractor`, `ic-wasm`, `rg`
-from `ripgrep`, `twiggy`, and npm-backed ICP CLI tools.
+wasm target, standard Cargo helper tools, `candid-extractor`, `ic-wasm`,
+`twiggy`, and npm-backed ICP CLI tools.
 
 ### Common Commands
 

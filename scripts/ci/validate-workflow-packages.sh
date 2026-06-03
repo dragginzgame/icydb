@@ -12,7 +12,7 @@ if [[ ! -f "$WORKFLOW_FILE" ]]; then
 fi
 
 mapfile -t WORKSPACE_PACKAGES < <(
-  cargo metadata --no-deps --format-version=1 \
+  cargo metadata --locked --no-deps --format-version=1 \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); ids={p["id"]:p["name"] for p in d["packages"]}; print("\n".join(sorted(ids[i] for i in d["workspace_members"])))'
 )
 
