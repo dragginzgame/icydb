@@ -35,6 +35,10 @@ main() {
   local url="https://github.com/rhysd/actionlint/releases/download/v${version_no_v}/${archive}"
   local tmp_dir
 
+  if [[ -n "${TMPDIR:-}" ]]; then
+    mkdir -p "$TMPDIR"
+  fi
+
   tmp_dir="$(mktemp -d)"
   mkdir -p "$INSTALL_DIR"
   curl -fsSL "$url" | tar -xz -C "$tmp_dir" actionlint

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.15` fixes the pinned actionlint installer so CI runners with a
+  configured but missing workflow temp directory can create it before
+  downloading the standalone binary.
+
 - `0.177.14` adds pinned local and CI GitHub Actions workflow linting with
   actionlint, wiring the same standalone installer through maintainer setup
   and CI without package-version changes.
