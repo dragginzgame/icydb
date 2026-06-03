@@ -19,6 +19,10 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
 ) -> Option<String> {
+    if version.get() == 0 {
+        return Some(format!("{subject} schema_version must be positive"));
+    }
+
     if row_layout.version() != version {
         return Some(format!(
             "{subject} row-layout version mismatch: snapshot={} row_layout={}",

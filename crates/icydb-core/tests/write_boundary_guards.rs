@@ -1290,6 +1290,35 @@ fn schema_store_publication_stays_version_passive() {
 }
 
 #[test]
+fn schema_version_hard_cut_rejects_obsolete_and_non_positive_internal_formats() {
+    let codec = read_source("src/db/schema/codec.rs");
+    let codec_compact = compact_source(&codec);
+    let integrity = read_source("src/db/schema/integrity.rs");
+    let entity_model = read_source("src/model/entity.rs");
+    let macro_zero = read_source("../../testing/macro-tests/tests/ui/schema_version_zero.stderr");
+
+    assert!(
+        codec.contains("const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 =")
+            && codec_compact.contains("ifself.codec_version!=SCHEMA_SNAPSHOT_CODEC_VERSION")
+            && codec.contains("unsupported persisted schema snapshot codec version"),
+        "schema snapshot codec must hard-cut obsolete internal snapshot formats",
+    );
+    assert!(
+        integrity.contains("version.get() == 0")
+            && integrity.contains("schema_version must be positive")
+            && entity_model.contains("schema_version > 0")
+            && entity_model.contains("generated schema_version must be positive")
+            && macro_zero.contains("schema_version must be a positive integer"),
+        "generated and persisted schema_version boundaries must reject non-positive versions",
+    );
+    assert!(
+        !codec.contains("unwrap_or(SchemaVersion::initial())")
+            && !integrity.contains("unwrap_or(SchemaVersion::initial())"),
+        "schema decode/integrity must not infer missing versions from SchemaVersion::initial()",
+    );
+}
+
+#[test]
 fn workspace_entity_declarations_keep_explicit_schema_versions() {
     let manifest_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo_roots = [

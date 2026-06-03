@@ -1961,8 +1961,25 @@ mod tests {
     }
 
     #[test]
-    fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
+    fn schema_store_rejects_typed_snapshot_with_zero_schema_version() {
         let mut store = SchemaStore::init(test_memory(254));
+        let invalid =
+            persisted_schema_snapshot_for_test(SchemaVersion::new(0), "ZeroSchemaVersion");
+
+        let err = store
+            .insert_persisted_snapshot(EntityTag::new(44), &invalid)
+            .expect_err("schema store should reject non-positive schema versions");
+
+        assert!(
+            err.message()
+                .contains("schema snapshot schema_version must be positive"),
+            "schema store should hard-cut non-positive persisted schema versions"
+        );
+    }
+
+    #[test]
+    fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
+        let mut store = SchemaStore::init(test_memory(232));
         let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "InvalidSlots");
         let invalid = PersistedSchemaSnapshot::new(
             base.version(),

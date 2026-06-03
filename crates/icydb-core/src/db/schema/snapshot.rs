@@ -1723,6 +1723,40 @@ mod tests {
     }
 
     #[test]
+    fn accepted_schema_snapshot_try_new_rejects_zero_schema_version() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::new(0),
+            "schema::snapshot::tests::ZeroVersion".to_string(),
+            "ZeroVersion".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::new(0),
+                vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+            ),
+            vec![PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            )],
+        );
+
+        let err = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject version-zero metadata");
+
+        assert!(
+            err.message()
+                .contains("accepted schema snapshot schema_version must be positive"),
+            "accepted schema construction should hard-cut non-positive schema versions"
+        );
+    }
+
+    #[test]
     fn accepted_schema_snapshot_try_new_rejects_duplicate_primary_key_fields() {
         let snapshot = PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),

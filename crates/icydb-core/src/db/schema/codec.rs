@@ -1051,6 +1051,7 @@ impl ScalarCodecWire {
 
 #[cfg(test)]
 mod tests {
+    use super::{PersistedSchemaSnapshotWire, SCHEMA_SNAPSHOT_CODEC_VERSION, SchemaRowLayoutWire};
     use crate::{
         db::schema::{
             FieldId, PersistedFieldKind, PersistedFieldOrigin, PersistedFieldSnapshot,
@@ -1065,6 +1066,60 @@ mod tests {
             FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
         },
     };
+    use candid::Encode;
+
+    #[test]
+    fn decode_persisted_schema_snapshot_rejects_obsolete_codec_without_version_inference() {
+        let wire = PersistedSchemaSnapshotWire {
+            codec_version: SCHEMA_SNAPSHOT_CODEC_VERSION.saturating_sub(1),
+            version: SchemaVersion::initial().get(),
+            entity_path: "entities::Obsolete".to_string(),
+            entity_name: "Obsolete".to_string(),
+            primary_key_field_ids: Vec::new(),
+            row_layout: SchemaRowLayoutWire {
+                version: SchemaVersion::initial().get(),
+                field_to_slot: Vec::new(),
+                retired_field_slots: Vec::new(),
+            },
+            fields: Vec::new(),
+            indexes: Vec::new(),
+            relations: Vec::new(),
+        };
+        let encoded =
+            Encode!(&wire).expect("obsolete schema snapshot fixture should still Candid-encode");
+
+        let err = decode_persisted_schema_snapshot(&encoded)
+            .expect_err("obsolete schema snapshot codec should hard-cut");
+
+        assert!(
+            err.message()
+                .contains("unsupported persisted schema snapshot codec version"),
+            "obsolete schema snapshots should fail clearly before schema_version inference"
+        );
+    }
+
+    #[test]
+    fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::new(0),
+            "entities::ZeroVersion".to_string(),
+            "ZeroVersion".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(SchemaVersion::new(0), Vec::new()),
+            Vec::new(),
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("version-zero schema snapshot should encode for decode-boundary coverage");
+
+        let err = decode_persisted_schema_snapshot(&encoded)
+            .expect_err("decode should reject version-zero schema snapshots");
+
+        assert!(
+            err.message()
+                .contains("persisted schema snapshot schema_version must be positive"),
+            "schema codec should hard-cut non-positive persisted schema versions"
+        );
+    }
 
     #[test]
     fn decode_persisted_schema_snapshot_rejects_snapshot_layout_version_mismatch() {
