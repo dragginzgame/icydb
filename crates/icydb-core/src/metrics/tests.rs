@@ -636,6 +636,7 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
             CacheKind::SharedQueryPlan,
             CacheMissReason::SchemaFingerprint,
         ),
+        (CacheKind::SharedQueryPlan, CacheMissReason::SchemaVersion),
         (CacheKind::SharedQueryPlan, CacheMissReason::Visibility),
         (CacheKind::SqlCompiledCommand, CacheMissReason::Cold),
         (CacheKind::SqlCompiledCommand, CacheMissReason::DistinctKey),
@@ -646,6 +647,10 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
         (
             CacheKind::SqlCompiledCommand,
             CacheMissReason::SchemaFingerprint,
+        ),
+        (
+            CacheKind::SqlCompiledCommand,
+            CacheMissReason::SchemaVersion,
         ),
         (CacheKind::SqlCompiledCommand, CacheMissReason::Surface),
     ] {
@@ -664,12 +669,12 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
     assert_eq!(ops.cache_shared_query_plan_miss_cold(), 1);
     assert_eq!(ops.cache_shared_query_plan_miss_distinct_key(), 1);
     assert_eq!(ops.cache_shared_query_plan_miss_method_version(), 1);
-    assert_eq!(ops.cache_shared_query_plan_miss_schema_fingerprint(), 1);
+    assert_eq!(ops.cache_shared_query_plan_miss_schema_fingerprint(), 2);
     assert_eq!(ops.cache_shared_query_plan_miss_visibility(), 1);
     assert_eq!(ops.cache_sql_compiled_command_miss_cold(), 1);
     assert_eq!(ops.cache_sql_compiled_command_miss_distinct_key(), 1);
     assert_eq!(ops.cache_sql_compiled_command_miss_method_version(), 1);
-    assert_eq!(ops.cache_sql_compiled_command_miss_schema_fingerprint(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_miss_schema_fingerprint(), 2);
     assert_eq!(ops.cache_sql_compiled_command_miss_surface(), 1);
 
     let summary = report
@@ -680,14 +685,14 @@ fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
     assert_eq!(summary.cache_shared_query_plan_miss_cold(), 1);
     assert_eq!(summary.cache_shared_query_plan_miss_distinct_key(), 1);
     assert_eq!(summary.cache_shared_query_plan_miss_method_version(), 1);
-    assert_eq!(summary.cache_shared_query_plan_miss_schema_fingerprint(), 1);
+    assert_eq!(summary.cache_shared_query_plan_miss_schema_fingerprint(), 2);
     assert_eq!(summary.cache_shared_query_plan_miss_visibility(), 1);
     assert_eq!(summary.cache_sql_compiled_command_miss_cold(), 1);
     assert_eq!(summary.cache_sql_compiled_command_miss_distinct_key(), 1);
     assert_eq!(summary.cache_sql_compiled_command_miss_method_version(), 1);
     assert_eq!(
         summary.cache_sql_compiled_command_miss_schema_fingerprint(),
-        1
+        2
     );
     assert_eq!(summary.cache_sql_compiled_command_miss_surface(), 1);
 }

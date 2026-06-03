@@ -84,6 +84,7 @@ pub enum CacheMissReason {
     DistinctKey,
     MethodVersion,
     SchemaFingerprint,
+    SchemaVersion,
     Surface,
     Visibility,
 }
@@ -1593,7 +1594,7 @@ const fn record_global_shared_query_plan_miss_reason(
                 .cache_shared_query_plan_miss_method_version
                 .saturating_add(1);
         }
-        CacheMissReason::SchemaFingerprint => {
+        CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {
             ops.cache_shared_query_plan_miss_schema_fingerprint = ops
                 .cache_shared_query_plan_miss_schema_fingerprint
                 .saturating_add(1);
@@ -1630,7 +1631,7 @@ const fn record_global_sql_compiled_command_miss_reason(
                 .cache_sql_compiled_command_miss_method_version
                 .saturating_add(1);
         }
-        CacheMissReason::SchemaFingerprint => {
+        CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {
             ops.cache_sql_compiled_command_miss_schema_fingerprint = ops
                 .cache_sql_compiled_command_miss_schema_fingerprint
                 .saturating_add(1);
@@ -1749,7 +1750,7 @@ const fn record_entity_shared_query_plan_miss_reason(
                 .cache_shared_query_plan_miss_method_version
                 .saturating_add(1);
         }
-        CacheMissReason::SchemaFingerprint => {
+        CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {
             ops.cache_shared_query_plan_miss_schema_fingerprint = ops
                 .cache_shared_query_plan_miss_schema_fingerprint
                 .saturating_add(1);
@@ -1783,7 +1784,7 @@ const fn record_entity_sql_compiled_command_miss_reason(
                 .cache_sql_compiled_command_miss_method_version
                 .saturating_add(1);
         }
-        CacheMissReason::SchemaFingerprint => {
+        CacheMissReason::SchemaFingerprint | CacheMissReason::SchemaVersion => {
             ops.cache_sql_compiled_command_miss_schema_fingerprint = ops
                 .cache_sql_compiled_command_miss_schema_fingerprint
                 .saturating_add(1);

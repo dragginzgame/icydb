@@ -8,7 +8,7 @@ use crate::{
         response::Row,
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldOrigin,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, SchemaInfo,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, SchemaInfo, SchemaVersion,
             accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_method_version,
             compiled_schema_proposal_for_model,
         },
@@ -8657,6 +8657,7 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
     let authority = EntityAuthority::for_generated_type_for_test::<SessionSqlEntity>();
     let old_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
         authority.clone(),
+        SchemaVersion::initial(),
         schema_fingerprint,
         QueryPlanVisibility::StoreReady,
         query.query().structural(),
@@ -8664,6 +8665,7 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
     );
     let new_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
         authority,
+        SchemaVersion::initial(),
         schema_fingerprint,
         QueryPlanVisibility::StoreReady,
         query.query().structural(),
@@ -8698,6 +8700,7 @@ fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
     let old_key =
         DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests_with_schema_fingerprint_method_version(
             authority.clone(),
+            SchemaVersion::initial(),
             current_method,
             schema_fingerprint,
             QueryPlanVisibility::StoreReady,
@@ -8707,6 +8710,7 @@ fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
     let new_key =
         DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests_with_schema_fingerprint_method_version(
             authority,
+            SchemaVersion::initial(),
             different_method,
             schema_fingerprint,
             QueryPlanVisibility::StoreReady,
@@ -8723,6 +8727,46 @@ fn shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed() {
     assert!(
         !cache.contains(&new_key),
         "shared lower-plan cache must not reuse raw schema fingerprint bytes across fingerprint methods",
+    );
+}
+
+#[test]
+fn shared_query_plan_cache_schema_version_mismatch_fails_closed() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let query = session
+        .load::<SessionSqlEntity>()
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(1);
+    let schema_fingerprint = session_sql_entity_initial_accepted_schema_cache_fingerprint();
+    let authority = EntityAuthority::for_generated_type_for_test::<SessionSqlEntity>();
+    let old_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
+        authority.clone(),
+        SchemaVersion::initial(),
+        schema_fingerprint,
+        QueryPlanVisibility::StoreReady,
+        query.query().structural(),
+        2,
+    );
+    let new_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
+        authority,
+        SchemaVersion::new(2),
+        schema_fingerprint,
+        QueryPlanVisibility::StoreReady,
+        query.query().structural(),
+        2,
+    );
+    let mut cache = HashSet::new();
+    cache.insert(old_key.clone());
+
+    assert_ne!(
+        old_key, new_key,
+        "shared lower-plan cache identity must carry schema_version beside schema_fingerprint",
+    );
+    assert!(
+        !cache.contains(&new_key),
+        "shared lower-plan cache must not reuse entries across accepted schema versions",
     );
 }
 
@@ -8748,6 +8792,28 @@ fn sql_cache_key_version_mismatch_fails_closed() {
     assert!(
         !compiled_cache.contains(&compiled_v2),
         "compiled SQL cache version mismatch must fail closed instead of reusing an older entry",
+    );
+}
+
+#[test]
+fn sql_cache_key_schema_version_mismatch_fails_closed() {
+    let sql = "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1";
+    let compiled_v1 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_version::<
+        SessionSqlEntity,
+    >(sql, SchemaVersion::initial(), 1);
+    let compiled_v2 = SqlCompiledCommandCacheKey::query_for_entity_with_schema_version::<
+        SessionSqlEntity,
+    >(sql, SchemaVersion::new(2), 1);
+    let mut compiled_cache = HashSet::new();
+    compiled_cache.insert(compiled_v1.clone());
+
+    assert_ne!(
+        compiled_v1, compiled_v2,
+        "compiled SQL cache identity must carry schema_version beside schema_fingerprint",
+    );
+    assert!(
+        !compiled_cache.contains(&compiled_v2),
+        "compiled SQL cache must not reuse entries across accepted schema versions",
     );
 }
 

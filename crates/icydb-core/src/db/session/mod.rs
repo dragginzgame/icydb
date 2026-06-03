@@ -695,7 +695,7 @@ impl<C: CanisterKind> DbSession<C> {
         let store = self.db.recovered_store(E::Store::PATH)?;
 
         store.with_schema_mut(|schema_store| {
-            Ok(schema_store.latest_catalog_identity(E::ENTITY_TAG, E::PATH, E::Store::PATH))
+            schema_store.latest_catalog_identity(E::ENTITY_TAG, E::PATH, E::Store::PATH)
         })
     }
 

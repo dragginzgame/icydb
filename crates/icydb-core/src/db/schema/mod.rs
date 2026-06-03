@@ -42,7 +42,8 @@ pub(in crate::db) use describe::{
 };
 pub(in crate::db) use fingerprint::{
     accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
-    accepted_schema_cache_fingerprint_from_raw, accepted_schema_cache_fingerprint_method_version,
+    accepted_schema_cache_fingerprint_for_persisted_snapshot,
+    accepted_schema_cache_fingerprint_method_version,
 };
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,

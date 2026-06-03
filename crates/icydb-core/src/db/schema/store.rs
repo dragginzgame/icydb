@@ -15,7 +15,8 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedSchemaSnapshot, SchemaVersion,
-            accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_from_raw,
+            accepted_schema_cache_fingerprint,
+            accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_persisted_schema_snapshot,
             encode_persisted_schema_snapshot, schema_snapshot_integrity_detail,
         },
@@ -42,6 +43,10 @@ pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 const SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION: u8 = 1;
 const SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION: u8 = 2;
 const SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION: u8 = 3;
+const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBSCH";
+const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
+const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
+const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES_U32: u32 = 25;
 
 #[cfg(test)]
 thread_local! {
@@ -150,33 +155,56 @@ impl Storable for RawSchemaKey {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct RawSchemaSnapshot(Vec<u8>);
+struct RawSchemaSnapshot {
+    payload: Vec<u8>,
+    accepted_schema_fingerprint: Option<CommitSchemaFingerprint>,
+}
 
 impl RawSchemaSnapshot {
     /// Encode one typed persisted-schema snapshot into a raw store payload.
     fn from_persisted_snapshot(snapshot: &PersistedSchemaSnapshot) -> Result<Self, InternalError> {
         validate_typed_schema_snapshot_for_store(snapshot)?;
 
-        encode_persisted_schema_snapshot(snapshot).map(Self)
+        let accepted_schema_fingerprint =
+            accepted_schema_cache_fingerprint_for_persisted_snapshot(snapshot)?;
+        let payload = encode_persisted_schema_snapshot(snapshot)?;
+
+        Ok(Self {
+            payload,
+            accepted_schema_fingerprint: Some(accepted_schema_fingerprint),
+        })
     }
 
     /// Build one raw schema snapshot from already-encoded bytes.
     #[must_use]
     #[cfg(test)]
-    const fn from_bytes(bytes: Vec<u8>) -> Self {
-        Self(bytes)
+    const fn from_bytes(payload: Vec<u8>) -> Self {
+        Self {
+            payload,
+            accepted_schema_fingerprint: None,
+        }
     }
 
     /// Borrow the encoded schema snapshot payload.
     #[must_use]
     const fn as_bytes(&self) -> &[u8] {
-        self.0.as_slice()
+        self.payload.as_slice()
     }
 
     /// Consume the snapshot into its encoded payload bytes.
     #[must_use]
     fn into_bytes(self) -> Vec<u8> {
-        self.0
+        self.payload
+    }
+
+    /// Return the accepted schema identity fingerprint stored beside the raw
+    /// payload, without decoding the persisted snapshot.
+    fn accepted_schema_fingerprint(&self) -> Result<CommitSchemaFingerprint, InternalError> {
+        self.accepted_schema_fingerprint.ok_or_else(|| {
+            InternalError::store_corruption(
+                "obsolete raw schema snapshot storage format missing accepted schema identity header",
+            )
+        })
     }
 
     /// Decode this raw store payload into a typed persisted-schema snapshot.
@@ -294,19 +322,58 @@ impl AcceptedCatalogSnapshotSelection {
 
 impl Storable for RawSchemaSnapshot {
     fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.as_bytes())
+        let Some(fingerprint) = self.accepted_schema_fingerprint else {
+            return Cow::Borrowed(self.as_bytes());
+        };
+
+        let mut bytes = Vec::with_capacity(RAW_SCHEMA_SNAPSHOT_HEADER_BYTES + self.payload.len());
+        bytes.extend_from_slice(RAW_SCHEMA_SNAPSHOT_MAGIC);
+        bytes.push(RAW_SCHEMA_SNAPSHOT_VALUE_VERSION);
+        bytes.extend_from_slice(&fingerprint);
+        bytes.extend_from_slice(self.as_bytes());
+
+        Cow::Owned(bytes)
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
+        let bytes = bytes.into_owned();
+        if bytes.len() >= RAW_SCHEMA_SNAPSHOT_HEADER_BYTES
+            && &bytes[..RAW_SCHEMA_SNAPSHOT_MAGIC.len()] == RAW_SCHEMA_SNAPSHOT_MAGIC
+            && bytes[RAW_SCHEMA_SNAPSHOT_MAGIC.len()] == RAW_SCHEMA_SNAPSHOT_VALUE_VERSION
+        {
+            let fingerprint_start = RAW_SCHEMA_SNAPSHOT_MAGIC.len() + size_of::<u8>();
+            let fingerprint_end = fingerprint_start + size_of::<CommitSchemaFingerprint>();
+            let mut fingerprint = [0_u8; size_of::<CommitSchemaFingerprint>()];
+            fingerprint.copy_from_slice(&bytes[fingerprint_start..fingerprint_end]);
+
+            return Self {
+                payload: bytes[fingerprint_end..].to_vec(),
+                accepted_schema_fingerprint: Some(fingerprint),
+            };
+        }
+
+        Self {
+            payload: bytes,
+            accepted_schema_fingerprint: None,
+        }
     }
 
     fn into_bytes(self) -> Vec<u8> {
-        self.0
+        let Some(fingerprint) = self.accepted_schema_fingerprint else {
+            return self.payload;
+        };
+
+        let mut bytes = Vec::with_capacity(RAW_SCHEMA_SNAPSHOT_HEADER_BYTES + self.payload.len());
+        bytes.extend_from_slice(RAW_SCHEMA_SNAPSHOT_MAGIC);
+        bytes.push(RAW_SCHEMA_SNAPSHOT_VALUE_VERSION);
+        bytes.extend_from_slice(&fingerprint);
+        bytes.extend_from_slice(&self.payload);
+
+        bytes
     }
 
     const BOUND: StorableBound = StorableBound::Bounded {
-        max_size: MAX_SCHEMA_SNAPSHOT_BYTES,
+        max_size: MAX_SCHEMA_SNAPSHOT_BYTES + RAW_SCHEMA_SNAPSHOT_HEADER_BYTES_U32,
         is_fixed_size: false,
     };
 }
@@ -636,17 +703,18 @@ impl SchemaStore {
         entity: EntityTag,
         entity_path: &'static str,
         store_path: &'static str,
-    ) -> Option<AcceptedCatalogSnapshotSelection> {
-        let (version, raw_snapshot) = self.latest_raw_snapshot_entry(entity)?;
-        let fingerprint =
-            accepted_schema_cache_fingerprint_from_raw(entity_path, raw_snapshot.as_bytes());
+    ) -> Result<Option<AcceptedCatalogSnapshotSelection>, InternalError> {
+        let Some((version, raw_snapshot)) = self.latest_raw_snapshot_entry(entity) else {
+            return Ok(None);
+        };
+        let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
         let identity =
             AcceptedCatalogIdentity::new(entity, entity_path, store_path, version, fingerprint);
 
-        Some(AcceptedCatalogSnapshotSelection::new(
+        Ok(Some(AcceptedCatalogSnapshotSelection::new(
             identity,
             raw_snapshot.into_bytes(),
-        ))
+        )))
     }
 
     /// Return raw schema-store footprint facts for one entity.
@@ -1356,10 +1424,12 @@ mod tests {
         db::{
             direction::Direction,
             schema::{
-                FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+                AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
                 PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
                 PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-                SchemaFieldSlot, SchemaRowLayout, SchemaVersion, encode_persisted_schema_snapshot,
+                SchemaFieldSlot, SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint,
+                encode_persisted_schema_snapshot, persisted_schema_snapshot_decode_count_for_tests,
+                reset_persisted_schema_snapshot_decode_count_for_tests,
             },
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -1390,6 +1460,35 @@ mod tests {
 
         assert_eq!(decoded.as_bytes(), &[1, 2, 3, 5, 8]);
         assert_eq!(decoded.into_bytes(), vec![1, 2, 3, 5, 8]);
+    }
+
+    #[test]
+    fn raw_schema_snapshot_round_trips_identity_header_for_typed_snapshot() {
+        let snapshot = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Header");
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot.clone())
+            .expect("typed schema snapshot should be accepted");
+        let expected_fingerprint = accepted_schema_cache_fingerprint(&accepted)
+            .expect("accepted schema fingerprint should derive");
+        let raw = RawSchemaSnapshot::from_persisted_snapshot(&snapshot)
+            .expect("typed schema snapshot should encode");
+        let encoded = raw.to_bytes().into_owned();
+        let decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(encoded));
+        let owned_encoded = <RawSchemaSnapshot as Storable>::into_bytes(raw.clone());
+        let owned_decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(owned_encoded));
+
+        assert_eq!(decoded.as_bytes(), raw.as_bytes());
+        assert_eq!(
+            decoded
+                .accepted_schema_fingerprint()
+                .expect("identity header should decode"),
+            expected_fingerprint
+        );
+        assert_eq!(
+            owned_decoded
+                .accepted_schema_fingerprint()
+                .expect("owned identity header should decode"),
+            expected_fingerprint
+        );
     }
 
     #[test]
@@ -1795,6 +1894,43 @@ mod tests {
                 .catalog_metadata()
                 .expect("empty schema catalog metadata should derive"),
             None
+        );
+    }
+
+    #[test]
+    fn schema_store_latest_catalog_identity_uses_version_neutral_header_without_decoding() {
+        let mut store = SchemaStore::init(test_memory(239));
+        let entity = EntityTag::new(80);
+        let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Versioned");
+        let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Versioned");
+        let expected_fingerprint = accepted_schema_cache_fingerprint(
+            &AcceptedSchemaSnapshot::try_new(initial.clone())
+                .expect("initial schema snapshot should be accepted"),
+        )
+        .expect("accepted schema fingerprint should derive");
+
+        store
+            .insert_persisted_snapshot(entity, &initial)
+            .expect("initial schema snapshot should encode");
+        store
+            .insert_persisted_snapshot(entity, &newer)
+            .expect("newer schema snapshot should encode");
+
+        reset_persisted_schema_snapshot_decode_count_for_tests();
+        let selection = store
+            .latest_catalog_identity(entity, "entities::Versioned", "schema_store_test")
+            .expect("latest catalog identity should derive from header")
+            .expect("latest catalog identity should exist");
+
+        assert_eq!(persisted_schema_snapshot_decode_count_for_tests(), 0);
+        assert_eq!(
+            selection.identity().accepted_schema_version(),
+            SchemaVersion::new(2)
+        );
+        assert_eq!(
+            selection.identity().accepted_schema_fingerprint(),
+            expected_fingerprint,
+            "accepted catalog identity fingerprint must exclude schema_version",
         );
     }
 

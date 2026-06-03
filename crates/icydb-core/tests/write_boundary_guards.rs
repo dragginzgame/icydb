@@ -1125,15 +1125,15 @@ fn accepted_schema_fingerprints_are_snapshot_only() {
     assert!(
         fingerprint.contains("pub(in crate::db) fn accepted_commit_schema_fingerprint(")
             && fingerprint.contains("pub(in crate::db) fn accepted_schema_cache_fingerprint(")
+            && fingerprint.contains(
+                "pub(in crate::db) fn accepted_schema_cache_fingerprint_for_persisted_snapshot("
+            )
             && fingerprint
                 .contains("pub(in crate::db) fn accepted_schema_cache_fingerprint_from_raw(")
-            && fingerprint.contains("fn accepted_schema_runtime_fingerprint(")
-            && fingerprint.contains(
-                "accepted_schema_cache_fingerprint_from_raw(\n        schema.entity_path(),"
-            )
+            && fingerprint.contains("schema_with_cache_fingerprint_version(schema)")
+            && fingerprint.contains("normalized_schema.entity_path(),")
             && fingerprint.contains("hash_labeled_str(&mut hasher, \"entity_path\", entity_path)")
-            && fingerprint
-                .contains("encode_persisted_schema_snapshot(schema.persisted_snapshot())?")
+            && fingerprint.contains("encode_persisted_schema_snapshot(&normalized_schema)?")
             && !fingerprint.contains("accepted_commit_schema_fingerprint_for_model")
             && !fingerprint.contains("accepted_schema_cache_fingerprint_for_model")
             && !fingerprint.contains("fn accepted_schema_runtime_fingerprint_for_model")
@@ -1144,13 +1144,15 @@ fn accepted_schema_fingerprints_are_snapshot_only() {
     assert!(
         commit_prepare.contains("accepted_commit_schema_fingerprint(&accepted)")
             && session_query_cache.contains("accepted_schema_cache_fingerprint(accepted_schema)")
+            && session_query_cache.contains("schema_version: SchemaVersion")
             && session_query_cache.contains("schema_fingerprint_method_version: u8")
+            && session_sql_cache.contains("schema_version: SchemaVersion")
             && session_sql_cache.contains("schema_fingerprint_method_version: u8")
             && session_query_cache.contains("accepted_schema_cache_fingerprint_method_version()")
             && session_sql_cache.contains("accepted_schema_cache_fingerprint_method_version()")
             && !commit_prepare.contains("accepted_commit_schema_fingerprint_for_model(")
             && !session_query_cache.contains("accepted_schema_cache_fingerprint_for_model("),
-        "runtime commit preparation and cache identity must call accepted-snapshot fingerprint APIs directly and carry fingerprint method version with raw fingerprint bytes",
+        "runtime commit preparation and cache identity must call accepted-snapshot fingerprint APIs directly and carry schema version plus fingerprint method version with raw fingerprint bytes",
     );
 }
 
@@ -3232,7 +3234,6 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
         .split("pub(incrate::db::session)fncached_shared_query_plan_for_entity<E>")
         .nth(1)
         .expect("session query cache should keep typed shared-plan cache helper");
-
     assert!(
         session_mod.contains("struct AcceptedSchemaCatalogContext")
             && session_mod.contains("fn accepted_schema_info_for<E>")
@@ -3252,7 +3253,6 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
     let authority_projection = cached_shared_query_plan_for_entity
         .find("accepted_schema_catalog_context_from_selection::<E>")
         .expect("cache misses should decode the selected accepted snapshot");
-
     assert!(
         catalog_context < cache_hit && cache_hit < authority_projection,
         "eligible filterless query-plan cache hits must return before accepted snapshot decode, authority, and SchemaInfo projection",
@@ -3263,7 +3263,10 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
                 "debug_assert_eq!(identity.fingerprint_method_version(),crate::db::schema::accepted_schema_cache_fingerprint_method_version(),);",
             )
             && cached_shared_query_plan_for_entity.contains(
-                "try_cached_filterless_query_plan_for_entity_path(E::PATH,identity.fingerprint_method_version(),identity.accepted_schema_fingerprint(),visibility,query.structural(),)",
+                "letschema_identity=SchemaCacheIdentity::new(identity.accepted_schema_version(),identity.fingerprint_method_version(),identity.accepted_schema_fingerprint(),);",
+            )
+            && cached_shared_query_plan_for_entity.contains(
+                "try_cached_filterless_query_plan_for_entity_path(E::PATH,schema_identity,visibility,query.structural(),)",
             ),
         "eligible filterless query-plan cache hits must use method-qualified accepted catalog identity/header facts directly",
     );
@@ -3295,28 +3298,7 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
             ),
         "typed query cache should use the catalog snapshot/fingerprint and reuse resolved visibility on misses",
     );
-    assert!(
-        schema_store.contains("pub(in crate::db) fn latest_catalog_identity(")
-            && schema_store_compact.contains("self.latest_raw_snapshot_entry(entity)?")
-            && !schema_store_compact
-                .split("pub(incrate::db)fnlatest_catalog_identity(")
-                .nth(1)
-                .expect("schema store should expose latest catalog identity")
-                .split("///Returnrawschema-storefootprintfactsforoneentity.")
-                .next()
-                .expect("latest catalog identity section should be bounded")
-                .contains("latest_raw_snapshots_by_entity")
-            && !schema_store_compact
-                .split("pub(incrate::db)fnlatest_catalog_identity(")
-                .nth(1)
-                .expect("schema store should expose latest catalog identity")
-                .split("///Returnrawschema-storefootprintfactsforoneentity.")
-                .next()
-                .expect("latest catalog identity section should be bounded")
-                .contains("decode_persisted_snapshot"),
-        "accepted catalog identity lookup must use one-entity raw snapshot selection without full decode or all-entity metadata",
-    );
-
+    assert_latest_catalog_identity_is_header_only(&schema_store, &schema_store_compact);
     let with_query_visible_indexes = session_query_cache_compact
         .split("pub(incrate::db::session)fnwith_query_visible_indexes<E,T>")
         .nth(1)
@@ -3326,6 +3308,25 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
             && with_query_visible_indexes.contains("accepted_schema_info_for::<E>()")
             && !with_query_visible_indexes.contains("ensure_accepted_schema_snapshot::<E>()"),
         "visible-index diagnostics should derive accepted SchemaInfo from catalog context, not reload a raw snapshot",
+    );
+}
+
+fn assert_latest_catalog_identity_is_header_only(schema_store: &str, schema_store_compact: &str) {
+    let latest_catalog_identity = schema_store_compact
+        .split("pub(incrate::db)fnlatest_catalog_identity(")
+        .nth(1)
+        .expect("schema store should expose latest catalog identity")
+        .split("///Returnrawschema-storefootprintfactsforoneentity.")
+        .next()
+        .expect("latest catalog identity section should be bounded");
+
+    assert!(
+        schema_store.contains("pub(in crate::db) fn latest_catalog_identity(")
+            && schema_store_compact.contains("self.latest_raw_snapshot_entry(entity)")
+            && schema_store_compact.contains("raw_snapshot.accepted_schema_fingerprint()?")
+            && !latest_catalog_identity.contains("latest_raw_snapshots_by_entity")
+            && !latest_catalog_identity.contains("decode_persisted_snapshot"),
+        "accepted catalog identity lookup must use one-entity raw snapshot selection without full decode or all-entity metadata",
     );
 }
 

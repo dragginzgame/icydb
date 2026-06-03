@@ -30,7 +30,7 @@ use crate::{
 use sha2::{Digest, Sha256};
 #[cfg(test)]
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 3;
-const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION: u8 = 1;
+const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION: u8 = 2;
 const ACCEPTED_SCHEMA_ADMISSION_FINGERPRINT_VERSION: u8 = 1;
 
 #[cfg(test)]
@@ -59,10 +59,12 @@ const FIELD_WRITE_MANAGEMENT_UPDATED_AT_TAG: u8 = 0x02;
 ///
 /// This cache fingerprint follows the accepted persisted snapshot that planning
 /// and SQL admission consume at runtime, including accepted index contracts.
+/// It intentionally excludes the source-declared schema version; cache callers
+/// carry that version beside the fingerprint as a separate identity fact.
 pub(in crate::db) fn accepted_schema_cache_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
-    accepted_schema_runtime_fingerprint(schema)
+    accepted_schema_cache_fingerprint_for_persisted_snapshot(schema.persisted_snapshot())
 }
 
 /// Compute one accepted-schema fingerprint for commit marker validation.
@@ -72,7 +74,24 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint(
 pub(in crate::db) fn accepted_commit_schema_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
-    accepted_schema_runtime_fingerprint(schema)
+    accepted_schema_cache_fingerprint_for_persisted_snapshot(schema.persisted_snapshot())
+}
+
+/// Compute the accepted runtime-shape fingerprint for one persisted snapshot.
+///
+/// Storage uses this while inserting the raw schema payload so later query
+/// cache identity can read a method-qualified fingerprint header without
+/// decoding the full snapshot.
+pub(in crate::db) fn accepted_schema_cache_fingerprint_for_persisted_snapshot(
+    schema: &PersistedSchemaSnapshot,
+) -> Result<CommitSchemaFingerprint, InternalError> {
+    let normalized_schema = schema_with_cache_fingerprint_version(schema);
+    let encoded_snapshot = encode_persisted_schema_snapshot(&normalized_schema)?;
+
+    Ok(accepted_schema_cache_fingerprint_from_raw(
+        normalized_schema.entity_path(),
+        &encoded_snapshot,
+    ))
 }
 
 /// Compute the accepted-shape fingerprint used by schema-version admission.
@@ -92,17 +111,6 @@ pub(in crate::db::schema) fn accepted_schema_admission_fingerprint(
     ))
 }
 
-fn accepted_schema_runtime_fingerprint(
-    schema: &AcceptedSchemaSnapshot,
-) -> Result<CommitSchemaFingerprint, InternalError> {
-    let encoded_snapshot = encode_persisted_schema_snapshot(schema.persisted_snapshot())?;
-
-    Ok(accepted_schema_cache_fingerprint_from_raw(
-        schema.entity_path(),
-        &encoded_snapshot,
-    ))
-}
-
 #[must_use]
 pub(in crate::db) const fn accepted_schema_cache_fingerprint_method_version() -> u8 {
     ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION
@@ -116,7 +124,7 @@ pub(in crate::db::schema) const fn accepted_schema_admission_fingerprint_method_
 #[must_use]
 pub(in crate::db) fn accepted_schema_cache_fingerprint_from_raw(
     entity_path: &str,
-    encoded_snapshot: &[u8],
+    encoded_version_normalized_snapshot: &[u8],
 ) -> CommitSchemaFingerprint {
     let mut hasher = new_hash_sha256();
     hasher.update([ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION]);
@@ -124,9 +132,9 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint_from_raw(
     hash_labeled_len(
         &mut hasher,
         "accepted_schema_snapshot_len",
-        encoded_snapshot.len(),
+        encoded_version_normalized_snapshot.len(),
     );
-    hasher.update(encoded_snapshot);
+    hasher.update(encoded_version_normalized_snapshot);
 
     truncate_sha256_commit_schema_fingerprint(hasher)
 }
@@ -149,8 +157,28 @@ fn accepted_schema_admission_fingerprint_from_raw(
     truncate_sha256_commit_schema_fingerprint(hasher)
 }
 
+fn schema_with_cache_fingerprint_version(
+    schema: &PersistedSchemaSnapshot,
+) -> PersistedSchemaSnapshot {
+    schema_with_fingerprint_version_and_indexes(schema, schema.indexes().to_vec())
+}
+
 fn schema_with_admission_fingerprint_version(
     schema: &PersistedSchemaSnapshot,
+) -> PersistedSchemaSnapshot {
+    schema_with_fingerprint_version_and_indexes(
+        schema,
+        schema
+            .indexes()
+            .iter()
+            .map(index_with_admission_fingerprint_name)
+            .collect(),
+    )
+}
+
+fn schema_with_fingerprint_version_and_indexes(
+    schema: &PersistedSchemaSnapshot,
+    indexes: Vec<PersistedIndexSnapshot>,
 ) -> PersistedSchemaSnapshot {
     // Canonical hash sentinel only: this is not an inferred persisted version.
     let version = SchemaVersion::initial();
@@ -167,11 +195,7 @@ fn schema_with_admission_fingerprint_version(
         schema.primary_key_field_ids().to_vec(),
         row_layout,
         schema.fields().to_vec(),
-        schema
-            .indexes()
-            .iter()
-            .map(index_with_admission_fingerprint_name)
-            .collect(),
+        indexes,
     )
     .with_relations(schema.relations().to_vec())
 }
@@ -351,8 +375,8 @@ mod tests {
         db::{
             Predicate,
             schema::{
-                PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaRowLayout, SchemaVersion,
-                compiled_schema_proposal_for_model,
+                AcceptedSchemaSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+                SchemaRowLayout, SchemaVersion, compiled_schema_proposal_for_model,
                 fingerprint::{hash_entity_model_for_commit, hash_labeled_str},
             },
         },
@@ -744,6 +768,28 @@ mod tests {
             super::accepted_schema_admission_fingerprint(&candidate)
                 .expect("candidate admission fingerprint should hash"),
             "declared schema_version is compared beside the admission fingerprint, not inside it",
+        );
+    }
+
+    #[test]
+    fn accepted_schema_cache_fingerprint_ignores_declared_schema_version() {
+        let stored = snapshot_for_model(&CONTRACT_BASE_MODEL);
+        let candidate = snapshot_with_version(&stored, SchemaVersion::new(2));
+        let accepted_stored =
+            AcceptedSchemaSnapshot::try_new(stored).expect("stored snapshot should be accepted");
+        let accepted_candidate = AcceptedSchemaSnapshot::try_new(candidate)
+            .expect("candidate snapshot should be accepted");
+
+        assert_ne!(
+            accepted_stored.persisted_snapshot().version(),
+            accepted_candidate.persisted_snapshot().version()
+        );
+        assert_eq!(
+            super::accepted_schema_cache_fingerprint(&accepted_stored)
+                .expect("stored cache fingerprint should hash"),
+            super::accepted_schema_cache_fingerprint(&accepted_candidate)
+                .expect("candidate cache fingerprint should hash"),
+            "schema_version is carried beside the accepted cache fingerprint, not inside it",
         );
     }
 

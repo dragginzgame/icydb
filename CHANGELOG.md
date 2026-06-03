@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.16` closes the schema-version contract line by keeping accepted
+  runtime fingerprints version-neutral, cache identity version-aware, and
+  closeout boundaries documented before 0.178.
+
 - `0.177.15` fixes the pinned actionlint installer so CI runners with a
   configured but missing workflow temp directory can create it before
   downloading the standalone binary.
