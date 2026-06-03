@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.5` adds closeout source-boundary proof for explicit generated schema
+  versions and method-qualified filterless cache-hit identity, while making
+  validated lint suppressions self-checking.
+
 - `0.177.4` makes schema-node stable-memory allocation metadata method-qualify
   accepted schema fingerprints too, keeping generated/schema-side allocation
   diagnostics aligned with core catalog identity.

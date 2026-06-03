@@ -277,7 +277,7 @@ impl ConfigArgs {
 ///
 
 #[derive(Args, Clone, Debug)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "clap flag bags intentionally mirror independent command-line switches"
 )]

@@ -23,6 +23,10 @@ fn rust_sources_under(relative_path: &str) -> Vec<PathBuf> {
     let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     root.push(relative_path);
 
+    rust_sources_under_path(root)
+}
+
+fn rust_sources_under_path(root: PathBuf) -> Vec<PathBuf> {
     let mut sources = Vec::new();
     let mut pending = vec![root];
     while let Some(path) = pending.pop() {
@@ -42,6 +46,39 @@ fn rust_sources_under(relative_path: &str) -> Vec<PathBuf> {
 
     sources.sort();
     sources
+}
+
+fn entity_attribute_blocks(source: &str) -> Vec<&str> {
+    let mut blocks = Vec::new();
+    let mut search_from = 0usize;
+
+    while let Some(relative_start) = source[search_from..].find("#[entity(") {
+        let start = search_from + relative_start;
+        let mut depth = 0u32;
+        let mut end = None;
+
+        for (offset, character) in source[start..].char_indices() {
+            match character {
+                '(' => depth = depth.saturating_add(1),
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        end = Some(start + offset + character.len_utf8());
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let Some(end) = end else {
+            panic!("unterminated #[entity(...)] attribute in source");
+        };
+        blocks.push(&source[start..end]);
+        search_from = end;
+    }
+
+    blocks
 }
 
 fn read_rust_sources_under(relative_path: &str) -> String {
@@ -1250,6 +1287,58 @@ fn schema_store_publication_stays_version_passive() {
             "{label} schema publication code must not auto-increment schema versions",
         );
     }
+}
+
+#[test]
+fn workspace_entity_declarations_keep_explicit_schema_versions() {
+    let manifest_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_roots = [
+        "../../schema",
+        "../../testing/macro-tests/src",
+        "../../testing/macro-tests/tests/ui",
+        "../../testing/wasm-helpers/src",
+    ];
+    let omitted_version_negative_fixture = "testing/macro-tests/tests/ui/schema_version_missing.rs";
+
+    let mut sources = Vec::new();
+    for repo_root in repo_roots {
+        let mut root = manifest_root.clone();
+        root.push(repo_root);
+        sources.extend(rust_sources_under_path(root));
+    }
+    sources.sort();
+    sources.dedup();
+
+    let mut violations = Vec::new();
+    for source_path in sources {
+        let relative = source_path
+            .strip_prefix(manifest_root.join("../.."))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute repo-relative source path for {}: {err}",
+                    source_path.display(),
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        if relative == omitted_version_negative_fixture {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        for entity_attr in entity_attribute_blocks(&source) {
+            if !entity_attr.contains("schema_version") {
+                violations.push(relative.clone());
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "all non-negative-test generated entity declarations must carry explicit schema_version. Violations: {}",
+        violations.join(", "),
+    );
 }
 
 #[test]
@@ -3055,6 +3144,16 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
         catalog_context < cache_hit && cache_hit < authority_projection,
         "eligible filterless query-plan cache hits must return before accepted snapshot decode, authority, and SchemaInfo projection",
     );
+    assert!(
+        cached_shared_query_plan_for_entity.contains("letidentity=selection.identity();")
+            && cached_shared_query_plan_for_entity.contains(
+                "debug_assert_eq!(identity.fingerprint_method_version(),crate::db::schema::accepted_schema_cache_fingerprint_method_version(),);",
+            )
+            && cached_shared_query_plan_for_entity.contains(
+                "try_cached_filterless_query_plan_for_entity_path(E::PATH,identity.fingerprint_method_version(),identity.accepted_schema_fingerprint(),visibility,query.structural(),)",
+            ),
+        "eligible filterless query-plan cache hits must use method-qualified accepted catalog identity/header facts directly",
+    );
     let identity_hit_prefix = &cached_shared_query_plan_for_entity[..cache_hit];
     for forbidden in [
         "SchemaInfo",
@@ -3062,6 +3161,9 @@ fn accepted_catalog_context_reaches_filterless_query_plan_cache_before_schema_pr
         "decode_verified",
         "ensure_accepted_schema_snapshot",
         "reconcile_runtime_schemas",
+        "schema_admission_rejection",
+        "SchemaAdmissionIdentityComparison",
+        "accepted_schema_admission_fingerprint",
         "latest_raw_snapshots_by_entity",
         "storage_report",
         "integrity_report",

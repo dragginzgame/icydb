@@ -21,7 +21,7 @@ use crate::{
 /// Keeps consumption order explicit and exposes one end-of-traversal invariant check.
 ///
 
-#[allow(clippy::struct_field_names)]
+#[expect(clippy::struct_field_names)]
 pub(in crate::db::executor) struct AccessSpecCursor<'a> {
     index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     index_range_specs: &'a [LoweredIndexRangeSpec],

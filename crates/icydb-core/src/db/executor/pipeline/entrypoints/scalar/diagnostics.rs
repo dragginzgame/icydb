@@ -32,7 +32,7 @@ use crate::{
 /// floor lives in runtime traversal or page finalization.
 ///
 
-#[allow(clippy::struct_field_names)]
+#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) load_plan_local_instructions: u64,

@@ -272,7 +272,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRunner;
     reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
 )]
 impl SchemaFieldPathIndexRunner {
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
         reason = "runner boundary keeps schema input, target, row stream, physical store, and publication sinks explicit"
     )]

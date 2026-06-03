@@ -75,7 +75,7 @@ impl StoreRegistry {
     }
 
     /// Register one journaled store with its journal-tail storage handle.
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
         reason = "generated journaled registration adds one journal-tail handle to the existing store triplet"
     )]
