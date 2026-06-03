@@ -1226,10 +1226,26 @@ fn validate_existing_schema_snapshot(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> Result<SchemaTransitionPlan, InternalError> {
-    // Gate source-declared version/method/fingerprint identity before
-    // compatibility classification. Passing this gate is not publication.
-    let admission_identity = SchemaAdmissionIdentityComparison::from_snapshots(actual, expected)?;
-    if let Some(rejection) = schema_admission_rejection(admission_identity) {
+    let transition_decision = decide_schema_transition(actual, expected);
+
+    if let SchemaTransitionDecision::Accepted(plan) = &transition_decision
+        && matches!(
+            plan.kind(),
+            SchemaTransitionPlanKind::ExactMatch
+                | SchemaTransitionPlanKind::MetadataOnlyIndexRename
+        )
+    {
+        record_schema_transition(entity_path, schema_transition_plan_outcome(plan.kind()));
+
+        return match transition_decision {
+            SchemaTransitionDecision::Accepted(plan) => Ok(plan),
+            SchemaTransitionDecision::Rejected(_) => unreachable!("accepted transition matched"),
+        };
+    }
+
+    if let SchemaTransitionDecision::Rejected(rejection) = &transition_decision
+        && rejection.kind() == SchemaTransitionRejectionKind::EntityIdentity
+    {
         let outcome = schema_reconcile_rejection_outcome(rejection.kind());
         let transition_outcome = schema_transition_rejection_outcome(rejection.kind());
         record_schema_transition(entity_path, transition_outcome);
@@ -1241,7 +1257,32 @@ fn validate_existing_schema_snapshot(
         )));
     }
 
-    match decide_schema_transition(actual, expected) {
+    // Gate source-declared version/method/fingerprint identity before
+    // compatibility classification. Passing this gate is not publication.
+    let admission_identity = SchemaAdmissionIdentityComparison::from_snapshots(actual, expected)?;
+    if let Some(rejection) = schema_admission_rejection(admission_identity) {
+        let outcome = schema_reconcile_rejection_outcome(rejection.kind());
+        let transition_outcome = schema_transition_rejection_outcome(rejection.kind());
+        record_schema_transition(entity_path, transition_outcome);
+        record_schema_reconcile(entity_path, outcome);
+        let first_shape_difference = match &transition_decision {
+            SchemaTransitionDecision::Rejected(transition_rejection) => {
+                format!(
+                    "; first_shape_difference: {}",
+                    transition_rejection.detail()
+                )
+            }
+            SchemaTransitionDecision::Accepted(_) => String::new(),
+        };
+
+        return Err(InternalError::store_unsupported(format!(
+            "schema evolution is not yet supported for entity '{entity_path}': {}{}",
+            rejection.detail(),
+            first_shape_difference,
+        )));
+    }
+
+    match transition_decision {
         SchemaTransitionDecision::Accepted(plan) => {
             record_schema_transition(entity_path, schema_transition_plan_outcome(plan.kind()));
 
@@ -1680,7 +1721,11 @@ mod tests {
 
         assert_eq!(accepted.footprint().fields(), 3);
         assert_eq!(latest.fields().len(), 3);
-        assert_eq!(schema_store.len(), 1);
+        assert_eq!(
+            schema_store.len(),
+            2,
+            "schema-versioned publication should retain the stored v1 prefix and accepted v2 snapshot",
+        );
 
         let report = metrics_report(None);
         let counters = report
@@ -2467,7 +2512,12 @@ mod tests {
             .counters()
             .expect("schema reconciliation should record metrics");
         assert_eq!(counters.ops().schema_reconcile_checks(), 1);
-        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 0);
+        assert_eq!(
+            counters.ops().schema_reconcile_rejected_schema_version(),
+            1,
+            "0.177 schema-version gate is the primary reconcile bucket while preserving field-contract detail",
+        );
         assert_eq!(
             counters.ops().schema_reconcile_rejected_row_layout(),
             0,
@@ -2476,7 +2526,12 @@ mod tests {
         assert_eq!(counters.ops().schema_transition_checks(), 1);
         assert_eq!(
             counters.ops().schema_transition_rejected_field_contract(),
-            1
+            0
+        );
+        assert_eq!(
+            counters.ops().schema_transition_rejected_schema_version(),
+            1,
+            "0.177 schema-version gate is the primary rejection bucket while preserving field-contract detail",
         );
     }
 
@@ -2568,7 +2623,12 @@ mod tests {
             .counters()
             .expect("schema reconciliation should record metrics");
         assert_eq!(counters.ops().schema_reconcile_checks(), 1);
-        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 0);
+        assert_eq!(
+            counters.ops().schema_reconcile_rejected_schema_version(),
+            1,
+            "0.177 schema-version gate should reject generated removed-field drift before compatibility publication",
+        );
         assert_eq!(
             counters.ops().schema_reconcile_rejected_row_layout(),
             0,
@@ -2577,7 +2637,12 @@ mod tests {
         assert_eq!(counters.ops().schema_transition_checks(), 1);
         assert_eq!(
             counters.ops().schema_transition_rejected_field_contract(),
-            1
+            0
+        );
+        assert_eq!(
+            counters.ops().schema_transition_rejected_schema_version(),
+            1,
+            "0.177 schema-version gate should reject generated additive drift before compatibility publication",
         );
     }
 
@@ -2638,7 +2703,12 @@ mod tests {
             .counters()
             .expect("schema reconciliation should record metrics");
         assert_eq!(counters.ops().schema_reconcile_checks(), 1);
-        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 0);
+        assert_eq!(
+            counters.ops().schema_reconcile_rejected_schema_version(),
+            1,
+            "0.177 schema-version gate should reject generated removed-field drift before compatibility publication",
+        );
         assert_eq!(
             counters.ops().schema_reconcile_rejected_row_layout(),
             0,
@@ -2647,7 +2717,12 @@ mod tests {
         assert_eq!(counters.ops().schema_transition_checks(), 1);
         assert_eq!(
             counters.ops().schema_transition_rejected_field_contract(),
-            1
+            0
+        );
+        assert_eq!(
+            counters.ops().schema_transition_rejected_schema_version(),
+            1,
+            "0.177 schema-version gate should reject generated removed-field drift before compatibility publication",
         );
     }
 

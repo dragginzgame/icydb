@@ -411,6 +411,7 @@ crate::test_entity! {
     tag = RECOVERY_NULLABLE_INDEXED_ENTITY_TAG,
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
+    schema_version = 2,
     key_type = Ulid,
     primary_key = [id],
     fields = [
@@ -933,13 +934,14 @@ fn install_nullable_indexed_old_accepted_schema_prefix() {
     let proposal =
         compiled_schema_proposal_for_model(<RecoveryNullableIndexedEntity as EntitySchema>::MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_version = SchemaVersion::new(expected.version().get().saturating_sub(1));
     let stored_prefix = PersistedSchemaSnapshot::new(
-        expected.version(),
+        stored_version,
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
         expected.first_primary_key_field_id(),
         SchemaRowLayout::new(
-            expected.row_layout().version(),
+            stored_version,
             vec![
                 (FieldId::new(1), SchemaFieldSlot::new(0)),
                 (FieldId::new(2), SchemaFieldSlot::new(1)),
