@@ -8,13 +8,13 @@ use super::{
     SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
     SqlAlterTableRenameColumnStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
-    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
-    SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement,
-    SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
-    SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
-    SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, parse_sql,
+    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
+    SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
+    SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1885,6 +1885,7 @@ fn parse_create_index_statement_keeps_ddl_intent_unresolved() {
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -1903,6 +1904,7 @@ fn parse_create_multi_field_index_statement_keeps_ddl_intent_unresolved() {
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -1921,6 +1923,7 @@ fn parse_create_index_treats_asc_as_default_order() {
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -1939,6 +1942,7 @@ fn parse_alter_table_add_column_statement_keeps_ddl_intent_unresolved() {
                 column_type: "text".to_string(),
                 nullable: true,
                 default: None,
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -1958,6 +1962,7 @@ fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent()
                 column_type: "nat64".to_string(),
                 nullable: false,
                 default: Some(Value::Int64(7)),
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -1977,6 +1982,7 @@ fn parse_alter_table_add_column_statement_accepts_not_null_before_default() {
                 column_type: "nat64".to_string(),
                 nullable: false,
                 default: Some(Value::Int64(0)),
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -1997,6 +2003,7 @@ fn parse_alter_table_add_column_statement_keeps_nat_big_max_bytes_type_modifier(
                 column_type: "nat_big(max_bytes=512)".to_string(),
                 nullable: true,
                 default: Some(Value::Int64(0)),
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2026,6 +2033,7 @@ fn parse_alter_table_alter_column_statement_keeps_default_intent_unresolved() {
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
                 action: SqlAlterColumnAction::SetDefault(Value::Int64(7)),
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2047,6 +2055,7 @@ fn parse_alter_table_alter_column_statement_keeps_nullability_intent_unresolved(
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
                 action: SqlAlterColumnAction::SetNotNull,
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2057,6 +2066,7 @@ fn parse_alter_table_alter_column_statement_keeps_nullability_intent_unresolved(
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
                 action: SqlAlterColumnAction::DropNotNull,
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2067,6 +2077,7 @@ fn parse_alter_table_alter_column_statement_keeps_nullability_intent_unresolved(
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
                 action: SqlAlterColumnAction::DropDefault,
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2084,6 +2095,7 @@ fn parse_alter_table_drop_column_statement_keeps_ddl_intent_unresolved() {
                 entity: "public.users".to_string(),
                 column_name: "nickname".to_string(),
                 if_exists: false,
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2101,6 +2113,7 @@ fn parse_alter_table_drop_column_if_exists_statement_keeps_ddl_intent_unresolved
                 entity: "public.users".to_string(),
                 column_name: "nickname".to_string(),
                 if_exists: true,
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2118,6 +2131,7 @@ fn parse_alter_table_rename_column_statement_keeps_ddl_intent_unresolved() {
                 entity: "public.users".to_string(),
                 old_column_name: "nickname".to_string(),
                 new_column_name: "handle".to_string(),
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
     );
@@ -2137,6 +2151,7 @@ fn parse_create_unique_index_statement_keeps_ddl_intent_unresolved() {
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::Unique,
             if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -2158,6 +2173,7 @@ fn parse_create_index_keeps_expression_key_intent_unresolved() {
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -2182,6 +2198,7 @@ fn parse_create_index_keeps_supported_expression_key_family_intent_unresolved() 
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -2210,6 +2227,7 @@ fn parse_create_index_keeps_filtered_index_predicate_sql() {
             predicate_sql: Some("active = TRUE".to_string()),
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -2225,6 +2243,7 @@ fn parse_drop_index_statement_keeps_ddl_intent_unresolved() {
             name: "user_age_idx".to_string(),
             entity: Some("public.users".to_string()),
             if_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -2239,6 +2258,7 @@ fn parse_drop_index_statement_allows_implicit_typed_target() {
             name: "user_age_idx".to_string(),
             entity: None,
             if_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 }
@@ -2256,6 +2276,7 @@ fn parse_ddl_idempotency_clauses_keep_explicit_intent() {
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: true,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 
@@ -2267,6 +2288,7 @@ fn parse_ddl_idempotency_clauses_keep_explicit_intent() {
             name: "user_age_idx".to_string(),
             entity: Some("users".to_string()),
             if_exists: true,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })),
     );
 
@@ -2278,6 +2300,51 @@ fn parse_ddl_idempotency_clauses_keep_explicit_intent() {
             name: "user_age_idx".to_string(),
             entity: None,
             if_exists: true,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
+        })),
+    );
+}
+
+#[test]
+fn parse_ddl_schema_version_contracts_keep_transition_intent() {
+    let statement = parse_sql(
+        "ALTER TABLE users EXPECT SCHEMA VERSION 3 SET SCHEMA VERSION 4 ADD COLUMN nickname text",
+    )
+    .expect("ALTER TABLE should parse a prefix schema-version contract");
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(
+            SqlAlterTableAddColumnStatement {
+                entity: "users".to_string(),
+                column_name: "nickname".to_string(),
+                column_type: "text".to_string(),
+                nullable: true,
+                default: None,
+                schema_version_contract: SqlDdlSchemaVersionContract {
+                    expected_schema_version: Some(3),
+                    next_schema_version: Some(4),
+                },
+            },
+        )),
+    );
+
+    let statement = parse_sql(
+        "CREATE INDEX user_age_idx ON users (age) EXPECT SCHEMA VERSION 4 SET SCHEMA VERSION 5",
+    )
+    .expect("CREATE INDEX should parse a trailing schema-version contract");
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: "users".to_string(),
+            key_items: ddl_field_paths(&["age"]),
+            predicate_sql: None,
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists: false,
+            schema_version_contract: SqlDdlSchemaVersionContract {
+                expected_schema_version: Some(4),
+                next_schema_version: Some(5),
+            },
         })),
     );
 }

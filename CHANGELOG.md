@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### Added
+
+- Added explicit `EXPECT SCHEMA VERSION` and `SET SCHEMA VERSION` contracts
+  for mutating SQL DDL, with declared next versions admitted through the
+  schema-owned version/fingerprint gate before publication.
+
+### Changed
+
+- Preserved accepted DDL-owned fields, indexes, and retired slots across
+  generated reconciliation after DDL publication while keeping plain
+  version-only drift fail-closed.
+
 ## [0.177.x] 🧭 - 2026-06-02 - Explicit Schema Version Contracts
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)

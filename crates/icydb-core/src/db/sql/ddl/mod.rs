@@ -20,14 +20,14 @@ use index::{bind_create_index_statement, bind_drop_index_statement, ddl_key_item
 use crate::db::{
     schema::{
         AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-        SchemaDdlMutationAdmissionError, SchemaInfo,
+        SchemaDdlMutationAdmissionError, SchemaInfo, SchemaVersion,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
     },
-    sql::parser::{SqlDdlStatement, SqlStatement},
+    sql::parser::{SqlDdlSchemaVersionContract, SqlDdlStatement, SqlStatement},
 };
 use thiserror::Error as ThisError;
 
@@ -232,6 +232,7 @@ impl SqlDdlExecutionStatus {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct BoundSqlDdlRequest {
     statement: BoundSqlDdlStatement,
+    schema_version_contract: BoundSqlDdlSchemaVersionContract,
 }
 
 impl BoundSqlDdlRequest {
@@ -239,6 +240,38 @@ impl BoundSqlDdlRequest {
     #[must_use]
     pub(in crate::db) const fn statement(&self) -> &BoundSqlDdlStatement {
         &self.statement
+    }
+
+    /// Borrow the source-declared DDL schema-version contract.
+    #[must_use]
+    pub(in crate::db) const fn schema_version_contract(&self) -> BoundSqlDdlSchemaVersionContract {
+        self.schema_version_contract
+    }
+}
+
+///
+/// BoundSqlDdlSchemaVersionContract
+///
+/// Accepted-catalog DDL version intent after raw parser values have been
+/// checked for positive schema-version numbers.
+///
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlDdlSchemaVersionContract {
+    expected_schema_version: Option<SchemaVersion>,
+    next_schema_version: Option<SchemaVersion>,
+}
+
+impl BoundSqlDdlSchemaVersionContract {
+    /// Return the declared accepted-before schema version.
+    #[must_use]
+    pub(in crate::db) const fn expected_schema_version(self) -> Option<SchemaVersion> {
+        self.expected_schema_version
+    }
+
+    /// Return the declared accepted-after schema version.
+    #[must_use]
+    pub(in crate::db) const fn next_schema_version(self) -> Option<SchemaVersion> {
+        self.next_schema_version
     }
 }
 
@@ -468,6 +501,23 @@ pub(in crate::db) enum SqlDdlBindError {
         entity_name: String,
         column_name: String,
     },
+
+    #[error("SQL DDL {clause} must be a positive schema version")]
+    NonPositiveSchemaVersion { clause: &'static str },
+
+    #[error("mutating SQL DDL requires EXPECT SCHEMA VERSION")]
+    MissingExpectedSchemaVersion,
+
+    #[error("mutating SQL DDL requires SET SCHEMA VERSION")]
+    MissingNextSchemaVersion,
+
+    #[error(
+        "SQL DDL expected accepted schema version {expected}, but accepted schema version is {accepted}"
+    )]
+    StaleExpectedSchemaVersion { expected: u32, accepted: u32 },
+
+    #[error("SQL DDL no-op cannot SET SCHEMA VERSION {requested}")]
+    EmptySchemaVersionBump { requested: u32 },
 }
 
 ///
@@ -507,6 +557,7 @@ pub(in crate::db) fn prepare_sql_ddl_statement(
     index_store_path: &'static str,
 ) -> Result<PreparedSqlDdlCommand, SqlDdlPrepareError> {
     let bound = bind_sql_ddl_statement(statement, accepted_before, schema, index_store_path)?;
+    validate_bound_sql_ddl_version_contract(&bound, accepted_before)?;
     let derivation = if matches!(bound.statement(), BoundSqlDdlStatement::NoOp(_)) {
         None
     } else {
@@ -535,7 +586,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         return Err(SqlDdlBindError::NotDdl);
     };
 
-    match ddl {
+    let mut bound = match ddl {
         SqlDdlStatement::CreateIndex(statement) => {
             bind_create_index_statement(statement, schema, index_store_path)
         }
@@ -554,7 +605,11 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         SqlDdlStatement::AlterTableRenameColumn(statement) => {
             bind_alter_table_rename_column_statement(statement, accepted_before, schema)
         }
-    }
+    }?;
+    bound.schema_version_contract =
+        bind_sql_ddl_schema_version_contract(ddl_version_contract(ddl))?;
+
+    Ok(bound)
 }
 
 /// Lower one bound SQL DDL request through schema mutation admission.
@@ -601,7 +656,11 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     request: &BoundSqlDdlRequest,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SqlDdlLoweringError> {
-    match request.statement() {
+    let next_schema_version = request
+        .schema_version_contract()
+        .next_schema_version()
+        .ok_or(SqlDdlLoweringError::UnsupportedStatement)?;
+    let derivation = match request.statement() {
         BoundSqlDdlStatement::AddColumn(add) => {
             derive_sql_ddl_field_addition_accepted_after(accepted_before, add.field().clone())
         }
@@ -648,7 +707,85 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
         }
         BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
     }
-    .map_err(SqlDdlLoweringError::MutationAdmission)
+    .map_err(SqlDdlLoweringError::MutationAdmission)?;
+
+    derivation
+        .with_declared_schema_version(accepted_before, next_schema_version)
+        .map_err(SqlDdlLoweringError::MutationAdmission)
+}
+
+const fn ddl_version_contract(ddl: &SqlDdlStatement) -> SqlDdlSchemaVersionContract {
+    match ddl {
+        SqlDdlStatement::CreateIndex(statement) => statement.schema_version_contract,
+        SqlDdlStatement::DropIndex(statement) => statement.schema_version_contract,
+        SqlDdlStatement::AlterTableAddColumn(statement) => statement.schema_version_contract,
+        SqlDdlStatement::AlterTableAlterColumn(statement) => statement.schema_version_contract,
+        SqlDdlStatement::AlterTableDropColumn(statement) => statement.schema_version_contract,
+        SqlDdlStatement::AlterTableRenameColumn(statement) => statement.schema_version_contract,
+    }
+}
+
+fn bind_sql_ddl_schema_version_contract(
+    contract: SqlDdlSchemaVersionContract,
+) -> Result<BoundSqlDdlSchemaVersionContract, SqlDdlBindError> {
+    Ok(BoundSqlDdlSchemaVersionContract {
+        expected_schema_version: bind_sql_ddl_schema_version(
+            "EXPECT SCHEMA VERSION",
+            contract.expected_schema_version,
+        )?,
+        next_schema_version: bind_sql_ddl_schema_version(
+            "SET SCHEMA VERSION",
+            contract.next_schema_version,
+        )?,
+    })
+}
+
+fn bind_sql_ddl_schema_version(
+    clause: &'static str,
+    value: Option<u32>,
+) -> Result<Option<SchemaVersion>, SqlDdlBindError> {
+    value
+        .map(|raw| {
+            if raw == 0 {
+                Err(SqlDdlBindError::NonPositiveSchemaVersion { clause })
+            } else {
+                Ok(SchemaVersion::new(raw))
+            }
+        })
+        .transpose()
+}
+
+fn validate_bound_sql_ddl_version_contract(
+    bound: &BoundSqlDdlRequest,
+    accepted_before: &AcceptedSchemaSnapshot,
+) -> Result<(), SqlDdlBindError> {
+    let contract = bound.schema_version_contract();
+    let accepted_version = accepted_before.persisted_snapshot().version();
+    if let Some(expected) = contract.expected_schema_version()
+        && expected != accepted_version
+    {
+        return Err(SqlDdlBindError::StaleExpectedSchemaVersion {
+            expected: expected.get(),
+            accepted: accepted_version.get(),
+        });
+    }
+    if matches!(bound.statement(), BoundSqlDdlStatement::NoOp(_)) {
+        if let Some(requested) = contract.next_schema_version() {
+            return Err(SqlDdlBindError::EmptySchemaVersionBump {
+                requested: requested.get(),
+            });
+        }
+
+        return Ok(());
+    }
+    if contract.expected_schema_version().is_none() {
+        return Err(SqlDdlBindError::MissingExpectedSchemaVersion);
+    }
+    if contract.next_schema_version().is_none() {
+        return Err(SqlDdlBindError::MissingNextSchemaVersion);
+    }
+
+    Ok(())
 }
 
 fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport {

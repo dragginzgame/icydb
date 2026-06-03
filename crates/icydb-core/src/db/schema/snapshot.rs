@@ -380,6 +380,23 @@ impl PersistedSchemaSnapshot {
     pub(in crate::db) const fn relations(&self) -> &[PersistedRelationEdgeSnapshot] {
         self.relations.as_slice()
     }
+
+    /// Clone this accepted schema shape with a new declared schema version.
+    /// DDL callers supply the version from source intent; storage must never
+    /// synthesize it.
+    #[must_use]
+    pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
+        Self::new_with_primary_key_fields_and_indexes(
+            version,
+            self.entity_path.clone(),
+            self.entity_name.clone(),
+            self.primary_key_field_ids.clone(),
+            self.row_layout.clone_with_version(version),
+            self.fields.clone(),
+            self.indexes.clone(),
+        )
+        .with_relations(self.relations.clone())
+    }
 }
 
 ///

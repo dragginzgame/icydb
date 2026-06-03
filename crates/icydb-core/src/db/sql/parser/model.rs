@@ -51,6 +51,19 @@ pub(crate) enum SqlDdlStatement {
 }
 
 ///
+/// SqlDdlSchemaVersionContract
+///
+/// Parser-owned DDL transition version intent. Schema-owned admission later
+/// validates these raw positive values against accepted catalog identity.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SqlDdlSchemaVersionContract {
+    pub(crate) expected_schema_version: Option<u32>,
+    pub(crate) next_schema_version: Option<u32>,
+}
+
+///
 /// SqlAlterTableAddColumnStatement
 ///
 /// Parsed `ALTER TABLE ... ADD COLUMN ...` frontend staged for schema DDL.
@@ -63,6 +76,7 @@ pub(crate) struct SqlAlterTableAddColumnStatement {
     pub(crate) column_type: String,
     pub(crate) nullable: bool,
     pub(crate) default: Option<Value>,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
 ///
@@ -76,6 +90,7 @@ pub(crate) struct SqlAlterTableAlterColumnStatement {
     pub(crate) entity: String,
     pub(crate) column_name: String,
     pub(crate) action: SqlAlterColumnAction,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
 ///
@@ -90,6 +105,7 @@ pub(crate) struct SqlAlterTableDropColumnStatement {
     pub(crate) entity: String,
     pub(crate) column_name: String,
     pub(crate) if_exists: bool,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
 ///
@@ -104,6 +120,7 @@ pub(crate) struct SqlAlterTableRenameColumnStatement {
     pub(crate) entity: String,
     pub(crate) old_column_name: String,
     pub(crate) new_column_name: String,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
 ///
@@ -135,6 +152,7 @@ pub(crate) struct SqlCreateIndexStatement {
     pub(crate) predicate_sql: Option<String>,
     pub(crate) uniqueness: SqlCreateIndexUniqueness,
     pub(crate) if_not_exists: bool,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
 ///
@@ -230,6 +248,7 @@ pub(crate) struct SqlDropIndexStatement {
     pub(crate) name: String,
     pub(crate) entity: Option<String>,
     pub(crate) if_exists: bool,
+    pub(crate) schema_version_contract: SqlDdlSchemaVersionContract,
 }
 
 ///

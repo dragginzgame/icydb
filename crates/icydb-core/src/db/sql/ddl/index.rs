@@ -1,6 +1,6 @@
 use super::{
-    BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlStatement, SqlDdlBindError,
-    SqlDdlMutationKind,
+    BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlSchemaVersionContract,
+    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind,
 };
 use crate::db::{
     predicate::parse_sql_predicate,
@@ -205,6 +205,7 @@ pub(super) fn bind_create_index_statement(
             )
         {
             return Ok(BoundSqlDdlRequest {
+                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
                 statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                     mutation_kind: SqlDdlMutationKind::AddFieldPathIndex,
                     index_name: statement.name.clone(),
@@ -231,6 +232,7 @@ pub(super) fn bind_create_index_statement(
             )
         {
             return Ok(BoundSqlDdlRequest {
+                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
                 statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                     mutation_kind: SqlDdlMutationKind::AddExpressionIndex,
                     index_name: statement.name.clone(),
@@ -264,6 +266,7 @@ pub(super) fn bind_create_index_statement(
     )?;
 
     Ok(BoundSqlDdlRequest {
+        schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::CreateIndex(BoundSqlCreateIndexRequest {
             index_name: statement.name.clone(),
             entity_name: entity_name.to_string(),
@@ -313,6 +316,7 @@ pub(super) fn bind_drop_index_statement(
         Ok((dropped_index, field_path)) => (dropped_index, field_path),
         Err(SqlDdlBindError::UnknownIndex { .. }) if statement.if_exists => {
             return Ok(BoundSqlDdlRequest {
+                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
                 statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                     mutation_kind: SqlDdlMutationKind::DropSecondaryIndex,
                     index_name: statement.name.clone(),
@@ -325,6 +329,7 @@ pub(super) fn bind_drop_index_statement(
         Err(error) => return Err(error),
     };
     Ok(BoundSqlDdlRequest {
+        schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::DropIndex(BoundSqlDropIndexRequest {
             index_name: statement.name.clone(),
             dropped_index,

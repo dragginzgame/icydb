@@ -1,6 +1,6 @@
 use super::{
-    BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlStatement, SqlDdlBindError,
-    SqlDdlMutationKind,
+    BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlSchemaVersionContract,
+    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind,
 };
 use crate::db::{
     data::encode_runtime_value_for_accepted_field_contract,
@@ -273,6 +273,7 @@ pub(super) fn bind_alter_table_add_column_statement(
     );
 
     Ok(BoundSqlDdlRequest {
+        schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::AddColumn(BoundSqlAddColumnRequest {
             entity_name: entity_name.to_string(),
             field,
@@ -374,6 +375,7 @@ pub(super) fn bind_alter_table_drop_column_statement(
     else {
         if statement.if_exists {
             return Ok(BoundSqlDdlRequest {
+                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
                 statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                     mutation_kind: SqlDdlMutationKind::DropField,
                     index_name: statement.column_name.clone(),
@@ -415,6 +417,7 @@ pub(super) fn bind_alter_table_drop_column_statement(
     }
 
     Ok(BoundSqlDdlRequest {
+        schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::DropColumn(BoundSqlDropColumnRequest {
             entity_name: entity_name.to_string(),
             field: field.clone(),
@@ -452,6 +455,7 @@ pub(super) fn bind_alter_table_rename_column_statement(
 
     if statement.old_column_name == statement.new_column_name {
         return Ok(BoundSqlDdlRequest {
+            schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
             statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                 mutation_kind: SqlDdlMutationKind::RenameField,
                 index_name: statement.old_column_name.clone(),
@@ -481,6 +485,7 @@ pub(super) fn bind_alter_table_rename_column_statement(
     }
 
     Ok(BoundSqlDdlRequest {
+        schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::RenameColumn(BoundSqlRenameColumnRequest {
             entity_name: entity_name.to_string(),
             field: field.clone(),
@@ -497,6 +502,7 @@ fn bind_alter_table_alter_column_default(
 ) -> BoundSqlDdlRequest {
     if field.default() == &default {
         return BoundSqlDdlRequest {
+            schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
             statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                 mutation_kind,
                 index_name: field.name().to_string(),
@@ -508,6 +514,7 @@ fn bind_alter_table_alter_column_default(
     }
 
     BoundSqlDdlRequest {
+        schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::AlterColumnDefault(BoundSqlAlterColumnDefaultRequest {
             entity_name: entity_name.to_string(),
             field: field.clone(),
@@ -539,6 +546,7 @@ fn bind_alter_table_alter_column_nullability(
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     if field.nullable() == nullable {
         return Ok(BoundSqlDdlRequest {
+            schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
             statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                 mutation_kind,
                 index_name: field.name().to_string(),
@@ -552,6 +560,7 @@ fn bind_alter_table_alter_column_nullability(
     reject_generated_field_nullability_change(entity_name, field)?;
 
     Ok(BoundSqlDdlRequest {
+        schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::AlterColumnNullability(
             BoundSqlAlterColumnNullabilityRequest {
                 entity_name: entity_name.to_string(),

@@ -27,13 +27,14 @@ pub(crate) use model::{
     SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
     SqlAlterTableRenameColumnStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
-    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
-    SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource,
-    SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection,
-    SqlScalarFunction, SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
+    SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
+    SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+    SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlScalarFunctionCallShape,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement,
+    SqlUpdateStatement,
 };
 #[cfg(test)]
 pub(in crate::db) use order_expr::{

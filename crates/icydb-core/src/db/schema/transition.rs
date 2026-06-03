@@ -557,11 +557,12 @@ fn accepted_snapshot_extends_generated_indexes(
     if actual == expected {
         return false;
     }
-    if actual.version() != expected.version()
+    if actual.version() < expected.version()
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || !active_row_layout_matches(actual, expected)
+        || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
+        || actual.row_layout().retired_field_slots() != expected.row_layout().retired_field_slots()
         || actual.fields() != expected.fields()
     {
         return false;
@@ -574,11 +575,16 @@ fn accepted_snapshot_extends_generated_indexes(
         return false;
     }
 
-    actual
+    let has_ddl_index_extension = actual
         .indexes()
         .iter()
-        .filter(|index| !expected.indexes().contains(index))
-        .all(is_supported_extra_accepted_index)
+        .any(|index| !expected.indexes().contains(index));
+    has_ddl_index_extension
+        && actual
+            .indexes()
+            .iter()
+            .filter(|index| !expected.indexes().contains(index))
+            .all(is_supported_extra_accepted_index)
 }
 
 // SQL field DDL will publish DDL-owned accepted fields that generated Rust
@@ -592,13 +598,12 @@ fn accepted_snapshot_extends_generated_with_ddl_fields(
     if actual == expected {
         return false;
     }
-    if actual.version() != expected.version()
+    if actual.version() < expected.version()
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || actual.fields().len() <= expected.fields().len()
-        || actual.row_layout().field_to_slot().len() <= expected.row_layout().field_to_slot().len()
-        || actual.row_layout().version() != expected.row_layout().version()
+        || actual.fields().len() < expected.fields().len()
+        || actual.row_layout().field_to_slot().len() < expected.row_layout().field_to_slot().len()
     {
         return false;
     }
@@ -626,6 +631,33 @@ fn accepted_snapshot_extends_generated_with_ddl_fields(
         return false;
     }
     if !expected
+        .row_layout()
+        .retired_field_slots()
+        .iter()
+        .all(|retired| actual.row_layout().retired_field_slots().contains(retired))
+    {
+        return false;
+    }
+    if actual
+        .row_layout()
+        .retired_field_slots()
+        .iter()
+        .filter(|retired| {
+            !expected
+                .row_layout()
+                .retired_field_slots()
+                .contains(retired)
+        })
+        .any(|(field_id, _)| {
+            expected
+                .fields()
+                .iter()
+                .any(|field| field.id() == *field_id)
+        })
+    {
+        return false;
+    }
+    if !expected
         .indexes()
         .iter()
         .all(|index| actual.indexes().contains(index))
@@ -633,11 +665,15 @@ fn accepted_snapshot_extends_generated_with_ddl_fields(
         return false;
     }
 
-    actual
-        .indexes()
-        .iter()
-        .filter(|index| !expected.indexes().contains(index))
-        .all(is_supported_extra_accepted_index)
+    let has_ddl_field_extension = actual.fields().len() > expected.fields().len()
+        || actual.row_layout().field_to_slot().len() > expected.row_layout().field_to_slot().len()
+        || actual.row_layout().retired_field_slots() != expected.row_layout().retired_field_slots();
+    has_ddl_field_extension
+        && actual
+            .indexes()
+            .iter()
+            .filter(|index| !expected.indexes().contains(index))
+            .all(is_supported_extra_accepted_index)
 }
 
 fn active_row_layout_matches(
@@ -1258,6 +1294,64 @@ mod tests {
         .with_relations(snapshot.relations().to_vec())
     }
 
+    fn snapshot_with_ddl_nickname_field(
+        snapshot: &PersistedSchemaSnapshot,
+        version: SchemaVersion,
+    ) -> PersistedSchemaSnapshot {
+        let mut fields = snapshot.fields().to_vec();
+        fields.push(PersistedFieldSnapshot::new_with_write_policy_and_origin(
+            FieldId::new(3),
+            "nickname".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Text { max_len: None },
+            Vec::new(),
+            true,
+            SchemaFieldDefault::None,
+            SchemaFieldWritePolicy::none(),
+            PersistedFieldOrigin::SqlDdl,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        ));
+
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            version,
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_ids().to_vec(),
+            SchemaRowLayout::new(
+                version,
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            fields,
+            snapshot.indexes().to_vec(),
+        )
+        .with_relations(snapshot.relations().to_vec())
+    }
+
+    fn snapshot_with_retired_ddl_nickname_slot(
+        snapshot: &PersistedSchemaSnapshot,
+        version: SchemaVersion,
+    ) -> PersistedSchemaSnapshot {
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            version,
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_ids().to_vec(),
+            SchemaRowLayout::new_with_retired_slots(
+                version,
+                snapshot.row_layout().field_to_slot().to_vec(),
+                vec![(FieldId::new(3), SchemaFieldSlot::new(2))],
+            ),
+            snapshot.fields().to_vec(),
+            snapshot.indexes().to_vec(),
+        )
+        .with_relations(snapshot.relations().to_vec())
+    }
+
     fn snapshot_with_renamed_name_field(
         snapshot: &PersistedSchemaSnapshot,
         name: &str,
@@ -1611,6 +1705,7 @@ mod tests {
     fn schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_model() {
         let generated = expected_snapshot();
         let accepted = snapshot_with_indexes(&generated, vec![name_field_path_index("name_idx")]);
+        let accepted = snapshot_with_version(&accepted, SchemaVersion::new(2));
 
         let SchemaTransitionDecision::Accepted(plan) =
             decide_schema_transition(&accepted, &generated)
@@ -1632,40 +1727,34 @@ mod tests {
     #[test]
     fn schema_transition_policy_accepts_supported_ddl_fields_absent_from_generated_model() {
         let generated = expected_snapshot();
-        let mut accepted_fields = generated.fields().to_vec();
-        accepted_fields.push(PersistedFieldSnapshot::new_with_write_policy_and_origin(
-            FieldId::new(3),
-            "nickname".to_string(),
-            SchemaFieldSlot::new(2),
-            PersistedFieldKind::Text { max_len: None },
-            Vec::new(),
-            true,
-            SchemaFieldDefault::None,
-            SchemaFieldWritePolicy::none(),
-            PersistedFieldOrigin::SqlDdl,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Text),
-        ));
-        let accepted = PersistedSchemaSnapshot::new(
-            generated.version(),
-            generated.entity_path().to_string(),
-            generated.entity_name().to_string(),
-            generated.first_primary_key_field_id(),
-            SchemaRowLayout::new(
-                SchemaVersion::initial(),
-                vec![
-                    (FieldId::new(1), SchemaFieldSlot::new(0)),
-                    (FieldId::new(2), SchemaFieldSlot::new(1)),
-                    (FieldId::new(3), SchemaFieldSlot::new(2)),
-                ],
-            ),
-            accepted_fields,
-        );
+        let accepted = snapshot_with_ddl_nickname_field(&generated, SchemaVersion::new(2));
 
         let SchemaTransitionDecision::Accepted(plan) =
             decide_schema_transition(&accepted, &generated)
         else {
             panic!("supported accepted DDL field should remain compatible with generated metadata");
+        };
+
+        assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
+        assert_eq!(
+            plan.mutation_plan().compatibility(),
+            MutationCompatibility::MetadataOnlySafe,
+        );
+        assert_eq!(
+            plan.mutation_plan().rebuild_requirement(),
+            RebuildRequirement::NoRebuildRequired,
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_accepts_retired_ddl_slots_absent_from_generated_model() {
+        let generated = expected_snapshot();
+        let accepted = snapshot_with_retired_ddl_nickname_slot(&generated, SchemaVersion::new(3));
+
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&accepted, &generated)
+        else {
+            panic!("retired DDL field slots should remain compatible with generated metadata");
         };
 
         assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);

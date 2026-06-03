@@ -17,7 +17,8 @@ use crate::db::{
     predicate::PredicateProgram,
     schema::{
         AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldSlot, encode_persisted_schema_snapshot,
+        PersistedSchemaSnapshot, SchemaFieldSlot, SchemaVersion, encode_persisted_schema_snapshot,
+        transition::{SchemaAdmissionIdentityComparison, schema_admission_rejection},
     },
 };
 use crate::error::InternalError;
@@ -362,6 +363,36 @@ impl SchemaDdlAcceptedSnapshotDerivation {
     pub(in crate::db) const fn admission(&self) -> &SchemaDdlMutationAdmission {
         &self.admission
     }
+
+    /// Retag the candidate snapshot with the source-declared next schema
+    /// version and run the schema-owned version/fingerprint admission gate.
+    pub(in crate::db) fn with_declared_schema_version(
+        self,
+        accepted_before: &AcceptedSchemaSnapshot,
+        schema_version: SchemaVersion,
+    ) -> Result<Self, SchemaDdlMutationAdmissionError> {
+        let accepted_after = AcceptedSchemaSnapshot::try_new(
+            self.accepted_after
+                .persisted_snapshot()
+                .clone_with_version(schema_version),
+        )
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+        let comparison = SchemaAdmissionIdentityComparison::from_snapshots(
+            accepted_before.persisted_snapshot(),
+            accepted_after.persisted_snapshot(),
+        )
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+        if let Some(rejection) = schema_admission_rejection(comparison) {
+            return Err(SchemaDdlMutationAdmissionError::SchemaVersionAdmission(
+                rejection.detail().to_string(),
+            ));
+        }
+
+        Ok(Self {
+            accepted_after,
+            admission: self.admission,
+        })
+    }
 }
 
 ///
@@ -374,10 +405,11 @@ impl SchemaDdlAcceptedSnapshotDerivation {
     dead_code,
     reason = "0.155 stages SQL DDL lowering before execution can call the runner"
 )]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlMutationAdmissionError {
     AcceptedIndex(AcceptedSchemaMutationError),
     AcceptedAfterRejected,
+    SchemaVersionAdmission(String),
     UnsupportedExecutionPath,
 }
 

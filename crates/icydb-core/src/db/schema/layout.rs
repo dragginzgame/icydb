@@ -131,6 +131,17 @@ impl SchemaRowLayout {
         self.retired_field_slots.as_slice()
     }
 
+    /// Clone this row layout with a new declared schema version while
+    /// preserving all active and retired slot allocation facts.
+    #[must_use]
+    pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
+        Self::new_with_retired_slots(
+            version,
+            self.field_to_slot.clone(),
+            self.retired_field_slots.clone(),
+        )
+    }
+
     /// Return the next never-used physical slot index for additive field DDL.
     #[must_use]
     pub(in crate::db) fn next_unallocated_slot(&self) -> SchemaFieldSlot {

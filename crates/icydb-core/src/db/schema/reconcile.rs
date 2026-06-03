@@ -20,8 +20,9 @@ use crate::{
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
             SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
             SchemaFieldRenameTarget, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-            SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            SchemaRowLayout, SchemaSecondaryIndexDropCleanupTarget, SchemaStore,
+            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
+            decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeContract,
             transition::{
                 SchemaAdmissionIdentityComparison, SchemaTransitionPlan,
@@ -221,6 +222,11 @@ fn publish_sql_ddl_accepted_snapshot(
     store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
 }
 
+fn row_layout_allocation_matches(left: &SchemaRowLayout, right: &SchemaRowLayout) -> bool {
+    left.field_to_slot() == right.field_to_slot()
+        && left.retired_field_slots() == right.retired_field_slots()
+}
+
 /// Execute one metadata-only SQL DDL retained-slot field drop publication.
 pub(in crate::db) fn execute_sql_ddl_field_drop(
     store: StoreHandle,
@@ -247,8 +253,7 @@ fn validate_sql_ddl_field_drop_metadata_change(
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldDropTarget,
 ) -> Result<(), InternalError> {
-    if before.version() != after.version()
-        || before.entity_path() != after.entity_path()
+    if before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
         || before.primary_key_field_ids() != after.primary_key_field_ids()
         || before.indexes() != after.indexes()
@@ -320,7 +325,9 @@ fn validate_sql_ddl_field_drop_metadata_change(
                 target.name(),
             ))
         })?;
-    if after.fields() != expected_fields.as_slice() || after.row_layout() != &expected_row_layout {
+    if after.fields() != expected_fields.as_slice()
+        || !row_layout_allocation_matches(after.row_layout(), &expected_row_layout)
+    {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL field-drop execution found unrelated schema drift for entity '{entity_path}': field='{}'",
             target.name(),
@@ -356,11 +363,10 @@ fn validate_sql_ddl_field_default_metadata_change(
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldDefaultTarget,
 ) -> Result<(), InternalError> {
-    if before.version() != after.version()
-        || before.entity_path() != after.entity_path()
+    if before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
         || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || before.row_layout() != after.row_layout()
+        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
         || before.indexes() != after.indexes()
         || before.fields().len() != after.fields().len()
     {
@@ -444,11 +450,10 @@ fn validate_sql_ddl_field_nullability_metadata_change(
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldNullabilityTarget,
 ) -> Result<(), InternalError> {
-    if before.version() != after.version()
-        || before.entity_path() != after.entity_path()
+    if before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
         || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || before.row_layout() != after.row_layout()
+        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
         || before.indexes() != after.indexes()
         || before.fields().len() != after.fields().len()
     {
@@ -592,11 +597,10 @@ fn validate_sql_ddl_field_rename_metadata_change(
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldRenameTarget,
 ) -> Result<(), InternalError> {
-    if before.version() != after.version()
-        || before.entity_path() != after.entity_path()
+    if before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
         || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || before.row_layout() != after.row_layout()
+        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
         || before.fields().len() != after.fields().len()
     {
         return Err(InternalError::store_unsupported(format!(

@@ -59,6 +59,35 @@ fn accepted_schema_snapshot_for_entity<E: EntitySchema>() -> AcceptedSchemaSnaps
         .expect("session SQL test schema snapshot should be accepted")
 }
 
+fn ddl_transition_sql(sql: &str, expected_schema_version: u32) -> String {
+    ddl_transition_sql_to(
+        sql,
+        expected_schema_version,
+        expected_schema_version
+            .checked_add(1)
+            .expect("test DDL schema version should fit u32"),
+    )
+}
+
+fn ddl_transition_sql_to(
+    sql: &str,
+    expected_schema_version: u32,
+    next_schema_version: u32,
+) -> String {
+    let contract = format!(
+        "EXPECT SCHEMA VERSION {expected_schema_version} SET SCHEMA VERSION {next_schema_version}"
+    );
+    if let Some(where_offset) = sql.find(" WHERE ") {
+        format!(
+            "{} {contract}{}",
+            &sql[..where_offset],
+            &sql[where_offset..]
+        )
+    } else {
+        format!("{sql} {contract}")
+    }
+}
+
 // Assert that one representative SQL surface keeps its own user-facing lane
 // rejection message for each disallowed statement family.
 fn assert_sql_surface_rejects_statement_lanes_with_message<T, F>(
@@ -3655,8 +3684,11 @@ fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
 fn sql_ddl_create_index_binds_against_accepted_catalog() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
-        .expect("CREATE INDEX should parse before binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        1,
+    ))
+    .expect("CREATE INDEX should parse before binding");
 
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
@@ -4097,8 +4129,11 @@ fn sql_ddl_alter_table_alter_column_rejects_unknown_column() {
 fn sql_ddl_alter_table_drop_column_binds_ddl_owned_trailing_field() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_bound = bind_sql_ddl_statement(
         &add_statement,
         &accepted_before,
@@ -4112,8 +4147,11 @@ fn sql_ddl_alter_table_drop_column_binds_ddl_owned_trailing_field() {
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
-        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
+        2,
+    ))
+    .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
 
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
@@ -4233,8 +4271,11 @@ fn sql_ddl_alter_table_drop_column_rejects_primary_key_fields() {
 fn sql_ddl_alter_table_drop_column_rejects_any_composite_primary_key_field() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_bound = bind_sql_ddl_statement(
         &add_statement,
         &accepted_before,
@@ -4284,8 +4325,11 @@ fn sql_ddl_alter_table_drop_column_rejects_any_composite_primary_key_field() {
 fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_bound = bind_sql_ddl_statement(
         &add_statement,
         &accepted_before,
@@ -4299,9 +4343,11 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let index_statement =
-        parse_sql("CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)")
-            .expect("CREATE INDEX should parse before DDL binding");
+    let index_statement = parse_sql(&ddl_transition_sql(
+        "CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)",
+        2,
+    ))
+    .expect("CREATE INDEX should parse before DDL binding");
     let index_bound = bind_sql_ddl_statement(
         &index_statement,
         &accepted_before,
@@ -4337,8 +4383,11 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
 fn sql_ddl_alter_table_drop_column_binds_non_trailing_ddl_fields_as_retired_gaps() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_nickname_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_nickname_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_nickname_bound = bind_sql_ddl_statement(
         &add_nickname_statement,
         &accepted_before,
@@ -4353,8 +4402,11 @@ fn sql_ddl_alter_table_drop_column_binds_non_trailing_ddl_fields_as_retired_gaps
             .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let add_handle_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN handle text")
-        .expect("second ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_handle_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
+        2,
+    ))
+    .expect("second ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_handle_bound = bind_sql_ddl_statement(
         &add_handle_statement,
         &accepted_before,
@@ -4368,8 +4420,11 @@ fn sql_ddl_alter_table_drop_column_binds_non_trailing_ddl_fields_as_retired_gaps
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
-        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
+        3,
+    ))
+    .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
 
     let nickname = accepted_before
         .persisted_snapshot()
@@ -4415,8 +4470,11 @@ fn sql_ddl_alter_table_drop_column_binds_non_trailing_ddl_fields_as_retired_gaps
 fn sql_ddl_alter_table_rename_column_binds_ddl_owned_field() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_bound = bind_sql_ddl_statement(
         &add_statement,
         &accepted_before,
@@ -4526,8 +4584,11 @@ fn sql_ddl_alter_table_rename_column_rejects_generated_fields() {
 fn sql_ddl_alter_table_rename_column_updates_field_path_index_metadata() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_bound = bind_sql_ddl_statement(
         &add_statement,
         &accepted_before,
@@ -4541,9 +4602,11 @@ fn sql_ddl_alter_table_rename_column_updates_field_path_index_metadata() {
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let index_statement =
-        parse_sql("CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)")
-            .expect("CREATE INDEX should parse before DDL binding");
+    let index_statement = parse_sql(&ddl_transition_sql(
+        "CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)",
+        2,
+    ))
+    .expect("CREATE INDEX should parse before DDL binding");
     let index_bound = bind_sql_ddl_statement(
         &index_statement,
         &accepted_before,
@@ -4557,8 +4620,11 @@ fn sql_ddl_alter_table_rename_column_updates_field_path_index_metadata() {
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
-        .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
+        3,
+    ))
+    .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
 
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
@@ -4584,8 +4650,11 @@ fn sql_ddl_alter_table_rename_column_updates_field_path_index_metadata() {
 fn sql_ddl_alter_table_rename_column_updates_expression_index_metadata() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_bound = bind_sql_ddl_statement(
         &add_statement,
         &accepted_before,
@@ -4599,9 +4668,10 @@ fn sql_ddl_alter_table_rename_column_updates_expression_index_metadata() {
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let index_statement = parse_sql(
+    let index_statement = parse_sql(&ddl_transition_sql(
         "CREATE INDEX session_sql_lower_nickname_idx ON SessionSqlEntity (LOWER(nickname))",
-    )
+        2,
+    ))
     .expect("CREATE INDEX should parse before DDL binding");
     let index_bound = bind_sql_ddl_statement(
         &index_statement,
@@ -4616,8 +4686,11 @@ fn sql_ddl_alter_table_rename_column_updates_expression_index_metadata() {
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
-        .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
+        3,
+    ))
+    .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
 
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
@@ -4647,8 +4720,11 @@ fn sql_ddl_alter_table_rename_column_updates_expression_index_metadata() {
 fn sql_ddl_alter_table_rename_column_updates_filtered_index_predicate_metadata() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
-        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
     let add_bound = bind_sql_ddl_statement(
         &add_statement,
         &accepted_before,
@@ -4663,7 +4739,10 @@ fn sql_ddl_alter_table_rename_column_updates_filtered_index_predicate_metadata()
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
     let index_statement = parse_sql(
-        "CREATE INDEX session_sql_filtered_nickname_idx ON SessionSqlEntity (nickname) WHERE nickname IS NOT NULL",
+        &ddl_transition_sql(
+            "CREATE INDEX session_sql_filtered_nickname_idx ON SessionSqlEntity (nickname) WHERE nickname IS NOT NULL",
+            2,
+        ),
     )
     .expect("CREATE INDEX should parse before DDL binding");
     let index_bound = bind_sql_ddl_statement(
@@ -4679,8 +4758,11 @@ fn sql_ddl_alter_table_rename_column_updates_filtered_index_predicate_metadata()
         .clone();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
-        .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
+        3,
+    ))
+    .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
 
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
@@ -4749,9 +4831,10 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
     let session = sql_session();
 
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("nullable ADD COLUMN should publish accepted schema metadata")
     else {
         panic!("ADD COLUMN should return a DDL report");
@@ -4772,6 +4855,7 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
             .find(|field| field.name() == "nickname")
             .expect("DDL-published schema should include the added field");
 
+        assert_eq!(latest.version(), SchemaVersion::new(2));
         assert_eq!(nickname.origin(), PersistedFieldOrigin::SqlDdl);
         assert_eq!(nickname.kind(), &PersistedFieldKind::Text { max_len: None });
         assert!(nickname.nullable());
@@ -4829,6 +4913,85 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
 }
 
 #[test]
+fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    for (sql, expected) in [
+        (
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text".to_string(),
+            "requires EXPECT SCHEMA VERSION",
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity SET SCHEMA VERSION 2 ADD COLUMN nickname text"
+                .to_string(),
+            "requires EXPECT SCHEMA VERSION",
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 1 ADD COLUMN nickname text"
+                .to_string(),
+            "requires SET SCHEMA VERSION",
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 0 SET SCHEMA VERSION 1 ADD COLUMN nickname text"
+                .to_string(),
+            "EXPECT SCHEMA VERSION must be a positive schema version",
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 2 SET SCHEMA VERSION 3 ADD COLUMN nickname text"
+                .to_string(),
+            "expected accepted schema version 2, but accepted schema version is 1",
+        ),
+        (
+            ddl_transition_sql_to(
+                "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+                1,
+                1,
+            ),
+            "schema changed without schema_version bump",
+        ),
+        (
+            ddl_transition_sql_to(
+                "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+                1,
+                3,
+            ),
+            "schema_version jumped",
+        ),
+        (
+            ddl_transition_sql_to(
+                "ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing",
+                1,
+                2,
+            ),
+            "no-op cannot SET SCHEMA VERSION 2",
+        ),
+    ] {
+        let err = session
+            .execute_sql_ddl::<SessionSqlEntity>(&sql)
+            .expect_err("invalid DDL version contracts should reject before publication");
+        assert!(
+            err.to_string().contains(expected),
+            "DDL version contract rejection should contain '{expected}' for {sql}: {err}",
+        );
+    }
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema store lookup should stay readable after rejected DDL");
+        assert!(
+            latest.as_ref().is_none_or(|snapshot| snapshot
+                .fields()
+                .iter()
+                .all(|field| field.name() != "nickname")),
+            "rejected DDL version contracts must not publish candidate fields",
+        );
+    });
+}
+
+#[test]
 fn execute_sql_ddl_rejects_legacy_numeric_add_column_without_publication() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -4867,9 +5030,10 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
     let session = sql_session();
 
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 NOT NULL DEFAULT 0",
-        )
+            1,
+        ))
         .expect("defaulted ADD COLUMN should publish accepted schema metadata")
     else {
         panic!("ADD COLUMN DEFAULT should return a DDL report");
@@ -4956,13 +5120,17 @@ fn execute_sql_ddl_publishes_supported_set_default() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64",
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before SET DEFAULT");
 
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 7",
-        )
+            2,
+        ))
         .expect("ALTER COLUMN SET DEFAULT should publish accepted schema metadata")
     else {
         panic!("ALTER COLUMN SET DEFAULT should return a DDL report");
@@ -5005,9 +5173,10 @@ fn execute_sql_ddl_alter_column_default_reports_no_op_for_matching_default() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7",
-        )
+            1,
+        ))
         .expect("setup defaulted ADD COLUMN should publish before matching SET DEFAULT");
     let SqlStatementResult::Ddl(report) = session
         .execute_sql_ddl::<SessionSqlEntity>(
@@ -5033,12 +5202,16 @@ fn execute_sql_ddl_rejects_unencodable_set_default_without_publication() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat64")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64",
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before invalid SET DEFAULT");
     let err = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 'seven'",
-        )
+            2,
+        ))
         .expect_err("unencodable ALTER COLUMN SET DEFAULT should reject");
 
     assert!(
@@ -5068,15 +5241,17 @@ fn execute_sql_ddl_publishes_supported_nullable_drop_default() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'anonymous'",
-        )
+            1,
+        ))
         .expect("setup nullable defaulted ADD COLUMN should publish");
 
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname DROP DEFAULT",
-        )
+            2,
+        ))
         .expect("ALTER COLUMN DROP DEFAULT should publish for nullable accepted fields")
     else {
         panic!("ALTER COLUMN DROP DEFAULT should return a DDL report");
@@ -5128,14 +5303,16 @@ fn execute_sql_ddl_rejects_required_drop_default_without_publication() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7 NOT NULL",
-        )
+            1,
+        ))
         .expect("setup required defaulted ADD COLUMN should publish");
     let err = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP DEFAULT",
-        )
+            2,
+        ))
         .expect_err("DROP DEFAULT should fail closed for required defaulted fields");
 
     assert!(
@@ -5165,14 +5342,16 @@ fn execute_sql_ddl_publishes_supported_drop_not_null() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN score nat64 DEFAULT 7 NOT NULL",
-        )
+            1,
+        ))
         .expect("setup required defaulted ADD COLUMN should publish");
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP NOT NULL",
-        )
+            2,
+        ))
         .expect("ALTER COLUMN DROP NOT NULL should publish for DDL-owned fields")
     else {
         panic!("ALTER COLUMN DROP NOT NULL should return a DDL report");
@@ -5206,9 +5385,10 @@ fn execute_sql_ddl_alter_column_nullability_reports_no_op_for_matching_contract(
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before matching DROP NOT NULL");
     let SqlStatementResult::Ddl(report) = session
         .execute_sql_ddl::<SessionSqlEntity>(
@@ -5234,9 +5414,10 @@ fn execute_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'anonymous'",
-        )
+            1,
+        ))
         .expect("setup nullable defaulted ADD COLUMN should publish");
     session
         .insert(SessionSqlEntity {
@@ -5246,9 +5427,10 @@ fn execute_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
         })
         .expect("typed inserts should remain valid before SET NOT NULL");
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
-        )
+            2,
+        ))
         .expect("ALTER COLUMN SET NOT NULL should publish after validating existing rows")
     else {
         panic!("ALTER COLUMN SET NOT NULL should return a DDL report");
@@ -5282,9 +5464,10 @@ fn execute_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish");
     session
         .insert(SessionSqlEntity {
@@ -5294,9 +5477,10 @@ fn execute_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
         })
         .expect("typed inserts should remain valid before rejected SET NOT NULL");
     let err = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
-        )
+            2,
+        ))
         .expect_err("SET NOT NULL should reject when any existing row materializes NULL");
 
     assert!(
@@ -5325,9 +5509,10 @@ fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before DROP COLUMN");
     session
         .insert(SessionSqlEntity {
@@ -5351,7 +5536,10 @@ fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("SHOW COLUMNS should read accepted schema before DROP COLUMN");
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
+            2,
+        ))
         .expect("DROP COLUMN should publish retained-slot field removal")
     else {
         panic!("DROP COLUMN should return a DDL report");
@@ -5436,9 +5624,10 @@ fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup ADD COLUMN should publish before DROP COLUMN");
     let nickname_slot = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         store
@@ -5452,10 +5641,16 @@ fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
             .slot()
     });
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
+            2,
+        ))
         .expect("DROP COLUMN should publish retained-slot field removal");
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN handle text")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
+            3,
+        ))
         .expect("second ADD COLUMN should publish after retained-slot field removal");
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
@@ -5492,12 +5687,16 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup first ADD COLUMN should publish");
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN handle text")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
+            2,
+        ))
         .expect("setup second ADD COLUMN should publish");
     session
         .insert(SessionSqlEntity {
@@ -5526,7 +5725,10 @@ fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
     });
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity DROP COLUMN nickname",
+            3,
+        ))
         .expect("DROP COLUMN should publish non-trailing retained-slot field removal");
     let SqlStatementResult::Projection {
         columns,
@@ -5580,18 +5782,20 @@ fn execute_sql_ddl_publishes_rename_column_for_ddl_owned_field() {
     let session = sql_session();
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before rejected RENAME COLUMN");
     let before =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("SHOW COLUMNS should read accepted schema before RENAME COLUMN");
 
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
-        )
+            2,
+        ))
         .expect("RENAME COLUMN should publish DDL-owned accepted field metadata")
     else {
         panic!("RENAME COLUMN should return a DDL report");
@@ -5629,19 +5833,22 @@ fn execute_sql_ddl_rename_column_updates_field_path_index_metadata() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before RENAME COLUMN");
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)",
-        )
+            2,
+        ))
         .expect("setup field-path CREATE INDEX should publish before RENAME COLUMN");
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
-        )
+            3,
+        ))
         .expect("RENAME COLUMN should update dependent field-path index metadata");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
@@ -5668,19 +5875,22 @@ fn execute_sql_ddl_rename_column_updates_expression_index_metadata() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before RENAME COLUMN");
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_lower_nickname_idx ON SessionSqlEntity (LOWER(nickname))",
-        )
+            2,
+        ))
         .expect("setup expression CREATE INDEX should publish before RENAME COLUMN");
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
-        )
+            3,
+        ))
         .expect("RENAME COLUMN should update dependent expression index metadata");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
@@ -5705,19 +5915,24 @@ fn execute_sql_ddl_rename_column_updates_filtered_index_predicate_metadata() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("setup nullable ADD COLUMN should publish before RENAME COLUMN");
     session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "CREATE INDEX session_sql_filtered_nickname_idx ON SessionSqlEntity (nickname) WHERE nickname IS NOT NULL",
+            &ddl_transition_sql(
+                "CREATE INDEX session_sql_filtered_nickname_idx ON SessionSqlEntity (nickname) WHERE nickname IS NOT NULL",
+                2,
+            ),
         )
         .expect("setup filtered CREATE INDEX should publish before RENAME COLUMN");
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
-        )
+            3,
+        ))
         .expect("RENAME COLUMN should update dependent filtered index metadata");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
@@ -5931,9 +6146,10 @@ fn execute_sql_ddl_publishes_supported_expression_index() {
     seed_session_sql_entities(&session, &[("Ada", 21), ("bob", 34), ("Cyd", 55)]);
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
-        )
+            1,
+        ))
         .expect("expression index DDL should publish after physical expression rebuild");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DDL execution should return a DDL report");
@@ -5993,7 +6209,10 @@ fn execute_sql_ddl_publishes_supported_expression_index() {
     });
 
     let drop_result = session
-        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX session_sql_lower_name_idx")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "DROP INDEX session_sql_lower_name_idx",
+            2,
+        ))
         .expect("DDL execution should drop the supported expression index");
     let SqlStatementResult::Ddl(drop_report) = drop_result else {
         panic!("DROP INDEX should return a DDL report");
@@ -6026,9 +6245,10 @@ fn execute_sql_ddl_create_expression_index_if_not_exists_reports_no_op_for_exist
     seed_session_sql_entities(&session, &[("Ada", 21), ("bob", 34), ("Cyd", 55)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
-        )
+            1,
+        ))
         .expect("setup expression index DDL should publish");
     let result = session
         .execute_sql_ddl::<SessionSqlEntity>(
@@ -6060,9 +6280,10 @@ fn execute_sql_ddl_rejects_duplicate_expression_index_contract_without_publicati
     seed_session_sql_entities(&session, &[("Ada", 21), ("bob", 34), ("Cyd", 55)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
-        )
+            1,
+        ))
         .expect("setup expression index DDL should publish");
     session
         .execute_sql_ddl::<SessionSqlEntity>(
@@ -6095,7 +6316,10 @@ fn execute_sql_ddl_publishes_supported_unique_expression_index() {
 
     let result = session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
+            &ddl_transition_sql(
+                "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
+                1,
+            ),
         )
         .expect("unique expression index DDL should publish when normalized values are unique");
     let SqlStatementResult::Ddl(report) = result else {
@@ -6136,7 +6360,10 @@ fn execute_sql_ddl_rejects_duplicate_unique_expression_values_without_publicatio
 
     session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
+            &ddl_transition_sql(
+                "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
+                1,
+            ),
         )
         .expect_err("duplicate normalized values should reject unique expression index publication");
 
@@ -6167,8 +6394,11 @@ fn execute_sql_ddl_rejects_duplicate_unique_expression_values_without_publicatio
 fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
-    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
-        .expect("CREATE INDEX should parse before binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        1,
+    ))
+    .expect("CREATE INDEX should parse before binding");
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
             .expect("CREATE INDEX should bind against accepted schema metadata");
@@ -6187,8 +6417,11 @@ fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
-        .expect("CREATE INDEX should parse before binding");
+    let statement = parse_sql(&ddl_transition_sql(
+        "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        1,
+    ))
+    .expect("CREATE INDEX should parse before binding");
     let bound =
         bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
             .expect("CREATE INDEX should bind against accepted schema metadata");
@@ -6220,8 +6453,11 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
-        .expect("CREATE INDEX should parse before preparation");
+    let statement = parse_sql(&ddl_transition_sql(
+        "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        1,
+    ))
+    .expect("CREATE INDEX should parse before preparation");
 
     let prepared =
         prepare_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
@@ -6258,9 +6494,11 @@ fn sql_ddl_create_expression_index_preparation_reports_non_executed_command() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema =
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
-    let statement =
-        parse_sql("CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))")
-            .expect("expression CREATE INDEX should parse before preparation");
+    let statement = parse_sql(&ddl_transition_sql(
+        "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
+        1,
+    ))
+    .expect("expression CREATE INDEX should parse before preparation");
 
     let prepared =
         prepare_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
@@ -6312,9 +6550,10 @@ fn prepare_sql_ddl_reports_supported_create_index_without_execution() {
     let session = sql_session();
 
     let report = session
-        .prepare_sql_ddl::<SessionSqlEntity>(
+        .prepare_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect("DDL prepare surface should report supported CREATE INDEX candidates");
 
     assert_eq!(
@@ -6337,9 +6576,10 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the supported field-path index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DDL execution should return a DDL report");
@@ -6404,9 +6644,10 @@ fn execute_sql_ddl_publishes_supported_filtered_field_path_index() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_filtered_idx ON SessionSqlEntity (age) WHERE age > 30",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the supported filtered field-path index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DDL execution should return a DDL report");
@@ -6468,9 +6709,10 @@ fn execute_sql_ddl_publishes_supported_unique_field_path_index() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE UNIQUE INDEX session_sql_name_unique_idx ON SessionSqlEntity (name)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the supported unique field-path index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DDL execution should return a DDL report");
@@ -6507,9 +6749,10 @@ fn execute_sql_ddl_publishes_and_drops_supported_multi_field_path_index() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_name_idx ON SessionSqlEntity (age, name)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the supported multi-field index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DDL execution should return a DDL report");
@@ -6536,9 +6779,10 @@ fn execute_sql_ddl_publishes_and_drops_supported_multi_field_path_index() {
     );
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "DROP INDEX session_sql_age_name_idx ON SessionSqlEntity",
-        )
+            2,
+        ))
         .expect("DDL execution should drop the supported multi-field index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DROP INDEX should return a DDL report");
@@ -6562,9 +6806,10 @@ fn execute_sql_ddl_treats_asc_index_order_as_default_order() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_name_asc_idx ON SessionSqlEntity (age ASC, name ASC)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish ASC as the default field-path index order");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DDL execution should return a DDL report");
@@ -6633,9 +6878,10 @@ fn execute_sql_ddl_publishes_supported_unique_multi_field_path_index() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE UNIQUE INDEX session_sql_age_name_unique_idx ON SessionSqlEntity (age, name)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the supported unique multi-field index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DDL execution should return a DDL report");
@@ -6672,9 +6918,10 @@ fn execute_sql_ddl_rejects_duplicate_unique_field_path_values_without_publicatio
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("cyd", 55)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE UNIQUE INDEX session_sql_age_unique_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect_err("duplicate values should reject unique field-path index publication");
 
     let SqlStatementResult::ShowIndexes(indexes) = session
@@ -6701,9 +6948,10 @@ fn execute_sql_ddl_create_index_if_not_exists_reports_no_op_for_existing_index()
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect("setup DDL execution should publish the field-path index");
     let result = session
         .execute_sql_ddl::<SessionSqlEntity>(
@@ -6742,12 +6990,16 @@ fn execute_sql_ddl_drops_supported_ddl_published_index() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the field-path index before dropping it");
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX session_sql_age_idx ON SessionSqlEntity")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "DROP INDEX session_sql_age_idx ON SessionSqlEntity",
+            2,
+        ))
         .expect("DDL execution should drop a DDL-published field-path index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DROP INDEX should return a DDL report");
@@ -6793,12 +7045,16 @@ fn execute_sql_ddl_drops_supported_index_with_typed_target_shorthand() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the field-path index before dropping it");
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX session_sql_age_idx")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "DROP INDEX session_sql_age_idx",
+            2,
+        ))
         .expect("typed DDL execution should drop an index without restating the entity");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DROP INDEX should return a DDL report");
@@ -6835,14 +7091,16 @@ fn execute_sql_ddl_drops_supported_unique_ddl_published_index() {
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
     session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE UNIQUE INDEX session_sql_name_unique_idx ON SessionSqlEntity (name)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the unique field-path index before dropping it");
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "DROP INDEX session_sql_name_unique_idx ON SessionSqlEntity",
-        )
+            2,
+        ))
         .expect("DDL execution should drop a DDL-published unique field-path index");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("DROP INDEX should return a DDL report");
@@ -6936,9 +7194,10 @@ fn execute_sql_ddl_publication_invalidates_shared_query_plan_cache_key() {
     );
 
     let _ = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the supported field-path index");
 
     let _ = session
@@ -6993,9 +7252,10 @@ fn execute_sql_ddl_publication_rejects_pre_ddl_continuation_cursor() {
     );
 
     let _ = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            1,
+        ))
         .expect("DDL execution should publish the supported field-path index");
 
     let err = session
@@ -7043,9 +7303,10 @@ fn execute_sql_field_ddl_publication_invalidates_shared_query_plan_cache_key() {
     );
 
     let _ = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("field DDL execution should publish the supported nullable column");
 
     let _ = session
@@ -7085,9 +7346,10 @@ fn execute_sql_field_ddl_publication_invalidates_compiled_sql_cache_key() {
     );
 
     let _ = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("field DDL execution should publish the supported nullable column");
 
     let _ = session
@@ -7129,9 +7391,10 @@ fn execute_sql_field_ddl_publication_rejects_pre_ddl_continuation_cursor() {
     );
 
     let _ = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
-        )
+            1,
+        ))
         .expect("field DDL execution should publish the supported nullable column");
 
     let err = session

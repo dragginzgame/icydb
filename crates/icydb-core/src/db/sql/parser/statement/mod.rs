@@ -12,9 +12,9 @@ use crate::db::{
     sql::parser::{
         Parser, SqlAlterColumnAction, SqlCreateIndexExpressionFunction,
         SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
-        SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
-        SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
-        SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+        SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract, SqlDdlStatement, SqlDeleteStatement,
+        SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
+        SqlExplainTarget, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
         SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement,
         SqlUpdateStatement,
     },
@@ -129,6 +129,7 @@ impl Parser {
         self.expect_lparen()?;
         let key_items = self.parse_create_index_key_items()?;
         self.expect_rparen()?;
+        let schema_version_contract = self.parse_optional_ddl_schema_version_contract()?;
         let predicate_sql = self.parse_create_index_predicate_sql()?;
 
         Ok(SqlCreateIndexStatement {
@@ -138,6 +139,7 @@ impl Parser {
             predicate_sql,
             uniqueness,
             if_not_exists,
+            schema_version_contract,
         })
     }
 
@@ -237,6 +239,7 @@ impl Parser {
             name,
             entity,
             if_exists,
+            schema_version_contract: self.parse_optional_ddl_schema_version_contract()?,
         })
     }
 
@@ -260,25 +263,42 @@ impl Parser {
         }
 
         let entity = self.expect_identifier()?;
+        let prefix_contract = self.parse_optional_ddl_schema_version_contract()?;
         if self.eat_identifier_keyword("ADD") {
-            return Ok(SqlDdlStatement::AlterTableAddColumn(
-                self.parse_alter_table_add_column_statement(entity)?,
-            ));
+            let mut statement = self.parse_alter_table_add_column_statement(entity)?;
+            statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
+                prefix_contract,
+                self.parse_optional_ddl_schema_version_contract()?,
+            )?;
+
+            return Ok(SqlDdlStatement::AlterTableAddColumn(statement));
         }
         if self.eat_keyword(Keyword::Drop) {
-            return Ok(SqlDdlStatement::AlterTableDropColumn(
-                self.parse_alter_table_drop_column_statement(entity)?,
-            ));
+            let mut statement = self.parse_alter_table_drop_column_statement(entity)?;
+            statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
+                prefix_contract,
+                self.parse_optional_ddl_schema_version_contract()?,
+            )?;
+
+            return Ok(SqlDdlStatement::AlterTableDropColumn(statement));
         }
         if self.eat_identifier_keyword("ALTER") {
-            return Ok(SqlDdlStatement::AlterTableAlterColumn(
-                self.parse_alter_table_alter_column_statement(entity)?,
-            ));
+            let mut statement = self.parse_alter_table_alter_column_statement(entity)?;
+            statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
+                prefix_contract,
+                self.parse_optional_ddl_schema_version_contract()?,
+            )?;
+
+            return Ok(SqlDdlStatement::AlterTableAlterColumn(statement));
         }
         if self.eat_identifier_keyword("RENAME") {
-            return Ok(SqlDdlStatement::AlterTableRenameColumn(
-                self.parse_alter_table_rename_column_statement(entity)?,
-            ));
+            let mut statement = self.parse_alter_table_rename_column_statement(entity)?;
+            statement.schema_version_contract = Self::merge_ddl_schema_version_contracts(
+                prefix_contract,
+                self.parse_optional_ddl_schema_version_contract()?,
+            )?;
+
+            return Ok(SqlDdlStatement::AlterTableRenameColumn(statement));
         }
 
         Err(SqlParseError::unsupported_feature(
@@ -324,6 +344,7 @@ impl Parser {
             column_type,
             nullable,
             default,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })
     }
 
@@ -387,6 +408,7 @@ impl Parser {
             entity,
             column_name,
             action,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })
     }
 
@@ -406,6 +428,7 @@ impl Parser {
             entity,
             column_name,
             if_exists,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })
     }
 
@@ -444,6 +467,49 @@ impl Parser {
             entity,
             old_column_name,
             new_column_name,
+            schema_version_contract: SqlDdlSchemaVersionContract::default(),
+        })
+    }
+
+    fn parse_optional_ddl_schema_version_contract(
+        &mut self,
+    ) -> Result<SqlDdlSchemaVersionContract, SqlParseError> {
+        let mut contract = SqlDdlSchemaVersionContract::default();
+        if self.eat_identifier_keyword("EXPECT") {
+            self.expect_identifier_keyword("SCHEMA")?;
+            self.expect_identifier_keyword("VERSION")?;
+            contract.expected_schema_version =
+                Some(self.parse_u32_literal("EXPECT SCHEMA VERSION")?);
+        }
+        if self.eat_identifier_keyword("SET") {
+            self.expect_identifier_keyword("SCHEMA")?;
+            self.expect_identifier_keyword("VERSION")?;
+            contract.next_schema_version = Some(self.parse_u32_literal("SET SCHEMA VERSION")?);
+        }
+
+        Ok(contract)
+    }
+
+    fn merge_ddl_schema_version_contracts(
+        prefix: SqlDdlSchemaVersionContract,
+        suffix: SqlDdlSchemaVersionContract,
+    ) -> Result<SqlDdlSchemaVersionContract, SqlParseError> {
+        if prefix.expected_schema_version.is_some() && suffix.expected_schema_version.is_some() {
+            return Err(SqlParseError::unsupported_feature(
+                "duplicate EXPECT SCHEMA VERSION clauses",
+            ));
+        }
+        if prefix.next_schema_version.is_some() && suffix.next_schema_version.is_some() {
+            return Err(SqlParseError::unsupported_feature(
+                "duplicate SET SCHEMA VERSION clauses",
+            ));
+        }
+
+        Ok(SqlDdlSchemaVersionContract {
+            expected_schema_version: prefix
+                .expected_schema_version
+                .or(suffix.expected_schema_version),
+            next_schema_version: prefix.next_schema_version.or(suffix.next_schema_version),
         })
     }
 
