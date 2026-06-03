@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.10` adds structured schema-version admission classification before
+  diagnostic formatting, keeping method mismatch, missing bump, empty bump,
+  version gap, and rollback distinct without matching reason strings.
+
 - `0.177.9` proves first-contact accepted schema publication persists the
   source-declared schema version while keeping schema-store publication
   version-passive.

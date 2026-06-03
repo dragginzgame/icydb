@@ -90,22 +90,84 @@ impl SchemaAdmissionIdentityComparison {
     }
 }
 
+///
+/// SchemaAdmissionRejectionReason
+///
+/// SchemaAdmissionRejectionReason is the schema-version admission reason before
+/// it is rendered into user-facing diagnostic text. Keeping this structured
+/// lets policy tests prove the matrix without matching formatted errors.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaAdmissionRejectionReason {
+    EmptyVersionBump,
+    FingerprintMethodMismatch,
+    MissingVersionBump,
+    VersionGap,
+    VersionRollback,
+}
+
+impl SchemaAdmissionRejectionReason {
+    const fn detail(self) -> &'static str {
+        match self {
+            Self::EmptyVersionBump => "schema_version bumped without schema shape change",
+            Self::FingerprintMethodMismatch => "schema fingerprint method changed",
+            Self::MissingVersionBump => "schema changed without schema_version bump",
+            Self::VersionGap => "schema_version jumped",
+            Self::VersionRollback => "schema_version moved backwards",
+        }
+    }
+}
+
+///
+/// SchemaAdmissionRejectionClassification
+///
+/// SchemaAdmissionRejectionClassification is the structured admission-matrix
+/// decision used before final transition rejection formatting.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SchemaAdmissionRejectionClassification {
+    reason: SchemaAdmissionRejectionReason,
+    expected_next: Option<u32>,
+}
+
+impl SchemaAdmissionRejectionClassification {
+    const fn new(reason: SchemaAdmissionRejectionReason, expected_next: Option<u32>) -> Self {
+        Self {
+            reason,
+            expected_next,
+        }
+    }
+}
+
 // Apply the 0.177 version/method/fingerprint gate before mutation compatibility
 // classification. Passing this gate only admits a candidate to compatibility
 // checks; it does not publish the candidate snapshot by itself.
 pub(in crate::db::schema) fn schema_admission_rejection(
     comparison: SchemaAdmissionIdentityComparison,
 ) -> Option<SchemaTransitionRejection> {
+    let classification = classify_schema_admission_rejection(comparison)?;
+    let extra = classification
+        .expected_next
+        .map(|expected_next| format!("expected_next={expected_next}"));
+
+    Some(SchemaTransitionRejection::new(
+        SchemaTransitionRejectionKind::SchemaVersion,
+        schema_admission_rejection_detail(classification.reason.detail(), comparison, extra),
+        Some(classification),
+    ))
+}
+
+fn classify_schema_admission_rejection(
+    comparison: SchemaAdmissionIdentityComparison,
+) -> Option<SchemaAdmissionRejectionClassification> {
     if comparison.stored.fingerprint_method_version
         != comparison.candidate.fingerprint_method_version
     {
-        return Some(SchemaTransitionRejection::new(
-            SchemaTransitionRejectionKind::SchemaVersion,
-            schema_admission_rejection_detail(
-                "schema fingerprint method changed",
-                comparison,
-                None,
-            ),
+        return Some(SchemaAdmissionRejectionClassification::new(
+            SchemaAdmissionRejectionReason::FingerprintMethodMismatch,
+            None,
         ));
     }
 
@@ -115,54 +177,36 @@ pub(in crate::db::schema) fn schema_admission_rejection(
         comparison.stored.schema_fingerprint == comparison.candidate.schema_fingerprint;
 
     if candidate_version < stored_version {
-        return Some(SchemaTransitionRejection::new(
-            SchemaTransitionRejectionKind::SchemaVersion,
-            schema_admission_rejection_detail("schema_version moved backwards", comparison, None),
+        return Some(SchemaAdmissionRejectionClassification::new(
+            SchemaAdmissionRejectionReason::VersionRollback,
+            None,
         ));
     }
 
     if stored_version == candidate_version {
         return (!same_fingerprint).then(|| {
-            SchemaTransitionRejection::new(
-                SchemaTransitionRejectionKind::SchemaVersion,
-                schema_admission_rejection_detail(
-                    "schema changed without schema_version bump",
-                    comparison,
-                    None,
-                ),
+            SchemaAdmissionRejectionClassification::new(
+                SchemaAdmissionRejectionReason::MissingVersionBump,
+                None,
             )
         });
     }
 
     if same_fingerprint {
-        return Some(SchemaTransitionRejection::new(
-            SchemaTransitionRejectionKind::SchemaVersion,
-            schema_admission_rejection_detail(
-                "schema_version bumped without schema shape change",
-                comparison,
-                None,
-            ),
+        return Some(SchemaAdmissionRejectionClassification::new(
+            SchemaAdmissionRejectionReason::EmptyVersionBump,
+            None,
         ));
     }
 
-    match stored_version.checked_add(1) {
-        Some(expected_next) if candidate_version == expected_next => None,
-        Some(expected_next) => Some(SchemaTransitionRejection::new(
-            SchemaTransitionRejectionKind::SchemaVersion,
-            schema_admission_rejection_detail(
-                "schema_version jumped",
-                comparison,
-                Some(format!("expected_next={expected_next}")),
-            ),
-        )),
-        None => Some(SchemaTransitionRejection::new(
-            SchemaTransitionRejectionKind::SchemaVersion,
-            schema_admission_rejection_detail(
-                "schema_version cannot advance beyond maximum",
-                comparison,
-                None,
-            ),
-        )),
+    let expected_next = stored_version.saturating_add(1);
+    if candidate_version == expected_next {
+        None
+    } else {
+        Some(SchemaAdmissionRejectionClassification::new(
+            SchemaAdmissionRejectionReason::VersionGap,
+            Some(expected_next),
+        ))
     }
 }
 
@@ -330,13 +374,22 @@ pub(in crate::db::schema) enum SchemaTransitionRejectionKind {
 pub(in crate::db::schema) struct SchemaTransitionRejection {
     kind: SchemaTransitionRejectionKind,
     detail: String,
+    admission: Option<SchemaAdmissionRejectionClassification>,
 }
 
 impl SchemaTransitionRejection {
     // Build one transition rejection from the first schema mismatch detail
     // produced by the diagnostic comparison helpers below.
-    const fn new(kind: SchemaTransitionRejectionKind, detail: String) -> Self {
-        Self { kind, detail }
+    const fn new(
+        kind: SchemaTransitionRejectionKind,
+        detail: String,
+        admission: Option<SchemaAdmissionRejectionClassification>,
+    ) -> Self {
+        Self {
+            kind,
+            detail,
+            admission,
+        }
     }
 
     // Return the stable rejection bucket for metrics and audit readouts.
@@ -347,6 +400,13 @@ impl SchemaTransitionRejection {
     // Borrow the first rejected transition detail for final error formatting.
     pub(in crate::db::schema) const fn detail(&self) -> &str {
         self.detail.as_str()
+    }
+
+    // Return the structured schema-version admission decision when this
+    // rejection came from the 0.177 version/method/fingerprint gate.
+    #[cfg(test)]
+    const fn admission(&self) -> Option<SchemaAdmissionRejectionClassification> {
+        self.admission
     }
 }
 
@@ -423,7 +483,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
 
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
 
-    SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail))
+    SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail, None))
 }
 
 // Generated index names are diagnostic/catalog metadata; physical index keys
@@ -1107,7 +1167,10 @@ fn field_snapshot_storage_mismatch_detail(
 
 #[cfg(test)]
 mod tests {
-    use super::{SchemaAdmissionIdentityComparison, schema_admission_rejection};
+    use super::{
+        SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionReason,
+        classify_schema_admission_rejection, schema_admission_rejection,
+    };
     use crate::{
         db::schema::{
             FieldId, MutationCompatibility, PersistedFieldKind, PersistedFieldOrigin,
@@ -1289,32 +1352,46 @@ mod tests {
         let version_gap = snapshot_with_version(&changed_without_bump, SchemaVersion::new(3));
         let rollback = snapshot_with_version(&stored, SchemaVersion::new(0));
 
-        for (candidate, expected_detail) in [
+        for (candidate, expected_reason, expected_next) in [
             (
                 changed_without_bump,
-                "schema changed without schema_version bump",
+                SchemaAdmissionRejectionReason::MissingVersionBump,
+                None,
             ),
             (
                 empty_bump,
-                "schema_version bumped without schema shape change",
+                SchemaAdmissionRejectionReason::EmptyVersionBump,
+                None,
             ),
-            (version_gap, "schema_version jumped"),
-            (rollback, "schema_version moved backwards"),
+            (
+                version_gap,
+                SchemaAdmissionRejectionReason::VersionGap,
+                Some(2),
+            ),
+            (
+                rollback,
+                SchemaAdmissionRejectionReason::VersionRollback,
+                None,
+            ),
         ] {
-            let rejection = schema_admission_rejection(
-                SchemaAdmissionIdentityComparison::from_snapshots(&stored, &candidate)
-                    .expect("admission identity should hash"),
-            )
-            .expect("candidate should fail admission");
+            let comparison = SchemaAdmissionIdentityComparison::from_snapshots(&stored, &candidate)
+                .expect("admission identity should hash");
+            let classification = classify_schema_admission_rejection(comparison)
+                .expect("candidate should fail admission classification");
+            assert_eq!(classification.reason, expected_reason);
+            assert_eq!(classification.expected_next, expected_next);
+
+            let rejection =
+                schema_admission_rejection(comparison).expect("candidate should fail admission");
+            assert_eq!(
+                rejection.admission(),
+                Some(classification),
+                "schema-version rejection should retain the structured admission classification",
+            );
 
             assert_eq!(
                 rejection.kind(),
                 SchemaTransitionRejectionKind::SchemaVersion
-            );
-            assert!(
-                rejection.detail().contains(expected_detail),
-                "rejection detail should contain '{expected_detail}', got '{}'",
-                rejection.detail(),
             );
             assert!(
                 rejection.detail().contains("stored_version=1")
@@ -1326,7 +1403,7 @@ mod tests {
                 "schema admission diagnostics should include compared identity facts, got '{}'",
                 rejection.detail(),
             );
-            if expected_detail == "schema_version jumped" {
+            if expected_reason == SchemaAdmissionRejectionReason::VersionGap {
                 assert!(
                     rejection.detail().contains("expected_next=2"),
                     "version-gap diagnostics should include the expected next version, got '{}'",
@@ -1349,19 +1426,25 @@ mod tests {
             .candidate
             .fingerprint_method_version
             .saturating_add(1);
+        let classification = classify_schema_admission_rejection(comparison)
+            .expect("method mismatch should fail admission classification");
+        assert_eq!(
+            classification.reason,
+            SchemaAdmissionRejectionReason::FingerprintMethodMismatch,
+        );
+        assert_eq!(classification.expected_next, None);
 
         let rejection =
             schema_admission_rejection(comparison).expect("method mismatch should reject");
+        assert_eq!(
+            rejection.admission(),
+            Some(classification),
+            "method mismatch rejection should retain the structured admission classification",
+        );
 
         assert_eq!(
             rejection.kind(),
             SchemaTransitionRejectionKind::SchemaVersion
-        );
-        assert!(
-            rejection
-                .detail()
-                .contains("schema fingerprint method changed"),
-            "method mismatch should be reported distinctly",
         );
         assert!(
             rejection.detail().contains("stored_method=")
@@ -2054,6 +2137,11 @@ mod tests {
             SchemaTransitionRejectionKind::FieldContract,
             "unsupported removals are future field-contract transitions, not generic row-layout mismatches",
         );
+        assert_eq!(
+            rejection.admission(),
+            None,
+            "unsupported field-contract transitions must not carry schema-version admission classification",
+        );
     }
 
     #[test]
@@ -2103,6 +2191,11 @@ mod tests {
             rejection.kind(),
             SchemaTransitionRejectionKind::FieldContract,
             "unsupported additive fields are a future field-contract transition, not a generic row-layout mismatch",
+        );
+        assert_eq!(
+            rejection.admission(),
+            None,
+            "unsupported field-contract transitions must not carry schema-version admission classification",
         );
     }
 }
