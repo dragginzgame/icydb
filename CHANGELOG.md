@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Cleans up the versioning/security check so release-surface validation follows
+  the tagged release job in the existing CI workflow instead of looking for
+  stale standalone release workflow glue, while summarizing tag-integrity
+  output for large tag sets.
+
 ## [0.177.x] 🧭 - 2026-06-02 - Explicit Schema Version Contracts
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)

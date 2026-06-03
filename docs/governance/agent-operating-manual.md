@@ -33,7 +33,9 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Use non-mutating format checks (`cargo fmt --all --check` or `make fmt-check`) for final release/readiness verification and CI parity.
 - Pre-commit gate: `make fmt-check && make clippy && make check && make test`.
 - Fast CI gate: `make check && make clippy`.
-- Release: `make security-check && make release`.
+- Release readiness: `make check-versioning`; release publication uses
+  `make patch|minor|major`, then `make release-stage`, `make release-commit`,
+  and `make release-push`.
 - Hooks path: `.githooks`; common Make targets auto-configure `core.hooksPath`.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`.

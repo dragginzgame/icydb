@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Check versioning system setup
 set -e
@@ -31,6 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 CARGO_TOML="$ROOT/Cargo.toml"
 CHANGELOG="$ROOT/CHANGELOG.md"
 MAKEFILE="$ROOT/Makefile"
+CI_WORKFLOW="$ROOT/.github/workflows/ci.yml"
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 
@@ -77,16 +78,21 @@ fi
 
 # Check if GitHub Actions workflows exist
 if [ -d "$ROOT/.github/workflows" ]; then
-    if [ -f "$ROOT/.github/workflows/ci.yml" ]; then
+    if [ -f "$CI_WORKFLOW" ]; then
         print_success "CI workflow exists"
+
+        if grep -q "^[[:space:]]\\{2\\}release:" "$CI_WORKFLOW"; then
+            print_success "Tagged release job exists in CI workflow"
+            if grep -q "startsWith(github.ref, 'refs/tags/')" "$CI_WORKFLOW"; then
+                print_success "Release job is tag-gated"
+            else
+                print_warning "Release job tag gate not found in CI workflow"
+            fi
+        else
+            print_warning "Tagged release job not found in CI workflow"
+        fi
     else
         print_warning "CI workflow not found"
-    fi
-
-    if [ -f "$ROOT/.github/workflows/release.yml" ]; then
-        print_success "Release workflow exists"
-    else
-        print_warning "Release workflow not found"
     fi
 else
     print_warning ".github/workflows directory not found"
@@ -140,24 +146,40 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
         latest_tag=$(git tag --sort=-version:refname | head -n1)
         print_info "Latest tag: $latest_tag"
 
-        # Check tag integrity
         print_info "Checking tag integrity..."
-        for tag in $(git tag); do
-            # Check if tag points to a commit
+        annotated_tags=0
+        lightweight_tags=()
+        broken_tags=()
+
+        while IFS= read -r tag; do
             if git rev-parse "$tag" > /dev/null 2>&1; then
-                # Check if tag is annotated (more secure)
                 if git cat-file -t "$tag" 2>/dev/null | grep -q "tag"; then
-                    print_success "✓ $tag (annotated tag)"
+                    annotated_tags=$((annotated_tags + 1))
                 else
-                    print_warning "⚠ $tag (lightweight tag - consider using annotated tags)"
+                    lightweight_tags+=("$tag")
                 fi
             else
-                print_error "✗ $tag (broken tag)"
+                broken_tags+=("$tag")
             fi
-        done
+        done < <(git tag)
+
+        print_success "Tag integrity checked: $annotated_tags annotated tag(s)"
+
+        if [ "${#lightweight_tags[@]}" -gt 0 ]; then
+            print_warning "Lightweight tag(s) found; prefer annotated tags:"
+            for tag in "${lightweight_tags[@]}"; do
+                print_warning "  - $tag"
+            done
+        fi
+
+        if [ "${#broken_tags[@]}" -gt 0 ]; then
+            print_error "Broken tag(s) found:"
+            for tag in "${broken_tags[@]}"; do
+                print_error "  - $tag"
+            done
+        fi
 
         # Check if current HEAD matches any tag
-        current_commit=$(git rev-parse HEAD)
         matching_tags=$(git tag --points-at HEAD)
         if [ -n "$matching_tags" ]; then
             print_warning "⚠ HEAD is at tagged commit(s): $matching_tags"
