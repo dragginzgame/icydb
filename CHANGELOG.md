@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.7` hard-cuts persisted schema-version metadata by rejecting obsolete
+  snapshot codecs and non-positive accepted schema versions at schema authority
+  boundaries.
+
+- `0.177.6` fixes the admission/transition boundary so valid version-bumped
+  shape changes reach compatibility classification while version rollback and
+  gap diagnostics stay owned by schema admission.
+
 - `0.177.5` adds closeout source-boundary proof for explicit generated schema
   versions and method-qualified filterless cache-hit identity, while making
   validated lint suppressions self-checking.
