@@ -1746,6 +1746,90 @@ mod tests {
     }
 
     #[test]
+    fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_SCHEMA_MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_version = SchemaVersion::new(expected.version().get().saturating_sub(1));
+        let stored_prefix = PersistedSchemaSnapshot::new(
+            stored_version,
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_ids().to_vec(),
+            SchemaRowLayout::new(
+                stored_version,
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            expected.fields()[..2].to_vec(),
+        );
+        let mut unsupported_fields = expected.fields().to_vec();
+        unsupported_fields[2] = PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "nickname".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Text { max_len: None },
+            Vec::new(),
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        );
+        let unsupported_required_field = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_ids().to_vec(),
+            expected.row_layout().clone(),
+            unsupported_fields,
+        );
+
+        let err = super::validate_existing_schema_snapshot(
+            ADDITIVE_NULLABLE_SCHEMA_MODEL.path(),
+            &stored_prefix,
+            &unsupported_required_field,
+        )
+        .expect_err("valid version bump must not publish unsupported additive fields");
+
+        assert!(
+            err.message
+                .contains("unsupported additive field transition"),
+            "unsupported additive field should reach compatibility diagnostics after the version gate, got '{}'",
+            err.message,
+        );
+        assert!(
+            !err.message
+                .contains("schema changed without schema_version bump"),
+            "valid N+1 schema_version bump should pass admission before compatibility rejection",
+        );
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_transition_checks(), 1);
+        assert_eq!(
+            counters.ops().schema_transition_rejected_schema_version(),
+            0,
+            "valid version bump should not be bucketed as a schema-version rejection",
+        );
+        assert_eq!(
+            counters.ops().schema_transition_rejected_field_contract(),
+            1,
+            "unsupported additive field must stay a compatibility rejection after the gate",
+        );
+        assert_eq!(
+            counters.ops().schema_reconcile_rejected_schema_version(),
+            0,
+            "schema-version admission should not own valid-bump compatibility failures",
+        );
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+    }
+
+    #[test]
     fn ensure_accepted_schema_snapshot_publishes_metadata_only_index_rename() {
         let mut schema_store = SchemaStore::init(test_memory(240));
         let stored = indexed_schema_snapshot_with_renamed_index("IndexedSchemaEntity|name");
@@ -2755,9 +2839,13 @@ mod tests {
 
         assert_eq!(err.class, ErrorClass::Unsupported);
         assert!(
-            err.message
-                .contains("schema version changed: stored=2 generated=1"),
-            "schema reconciliation should compare against the latest persisted version"
+            err.message.contains("schema_version moved backwards"),
+            "schema reconciliation should reject newer accepted snapshots through the admission gate"
+        );
+        assert!(
+            err.message.contains("stored_version=2") && err.message.contains("candidate_version=1"),
+            "admission diagnostics should compare against the latest persisted version, got '{}'",
+            err.message,
         );
     }
 }

@@ -622,23 +622,13 @@ fn field_default_payload_is_valid(field: &PersistedFieldSnapshot) -> bool {
 }
 
 // Return the first human-readable schema difference between the stored
-// snapshot and the current generated proposal. This is diagnostic-only: the
-// acceptance policy remains exact equality until schema transitions exist.
+// snapshot and the current generated proposal. Schema version differences are
+// owned by the 0.177 admission gate; transition diagnostics describe the shape
+// that remains after a candidate has passed version/fingerprint admission.
 fn schema_snapshot_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> (SchemaTransitionRejectionKind, String) {
-    if actual.version() != expected.version() {
-        return (
-            SchemaTransitionRejectionKind::SchemaVersion,
-            format!(
-                "schema version changed: stored={} generated={}",
-                actual.version().get(),
-                expected.version().get(),
-            ),
-        );
-    }
-
     if actual.entity_path() != expected.entity_path() {
         return (
             SchemaTransitionRejectionKind::EntityIdentity,
