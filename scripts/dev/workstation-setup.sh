@@ -15,6 +15,8 @@ case "$MODE" in
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ACTIONLINT_VERSION="${ACTIONLINT_VERSION:-1.7.8}"
+ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
 
 DEV_SYSTEM_PACKAGES=(
   build-essential
@@ -77,6 +79,13 @@ install_system_packages() {
   "${sudo_cmd[@]}" apt-get install -y "${DEV_SYSTEM_PACKAGES[@]}"
 }
 
+install_actionlint() {
+  local bin
+
+  bin="$(ACTIONLINT_INSTALL_DIR="$ACTIONLINT_INSTALL_DIR" bash "$ROOT/scripts/ci/install-actionlint.sh" "$ACTIONLINT_VERSION")"
+  "$bin" -version
+}
+
 ensure_rustup() {
   if command -v rustup >/dev/null 2>&1 || [[ -x "$HOME/.cargo/bin/rustup" ]]; then
     return
@@ -86,7 +95,7 @@ ensure_rustup() {
 }
 
 install_tooling() {
-  export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+  export PATH="$ACTIONLINT_INSTALL_DIR:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 
   if [[ "$MODE" == "update" ]]; then
     command -v rustup >/dev/null 2>&1 || {
@@ -103,6 +112,8 @@ install_tooling() {
     cd "$ROOT"
     rustup toolchain install --target wasm32-unknown-unknown
   )
+
+  install_actionlint
 
   if [[ "$MODE" == "update" ]]; then
     cargo install --quiet "${CARGO_WORKSTATION_TOOLS[@]}" --locked

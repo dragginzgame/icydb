@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  ACTIONLINT_VERSION: "1.7.8"
   CARGO_TERM_COLOR: always
   RUST_CURRENT: "1.96.0"
   RUST_MSRV: "1.88.0"
@@ -38,6 +39,12 @@ jobs:
       TMPDIR: ${{ github.workspace }}/.cache
     steps:
       - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: |
+          bin="$(bash scripts/ci/install-actionlint.sh "$ACTIONLINT_VERSION")"
+          echo "ACTIONLINT_BIN=$bin" >> "$GITHUB_ENV"
+      - name: Lint GitHub Actions workflows
+        run: make lint-workflows
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_CURRENT }}

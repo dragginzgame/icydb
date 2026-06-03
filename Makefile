@@ -4,7 +4,7 @@
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks \
         wasm-size-report wasm-audit-report \
-	check-invariants \
+        lint-workflows check-invariants \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -17,6 +17,9 @@ CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 TMPDIR="$(ROOT_DIR)/.cache"
+ACTIONLINT_VERSION ?= 1.7.8
+ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
+ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
 
 # Print repo-local cargo paths for standalone shell scripts that need Makefile-
 # owned defaults without duplicating the path definitions.
@@ -39,8 +42,8 @@ help:
 	@echo ""
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
-	@echo "  install-dev      Install local developer dependencies and git hooks"
-	@echo "  update-dev       Update the local Rust/Cargo/ICP development environment"
+	@echo "  install-dev      Install local developer dependencies, actionlint, and git hooks"
+	@echo "  update-dev       Update the local Rust/Cargo/actionlint/ICP development environment"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
 	@echo "Version Management:"
@@ -67,6 +70,7 @@ help:
 	@echo "  clean            Clean build artifacts"
 	@echo "  wasm-size-report Build and report wasm sizes for minimal + one/ten simple/complex audit canisters"
 	@echo "  wasm-audit-report Build wasm + write Twiggy audit reports for minimal + one/ten simple/complex under docs/audits/reports"
+	@echo "  lint-workflows   Lint GitHub Actions workflows with pinned actionlint"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  test-watch       Run tests in watch mode"
@@ -90,11 +94,11 @@ install:
 
 # Install local developer prerequisites, tools, and repository hooks.
 install-dev:
-	scripts/dev/workstation-setup.sh install
+	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
 
 # Update the local Rust/Cargo/ICP development environment.
 update-dev:
-	scripts/dev/workstation-setup.sh update
+	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
 
 # Optional explicit install target (idempotent)
 install-hooks ensure-hooks:
@@ -222,6 +226,18 @@ check-invariants:
 	bash scripts/ci/check-sql-branch-ownership-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
 	bash scripts/ci/check-field-projection-invariants.sh
+
+lint-workflows:
+	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \
+		echo "actionlint not found at $(ACTIONLINT_BIN). Run 'make install-dev' first." >&2; \
+		exit 1; \
+	fi; \
+	version="$$("$(ACTIONLINT_BIN)" -version 2>&1 | sed -n '1{s/[[:space:]].*//;p;}')"; \
+	if [ "$$version" != "$(ACTIONLINT_VERSION)" ]; then \
+		echo "actionlint version $$version found at $(ACTIONLINT_BIN), expected $(ACTIONLINT_VERSION)." >&2; \
+		exit 1; \
+	fi; \
+	"$(ACTIONLINT_BIN)"
 
 # Run tests in watch mode
 test-watch:

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.14` adds pinned local and CI GitHub Actions workflow linting with
+  actionlint, wiring the same standalone installer through maintainer setup
+  and CI without package-version changes.
+
 - `0.177.13` root-anchors CI versioning and workflow-package validation
   helpers so their cargo, git, and workflow-file checks behave consistently
   outside the repo root.
