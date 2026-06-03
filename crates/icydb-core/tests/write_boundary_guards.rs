@@ -1189,6 +1189,84 @@ fn schema_admission_fingerprints_stay_out_of_query_hot_paths() {
 }
 
 #[test]
+fn generated_schema_versions_stay_proposal_or_test_only() {
+    let proposal = read_source("src/db/schema/proposal.rs");
+    let reconcile = read_source("src/db/schema/reconcile.rs");
+
+    assert!(
+        proposal.contains(
+            "declared_schema_version: SchemaVersion::new(model.declared_schema_version()),"
+        ) && proposal
+            .contains("SchemaRowLayout::new(self.declared_schema_version(), field_to_slot)")
+            && proposal.contains("self.declared_schema_version(),")
+            && reconcile.contains("compiled_schema_proposal_for_model(model)")
+            && reconcile
+                .contains("SchemaAdmissionIdentityComparison::from_snapshots(actual, expected)?"),
+        "source-declared schema versions must enter runtime only through schema proposal and admission",
+    );
+
+    for (label, source) in [
+        ("session", read_rust_sources_under("src/db/session")),
+        ("query", read_rust_sources_under("src/db/query")),
+        ("executor", read_rust_sources_under("src/db/executor")),
+        ("fingerprint", read_source("src/db/schema/fingerprint.rs")),
+        ("runtime", read_source("src/db/schema/runtime.rs")),
+    ] {
+        let production_source = strip_cfg_test_items(&source);
+        assert!(
+            !production_source.contains("declared_schema_version()"),
+            "{label} production code must not read generated declared schema versions",
+        );
+    }
+
+    let session_sql_cache = read_source("src/db/session/sql/cache.rs");
+    let test_sql_cache_impl = session_sql_cache
+        .split("#[cfg(test)]\nimpl SqlCompiledCommandCacheKey {")
+        .nth(1)
+        .expect("SQL cache test-key impl should be cfg(test)")
+        .split("\nimpl<C: CanisterKind> DbSession<C>")
+        .next()
+        .expect("SQL cache test-key impl should end before DbSession impl");
+    assert!(
+        test_sql_cache_impl.contains("compiled_schema_proposal_for_model(E::MODEL)")
+            && test_sql_cache_impl.contains("SQL cache test schema snapshot should be accepted"),
+        "SQL generated-model cache-key bridge must remain an explicit test helper",
+    );
+
+    let save_executor = read_source("src/db/executor/mutation/save/mod.rs");
+    let test_save_constructor = save_executor
+        .split("#[cfg(test)]\n    #[must_use]\n    pub(in crate::db) fn new(")
+        .nth(1)
+        .expect("save generated-model constructor should be cfg(test)")
+        .split("\n    // Borrow the accepted row contract selected by the session write boundary.")
+        .next()
+        .expect("save test constructor should end before accepted contract accessors");
+    assert!(
+        test_save_constructor
+            .contains("AcceptedRowDecodeContract::from_generated_model_for_tests(E::MODEL)")
+            && test_save_constructor.contains("compiled_schema_proposal_for_model(E::MODEL)")
+            && test_save_constructor
+                .contains("test save executor schema snapshot should be accepted"),
+        "save generated-model schema proposal bridge must remain test-only",
+    );
+
+    let runtime = read_source("src/db/schema/runtime.rs");
+    let test_runtime_bridge = runtime
+        .split("#[cfg(test)]\n    pub(in crate::db) fn from_generated_model_for_tests(")
+        .nth(1)
+        .expect("runtime generated-model row contract bridge should be cfg(test)")
+        .split("\n    /// Return the accepted physical slot count required by this row contract.")
+        .next()
+        .expect("runtime generated-model bridge should end before accepted accessors");
+    assert!(
+        test_runtime_bridge.contains("compiled_schema_proposal_for_model(model)")
+            && test_runtime_bridge
+                .contains("generated model proposal should produce an accepted test schema"),
+        "generated-model row contract bridge must stay an explicit test helper",
+    );
+}
+
+#[test]
 fn catalog_diagnostics_expose_method_qualified_schema_fingerprints() {
     let schema_store = read_source("src/db/schema/store.rs");
     let diagnostics_model = read_source("src/db/diagnostics/model.rs");
