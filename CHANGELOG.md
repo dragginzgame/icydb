@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### Changed
+
+- Accepted query and SQL execution catalog contexts now expose the accepted
+  schema version from the same catalog identity that already supplies
+  fingerprint-method and fingerprint metadata, keeping 0.177 query identity
+  consumption policy-free.
+
 ## [0.177.x] 🧭 - 2026-06-02 - Explicit Schema Version Contracts
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)

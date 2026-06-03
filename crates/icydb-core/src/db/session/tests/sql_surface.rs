@@ -7659,7 +7659,7 @@ fn assert_latest_catalog_identity_fingerprint_matches_decoded_schema<E>(
 ) where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    let _ = session
+    let catalog = session
         .accepted_schema_catalog_context_for_query::<E>()
         .unwrap_or_else(|err| panic!("{context} accepted schema bootstrap should succeed: {err}"));
     let selection = session
@@ -7694,9 +7694,29 @@ fn assert_latest_catalog_identity_fingerprint_matches_decoded_schema<E>(
         "{context} identity must report the selected accepted schema version",
     );
     assert_eq!(
+        identity.fingerprint_method_version(),
+        accepted_schema_cache_fingerprint_method_version(),
+        "{context} identity must report the accepted schema cache fingerprint method version",
+    );
+    assert_eq!(
         identity.accepted_schema_fingerprint(),
         decoded_fingerprint,
         "{context} raw/header fingerprint must match the existing decoded accepted schema fingerprint",
+    );
+    assert_eq!(
+        catalog.schema_version(),
+        identity.accepted_schema_version(),
+        "{context} query catalog context must expose accepted schema version from identity",
+    );
+    assert_eq!(
+        catalog.fingerprint_method_version(),
+        identity.fingerprint_method_version(),
+        "{context} query catalog context must expose accepted fingerprint method version from identity",
+    );
+    assert_eq!(
+        catalog.fingerprint(),
+        identity.accepted_schema_fingerprint(),
+        "{context} query catalog context must expose accepted schema fingerprint from identity",
     );
 }
 

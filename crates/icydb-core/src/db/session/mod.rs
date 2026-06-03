@@ -24,7 +24,7 @@ use crate::{
         query::plan::VisibleIndexes,
         schema::{
             AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedRowDecodeContract,
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo,
+            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo, SchemaVersion,
             accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
             describe_entity_fields, describe_entity_fields_with_persisted_schema,
             describe_entity_model, describe_entity_model_with_persisted_schema,
@@ -123,6 +123,11 @@ impl AcceptedSchemaCatalogContext {
     #[must_use]
     pub(in crate::db) const fn snapshot(&self) -> &AcceptedSchemaSnapshot {
         &self.snapshot
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_version(&self) -> SchemaVersion {
+        self.identity.accepted_schema_version()
     }
 
     #[must_use]

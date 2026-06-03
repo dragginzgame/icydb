@@ -7,7 +7,7 @@ use crate::db::{
     commit::CommitSchemaFingerprint,
     executor::{EntityAuthority, SharedPreparedExecutionPlan},
     query::intent::StructuralQuery,
-    schema::AcceptedSchemaSnapshot,
+    schema::{AcceptedSchemaSnapshot, SchemaVersion},
     session::AcceptedSchemaCatalogContext,
     sql::{
         lowering::{LoweredSqlCommand, StructuralSqlGlobalAggregateCommand},
@@ -161,16 +161,22 @@ pub(in crate::db) struct SqlCompiledCommandExecutionContext {
 
 impl SqlCompiledCommandExecutionContext {
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) fn new(
         command: CompiledSqlCommand,
         catalog: AcceptedSchemaCatalogContext,
         accepted_authority: Option<EntityAuthority>,
     ) -> Self {
-        Self {
+        let context = Self {
             command,
             catalog,
             accepted_authority,
-        }
+        };
+        debug_assert_eq!(
+            context.schema_version(),
+            context.accepted_schema().persisted_snapshot().version()
+        );
+
+        context
     }
 
     #[must_use]
@@ -191,6 +197,11 @@ impl SqlCompiledCommandExecutionContext {
     #[must_use]
     pub(in crate::db) const fn accepted_catalog(&self) -> &AcceptedSchemaCatalogContext {
         &self.catalog
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_version(&self) -> SchemaVersion {
+        self.catalog.schema_version()
     }
 
     #[must_use]

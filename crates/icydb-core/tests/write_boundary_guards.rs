@@ -1174,6 +1174,51 @@ fn catalog_diagnostics_expose_method_qualified_schema_fingerprints() {
 }
 
 #[test]
+fn query_catalog_context_exposes_full_accepted_identity_without_version_policy() {
+    let session_mod = read_source("src/db/session/mod.rs");
+    let session_sql_compiled = read_source("src/db/session/sql/compiled.rs");
+    let session_query_cache = read_source("src/db/session/query/cache.rs");
+    let session_sql_cache = read_source("src/db/session/sql/cache.rs");
+
+    assert!(
+        session_mod.contains("pub(in crate::db) const fn schema_version(&self) -> SchemaVersion")
+            && session_mod.contains("self.identity.accepted_schema_version()")
+            && session_mod
+                .contains("pub(in crate::db) const fn fingerprint_method_version(&self) -> u8")
+            && session_mod.contains("self.identity.fingerprint_method_version()")
+            && session_mod.contains(
+                "pub(in crate::db) const fn fingerprint(&self) -> CommitSchemaFingerprint"
+            )
+            && session_mod.contains("self.identity.accepted_schema_fingerprint()"),
+        "accepted query catalog context must expose the full accepted version/method/fingerprint identity from the catalog header",
+    );
+    assert!(
+        session_sql_compiled
+            .contains("pub(in crate::db) const fn schema_version(&self) -> SchemaVersion")
+            && session_sql_compiled.contains("self.catalog.schema_version()")
+            && session_sql_compiled
+                .contains("pub(in crate::db) const fn schema_fingerprint(&self)")
+            && session_sql_compiled.contains("self.catalog.fingerprint()")
+            && session_sql_compiled
+                .contains("pub(in crate::db) const fn schema_fingerprint_method_version(&self)")
+            && session_sql_compiled.contains("self.catalog.fingerprint_method_version()"),
+        "compiled SQL execution context must consume accepted identity metadata from the same query catalog context",
+    );
+    for (label, source) in [
+        ("query cache", session_query_cache),
+        ("SQL cache", session_sql_cache),
+        ("compiled SQL context", session_sql_compiled),
+    ] {
+        assert!(
+            !source.contains("schema_admission_rejection")
+                && !source.contains("SchemaAdmissionIdentityComparison")
+                && !source.contains("accepted_schema_admission_fingerprint"),
+            "{label} must consume accepted identity after admission instead of owning schema-version policy",
+        );
+    }
+}
+
+#[test]
 fn schema_store_publication_stays_version_passive() {
     let store = read_source("src/db/schema/store.rs");
     let store_compact = compact_source(&store);
