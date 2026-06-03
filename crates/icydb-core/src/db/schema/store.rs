@@ -355,6 +355,7 @@ pub(in crate::db) struct SchemaStoreFootprint {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaStoreCatalogMetadata {
     schema_version: SchemaVersion,
+    schema_fingerprint_method_version: u8,
     schema_fingerprint: CommitSchemaFingerprint,
     entity_count: u64,
 }
@@ -364,11 +365,13 @@ impl SchemaStoreCatalogMetadata {
     #[must_use]
     const fn new(
         schema_version: SchemaVersion,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: CommitSchemaFingerprint,
         entity_count: u64,
     ) -> Self {
         Self {
             schema_version,
+            schema_fingerprint_method_version,
             schema_fingerprint,
             entity_count,
         }
@@ -378,6 +381,12 @@ impl SchemaStoreCatalogMetadata {
     #[must_use]
     pub(in crate::db) const fn schema_version(self) -> SchemaVersion {
         self.schema_version
+    }
+
+    /// Return the fingerprint method version for this diagnostic metadata row.
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint_method_version(self) -> u8 {
+        self.schema_fingerprint_method_version
     }
 
     /// Return the deterministic catalog fingerprint for latest accepted
@@ -1040,6 +1049,7 @@ fn derive_data_allocation_metadata(
 
     Ok(finalize_schema_metadata(
         max_version,
+        SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
         hasher,
         latest_by_entity.len(),
     ))
@@ -1083,6 +1093,7 @@ fn derive_index_allocation_metadata(
 
     Ok(finalize_schema_metadata(
         max_version,
+        SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION,
         hasher,
         latest_by_entity.len(),
     ))
@@ -1109,6 +1120,7 @@ fn derive_schema_catalog_metadata(
 
     Ok(finalize_schema_metadata(
         max_version,
+        SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION,
         hasher,
         latest_by_entity.len(),
     ))
@@ -1116,6 +1128,7 @@ fn derive_schema_catalog_metadata(
 
 fn finalize_schema_metadata(
     schema_version: SchemaVersion,
+    schema_fingerprint_method_version: u8,
     hasher: sha2::Sha256,
     entity_count: usize,
 ) -> SchemaStoreCatalogMetadata {
@@ -1125,6 +1138,7 @@ fn finalize_schema_metadata(
 
     SchemaStoreCatalogMetadata::new(
         schema_version,
+        schema_fingerprint_method_version,
         schema_fingerprint,
         u64::try_from(entity_count).unwrap_or(u64::MAX),
     )
@@ -1333,7 +1347,10 @@ const fn field_storage_decode_name(
 #[cfg(test)]
 mod tests {
     use super::{
-        RawSchemaKey, RawSchemaSnapshot, SchemaStore, SchemaStoreBackend, SchemaStoreVisit,
+        RawSchemaKey, RawSchemaSnapshot, SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION,
+        SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION,
+        SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION, SchemaStore, SchemaStoreBackend,
+        SchemaStoreVisit,
     };
     use crate::{
         db::{
@@ -1808,8 +1825,16 @@ mod tests {
             .expect("updated schema catalog metadata should be present");
 
         assert_eq!(initial_metadata.schema_version(), SchemaVersion::initial());
+        assert_eq!(
+            initial_metadata.schema_fingerprint_method_version(),
+            SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION
+        );
         assert_eq!(initial_metadata.entity_count(), 1);
         assert_eq!(updated_metadata.schema_version(), SchemaVersion::new(3));
+        assert_eq!(
+            updated_metadata.schema_fingerprint_method_version(),
+            SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION
+        );
         assert_eq!(updated_metadata.entity_count(), 2);
         assert_ne!(
             initial_metadata.schema_fingerprint(),
@@ -1878,6 +1903,20 @@ mod tests {
             base_metadata.data().schema_fingerprint(),
             indexed_metadata.data().schema_fingerprint(),
             "data allocation metadata should ignore accepted index catalog changes"
+        );
+        assert_eq!(
+            indexed_metadata.data().schema_fingerprint_method_version(),
+            SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_VERSION
+        );
+        assert_eq!(
+            indexed_metadata.index().schema_fingerprint_method_version(),
+            SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_VERSION
+        );
+        assert_eq!(
+            indexed_metadata
+                .schema()
+                .schema_fingerprint_method_version(),
+            SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION
         );
         assert_ne!(
             base_metadata.index().schema_fingerprint(),

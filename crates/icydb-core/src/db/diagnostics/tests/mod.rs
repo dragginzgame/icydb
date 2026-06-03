@@ -548,6 +548,7 @@ fn assert_heap_store_snapshot_is_volatile(report: &StorageReport) {
     assert_eq!(data_heap.memory_id(), None);
     assert_eq!(data_heap.stable_key(), None);
     assert_eq!(data_heap.schema_version(), None);
+    assert_eq!(data_heap.schema_fingerprint_method_version(), None);
     assert_eq!(data_heap.schema_fingerprint(), None);
     assert_eq!(index_heap.storage(), StoreSnapshotStorageMode::Heap);
     assert_eq!(
@@ -564,6 +565,7 @@ fn assert_heap_store_snapshot_is_volatile(report: &StorageReport) {
     assert_eq!(index_heap.memory_id(), None);
     assert_eq!(index_heap.stable_key(), None);
     assert_eq!(index_heap.schema_version(), None);
+    assert_eq!(index_heap.schema_fingerprint_method_version(), None);
     assert_eq!(index_heap.schema_fingerprint(), None);
     assert_eq!(schema_heap.storage(), StoreSnapshotStorageMode::Heap);
     assert_eq!(
@@ -580,6 +582,7 @@ fn assert_heap_store_snapshot_is_volatile(report: &StorageReport) {
     assert_eq!(schema_heap.memory_id(), None);
     assert_eq!(schema_heap.stable_key(), None);
     assert_eq!(schema_heap.schema_version(), None);
+    assert_eq!(schema_heap.schema_fingerprint_method_version(), None);
     assert_eq!(schema_heap.schema_fingerprint(), None);
     assert_eq!(schema_heap.entity_count(), 0);
 }
@@ -621,6 +624,7 @@ fn assert_journaled_store_snapshot_is_durable(report: &StorageReport) {
         Some("icydb.test.store_journaled.data.v1")
     );
     assert_eq!(data_journaled.schema_version(), None);
+    assert_eq!(data_journaled.schema_fingerprint_method_version(), None);
     assert_eq!(data_journaled.schema_fingerprint(), None);
 
     assert_eq!(
@@ -647,6 +651,7 @@ fn assert_journaled_store_snapshot_is_durable(report: &StorageReport) {
         Some("icydb.test.store_journaled.index.v1")
     );
     assert_eq!(index_journaled.schema_version(), None);
+    assert_eq!(index_journaled.schema_fingerprint_method_version(), None);
     assert_eq!(index_journaled.schema_fingerprint(), None);
 
     assert_eq!(
@@ -673,6 +678,7 @@ fn assert_journaled_store_snapshot_is_durable(report: &StorageReport) {
         Some("icydb.test.store_journaled.schema.v1")
     );
     assert_eq!(schema_journaled.schema_version(), None);
+    assert_eq!(schema_journaled.schema_fingerprint_method_version(), None);
     assert_eq!(schema_journaled.schema_fingerprint(), None);
     assert_eq!(schema_journaled.entity_count(), 0);
 }
@@ -831,11 +837,13 @@ fn storage_report_empty_store_snapshot() {
     assert_eq!(data_a.memory_id(), Some(155));
     assert_eq!(data_a.stable_key(), Some("icydb.test.store_a.data.v1"));
     assert_eq!(data_a.schema_version(), Some(1));
+    assert_eq!(data_a.schema_fingerprint_method_version(), Some(2));
     assert!(data_a.schema_fingerprint().is_some());
     assert_stable_index_capabilities(index_a);
     assert_eq!(index_a.memory_id(), Some(156));
     assert_eq!(index_a.stable_key(), Some("icydb.test.store_a.index.v1"));
     assert_eq!(index_a.schema_version(), Some(1));
+    assert_eq!(index_a.schema_fingerprint_method_version(), Some(3));
     assert!(index_a.schema_fingerprint().is_some());
 
     let populated_schema = schema_snapshot(&report, STORE_A_PATH);
@@ -847,6 +855,10 @@ fn storage_report_empty_store_snapshot() {
         Some("icydb.test.store_a.schema.v1")
     );
     assert_eq!(populated_schema.schema_version(), Some(1));
+    assert_eq!(
+        populated_schema.schema_fingerprint_method_version(),
+        Some(1)
+    );
     assert!(populated_schema.schema_fingerprint().is_some());
     assert!(populated_schema.entity_count() > 0);
     assert_ne!(
@@ -871,6 +883,7 @@ fn storage_report_empty_store_snapshot() {
         Some("icydb.test.store_z.schema.v1")
     );
     assert_eq!(empty_schema.schema_version(), None);
+    assert_eq!(empty_schema.schema_fingerprint_method_version(), None);
     assert_eq!(empty_schema.schema_fingerprint(), None);
     assert_eq!(empty_schema.entity_count(), 0);
 
@@ -891,11 +904,13 @@ fn storage_report_empty_store_snapshot() {
     assert_eq!(data_z.memory_id(), Some(153));
     assert_eq!(data_z.stable_key(), Some("icydb.test.store_z.data.v1"));
     assert_eq!(data_z.schema_version(), None);
+    assert_eq!(data_z.schema_fingerprint_method_version(), None);
     assert_eq!(data_z.schema_fingerprint(), None);
     assert_stable_index_capabilities(index_z);
     assert_eq!(index_z.memory_id(), Some(154));
     assert_eq!(index_z.stable_key(), Some("icydb.test.store_z.index.v1"));
     assert_eq!(index_z.schema_version(), None);
+    assert_eq!(index_z.schema_fingerprint_method_version(), None);
     assert_eq!(index_z.schema_fingerprint(), None);
 }
 
@@ -1300,6 +1315,7 @@ fn data_store_snapshot_candid_shape_is_stable() {
         "memory_id",
         "stable_key",
         "schema_version",
+        "schema_fingerprint_method_version",
         "schema_fingerprint",
         "entries",
         "memory_bytes",
@@ -1326,6 +1342,7 @@ fn index_store_snapshot_candid_shape_is_stable() {
         "memory_id",
         "stable_key",
         "schema_version",
+        "schema_fingerprint_method_version",
         "schema_fingerprint",
         "entries",
         "user_entries",
@@ -1355,6 +1372,7 @@ fn schema_store_snapshot_candid_shape_is_stable() {
         "memory_id",
         "stable_key",
         "schema_version",
+        "schema_fingerprint_method_version",
         "schema_fingerprint",
         "entity_count",
     ] {

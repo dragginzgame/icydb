@@ -332,6 +332,7 @@ pub struct SchemaStoreSnapshot {
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
+    pub(crate) schema_fingerprint_method_version: Option<u8>,
     pub(crate) schema_fingerprint: Option<String>,
     pub(crate) entity_count: u64,
 }
@@ -381,31 +382,42 @@ impl StoreSnapshotAllocationIdentity {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct StoreSnapshotSchemaMetadata {
-    schema_version: Option<u32>,
-    schema_fingerprint: Option<String>,
+    version: Option<u32>,
+    fingerprint_method_version: Option<u8>,
+    fingerprint: Option<String>,
 }
 
 impl StoreSnapshotSchemaMetadata {
     pub(crate) const fn absent() -> Self {
         Self {
-            schema_version: None,
-            schema_fingerprint: None,
+            version: None,
+            fingerprint_method_version: None,
+            fingerprint: None,
         }
     }
 
-    pub(crate) const fn new(schema_version: u32, schema_fingerprint: String) -> Self {
+    pub(crate) const fn new(
+        schema_version: u32,
+        schema_fingerprint_method_version: u8,
+        schema_fingerprint: String,
+    ) -> Self {
         Self {
-            schema_version: Some(schema_version),
-            schema_fingerprint: Some(schema_fingerprint),
+            version: Some(schema_version),
+            fingerprint_method_version: Some(schema_fingerprint_method_version),
+            fingerprint: Some(schema_fingerprint),
         }
     }
 
     const fn schema_version(&self) -> Option<u32> {
-        self.schema_version
+        self.version
+    }
+
+    const fn schema_fingerprint_method_version(&self) -> Option<u8> {
+        self.fingerprint_method_version
     }
 
     fn schema_fingerprint(&self) -> Option<String> {
-        self.schema_fingerprint.clone()
+        self.fingerprint.clone()
     }
 }
 
@@ -465,6 +477,7 @@ impl SchemaStoreSnapshot {
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
+            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
             schema_fingerprint: schema_metadata.schema_fingerprint(),
             entity_count,
         }
@@ -533,6 +546,12 @@ impl SchemaStoreSnapshot {
         self.schema_version
     }
 
+    /// Return accepted schema/catalog fingerprint method version, when known.
+    #[must_use]
+    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
+        self.schema_fingerprint_method_version
+    }
+
     /// Return accepted schema/catalog fingerprint, when known.
     #[must_use]
     pub const fn schema_fingerprint(&self) -> Option<&str> {
@@ -562,6 +581,7 @@ pub struct DataStoreSnapshot {
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
+    pub(crate) schema_fingerprint_method_version: Option<u8>,
     pub(crate) schema_fingerprint: Option<String>,
     pub(crate) entries: u64,
     pub(crate) memory_bytes: u64,
@@ -597,6 +617,7 @@ impl DataStoreSnapshot {
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
+            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
             schema_fingerprint: schema_metadata.schema_fingerprint(),
             entries,
             memory_bytes,
@@ -666,6 +687,12 @@ impl DataStoreSnapshot {
         self.schema_version
     }
 
+    /// Return accepted schema/catalog fingerprint method version, when known.
+    #[must_use]
+    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
+        self.schema_fingerprint_method_version
+    }
+
     /// Return accepted schema/catalog fingerprint, when known.
     #[must_use]
     pub const fn schema_fingerprint(&self) -> Option<&str> {
@@ -701,6 +728,7 @@ pub struct IndexStoreSnapshot {
     pub(crate) memory_id: Option<u8>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
+    pub(crate) schema_fingerprint_method_version: Option<u8>,
     pub(crate) schema_fingerprint: Option<String>,
     pub(crate) entries: u64,
     pub(crate) user_entries: u64,
@@ -738,6 +766,7 @@ impl IndexStoreSnapshot {
             memory_id,
             stable_key,
             schema_version: schema_metadata.schema_version(),
+            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
             schema_fingerprint: schema_metadata.schema_fingerprint(),
             entries: stats.entries,
             user_entries: stats.user_entries,
@@ -808,6 +837,12 @@ impl IndexStoreSnapshot {
     #[must_use]
     pub const fn schema_version(&self) -> Option<u32> {
         self.schema_version
+    }
+
+    /// Return accepted schema/catalog fingerprint method version, when known.
+    #[must_use]
+    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
+        self.schema_fingerprint_method_version
     }
 
     /// Return accepted schema/catalog fingerprint, when known.

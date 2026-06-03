@@ -101,6 +101,7 @@ fn snapshot_schema_metadata(
 ) -> StoreSnapshotSchemaMetadata {
     StoreSnapshotSchemaMetadata::new(
         metadata.schema_version().get(),
+        metadata.schema_fingerprint_method_version(),
         encode_hex_lower(&metadata.schema_fingerprint()),
     )
 }

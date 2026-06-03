@@ -1152,6 +1152,28 @@ fn schema_admission_fingerprints_stay_out_of_query_hot_paths() {
 }
 
 #[test]
+fn catalog_diagnostics_expose_method_qualified_schema_fingerprints() {
+    let schema_store = read_source("src/db/schema/store.rs");
+    let diagnostics_model = read_source("src/db/diagnostics/model.rs");
+    let storage_report = read_source("src/db/diagnostics/storage_report.rs");
+    let diagnostics_tests = read_source("src/db/diagnostics/tests/mod.rs");
+
+    assert!(
+        schema_store.contains("schema_fingerprint_method_version: u8")
+            && schema_store.contains("schema_fingerprint_method_version,")
+            && schema_store.contains(
+                "pub(in crate::db) const fn schema_fingerprint_method_version(self) -> u8"
+            )
+            && storage_report.contains("metadata.schema_fingerprint_method_version()")
+            && diagnostics_model.contains("schema_fingerprint_method_version: Option<u8>")
+            && diagnostics_model
+                .contains("pub const fn schema_fingerprint_method_version(&self) -> Option<u8>")
+            && diagnostics_tests.contains("\"schema_fingerprint_method_version\""),
+        "catalog diagnostics must expose schema fingerprint bytes together with their method version",
+    );
+}
+
+#[test]
 fn schema_store_publication_stays_version_passive() {
     let store = read_source("src/db/schema/store.rs");
     let store_compact = compact_source(&store);

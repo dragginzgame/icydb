@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.2` makes storage/catalog diagnostics method-qualify accepted schema
+  fingerprints, so reported version and fingerprint identity no longer exposes
+  raw fingerprint bytes without their fingerprint-method version.
+
 - `0.177.1` tightens schema-version admission diagnostics with compared
   version, fingerprint-method, and fingerprint facts while guarding candidate
   admission fingerprinting out of query hot paths and schema version synthesis
