@@ -446,12 +446,12 @@ mod tests {
         let left = StableMemoryAllocation::with_schema_metadata(
             110,
             "icydb.test_db.users.data.v1".to_string(),
-            StableMemoryAllocationMetadata::from_accepted_schema_contract(1, "aaa".to_string()),
+            StableMemoryAllocationMetadata::from_accepted_schema_contract(1, 2, "aaa".to_string()),
         );
         let right = StableMemoryAllocation::with_schema_metadata(
             110,
             "icydb.test_db.users.data.v1".to_string(),
-            StableMemoryAllocationMetadata::from_accepted_schema_contract(2, "bbb".to_string()),
+            StableMemoryAllocationMetadata::from_accepted_schema_contract(2, 3, "bbb".to_string()),
         );
 
         assert!(left.same_identity_as(&right));

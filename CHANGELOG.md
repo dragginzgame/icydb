@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.4` makes schema-node stable-memory allocation metadata method-qualify
+  accepted schema fingerprints too, keeping generated/schema-side allocation
+  diagnostics aligned with core catalog identity.
+
 - `0.177.3` threads accepted schema version through query and SQL execution
   catalog contexts from the same accepted identity that supplies
   fingerprint-method and fingerprint metadata, keeping query identity

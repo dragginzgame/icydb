@@ -696,15 +696,21 @@ impl StoreMemoryRole {
 /// durable identity remains `memory_id + stable_key`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StableMemoryAllocationMetadata {
-    schema_version: Option<u32>,
-    schema_fingerprint: Option<String>,
+    version: Option<u32>,
+    fingerprint_method_version: Option<u8>,
+    fingerprint: Option<String>,
 }
 
 impl StableMemoryAllocationMetadata {
-    const fn new(schema_version: Option<u32>, schema_fingerprint: Option<String>) -> Self {
+    const fn new(
+        schema_version: Option<u32>,
+        schema_fingerprint_method_version: Option<u8>,
+        schema_fingerprint: Option<String>,
+    ) -> Self {
         Self {
-            schema_version,
-            schema_fingerprint,
+            version: schema_version,
+            fingerprint_method_version: schema_fingerprint_method_version,
+            fingerprint: schema_fingerprint,
         }
     }
 
@@ -712,28 +718,39 @@ impl StableMemoryAllocationMetadata {
     #[must_use]
     pub const fn from_accepted_schema_contract(
         schema_version: u32,
+        schema_fingerprint_method_version: u8,
         schema_fingerprint: String,
     ) -> Self {
-        Self::new(Some(schema_version), Some(schema_fingerprint))
+        Self::new(
+            Some(schema_version),
+            Some(schema_fingerprint_method_version),
+            Some(schema_fingerprint),
+        )
     }
 
     /// Build absent allocation metadata for allocations with no accepted
     /// schema/catalog authority.
     #[must_use]
     pub const fn absent() -> Self {
-        Self::new(None, None)
+        Self::new(None, None, None)
     }
 
     /// Accepted schema/catalog version, when known.
     #[must_use]
     pub const fn schema_version(&self) -> Option<u32> {
-        self.schema_version
+        self.version
+    }
+
+    /// Accepted schema/catalog fingerprint method version, when known.
+    #[must_use]
+    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
+        self.fingerprint_method_version
     }
 
     /// Accepted schema/catalog fingerprint, when known.
     #[must_use]
     pub const fn schema_fingerprint(&self) -> Option<&str> {
-        match &self.schema_fingerprint {
+        match &self.fingerprint {
             Some(value) => Some(value.as_str()),
             None => None,
         }
@@ -743,7 +760,8 @@ impl StableMemoryAllocationMetadata {
 /// Stable-memory allocation descriptor.
 ///
 /// `memory_id + stable_key` is the durable allocation identity.
-/// `schema_version + schema_fingerprint` is diagnostic metadata only.
+/// `schema_version + schema_fingerprint_method_version + schema_fingerprint`
+/// is diagnostic metadata only.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StableMemoryAllocation {
     memory_id: u8,
@@ -801,6 +819,12 @@ impl StableMemoryAllocation {
     #[must_use]
     pub const fn schema_version(&self) -> Option<u32> {
         self.schema_metadata.schema_version()
+    }
+
+    /// Accepted schema/catalog fingerprint method version, when known.
+    #[must_use]
+    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
+        self.schema_metadata.schema_fingerprint_method_version()
     }
 
     /// Accepted schema/catalog fingerprint, when known.
@@ -1080,6 +1104,7 @@ mod tests {
             store.stable_schema_allocation("demo_rpg"),
         ] {
             assert_eq!(allocation.schema_version(), None);
+            assert_eq!(allocation.schema_fingerprint_method_version(), None);
             assert_eq!(allocation.schema_fingerprint(), None);
             assert_eq!(
                 allocation.schema_metadata(),
@@ -1101,6 +1126,7 @@ mod tests {
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 7,
+                2,
                 "data-row-layout".to_string(),
             ),
         );
@@ -1108,6 +1134,7 @@ mod tests {
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 8,
+                3,
                 "index-catalog".to_string(),
             ),
         );
@@ -1115,6 +1142,7 @@ mod tests {
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 10,
+                1,
                 "schema-catalog".to_string(),
             ),
         );
@@ -1122,15 +1150,19 @@ mod tests {
             "demo_rpg",
             StableMemoryAllocationMetadata::from_accepted_schema_contract(
                 9,
+                2,
                 "data-row-layout-v2".to_string(),
             ),
         );
 
         assert_eq!(data.schema_version(), Some(7));
+        assert_eq!(data.schema_fingerprint_method_version(), Some(2));
         assert_eq!(data.schema_fingerprint(), Some("data-row-layout"));
         assert_eq!(index.schema_version(), Some(8));
+        assert_eq!(index.schema_fingerprint_method_version(), Some(3));
         assert_eq!(index.schema_fingerprint(), Some("index-catalog"));
         assert_eq!(schema.schema_version(), Some(10));
+        assert_eq!(schema.schema_fingerprint_method_version(), Some(1));
         assert_eq!(schema.schema_fingerprint(), Some("schema-catalog"));
         assert!(data.same_identity_as(&data_after_reconcile));
         assert!(!data.same_identity_as(&index));
