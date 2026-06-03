@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Root-anchors CI versioning and workflow-package validation helpers so their
-  cargo, git, and workflow-file checks behave consistently outside the repo
-  root.
-
 ## [0.177.x] 🧭 - 2026-06-02 - Explicit Schema Version Contracts
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
+
+- `0.177.13` root-anchors CI versioning and workflow-package validation
+  helpers so their cargo, git, and workflow-file checks behave consistently
+  outside the repo root.
 
 - `0.177.12` cleans up release-readiness and GitHub setup docs so versioning
   checks, branch protection, and pull-request slice categories match the
