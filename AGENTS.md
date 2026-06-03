@@ -51,6 +51,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 - Before any changelog edit, open and follow `docs/governance/changelog.md`; it is the changelog source of truth.
 - Root `CHANGELOG.md` is the only `Unreleased` location; do not add `Unreleased` sections to detailed minor files.
+- While coding or reviewing an unpushed slice, put changelog notes in root `CHANGELOG.md` `Unreleased`; create or update patch-numbered root/detailed changelog entries only during explicit release prep.
 - Do not invent patch numbers, do not infer patch numbers for design/status docs, and keep release prep details governed by `docs/governance/changelog.md`.
 - Governance-only edits do not need release notes unless requested.
 

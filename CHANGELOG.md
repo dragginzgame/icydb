@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
 
+- `0.177.9` proves first-contact accepted schema publication persists the
+  source-declared schema version while keeping schema-store publication
+  version-passive.
+
+- `0.177.8` closes the generated-version runtime-boundary proof, keeping
+  source-declared schema versions in schema proposal/admission while pinning
+  generated-model runtime identity bridges as test-only.
+
 - `0.177.7` hard-cuts persisted schema-version metadata by rejecting obsolete
   snapshot codecs and non-positive accepted schema versions at schema authority
   boundaries.

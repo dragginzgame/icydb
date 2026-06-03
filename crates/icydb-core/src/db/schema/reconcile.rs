@@ -1653,6 +1653,56 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_runtime_schemas_publishes_declared_version_on_first_contact() {
+        reset_schema_store();
+        metrics_reset_all();
+
+        let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let declared_version = proposal.declared_schema_version();
+        assert_eq!(declared_version, SchemaVersion::new(2));
+
+        super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+            .expect("initial schema reconciliation should write generated snapshot");
+
+        let latest = RECONCILE_SCHEMA_STORE
+            .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+            .expect("schema store latest snapshot should decode")
+            .expect("initial schema snapshot should be persisted");
+        let by_declared_version = RECONCILE_SCHEMA_STORE
+            .with_borrow(|store| {
+                store.get_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, declared_version)
+            })
+            .expect("declared-version schema snapshot should decode")
+            .expect("declared-version schema snapshot should be persisted");
+        let initial_version_snapshot = RECONCILE_SCHEMA_STORE
+            .with_borrow(|store| {
+                store.get_persisted_snapshot(
+                    IndexedSchemaEntity::ENTITY_TAG,
+                    SchemaVersion::initial(),
+                )
+            })
+            .expect("initial-version schema snapshot lookup should decode");
+
+        assert_eq!(latest.version(), declared_version);
+        assert_eq!(latest.row_layout().version(), declared_version);
+        assert_eq!(by_declared_version.version(), declared_version);
+        assert!(
+            initial_version_snapshot.is_none(),
+            "first contact must not synthesize an initial-version snapshot when generated code declares v2",
+        );
+        assert_eq!(latest.indexes().len(), 1);
+        assert_eq!(RECONCILE_SCHEMA_STORE.with_borrow(SchemaStore::len), 1);
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 1);
+        assert_eq!(counters.ops().schema_reconcile_first_create(), 1);
+    }
+
+    #[test]
     fn reconcile_runtime_schemas_accepts_existing_matching_snapshot() {
         reset_schema_store();
         metrics_reset_all();

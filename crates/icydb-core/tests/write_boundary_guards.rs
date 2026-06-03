@@ -1338,7 +1338,6 @@ fn schema_store_publication_stays_version_passive() {
     let store = read_source("src/db/schema/store.rs");
     let store_compact = compact_source(&store);
     let reconcile = read_source("src/db/schema/reconcile.rs");
-    let reconcile_compact = compact_source(&reconcile);
 
     assert!(
         store_compact
@@ -1347,10 +1346,17 @@ fn schema_store_publication_stays_version_passive() {
         "schema store publication must key persisted snapshots by the snapshot-declared version",
     );
     assert!(
-        reconcile_compact.contains(
-            "store.with_schema_mut(|schema_store|schema_store.insert_persisted_snapshot(entity_tag,after))",
+        reconcile.contains(
+            "store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))",
         ),
-        "schema publication callers must pass the accepted-after snapshot through to storage without version synthesis",
+        "SQL DDL publication must pass the accepted-after snapshot through to storage without version synthesis",
+    );
+    assert!(
+        reconcile.contains("let proposal = compiled_schema_proposal_for_model(model);")
+            && reconcile.contains("let expected = proposal.initial_persisted_schema_snapshot();")
+            && reconcile.contains("schema_store.insert_persisted_snapshot(entity_tag, &expected)")
+            && reconcile.contains("store.with_schema_mut(|schema_store| {\n        schema_store.insert_persisted_snapshot(entity_tag, &expected)\n    })"),
+        "first-contact schema reconciliation must publish the proposal-produced snapshot without version synthesis",
     );
 
     for (label, source) in [("store", store), ("reconcile", reconcile)] {
