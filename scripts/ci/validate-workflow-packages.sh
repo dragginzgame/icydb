@@ -3,8 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 WORKFLOW_FILE="${1:-$ROOT/.github/workflows/ci.yml}"
+if [[ "$WORKFLOW_FILE" != /* ]]; then
+  WORKFLOW_FILE="$ROOT/$WORKFLOW_FILE"
+fi
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
+
+cd "$ROOT"
 
 if [[ ! -f "$WORKFLOW_FILE" ]]; then
   echo "[ERROR] Workflow file not found: $WORKFLOW_FILE" >&2

@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Cleans up the versioning/security check so release-surface validation follows
-  the tagged release job in the existing CI workflow instead of looking for
-  stale standalone release workflow glue, while summarizing tag-integrity
-  output for large tag sets.
+- Root-anchors CI versioning and workflow-package validation helpers so their
+  cargo, git, and workflow-file checks behave consistently outside the repo
+  root.
 
 ## [0.177.x] 🧭 - 2026-06-02 - Explicit Schema Version Contracts
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
+
+- `0.177.12` cleans up release-readiness and GitHub setup docs so versioning
+  checks, branch protection, and pull-request slice categories match the
+  current tagged CI release surface.
 
 - `0.177.11` cleans up CI and maintainer setup by centralizing workflow
   toolchain constants, making CI cargo invocations lockfile-strict, and

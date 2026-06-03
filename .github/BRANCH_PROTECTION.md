@@ -9,7 +9,9 @@ Configure branch protection for `main` to gate merges on reviews and CI.
 - Dismiss stale approvals when new commits are pushed: enabled
 - Require status checks to pass before merging: enabled
   - Select checks:
-    - `CI` (workflow running fmt, clippy, tests)
+    - `CI / dependency_msrv`
+    - `CI / check`
+    - `CI / wasm_size_report`
 - Require branches to be up to date before merging: enabled
 - Include administrators: enabled (recommended)
 - Restrict who can push to matching branches: enabled (optional; maintainers only)
@@ -26,6 +28,6 @@ Protected Tags
 
 Notes
 
-- Status check names correspond to workflow names in `.github/workflows/ci.yml`.
+- Status check names correspond to jobs in `.github/workflows/ci.yml`.
 - After saving, GitHub will surface these required checks on each PR into `main`.
 - Combine with CODEOWNERS if you want specific reviewers to be auto‑required.

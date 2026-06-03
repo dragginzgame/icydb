@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Check versioning system setup
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -34,6 +34,8 @@ MAKEFILE="$ROOT/Makefile"
 CI_WORKFLOW="$ROOT/.github/workflows/ci.yml"
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
+
+cd "$ROOT"
 
 echo "🔍 Checking versioning system setup..."
 echo ""

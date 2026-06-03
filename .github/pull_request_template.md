@@ -25,6 +25,8 @@ Primary domains touched:
 - [ ] Lowering / Session
 - [ ] Executor / Planner
 - [ ] Build / Canister
+- [ ] CI / Setup
+- [ ] Docs / Release
 - [ ] Integration Tests
 
 If this PR exceeds the slice-shape limits, include these exact trailer lines in
