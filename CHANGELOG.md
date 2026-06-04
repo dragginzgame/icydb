@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.12` splits SQL DDL preparation reporting and schema-version contract
+  binding into dedicated DDL modules, keeping the DDL hub focused on statement
+  binding and lowering orchestration.
+
 - `0.178.11` moves SQL DDL `CREATE INDEX` expression operation intent into
   schema-owned mutation helpers before persisted expression metadata is built.
 

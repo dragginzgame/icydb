@@ -4,6 +4,11 @@
 //! Boundary: translates parser-owned DDL syntax into catalog-native requests.
 
 mod admission;
+pub(in crate::db) use admission::BoundSqlDdlSchemaVersionContract;
+use admission::{
+    bind_sql_ddl_schema_version_contract, ddl_version_contract,
+    validate_bound_sql_ddl_version_contract,
+};
 mod field;
 pub(in crate::db) use field::{
     BoundSqlAddColumnRequest, BoundSqlAlterColumnDefaultRequest,
@@ -16,20 +21,23 @@ use field::{
 
 mod index;
 pub(in crate::db) use index::{BoundSqlCreateIndexRequest, BoundSqlDropIndexRequest};
-use index::{bind_create_index_statement, bind_drop_index_statement, ddl_key_item_report};
+use index::{bind_create_index_statement, bind_drop_index_statement};
+
+mod report;
+use report::ddl_preparation_report;
+pub use report::{SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport};
 
 use crate::db::{
     schema::{
         AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-        SchemaDdlMutationAdmissionError, SchemaDdlVersionContractPreflightError, SchemaInfo,
-        SchemaVersion, derive_sql_ddl_expression_index_accepted_after,
+        SchemaDdlMutationAdmissionError, SchemaInfo,
+        derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
-        validate_schema_ddl_version_contract_preflight,
     },
-    sql::parser::{SqlDdlSchemaVersionContract, SqlDdlStatement, SqlStatement},
+    sql::parser::{SqlDdlStatement, SqlStatement},
 };
 use thiserror::Error as ThisError;
 
@@ -83,149 +91,6 @@ impl PreparedSqlDdlCommand {
 }
 
 ///
-/// SqlDdlPreparationReport
-///
-/// Compact report for a DDL command that has passed all pre-execution
-/// frontend and schema-mutation checks.
-///
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SqlDdlPreparationReport {
-    mutation_kind: SqlDdlMutationKind,
-    target_index: String,
-    target_store: String,
-    field_path: Vec<String>,
-    execution_status: SqlDdlExecutionStatus,
-    rows_scanned: usize,
-    index_keys_written: usize,
-}
-
-impl SqlDdlPreparationReport {
-    /// Return the prepared DDL mutation kind.
-    #[must_use]
-    pub const fn mutation_kind(&self) -> SqlDdlMutationKind {
-        self.mutation_kind
-    }
-
-    /// Borrow the target accepted index name.
-    #[must_use]
-    pub const fn target_index(&self) -> &str {
-        self.target_index.as_str()
-    }
-
-    /// Borrow the target accepted index store path.
-    #[must_use]
-    pub const fn target_store(&self) -> &str {
-        self.target_store.as_str()
-    }
-
-    /// Borrow the target field path.
-    #[must_use]
-    pub const fn field_path(&self) -> &[String] {
-        self.field_path.as_slice()
-    }
-
-    /// Return the execution status captured by this DDL report.
-    #[must_use]
-    pub const fn execution_status(&self) -> SqlDdlExecutionStatus {
-        self.execution_status
-    }
-
-    /// Return rows scanned by DDL execution.
-    #[must_use]
-    pub const fn rows_scanned(&self) -> usize {
-        self.rows_scanned
-    }
-
-    /// Return index keys written by DDL execution.
-    #[must_use]
-    pub const fn index_keys_written(&self) -> usize {
-        self.index_keys_written
-    }
-
-    pub(in crate::db) const fn with_execution_status(
-        mut self,
-        execution_status: SqlDdlExecutionStatus,
-    ) -> Self {
-        self.execution_status = execution_status;
-        self
-    }
-
-    pub(in crate::db) const fn with_execution_metrics(
-        mut self,
-        rows_scanned: usize,
-        index_keys_written: usize,
-    ) -> Self {
-        self.rows_scanned = rows_scanned;
-        self.index_keys_written = index_keys_written;
-        self
-    }
-}
-
-///
-/// SqlDdlMutationKind
-///
-/// Developer-facing SQL DDL mutation kind.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SqlDdlMutationKind {
-    AddDefaultedField,
-    AddNullableField,
-    SetFieldDefault,
-    DropFieldDefault,
-    SetFieldNotNull,
-    DropFieldNotNull,
-    DropField,
-    RenameField,
-    AddFieldPathIndex,
-    AddExpressionIndex,
-    DropSecondaryIndex,
-}
-
-impl SqlDdlMutationKind {
-    /// Return the stable diagnostic label for this DDL mutation kind.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::AddDefaultedField => "add_defaulted_field",
-            Self::AddNullableField => "add_nullable_field",
-            Self::SetFieldDefault => "set_field_default",
-            Self::DropFieldDefault => "drop_field_default",
-            Self::SetFieldNotNull => "set_field_not_null",
-            Self::DropFieldNotNull => "drop_field_not_null",
-            Self::DropField => "drop_field",
-            Self::RenameField => "rename_field",
-            Self::AddFieldPathIndex => "add_field_path_index",
-            Self::AddExpressionIndex => "add_expression_index",
-            Self::DropSecondaryIndex => "drop_secondary_index",
-        }
-    }
-}
-
-///
-/// SqlDdlExecutionStatus
-///
-/// SQL DDL execution state at the current boundary.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SqlDdlExecutionStatus {
-    PreparedOnly,
-    Published,
-    NoOp,
-}
-
-impl SqlDdlExecutionStatus {
-    /// Return the stable diagnostic label for this execution status.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::PreparedOnly => "prepared_only",
-            Self::Published => "published",
-            Self::NoOp => "no_op",
-        }
-    }
-}
-
-///
 /// BoundSqlDdlRequest
 ///
 /// Accepted-catalog SQL DDL request after parser syntax has been resolved
@@ -248,32 +113,6 @@ impl BoundSqlDdlRequest {
     #[must_use]
     pub(in crate::db) const fn schema_version_contract(&self) -> BoundSqlDdlSchemaVersionContract {
         self.schema_version_contract
-    }
-}
-
-///
-/// BoundSqlDdlSchemaVersionContract
-///
-/// Accepted-catalog DDL version intent after raw parser values have been
-/// checked for positive schema-version numbers.
-///
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct BoundSqlDdlSchemaVersionContract {
-    expected_schema_version: Option<SchemaVersion>,
-    next_schema_version: Option<SchemaVersion>,
-}
-
-impl BoundSqlDdlSchemaVersionContract {
-    /// Return the declared accepted-before schema version.
-    #[must_use]
-    pub(in crate::db) const fn expected_schema_version(self) -> Option<SchemaVersion> {
-        self.expected_schema_version
-    }
-
-    /// Return the declared accepted-after schema version.
-    #[must_use]
-    pub(in crate::db) const fn next_schema_version(self) -> Option<SchemaVersion> {
-        self.next_schema_version
     }
 }
 
@@ -712,169 +551,4 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
     derivation
         .with_declared_schema_version(accepted_before, next_schema_version)
         .map_err(SqlDdlLoweringError::MutationAdmission)
-}
-
-const fn ddl_version_contract(ddl: &SqlDdlStatement) -> SqlDdlSchemaVersionContract {
-    match ddl {
-        SqlDdlStatement::CreateIndex(statement) => statement.schema_version_contract,
-        SqlDdlStatement::DropIndex(statement) => statement.schema_version_contract,
-        SqlDdlStatement::AlterTableAddColumn(statement) => statement.schema_version_contract,
-        SqlDdlStatement::AlterTableAlterColumn(statement) => statement.schema_version_contract,
-        SqlDdlStatement::AlterTableDropColumn(statement) => statement.schema_version_contract,
-        SqlDdlStatement::AlterTableRenameColumn(statement) => statement.schema_version_contract,
-    }
-}
-
-fn bind_sql_ddl_schema_version_contract(
-    contract: SqlDdlSchemaVersionContract,
-) -> Result<BoundSqlDdlSchemaVersionContract, SqlDdlBindError> {
-    Ok(BoundSqlDdlSchemaVersionContract {
-        expected_schema_version: bind_sql_ddl_schema_version(
-            "EXPECT SCHEMA VERSION",
-            contract.expected_schema_version,
-        )?,
-        next_schema_version: bind_sql_ddl_schema_version(
-            "SET SCHEMA VERSION",
-            contract.next_schema_version,
-        )?,
-    })
-}
-
-fn bind_sql_ddl_schema_version(
-    clause: &'static str,
-    value: Option<u32>,
-) -> Result<Option<SchemaVersion>, SqlDdlBindError> {
-    value
-        .map(|raw| {
-            if raw == 0 {
-                Err(SqlDdlBindError::NonPositiveSchemaVersion { clause })
-            } else {
-                Ok(SchemaVersion::new(raw))
-            }
-        })
-        .transpose()
-}
-
-fn validate_bound_sql_ddl_version_contract(
-    bound: &BoundSqlDdlRequest,
-    accepted_before: &AcceptedSchemaSnapshot,
-) -> Result<(), SqlDdlBindError> {
-    let contract = bound.schema_version_contract();
-    let accepted_version = accepted_before.persisted_snapshot().version();
-    validate_schema_ddl_version_contract_preflight(
-        accepted_version,
-        contract.expected_schema_version(),
-        contract.next_schema_version(),
-        !matches!(bound.statement(), BoundSqlDdlStatement::NoOp(_)),
-    )
-    .map_err(sql_ddl_version_contract_preflight_error)
-}
-
-const fn sql_ddl_version_contract_preflight_error(
-    error: SchemaDdlVersionContractPreflightError,
-) -> SqlDdlBindError {
-    match error {
-        SchemaDdlVersionContractPreflightError::MissingExpectedSchemaVersion => {
-            SqlDdlBindError::MissingExpectedSchemaVersion
-        }
-        SchemaDdlVersionContractPreflightError::MissingNextSchemaVersion => {
-            SqlDdlBindError::MissingNextSchemaVersion
-        }
-        SchemaDdlVersionContractPreflightError::StaleExpectedSchemaVersion {
-            expected,
-            accepted,
-        } => SqlDdlBindError::StaleExpectedSchemaVersion { expected, accepted },
-        SchemaDdlVersionContractPreflightError::EmptySchemaVersionBump { requested } => {
-            SqlDdlBindError::EmptySchemaVersionBump { requested }
-        }
-    }
-}
-
-fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport {
-    match bound.statement() {
-        BoundSqlDdlStatement::AddColumn(add) => SqlDdlPreparationReport {
-            mutation_kind: if add.field().default().is_none() {
-                SqlDdlMutationKind::AddNullableField
-            } else {
-                SqlDdlMutationKind::AddDefaultedField
-            },
-            target_index: add.field().name().to_string(),
-            target_store: add.entity_name().to_string(),
-            field_path: vec![add.field().name().to_string()],
-            execution_status: SqlDdlExecutionStatus::PreparedOnly,
-            rows_scanned: 0,
-            index_keys_written: 0,
-        },
-        BoundSqlDdlStatement::AlterColumnDefault(alter) => SqlDdlPreparationReport {
-            mutation_kind: alter.mutation_kind(),
-            target_index: alter.field_name().to_string(),
-            target_store: alter.entity_name().to_string(),
-            field_path: vec![alter.field_name().to_string()],
-            execution_status: SqlDdlExecutionStatus::PreparedOnly,
-            rows_scanned: 0,
-            index_keys_written: 0,
-        },
-        BoundSqlDdlStatement::AlterColumnNullability(alter) => SqlDdlPreparationReport {
-            mutation_kind: alter.mutation_kind(),
-            target_index: alter.field_name().to_string(),
-            target_store: alter.entity_name().to_string(),
-            field_path: vec![alter.field_name().to_string()],
-            execution_status: SqlDdlExecutionStatus::PreparedOnly,
-            rows_scanned: 0,
-            index_keys_written: 0,
-        },
-        BoundSqlDdlStatement::DropColumn(drop) => SqlDdlPreparationReport {
-            mutation_kind: SqlDdlMutationKind::DropField,
-            target_index: drop.field_name().to_string(),
-            target_store: drop.entity_name().to_string(),
-            field_path: vec![drop.field_name().to_string()],
-            execution_status: SqlDdlExecutionStatus::PreparedOnly,
-            rows_scanned: 0,
-            index_keys_written: 0,
-        },
-        BoundSqlDdlStatement::RenameColumn(rename) => SqlDdlPreparationReport {
-            mutation_kind: SqlDdlMutationKind::RenameField,
-            target_index: rename.new_name().to_string(),
-            target_store: rename.entity_name().to_string(),
-            field_path: vec![rename.old_name().to_string(), rename.new_name().to_string()],
-            execution_status: SqlDdlExecutionStatus::PreparedOnly,
-            rows_scanned: 0,
-            index_keys_written: 0,
-        },
-        BoundSqlDdlStatement::CreateIndex(create) => {
-            let target = create.candidate_index();
-
-            SqlDdlPreparationReport {
-                mutation_kind: if target.key().is_field_path_only() {
-                    SqlDdlMutationKind::AddFieldPathIndex
-                } else {
-                    SqlDdlMutationKind::AddExpressionIndex
-                },
-                target_index: target.name().to_string(),
-                target_store: target.store().to_string(),
-                field_path: ddl_key_item_report(create.key_items()),
-                execution_status: SqlDdlExecutionStatus::PreparedOnly,
-                rows_scanned: 0,
-                index_keys_written: 0,
-            }
-        }
-        BoundSqlDdlStatement::DropIndex(drop) => SqlDdlPreparationReport {
-            mutation_kind: SqlDdlMutationKind::DropSecondaryIndex,
-            target_index: drop.index_name().to_string(),
-            target_store: drop.dropped_index().store().to_string(),
-            field_path: drop.field_path().to_vec(),
-            execution_status: SqlDdlExecutionStatus::PreparedOnly,
-            rows_scanned: 0,
-            index_keys_written: 0,
-        },
-        BoundSqlDdlStatement::NoOp(no_op) => SqlDdlPreparationReport {
-            mutation_kind: no_op.mutation_kind(),
-            target_index: no_op.index_name().to_string(),
-            target_store: no_op.target_store().to_string(),
-            field_path: no_op.field_path().to_vec(),
-            execution_status: SqlDdlExecutionStatus::PreparedOnly,
-            rows_scanned: 0,
-            index_keys_written: 0,
-        },
-    }
 }

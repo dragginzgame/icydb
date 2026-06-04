@@ -574,18 +574,33 @@ fn sql_ddl_add_column_uses_schema_owned_field_allocation() {
 fn sql_ddl_version_contract_preflight_uses_schema_owned_admission() {
     let ddl_mod = read_source("src/db/sql/ddl/mod.rs");
     let ddl_mod_compact = compact_source(&ddl_mod);
+    let ddl_sql_admission = read_source("src/db/sql/ddl/admission.rs");
     let ddl_admission = read_source("src/db/schema/mutation/ddl_admission.rs");
 
     assert!(
-        ddl_mod.contains("validate_schema_ddl_version_contract_preflight(")
-            && ddl_mod.contains("sql_ddl_version_contract_preflight_error(")
+        ddl_mod.contains("use admission::{")
+            && ddl_mod.contains("validate_bound_sql_ddl_version_contract,")
+            && !ddl_mod.contains("validate_schema_ddl_version_contract_preflight(")
+            && !ddl_mod.contains("sql_ddl_version_contract_preflight_error(")
+            && !ddl_mod.contains("pub(in crate::db) struct BoundSqlDdlSchemaVersionContract")
             && !ddl_mod_compact.contains(
                 "ifmatches!(bound.statement(),BoundSqlDdlStatement::NoOp(_)){ifcontract.expected_schema_version().is_none()"
             )
             && !ddl_mod_compact.contains(
                 "ifcontract.next_schema_version().is_none(){returnErr(SqlDdlBindError::MissingNextSchemaVersion)"
             ),
-        "SQL DDL must map schema-owned version-contract preflight errors instead of owning the DDL schema-version matrix",
+        "SQL DDL hub must delegate version-contract binding and preflight to ddl::admission",
+    );
+    assert!(
+        ddl_sql_admission.contains("pub(in crate::db) struct BoundSqlDdlSchemaVersionContract")
+            && ddl_sql_admission.contains("pub(in crate::db) const fn ddl_version_contract(")
+            && ddl_sql_admission
+                .contains("pub(in crate::db) fn bind_sql_ddl_schema_version_contract(")
+            && ddl_sql_admission
+                .contains("pub(in crate::db) fn validate_bound_sql_ddl_version_contract(")
+            && ddl_sql_admission.contains("validate_schema_ddl_version_contract_preflight(")
+            && ddl_sql_admission.contains("sql_ddl_version_contract_preflight_error("),
+        "SQL DDL admission must map schema-owned version-contract preflight errors instead of the DDL hub owning the matrix",
     );
     assert!(
         ddl_admission.contains("pub(in crate::db) enum SchemaDdlVersionContractPreflightError")
@@ -596,6 +611,30 @@ fn sql_ddl_version_contract_preflight_uses_schema_owned_admission() {
             && ddl_admission
                 .contains("pub(in crate::db) fn validate_schema_ddl_version_contract_preflight("),
         "schema mutation admission must own DDL version-contract preflight classification",
+    );
+}
+
+#[test]
+fn sql_ddl_preparation_reports_stay_out_of_ddl_hub() {
+    let ddl_mod = read_source("src/db/sql/ddl/mod.rs");
+    let ddl_report = read_source("src/db/sql/ddl/report.rs");
+
+    assert!(
+        ddl_mod.contains("mod report;")
+            && ddl_mod.contains("use report::ddl_preparation_report;")
+            && ddl_mod.contains("pub use report::{")
+            && !ddl_mod.contains("pub struct SqlDdlPreparationReport")
+            && !ddl_mod.contains("pub enum SqlDdlMutationKind")
+            && !ddl_mod.contains("pub enum SqlDdlExecutionStatus")
+            && !ddl_mod.contains("fn ddl_preparation_report("),
+        "SQL DDL hub must delegate developer-facing preparation report vocabulary to ddl::report",
+    );
+    assert!(
+        ddl_report.contains("pub struct SqlDdlPreparationReport")
+            && ddl_report.contains("pub enum SqlDdlMutationKind")
+            && ddl_report.contains("pub enum SqlDdlExecutionStatus")
+            && ddl_report.contains("pub(in crate::db) fn ddl_preparation_report("),
+        "ddl::report must own SQL DDL preparation report types and report construction",
     );
 }
 
