@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- SQL DDL `CREATE INDEX` key snapshot construction now routes through
-  schema-owned mutation helpers, including accepted field-path lookup,
-  expression output-kind selection, and persisted expression canonical text.
-
 ## [0.178.x] 🧭 - 2026-06-04 - Schema Migration / DDL Transition Admission
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
+
+- `0.178.9` moves SQL DDL `ADD COLUMN` type and codec contract selection
+  into schema-owned mutation helpers while preserving unsupported-type
+  diagnostics.
+
+- `0.178.8` moves SQL DDL `CREATE INDEX` key snapshot construction into
+  schema-owned mutation helpers, including accepted field-path lookup,
+  expression output-kind selection, and canonical expression metadata.
 
 - `0.178.7` moves SQL DDL `ADD COLUMN` candidate checks and `CREATE INDEX`
   accepted-index conflict resolution into schema-owned mutation helpers while

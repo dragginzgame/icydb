@@ -4,15 +4,15 @@ use super::{
 };
 use crate::db::{
     schema::{
-        AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldSnapshot,
-        SchemaDdlFieldAdditionCandidateError, SchemaDdlFieldDefaultCandidateError,
-        SchemaDdlFieldDropCandidateError, SchemaDdlFieldNullabilityCandidateError,
-        SchemaDdlFieldRenameCandidateError, SchemaFieldDefault, SchemaInfo,
+        AcceptedSchemaSnapshot, PersistedFieldSnapshot, SchemaDdlFieldAdditionCandidateError,
+        SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
+        SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
+        SchemaDdlFieldTypeContract, SchemaFieldDefault, SchemaInfo,
         build_sql_ddl_field_addition_candidate, encode_sql_ddl_add_column_default,
         encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_addition_name_candidate,
         resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
         resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
-        resolve_sql_ddl_field_set_default_candidate,
+        resolve_sql_ddl_field_set_default_candidate, resolve_sql_ddl_field_type_contract,
     },
     sql::{
         identifier::identifiers_tail_match,
@@ -23,7 +23,6 @@ use crate::db::{
         },
     },
 };
-use crate::model::field::{DEFAULT_BIG_INT_MAX_BYTES, FieldStorageDecode, LeafCodec, ScalarCodec};
 
 ///
 /// BoundSqlAddColumnRequest
@@ -234,23 +233,22 @@ pub(super) fn bind_alter_table_add_column_statement(
             sql_field_addition_candidate_error(entity_name, statement.column_name.as_str(), error)
         })?;
 
-    let (kind, storage_decode, leaf_codec) = persisted_field_contract_for_sql_column_type(
-        statement.column_type.as_str(),
-    )
-    .ok_or_else(|| SqlDdlBindError::UnsupportedAlterTableAddColumnType {
-        entity_name: entity_name.to_string(),
-        column_name: statement.column_name.clone(),
-        column_type: statement.column_type.clone(),
-    })?;
+    let contract =
+        resolve_sql_ddl_field_type_contract(statement.column_type.as_str()).ok_or_else(|| {
+            SqlDdlBindError::UnsupportedAlterTableAddColumnType {
+                entity_name: entity_name.to_string(),
+                column_name: statement.column_name.clone(),
+                column_type: statement.column_type.clone(),
+            }
+        })?;
     let default = schema_field_default_for_sql_default(
         entity_name,
         statement.column_name.as_str(),
         statement.default.as_ref(),
-        &kind,
+        &contract,
         statement.nullable,
-        storage_decode,
-        leaf_codec,
     )?;
+    let (kind, storage_decode, leaf_codec) = contract.into_parts();
     let field = build_sql_ddl_field_addition_candidate(
         accepted_before,
         statement.column_name.clone(),
@@ -647,18 +645,16 @@ fn schema_field_default_for_sql_default(
     entity_name: &str,
     column_name: &str,
     default: Option<&crate::value::Value>,
-    kind: &PersistedFieldKind,
+    contract: &SchemaDdlFieldTypeContract,
     nullable: bool,
-    storage_decode: FieldStorageDecode,
-    leaf_codec: LeafCodec,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
     encode_sql_ddl_add_column_default(
         column_name,
         default,
-        kind,
+        contract.kind(),
         nullable,
-        storage_decode,
-        leaf_codec,
+        contract.storage_decode(),
+        contract.leaf_codec(),
     )
     .map_err(|error| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
         entity_name: entity_name.to_string(),
@@ -679,110 +675,4 @@ fn schema_field_default_for_alter_column_default(
             detail: error.to_string(),
         }
     })
-}
-
-fn persisted_field_contract_for_sql_column_type(
-    column_type: &str,
-) -> Option<(PersistedFieldKind, FieldStorageDecode, LeafCodec)> {
-    let normalized = column_type.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "bool" | "boolean" => Some((
-            PersistedFieldKind::Bool,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Bool),
-        )),
-        "int8" => Some((
-            PersistedFieldKind::Int8,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
-        )),
-        "int16" => Some((
-            PersistedFieldKind::Int16,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
-        )),
-        "int32" => Some((
-            PersistedFieldKind::Int32,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
-        )),
-        "int64" => Some((
-            PersistedFieldKind::Int64,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
-        )),
-        "int128" => Some((
-            PersistedFieldKind::Int128,
-            FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
-        )),
-        "nat8" => Some((
-            PersistedFieldKind::Nat8,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        )),
-        "nat16" => Some((
-            PersistedFieldKind::Nat16,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        )),
-        "nat32" => Some((
-            PersistedFieldKind::Nat32,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        )),
-        "nat64" => Some((
-            PersistedFieldKind::Nat64,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        )),
-        "nat128" => Some((
-            PersistedFieldKind::Nat128,
-            FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
-        )),
-        "text" | "string" => Some((
-            PersistedFieldKind::Text { max_len: None },
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Text),
-        )),
-        _ => persisted_big_int_contract_for_sql_column_type(&normalized),
-    }
-}
-
-fn persisted_big_int_contract_for_sql_column_type(
-    normalized: &str,
-) -> Option<(PersistedFieldKind, FieldStorageDecode, LeafCodec)> {
-    if let Some(max_bytes) = sql_big_int_type_max_bytes(normalized, "int_big") {
-        return Some((
-            PersistedFieldKind::IntBig { max_bytes },
-            FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
-        ));
-    }
-
-    sql_big_int_type_max_bytes(normalized, "nat_big").map(|max_bytes| {
-        (
-            PersistedFieldKind::NatBig { max_bytes },
-            FieldStorageDecode::ByKind,
-            LeafCodec::StructuralFallback,
-        )
-    })
-}
-
-fn sql_big_int_type_max_bytes(normalized: &str, type_name: &str) -> Option<u32> {
-    if normalized == type_name {
-        return Some(DEFAULT_BIG_INT_MAX_BYTES);
-    }
-
-    let inner = normalized
-        .strip_prefix(type_name)?
-        .strip_prefix("(max_bytes=")?
-        .strip_suffix(')')?;
-    let max_bytes = inner.parse::<u32>().ok()?;
-    if max_bytes == 0 {
-        return None;
-    }
-
-    Some(max_bytes)
 }

@@ -94,7 +94,7 @@ pub(in crate::db) use mutation::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlFieldAdditionCandidateError,
     SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
     SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
-    SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmissionError,
+    SchemaDdlFieldTypeContract, SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmissionError,
     SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
     SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexFieldPathIntent,
     SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent,
@@ -111,7 +111,7 @@ pub(in crate::db) use mutation::{
     encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_addition_name_candidate,
     resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
     resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
-    resolve_sql_ddl_field_set_default_candidate,
+    resolve_sql_ddl_field_set_default_candidate, resolve_sql_ddl_field_type_contract,
     resolve_sql_ddl_secondary_index_addition_candidate,
     resolve_sql_ddl_secondary_index_drop_candidate,
 };

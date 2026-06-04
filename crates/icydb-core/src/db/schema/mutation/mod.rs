@@ -57,6 +57,11 @@ pub(in crate::db) use field_default_encoding::{
     encode_sql_ddl_add_column_default, encode_sql_ddl_alter_column_default,
 };
 
+mod field_type;
+pub(in crate::db) use field_type::{
+    SchemaDdlFieldTypeContract, resolve_sql_ddl_field_type_contract,
+};
+
 mod ddl_admission;
 pub(in crate::db) use ddl_admission::SchemaDdlSchemaVersionAdmissionError;
 

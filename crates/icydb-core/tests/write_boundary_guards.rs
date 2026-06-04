@@ -528,19 +528,24 @@ fn sql_ddl_drop_index_uses_persisted_index_origin() {
 #[test]
 fn sql_ddl_add_column_uses_schema_owned_field_allocation() {
     let ddl_field = read_source("src/db/sql/ddl/field.rs");
+    let field_type = read_source("src/db/schema/mutation/field_type.rs");
     let mutation = read_rust_sources_under("src/db/schema/mutation");
     let ddl_field_compact = compact_source(&ddl_field);
 
     assert!(
         ddl_field.contains("resolve_sql_ddl_field_addition_name_candidate(")
             && ddl_field.contains("build_sql_ddl_field_addition_candidate(")
+            && ddl_field.contains("resolve_sql_ddl_field_type_contract(")
             && !ddl_field.contains(".field_nullable(statement.column_name.as_str())")
             && !ddl_field_compact.contains("!statement.nullable&&default.is_none()")
             && !ddl_field.contains("fn next_sql_ddl_field_id(")
             && !ddl_field.contains("fn next_sql_ddl_field_slot(")
             && !ddl_field.contains("PersistedFieldOrigin::SqlDdl")
-            && !ddl_field.contains("SchemaFieldWritePolicy::from_model_policies(None, None)"),
-        "SQL DDL ADD COLUMN must bind author intent without owning field existence, required-default, ID, slot, origin, or write-policy allocation",
+            && !ddl_field.contains("SchemaFieldWritePolicy::from_model_policies(None, None)")
+            && !ddl_field.contains("fn persisted_field_contract_for_sql_column_type(")
+            && !ddl_field.contains("DEFAULT_BIG_INT_MAX_BYTES")
+            && !ddl_field.contains("ScalarCodec::"),
+        "SQL DDL ADD COLUMN must bind author intent without owning field existence, type/codec selection, required-default, ID, slot, origin, or write-policy allocation",
     );
     assert!(
         mutation.contains("pub(in crate::db) enum SchemaDdlFieldAdditionCandidateError")
@@ -554,6 +559,14 @@ fn sql_ddl_add_column_uses_schema_owned_field_allocation() {
             && mutation.contains("PersistedFieldOrigin::SqlDdl")
             && mutation.contains("SchemaFieldWritePolicy::from_model_policies(None, None)"),
         "schema mutation code must own DDL field existence, required-default, ID, slot, origin, and write-policy allocation",
+    );
+    assert!(
+        field_type.contains("pub(in crate::db) struct SchemaDdlFieldTypeContract")
+            && field_type.contains("pub(in crate::db) fn resolve_sql_ddl_field_type_contract(")
+            && field_type.contains("PersistedFieldKind::Bool")
+            && field_type.contains("DEFAULT_BIG_INT_MAX_BYTES")
+            && field_type.contains("ScalarCodec::Text"),
+        "schema mutation code must own SQL DDL field type/codec contract selection",
     );
 }
 
