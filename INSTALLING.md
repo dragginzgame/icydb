@@ -102,8 +102,9 @@ downstream canister dependency installation.
 The repository provides local maintainer targets for Ubuntu-like hosts with
 `apt-get`. `make install-dev` is the initial workstation bootstrap: it installs
 system packages, Rust, Cargo helper tools, ICP tooling, and repository hooks.
-`make update-dev` refreshes the same system package, Cargo tool, and npm tool
-surface, then runs the maintainer update checks.
+`make update-dev` refreshes user-local Rust, Cargo, actionlint, and npm-backed
+ICP tooling without installing system packages, then runs the maintainer update
+checks.
 
 ### System Prerequisites
 
@@ -167,6 +168,10 @@ That target installs apt-backed system prerequisites when `apt-get` is present,
 configures repository git hooks, and installs the pinned Rust toolchain, the
 wasm target, standard Cargo helper tools, `candid-extractor`, `ic-wasm`,
 `twiggy`, and npm-backed ICP CLI tools.
+
+`make update-dev` does not run `apt-get` or `sudo`; install missing system
+packages manually or re-run `make install-dev` when the host package surface
+needs to change.
 
 ### Common Commands
 

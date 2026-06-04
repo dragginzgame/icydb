@@ -145,7 +145,9 @@ run_update_checks() {
   cargo update --quiet
 }
 
-install_system_packages
+if [[ "$MODE" == "install" ]]; then
+  install_system_packages
+fi
 ensure_rustup
 install_tooling
 

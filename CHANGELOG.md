@@ -7,21 +7,23 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### Added
+## [0.178.x] 🧭 - 2026-06-04 - Schema Migration / DDL Transition Admission
 
-- Added explicit `EXPECT SCHEMA VERSION` and `SET SCHEMA VERSION` contracts
-  for mutating SQL DDL, with declared next versions admitted through the
-  schema-owned version/fingerprint gate before publication.
+Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
-### Changed
-
-- Preserved accepted DDL-owned fields, indexes, and retired slots across
-  generated reconciliation after DDL publication while keeping plain
-  version-only drift fail-closed.
+- `0.178.0` starts schema migration DDL transition admission by requiring
+  explicit expected/next schema versions for mutating SQL DDL, preserving
+  DDL-owned accepted catalog facts across generated reconciliation, and
+  sharpening the first-slice publication boundary before implementation
+  continues.
 
 ## [0.177.x] 🧭 - 2026-06-02 - Explicit Schema Version Contracts
 
 Detailed notes: [docs/changelog/0.177.md](docs/changelog/0.177.md)
+
+- `0.177.17` keeps `make update-dev` sudo-free by limiting it to user-local
+  Rust, Cargo, actionlint, and npm-backed ICP tooling while leaving
+  apt-backed system package installation to `make install-dev`.
 
 - `0.177.16` closes the schema-version contract line by keeping accepted
   runtime fingerprints version-neutral, cache identity version-aware, and

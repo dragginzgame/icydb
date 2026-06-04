@@ -43,7 +43,7 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install local developer dependencies, actionlint, and git hooks"
-	@echo "  update-dev       Update the local Rust/Cargo/actionlint/ICP development environment"
+	@echo "  update-dev       Update user-local Rust/Cargo/actionlint/ICP developer tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
 	@echo "Version Management:"
@@ -96,7 +96,7 @@ install:
 install-dev:
 	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
 
-# Update the local Rust/Cargo/ICP development environment.
+# Update user-local Rust/Cargo/actionlint/ICP developer tooling.
 update-dev:
 	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
 
