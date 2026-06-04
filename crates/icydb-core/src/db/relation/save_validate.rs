@@ -10,9 +10,9 @@ use crate::{
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
         relation::{
-            AcceptedRelationTargetAuthority, accepted_relation_edge_target_contract,
-            accepted_relation_target_metadata_from_kind, for_each_relation_target_value,
-            relation_local_component_key_kind, validate_relation_primary_key_component_kind,
+            AcceptedRelationTargetAuthority, AcceptedRelationTupleEdgeLocalComponent,
+            accepted_relation_target_metadata_from_kind, accepted_relation_tuple_edge_descriptor,
+            for_each_relation_target_value, validate_relation_primary_key_component_kind,
         },
         schema::{
             AcceptedRowDecodeContract, OwnedAcceptedFieldDecodeContract,
@@ -233,41 +233,21 @@ fn accepted_save_tuple_strong_relation_from_edge<E>(
 where
     E: EntityKind,
 {
-    let target_contract =
-        accepted_relation_edge_target_contract(db, E::PATH, edge.name(), edge.target_path())?;
-    let target_primary_key_kinds = target_contract.primary_key_kinds().to_vec();
-    if local_fields.len() != target_primary_key_kinds.len() {
-        return Err(InternalError::strong_relation_target_identity_mismatch(
-            E::PATH,
-            edge.name(),
-            edge.target_path(),
-            format!(
-                "relation edge local component count {} does not match accepted target primary-key component count {}",
-                local_fields.len(),
-                target_primary_key_kinds.len()
-            ),
-        ));
-    }
+    let local_component_facts = local_fields
+        .iter()
+        .map(|field| AcceptedRelationTupleEdgeLocalComponent::new(field.field_name(), field.kind()))
+        .collect::<Vec<_>>();
+    let tuple_descriptor = accepted_relation_tuple_edge_descriptor(
+        db,
+        E::PATH,
+        edge.name(),
+        edge.target_path(),
+        local_component_facts.as_slice(),
+    )?;
+    let target_primary_key_kinds = tuple_descriptor.primary_key_kinds().to_vec();
 
     let mut local_components = Vec::with_capacity(local_fields.len());
-    for ((offset, field), target_kind) in local_fields
-        .iter()
-        .enumerate()
-        .zip(&target_primary_key_kinds)
-    {
-        let local_kind = relation_local_component_key_kind(field.kind());
-        if local_kind != target_kind {
-            return Err(InternalError::strong_relation_target_identity_mismatch(
-                E::PATH,
-                edge.name(),
-                edge.target_path(),
-                format!(
-                    "local field '{}' kind {local_kind:?} does not match accepted target primary-key kind {target_kind:?}",
-                    field.field_name(),
-                ),
-            ));
-        }
-        validate_relation_primary_key_component_kind(local_kind)?;
+    for (offset, field) in local_fields.iter().enumerate() {
         local_components.push(AcceptedSaveStrongRelationLocalComponent {
             index: edge.local_field_slots()[offset],
             name: field.field_name().to_string(),
@@ -278,7 +258,7 @@ where
     Ok(Some(AcceptedSaveStrongRelationInfo {
         relation_name: edge.name().to_string(),
         local_components,
-        target: target_contract.into_target(),
+        target: tuple_descriptor.into_target_contract().into_target(),
         target_primary_key_kinds,
     }))
 }

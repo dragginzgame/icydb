@@ -858,7 +858,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let result =
                     self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
                 record_sql_write_error::<E, C>(SqlWriteKind::Delete, &result);
-                result.map(|result| (result, SqlCacheAttribution::default()))
+                sql_statement_result_with_default_cache(result)
             }
             CompiledSqlCommand::GlobalAggregate { command } => {
                 self.execute_global_aggregate_statement::<E>(*command.clone())
@@ -890,14 +890,12 @@ impl<C: CanisterKind> DbSession<C> {
                     self.show_entities_sql_statement_result(*verbose),
                 )
             }
-            CompiledSqlCommand::ShowStores { verbose } => Ok((
-                self.show_stores_sql_statement_result(*verbose),
-                SqlCacheAttribution::default(),
-            )),
-            CompiledSqlCommand::ShowMemory => Ok((
-                self.show_memory_sql_statement_result(),
-                SqlCacheAttribution::default(),
-            )),
+            CompiledSqlCommand::ShowStores { verbose } => sql_statement_result_with_default_cache(
+                Ok(self.show_stores_sql_statement_result(*verbose)),
+            ),
+            CompiledSqlCommand::ShowMemory => {
+                sql_statement_result_with_default_cache(Ok(self.show_memory_sql_statement_result()))
+            }
         }
     }
 
@@ -942,7 +940,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let result =
                     self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
                 record_sql_write_error::<E, C>(SqlWriteKind::Delete, &result);
-                result.map(|result| (result, SqlCacheAttribution::default()))
+                sql_statement_result_with_default_cache(result)
             }
             CompiledSqlCommand::GlobalAggregate { command } => {
                 self.execute_global_aggregate_statement::<E>(*command)
@@ -975,14 +973,12 @@ impl<C: CanisterKind> DbSession<C> {
                     self.show_entities_sql_statement_result(verbose),
                 )
             }
-            CompiledSqlCommand::ShowStores { verbose } => Ok((
-                self.show_stores_sql_statement_result(verbose),
-                SqlCacheAttribution::default(),
-            )),
-            CompiledSqlCommand::ShowMemory => Ok((
-                self.show_memory_sql_statement_result(),
-                SqlCacheAttribution::default(),
-            )),
+            CompiledSqlCommand::ShowStores { verbose } => sql_statement_result_with_default_cache(
+                Ok(self.show_stores_sql_statement_result(verbose)),
+            ),
+            CompiledSqlCommand::ShowMemory => {
+                sql_statement_result_with_default_cache(Ok(self.show_memory_sql_statement_result()))
+            }
         }
     }
 

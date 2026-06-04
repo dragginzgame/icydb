@@ -106,6 +106,78 @@ impl AcceptedRelationEdgeTargetContract {
     }
 }
 
+#[derive(Clone, Copy)]
+struct AcceptedRelationTupleEdgeLocalComponent<'a> {
+    field_name: &'a str,
+    kind: &'a PersistedFieldKind,
+}
+
+impl<'a> AcceptedRelationTupleEdgeLocalComponent<'a> {
+    const fn new(field_name: &'a str, kind: &'a PersistedFieldKind) -> Self {
+        Self { field_name, kind }
+    }
+}
+
+struct AcceptedRelationTupleEdgeDescriptor {
+    target_contract: AcceptedRelationEdgeTargetContract,
+}
+
+impl AcceptedRelationTupleEdgeDescriptor {
+    #[must_use]
+    const fn primary_key_kinds(&self) -> &[PersistedFieldKind] {
+        self.target_contract.primary_key_kinds()
+    }
+
+    fn into_target_contract(self) -> AcceptedRelationEdgeTargetContract {
+        self.target_contract
+    }
+}
+
+fn accepted_relation_tuple_edge_descriptor<C>(
+    db: &Db<C>,
+    source_path: &str,
+    relation_name: &str,
+    target_path: &str,
+    local_components: &[AcceptedRelationTupleEdgeLocalComponent<'_>],
+) -> Result<AcceptedRelationTupleEdgeDescriptor, InternalError>
+where
+    C: CanisterKind,
+{
+    let target_contract =
+        accepted_relation_edge_target_contract(db, source_path, relation_name, target_path)?;
+    let target_kinds = target_contract.primary_key_kinds();
+    if local_components.len() != target_kinds.len() {
+        return Err(InternalError::strong_relation_target_identity_mismatch(
+            source_path,
+            relation_name,
+            target_path,
+            format!(
+                "relation edge local component count {} does not match accepted target primary-key component count {}",
+                local_components.len(),
+                target_kinds.len()
+            ),
+        ));
+    }
+
+    for (local, target_kind) in local_components.iter().zip(target_kinds) {
+        let local_kind = relation_local_component_key_kind(local.kind);
+        if local_kind != target_kind {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                relation_name,
+                target_path,
+                format!(
+                    "local field '{}' kind {local_kind:?} does not match accepted target primary-key kind {target_kind:?}",
+                    local.field_name,
+                ),
+            ));
+        }
+        validate_relation_primary_key_component_kind(local_kind)?;
+    }
+
+    Ok(AcceptedRelationTupleEdgeDescriptor { target_contract })
+}
+
 fn accepted_relation_edge_target_contract<C>(
     db: &Db<C>,
     source_path: &str,

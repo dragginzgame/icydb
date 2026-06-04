@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.179.x] 🧹 - 2026-06-04 - Repeated Audits / Cleanup
+
+Detailed notes: [docs/changelog/0.179.md](docs/changelog/0.179.md)
+
+- `0.179.0` starts the repeated-audit cleanup line by recording the dry
+  consolidation audit and applying owner-local DRY cleanups across schema DDL,
+  relation metadata, and SQL result shells without changing runtime behavior.
+
 ## [0.178.x] 🧭 - 2026-06-04 - Schema Migration / DDL Transition Admission
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)

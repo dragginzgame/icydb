@@ -72,13 +72,16 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
-    let plan = require_sql_ddl_transition_plan(
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
         entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
+    let plan = envelope.require_transition_plan(
         "field-path index",
-        before,
-        after,
         SchemaTransitionPlanKind::AddFieldPathIndex,
         "add_field_path_index",
     )?;
@@ -96,11 +99,11 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
     }
 
     let report = execute_supported_field_path_index_addition(
-        store,
-        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
+        envelope.store(),
+        envelope.publication_gate(),
         entity_path,
-        before,
-        after,
+        envelope.before(),
+        envelope.after(),
         &plan,
     )?;
 
@@ -117,13 +120,16 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
-    let plan = require_sql_ddl_transition_plan(
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
         entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
+    let plan = envelope.require_transition_plan(
         "expression-index",
-        before,
-        after,
         SchemaTransitionPlanKind::AddExpressionIndex,
         "add_expression_index",
     )?;
@@ -134,11 +140,11 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
     };
 
     execute_supported_expression_index_addition(
-        store,
-        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
+        envelope.store(),
+        envelope.publication_gate(),
         entity_path,
-        before,
-        after,
+        envelope.before(),
+        envelope.after(),
         &plan,
         target,
     )
@@ -153,24 +159,28 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
     let Some(target) = derivation.admission().field_addition_target() else {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL field-addition execution requires a field target for entity '{entity_path}'",
         )));
     };
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
-    let plan = require_sql_ddl_transition_plan(
-        entity_path,
+    let plan = envelope.require_transition_plan(
         "field-addition",
-        before,
-        after,
         SchemaTransitionPlanKind::AppendOnlyNullableFields,
         "append-only nullable fields",
     )?;
     validate_publishable_transition_plan(entity_path, &plan)?;
 
-    let added_field = after
+    let added_field = envelope
+        .after()
         .fields()
         .iter()
         .find(|field| field.id() == target.field_id())
@@ -187,7 +197,77 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
         )));
     }
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
+    envelope.publish()
+}
+
+struct SqlDdlPublicationEnvelope<'a> {
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before_identity: AcceptedCatalogIdentity,
+    before: &'a PersistedSchemaSnapshot,
+    after: &'a PersistedSchemaSnapshot,
+}
+
+impl<'a> SqlDdlPublicationEnvelope<'a> {
+    const fn new(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        entity_path: &'static str,
+        accepted_before: &'a AcceptedSchemaSnapshot,
+        accepted_before_identity: AcceptedCatalogIdentity,
+        derivation: &'a SchemaDdlAcceptedSnapshotDerivation,
+    ) -> Self {
+        Self {
+            store,
+            entity_tag,
+            entity_path,
+            accepted_before_identity,
+            before: accepted_before.persisted_snapshot(),
+            after: derivation.accepted_after().persisted_snapshot(),
+        }
+    }
+
+    const fn store(&self) -> StoreHandle {
+        self.store
+    }
+
+    const fn before(&self) -> &'a PersistedSchemaSnapshot {
+        self.before
+    }
+
+    const fn after(&self) -> &'a PersistedSchemaSnapshot {
+        self.after
+    }
+
+    const fn publication_gate(&self) -> SchemaPublicationGate {
+        SchemaPublicationGate::sql_ddl(self.entity_tag, self.accepted_before_identity)
+    }
+
+    fn require_transition_plan(
+        &self,
+        operation: &'static str,
+        expected_kind: SchemaTransitionPlanKind,
+        expected_label: &'static str,
+    ) -> Result<SchemaTransitionPlan, InternalError> {
+        require_sql_ddl_transition_plan(
+            self.entity_path,
+            operation,
+            self.before,
+            self.after,
+            expected_kind,
+            expected_label,
+        )
+    }
+
+    fn publish(self) -> Result<(), InternalError> {
+        publish_sql_ddl_accepted_snapshot(
+            self.store,
+            self.entity_tag,
+            self.accepted_before_identity,
+            self.after,
+        )
+    }
 }
 
 fn require_sql_ddl_transition_plan(
@@ -243,16 +323,27 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
     let Some(target) = derivation.admission().field_drop_target() else {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL field-drop execution requires a field target for entity '{entity_path}'",
         )));
     };
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
-    validate_sql_ddl_field_drop_metadata_change(entity_path, before, after, target)?;
+    validate_sql_ddl_field_drop_metadata_change(
+        entity_path,
+        envelope.before(),
+        envelope.after(),
+        target,
+    )?;
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
+    envelope.publish()
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
@@ -354,16 +445,27 @@ pub(in crate::db) fn execute_sql_ddl_field_default_change(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
     let Some(target) = derivation.admission().field_default_target() else {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL field-default execution requires a field target for entity '{entity_path}'",
         )));
     };
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
-    validate_sql_ddl_field_default_metadata_change(entity_path, before, after, target)?;
+    validate_sql_ddl_field_default_metadata_change(
+        entity_path,
+        envelope.before(),
+        envelope.after(),
+        target,
+    )?;
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
+    envelope.publish()
 }
 
 fn validate_sql_ddl_field_default_metadata_change(
@@ -434,22 +536,39 @@ pub(in crate::db) fn execute_sql_ddl_field_nullability_change(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<usize, InternalError> {
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
     let Some(target) = derivation.admission().field_nullability_target() else {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL field-nullability execution requires a field target for entity '{entity_path}'",
         )));
     };
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
-    validate_sql_ddl_field_nullability_metadata_change(entity_path, before, after, target)?;
+    validate_sql_ddl_field_nullability_metadata_change(
+        entity_path,
+        envelope.before(),
+        envelope.after(),
+        target,
+    )?;
 
-    let rows_scanned = if target_field_is_required(after, target)? {
-        validate_sql_ddl_set_not_null_rows(store, entity_tag, entity_path, accepted_before, target)?
+    let rows_scanned = if target_field_is_required(envelope.after(), target)? {
+        validate_sql_ddl_set_not_null_rows(
+            envelope.store(),
+            entity_tag,
+            entity_path,
+            accepted_before,
+            target,
+        )?
     } else {
         0
     };
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)?;
+    envelope.publish()?;
 
     Ok(rows_scanned)
 }
@@ -590,16 +709,27 @@ pub(in crate::db) fn execute_sql_ddl_field_rename(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
     let Some(target) = derivation.admission().field_rename_target() else {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL field-rename execution requires a field target for entity '{entity_path}'",
         )));
     };
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
-    validate_sql_ddl_field_rename_metadata_change(entity_path, before, after, target)?;
+    validate_sql_ddl_field_rename_metadata_change(
+        entity_path,
+        envelope.before(),
+        envelope.after(),
+        target,
+    )?;
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
+    envelope.publish()
 }
 
 fn validate_sql_ddl_field_rename_metadata_change(
@@ -689,17 +819,30 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<usize, InternalError> {
+    let envelope = SqlDdlPublicationEnvelope::new(
+        store,
+        entity_tag,
+        entity_path,
+        accepted_before,
+        accepted_before_identity,
+        derivation,
+    );
     let Some(target) = derivation.admission().drop_target() else {
         return Err(InternalError::store_unsupported(format!(
             "SQL DDL index drop execution requires a drop target for entity '{entity_path}'",
         )));
     };
-    let before = accepted_before.persisted_snapshot();
-    let after = derivation.accepted_after().persisted_snapshot();
 
-    validate_sql_ddl_drop_schema_gate(store, entity_tag, entity_path, before, "before cleanup")?;
-    let target_keys = sql_ddl_drop_target_index_keys(store, entity_tag, entity_path, target)?;
-    let removed = store.with_index_mut(|index_store| {
+    validate_sql_ddl_drop_schema_gate(
+        envelope.store(),
+        entity_tag,
+        entity_path,
+        envelope.before(),
+        "before cleanup",
+    )?;
+    let target_keys =
+        sql_ddl_drop_target_index_keys(envelope.store(), entity_tag, entity_path, target)?;
+    let removed = envelope.store().with_index_mut(|index_store| {
         if index_store.state() != IndexState::Ready {
             return Err(InternalError::store_unsupported(format!(
                 "SQL DDL DROP INDEX requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
@@ -716,15 +859,15 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
 
         Ok::<_, InternalError>(removed)
     })?;
-    validate_sql_ddl_drop_physical_cleanup(store, entity_tag, entity_path, target)?;
+    validate_sql_ddl_drop_physical_cleanup(envelope.store(), entity_tag, entity_path, target)?;
     validate_sql_ddl_drop_schema_gate(
-        store,
+        envelope.store(),
         entity_tag,
         entity_path,
-        before,
+        envelope.before(),
         "before publication",
     )?;
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)?;
+    envelope.publish()?;
 
     Ok(removed)
 }
