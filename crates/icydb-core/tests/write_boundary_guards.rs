@@ -669,6 +669,44 @@ fn schema_mutation_delta_classification_stays_out_of_mutation_hub() {
 }
 
 #[test]
+fn schema_mutation_identity_fingerprints_stay_out_of_mutation_hub() {
+    let mutation_mod = read_source("src/db/schema/mutation/mod.rs");
+    let mutation_identity = read_source("src/db/schema/mutation/identity.rs");
+    let mutation_runner = read_source("src/db/schema/mutation/runner.rs");
+
+    assert!(
+        mutation_mod.contains("mod identity;")
+            && mutation_mod.contains("write_hash_bool")
+            && mutation_mod.contains("SchemaMutationPublicationIdentity")
+            && mutation_mod.contains("SchemaMutationRuntimeEpoch")
+            && !mutation_mod.contains("SCHEMA_MUTATION_FINGERPRINT_PROFILE_TAG")
+            && !mutation_mod.contains("SCHEMA_MUTATION_RUNTIME_EPOCH_PROFILE_TAG")
+            && !mutation_mod.contains("fn hash_field_identity(")
+            && !mutation_mod.contains("fn runtime_epoch_fingerprint("),
+        "schema mutation hub must re-export identity helpers without owning fingerprint construction",
+    );
+    assert!(
+        mutation_identity.contains("SCHEMA_MUTATION_FINGERPRINT_PROFILE_TAG")
+            && mutation_identity.contains("SCHEMA_MUTATION_RUNTIME_EPOCH_PROFILE_TAG")
+            && mutation_identity.contains("pub(in crate::db::schema) fn fingerprint(&self)")
+            && mutation_identity
+                .contains("pub(in crate::db::schema) struct SchemaMutationRuntimeEpoch")
+            && mutation_identity
+                .contains("pub(in crate::db::schema) struct SchemaMutationPublicationIdentity")
+            && mutation_identity.contains("fn hash_field_identity(")
+            && mutation_identity.contains("fn runtime_epoch_fingerprint(")
+            && mutation_identity.contains("encode_persisted_schema_snapshot(snapshot)?"),
+        "schema mutation identity module must own plan fingerprints and runtime publication identity",
+    );
+    assert!(
+        !mutation_runner.contains("struct SchemaMutationRuntimeEpoch")
+            && !mutation_runner.contains("struct SchemaMutationPublicationIdentity")
+            && !mutation_runner.contains("fn runtime_epoch_fingerprint("),
+        "schema mutation runner must not own runtime identity construction",
+    );
+}
+
+#[test]
 fn sql_ddl_preparation_reports_stay_out_of_ddl_hub() {
     let ddl_mod = read_source("src/db/sql/ddl/mod.rs");
     let ddl_report = read_source("src/db/sql/ddl/report.rs");

@@ -4,10 +4,6 @@
 //! Boundary: describes accepted snapshot changes before reconciliation persists them.
 
 use crate::db::{
-    codec::{
-        finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
-        write_hash_u32,
-    },
     data::CanonicalSlotReader,
     index::{
         IndexEntryValue, IndexId, IndexKey, IndexState, IndexStore, IndexStoreVisit,
@@ -15,14 +11,10 @@ use crate::db::{
     },
     key_taxonomy::PrimaryKeyValue,
     predicate::PredicateProgram,
-    schema::{
-        FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
-        encode_persisted_schema_snapshot,
-    },
+    schema::{FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot},
 };
 use crate::error::InternalError;
 use crate::types::EntityTag;
-use sha2::Digest;
 use std::collections::BTreeMap;
 
 mod field;
@@ -105,17 +97,11 @@ pub(in crate::db) use index::{
     admit_sql_ddl_secondary_index_drop_candidate,
 };
 
-#[allow(
-    dead_code,
-    reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-)]
-const SCHEMA_MUTATION_FINGERPRINT_PROFILE_TAG: &[u8] = b"icydb:schema-mutation-plan:v1";
-
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-)]
-const SCHEMA_MUTATION_RUNTIME_EPOCH_PROFILE_TAG: &[u8] = b"icydb:schema-mutation-runtime-epoch:v1";
+mod identity;
+pub(in crate::db::schema::mutation) use identity::write_hash_bool;
+pub(in crate::db::schema) use identity::{
+    SchemaMutationPublicationIdentity, SchemaMutationRuntimeEpoch,
+};
 
 ///
 /// SchemaMutation
@@ -681,31 +667,6 @@ impl MutationPlan {
             })
             .count()
     }
-
-    /// Compute a deterministic plan fingerprint. This is not a cache key yet;
-    /// it is a stable audit identity for mutation semantics.
-    #[allow(
-        dead_code,
-        reason = "0.152 stages mutation audit identity before diagnostics expose it"
-    )]
-    pub(in crate::db::schema) fn fingerprint(&self) -> [u8; 16] {
-        let mut hasher = new_hash_sha256_prefixed(SCHEMA_MUTATION_FINGERPRINT_PROFILE_TAG);
-        write_hash_tag_u8(&mut hasher, self.compatibility.tag());
-        write_hash_tag_u8(&mut hasher, self.rebuild.tag());
-        write_hash_u32(
-            &mut hasher,
-            u32::try_from(self.mutations.len()).unwrap_or(u32::MAX),
-        );
-
-        for mutation in &self.mutations {
-            mutation.hash_into(&mut hasher);
-        }
-
-        let digest = finalize_hash_sha256(hasher);
-        let mut fingerprint = [0u8; 16];
-        fingerprint.copy_from_slice(&digest[..16]);
-        fingerprint
-    }
 }
 
 impl SchemaMutationRequest<'_> {
@@ -725,125 +686,6 @@ impl SchemaMutationRequest<'_> {
             Self::Incompatible => MutationPlan::incompatible(),
         }
     }
-}
-
-impl SchemaMutation {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
-    fn hash_into(&self, hasher: &mut sha2::Sha256) {
-        match self {
-            Self::AddNullableField {
-                field_id,
-                name,
-                slot,
-            } => {
-                write_hash_tag_u8(hasher, 1);
-                hash_field_identity(hasher, *field_id, name, *slot);
-            }
-            Self::AddDefaultedField {
-                field_id,
-                name,
-                slot,
-            } => {
-                write_hash_tag_u8(hasher, 2);
-                hash_field_identity(hasher, *field_id, name, *slot);
-            }
-            Self::AddFieldPathIndex { target } => {
-                write_hash_tag_u8(hasher, 3);
-                target.hash_into(hasher);
-            }
-            Self::AddExpressionIndex { target } => {
-                write_hash_tag_u8(hasher, 4);
-                target.hash_into(hasher);
-            }
-            Self::DropNonRequiredSecondaryIndex { target } => {
-                write_hash_tag_u8(hasher, 5);
-                target.hash_into(hasher);
-            }
-            Self::AlterNullability { field_id } => {
-                write_hash_tag_u8(hasher, 6);
-                write_hash_u32(hasher, field_id.get());
-            }
-        }
-    }
-}
-
-impl MutationCompatibility {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
-    const fn tag(self) -> u8 {
-        match self {
-            Self::MetadataOnlySafe => 1,
-            Self::RequiresRebuild => 2,
-            Self::UnsupportedPreOne => 3,
-            Self::Incompatible => 4,
-        }
-    }
-}
-
-impl RebuildRequirement {
-    #[allow(
-        dead_code,
-        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-    )]
-    const fn tag(self) -> u8 {
-        match self {
-            Self::NoRebuildRequired => 1,
-            Self::IndexRebuildRequired => 2,
-            Self::FullDataRewriteRequired => 3,
-            Self::Unsupported => 4,
-        }
-    }
-}
-
-#[allow(
-    dead_code,
-    reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-)]
-fn hash_field_identity(
-    hasher: &mut sha2::Sha256,
-    field_id: FieldId,
-    name: &str,
-    slot: SchemaFieldSlot,
-) {
-    write_hash_u32(hasher, field_id.get());
-    write_hash_str_u32(hasher, name);
-    write_hash_u32(hasher, u32::from(slot.get()));
-}
-
-#[allow(
-    dead_code,
-    reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
-)]
-fn write_hash_bool(hasher: &mut sha2::Sha256, value: bool) {
-    write_hash_tag_u8(hasher, u8::from(value));
-}
-
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-)]
-fn runtime_epoch_fingerprint(
-    snapshot: &PersistedSchemaSnapshot,
-) -> Result<[u8; 16], InternalError> {
-    let encoded_snapshot = encode_persisted_schema_snapshot(snapshot)?;
-    let mut hasher = new_hash_sha256_prefixed(SCHEMA_MUTATION_RUNTIME_EPOCH_PROFILE_TAG);
-    write_hash_str_u32(&mut hasher, snapshot.entity_path());
-    write_hash_u32(&mut hasher, snapshot.version().get());
-    write_hash_u32(
-        &mut hasher,
-        u32::try_from(encoded_snapshot.len()).unwrap_or(u32::MAX),
-    );
-    hasher.update(encoded_snapshot);
-    let digest = finalize_hash_sha256(hasher);
-    let mut fingerprint = [0u8; 16];
-    fingerprint.copy_from_slice(&digest[..16]);
-
-    Ok(fingerprint)
 }
 
 #[cfg(test)]

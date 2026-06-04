@@ -1,12 +1,9 @@
 use super::{
     RebuildRequirement, SchemaFieldPathIndexRebuildTarget, SchemaFieldPathIndexStagedValidation,
     SchemaMutationExecutionPlan, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-    expression::SchemaExpressionIndexStagedValidation, runtime_epoch_fingerprint,
+    expression::SchemaExpressionIndexStagedValidation,
 };
-use crate::{
-    db::schema::{PersistedSchemaSnapshot, SchemaVersion},
-    error::InternalError,
-};
+use crate::db::schema::PersistedSchemaSnapshot;
 
 ///
 /// SchemaMutationRunnerPhase
@@ -705,129 +702,5 @@ impl SchemaMutationNoopRunner {
 impl Default for SchemaMutationNoopRunner {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-///
-/// SchemaMutationRuntimeEpoch
-///
-/// Runtime schema identity derived from one accepted persisted snapshot. Future
-/// runners use this as the publication/invalidation token; staged physical work
-/// must not advance visible runtime identity.
-///
-
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaMutationRuntimeEpoch {
-    entity_path: String,
-    schema_version: SchemaVersion,
-    snapshot_fingerprint: [u8; 16],
-}
-
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
-)]
-impl SchemaMutationRuntimeEpoch {
-    pub(in crate::db::schema) fn from_snapshot(
-        snapshot: &PersistedSchemaSnapshot,
-    ) -> Result<Self, InternalError> {
-        Ok(Self {
-            entity_path: snapshot.entity_path().to_string(),
-            schema_version: snapshot.version(),
-            snapshot_fingerprint: runtime_epoch_fingerprint(snapshot)?,
-        })
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn entity_path(&self) -> &str {
-        self.entity_path.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn schema_version(&self) -> SchemaVersion {
-        self.schema_version
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn snapshot_fingerprint(&self) -> [u8; 16] {
-        self.snapshot_fingerprint
-    }
-}
-
-///
-/// SchemaMutationPublicationIdentity
-///
-/// Publication identity for one checked runner input. `StagedOnly` keeps the
-/// previous epoch visible; only `Published` exposes the accepted-after epoch to
-/// runtime caches and planners.
-///
-
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime publication identity before physical runners publish snapshots"
-)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaMutationPublicationIdentity {
-    before: SchemaMutationRuntimeEpoch,
-    after: SchemaMutationRuntimeEpoch,
-    store_visibility: SchemaMutationStoreVisibility,
-}
-
-#[allow(
-    dead_code,
-    reason = "0.153 stages runtime publication identity before physical runners publish snapshots"
-)]
-impl SchemaMutationPublicationIdentity {
-    pub(in crate::db::schema) fn from_input(
-        input: &SchemaMutationRunnerInput<'_>,
-        store_visibility: SchemaMutationStoreVisibility,
-    ) -> Result<Self, InternalError> {
-        Ok(Self {
-            before: SchemaMutationRuntimeEpoch::from_snapshot(input.accepted_before())?,
-            after: SchemaMutationRuntimeEpoch::from_snapshot(input.accepted_after())?,
-            store_visibility,
-        })
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn before_epoch(&self) -> &SchemaMutationRuntimeEpoch {
-        &self.before
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn after_epoch(&self) -> &SchemaMutationRuntimeEpoch {
-        &self.after
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
-        self.store_visibility
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn visible_epoch(&self) -> &SchemaMutationRuntimeEpoch {
-        match self.store_visibility {
-            SchemaMutationStoreVisibility::StagedOnly => &self.before,
-            SchemaMutationStoreVisibility::Published => &self.after,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn published_epoch(
-        &self,
-    ) -> Option<&SchemaMutationRuntimeEpoch> {
-        match self.store_visibility {
-            SchemaMutationStoreVisibility::StagedOnly => None,
-            SchemaMutationStoreVisibility::Published => Some(&self.after),
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) fn changes_epoch(&self) -> bool {
-        self.before != self.after
     }
 }
