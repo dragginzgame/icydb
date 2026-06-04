@@ -16,16 +16,14 @@ use crate::db::{
     key_taxonomy::PrimaryKeyValue,
     predicate::PredicateProgram,
     schema::{
-        AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldSlot, SchemaVersion, encode_persisted_schema_snapshot,
-        transition::{SchemaAdmissionIdentityComparison, schema_admission_rejection},
+        FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+        encode_persisted_schema_snapshot,
     },
 };
 use crate::error::InternalError;
 use crate::types::EntityTag;
 use sha2::Digest;
 use std::collections::BTreeMap;
-use thiserror::Error as ThisError;
 
 mod field;
 pub(in crate::db) use field::{
@@ -63,9 +61,24 @@ pub(in crate::db) use field_type::{
 };
 
 mod ddl_admission;
+#[allow(
+    unused_imports,
+    reason = "schema root re-exports DDL schema-version admission diagnostics"
+)]
 pub(in crate::db) use ddl_admission::{
+    SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
+    SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaDdlMutationTarget,
     SchemaDdlSchemaVersionAdmissionError, SchemaDdlVersionContractPreflightError,
     validate_schema_ddl_version_contract_preflight,
+};
+
+mod delta;
+#[allow(
+    unused_imports,
+    reason = "mutation planning tests consume delta classifiers through the module root"
+)]
+pub(in crate::db::schema) use delta::{
+    SchemaMutationDelta, classify_schema_mutation_delta, schema_mutation_request_for_snapshots,
 };
 
 mod index_candidate;
@@ -187,275 +200,6 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
     UnsupportedIndexKeyShape,
     EmptyIndexKey,
     ExpressionIndexRequiresExpressionKey,
-}
-
-///
-/// SchemaDdlMutationAdmission
-///
-/// Schema-owned proof that one DDL candidate lowers through the existing
-/// mutation request, mutation plan, execution plan, and supported runner
-/// admission path. It intentionally exposes only the admitted target needed by
-/// future DDL execution instead of leaking planning internals into SQL.
-///
-
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
-)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SchemaDdlMutationAdmission {
-    target: SchemaDdlMutationTarget,
-}
-
-///
-/// SchemaDdlIndexDropCandidateError
-///
-/// Schema-owned rejection reason for resolving a SQL DDL `DROP INDEX`
-/// candidate against accepted catalog authority.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum SchemaDdlIndexDropCandidateError {
-    Generated,
-    Unknown,
-    Unsupported,
-}
-
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
-)]
-impl SchemaDdlMutationAdmission {
-    /// Borrow the admitted field-path index rebuild target.
-    #[must_use]
-    pub(in crate::db) fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
-        let SchemaDdlMutationTarget::FieldPathAddition(target) = &self.target else {
-            panic!("SQL DDL admission does not carry a field-path index rebuild target");
-        };
-
-        target
-    }
-
-    /// Borrow the admitted expression index rebuild target.
-    #[must_use]
-    pub(in crate::db) const fn expression_target(
-        &self,
-    ) -> Option<&SchemaExpressionIndexRebuildTarget> {
-        match &self.target {
-            SchemaDdlMutationTarget::ExpressionAddition(target) => Some(target),
-            SchemaDdlMutationTarget::FieldPathAddition(_)
-            | SchemaDdlMutationTarget::FieldAddition(_)
-            | SchemaDdlMutationTarget::FieldDefaultChange(_)
-            | SchemaDdlMutationTarget::FieldDrop(_)
-            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
-            | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
-        }
-    }
-
-    /// Borrow the admitted secondary-index drop cleanup target.
-    #[must_use]
-    pub(in crate::db) const fn drop_target(
-        &self,
-    ) -> Option<&SchemaSecondaryIndexDropCleanupTarget> {
-        match &self.target {
-            SchemaDdlMutationTarget::FieldPathAddition(_)
-            | SchemaDdlMutationTarget::FieldAddition(_)
-            | SchemaDdlMutationTarget::FieldDefaultChange(_)
-            | SchemaDdlMutationTarget::FieldDrop(_)
-            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
-            | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
-            SchemaDdlMutationTarget::SecondaryDrop(target) => Some(target),
-        }
-    }
-
-    /// Borrow the admitted additive-field target.
-    #[must_use]
-    pub(in crate::db) const fn field_addition_target(&self) -> Option<&SchemaFieldAdditionTarget> {
-        match &self.target {
-            SchemaDdlMutationTarget::FieldAddition(target) => Some(target),
-            SchemaDdlMutationTarget::FieldPathAddition(_)
-            | SchemaDdlMutationTarget::FieldDefaultChange(_)
-            | SchemaDdlMutationTarget::FieldDrop(_)
-            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
-            | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
-        }
-    }
-
-    /// Borrow the admitted field-default metadata target.
-    #[must_use]
-    pub(in crate::db) const fn field_default_target(&self) -> Option<&SchemaFieldDefaultTarget> {
-        match &self.target {
-            SchemaDdlMutationTarget::FieldDefaultChange(target) => Some(target),
-            SchemaDdlMutationTarget::FieldAddition(_)
-            | SchemaDdlMutationTarget::FieldPathAddition(_)
-            | SchemaDdlMutationTarget::FieldDrop(_)
-            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
-            | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
-        }
-    }
-
-    /// Borrow the admitted field-nullability metadata target.
-    #[must_use]
-    pub(in crate::db) const fn field_nullability_target(
-        &self,
-    ) -> Option<&SchemaFieldNullabilityTarget> {
-        match &self.target {
-            SchemaDdlMutationTarget::FieldNullabilityChange(target) => Some(target),
-            SchemaDdlMutationTarget::FieldAddition(_)
-            | SchemaDdlMutationTarget::FieldDefaultChange(_)
-            | SchemaDdlMutationTarget::FieldDrop(_)
-            | SchemaDdlMutationTarget::FieldPathAddition(_)
-            | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
-        }
-    }
-
-    /// Borrow the admitted field-rename metadata target.
-    #[must_use]
-    pub(in crate::db) const fn field_rename_target(&self) -> Option<&SchemaFieldRenameTarget> {
-        match &self.target {
-            SchemaDdlMutationTarget::FieldRename(target) => Some(target),
-            SchemaDdlMutationTarget::FieldAddition(_)
-            | SchemaDdlMutationTarget::FieldDefaultChange(_)
-            | SchemaDdlMutationTarget::FieldDrop(_)
-            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
-            | SchemaDdlMutationTarget::FieldPathAddition(_)
-            | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
-        }
-    }
-
-    /// Borrow the admitted field-drop metadata target.
-    #[must_use]
-    pub(in crate::db) const fn field_drop_target(&self) -> Option<&SchemaFieldDropTarget> {
-        match &self.target {
-            SchemaDdlMutationTarget::FieldDrop(target) => Some(target),
-            SchemaDdlMutationTarget::FieldAddition(_)
-            | SchemaDdlMutationTarget::FieldDefaultChange(_)
-            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
-            | SchemaDdlMutationTarget::FieldRename(_)
-            | SchemaDdlMutationTarget::FieldPathAddition(_)
-            | SchemaDdlMutationTarget::ExpressionAddition(_)
-            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
-        }
-    }
-}
-
-///
-/// SchemaDdlMutationTarget
-///
-/// Schema-owned physical target admitted for one SQL DDL mutation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum SchemaDdlMutationTarget {
-    FieldAddition(SchemaFieldAdditionTarget),
-    FieldDefaultChange(SchemaFieldDefaultTarget),
-    FieldDrop(SchemaFieldDropTarget),
-    FieldNullabilityChange(SchemaFieldNullabilityTarget),
-    FieldRename(SchemaFieldRenameTarget),
-    FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
-    ExpressionAddition(SchemaExpressionIndexRebuildTarget),
-    SecondaryDrop(SchemaSecondaryIndexDropCleanupTarget),
-}
-
-///
-/// SchemaDdlAcceptedSnapshotDerivation
-///
-/// Accepted-after schema derivation for a DDL candidate that has already been
-/// admitted through the schema mutation path.
-///
-
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
-)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SchemaDdlAcceptedSnapshotDerivation {
-    accepted_after: AcceptedSchemaSnapshot,
-    admission: SchemaDdlMutationAdmission,
-}
-
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
-)]
-impl SchemaDdlAcceptedSnapshotDerivation {
-    /// Borrow the accepted-after schema snapshot.
-    #[must_use]
-    pub(in crate::db) const fn accepted_after(&self) -> &AcceptedSchemaSnapshot {
-        &self.accepted_after
-    }
-
-    /// Borrow the schema mutation admission proof for this accepted-after snapshot.
-    #[must_use]
-    pub(in crate::db) const fn admission(&self) -> &SchemaDdlMutationAdmission {
-        &self.admission
-    }
-
-    /// Retag the candidate snapshot with the source-declared next schema
-    /// version and run the schema-owned version/fingerprint admission gate.
-    pub(in crate::db) fn with_declared_schema_version(
-        self,
-        accepted_before: &AcceptedSchemaSnapshot,
-        schema_version: SchemaVersion,
-    ) -> Result<Self, SchemaDdlMutationAdmissionError> {
-        let accepted_after = AcceptedSchemaSnapshot::try_new(
-            self.accepted_after
-                .persisted_snapshot()
-                .clone_with_version(schema_version),
-        )
-        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-        let comparison = SchemaAdmissionIdentityComparison::from_snapshots(
-            accepted_before.persisted_snapshot(),
-            accepted_after.persisted_snapshot(),
-        )
-        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-        if let Some(rejection) = schema_admission_rejection(comparison) {
-            return Err(SchemaDdlMutationAdmissionError::SchemaVersionAdmission(
-                SchemaDdlSchemaVersionAdmissionError::from_schema_admission(
-                    rejection
-                        .admission()
-                        .expect("schema-version rejection must carry admission classification"),
-                ),
-                rejection.detail().to_string(),
-            ));
-        }
-
-        Ok(Self {
-            accepted_after,
-            admission: self.admission,
-        })
-    }
-}
-
-///
-/// SchemaDdlMutationAdmissionError
-///
-/// Fail-closed reason from schema-owned DDL mutation admission.
-///
-
-#[allow(
-    dead_code,
-    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
-)]
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-pub(in crate::db) enum SchemaDdlMutationAdmissionError {
-    #[error("accepted-index mutation rejected: {0:?}")]
-    AcceptedIndex(AcceptedSchemaMutationError),
-    #[error("accepted-after schema snapshot rejected")]
-    AcceptedAfterRejected,
-    #[error("schema-version admission rejected: {1}")]
-    SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError, String),
-    #[error("unsupported schema mutation execution path")]
-    UnsupportedExecutionPath,
 }
 
 ///
@@ -1033,63 +777,6 @@ pub(in crate::db::schema) enum MutationPublicationStatus {
 }
 
 ///
-/// SchemaMutationDelta
-///
-/// Snapshot-delta classification between two accepted catalog snapshots. This
-/// keeps structural mutation detection inside the mutation layer while the
-/// transition layer remains responsible for validation and diagnostics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum SchemaMutationDelta<'a> {
-    AppendOnlyFields(&'a [PersistedFieldSnapshot]),
-    AddFieldPathIndex(&'a PersistedIndexSnapshot),
-    AddExpressionIndex(&'a PersistedIndexSnapshot),
-    ExactMatch,
-    Incompatible,
-}
-
-/// Classify the structural mutation shape between an accepted snapshot and a
-/// proposed replacement. This does not decide whether the mutation is safe; it
-/// only names the catalog delta shape for policy code.
-pub(in crate::db::schema) fn classify_schema_mutation_delta<'a>(
-    actual: &PersistedSchemaSnapshot,
-    expected: &'a PersistedSchemaSnapshot,
-) -> SchemaMutationDelta<'a> {
-    if actual == expected {
-        return SchemaMutationDelta::ExactMatch;
-    }
-
-    if let Some(fields) = append_only_additive_fields(actual, expected) {
-        return SchemaMutationDelta::AppendOnlyFields(fields);
-    }
-
-    if let Some(index) = single_added_index(actual, expected)
-        && SchemaMutationRequest::from_accepted_field_path_index(index).is_ok()
-    {
-        return SchemaMutationDelta::AddFieldPathIndex(index);
-    }
-
-    if let Some(index) = single_added_index(actual, expected)
-        && SchemaMutationRequest::from_accepted_expression_index(index).is_ok()
-    {
-        return SchemaMutationDelta::AddExpressionIndex(index);
-    }
-
-    SchemaMutationDelta::Incompatible
-}
-
-/// Build one mutation request from the structural delta between two accepted
-/// snapshots. Policy validation remains in transition; this function only
-/// classifies the catalog operation to keep lowering centralized.
-pub(in crate::db::schema) fn schema_mutation_request_for_snapshots<'a>(
-    actual: &PersistedSchemaSnapshot,
-    expected: &'a PersistedSchemaSnapshot,
-) -> SchemaMutationRequest<'a> {
-    SchemaMutationRequest::from(classify_schema_mutation_delta(actual, expected))
-}
-
-///
 /// MutationPlan
 ///
 /// Deterministic schema-owned plan for moving one accepted snapshot to the
@@ -1439,22 +1126,6 @@ impl SchemaMutationRequest<'_> {
     }
 }
 
-impl<'a> From<SchemaMutationDelta<'a>> for SchemaMutationRequest<'a> {
-    fn from(delta: SchemaMutationDelta<'a>) -> Self {
-        match delta {
-            SchemaMutationDelta::AppendOnlyFields(fields) => Self::AppendOnlyFields(fields),
-            SchemaMutationDelta::AddFieldPathIndex(index) => {
-                Self::from_accepted_field_path_index(index).unwrap_or(Self::Incompatible)
-            }
-            SchemaMutationDelta::AddExpressionIndex(index) => {
-                Self::from_accepted_expression_index(index).unwrap_or(Self::Incompatible)
-            }
-            SchemaMutationDelta::ExactMatch => Self::ExactMatch,
-            SchemaMutationDelta::Incompatible => Self::Incompatible,
-        }
-    }
-}
-
 impl SchemaMutation {
     #[allow(
         dead_code,
@@ -1585,70 +1256,6 @@ fn runtime_epoch_fingerprint(
     fingerprint.copy_from_slice(&digest[..16]);
 
     Ok(fingerprint)
-}
-
-// Return generated fields for the additive shape that can become an accepted
-// mutation plan: stored fields and row-layout entries must be exact prefixes of
-// the generated proposal. Absence/default policy is validated by transition.
-fn append_only_additive_fields<'a>(
-    actual: &PersistedSchemaSnapshot,
-    expected: &'a PersistedSchemaSnapshot,
-) -> Option<&'a [PersistedFieldSnapshot]> {
-    if actual.fields().len() >= expected.fields().len()
-        || actual.row_layout().field_to_slot().len() >= expected.row_layout().field_to_slot().len()
-    {
-        return None;
-    }
-
-    if !actual
-        .fields()
-        .iter()
-        .zip(expected.fields())
-        .all(|(actual_field, expected_field)| actual_field == expected_field)
-    {
-        return None;
-    }
-
-    if !actual
-        .row_layout()
-        .field_to_slot()
-        .iter()
-        .zip(expected.row_layout().field_to_slot())
-        .all(|(actual_pair, expected_pair)| actual_pair == expected_pair)
-    {
-        return None;
-    }
-
-    Some(&expected.fields()[actual.fields().len()..])
-}
-
-// Return one appended index only when all non-index schema facts and prior
-// accepted index contracts remain unchanged. 0.154 deliberately supports one
-// index mutation at a time, so multiple additions stay incompatible.
-fn single_added_index<'a>(
-    actual: &PersistedSchemaSnapshot,
-    expected: &'a PersistedSchemaSnapshot,
-) -> Option<&'a PersistedIndexSnapshot> {
-    if actual.entity_path() != expected.entity_path()
-        || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
-        || actual.fields() != expected.fields()
-        || expected.indexes().len() != actual.indexes().len().saturating_add(1)
-    {
-        return None;
-    }
-
-    if !actual
-        .indexes()
-        .iter()
-        .zip(expected.indexes())
-        .all(|(actual_index, expected_index)| actual_index == expected_index)
-    {
-        return None;
-    }
-
-    expected.indexes().last()
 }
 
 #[cfg(test)]

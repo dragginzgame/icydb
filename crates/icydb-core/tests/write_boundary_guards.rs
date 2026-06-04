@@ -615,6 +615,60 @@ fn sql_ddl_version_contract_preflight_uses_schema_owned_admission() {
 }
 
 #[test]
+fn schema_ddl_mutation_admission_contracts_stay_in_ddl_admission_module() {
+    let mutation_mod = read_source("src/db/schema/mutation/mod.rs");
+    let ddl_admission = read_source("src/db/schema/mutation/ddl_admission.rs");
+
+    assert!(
+        mutation_mod.contains("mod ddl_admission;")
+            && mutation_mod.contains("SchemaDdlAcceptedSnapshotDerivation")
+            && !mutation_mod.contains("pub(in crate::db) struct SchemaDdlMutationAdmission")
+            && !mutation_mod.contains("enum SchemaDdlMutationTarget")
+            && !mutation_mod
+                .contains("pub(in crate::db) struct SchemaDdlAcceptedSnapshotDerivation")
+            && !mutation_mod.contains("enum SchemaDdlMutationAdmissionError"),
+        "schema mutation hub must re-export DDL admission contracts without owning their definitions",
+    );
+    assert!(
+        ddl_admission.contains("pub(in crate::db) struct SchemaDdlMutationAdmission")
+            && ddl_admission.contains("pub(in crate::db) enum SchemaDdlIndexDropCandidateError")
+            && ddl_admission.contains("pub(in crate::db) enum SchemaDdlMutationTarget")
+            && ddl_admission
+                .contains("pub(in crate::db) struct SchemaDdlAcceptedSnapshotDerivation")
+            && ddl_admission.contains("pub(in crate::db) enum SchemaDdlMutationAdmissionError")
+            && ddl_admission
+                .contains("pub(in crate::db) enum SchemaDdlSchemaVersionAdmissionError")
+            && ddl_admission.contains("schema_admission_rejection(comparison)"),
+        "schema mutation DDL admission module must own DDL admission targets, derivation, and version/fingerprint mapping",
+    );
+}
+
+#[test]
+fn schema_mutation_delta_classification_stays_out_of_mutation_hub() {
+    let mutation_mod = read_source("src/db/schema/mutation/mod.rs");
+    let mutation_delta = read_source("src/db/schema/mutation/delta.rs");
+
+    assert!(
+        mutation_mod.contains("mod delta;")
+            && mutation_mod.contains("schema_mutation_request_for_snapshots")
+            && !mutation_mod.contains("pub(in crate::db::schema) enum SchemaMutationDelta")
+            && !mutation_mod.contains("fn append_only_additive_fields(")
+            && !mutation_mod.contains("fn single_added_index("),
+        "schema mutation hub must re-export delta classification without owning structural snapshot diff helpers",
+    );
+    assert!(
+        mutation_delta.contains("pub(in crate::db::schema) enum SchemaMutationDelta")
+            && mutation_delta.contains("fn classify_schema_mutation_delta")
+            && mutation_delta.contains("fn schema_mutation_request_for_snapshots")
+            && mutation_delta.contains("fn append_only_additive_fields")
+            && mutation_delta.contains("fn single_added_index")
+            && mutation_delta.contains("SchemaMutationRequest::from_accepted_field_path_index(")
+            && mutation_delta.contains("SchemaMutationRequest::from_accepted_expression_index("),
+        "schema mutation delta module must own structural snapshot diff classification and request lowering",
+    );
+}
+
+#[test]
 fn sql_ddl_preparation_reports_stay_out_of_ddl_hub() {
     let ddl_mod = read_source("src/db/sql/ddl/mod.rs");
     let ddl_report = read_source("src/db/sql/ddl/report.rs");

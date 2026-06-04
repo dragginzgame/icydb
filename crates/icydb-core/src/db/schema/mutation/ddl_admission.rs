@@ -1,12 +1,289 @@
 //! DDL-facing schema mutation admission diagnostics.
 
-use super::SchemaDdlMutationAdmissionError;
+use super::{
+    AcceptedSchemaMutationError, SchemaExpressionIndexRebuildTarget, SchemaFieldAdditionTarget,
+    SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
+    SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
+    SchemaSecondaryIndexDropCleanupTarget,
+};
 use crate::db::schema::{
-    SchemaVersion,
-    transition::{SchemaAdmissionRejectionClassification, SchemaAdmissionRejectionReason},
+    AcceptedSchemaSnapshot, SchemaVersion,
+    transition::{
+        SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
+        SchemaAdmissionRejectionReason, schema_admission_rejection,
+    },
 };
 use crate::error::SchemaDdlAdmissionError;
 use thiserror::Error as ThisError;
+
+///
+/// SchemaDdlMutationAdmission
+///
+/// Schema-owned proof that one DDL candidate lowers through the existing
+/// mutation request, mutation plan, execution plan, and supported runner
+/// admission path. It intentionally exposes only the admitted target needed by
+/// future DDL execution instead of leaking planning internals into SQL.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaDdlMutationAdmission {
+    pub(in crate::db::schema::mutation) target: SchemaDdlMutationTarget,
+}
+
+///
+/// SchemaDdlIndexDropCandidateError
+///
+/// Schema-owned rejection reason for resolving a SQL DDL `DROP INDEX`
+/// candidate against accepted catalog authority.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlIndexDropCandidateError {
+    Generated,
+    Unknown,
+    Unsupported,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
+)]
+impl SchemaDdlMutationAdmission {
+    /// Borrow the admitted field-path index rebuild target.
+    #[must_use]
+    pub(in crate::db) fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
+        let SchemaDdlMutationTarget::FieldPathAddition(target) = &self.target else {
+            panic!("SQL DDL admission does not carry a field-path index rebuild target");
+        };
+
+        target
+    }
+
+    /// Borrow the admitted expression index rebuild target.
+    #[must_use]
+    pub(in crate::db) const fn expression_target(
+        &self,
+    ) -> Option<&SchemaExpressionIndexRebuildTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::ExpressionAddition(target) => Some(target),
+            SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted secondary-index drop cleanup target.
+    #[must_use]
+    pub(in crate::db) const fn drop_target(
+        &self,
+    ) -> Option<&SchemaSecondaryIndexDropCleanupTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
+            SchemaDdlMutationTarget::SecondaryDrop(target) => Some(target),
+        }
+    }
+
+    /// Borrow the admitted additive-field target.
+    #[must_use]
+    pub(in crate::db) const fn field_addition_target(&self) -> Option<&SchemaFieldAdditionTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldAddition(target) => Some(target),
+            SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted field-default metadata target.
+    #[must_use]
+    pub(in crate::db) const fn field_default_target(&self) -> Option<&SchemaFieldDefaultTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldDefaultChange(target) => Some(target),
+            SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted field-nullability metadata target.
+    #[must_use]
+    pub(in crate::db) const fn field_nullability_target(
+        &self,
+    ) -> Option<&SchemaFieldNullabilityTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldNullabilityChange(target) => Some(target),
+            SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
+            | SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted field-rename metadata target.
+    #[must_use]
+    pub(in crate::db) const fn field_rename_target(&self) -> Option<&SchemaFieldRenameTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldRename(target) => Some(target),
+            SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted field-drop metadata target.
+    #[must_use]
+    pub(in crate::db) const fn field_drop_target(&self) -> Option<&SchemaFieldDropTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldDrop(target) => Some(target),
+            SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+}
+
+///
+/// SchemaDdlMutationTarget
+///
+/// Schema-owned physical target admitted for one SQL DDL mutation.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlMutationTarget {
+    FieldAddition(SchemaFieldAdditionTarget),
+    FieldDefaultChange(SchemaFieldDefaultTarget),
+    FieldDrop(SchemaFieldDropTarget),
+    FieldNullabilityChange(SchemaFieldNullabilityTarget),
+    FieldRename(SchemaFieldRenameTarget),
+    FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
+    ExpressionAddition(SchemaExpressionIndexRebuildTarget),
+    SecondaryDrop(SchemaSecondaryIndexDropCleanupTarget),
+}
+
+///
+/// SchemaDdlAcceptedSnapshotDerivation
+///
+/// Accepted-after schema derivation for a DDL candidate that has already been
+/// admitted through the schema mutation path.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaDdlAcceptedSnapshotDerivation {
+    pub(in crate::db::schema::mutation) accepted_after: AcceptedSchemaSnapshot,
+    pub(in crate::db::schema::mutation) admission: SchemaDdlMutationAdmission,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
+)]
+impl SchemaDdlAcceptedSnapshotDerivation {
+    /// Borrow the accepted-after schema snapshot.
+    #[must_use]
+    pub(in crate::db) const fn accepted_after(&self) -> &AcceptedSchemaSnapshot {
+        &self.accepted_after
+    }
+
+    /// Borrow the schema mutation admission proof for this accepted-after snapshot.
+    #[must_use]
+    pub(in crate::db) const fn admission(&self) -> &SchemaDdlMutationAdmission {
+        &self.admission
+    }
+
+    /// Retag the candidate snapshot with the source-declared next schema
+    /// version and run the schema-owned version/fingerprint admission gate.
+    pub(in crate::db) fn with_declared_schema_version(
+        self,
+        accepted_before: &AcceptedSchemaSnapshot,
+        schema_version: SchemaVersion,
+    ) -> Result<Self, SchemaDdlMutationAdmissionError> {
+        let accepted_after = AcceptedSchemaSnapshot::try_new(
+            self.accepted_after
+                .persisted_snapshot()
+                .clone_with_version(schema_version),
+        )
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+        let comparison = SchemaAdmissionIdentityComparison::from_snapshots(
+            accepted_before.persisted_snapshot(),
+            accepted_after.persisted_snapshot(),
+        )
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+        if let Some(rejection) = schema_admission_rejection(comparison) {
+            return Err(SchemaDdlMutationAdmissionError::SchemaVersionAdmission(
+                SchemaDdlSchemaVersionAdmissionError::from_schema_admission(
+                    rejection
+                        .admission()
+                        .expect("schema-version rejection must carry admission classification"),
+                ),
+                rejection.detail().to_string(),
+            ));
+        }
+
+        Ok(Self {
+            accepted_after,
+            admission: self.admission,
+        })
+    }
+}
+
+///
+/// SchemaDdlMutationAdmissionError
+///
+/// Fail-closed reason from schema-owned DDL mutation admission.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
+)]
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+pub(in crate::db) enum SchemaDdlMutationAdmissionError {
+    #[error("accepted-index mutation rejected: {0:?}")]
+    AcceptedIndex(AcceptedSchemaMutationError),
+    #[error("accepted-after schema snapshot rejected")]
+    AcceptedAfterRejected,
+    #[error("schema-version admission rejected: {1}")]
+    SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError, String),
+    #[error("unsupported schema mutation execution path")]
+    UnsupportedExecutionPath,
+}
 
 impl SchemaDdlMutationAdmissionError {
     pub(in crate::db) const fn schema_ddl_admission_error(&self) -> SchemaDdlAdmissionError {
