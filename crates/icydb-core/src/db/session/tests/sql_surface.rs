@@ -4947,7 +4947,7 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
 }
 
 #[test]
-fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication() {
+fn execute_sql_ddl_rejects_invalid_schema_version_contracts_before_lowering() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -5010,6 +5010,27 @@ fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication(
         )),
         SqlDdlPrepareError::Bind(SqlDdlBindError::EmptySchemaVersionBump { requested: 2 }),
     );
+}
+
+#[test]
+fn execute_sql_ddl_preserves_schema_version_admission_matrix_reason() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema catalog bootstrap should succeed");
+    let schema = catalog.accepted_schema_info_for::<SessionSqlEntity>();
+    let prepare_err = |sql: &str| {
+        let statement = parse_sql(sql).expect("DDL version contract test SQL should parse");
+        prepare_sql_ddl_statement(
+            &statement,
+            catalog.snapshot(),
+            &schema,
+            SessionSqlStore::PATH,
+        )
+        .expect_err("invalid DDL version contracts should reject before publication")
+    };
 
     for (sql, expected_reason) in [
         (
@@ -5044,6 +5065,13 @@ fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication(
             "schema-version admission detail should preserve compared identity facts: {detail}",
         );
     }
+}
+
+#[test]
+fn execute_sql_ddl_maps_schema_version_contract_rejections_to_public_detail() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
 
     for (sql, expected_reason) in [
         (
