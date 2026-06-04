@@ -625,7 +625,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?;
+                .map_err(QueryError::from_sql_ddl_execution_error)?;
 
                 (0, 0)
             }
@@ -638,7 +638,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?;
+                .map_err(QueryError::from_sql_ddl_execution_error)?;
 
                 (0, 0)
             }
@@ -651,7 +651,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?;
+                .map_err(QueryError::from_sql_ddl_execution_error)?;
 
                 (rows_scanned, 0)
             }
@@ -664,7 +664,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?;
+                .map_err(QueryError::from_sql_ddl_execution_error)?;
 
                 (0, 0)
             }
@@ -677,7 +677,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?;
+                .map_err(QueryError::from_sql_ddl_execution_error)?;
 
                 (0, 0)
             }
@@ -692,7 +692,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?
+                .map_err(QueryError::from_sql_ddl_execution_error)?
             }
             crate::db::sql::ddl::BoundSqlDdlStatement::CreateIndex(_) => {
                 execute_sql_ddl_expression_index_addition(
@@ -703,7 +703,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?
+                .map_err(QueryError::from_sql_ddl_execution_error)?
             }
             crate::db::sql::ddl::BoundSqlDdlStatement::DropIndex(_) => {
                 execute_sql_ddl_secondary_index_drop(
@@ -714,7 +714,7 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_before_identity,
                     derivation,
                 )
-                .map_err(QueryError::execute)?;
+                .map_err(QueryError::from_sql_ddl_execution_error)?;
 
                 (0, 0)
             }

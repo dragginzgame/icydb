@@ -2329,6 +2329,27 @@ fn parse_ddl_schema_version_contracts_keep_transition_intent() {
     );
 
     let statement = parse_sql(
+        "ALTER TABLE users SET SCHEMA VERSION 4 EXPECT SCHEMA VERSION 3 ADD COLUMN nickname text",
+    )
+    .expect("ALTER TABLE should preserve a flexible prefix schema-version contract order");
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(
+            SqlAlterTableAddColumnStatement {
+                entity: "users".to_string(),
+                column_name: "nickname".to_string(),
+                column_type: "text".to_string(),
+                nullable: true,
+                default: None,
+                schema_version_contract: SqlDdlSchemaVersionContract {
+                    expected_schema_version: Some(3),
+                    next_schema_version: Some(4),
+                },
+            },
+        )),
+    );
+
+    let statement = parse_sql(
         "CREATE INDEX user_age_idx ON users (age) EXPECT SCHEMA VERSION 4 SET SCHEMA VERSION 5",
     )
     .expect("CREATE INDEX should parse a trailing schema-version contract");
@@ -2347,6 +2368,48 @@ fn parse_ddl_schema_version_contracts_keep_transition_intent() {
             },
         })),
     );
+}
+
+#[test]
+fn parse_ddl_schema_version_contracts_reject_duplicates_and_non_literals() {
+    for (sql, expected_feature) in [
+        (
+            "ALTER TABLE users EXPECT SCHEMA VERSION 3 EXPECT SCHEMA VERSION 4 ADD COLUMN nickname text",
+            "duplicate EXPECT SCHEMA VERSION clauses",
+        ),
+        (
+            "ALTER TABLE users SET SCHEMA VERSION 4 SET SCHEMA VERSION 5 ADD COLUMN nickname text",
+            "duplicate SET SCHEMA VERSION clauses",
+        ),
+        (
+            "ALTER TABLE users EXPECT SCHEMA VERSION 3 ADD COLUMN nickname text EXPECT SCHEMA VERSION 4",
+            "duplicate EXPECT SCHEMA VERSION clauses",
+        ),
+        (
+            "CREATE INDEX user_age_idx ON users (age) SET SCHEMA VERSION 4 SET SCHEMA VERSION 5",
+            "duplicate SET SCHEMA VERSION clauses",
+        ),
+    ] {
+        let err = parse_sql(sql).expect_err("duplicate DDL schema-version clauses should reject");
+        assert_eq!(
+            err,
+            super::SqlParseError::UnsupportedFeature {
+                feature: expected_feature
+            },
+            "duplicate DDL schema-version clause should keep a stable feature label: {sql}",
+        );
+    }
+
+    for sql in [
+        "ALTER TABLE users EXPECT SCHEMA VERSION ? SET SCHEMA VERSION 4 ADD COLUMN nickname text",
+        "CREATE INDEX user_age_idx ON users (age) EXPECT SCHEMA VERSION 4 SET SCHEMA VERSION ?",
+    ] {
+        let err = parse_sql(sql).expect_err("non-literal DDL schema-version clauses should reject");
+        assert!(
+            matches!(err, super::SqlParseError::InvalidSyntax { .. }),
+            "non-literal DDL schema-version clause should reject as syntax: {err:?}",
+        );
+    }
 }
 
 #[test]

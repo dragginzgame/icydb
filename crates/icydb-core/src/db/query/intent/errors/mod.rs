@@ -13,6 +13,8 @@ mod tests;
 use super::AccessRequirementError;
 #[cfg(feature = "sql")]
 use crate::db::sql::{ddl::SqlDdlPrepareError, lowering::SqlLoweringError, parser::SqlParseError};
+#[cfg(feature = "sql")]
+use crate::error::{ErrorDetail, SchemaDdlAdmissionError, StoreError};
 use crate::{
     db::{
         cursor::CursorPlanError,
@@ -176,6 +178,26 @@ impl QueryError {
             reason,
             format!("SQL DDL preparation failed before execution: {err}"),
         ))
+    }
+
+    /// Construct one query error from one SQL DDL execution failure.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn from_sql_ddl_execution_error(err: InternalError) -> Self {
+        if matches!(
+            err.detail(),
+            Some(ErrorDetail::Store(
+                StoreError::SchemaDdlPublicationRaceLost { .. }
+            ))
+        ) {
+            let message = err.message().to_string();
+
+            return Self::execute(InternalError::query_schema_ddl_admission(
+                SchemaDdlAdmissionError::PublicationRaceLost,
+                message,
+            ));
+        }
+
+        Self::execute(err)
     }
 
     /// Construct one unsupported query-lane SQL statement error.

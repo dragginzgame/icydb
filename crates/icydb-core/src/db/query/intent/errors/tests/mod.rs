@@ -3,6 +3,8 @@
 //! Does not own: production error behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 
+#[cfg(feature = "sql")]
+use crate::error::{ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError};
 use crate::{
     db::query::intent::{IntentError, QueryError, QueryExecutionError},
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -212,6 +214,31 @@ fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
         QueryError::Execute(QueryExecutionError::Unsupported(inner))
             if inner.class == ErrorClass::Unsupported
                 && inner.origin == ErrorOrigin::Query
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn sql_ddl_publication_race_maps_to_query_admission_detail() {
+    let query_err = QueryError::from_sql_ddl_execution_error(
+        InternalError::schema_ddl_publication_race_lost("User"),
+    );
+
+    let QueryError::Execute(QueryExecutionError::Unsupported(inner)) = query_err else {
+        panic!("SQL DDL race loss must stay an unsupported execution error");
+    };
+
+    assert_eq!(inner.class, ErrorClass::Unsupported);
+    assert_eq!(inner.origin, ErrorOrigin::Query);
+    assert!(
+        matches!(
+            inner.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::SchemaDdlAdmission {
+                error: SchemaDdlAdmissionError::PublicationRaceLost
+            }))
+        ),
+        "SQL DDL race loss should surface as a DDL admission detail, got {:?}",
+        inner.detail(),
     );
 }
 

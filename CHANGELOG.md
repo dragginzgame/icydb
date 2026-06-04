@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.3` tightens the final DDL admission diagnostics edge by surfacing
+  publication races as `PublicationRaceLost` and hardening schema-version
+  contract parsing for duplicate clauses and literal-only values.
+
 - `0.178.2` tightens SQL DDL admission diagnostics by requiring observed
   schema versions for no-op DDL and carrying stable query-visible admission
   variants for preparation failures.

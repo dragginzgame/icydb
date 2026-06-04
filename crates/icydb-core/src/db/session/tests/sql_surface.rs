@@ -5192,6 +5192,10 @@ fn execute_sql_ddl_publication_rechecks_bound_accepted_identity() {
         ),
         "stale DDL publication should report the structured race-lost detail",
     );
+    assert_sql_ddl_admission_detail(
+        QueryError::from_sql_ddl_execution_error(err),
+        SchemaDdlAdmissionError::PublicationRaceLost,
+    );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
         let latest = store

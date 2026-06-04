@@ -475,16 +475,30 @@ impl Parser {
         &mut self,
     ) -> Result<SqlDdlSchemaVersionContract, SqlParseError> {
         let mut contract = SqlDdlSchemaVersionContract::default();
-        if self.eat_identifier_keyword("EXPECT") {
-            self.expect_identifier_keyword("SCHEMA")?;
-            self.expect_identifier_keyword("VERSION")?;
-            contract.expected_schema_version =
-                Some(self.parse_u32_literal("EXPECT SCHEMA VERSION")?);
-        }
-        if self.eat_identifier_keyword("SET") {
-            self.expect_identifier_keyword("SCHEMA")?;
-            self.expect_identifier_keyword("VERSION")?;
-            contract.next_schema_version = Some(self.parse_u32_literal("SET SCHEMA VERSION")?);
+
+        loop {
+            if self.eat_identifier_keyword("EXPECT") {
+                if contract.expected_schema_version.is_some() {
+                    return Err(SqlParseError::unsupported_feature(
+                        "duplicate EXPECT SCHEMA VERSION clauses",
+                    ));
+                }
+                self.expect_identifier_keyword("SCHEMA")?;
+                self.expect_identifier_keyword("VERSION")?;
+                contract.expected_schema_version =
+                    Some(self.parse_u32_literal("EXPECT SCHEMA VERSION")?);
+            } else if self.eat_identifier_keyword("SET") {
+                if contract.next_schema_version.is_some() {
+                    return Err(SqlParseError::unsupported_feature(
+                        "duplicate SET SCHEMA VERSION clauses",
+                    ));
+                }
+                self.expect_identifier_keyword("SCHEMA")?;
+                self.expect_identifier_keyword("VERSION")?;
+                contract.next_schema_version = Some(self.parse_u32_literal("SET SCHEMA VERSION")?);
+            } else {
+                break;
+            }
         }
 
         Ok(contract)
