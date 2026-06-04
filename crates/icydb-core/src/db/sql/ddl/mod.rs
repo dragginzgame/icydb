@@ -21,12 +21,13 @@ use index::{bind_create_index_statement, bind_drop_index_statement, ddl_key_item
 use crate::db::{
     schema::{
         AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-        SchemaDdlMutationAdmissionError, SchemaInfo, SchemaVersion,
-        derive_sql_ddl_expression_index_accepted_after,
+        SchemaDdlMutationAdmissionError, SchemaDdlVersionContractPreflightError, SchemaInfo,
+        SchemaVersion, derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
+        validate_schema_ddl_version_contract_preflight,
     },
     sql::parser::{SqlDdlSchemaVersionContract, SqlDdlStatement, SqlStatement},
 };
@@ -760,34 +761,33 @@ fn validate_bound_sql_ddl_version_contract(
 ) -> Result<(), SqlDdlBindError> {
     let contract = bound.schema_version_contract();
     let accepted_version = accepted_before.persisted_snapshot().version();
-    if let Some(expected) = contract.expected_schema_version()
-        && expected != accepted_version
-    {
-        return Err(SqlDdlBindError::StaleExpectedSchemaVersion {
-            expected: expected.get(),
-            accepted: accepted_version.get(),
-        });
-    }
-    if matches!(bound.statement(), BoundSqlDdlStatement::NoOp(_)) {
-        if contract.expected_schema_version().is_none() {
-            return Err(SqlDdlBindError::MissingExpectedSchemaVersion);
-        }
-        if let Some(requested) = contract.next_schema_version() {
-            return Err(SqlDdlBindError::EmptySchemaVersionBump {
-                requested: requested.get(),
-            });
-        }
+    validate_schema_ddl_version_contract_preflight(
+        accepted_version,
+        contract.expected_schema_version(),
+        contract.next_schema_version(),
+        !matches!(bound.statement(), BoundSqlDdlStatement::NoOp(_)),
+    )
+    .map_err(sql_ddl_version_contract_preflight_error)
+}
 
-        return Ok(());
+const fn sql_ddl_version_contract_preflight_error(
+    error: SchemaDdlVersionContractPreflightError,
+) -> SqlDdlBindError {
+    match error {
+        SchemaDdlVersionContractPreflightError::MissingExpectedSchemaVersion => {
+            SqlDdlBindError::MissingExpectedSchemaVersion
+        }
+        SchemaDdlVersionContractPreflightError::MissingNextSchemaVersion => {
+            SqlDdlBindError::MissingNextSchemaVersion
+        }
+        SchemaDdlVersionContractPreflightError::StaleExpectedSchemaVersion {
+            expected,
+            accepted,
+        } => SqlDdlBindError::StaleExpectedSchemaVersion { expected, accepted },
+        SchemaDdlVersionContractPreflightError::EmptySchemaVersionBump { requested } => {
+            SqlDdlBindError::EmptySchemaVersionBump { requested }
+        }
     }
-    if contract.expected_schema_version().is_none() {
-        return Err(SqlDdlBindError::MissingExpectedSchemaVersion);
-    }
-    if contract.next_schema_version().is_none() {
-        return Err(SqlDdlBindError::MissingNextSchemaVersion);
-    }
-
-    Ok(())
 }
 
 fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport {

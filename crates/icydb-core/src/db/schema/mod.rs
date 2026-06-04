@@ -98,9 +98,9 @@ pub(in crate::db) use mutation::{
     SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
     SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexFieldPathIntent,
     SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent,
-    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
-    SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
+    SchemaDdlVersionContractPreflightError, SchemaExpressionIndexRebuildExpression,
+    SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget,
+    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
     SchemaSecondaryIndexDropCleanupTarget, build_sql_ddl_field_addition_candidate,
     build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
@@ -113,7 +113,7 @@ pub(in crate::db) use mutation::{
     resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
     resolve_sql_ddl_field_set_default_candidate, resolve_sql_ddl_field_type_contract,
     resolve_sql_ddl_secondary_index_addition_candidate,
-    resolve_sql_ddl_secondary_index_drop_candidate,
+    resolve_sql_ddl_secondary_index_drop_candidate, validate_schema_ddl_version_contract_preflight,
 };
 #[cfg(test)]
 pub(in crate::db) use mutation::{

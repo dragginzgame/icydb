@@ -63,7 +63,10 @@ pub(in crate::db) use field_type::{
 };
 
 mod ddl_admission;
-pub(in crate::db) use ddl_admission::SchemaDdlSchemaVersionAdmissionError;
+pub(in crate::db) use ddl_admission::{
+    SchemaDdlSchemaVersionAdmissionError, SchemaDdlVersionContractPreflightError,
+    validate_schema_ddl_version_contract_preflight,
+};
 
 mod index_candidate;
 pub(in crate::db) use index_candidate::{

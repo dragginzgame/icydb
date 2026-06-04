@@ -571,6 +571,35 @@ fn sql_ddl_add_column_uses_schema_owned_field_allocation() {
 }
 
 #[test]
+fn sql_ddl_version_contract_preflight_uses_schema_owned_admission() {
+    let ddl_mod = read_source("src/db/sql/ddl/mod.rs");
+    let ddl_mod_compact = compact_source(&ddl_mod);
+    let ddl_admission = read_source("src/db/schema/mutation/ddl_admission.rs");
+
+    assert!(
+        ddl_mod.contains("validate_schema_ddl_version_contract_preflight(")
+            && ddl_mod.contains("sql_ddl_version_contract_preflight_error(")
+            && !ddl_mod_compact.contains(
+                "ifmatches!(bound.statement(),BoundSqlDdlStatement::NoOp(_)){ifcontract.expected_schema_version().is_none()"
+            )
+            && !ddl_mod_compact.contains(
+                "ifcontract.next_schema_version().is_none(){returnErr(SqlDdlBindError::MissingNextSchemaVersion)"
+            ),
+        "SQL DDL must map schema-owned version-contract preflight errors instead of owning the DDL schema-version matrix",
+    );
+    assert!(
+        ddl_admission.contains("pub(in crate::db) enum SchemaDdlVersionContractPreflightError")
+            && ddl_admission.contains("MissingExpectedSchemaVersion")
+            && ddl_admission.contains("MissingNextSchemaVersion")
+            && ddl_admission.contains("StaleExpectedSchemaVersion")
+            && ddl_admission.contains("EmptySchemaVersionBump")
+            && ddl_admission
+                .contains("pub(in crate::db) fn validate_schema_ddl_version_contract_preflight("),
+        "schema mutation admission must own DDL version-contract preflight classification",
+    );
+}
+
+#[test]
 fn sql_ddl_default_encoding_uses_schema_owned_field_codecs() {
     let ddl_field = read_source("src/db/sql/ddl/field.rs");
     let mutation = read_rust_sources_under("src/db/schema/mutation");

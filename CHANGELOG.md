@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.10` moves SQL DDL schema-version contract preflight into
+  schema-owned admission helpers while preserving existing missing, stale, and
+  no-op diagnostics.
+
 - `0.178.9` moves SQL DDL `ADD COLUMN` type and codec contract selection
   into schema-owned mutation helpers while preserving unsupported-type
   diagnostics.
