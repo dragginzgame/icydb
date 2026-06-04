@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.16` documents the 0.178 closeout audit and records tentative
+  follow-up design notes for the deferred schema-migration features.
+
 - `0.178.15` moves schema mutation plan fingerprints and runtime
   epoch/publication identity into a dedicated identity module, narrowing the
   mutation and runner hubs.
