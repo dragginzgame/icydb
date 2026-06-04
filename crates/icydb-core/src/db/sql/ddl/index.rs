@@ -8,8 +8,10 @@ use crate::db::{
     schema::{
         AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, SchemaDdlIndexDropCandidateError, SchemaExpressionIndexInfo,
-        SchemaExpressionIndexKeyItemInfo, SchemaInfo, build_sql_ddl_secondary_index_candidate,
+        PersistedIndexSnapshot, SchemaDdlIndexDropCandidateError,
+        SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
+        SchemaInfo, build_sql_ddl_secondary_index_candidate,
+        resolve_sql_ddl_secondary_index_addition_candidate,
         resolve_sql_ddl_secondary_index_drop_candidate,
     },
     sql::{
@@ -195,68 +197,8 @@ pub(super) fn bind_create_index_statement(
         .map(|key_item| bind_create_index_key_item(key_item, entity_name, schema))
         .collect::<Result<Vec<_>, _>>()?;
     let field_paths = create_index_field_path_report_items(key_items.as_slice());
-    if let Some(existing_index) = find_field_path_index_by_name(schema, statement.name.as_str()) {
-        if key_items_are_field_path_only(key_items.as_slice())
-            && statement.if_not_exists
-            && existing_field_path_index_matches_request(
-                existing_index,
-                field_paths.as_slice(),
-                statement.predicate_sql.as_deref(),
-                statement.uniqueness,
-            )
-        {
-            return Ok(BoundSqlDdlRequest {
-                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
-                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
-                    mutation_kind: SqlDdlMutationKind::AddFieldPathIndex,
-                    index_name: statement.name.clone(),
-                    entity_name: entity_name.to_string(),
-                    target_store: existing_index.store().to_string(),
-                    field_path: ddl_field_path_report(field_paths.as_slice()),
-                }),
-            });
-        }
-
-        return Err(SqlDdlBindError::DuplicateIndexName {
-            index_name: statement.name.clone(),
-        });
-    }
     let predicate_sql =
         validated_create_index_predicate_sql(statement.predicate_sql.as_deref(), schema)?;
-    if let Some(existing_index) = find_expression_index_by_name(schema, statement.name.as_str()) {
-        if statement.if_not_exists
-            && existing_expression_index_matches_request(
-                existing_index,
-                key_items.as_slice(),
-                predicate_sql.as_deref(),
-                statement.uniqueness,
-            )
-        {
-            return Ok(BoundSqlDdlRequest {
-                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
-                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
-                    mutation_kind: SqlDdlMutationKind::AddExpressionIndex,
-                    index_name: statement.name.clone(),
-                    entity_name: entity_name.to_string(),
-                    target_store: existing_index.store().to_string(),
-                    field_path: ddl_key_item_report(key_items.as_slice()),
-                }),
-            });
-        }
-
-        return Err(SqlDdlBindError::DuplicateIndexName {
-            index_name: statement.name.clone(),
-        });
-    }
-    if key_items_are_field_path_only(key_items.as_slice()) {
-        reject_duplicate_field_path_index(
-            field_paths.as_slice(),
-            predicate_sql.as_deref(),
-            schema,
-        )?;
-    } else {
-        reject_duplicate_expression_index(key_items.as_slice(), predicate_sql.as_deref(), schema)?;
-    }
     let candidate_index = candidate_index_snapshot(
         accepted_before,
         statement.name.as_str(),
@@ -266,6 +208,41 @@ pub(super) fn bind_create_index_statement(
         schema,
         index_store_path,
     )?;
+    let addition_candidate =
+        resolve_sql_ddl_secondary_index_addition_candidate(accepted_before, candidate_index)
+            .map_err(|error| {
+                sql_secondary_index_addition_candidate_error(
+                    statement.name.as_str(),
+                    &key_items,
+                    &field_paths,
+                    error,
+                )
+            })?;
+    let candidate_index = match addition_candidate {
+        SchemaDdlSecondaryIndexAdditionCandidate::Add(candidate_index) => candidate_index,
+        SchemaDdlSecondaryIndexAdditionCandidate::Existing(existing_index)
+            if statement.if_not_exists =>
+        {
+            return Ok(BoundSqlDdlRequest {
+                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
+                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                    mutation_kind: create_index_mutation_kind(key_items.as_slice()),
+                    index_name: statement.name.clone(),
+                    entity_name: entity_name.to_string(),
+                    target_store: existing_index.store().to_string(),
+                    field_path: create_index_key_report(
+                        key_items.as_slice(),
+                        field_paths.as_slice(),
+                    ),
+                }),
+            });
+        }
+        SchemaDdlSecondaryIndexAdditionCandidate::Existing(_) => {
+            return Err(SqlDdlBindError::DuplicateIndexName {
+                index_name: statement.name.clone(),
+            });
+        }
+    };
 
     Ok(BoundSqlDdlRequest {
         schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
@@ -450,146 +427,44 @@ fn bind_create_index_field_path(
     })
 }
 
-fn find_field_path_index_by_name<'a>(
-    schema: &'a SchemaInfo,
+fn sql_secondary_index_addition_candidate_error(
     index_name: &str,
-) -> Option<&'a crate::db::schema::SchemaIndexInfo> {
-    schema
-        .field_path_indexes()
-        .iter()
-        .find(|index| index.name() == index_name)
-}
-
-fn existing_field_path_index_matches_request(
-    index: &crate::db::schema::SchemaIndexInfo,
-    field_paths: &[BoundSqlDdlFieldPath],
-    predicate_sql: Option<&str>,
-    uniqueness: SqlCreateIndexUniqueness,
-) -> bool {
-    let fields = index.fields();
-
-    index.unique() == matches!(uniqueness, SqlCreateIndexUniqueness::Unique)
-        && index.predicate_sql() == predicate_sql
-        && fields.len() == field_paths.len()
-        && fields
-            .iter()
-            .zip(field_paths)
-            .all(|(field, requested)| field.path() == requested.accepted_path())
-}
-
-fn find_expression_index_by_name<'a>(
-    schema: &'a SchemaInfo,
-    index_name: &str,
-) -> Option<&'a SchemaExpressionIndexInfo> {
-    schema
-        .expression_indexes()
-        .iter()
-        .find(|index| index.name() == index_name)
-}
-
-fn existing_expression_index_matches_request(
-    index: &SchemaExpressionIndexInfo,
     key_items: &[BoundSqlDdlCreateIndexKey],
-    predicate_sql: Option<&str>,
-    uniqueness: SqlCreateIndexUniqueness,
-) -> bool {
-    let existing_key_items = index.key_items();
-
-    index.unique() == matches!(uniqueness, SqlCreateIndexUniqueness::Unique)
-        && index.predicate_sql() == predicate_sql
-        && existing_key_items.len() == key_items.len()
-        && existing_key_items
-            .iter()
-            .zip(key_items)
-            .all(existing_expression_key_item_matches_request)
-}
-
-fn existing_expression_key_item_matches_request(
-    existing: (
-        &SchemaExpressionIndexKeyItemInfo,
-        &BoundSqlDdlCreateIndexKey,
-    ),
-) -> bool {
-    let (existing, requested) = existing;
-    match (existing, requested) {
-        (
-            SchemaExpressionIndexKeyItemInfo::FieldPath(existing),
-            BoundSqlDdlCreateIndexKey::FieldPath(requested),
-        ) => existing.path() == requested.accepted_path(),
-        (
-            SchemaExpressionIndexKeyItemInfo::Expression(existing),
-            BoundSqlDdlCreateIndexKey::Expression(requested),
-        ) => existing_expression_component_matches_request(
-            existing.op(),
-            existing.source().path(),
-            existing.canonical_text(),
-            requested,
-        ),
-        _ => false,
+    field_paths: &[BoundSqlDdlFieldPath],
+    error: SchemaDdlSecondaryIndexAdditionCandidateError,
+) -> SqlDdlBindError {
+    match error {
+        SchemaDdlSecondaryIndexAdditionCandidateError::DuplicateName => {
+            SqlDdlBindError::DuplicateIndexName {
+                index_name: index_name.to_string(),
+            }
+        }
+        SchemaDdlSecondaryIndexAdditionCandidateError::DuplicateContract { existing_index } => {
+            SqlDdlBindError::DuplicateFieldPathIndex {
+                field_path: create_index_key_report(key_items, field_paths).join(","),
+                existing_index,
+            }
+        }
     }
 }
 
-fn existing_expression_component_matches_request(
-    existing_op: PersistedIndexExpressionOp,
-    existing_path: &[String],
-    existing_canonical_text: &str,
-    requested: &BoundSqlDdlExpressionKey,
-) -> bool {
-    let requested_path = requested.source().accepted_path();
-    let requested_canonical_text = format!("expr:v1:{}", requested.canonical_sql());
-
-    existing_op == requested.op()
-        && existing_path == requested_path
-        && existing_canonical_text == requested_canonical_text
+fn create_index_mutation_kind(key_items: &[BoundSqlDdlCreateIndexKey]) -> SqlDdlMutationKind {
+    if key_items_are_field_path_only(key_items) {
+        SqlDdlMutationKind::AddFieldPathIndex
+    } else {
+        SqlDdlMutationKind::AddExpressionIndex
+    }
 }
 
-fn reject_duplicate_expression_index(
+fn create_index_key_report(
     key_items: &[BoundSqlDdlCreateIndexKey],
-    predicate_sql: Option<&str>,
-    schema: &SchemaInfo,
-) -> Result<(), SqlDdlBindError> {
-    let Some(existing_index) = schema.expression_indexes().iter().find(|index| {
-        existing_expression_index_matches_request(
-            index,
-            key_items,
-            predicate_sql,
-            if index.unique() {
-                SqlCreateIndexUniqueness::Unique
-            } else {
-                SqlCreateIndexUniqueness::NonUnique
-            },
-        )
-    }) else {
-        return Ok(());
-    };
-
-    Err(SqlDdlBindError::DuplicateFieldPathIndex {
-        field_path: ddl_key_item_report(key_items).join(","),
-        existing_index: existing_index.name().to_string(),
-    })
-}
-
-fn reject_duplicate_field_path_index(
     field_paths: &[BoundSqlDdlFieldPath],
-    predicate_sql: Option<&str>,
-    schema: &SchemaInfo,
-) -> Result<(), SqlDdlBindError> {
-    let Some(existing_index) = schema.field_path_indexes().iter().find(|index| {
-        let fields = index.fields();
-        index.predicate_sql() == predicate_sql
-            && fields.len() == field_paths.len()
-            && fields
-                .iter()
-                .zip(field_paths)
-                .all(|(field, requested)| field.path() == requested.accepted_path())
-    }) else {
-        return Ok(());
-    };
-
-    Err(SqlDdlBindError::DuplicateFieldPathIndex {
-        field_path: ddl_field_path_report(field_paths).join(","),
-        existing_index: existing_index.name().to_string(),
-    })
+) -> Vec<String> {
+    if key_items_are_field_path_only(key_items) {
+        ddl_field_path_report(field_paths)
+    } else {
+        ddl_key_item_report(key_items)
+    }
 }
 
 fn candidate_index_snapshot(

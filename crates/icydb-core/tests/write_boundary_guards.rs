@@ -529,22 +529,31 @@ fn sql_ddl_drop_index_uses_persisted_index_origin() {
 fn sql_ddl_add_column_uses_schema_owned_field_allocation() {
     let ddl_field = read_source("src/db/sql/ddl/field.rs");
     let mutation = read_rust_sources_under("src/db/schema/mutation");
+    let ddl_field_compact = compact_source(&ddl_field);
 
     assert!(
-        ddl_field.contains("build_sql_ddl_field_addition_candidate(")
+        ddl_field.contains("resolve_sql_ddl_field_addition_name_candidate(")
+            && ddl_field.contains("build_sql_ddl_field_addition_candidate(")
+            && !ddl_field.contains(".field_nullable(statement.column_name.as_str())")
+            && !ddl_field_compact.contains("!statement.nullable&&default.is_none()")
             && !ddl_field.contains("fn next_sql_ddl_field_id(")
             && !ddl_field.contains("fn next_sql_ddl_field_slot(")
             && !ddl_field.contains("PersistedFieldOrigin::SqlDdl")
             && !ddl_field.contains("SchemaFieldWritePolicy::from_model_policies(None, None)"),
-        "SQL DDL ADD COLUMN must bind author intent without owning field ID, slot, origin, or write-policy allocation",
+        "SQL DDL ADD COLUMN must bind author intent without owning field existence, required-default, ID, slot, origin, or write-policy allocation",
     );
     assert!(
-        mutation.contains("pub(in crate::db) fn build_sql_ddl_field_addition_candidate(")
+        mutation.contains("pub(in crate::db) enum SchemaDdlFieldAdditionCandidateError")
+            && mutation
+                .contains("pub(in crate::db) fn resolve_sql_ddl_field_addition_name_candidate(")
+            && mutation.contains("pub(in crate::db) fn build_sql_ddl_field_addition_candidate(")
+            && mutation.contains("SchemaDdlFieldAdditionCandidateError::Duplicate")
+            && mutation.contains("SchemaDdlFieldAdditionCandidateError::RequiredWithoutDefault")
             && mutation.contains("fn next_sql_ddl_field_id(")
             && mutation.contains("fn next_sql_ddl_field_slot(")
             && mutation.contains("PersistedFieldOrigin::SqlDdl")
             && mutation.contains("SchemaFieldWritePolicy::from_model_policies(None, None)"),
-        "schema mutation code must own DDL field ID, slot, origin, and write-policy allocation",
+        "schema mutation code must own DDL field existence, required-default, ID, slot, origin, and write-policy allocation",
     );
 }
 
@@ -636,15 +645,28 @@ fn sql_ddl_create_index_uses_schema_owned_index_candidate_identity() {
 
     assert!(
         ddl_index.contains("build_sql_ddl_secondary_index_candidate(")
+            && ddl_index.contains("resolve_sql_ddl_secondary_index_addition_candidate(")
+            && !ddl_index.contains("find_field_path_index_by_name(")
+            && !ddl_index.contains("existing_field_path_index_matches_request(")
+            && !ddl_index.contains("find_expression_index_by_name(")
+            && !ddl_index.contains("existing_expression_index_matches_request(")
+            && !ddl_index.contains("reject_duplicate_field_path_index(")
+            && !ddl_index.contains("reject_duplicate_expression_index(")
             && !ddl_index.contains("PersistedIndexSnapshot::new_sql_ddl")
             && !ddl_index.contains("next_secondary_index_ordinal"),
-        "SQL DDL CREATE INDEX must bind key intent without owning index ordinal or origin allocation",
+        "SQL DDL CREATE INDEX must bind key intent without owning accepted index conflict matching, ordinal, or origin allocation",
     );
     assert!(
-        mutation.contains("pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(")
+        mutation.contains("pub(in crate::db) enum SchemaDdlSecondaryIndexAdditionCandidate")
+            && mutation.contains(
+                "pub(in crate::db) fn resolve_sql_ddl_secondary_index_addition_candidate("
+            )
+            && mutation.contains("fn secondary_index_exact_addition_match(")
+            && mutation.contains("fn secondary_index_duplicate_contract_match(")
+            && mutation.contains("pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(")
             && mutation.contains("fn next_sql_ddl_secondary_index_ordinal(")
             && mutation.contains("PersistedIndexSnapshot::new_sql_ddl("),
-        "schema mutation code must own DDL secondary-index ordinal and origin allocation",
+        "schema mutation code must own DDL secondary-index conflict matching, ordinal, and origin allocation",
     );
 }
 

@@ -5,10 +5,11 @@ use super::{
 use crate::db::{
     schema::{
         AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldSnapshot,
-        SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
-        SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
-        SchemaFieldDefault, SchemaInfo, build_sql_ddl_field_addition_candidate,
-        encode_sql_ddl_add_column_default, encode_sql_ddl_alter_column_default,
+        SchemaDdlFieldAdditionCandidateError, SchemaDdlFieldDefaultCandidateError,
+        SchemaDdlFieldDropCandidateError, SchemaDdlFieldNullabilityCandidateError,
+        SchemaDdlFieldRenameCandidateError, SchemaFieldDefault, SchemaInfo,
+        build_sql_ddl_field_addition_candidate, encode_sql_ddl_add_column_default,
+        encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_addition_name_candidate,
         resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
         resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
         resolve_sql_ddl_field_set_default_candidate,
@@ -228,15 +229,10 @@ pub(super) fn bind_alter_table_add_column_statement(
         });
     }
 
-    if schema
-        .field_nullable(statement.column_name.as_str())
-        .is_some()
-    {
-        return Err(SqlDdlBindError::DuplicateColumn {
-            entity_name: entity_name.to_string(),
-            column_name: statement.column_name.clone(),
-        });
-    }
+    resolve_sql_ddl_field_addition_name_candidate(accepted_before, statement.column_name.as_str())
+        .map_err(|error| {
+            sql_field_addition_candidate_error(entity_name, statement.column_name.as_str(), error)
+        })?;
 
     let (kind, storage_decode, leaf_codec) = persisted_field_contract_for_sql_column_type(
         statement.column_type.as_str(),
@@ -255,12 +251,6 @@ pub(super) fn bind_alter_table_add_column_statement(
         storage_decode,
         leaf_codec,
     )?;
-    if !statement.nullable && default.is_none() {
-        return Err(SqlDdlBindError::UnsupportedAlterTableAddColumnNotNull {
-            entity_name: entity_name.to_string(),
-            column_name: statement.column_name.clone(),
-        });
-    }
     let field = build_sql_ddl_field_addition_candidate(
         accepted_before,
         statement.column_name.clone(),
@@ -269,7 +259,10 @@ pub(super) fn bind_alter_table_add_column_statement(
         default,
         storage_decode,
         leaf_codec,
-    );
+    )
+    .map_err(|error| {
+        sql_field_addition_candidate_error(entity_name, statement.column_name.as_str(), error)
+    })?;
 
     Ok(BoundSqlDdlRequest {
         schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
@@ -560,6 +553,25 @@ fn bind_alter_table_alter_column_nullability(
                 mutation_kind,
             },
         ),
+    }
+}
+
+fn sql_field_addition_candidate_error(
+    entity_name: &str,
+    column_name: &str,
+    error: SchemaDdlFieldAdditionCandidateError,
+) -> SqlDdlBindError {
+    match error {
+        SchemaDdlFieldAdditionCandidateError::Duplicate => SqlDdlBindError::DuplicateColumn {
+            entity_name: entity_name.to_string(),
+            column_name: column_name.to_string(),
+        },
+        SchemaDdlFieldAdditionCandidateError::RequiredWithoutDefault => {
+            SqlDdlBindError::UnsupportedAlterTableAddColumnNotNull {
+                entity_name: entity_name.to_string(),
+                column_name: column_name.to_string(),
+            }
+        }
     }
 }
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- SQL DDL `ADD COLUMN` candidate checks and `CREATE INDEX` accepted-index
+  conflict resolution now route through schema-owned mutation helpers while
+  preserving bind diagnostics and no-op handling.
+
 ## [0.178.x] 🧭 - 2026-06-04 - Schema Migration / DDL Transition Admission
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)

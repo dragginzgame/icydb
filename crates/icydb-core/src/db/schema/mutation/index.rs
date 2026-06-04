@@ -314,6 +314,26 @@ impl SchemaSecondaryIndexDropCleanupTarget {
     }
 }
 
+/// Schema-owned outcome for resolving one SQL DDL secondary-index addition
+/// against accepted catalog authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlSecondaryIndexAdditionCandidate {
+    /// No accepted index conflicts with the DDL-authored candidate.
+    Add(PersistedIndexSnapshot),
+    /// An accepted index with the same name already has the same contract.
+    Existing(PersistedIndexSnapshot),
+}
+
+/// Secondary-index addition candidate resolution failures for SQL DDL-authored
+/// schema mutations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlSecondaryIndexAdditionCandidateError {
+    /// An accepted index already uses the requested SQL index name.
+    DuplicateName,
+    /// An accepted index already has the requested key and predicate contract.
+    DuplicateContract { existing_index: String },
+}
+
 impl SchemaMutationRequest<'_> {
     /// Lower one accepted field-path index snapshot into a mutation request.
     /// Expression/mixed indexes stay on their dedicated lowering path.
@@ -493,6 +513,45 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     Ok((index, field_path))
 }
 
+/// Resolve one accepted SQL DDL secondary-index addition candidate. SQL DDL
+/// supplies the already-bound key contract and frontend `IF NOT EXISTS`
+/// policy; schema mutation owns accepted name and key-contract comparison.
+pub(in crate::db) fn resolve_sql_ddl_secondary_index_addition_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    candidate: PersistedIndexSnapshot,
+) -> Result<SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError>
+{
+    let accepted = accepted_before.persisted_snapshot();
+
+    if let Some(existing) = accepted
+        .indexes()
+        .iter()
+        .find(|index| index.name() == candidate.name())
+    {
+        if secondary_index_exact_addition_match(existing, &candidate) {
+            return Ok(SchemaDdlSecondaryIndexAdditionCandidate::Existing(
+                existing.clone(),
+            ));
+        }
+
+        return Err(SchemaDdlSecondaryIndexAdditionCandidateError::DuplicateName);
+    }
+
+    if let Some(existing) = accepted
+        .indexes()
+        .iter()
+        .find(|index| secondary_index_duplicate_contract_match(index, &candidate))
+    {
+        return Err(
+            SchemaDdlSecondaryIndexAdditionCandidateError::DuplicateContract {
+                existing_index: existing.name().to_string(),
+            },
+        );
+    }
+
+    Ok(SchemaDdlSecondaryIndexAdditionCandidate::Add(candidate))
+}
+
 /// Build one SQL DDL-owned secondary-index candidate with schema-owned ordinal
 /// allocation. SQL DDL supplies author intent and accepted key metadata;
 /// schema mutation code assigns durable catalog identity.
@@ -523,6 +582,21 @@ fn next_sql_ddl_secondary_index_ordinal(accepted_before: &AcceptedSchemaSnapshot
         .max()
         .unwrap_or(0)
         .saturating_add(1)
+}
+
+fn secondary_index_exact_addition_match(
+    existing: &PersistedIndexSnapshot,
+    candidate: &PersistedIndexSnapshot,
+) -> bool {
+    existing.unique() == candidate.unique()
+        && secondary_index_duplicate_contract_match(existing, candidate)
+}
+
+fn secondary_index_duplicate_contract_match(
+    existing: &PersistedIndexSnapshot,
+    candidate: &PersistedIndexSnapshot,
+) -> bool {
+    existing.predicate_sql() == candidate.predicate_sql() && existing.key() == candidate.key()
 }
 
 fn ddl_drop_index_key_report(key: &PersistedIndexKeySnapshot) -> Option<Vec<String>> {

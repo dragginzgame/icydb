@@ -3976,6 +3976,25 @@ fn sql_ddl_alter_table_add_defaulted_column_binds_against_accepted_catalog() {
 }
 
 #[test]
+fn sql_ddl_alter_table_add_column_rejects_duplicate_before_type_resolution() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN name nat DEFAULT 0")
+        .expect("ALTER TABLE duplicate ADD COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("accepted duplicate ADD COLUMN names should fail before type resolution");
+
+    std::assert_matches!(
+        err,
+        SqlDdlBindError::DuplicateColumn {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "name"
+    );
+}
+
+#[test]
 fn sql_ddl_alter_table_add_big_int_column_binds_max_bytes_contract() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();

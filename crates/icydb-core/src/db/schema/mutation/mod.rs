@@ -47,7 +47,10 @@ pub(in crate::db) use field::{
 };
 
 mod field_allocation;
-pub(in crate::db) use field_allocation::build_sql_ddl_field_addition_candidate;
+pub(in crate::db) use field_allocation::{
+    SchemaDdlFieldAdditionCandidateError, build_sql_ddl_field_addition_candidate,
+    resolve_sql_ddl_field_addition_name_candidate,
+};
 
 mod field_default_encoding;
 pub(in crate::db) use field_default_encoding::{
@@ -59,12 +62,14 @@ pub(in crate::db) use ddl_admission::SchemaDdlSchemaVersionAdmissionError;
 
 mod index;
 pub(in crate::db) use index::{
+    SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
     build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after,
+    resolve_sql_ddl_secondary_index_addition_candidate,
     resolve_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(test)]
