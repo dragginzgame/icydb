@@ -1326,6 +1326,24 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Store, message.into())
     }
 
+    /// Construct the canonical schema DDL publication race error.
+    pub(crate) fn schema_ddl_publication_race_lost(entity_path: &'static str) -> Self {
+        let message = format!(
+            "SQL DDL publication race lost for entity '{entity_path}': accepted schema changed after DDL binding",
+        );
+
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Store,
+            message,
+            detail: Some(ErrorDetail::Store(
+                StoreError::SchemaDdlPublicationRaceLost {
+                    entity_path: entity_path.to_string(),
+                },
+            )),
+        }
+    }
+
     /// Construct the canonical unsupported persisted entity-tag store error.
     pub(crate) fn unsupported_entity_tag_in_data_store(
         entity_tag: crate::types::EntityTag,
@@ -1535,6 +1553,9 @@ pub enum StoreError {
 
     #[error("store invariant violation: {message}")]
     InvariantViolation { message: String },
+
+    #[error("schema DDL publication race lost for entity: {entity_path}")]
+    SchemaDdlPublicationRaceLost { entity_path: String },
 }
 
 ///

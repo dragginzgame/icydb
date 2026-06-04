@@ -594,6 +594,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (rows_scanned, index_keys_written) = Self::execute_prepared_sql_ddl_mutation::<E>(
             store,
             accepted_before.snapshot(),
+            accepted_before.identity(),
             derivation,
             &prepared,
         )?;
@@ -611,6 +612,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_prepared_sql_ddl_mutation<E>(
         store: crate::db::registry::StoreHandle,
         accepted_before: &AcceptedSchemaSnapshot,
+        accepted_before_identity: crate::db::schema::AcceptedCatalogIdentity,
         derivation: &crate::db::schema::SchemaDdlAcceptedSnapshotDerivation,
         prepared: &PreparedSqlDdlCommand,
     ) -> Result<(usize, usize), QueryError>
@@ -624,6 +626,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -636,6 +639,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -648,6 +652,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -660,6 +665,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -672,6 +678,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -686,6 +693,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?
@@ -696,6 +704,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?
@@ -706,6 +715,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     accepted_before,
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;

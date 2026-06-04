@@ -10,7 +10,7 @@ use crate::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldOrigin,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, SchemaInfo, SchemaVersion,
             accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_method_version,
-            compiled_schema_proposal_for_model,
+            compiled_schema_proposal_for_model, execute_sql_ddl_field_addition,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
@@ -23,7 +23,7 @@ use crate::{
             parser::parse_sql,
         },
     },
-    error::ErrorClass,
+    error::{ErrorClass, ErrorDetail, StoreError},
 };
 use std::collections::HashSet;
 
@@ -4987,6 +4987,82 @@ fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication(
                 .iter()
                 .all(|field| field.name() != "nickname")),
             "rejected DDL version contracts must not publish candidate fields",
+        );
+    });
+}
+
+#[test]
+fn execute_sql_ddl_publication_rechecks_bound_accepted_identity() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema catalog bootstrap should succeed");
+    let accepted_before = catalog.snapshot().clone();
+    let accepted_before_identity = catalog.identity();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let stale_statement = parse_sql(&ddl_transition_sql(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        1,
+    ))
+    .expect("stale ADD COLUMN DDL should parse");
+    let stale_bound = bind_sql_ddl_statement(
+        &stale_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("stale ADD COLUMN DDL should bind against accepted-before v1");
+    let stale_derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &stale_bound)
+        .expect("stale ADD COLUMN DDL should derive an accepted-after candidate");
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
+            1,
+        ))
+        .expect("competing ADD COLUMN DDL should publish accepted schema v2");
+
+    let store = SESSION_SQL_DB
+        .recovered_store(SessionSqlStore::PATH)
+        .expect("session SQL store should be recovered for stale publication attempt");
+    let err = execute_sql_ddl_field_addition(
+        store,
+        SessionSqlEntity::ENTITY_TAG,
+        SessionSqlEntity::PATH,
+        &accepted_before,
+        accepted_before_identity,
+        &stale_derivation,
+    )
+    .expect_err("stale DDL publication should reject before replacing live accepted schema");
+    assert_eq!(err.class(), ErrorClass::Unsupported);
+    assert!(
+        matches!(
+            err.detail(),
+            Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost { entity_path }))
+                if entity_path == SessionSqlEntity::PATH
+        ),
+        "stale DDL publication should report the structured race-lost detail",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema store lookup should stay readable after race-lost DDL")
+            .expect("competing DDL should leave an accepted snapshot");
+        assert_eq!(latest.version(), SchemaVersion::new(2));
+        assert!(
+            latest.fields().iter().any(|field| field.name() == "handle"),
+            "competing DDL-published field should remain visible",
+        );
+        assert!(
+            latest
+                .fields()
+                .iter()
+                .all(|field| field.name() != "nickname"),
+            "race-lost DDL must not replace the live accepted schema",
         );
     });
 }

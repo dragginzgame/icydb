@@ -582,8 +582,10 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && startup_field_path.contains("publish_accepted_snapshot(")
             && startup_field_path.contains("validate_before_schema_publication(")
             && startup_field_path.contains("validate_physical_store_before_schema_publication(")
-            && startup_field_path
-                .contains("schema_store.insert_persisted_snapshot(entity_tag, accepted_after)"),
+            && reconcile.contains("SchemaPublicationGate::startup(entity_tag)")
+            && startup_field_path.contains(
+                "schema_store.insert_persisted_snapshot(self.entity_tag, accepted_after)"
+            ),
         "runtime startup reconciliation must route the supported field-path index-add path through the startup rebuild/publication gate without folding the adapter back into general reconciliation",
     );
 }
@@ -1344,14 +1346,16 @@ fn schema_store_publication_stays_version_passive() {
     assert!(
         store_compact
             .contains("letkey=RawSchemaKey::from_entity_version(entity,snapshot.version());")
-            && store.contains("RawSchemaSnapshot::from_persisted_snapshot(snapshot)?"),
+            && store.contains("RawSchemaSnapshot::from_persisted_snapshot(snapshot)?")
+            && store.contains("pub(in crate::db) fn insert_persisted_snapshot_if_latest_identity(")
+            && store.contains("self.insert_persisted_snapshot(expected.entity_tag(), snapshot)"),
         "schema store publication must key persisted snapshots by the snapshot-declared version",
     );
     assert!(
         reconcile.contains(
-            "store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))",
+            "schema_store.insert_persisted_snapshot_if_latest_identity(accepted_before_identity, after)",
         ),
-        "SQL DDL publication must pass the accepted-after snapshot through to storage without version synthesis",
+        "SQL DDL publication must condition accepted-after storage on the binding-time accepted identity without version synthesis",
     );
     assert!(
         reconcile.contains("let proposal = compiled_schema_proposal_for_model(model);")

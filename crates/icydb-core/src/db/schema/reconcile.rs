@@ -16,13 +16,13 @@ use crate::{
         index::{IndexId, IndexKey, IndexState, IndexStoreVisit, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{
-            AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
-            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
-            SchemaFieldRenameTarget, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-            SchemaRowLayout, SchemaSecondaryIndexDropCleanupTarget, SchemaStore,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
-            decide_schema_transition,
+            AcceptedCatalogIdentity, AcceptedSchemaSnapshot, MutationPublicationBlocker,
+            MutationPublicationPreflight, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
+            SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaMutationRunnerCapability,
+            SchemaMutationRunnerContract, SchemaRowLayout, SchemaSecondaryIndexDropCleanupTarget,
+            SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
+            compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeContract,
             transition::{
                 SchemaAdmissionIdentityComparison, SchemaTransitionPlan,
@@ -43,7 +43,7 @@ use crate::{
 use std::collections::BTreeSet;
 
 use startup_expression::execute_supported_expression_index_addition;
-use startup_field_path::execute_supported_field_path_index_addition;
+use startup_field_path::{SchemaPublicationGate, execute_supported_field_path_index_addition};
 
 /// Reconcile registered runtime schemas with the schema metadata store.
 ///
@@ -69,6 +69,7 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
     let before = accepted_before.persisted_snapshot();
@@ -96,7 +97,7 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
 
     let report = execute_supported_field_path_index_addition(
         store,
-        entity_tag,
+        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
         entity_path,
         before,
         after,
@@ -113,6 +114,7 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
     let before = accepted_before.persisted_snapshot();
@@ -133,7 +135,7 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
 
     execute_supported_expression_index_addition(
         store,
-        entity_tag,
+        SchemaPublicationGate::sql_ddl(entity_tag, accepted_before_identity),
         entity_path,
         before,
         after,
@@ -148,6 +150,7 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let Some(target) = derivation.admission().field_addition_target() else {
@@ -184,7 +187,7 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
         )));
     }
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
 }
 
 fn require_sql_ddl_transition_plan(
@@ -217,9 +220,13 @@ fn require_sql_ddl_transition_plan(
 fn publish_sql_ddl_accepted_snapshot(
     store: StoreHandle,
     entity_tag: EntityTag,
+    accepted_before_identity: AcceptedCatalogIdentity,
     after: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
-    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+    store.with_schema_mut(|schema_store| {
+        debug_assert_eq!(entity_tag, accepted_before_identity.entity_tag());
+        schema_store.insert_persisted_snapshot_if_latest_identity(accepted_before_identity, after)
+    })
 }
 
 fn row_layout_allocation_matches(left: &SchemaRowLayout, right: &SchemaRowLayout) -> bool {
@@ -233,6 +240,7 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let Some(target) = derivation.admission().field_drop_target() else {
@@ -244,7 +252,7 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
     let after = derivation.accepted_after().persisted_snapshot();
     validate_sql_ddl_field_drop_metadata_change(entity_path, before, after, target)?;
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
@@ -343,6 +351,7 @@ pub(in crate::db) fn execute_sql_ddl_field_default_change(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let Some(target) = derivation.admission().field_default_target() else {
@@ -354,7 +363,7 @@ pub(in crate::db) fn execute_sql_ddl_field_default_change(
     let after = derivation.accepted_after().persisted_snapshot();
     validate_sql_ddl_field_default_metadata_change(entity_path, before, after, target)?;
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
 }
 
 fn validate_sql_ddl_field_default_metadata_change(
@@ -422,6 +431,7 @@ pub(in crate::db) fn execute_sql_ddl_field_nullability_change(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<usize, InternalError> {
     let Some(target) = derivation.admission().field_nullability_target() else {
@@ -439,7 +449,7 @@ pub(in crate::db) fn execute_sql_ddl_field_nullability_change(
         0
     };
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)?;
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)?;
 
     Ok(rows_scanned)
 }
@@ -577,6 +587,7 @@ pub(in crate::db) fn execute_sql_ddl_field_rename(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let Some(target) = derivation.admission().field_rename_target() else {
@@ -588,7 +599,7 @@ pub(in crate::db) fn execute_sql_ddl_field_rename(
     let after = derivation.accepted_after().persisted_snapshot();
     validate_sql_ddl_field_rename_metadata_change(entity_path, before, after, target)?;
 
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)
 }
 
 fn validate_sql_ddl_field_rename_metadata_change(
@@ -675,6 +686,7 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
     entity_tag: EntityTag,
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
+    accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<usize, InternalError> {
     let Some(target) = derivation.admission().drop_target() else {
@@ -712,7 +724,7 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
         before,
         "before publication",
     )?;
-    publish_sql_ddl_accepted_snapshot(store, entity_tag, after)?;
+    publish_sql_ddl_accepted_snapshot(store, entity_tag, accepted_before_identity, after)?;
 
     Ok(removed)
 }
@@ -981,7 +993,7 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
             SchemaTransitionPlanKind::AddFieldPathIndex => {
                 execute_supported_field_path_index_addition(
                     store,
-                    entity_tag,
+                    SchemaPublicationGate::startup(entity_tag),
                     entity_path,
                     &actual,
                     &expected,
@@ -1312,7 +1324,7 @@ fn validate_existing_schema_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::startup_field_path;
+    use super::startup_field_path::{self, SchemaPublicationGate};
     use crate::{
         db::{
             Db, EntityRuntimeHooks,
@@ -2346,7 +2358,11 @@ mod tests {
         )
         .expect("publishable runner report and valid gate should allow schema publication");
         decision
-            .publish_accepted_snapshot(store, IndexedSchemaEntity::ENTITY_TAG, &expected)
+            .publish_accepted_snapshot(
+                store,
+                SchemaPublicationGate::startup(IndexedSchemaEntity::ENTITY_TAG),
+                &expected,
+            )
             .expect("publication decision should write accepted schema");
 
         let latest = RECONCILE_SCHEMA_STORE
@@ -2515,7 +2531,11 @@ mod tests {
         });
 
         decision
-            .publish_accepted_snapshot(store, IndexedSchemaEntity::ENTITY_TAG, &expected)
+            .publish_accepted_snapshot(
+                store,
+                SchemaPublicationGate::startup(IndexedSchemaEntity::ENTITY_TAG),
+                &expected,
+            )
             .expect_err("physical store drift after runner should reject schema publication");
 
         let latest = RECONCILE_SCHEMA_STORE

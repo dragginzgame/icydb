@@ -15,13 +15,14 @@ use crate::{
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
         schema::{
-            AcceptedSchemaSnapshot, PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildRow,
-            SchemaFieldPathIndexRebuildTarget, SchemaFieldPathIndexRunner,
-            SchemaFieldPathIndexRunnerFailure, SchemaFieldPathIndexRunnerReport,
-            SchemaMutationAcceptedSnapshotPublicationSink, SchemaMutationDeveloperReport,
-            SchemaMutationPublishStatus, SchemaMutationRunnerInput, SchemaMutationRunnerPhase,
-            SchemaMutationRuntimeEpoch, SchemaMutationRuntimeInvalidationSink,
-            SchemaMutationValidationStatus, transition::SchemaTransitionPlan,
+            AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRebuildTarget,
+            SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerFailure,
+            SchemaFieldPathIndexRunnerReport, SchemaMutationAcceptedSnapshotPublicationSink,
+            SchemaMutationDeveloperReport, SchemaMutationPublishStatus, SchemaMutationRunnerInput,
+            SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch,
+            SchemaMutationRuntimeInvalidationSink, SchemaMutationValidationStatus, SchemaStore,
+            transition::SchemaTransitionPlan,
         },
     },
     error::InternalError,
@@ -31,12 +32,13 @@ use sha2::{Digest, Sha256};
 
 pub(super) fn execute_supported_field_path_index_addition(
     store: StoreHandle,
-    entity_tag: EntityTag,
+    publication_gate: SchemaPublicationGate,
     entity_path: &'static str,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
     plan: &SchemaTransitionPlan,
 ) -> Result<SchemaMutationDeveloperReport, InternalError> {
+    let entity_tag = publication_gate.entity_tag();
     let supported = plan
         .supported_developer_physical_path()
         .map_err(|rejection| {
@@ -44,16 +46,7 @@ pub(super) fn execute_supported_field_path_index_addition(
                 "schema mutation physical startup execution rejected for entity '{entity_path}': supported_path_rejection={rejection:?}",
             ))
         })?;
-    let input = SchemaMutationRunnerInput::new(
-        accepted_before,
-        accepted_after,
-        plan.execution_plan(),
-    )
-    .map_err(|error| {
-        InternalError::store_unsupported(format!(
-            "schema mutation runner input rejected for entity '{entity_path}': error={error:?}",
-        ))
-    })?;
+    let input = field_path_runner_input(entity_path, accepted_before, accepted_after, plan)?;
     let accepted = AcceptedSchemaSnapshot::try_new(accepted_before.clone())?;
     let row_contract =
         StructuralRowContract::from_accepted_schema_snapshot(entity_path, &accepted)?;
@@ -139,9 +132,66 @@ pub(super) fn execute_supported_field_path_index_addition(
         supported.target(),
         &report,
     )?;
-    publication.publish_accepted_snapshot(store, entity_tag, accepted_after)?;
+    publication.publish_accepted_snapshot(store, publication_gate, accepted_after)?;
 
     Ok(publication.diagnostic)
+}
+
+fn field_path_runner_input<'a>(
+    entity_path: &'static str,
+    accepted_before: &'a PersistedSchemaSnapshot,
+    accepted_after: &'a PersistedSchemaSnapshot,
+    plan: &SchemaTransitionPlan,
+) -> Result<SchemaMutationRunnerInput<'a>, InternalError> {
+    SchemaMutationRunnerInput::new(accepted_before, accepted_after, plan.execution_plan()).map_err(
+        |error| {
+            InternalError::store_unsupported(format!(
+                "schema mutation runner input rejected for entity '{entity_path}': error={error:?}",
+            ))
+        },
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SchemaPublicationGate {
+    entity_tag: EntityTag,
+    accepted_before_identity: Option<AcceptedCatalogIdentity>,
+}
+
+impl SchemaPublicationGate {
+    pub(super) const fn startup(entity_tag: EntityTag) -> Self {
+        Self {
+            entity_tag,
+            accepted_before_identity: None,
+        }
+    }
+
+    pub(super) const fn sql_ddl(
+        entity_tag: EntityTag,
+        accepted_before_identity: AcceptedCatalogIdentity,
+    ) -> Self {
+        Self {
+            entity_tag,
+            accepted_before_identity: Some(accepted_before_identity),
+        }
+    }
+
+    pub(super) const fn entity_tag(self) -> EntityTag {
+        self.entity_tag
+    }
+
+    pub(super) fn publish_accepted_snapshot(
+        self,
+        schema_store: &mut SchemaStore,
+        accepted_after: &PersistedSchemaSnapshot,
+    ) -> Result<(), InternalError> {
+        if let Some(expected) = self.accepted_before_identity {
+            debug_assert_eq!(self.entity_tag, expected.entity_tag());
+            schema_store.insert_persisted_snapshot_if_latest_identity(expected, accepted_after)
+        } else {
+            schema_store.insert_persisted_snapshot(self.entity_tag, accepted_after)
+        }
+    }
 }
 
 fn field_path_rebuild_predicate_program(
@@ -346,12 +396,13 @@ impl StartupFieldPathPublicationDecision {
     pub(super) fn publish_accepted_snapshot(
         &self,
         store: StoreHandle,
-        entity_tag: EntityTag,
+        publication_gate: SchemaPublicationGate,
         accepted_after: &PersistedSchemaSnapshot,
     ) -> Result<(), InternalError> {
+        let entity_tag = publication_gate.entity_tag();
         self.validate_physical_store_before_schema_publication(store, entity_tag)?;
         store.with_schema_mut(|schema_store| {
-            schema_store.insert_persisted_snapshot(entity_tag, accepted_after)
+            publication_gate.publish_accepted_snapshot(schema_store, accepted_after)
         })?;
 
         Ok(())

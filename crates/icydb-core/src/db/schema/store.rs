@@ -636,6 +636,32 @@ impl SchemaStore {
         Ok(())
     }
 
+    /// Insert one typed persisted schema snapshot only if the current live
+    /// accepted catalog identity still matches the identity captured before
+    /// schema mutation planning.
+    pub(in crate::db) fn insert_persisted_snapshot_if_latest_identity(
+        &mut self,
+        expected: AcceptedCatalogIdentity,
+        snapshot: &PersistedSchemaSnapshot,
+    ) -> Result<(), InternalError> {
+        let live = self.latest_catalog_identity(
+            expected.entity_tag(),
+            expected.entity_path(),
+            expected.store_path(),
+        )?;
+        if live
+            .as_ref()
+            .map(AcceptedCatalogSnapshotSelection::identity)
+            != Some(expected)
+        {
+            return Err(InternalError::schema_ddl_publication_race_lost(
+                expected.entity_path(),
+            ));
+        }
+
+        self.insert_persisted_snapshot(expected.entity_tag(), snapshot)
+    }
+
     /// Reset the volatile projection for journaled recovery without mutating
     /// the canonical stable schema base.
     pub(in crate::db) fn reset_journaled_live_projection(&mut self) -> Result<(), InternalError> {

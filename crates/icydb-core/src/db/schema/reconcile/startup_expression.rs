@@ -22,19 +22,20 @@ use crate::{
 use sha2::{Digest, Sha256};
 
 use super::startup_field_path::{
-    StartupDecodedFieldPathRebuildRow, StartupFieldPathRebuildRow, decode_field_path_rebuild_rows,
-    field_path_rebuild_raw_rows_for_entity,
+    SchemaPublicationGate, StartupDecodedFieldPathRebuildRow, StartupFieldPathRebuildRow,
+    decode_field_path_rebuild_rows, field_path_rebuild_raw_rows_for_entity,
 };
 
 pub(super) fn execute_supported_expression_index_addition(
     store: StoreHandle,
-    entity_tag: EntityTag,
+    publication_gate: SchemaPublicationGate,
     entity_path: &'static str,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
     plan: &SchemaTransitionPlan,
     target: &SchemaExpressionIndexRebuildTarget,
 ) -> Result<(usize, usize), InternalError> {
+    let entity_tag = publication_gate.entity_tag();
     if plan.kind() != SchemaTransitionPlanKind::AddExpressionIndex {
         return Err(InternalError::store_unsupported(format!(
             "schema mutation expression-index execution rejected for entity '{entity_path}': plan_kind={:?}",
@@ -84,7 +85,7 @@ pub(super) fn execute_supported_expression_index_addition(
         index_keys_written,
     )?;
     store.with_schema_mut(|schema_store| {
-        schema_store.insert_persisted_snapshot(entity_tag, accepted_after)
+        publication_gate.publish_accepted_snapshot(schema_store, accepted_after)
     })?;
 
     Ok((rows_scanned, index_keys_written))
