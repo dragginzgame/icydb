@@ -526,6 +526,46 @@ fn sql_ddl_drop_index_uses_persisted_index_origin() {
 }
 
 #[test]
+fn sql_ddl_add_column_uses_schema_owned_field_allocation() {
+    let ddl_field = read_source("src/db/sql/ddl/field.rs");
+    let mutation = read_rust_sources_under("src/db/schema/mutation");
+
+    assert!(
+        ddl_field.contains("build_sql_ddl_field_addition_candidate(")
+            && !ddl_field.contains("fn next_sql_ddl_field_id(")
+            && !ddl_field.contains("fn next_sql_ddl_field_slot(")
+            && !ddl_field.contains("PersistedFieldOrigin::SqlDdl")
+            && !ddl_field.contains("SchemaFieldWritePolicy::from_model_policies(None, None)"),
+        "SQL DDL ADD COLUMN must bind author intent without owning field ID, slot, origin, or write-policy allocation",
+    );
+    assert!(
+        mutation.contains("pub(in crate::db) fn build_sql_ddl_field_addition_candidate(")
+            && mutation.contains("fn next_sql_ddl_field_id(")
+            && mutation.contains("fn next_sql_ddl_field_slot(")
+            && mutation.contains("PersistedFieldOrigin::SqlDdl")
+            && mutation.contains("SchemaFieldWritePolicy::from_model_policies(None, None)"),
+        "schema mutation code must own DDL field ID, slot, origin, and write-policy allocation",
+    );
+}
+
+#[test]
+fn sql_ddl_frontend_does_not_write_schema_store_directly() {
+    let sql_ddl = read_rust_sources_under("src/db/sql");
+    let session_sql = read_rust_sources_under("src/db/session/sql");
+
+    for (surface, source) in [("SQL parser/DDL", sql_ddl), ("session SQL", session_sql)] {
+        assert!(
+            !source.contains("insert_persisted_snapshot")
+                && !source.contains("publish_accepted_snapshot")
+                && !source.contains("with_schema_mut")
+                && !source.contains("SchemaStore")
+                && !source.contains("schema_store"),
+            "{surface} must not write accepted schema storage directly; SQL DDL must publish through schema-owned mutation/reconciliation surfaces",
+        );
+    }
+}
+
+#[test]
 fn schema_mutation_publication_boundary_uses_runner_preflight() {
     let mutation = read_sources(&[
         "src/db/schema/mutation/mod.rs",

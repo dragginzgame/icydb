@@ -42,6 +42,9 @@ pub(in crate::db) use field::{
     admit_sql_ddl_field_rename_candidate,
 };
 
+mod field_allocation;
+pub(in crate::db) use field_allocation::build_sql_ddl_field_addition_candidate;
+
 mod ddl_admission;
 pub(in crate::db) use ddl_admission::SchemaDdlSchemaVersionAdmissionError;
 

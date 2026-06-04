@@ -5,9 +5,9 @@ use super::{
 use crate::db::{
     data::encode_runtime_value_for_accepted_field_contract,
     schema::{
-        AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, FieldId, PersistedFieldKind,
-        PersistedFieldOrigin, PersistedFieldSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-        SchemaFieldWritePolicy, SchemaInfo, canonicalize_strict_sql_literal_for_persisted_kind,
+        AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, PersistedFieldKind,
+        PersistedFieldSnapshot, SchemaFieldDefault, SchemaInfo,
+        build_sql_ddl_field_addition_candidate, canonicalize_strict_sql_literal_for_persisted_kind,
         resolve_sql_ddl_field_drop_dependent_index,
     },
     sql::{
@@ -258,16 +258,12 @@ pub(super) fn bind_alter_table_add_column_statement(
             column_name: statement.column_name.clone(),
         });
     }
-    let field = PersistedFieldSnapshot::new_with_write_policy_and_origin(
-        next_sql_ddl_field_id(accepted_before),
+    let field = build_sql_ddl_field_addition_candidate(
+        accepted_before,
         statement.column_name.clone(),
-        next_sql_ddl_field_slot(accepted_before),
         kind,
-        Vec::new(),
         statement.nullable,
         default,
-        SchemaFieldWritePolicy::from_model_policies(None, None),
-        PersistedFieldOrigin::SqlDdl,
         storage_decode,
         leaf_codec,
     );
@@ -652,34 +648,6 @@ fn schema_field_default_for_alter_column_default(
     )?;
 
     Ok(SchemaFieldDefault::SlotPayload(payload))
-}
-
-fn next_sql_ddl_field_id(accepted_before: &AcceptedSchemaSnapshot) -> FieldId {
-    let snapshot = accepted_before.persisted_snapshot();
-    let next = snapshot
-        .fields()
-        .iter()
-        .map(|field| field.id().get())
-        .chain(
-            snapshot
-                .row_layout()
-                .retired_field_slots()
-                .iter()
-                .map(|(field_id, _)| field_id.get()),
-        )
-        .max()
-        .unwrap_or(0)
-        .checked_add(1)
-        .expect("accepted field IDs should not be exhausted");
-
-    FieldId::new(next)
-}
-
-fn next_sql_ddl_field_slot(accepted_before: &AcceptedSchemaSnapshot) -> SchemaFieldSlot {
-    accepted_before
-        .persisted_snapshot()
-        .row_layout()
-        .next_unallocated_slot()
 }
 
 fn persisted_field_contract_for_sql_column_type(

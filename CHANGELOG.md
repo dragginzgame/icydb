@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.4` moves SQL DDL additive-field allocation back under schema-owned
+  mutation authority and closes the remaining invalid-next-version, rollback,
+  and no-direct-schema-store publication proofs.
+
 - `0.178.3` tightens the final DDL admission diagnostics edge by surfacing
   publication races as `PublicationRaceLost` and hardening schema-version
   contract parsing for duplicate clauses and literal-only values.

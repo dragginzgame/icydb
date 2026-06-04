@@ -4990,6 +4990,14 @@ fn execute_sql_ddl_rejects_invalid_schema_version_contracts_before_lowering() {
     );
     assert_eq!(
         prepare_err(
+            "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 0 ADD COLUMN nickname text"
+        ),
+        SqlDdlPrepareError::Bind(SqlDdlBindError::NonPositiveSchemaVersion {
+            clause: "SET SCHEMA VERSION"
+        }),
+    );
+    assert_eq!(
+        prepare_err(
             "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 2 SET SCHEMA VERSION 3 ADD COLUMN nickname text"
         ),
         SqlDdlPrepareError::Bind(SqlDdlBindError::StaleExpectedSchemaVersion {
@@ -5068,6 +5076,50 @@ fn execute_sql_ddl_preserves_schema_version_admission_matrix_reason() {
 }
 
 #[test]
+fn execute_sql_ddl_preserves_schema_version_rollback_admission_reason() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
+            1,
+        ))
+        .expect("setup DDL should publish accepted schema v2");
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema catalog after setup DDL should load");
+    let schema = catalog.accepted_schema_info_for::<SessionSqlEntity>();
+    let statement = parse_sql(&ddl_transition_sql_to(
+        "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        2,
+        1,
+    ))
+    .expect("rollback DDL version contract should parse");
+
+    let SqlDdlPrepareError::Lowering(SqlDdlLoweringError::MutationAdmission(
+        SchemaDdlMutationAdmissionError::SchemaVersionAdmission(reason, detail),
+    )) = prepare_sql_ddl_statement(
+        &statement,
+        catalog.snapshot(),
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("rollback DDL version contract should reject before publication")
+    else {
+        panic!("DDL rollback rejection should preserve typed admission reason");
+    };
+    assert_eq!(
+        reason,
+        SchemaDdlSchemaVersionAdmissionError::VersionRollback
+    );
+    assert!(
+        detail.contains("stored_version=2") && detail.contains("candidate_version=1"),
+        "rollback admission detail should preserve compared versions: {detail}",
+    );
+}
+
+#[test]
 fn execute_sql_ddl_maps_schema_version_contract_rejections_to_public_detail() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -5087,6 +5139,11 @@ fn execute_sql_ddl_maps_schema_version_contract_rejections_to_public_detail() {
             "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 0 SET SCHEMA VERSION 1 ADD COLUMN nickname text"
                 .to_string(),
             SchemaDdlAdmissionError::InvalidExpectedSchemaVersion,
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 0 ADD COLUMN nickname text"
+                .to_string(),
+            SchemaDdlAdmissionError::InvalidNextSchemaVersion,
         ),
         (
             "ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing".to_string(),
@@ -5133,6 +5190,43 @@ fn execute_sql_ddl_maps_schema_version_contract_rejections_to_public_detail() {
                 .iter()
                 .all(|field| field.name() != "nickname")),
             "rejected DDL version contracts must not publish candidate fields",
+        );
+    });
+}
+
+#[test]
+fn execute_sql_ddl_maps_schema_version_rollback_to_public_detail() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN handle text",
+            1,
+        ))
+        .expect("setup DDL should publish accepted schema v2");
+    let err = session
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_transition_sql_to(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+            2,
+            1,
+        ))
+        .expect_err("rollback DDL version contract should reject before publication");
+    assert_sql_ddl_admission_detail(err, SchemaDdlAdmissionError::VersionRollback);
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema store lookup should stay readable after rejected rollback DDL")
+            .expect("setup DDL should leave an accepted snapshot");
+        assert_eq!(latest.version(), SchemaVersion::new(2));
+        assert!(
+            latest.fields().iter().any(|field| field.name() == "handle")
+                && latest
+                    .fields()
+                    .iter()
+                    .all(|field| field.name() != "nickname"),
+            "rollback DDL must leave accepted schema v2 unchanged",
         );
     });
 }
