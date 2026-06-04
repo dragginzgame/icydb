@@ -6,9 +6,9 @@ use crate::db::{
     predicate::parse_sql_predicate,
     query::predicate::validate_predicate,
     schema::{
-        AcceptedSchemaSnapshot, PersistedIndexExpressionOp, PersistedIndexSnapshot,
-        SchemaDdlIndexDropCandidateError, SchemaDdlSecondaryIndexAdditionCandidate,
-        SchemaDdlSecondaryIndexAdditionCandidateError, SchemaDdlSecondaryIndexExpressionIntent,
+        AcceptedSchemaSnapshot, PersistedIndexSnapshot, SchemaDdlIndexDropCandidateError,
+        SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
+        SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexExpressionOpIntent,
         SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
         SchemaDdlSecondaryIndexKeyIntent, SchemaInfo, build_sql_ddl_secondary_index_candidate,
         resolve_sql_ddl_secondary_index_addition_candidate,
@@ -149,7 +149,7 @@ pub(in crate::db) enum BoundSqlDdlCreateIndexKey {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct BoundSqlDdlExpressionKey {
-    op: PersistedIndexExpressionOp,
+    op: SchemaDdlSecondaryIndexExpressionOpIntent,
     source: BoundSqlDdlFieldPath,
     canonical_sql: String,
 }
@@ -157,7 +157,7 @@ pub(in crate::db) struct BoundSqlDdlExpressionKey {
 impl BoundSqlDdlExpressionKey {
     /// Return the accepted expression operation.
     #[must_use]
-    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
+    pub(in crate::db) const fn op(&self) -> SchemaDdlSecondaryIndexExpressionOpIntent {
         self.op
     }
 
@@ -350,16 +350,16 @@ fn bind_create_index_expression_key(
 
 const fn expression_op_from_sql_function(
     function: crate::db::sql::parser::SqlCreateIndexExpressionFunction,
-) -> PersistedIndexExpressionOp {
+) -> SchemaDdlSecondaryIndexExpressionOpIntent {
     match function {
         crate::db::sql::parser::SqlCreateIndexExpressionFunction::Lower => {
-            PersistedIndexExpressionOp::Lower
+            SchemaDdlSecondaryIndexExpressionOpIntent::Lower
         }
         crate::db::sql::parser::SqlCreateIndexExpressionFunction::Upper => {
-            PersistedIndexExpressionOp::Upper
+            SchemaDdlSecondaryIndexExpressionOpIntent::Upper
         }
         crate::db::sql::parser::SqlCreateIndexExpressionFunction::Trim => {
-            PersistedIndexExpressionOp::Trim
+            SchemaDdlSecondaryIndexExpressionOpIntent::Trim
         }
     }
 }

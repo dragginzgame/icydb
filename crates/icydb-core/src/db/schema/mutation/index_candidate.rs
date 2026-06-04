@@ -33,6 +33,14 @@ pub(in crate::db) enum SchemaDdlSecondaryIndexKeyIntent {
     Expression(Box<SchemaDdlSecondaryIndexExpressionIntent>),
 }
 
+/// Schema-owned SQL DDL deterministic-expression operation intent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlSecondaryIndexExpressionOpIntent {
+    Lower,
+    Upper,
+    Trim,
+}
+
 /// Schema-owned field-path intent for one SQL DDL index key item.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaDdlSecondaryIndexFieldPathIntent {
@@ -62,7 +70,7 @@ impl SchemaDdlSecondaryIndexFieldPathIntent {
 /// item.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaDdlSecondaryIndexExpressionIntent {
-    op: PersistedIndexExpressionOp,
+    op: SchemaDdlSecondaryIndexExpressionOpIntent,
     source: SchemaDdlSecondaryIndexFieldPathIntent,
     canonical_sql: String,
 }
@@ -71,7 +79,7 @@ impl SchemaDdlSecondaryIndexExpressionIntent {
     /// Build one SQL DDL expression-index key intent.
     #[must_use]
     pub(in crate::db) const fn new(
-        op: PersistedIndexExpressionOp,
+        op: SchemaDdlSecondaryIndexExpressionOpIntent,
         source: SchemaDdlSecondaryIndexFieldPathIntent,
         canonical_sql: String,
     ) -> Self {
@@ -83,7 +91,7 @@ impl SchemaDdlSecondaryIndexExpressionIntent {
     }
 
     #[must_use]
-    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
+    pub(in crate::db) const fn op(&self) -> SchemaDdlSecondaryIndexExpressionOpIntent {
         self.op
     }
 
@@ -262,7 +270,8 @@ fn sql_ddl_index_expression_snapshot(
     expression: &SchemaDdlSecondaryIndexExpressionIntent,
 ) -> Result<PersistedIndexKeyItemSnapshot, SchemaDdlSecondaryIndexKeyCandidateError> {
     let source = sql_ddl_index_field_path_snapshot(accepted_before, expression.source())?;
-    let Some(output_kind) = sql_ddl_index_expression_output_kind(expression.op(), source.kind())
+    let persisted_op = persisted_expression_op_for_sql_ddl_intent(expression.op());
+    let Some(output_kind) = sql_ddl_index_expression_output_kind(persisted_op, source.kind())
     else {
         return Err(
             SchemaDdlSecondaryIndexKeyCandidateError::FieldPathNotIndexable {
@@ -273,13 +282,23 @@ fn sql_ddl_index_expression_snapshot(
 
     Ok(PersistedIndexKeyItemSnapshot::Expression(Box::new(
         PersistedIndexExpressionSnapshot::new(
-            expression.op(),
+            persisted_op,
             source.clone(),
             source.kind().clone(),
             output_kind,
             format!("expr:v1:{}", expression.canonical_sql()),
         ),
     )))
+}
+
+const fn persisted_expression_op_for_sql_ddl_intent(
+    intent: SchemaDdlSecondaryIndexExpressionOpIntent,
+) -> PersistedIndexExpressionOp {
+    match intent {
+        SchemaDdlSecondaryIndexExpressionOpIntent::Lower => PersistedIndexExpressionOp::Lower,
+        SchemaDdlSecondaryIndexExpressionOpIntent::Upper => PersistedIndexExpressionOp::Upper,
+        SchemaDdlSecondaryIndexExpressionOpIntent::Trim => PersistedIndexExpressionOp::Trim,
+    }
 }
 
 fn sql_ddl_index_expression_output_kind(

@@ -692,6 +692,7 @@ fn sql_ddl_create_index_uses_schema_owned_index_candidate_identity() {
             && !ddl_index.contains("PersistedIndexKeySnapshot::")
             && !ddl_index.contains("PersistedIndexKeyItemSnapshot::")
             && !ddl_index.contains("PersistedIndexExpressionSnapshot::new(")
+            && !ddl_index.contains("PersistedIndexExpressionOp")
             && !ddl_index.contains("format!(\"expr:v1:{}\"")
             && !ddl_index.contains("find_field_path_index_by_name(")
             && !ddl_index.contains("existing_field_path_index_matches_request(")
@@ -706,12 +707,15 @@ fn sql_ddl_create_index_uses_schema_owned_index_candidate_identity() {
     assert!(
         mutation.contains("pub(in crate::db) enum SchemaDdlSecondaryIndexAdditionCandidate")
             && mutation.contains("pub(in crate::db) enum SchemaDdlSecondaryIndexKeyIntent")
+            && mutation
+                .contains("pub(in crate::db) enum SchemaDdlSecondaryIndexExpressionOpIntent")
             && mutation.contains(
                 "pub(in crate::db) fn resolve_sql_ddl_secondary_index_addition_candidate("
             )
             && mutation.contains("PersistedIndexKeySnapshot::")
             && mutation.contains("PersistedIndexKeyItemSnapshot::")
             && mutation.contains("PersistedIndexExpressionSnapshot::new(")
+            && mutation.contains("fn persisted_expression_op_for_sql_ddl_intent(")
             && mutation.contains("format!(\"expr:v1:{}\"")
             && mutation.contains("fn secondary_index_exact_addition_match(")
             && mutation.contains("fn secondary_index_duplicate_contract_match(")

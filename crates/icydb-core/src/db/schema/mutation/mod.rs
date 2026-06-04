@@ -71,9 +71,10 @@ pub(in crate::db) use ddl_admission::{
 mod index_candidate;
 pub(in crate::db) use index_candidate::{
     SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
-    SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexFieldPathIntent,
-    SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent,
-    build_sql_ddl_secondary_index_candidate, resolve_sql_ddl_secondary_index_addition_candidate,
+    SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexExpressionOpIntent,
+    SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
+    SchemaDdlSecondaryIndexKeyIntent, build_sql_ddl_secondary_index_candidate,
+    resolve_sql_ddl_secondary_index_addition_candidate,
 };
 
 mod index;

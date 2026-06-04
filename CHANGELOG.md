@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.11` moves SQL DDL `CREATE INDEX` expression operation intent into
+  schema-owned mutation helpers before persisted expression metadata is built.
+
 - `0.178.10` moves SQL DDL schema-version contract preflight into
   schema-owned admission helpers while preserving existing missing, stale, and
   no-op diagnostics.
