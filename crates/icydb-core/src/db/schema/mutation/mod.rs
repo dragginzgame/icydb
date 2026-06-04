@@ -60,16 +60,21 @@ pub(in crate::db) use field_default_encoding::{
 mod ddl_admission;
 pub(in crate::db) use ddl_admission::SchemaDdlSchemaVersionAdmissionError;
 
+mod index_candidate;
+pub(in crate::db) use index_candidate::{
+    SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
+    SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexFieldPathIntent,
+    SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent,
+    build_sql_ddl_secondary_index_candidate, resolve_sql_ddl_secondary_index_addition_candidate,
+};
+
 mod index;
 pub(in crate::db) use index::{
-    SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
-    build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
-    derive_sql_ddl_field_path_index_accepted_after,
+    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_path_index_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after,
-    resolve_sql_ddl_secondary_index_addition_candidate,
     resolve_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(test)]

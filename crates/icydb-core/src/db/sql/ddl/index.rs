@@ -6,11 +6,11 @@ use crate::db::{
     predicate::parse_sql_predicate,
     query::predicate::validate_predicate,
     schema::{
-        AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexExpressionOp,
-        PersistedIndexExpressionSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, SchemaDdlIndexDropCandidateError,
-        SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
-        SchemaInfo, build_sql_ddl_secondary_index_candidate,
+        AcceptedSchemaSnapshot, PersistedIndexExpressionOp, PersistedIndexSnapshot,
+        SchemaDdlIndexDropCandidateError, SchemaDdlSecondaryIndexAdditionCandidate,
+        SchemaDdlSecondaryIndexAdditionCandidateError, SchemaDdlSecondaryIndexExpressionIntent,
+        SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
+        SchemaDdlSecondaryIndexKeyIntent, SchemaInfo, build_sql_ddl_secondary_index_candidate,
         resolve_sql_ddl_secondary_index_addition_candidate,
         resolve_sql_ddl_secondary_index_drop_candidate,
     },
@@ -205,7 +205,6 @@ pub(super) fn bind_create_index_statement(
         key_items.as_slice(),
         predicate_sql.as_deref(),
         statement.uniqueness,
-        schema,
         index_store_path,
     )?;
     let addition_candidate =
@@ -473,118 +472,63 @@ fn candidate_index_snapshot(
     key_items: &[BoundSqlDdlCreateIndexKey],
     predicate_sql: Option<&str>,
     uniqueness: SqlCreateIndexUniqueness,
-    schema: &SchemaInfo,
     index_store_path: &'static str,
 ) -> Result<PersistedIndexSnapshot, SqlDdlBindError> {
-    let key = if key_items_are_field_path_only(key_items) {
-        PersistedIndexKeySnapshot::FieldPath(
-            key_items
-                .iter()
-                .map(|key_item| {
-                    let BoundSqlDdlCreateIndexKey::FieldPath(field_path) = key_item else {
-                        unreachable!("field-path-only index checked before field-path lowering");
-                    };
+    let key_intents = schema_secondary_index_key_intents(key_items);
 
-                    accepted_index_field_path_snapshot(schema, field_path)
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        )
-    } else {
-        PersistedIndexKeySnapshot::Items(
-            key_items
-                .iter()
-                .map(|key_item| match key_item {
-                    BoundSqlDdlCreateIndexKey::FieldPath(field_path) => {
-                        accepted_index_field_path_snapshot(schema, field_path)
-                            .map(PersistedIndexKeyItemSnapshot::FieldPath)
-                    }
-                    BoundSqlDdlCreateIndexKey::Expression(expression) => {
-                        accepted_index_expression_snapshot(schema, expression)
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        )
-    };
-
-    Ok(build_sql_ddl_secondary_index_candidate(
+    build_sql_ddl_secondary_index_candidate(
         accepted_before,
         index_name.to_string(),
         index_store_path.to_string(),
         matches!(uniqueness, SqlCreateIndexUniqueness::Unique),
-        key,
+        key_intents.as_slice(),
         predicate_sql.map(str::to_string),
-    ))
+    )
+    .map_err(sql_secondary_index_key_candidate_error)
 }
 
-fn accepted_index_field_path_snapshot(
-    schema: &SchemaInfo,
-    field_path: &BoundSqlDdlFieldPath,
-) -> Result<crate::db::schema::PersistedIndexFieldPathSnapshot, SqlDdlBindError> {
-    schema
-        .accepted_index_field_path_snapshot(field_path.root(), field_path.segments())
-        .ok_or_else(|| SqlDdlBindError::FieldPathNotAcceptedCatalogBacked {
-            field_path: field_path.accepted_path().join("."),
+fn schema_secondary_index_key_intents(
+    key_items: &[BoundSqlDdlCreateIndexKey],
+) -> Vec<SchemaDdlSecondaryIndexKeyIntent> {
+    key_items
+        .iter()
+        .map(|key_item| match key_item {
+            BoundSqlDdlCreateIndexKey::FieldPath(field_path) => {
+                SchemaDdlSecondaryIndexKeyIntent::FieldPath(schema_index_field_path_intent(
+                    field_path,
+                ))
+            }
+            BoundSqlDdlCreateIndexKey::Expression(expression) => {
+                SchemaDdlSecondaryIndexKeyIntent::Expression(Box::new(
+                    SchemaDdlSecondaryIndexExpressionIntent::new(
+                        expression.op(),
+                        schema_index_field_path_intent(expression.source()),
+                        expression.canonical_sql().to_string(),
+                    ),
+                ))
+            }
         })
+        .collect()
 }
 
-fn accepted_index_expression_snapshot(
-    schema: &SchemaInfo,
-    expression: &BoundSqlDdlExpressionKey,
-) -> Result<PersistedIndexKeyItemSnapshot, SqlDdlBindError> {
-    let source = accepted_index_field_path_snapshot(schema, expression.source())?;
-    let Some(output_kind) = expression_output_kind(expression.op(), source.kind()) else {
-        return Err(SqlDdlBindError::FieldPathNotIndexable {
-            field_path: expression.source().accepted_path().join("."),
-        });
-    };
-
-    Ok(PersistedIndexKeyItemSnapshot::Expression(Box::new(
-        PersistedIndexExpressionSnapshot::new(
-            expression.op(),
-            source.clone(),
-            source.kind().clone(),
-            output_kind,
-            format!("expr:v1:{}", expression.canonical_sql()),
-        ),
-    )))
+fn schema_index_field_path_intent(
+    field_path: &BoundSqlDdlFieldPath,
+) -> SchemaDdlSecondaryIndexFieldPathIntent {
+    SchemaDdlSecondaryIndexFieldPathIntent::new(
+        field_path.root().to_string(),
+        field_path.segments().to_vec(),
+    )
 }
 
-fn expression_output_kind(
-    op: PersistedIndexExpressionOp,
-    source_kind: &PersistedFieldKind,
-) -> Option<PersistedFieldKind> {
-    match op {
-        PersistedIndexExpressionOp::Lower
-        | PersistedIndexExpressionOp::Upper
-        | PersistedIndexExpressionOp::Trim
-        | PersistedIndexExpressionOp::LowerTrim => {
-            if matches!(source_kind, PersistedFieldKind::Text { .. }) {
-                Some(source_kind.clone())
-            } else {
-                None
-            }
-        }
-        PersistedIndexExpressionOp::Date => {
-            if matches!(
-                source_kind,
-                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
-            ) {
-                Some(PersistedFieldKind::Date)
-            } else {
-                None
-            }
-        }
-        PersistedIndexExpressionOp::Year
-        | PersistedIndexExpressionOp::Month
-        | PersistedIndexExpressionOp::Day => {
-            if matches!(
-                source_kind,
-                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
-            ) {
-                Some(PersistedFieldKind::Int64)
-            } else {
-                None
-            }
+fn sql_secondary_index_key_candidate_error(
+    error: SchemaDdlSecondaryIndexKeyCandidateError,
+) -> SqlDdlBindError {
+    match error {
+        SchemaDdlSecondaryIndexKeyCandidateError::FieldPathNotAcceptedCatalogBacked {
+            field_path,
+        } => SqlDdlBindError::FieldPathNotAcceptedCatalogBacked { field_path },
+        SchemaDdlSecondaryIndexKeyCandidateError::FieldPathNotIndexable { field_path } => {
+            SqlDdlBindError::FieldPathNotIndexable { field_path }
         }
     }
 }

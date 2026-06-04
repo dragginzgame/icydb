@@ -646,6 +646,11 @@ fn sql_ddl_create_index_uses_schema_owned_index_candidate_identity() {
     assert!(
         ddl_index.contains("build_sql_ddl_secondary_index_candidate(")
             && ddl_index.contains("resolve_sql_ddl_secondary_index_addition_candidate(")
+            && !ddl_index.contains("accepted_index_field_path_snapshot(")
+            && !ddl_index.contains("PersistedIndexKeySnapshot::")
+            && !ddl_index.contains("PersistedIndexKeyItemSnapshot::")
+            && !ddl_index.contains("PersistedIndexExpressionSnapshot::new(")
+            && !ddl_index.contains("format!(\"expr:v1:{}\"")
             && !ddl_index.contains("find_field_path_index_by_name(")
             && !ddl_index.contains("existing_field_path_index_matches_request(")
             && !ddl_index.contains("find_expression_index_by_name(")
@@ -658,15 +663,20 @@ fn sql_ddl_create_index_uses_schema_owned_index_candidate_identity() {
     );
     assert!(
         mutation.contains("pub(in crate::db) enum SchemaDdlSecondaryIndexAdditionCandidate")
+            && mutation.contains("pub(in crate::db) enum SchemaDdlSecondaryIndexKeyIntent")
             && mutation.contains(
                 "pub(in crate::db) fn resolve_sql_ddl_secondary_index_addition_candidate("
             )
+            && mutation.contains("PersistedIndexKeySnapshot::")
+            && mutation.contains("PersistedIndexKeyItemSnapshot::")
+            && mutation.contains("PersistedIndexExpressionSnapshot::new(")
+            && mutation.contains("format!(\"expr:v1:{}\"")
             && mutation.contains("fn secondary_index_exact_addition_match(")
             && mutation.contains("fn secondary_index_duplicate_contract_match(")
             && mutation.contains("pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(")
             && mutation.contains("fn next_sql_ddl_secondary_index_ordinal(")
             && mutation.contains("PersistedIndexSnapshot::new_sql_ddl("),
-        "schema mutation code must own DDL secondary-index conflict matching, ordinal, and origin allocation",
+        "schema mutation code must own DDL secondary-index key snapshots, conflict matching, ordinal, and origin allocation",
     );
 }
 

@@ -133,7 +133,6 @@ fn persisted_kind_has_strong_relation(kind: &PersistedFieldKind) -> bool {
 
 #[derive(Clone, Debug)]
 struct SchemaFieldInfo {
-    field_id: Option<FieldId>,
     slot: usize,
     ty: FieldType,
     kind: Option<FieldKind>,
@@ -482,7 +481,6 @@ impl SchemaInfo {
                 (
                     field.name().to_string(),
                     SchemaFieldInfo {
-                        field_id: None,
                         slot,
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: Some(field.kind()),
@@ -708,44 +706,6 @@ impl SchemaInfo {
             .map(|kind| sql_capabilities(&PersistedFieldKind::from_model_kind(kind)))
     }
 
-    /// Build one accepted field-path key contract for a future secondary index.
-    ///
-    /// Generated schema views return `None`; SQL DDL must bind only to accepted
-    /// persisted catalog metadata before it can lower into mutation requests.
-    #[must_use]
-    pub(in crate::db) fn accepted_index_field_path_snapshot(
-        &self,
-        name: &str,
-        segments: &[String],
-    ) -> Option<PersistedIndexFieldPathSnapshot> {
-        let field = schema_field_info(self.fields.as_slice(), name)?;
-        let field_id = field.field_id?;
-        let slot = SchemaFieldSlot::from_generated_index(field.slot);
-
-        let (kind, nullable) = if segments.is_empty() {
-            (field.persisted_kind.as_ref()?, field.nullable)
-        } else {
-            let leaf = field
-                .nested_leaves
-                .as_ref()?
-                .iter()
-                .find(|leaf| leaf.path() == segments)?;
-            (leaf.kind(), leaf.nullable())
-        };
-
-        let mut path = Vec::with_capacity(segments.len() + 1);
-        path.push(name.to_string());
-        path.extend(segments.iter().cloned());
-
-        Some(PersistedIndexFieldPathSnapshot::new(
-            field_id,
-            slot,
-            path,
-            kind.clone(),
-            nullable,
-        ))
-    }
-
     /// Return the first top-level field that SQL cannot project directly.
     #[must_use]
     pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&str> {
@@ -867,7 +827,6 @@ impl SchemaInfo {
                 (
                     field.name().to_string(),
                     SchemaFieldInfo {
-                        field_id: Some(field.id()),
                         slot,
                         ty: field_type_from_persisted_kind(field.kind()),
                         kind: generated_kind,

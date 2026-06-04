@@ -96,6 +96,8 @@ pub(in crate::db) use mutation::{
     SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
     SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmissionError,
     SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
+    SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexFieldPathIntent,
+    SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent,
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
     SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
