@@ -5,9 +5,13 @@ use super::{
 use crate::db::{
     schema::{
         AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldSnapshot,
-        SchemaDdlFieldDropCandidateError, SchemaFieldDefault, SchemaInfo,
-        build_sql_ddl_field_addition_candidate, encode_sql_ddl_add_column_default,
-        encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_drop_candidate,
+        SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
+        SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
+        SchemaFieldDefault, SchemaInfo, build_sql_ddl_field_addition_candidate,
+        encode_sql_ddl_add_column_default, encode_sql_ddl_alter_column_default,
+        resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
+        resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
+        resolve_sql_ddl_field_set_default_candidate,
     },
     sql::{
         identifier::identifiers_tail_match,
@@ -292,57 +296,87 @@ pub(super) fn bind_alter_table_alter_column_statement(
         });
     }
 
-    let field = accepted_before
-        .persisted_snapshot()
-        .fields()
-        .iter()
-        .find(|field| field.name() == statement.column_name)
-        .ok_or_else(|| SqlDdlBindError::UnknownColumn {
-            entity_name: entity_name.to_string(),
-            column_name: statement.column_name.clone(),
-        })?;
-
     match &statement.action {
         SqlAlterColumnAction::SetDefault(default) => {
-            reject_generated_field_default_change(entity_name, field)?;
+            let field = resolve_sql_ddl_field_set_default_candidate(
+                accepted_before,
+                statement.column_name.as_str(),
+            )
+            .map_err(|error| {
+                sql_field_default_candidate_error(
+                    entity_name,
+                    statement.column_name.as_str(),
+                    error,
+                )
+            })?;
             let default =
-                schema_field_default_for_alter_column_default(entity_name, field, default)?;
+                schema_field_default_for_alter_column_default(entity_name, &field, default)?;
             Ok(bind_alter_table_alter_column_default(
                 entity_name,
-                field,
+                &field,
                 default,
                 SqlDdlMutationKind::SetFieldDefault,
             ))
         }
         SqlAlterColumnAction::DropDefault => {
-            if !field.default().is_none() {
-                reject_generated_field_default_change(entity_name, field)?;
-            }
-            if !field.nullable() && !field.default().is_none() {
-                return Err(SqlDdlBindError::UnsupportedAlterTableDropDefaultRequired {
-                    entity_name: entity_name.to_string(),
-                    column_name: statement.column_name.clone(),
-                });
-            }
+            let field = resolve_sql_ddl_field_drop_default_candidate(
+                accepted_before,
+                statement.column_name.as_str(),
+            )
+            .map_err(|error| {
+                sql_field_default_candidate_error(
+                    entity_name,
+                    statement.column_name.as_str(),
+                    error,
+                )
+            })?;
             Ok(bind_alter_table_alter_column_default(
                 entity_name,
-                field,
+                &field,
                 SchemaFieldDefault::None,
                 SqlDdlMutationKind::DropFieldDefault,
             ))
         }
-        SqlAlterColumnAction::SetNotNull => bind_alter_table_alter_column_nullability(
-            entity_name,
-            field,
-            false,
-            SqlDdlMutationKind::SetFieldNotNull,
-        ),
-        SqlAlterColumnAction::DropNotNull => bind_alter_table_alter_column_nullability(
-            entity_name,
-            field,
-            true,
-            SqlDdlMutationKind::DropFieldNotNull,
-        ),
+        SqlAlterColumnAction::SetNotNull => {
+            let field = resolve_sql_ddl_field_nullability_candidate(
+                accepted_before,
+                statement.column_name.as_str(),
+                false,
+            )
+            .map_err(|error| {
+                sql_field_nullability_candidate_error(
+                    entity_name,
+                    statement.column_name.as_str(),
+                    error,
+                )
+            })?;
+            Ok(bind_alter_table_alter_column_nullability(
+                entity_name,
+                &field,
+                false,
+                SqlDdlMutationKind::SetFieldNotNull,
+            ))
+        }
+        SqlAlterColumnAction::DropNotNull => {
+            let field = resolve_sql_ddl_field_nullability_candidate(
+                accepted_before,
+                statement.column_name.as_str(),
+                true,
+            )
+            .map_err(|error| {
+                sql_field_nullability_candidate_error(
+                    entity_name,
+                    statement.column_name.as_str(),
+                    error,
+                )
+            })?;
+            Ok(bind_alter_table_alter_column_nullability(
+                entity_name,
+                &field,
+                true,
+                SqlDdlMutationKind::DropFieldNotNull,
+            ))
+        }
     }
 }
 
@@ -430,17 +464,19 @@ pub(super) fn bind_alter_table_rename_column_statement(
         });
     }
 
-    let accepted = accepted_before.persisted_snapshot();
-    let Some(field) = accepted
-        .fields()
-        .iter()
-        .find(|field| field.name() == statement.old_column_name)
-    else {
-        return Err(SqlDdlBindError::UnknownColumn {
-            entity_name: entity_name.to_string(),
-            column_name: statement.old_column_name.clone(),
-        });
-    };
+    let field = resolve_sql_ddl_field_rename_candidate(
+        accepted_before,
+        statement.old_column_name.as_str(),
+        statement.new_column_name.as_str(),
+    )
+    .map_err(|error| {
+        sql_field_rename_candidate_error(
+            entity_name,
+            statement.old_column_name.as_str(),
+            statement.new_column_name.as_str(),
+            error,
+        )
+    })?;
 
     if statement.old_column_name == statement.new_column_name {
         return Ok(BoundSqlDdlRequest {
@@ -455,29 +491,11 @@ pub(super) fn bind_alter_table_rename_column_statement(
         });
     }
 
-    if accepted
-        .fields()
-        .iter()
-        .any(|field| field.name() == statement.new_column_name)
-    {
-        return Err(SqlDdlBindError::DuplicateColumn {
-            entity_name: entity_name.to_string(),
-            column_name: statement.new_column_name.clone(),
-        });
-    }
-
-    if field.generated() {
-        return Err(SqlDdlBindError::GeneratedFieldRenameRejected {
-            entity_name: entity_name.to_string(),
-            column_name: statement.old_column_name.clone(),
-        });
-    }
-
     Ok(BoundSqlDdlRequest {
         schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::RenameColumn(BoundSqlRenameColumnRequest {
             entity_name: entity_name.to_string(),
-            field: field.clone(),
+            field,
             new_name: statement.new_column_name.clone(),
         }),
     })
@@ -513,28 +531,14 @@ fn bind_alter_table_alter_column_default(
     }
 }
 
-fn reject_generated_field_default_change(
-    entity_name: &str,
-    field: &PersistedFieldSnapshot,
-) -> Result<(), SqlDdlBindError> {
-    if field.generated() {
-        return Err(SqlDdlBindError::GeneratedFieldDefaultChangeRejected {
-            entity_name: entity_name.to_string(),
-            column_name: field.name().to_string(),
-        });
-    }
-
-    Ok(())
-}
-
 fn bind_alter_table_alter_column_nullability(
     entity_name: &str,
     field: &PersistedFieldSnapshot,
     nullable: bool,
     mutation_kind: SqlDdlMutationKind,
-) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+) -> BoundSqlDdlRequest {
     if field.nullable() == nullable {
-        return Ok(BoundSqlDdlRequest {
+        return BoundSqlDdlRequest {
             schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
             statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
                 mutation_kind,
@@ -543,12 +547,10 @@ fn bind_alter_table_alter_column_nullability(
                 target_store: entity_name.to_string(),
                 field_path: vec![field.name().to_string()],
             }),
-        });
+        };
     }
 
-    reject_generated_field_nullability_change(entity_name, field)?;
-
-    Ok(BoundSqlDdlRequest {
+    BoundSqlDdlRequest {
         schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::AlterColumnNullability(
             BoundSqlAlterColumnNullabilityRequest {
@@ -558,21 +560,75 @@ fn bind_alter_table_alter_column_nullability(
                 mutation_kind,
             },
         ),
-    })
+    }
 }
 
-fn reject_generated_field_nullability_change(
+fn sql_field_default_candidate_error(
     entity_name: &str,
-    field: &PersistedFieldSnapshot,
-) -> Result<(), SqlDdlBindError> {
-    if field.generated() {
-        return Err(SqlDdlBindError::GeneratedFieldNullabilityChangeRejected {
+    column_name: &str,
+    error: SchemaDdlFieldDefaultCandidateError,
+) -> SqlDdlBindError {
+    match error {
+        SchemaDdlFieldDefaultCandidateError::Unknown => SqlDdlBindError::UnknownColumn {
             entity_name: entity_name.to_string(),
-            column_name: field.name().to_string(),
-        });
+            column_name: column_name.to_string(),
+        },
+        SchemaDdlFieldDefaultCandidateError::Generated => {
+            SqlDdlBindError::GeneratedFieldDefaultChangeRejected {
+                entity_name: entity_name.to_string(),
+                column_name: column_name.to_string(),
+            }
+        }
+        SchemaDdlFieldDefaultCandidateError::Required => {
+            SqlDdlBindError::UnsupportedAlterTableDropDefaultRequired {
+                entity_name: entity_name.to_string(),
+                column_name: column_name.to_string(),
+            }
+        }
     }
+}
 
-    Ok(())
+fn sql_field_nullability_candidate_error(
+    entity_name: &str,
+    column_name: &str,
+    error: SchemaDdlFieldNullabilityCandidateError,
+) -> SqlDdlBindError {
+    match error {
+        SchemaDdlFieldNullabilityCandidateError::Unknown => SqlDdlBindError::UnknownColumn {
+            entity_name: entity_name.to_string(),
+            column_name: column_name.to_string(),
+        },
+        SchemaDdlFieldNullabilityCandidateError::Generated => {
+            SqlDdlBindError::GeneratedFieldNullabilityChangeRejected {
+                entity_name: entity_name.to_string(),
+                column_name: column_name.to_string(),
+            }
+        }
+    }
+}
+
+fn sql_field_rename_candidate_error(
+    entity_name: &str,
+    old_column_name: &str,
+    new_column_name: &str,
+    error: SchemaDdlFieldRenameCandidateError,
+) -> SqlDdlBindError {
+    match error {
+        SchemaDdlFieldRenameCandidateError::Unknown => SqlDdlBindError::UnknownColumn {
+            entity_name: entity_name.to_string(),
+            column_name: old_column_name.to_string(),
+        },
+        SchemaDdlFieldRenameCandidateError::Duplicate => SqlDdlBindError::DuplicateColumn {
+            entity_name: entity_name.to_string(),
+            column_name: new_column_name.to_string(),
+        },
+        SchemaDdlFieldRenameCandidateError::Generated => {
+            SqlDdlBindError::GeneratedFieldRenameRejected {
+                entity_name: entity_name.to_string(),
+                column_name: old_column_name.to_string(),
+            }
+        }
+    }
 }
 
 fn schema_field_default_for_sql_default(

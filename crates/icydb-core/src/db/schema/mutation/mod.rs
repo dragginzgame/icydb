@@ -29,11 +29,15 @@ use thiserror::Error as ThisError;
 
 mod field;
 pub(in crate::db) use field::{
-    SchemaDdlFieldDropCandidateError, SchemaFieldAdditionTarget, SchemaFieldDefaultTarget,
-    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
+    SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
+    SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
+    SchemaFieldAdditionTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
+    SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
     derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
     derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
     derive_sql_ddl_field_rename_accepted_after, resolve_sql_ddl_field_drop_candidate,
+    resolve_sql_ddl_field_drop_default_candidate, resolve_sql_ddl_field_nullability_candidate,
+    resolve_sql_ddl_field_rename_candidate, resolve_sql_ddl_field_set_default_candidate,
 };
 #[cfg(test)]
 pub(in crate::db) use field::{

@@ -593,6 +593,43 @@ fn sql_ddl_drop_column_uses_schema_owned_field_drop_candidate_resolution() {
 }
 
 #[test]
+fn sql_ddl_field_metadata_changes_use_schema_owned_candidate_resolution() {
+    let ddl_field = read_source("src/db/sql/ddl/field.rs");
+    let ddl_mod = read_source("src/db/sql/ddl/mod.rs");
+    let mutation = read_rust_sources_under("src/db/schema/mutation");
+
+    assert!(
+        ddl_field.contains("resolve_sql_ddl_field_set_default_candidate(")
+            && ddl_field.contains("resolve_sql_ddl_field_drop_default_candidate(")
+            && ddl_field.contains("resolve_sql_ddl_field_nullability_candidate(")
+            && ddl_field.contains("resolve_sql_ddl_field_rename_candidate(")
+            && !ddl_field.contains("field.generated()"),
+        "SQL DDL field metadata changes must map schema-owned candidate classification instead of checking field ownership directly",
+    );
+    assert!(
+        !ddl_mod.contains("clone_with_name(")
+            && ddl_mod.contains("admit_sql_ddl_field_rename_candidate(")
+            && ddl_mod.contains("rename.field(),")
+            && ddl_mod.contains("rename.new_name(),"),
+        "SQL DDL lowering must ask schema mutation to construct rename admission targets instead of synthesizing renamed field snapshots",
+    );
+    assert!(
+        mutation.contains("enum SchemaDdlFieldDefaultCandidateError")
+            && mutation.contains("enum SchemaDdlFieldNullabilityCandidateError")
+            && mutation.contains("enum SchemaDdlFieldRenameCandidateError")
+            && mutation
+                .contains("pub(in crate::db) fn resolve_sql_ddl_field_set_default_candidate(")
+            && mutation
+                .contains("pub(in crate::db) fn resolve_sql_ddl_field_drop_default_candidate(")
+            && mutation
+                .contains("pub(in crate::db) fn resolve_sql_ddl_field_nullability_candidate(")
+            && mutation.contains("pub(in crate::db) fn resolve_sql_ddl_field_rename_candidate(")
+            && mutation.contains("field.generated()"),
+        "schema mutation code must own generated-field classification for DDL field metadata candidates",
+    );
+}
+
+#[test]
 fn sql_ddl_create_index_uses_schema_owned_index_candidate_identity() {
     let ddl_index = read_source("src/db/sql/ddl/index.rs");
     let mutation = read_rust_sources_under("src/db/schema/mutation");

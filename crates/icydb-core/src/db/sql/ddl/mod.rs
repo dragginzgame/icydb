@@ -631,12 +631,10 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
         BoundSqlDdlStatement::DropColumn(drop) => {
             Ok(admit_sql_ddl_field_drop_candidate(drop.field()))
         }
-        BoundSqlDdlStatement::RenameColumn(rename) => {
-            let after = rename
-                .field()
-                .clone_with_name(rename.new_name().to_string());
-            Ok(admit_sql_ddl_field_rename_candidate(rename.field(), &after))
-        }
+        BoundSqlDdlStatement::RenameColumn(rename) => Ok(admit_sql_ddl_field_rename_candidate(
+            rename.field(),
+            rename.new_name(),
+        )),
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
                 admit_sql_ddl_field_path_index_candidate(create.candidate_index())

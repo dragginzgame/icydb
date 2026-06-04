@@ -91,11 +91,12 @@ pub(in crate::db::schema) use mutation::{
     schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
-    SchemaDdlAcceptedSnapshotDerivation, SchemaDdlFieldDropCandidateError,
-    SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmissionError,
-    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
-    SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
+    SchemaDdlAcceptedSnapshotDerivation, SchemaDdlFieldDefaultCandidateError,
+    SchemaDdlFieldDropCandidateError, SchemaDdlFieldNullabilityCandidateError,
+    SchemaDdlFieldRenameCandidateError, SchemaDdlIndexDropCandidateError,
+    SchemaDdlMutationAdmissionError, SchemaExpressionIndexRebuildExpression,
+    SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget,
+    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
     SchemaSecondaryIndexDropCleanupTarget, build_sql_ddl_field_addition_candidate,
     build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
@@ -104,6 +105,8 @@ pub(in crate::db) use mutation::{
     derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after, encode_sql_ddl_add_column_default,
     encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_drop_candidate,
+    resolve_sql_ddl_field_drop_default_candidate, resolve_sql_ddl_field_nullability_candidate,
+    resolve_sql_ddl_field_rename_candidate, resolve_sql_ddl_field_set_default_candidate,
     resolve_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(test)]

@@ -177,13 +177,14 @@ pub(in crate::db) struct SchemaFieldRenameTarget {
 }
 
 impl SchemaFieldRenameTarget {
-    /// Build one field-rename DDL target from accepted before/after metadata.
+    /// Build one field-rename DDL target from accepted before metadata and
+    /// schema-owned target naming.
     #[must_use]
-    fn from_fields(before: &PersistedFieldSnapshot, after: &PersistedFieldSnapshot) -> Self {
+    fn from_field_name(before: &PersistedFieldSnapshot, new_name: &str) -> Self {
         Self {
             field_id: before.id(),
             old_name: before.name().to_string(),
-            new_name: after.name().to_string(),
+            new_name: new_name.to_string(),
         }
     }
 
@@ -218,6 +219,40 @@ pub(in crate::db) enum SchemaDdlFieldDropCandidateError {
     Generated,
     /// The requested accepted field is still referenced by an accepted index.
     Indexed(String),
+}
+
+/// Field default candidate resolution failures for SQL DDL-authored schema
+/// mutations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlFieldDefaultCandidateError {
+    /// No accepted field matches the requested SQL column name.
+    Unknown,
+    /// The requested accepted field is generated-owned.
+    Generated,
+    /// The requested accepted field is required and currently has a default.
+    Required,
+}
+
+/// Field nullability candidate resolution failures for SQL DDL-authored schema
+/// mutations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlFieldNullabilityCandidateError {
+    /// No accepted field matches the requested SQL column name.
+    Unknown,
+    /// The requested accepted field is generated-owned.
+    Generated,
+}
+
+/// Field rename candidate resolution failures for SQL DDL-authored schema
+/// mutations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlFieldRenameCandidateError {
+    /// No accepted source field matches the requested SQL column name.
+    Unknown,
+    /// An accepted field already uses the requested target column name.
+    Duplicate,
+    /// The requested accepted field is generated-owned.
+    Generated,
 }
 
 /// Admit one SQL DDL field addition through the schema-owned mutation request
@@ -270,11 +305,11 @@ pub(in crate::db) fn admit_sql_ddl_field_nullability_candidate(
 #[must_use]
 pub(in crate::db) fn admit_sql_ddl_field_rename_candidate(
     before: &PersistedFieldSnapshot,
-    after: &PersistedFieldSnapshot,
+    new_name: &str,
 ) -> SchemaDdlMutationAdmission {
     SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::FieldRename(SchemaFieldRenameTarget::from_fields(
-            before, after,
+        target: SchemaDdlMutationTarget::FieldRename(SchemaFieldRenameTarget::from_field_name(
+            before, new_name,
         )),
     }
 }
@@ -317,6 +352,110 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_candidate(
         resolve_sql_ddl_field_drop_dependent_index(accepted_before, field.id())
     {
         return Err(SchemaDdlFieldDropCandidateError::Indexed(index_name));
+    }
+
+    Ok(field.clone())
+}
+
+/// Resolve one accepted SQL DDL SET DEFAULT candidate and reject
+/// generated-owned fields before default encoding or mutation derivation.
+pub(in crate::db) fn resolve_sql_ddl_field_set_default_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field_name: &str,
+) -> Result<PersistedFieldSnapshot, SchemaDdlFieldDefaultCandidateError> {
+    let field = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == field_name)
+        .ok_or(SchemaDdlFieldDefaultCandidateError::Unknown)?;
+
+    if field.generated() {
+        return Err(SchemaDdlFieldDefaultCandidateError::Generated);
+    }
+
+    Ok(field.clone())
+}
+
+/// Resolve one accepted SQL DDL DROP DEFAULT candidate. Missing defaults are
+/// returned so SQL can report the existing true no-op behavior, while real
+/// generated-owned or required-field changes reject before mutation derivation.
+pub(in crate::db) fn resolve_sql_ddl_field_drop_default_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field_name: &str,
+) -> Result<PersistedFieldSnapshot, SchemaDdlFieldDefaultCandidateError> {
+    let field = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == field_name)
+        .ok_or(SchemaDdlFieldDefaultCandidateError::Unknown)?;
+
+    if field.default().is_none() {
+        return Ok(field.clone());
+    }
+
+    if field.generated() {
+        return Err(SchemaDdlFieldDefaultCandidateError::Generated);
+    }
+
+    if !field.nullable() {
+        return Err(SchemaDdlFieldDefaultCandidateError::Required);
+    }
+
+    Ok(field.clone())
+}
+
+/// Resolve one accepted SQL DDL nullability candidate. Matching nullability is
+/// returned so SQL can preserve true no-op behavior before generated ownership
+/// rejects only actual changes.
+pub(in crate::db) fn resolve_sql_ddl_field_nullability_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field_name: &str,
+    nullable: bool,
+) -> Result<PersistedFieldSnapshot, SchemaDdlFieldNullabilityCandidateError> {
+    let field = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == field_name)
+        .ok_or(SchemaDdlFieldNullabilityCandidateError::Unknown)?;
+
+    if field.nullable() != nullable && field.generated() {
+        return Err(SchemaDdlFieldNullabilityCandidateError::Generated);
+    }
+
+    Ok(field.clone())
+}
+
+/// Resolve one accepted SQL DDL field-rename candidate. Same-name renames are
+/// returned as true no-ops before generated ownership rejects actual renames.
+pub(in crate::db) fn resolve_sql_ddl_field_rename_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    old_name: &str,
+    new_name: &str,
+) -> Result<PersistedFieldSnapshot, SchemaDdlFieldRenameCandidateError> {
+    let accepted = accepted_before.persisted_snapshot();
+    let field = accepted
+        .fields()
+        .iter()
+        .find(|field| field.name() == old_name)
+        .ok_or(SchemaDdlFieldRenameCandidateError::Unknown)?;
+
+    if old_name == new_name {
+        return Ok(field.clone());
+    }
+
+    if accepted
+        .fields()
+        .iter()
+        .any(|field| field.name() == new_name)
+    {
+        return Err(SchemaDdlFieldRenameCandidateError::Duplicate);
+    }
+
+    if field.generated() {
+        return Err(SchemaDdlFieldRenameCandidateError::Generated);
     }
 
     Ok(field.clone())
@@ -541,13 +680,7 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
     );
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-    let after_field = accepted_after
-        .persisted_snapshot()
-        .fields()
-        .iter()
-        .find(|field| field.id() == before_field.id())
-        .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-    let admission = admit_sql_ddl_field_rename_candidate(before_field, after_field);
+    let admission = admit_sql_ddl_field_rename_candidate(before_field, new_name);
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,
