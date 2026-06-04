@@ -127,7 +127,7 @@ impl SchemaAdmissionRejectionReason {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SchemaAdmissionRejectionClassification {
+pub(in crate::db::schema) struct SchemaAdmissionRejectionClassification {
     reason: SchemaAdmissionRejectionReason,
     expected_next: Option<u32>,
 }
@@ -138,6 +138,14 @@ impl SchemaAdmissionRejectionClassification {
             reason,
             expected_next,
         }
+    }
+
+    pub(in crate::db::schema) const fn reason(self) -> SchemaAdmissionRejectionReason {
+        self.reason
+    }
+
+    pub(in crate::db::schema) const fn expected_next(self) -> Option<u32> {
+        self.expected_next
     }
 }
 
@@ -404,8 +412,9 @@ impl SchemaTransitionRejection {
 
     // Return the structured schema-version admission decision when this
     // rejection came from the 0.177 version/method/fingerprint gate.
-    #[cfg(test)]
-    const fn admission(&self) -> Option<SchemaAdmissionRejectionClassification> {
+    pub(in crate::db::schema) const fn admission(
+        &self,
+    ) -> Option<SchemaAdmissionRejectionClassification> {
         self.admission
     }
 }

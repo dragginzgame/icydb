@@ -751,6 +751,23 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, message.into())
     }
 
+    /// Construct a query-origin SQL DDL admission error with structured detail.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn query_schema_ddl_admission(
+        error: SchemaDdlAdmissionError,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: message.into(),
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::SchemaDdlAdmission {
+                error,
+            })),
+        }
+    }
+
     /// Construct a query-origin numeric overflow error with structured detail.
     #[cold]
     #[inline(never)]
@@ -1574,6 +1591,62 @@ pub enum QueryErrorDetail {
 
     #[error("unsupported SQL feature: {feature}")]
     UnsupportedSqlFeature { feature: &'static str },
+
+    #[error("SQL DDL admission rejected: {error}")]
+    SchemaDdlAdmission { error: SchemaDdlAdmissionError },
+}
+
+///
+/// SchemaDdlAdmissionError
+///
+/// Stable query-visible SQL DDL admission reason. Human diagnostics may carry
+/// extra version, fingerprint, and target facts beside this machine-readable
+/// variant.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+pub enum SchemaDdlAdmissionError {
+    #[error("missing expected schema version")]
+    MissingExpectedSchemaVersion,
+
+    #[error("missing next schema version")]
+    MissingNextSchemaVersion,
+
+    #[error("stale expected schema version")]
+    StaleExpectedSchemaVersion,
+
+    #[error("invalid expected schema version")]
+    InvalidExpectedSchemaVersion,
+
+    #[error("invalid next schema version")]
+    InvalidNextSchemaVersion,
+
+    #[error("accepted schema changed without version bump")]
+    AcceptedSchemaChangeWithoutVersionBump,
+
+    #[error("empty version bump")]
+    EmptyVersionBump,
+
+    #[error("version gap")]
+    VersionGap,
+
+    #[error("version rollback")]
+    VersionRollback,
+
+    #[error("fingerprint method mismatch")]
+    FingerprintMethodMismatch,
+
+    #[error("unsupported transition class")]
+    UnsupportedTransitionClass,
+
+    #[error("physical runner missing")]
+    PhysicalRunnerMissing,
+
+    #[error("validation failed")]
+    ValidationFailed,
+
+    #[error("publication race lost")]
+    PublicationRaceLost,
 }
 
 ///

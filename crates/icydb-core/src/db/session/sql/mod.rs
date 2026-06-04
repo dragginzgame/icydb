@@ -553,11 +553,7 @@ impl<C: CanisterKind> DbSession<C> {
             E::Store::PATH,
         ) {
             Ok(prepared) => prepared,
-            Err(err) => {
-                return Err(QueryError::unsupported_query(format!(
-                    "SQL DDL preparation failed before execution: {err}"
-                )));
-            }
+            Err(err) => return Err(QueryError::from_sql_ddl_prepare_error(err)),
         };
 
         Ok((catalog, prepared))

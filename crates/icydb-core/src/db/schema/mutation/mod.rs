@@ -18,13 +18,17 @@ use crate::db::{
     schema::{
         AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot,
         PersistedSchemaSnapshot, SchemaFieldSlot, SchemaVersion, encode_persisted_schema_snapshot,
-        transition::{SchemaAdmissionIdentityComparison, schema_admission_rejection},
+        transition::{
+            SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
+            SchemaAdmissionRejectionReason, schema_admission_rejection,
+        },
     },
 };
-use crate::error::InternalError;
+use crate::error::{InternalError, SchemaDdlAdmissionError};
 use crate::types::EntityTag;
 use sha2::Digest;
 use std::collections::BTreeMap;
+use thiserror::Error as ThisError;
 
 mod field;
 pub(in crate::db) use field::{
@@ -384,6 +388,11 @@ impl SchemaDdlAcceptedSnapshotDerivation {
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
         if let Some(rejection) = schema_admission_rejection(comparison) {
             return Err(SchemaDdlMutationAdmissionError::SchemaVersionAdmission(
+                SchemaDdlSchemaVersionAdmissionError::from_schema_admission(
+                    rejection
+                        .admission()
+                        .expect("schema-version rejection must carry admission classification"),
+                ),
                 rejection.detail().to_string(),
             ));
         }
@@ -405,12 +414,84 @@ impl SchemaDdlAcceptedSnapshotDerivation {
     dead_code,
     reason = "0.155 stages SQL DDL lowering before execution can call the runner"
 )]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub(in crate::db) enum SchemaDdlMutationAdmissionError {
+    #[error("accepted-index mutation rejected: {0:?}")]
     AcceptedIndex(AcceptedSchemaMutationError),
+    #[error("accepted-after schema snapshot rejected")]
     AcceptedAfterRejected,
-    SchemaVersionAdmission(String),
+    #[error("schema-version admission rejected: {1}")]
+    SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError, String),
+    #[error("unsupported schema mutation execution path")]
     UnsupportedExecutionPath,
+}
+
+impl SchemaDdlMutationAdmissionError {
+    pub(in crate::db) const fn schema_ddl_admission_error(&self) -> SchemaDdlAdmissionError {
+        match self {
+            Self::AcceptedIndex(_) => SchemaDdlAdmissionError::UnsupportedTransitionClass,
+            Self::AcceptedAfterRejected => SchemaDdlAdmissionError::ValidationFailed,
+            Self::SchemaVersionAdmission(reason, _) => reason.schema_ddl_admission_error(),
+            Self::UnsupportedExecutionPath => SchemaDdlAdmissionError::PhysicalRunnerMissing,
+        }
+    }
+}
+
+///
+/// SchemaDdlSchemaVersionAdmissionError
+///
+/// Stable DDL-facing admission-matrix reason for rejected schema-version and
+/// fingerprint transitions.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+pub(in crate::db) enum SchemaDdlSchemaVersionAdmissionError {
+    #[error("schema fingerprint method changed")]
+    FingerprintMethodMismatch,
+
+    #[error("schema changed without schema_version bump")]
+    AcceptedSchemaChangeWithoutVersionBump,
+
+    #[error("schema_version bumped without schema shape change")]
+    EmptyVersionBump,
+
+    #[error("schema_version jumped")]
+    VersionGap { expected_next: u32 },
+
+    #[error("schema_version moved backwards")]
+    VersionRollback,
+}
+
+impl SchemaDdlSchemaVersionAdmissionError {
+    const fn schema_ddl_admission_error(self) -> SchemaDdlAdmissionError {
+        match self {
+            Self::FingerprintMethodMismatch => SchemaDdlAdmissionError::FingerprintMethodMismatch,
+            Self::AcceptedSchemaChangeWithoutVersionBump => {
+                SchemaDdlAdmissionError::AcceptedSchemaChangeWithoutVersionBump
+            }
+            Self::EmptyVersionBump => SchemaDdlAdmissionError::EmptyVersionBump,
+            Self::VersionGap { .. } => SchemaDdlAdmissionError::VersionGap,
+            Self::VersionRollback => SchemaDdlAdmissionError::VersionRollback,
+        }
+    }
+
+    const fn from_schema_admission(classification: SchemaAdmissionRejectionClassification) -> Self {
+        match classification.reason() {
+            SchemaAdmissionRejectionReason::FingerprintMethodMismatch => {
+                Self::FingerprintMethodMismatch
+            }
+            SchemaAdmissionRejectionReason::MissingVersionBump => {
+                Self::AcceptedSchemaChangeWithoutVersionBump
+            }
+            SchemaAdmissionRejectionReason::EmptyVersionBump => Self::EmptyVersionBump,
+            SchemaAdmissionRejectionReason::VersionGap => Self::VersionGap {
+                expected_next: classification
+                    .expected_next()
+                    .expect("version-gap admission must carry expected_next"),
+            },
+            SchemaAdmissionRejectionReason::VersionRollback => Self::VersionRollback,
+        }
+    }
 }
 
 ///

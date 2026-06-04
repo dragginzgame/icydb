@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.2` tightens SQL DDL admission diagnostics by requiring observed
+  schema versions for no-op DDL and carrying stable query-visible admission
+  variants for preparation failures.
+
 - `0.178.1` makes SQL DDL publication conditional on the binding-time
   accepted schema identity, rejecting stale prepared transitions before they
   can replace a newer accepted snapshot.

@@ -8,22 +8,25 @@ use crate::{
         response::Row,
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldOrigin,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, SchemaInfo, SchemaVersion,
-            accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_method_version,
-            compiled_schema_proposal_for_model, execute_sql_ddl_field_addition,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+            SchemaDdlMutationAdmissionError, SchemaDdlSchemaVersionAdmissionError, SchemaInfo,
+            SchemaVersion, accepted_schema_cache_fingerprint,
+            accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
+            execute_sql_ddl_field_addition,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
             ddl::{
-                BoundSqlDdlStatement, SqlDdlBindError, SqlDdlExecutionStatus, SqlDdlMutationKind,
-                bind_sql_ddl_statement, derive_bound_sql_ddl_accepted_after,
+                BoundSqlDdlStatement, SqlDdlBindError, SqlDdlExecutionStatus, SqlDdlLoweringError,
+                SqlDdlMutationKind, SqlDdlPrepareError, bind_sql_ddl_statement,
+                derive_bound_sql_ddl_accepted_after,
                 lower_bound_sql_ddl_to_schema_mutation_admission, prepare_sql_ddl_statement,
             },
             lowering::{SqlCommand, compile_sql_command},
             parser::parse_sql,
         },
     },
-    error::{ErrorClass, ErrorDetail, StoreError},
+    error::{ErrorClass, ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, StoreError},
 };
 use std::collections::HashSet;
 
@@ -86,6 +89,37 @@ fn ddl_transition_sql_to(
     } else {
         format!("{sql} {contract}")
     }
+}
+
+fn ddl_expected_sql(sql: &str, expected_schema_version: u32) -> String {
+    let contract = format!("EXPECT SCHEMA VERSION {expected_schema_version}");
+    if let Some(where_offset) = sql.find(" WHERE ") {
+        format!(
+            "{} {contract}{}",
+            &sql[..where_offset],
+            &sql[where_offset..]
+        )
+    } else {
+        format!("{sql} {contract}")
+    }
+}
+
+fn assert_sql_ddl_admission_detail(err: QueryError, expected: SchemaDdlAdmissionError) {
+    let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
+        err
+    else {
+        panic!("SQL DDL admission rejection should map to unsupported query execution");
+    };
+    assert_eq!(internal.class(), ErrorClass::Unsupported);
+    assert!(
+        matches!(
+            internal.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::SchemaDdlAdmission { error }))
+                if *error == expected
+        ),
+        "SQL DDL admission rejection should carry {expected:?}, got {:?}",
+        internal.detail(),
+    );
 }
 
 // Assert that one representative SQL surface keeps its own user-facing lane
@@ -4917,39 +4951,74 @@ fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication(
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
+    let catalog = session
+        .accepted_schema_catalog_context_for_query::<SessionSqlEntity>()
+        .expect("accepted schema catalog bootstrap should succeed");
+    let schema = catalog.accepted_schema_info_for::<SessionSqlEntity>();
+    let prepare_err = |sql: &str| {
+        let statement = parse_sql(sql).expect("DDL version contract test SQL should parse");
+        prepare_sql_ddl_statement(
+            &statement,
+            catalog.snapshot(),
+            &schema,
+            SessionSqlStore::PATH,
+        )
+        .expect_err("invalid DDL version contracts should reject before publication")
+    };
 
-    for (sql, expected) in [
-        (
-            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text".to_string(),
-            "requires EXPECT SCHEMA VERSION",
-        ),
-        (
-            "ALTER TABLE SessionSqlEntity SET SCHEMA VERSION 2 ADD COLUMN nickname text"
-                .to_string(),
-            "requires EXPECT SCHEMA VERSION",
-        ),
-        (
+    assert_eq!(
+        prepare_err("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text"),
+        SqlDdlPrepareError::Bind(SqlDdlBindError::MissingExpectedSchemaVersion),
+    );
+    assert_eq!(
+        prepare_err("ALTER TABLE SessionSqlEntity SET SCHEMA VERSION 2 ADD COLUMN nickname text"),
+        SqlDdlPrepareError::Bind(SqlDdlBindError::MissingExpectedSchemaVersion),
+    );
+    assert_eq!(
+        prepare_err(
             "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 1 ADD COLUMN nickname text"
-                .to_string(),
-            "requires SET SCHEMA VERSION",
         ),
-        (
+        SqlDdlPrepareError::Bind(SqlDdlBindError::MissingNextSchemaVersion),
+    );
+    assert_eq!(
+        prepare_err(
             "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 0 SET SCHEMA VERSION 1 ADD COLUMN nickname text"
-                .to_string(),
-            "EXPECT SCHEMA VERSION must be a positive schema version",
         ),
-        (
+        SqlDdlPrepareError::Bind(SqlDdlBindError::NonPositiveSchemaVersion {
+            clause: "EXPECT SCHEMA VERSION"
+        }),
+    );
+    assert_eq!(
+        prepare_err(
             "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 2 SET SCHEMA VERSION 3 ADD COLUMN nickname text"
-                .to_string(),
-            "expected accepted schema version 2, but accepted schema version is 1",
         ),
+        SqlDdlPrepareError::Bind(SqlDdlBindError::StaleExpectedSchemaVersion {
+            expected: 2,
+            accepted: 1,
+        }),
+    );
+    assert_eq!(
+        prepare_err("ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing"),
+        SqlDdlPrepareError::Bind(SqlDdlBindError::MissingExpectedSchemaVersion),
+        "true no-op DDL must still declare the accepted schema version it observed",
+    );
+    assert_eq!(
+        prepare_err(&ddl_transition_sql_to(
+            "ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing",
+            1,
+            2,
+        )),
+        SqlDdlPrepareError::Bind(SqlDdlBindError::EmptySchemaVersionBump { requested: 2 }),
+    );
+
+    for (sql, expected_reason) in [
         (
             ddl_transition_sql_to(
                 "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
                 1,
                 1,
             ),
-            "schema changed without schema_version bump",
+            SchemaDdlSchemaVersionAdmissionError::AcceptedSchemaChangeWithoutVersionBump,
         ),
         (
             ddl_transition_sql_to(
@@ -4957,7 +5026,43 @@ fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication(
                 1,
                 3,
             ),
-            "schema_version jumped",
+            SchemaDdlSchemaVersionAdmissionError::VersionGap { expected_next: 2 },
+        ),
+    ] {
+        let SqlDdlPrepareError::Lowering(SqlDdlLoweringError::MutationAdmission(
+            SchemaDdlMutationAdmissionError::SchemaVersionAdmission(reason, detail),
+        )) = prepare_err(&sql)
+        else {
+            panic!("DDL schema-version matrix rejection should preserve typed admission reason");
+        };
+        assert_eq!(reason, expected_reason);
+        assert!(
+            detail.contains("stored_version=1")
+                && detail.contains("candidate_version=")
+                && detail.contains("stored_fingerprint=")
+                && detail.contains("candidate_fingerprint="),
+            "schema-version admission detail should preserve compared identity facts: {detail}",
+        );
+    }
+
+    for (sql, expected_reason) in [
+        (
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text".to_string(),
+            SchemaDdlAdmissionError::MissingExpectedSchemaVersion,
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 1 ADD COLUMN nickname text"
+                .to_string(),
+            SchemaDdlAdmissionError::MissingNextSchemaVersion,
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity EXPECT SCHEMA VERSION 0 SET SCHEMA VERSION 1 ADD COLUMN nickname text"
+                .to_string(),
+            SchemaDdlAdmissionError::InvalidExpectedSchemaVersion,
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing".to_string(),
+            SchemaDdlAdmissionError::MissingExpectedSchemaVersion,
         ),
         (
             ddl_transition_sql_to(
@@ -4965,16 +5070,29 @@ fn execute_sql_ddl_enforces_explicit_schema_version_contract_before_publication(
                 1,
                 2,
             ),
-            "no-op cannot SET SCHEMA VERSION 2",
+            SchemaDdlAdmissionError::EmptyVersionBump,
+        ),
+        (
+            ddl_transition_sql_to(
+                "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+                1,
+                1,
+            ),
+            SchemaDdlAdmissionError::AcceptedSchemaChangeWithoutVersionBump,
+        ),
+        (
+            ddl_transition_sql_to(
+                "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+                1,
+                3,
+            ),
+            SchemaDdlAdmissionError::VersionGap,
         ),
     ] {
         let err = session
             .execute_sql_ddl::<SessionSqlEntity>(&sql)
             .expect_err("invalid DDL version contracts should reject before publication");
-        assert!(
-            err.to_string().contains(expected),
-            "DDL version contract rejection should contain '{expected}' for {sql}: {err}",
-        );
+        assert_sql_ddl_admission_detail(err, expected_reason);
     }
 
     SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
@@ -5255,9 +5373,10 @@ fn execute_sql_ddl_alter_column_default_reports_no_op_for_matching_default() {
         ))
         .expect("setup defaulted ADD COLUMN should publish before matching SET DEFAULT");
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 7",
-        )
+            2,
+        ))
         .expect("matching ALTER COLUMN SET DEFAULT should execute as a no-op")
     else {
         panic!("matching ALTER COLUMN SET DEFAULT should return a DDL report");
@@ -5467,9 +5586,10 @@ fn execute_sql_ddl_alter_column_nullability_reports_no_op_for_matching_contract(
         ))
         .expect("setup nullable ADD COLUMN should publish before matching DROP NOT NULL");
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
             "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname DROP NOT NULL",
-        )
+            2,
+        ))
         .expect("matching ALTER COLUMN DROP NOT NULL should execute as a no-op")
     else {
         panic!("matching ALTER COLUMN DROP NOT NULL should return a DDL report");
@@ -5677,9 +5797,10 @@ fn execute_sql_ddl_drop_column_if_exists_reports_no_op_for_missing_column() {
     let session = sql_session();
 
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
             "ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing",
-        )
+            1,
+        ))
         .expect("DROP COLUMN IF EXISTS should no-op for missing accepted fields")
     else {
         panic!("DROP COLUMN IF EXISTS should return a DDL report");
@@ -6032,9 +6153,10 @@ fn execute_sql_ddl_rename_column_reports_no_op_for_same_name() {
     let session = sql_session();
 
     let SqlStatementResult::Ddl(report) = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
             "ALTER TABLE SessionSqlEntity RENAME COLUMN age TO age",
-        )
+            1,
+        ))
         .expect("same-name RENAME COLUMN should no-op")
     else {
         panic!("same-name RENAME COLUMN should return a DDL report");
@@ -6212,6 +6334,7 @@ fn execute_sql_ddl_rejects_generated_index_drop_with_actionable_message() {
         message.contains("remove the index from the entity schema macro instead"),
         "generated index drops should tell developers how to remove the index",
     );
+    assert_sql_ddl_admission_detail(err, SchemaDdlAdmissionError::UnsupportedTransitionClass);
 }
 
 #[test]
@@ -6327,9 +6450,10 @@ fn execute_sql_ddl_create_expression_index_if_not_exists_reports_no_op_for_exist
         ))
         .expect("setup expression index DDL should publish");
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
             "CREATE INDEX IF NOT EXISTS session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
-        )
+            2,
+        ))
         .expect("matching expression CREATE INDEX IF NOT EXISTS should no-op");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("no-op expression DDL execution should return a DDL report");
@@ -7030,9 +7154,10 @@ fn execute_sql_ddl_create_index_if_not_exists_reports_no_op_for_existing_index()
         ))
         .expect("setup DDL execution should publish the field-path index");
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>(
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
             "CREATE INDEX IF NOT EXISTS session_sql_age_idx ON SessionSqlEntity (age)",
-        )
+            2,
+        ))
         .expect("matching CREATE INDEX IF NOT EXISTS should execute as a no-op");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("no-op CREATE INDEX IF NOT EXISTS should return a DDL report");
@@ -7212,7 +7337,10 @@ fn execute_sql_ddl_drop_index_if_exists_reports_no_op_for_missing_index() {
     let session = sql_session();
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX IF EXISTS missing_idx")
+        .execute_sql_ddl::<SessionSqlEntity>(&ddl_expected_sql(
+            "DROP INDEX IF EXISTS missing_idx",
+            1,
+        ))
         .expect("missing DROP INDEX IF EXISTS should execute as a no-op");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("no-op DROP INDEX IF EXISTS should return a DDL report");
