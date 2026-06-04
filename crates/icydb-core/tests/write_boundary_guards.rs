@@ -840,8 +840,12 @@ fn sql_ddl_frontend_does_not_write_schema_store_directly() {
 fn schema_mutation_publication_boundary_uses_runner_preflight() {
     let mutation = read_sources(&[
         "src/db/schema/mutation/mod.rs",
+        "src/db/schema/mutation/execution.rs",
         "src/db/schema/mutation/runner.rs",
     ]);
+    let mutation_mod = read_source("src/db/schema/mutation/mod.rs");
+    let mutation_execution = read_source("src/db/schema/mutation/execution.rs");
+    let mutation_runner = read_source("src/db/schema/mutation/runner.rs");
     let transition = read_source("src/db/schema/transition.rs");
     let reconcile = read_source("src/db/schema/reconcile.rs");
     let reconcile_compact = compact_source(&reconcile);
@@ -857,6 +861,40 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && mutation.contains("MutationPublicationPreflight::PhysicalWorkReady")
             && mutation.contains("`PhysicalWorkReady` is still not publishable in 0.152"),
         "schema mutation publication must expose a runner-preflight decision before any physical-work mutation can publish",
+    );
+    assert!(
+        mutation_mod.contains("mod execution;")
+            && mutation_mod.contains("pub(in crate::db::schema) use self::execution::*;")
+            && !mutation_mod
+                .contains("pub(in crate::db::schema) enum MutationPublicationPreflight")
+            && !mutation_mod
+                .contains("pub(in crate::db::schema) struct SchemaMutationRunnerContract")
+            && !mutation_mod.contains("pub(in crate::db::schema) enum SchemaMutationExecutionGate")
+            && !mutation_mod
+                .contains("pub(in crate::db::schema) struct SchemaMutationExecutionPlan")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) enum MutationPublicationPreflight")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) struct SchemaMutationRunnerContract")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) enum SchemaMutationExecutionGate")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) struct SchemaMutationExecutionPlan")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) enum SchemaMutationExecutionReadiness")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) enum SchemaMutationExecutionStep")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) enum SchemaMutationRunnerCapability")
+            && mutation_execution
+                .contains("pub(in crate::db::schema) enum SchemaMutationRunnerPreflight")
+            && !mutation_runner
+                .contains("pub(in crate::db::schema) enum SchemaMutationExecutionReadiness")
+            && !mutation_runner
+                .contains("pub(in crate::db::schema) enum SchemaMutationExecutionStep")
+            && !mutation_runner
+                .contains("pub(in crate::db::schema) enum SchemaMutationRunnerPreflight"),
+        "schema mutation execution and runner-preflight contracts must stay in the execution module instead of the mutation hub or runner diagnostics module",
     );
     assert!(
         transition.contains("pub(in crate::db::schema) fn publication_preflight(")

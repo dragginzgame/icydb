@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.14` moves schema mutation execution gates, execution plans, runner
+  capabilities, and runner-preflight contracts into a dedicated execution
+  module, narrowing the mutation hub and runner diagnostics module.
+
 - `0.178.13` moves schema-owned DDL admission contracts and accepted-snapshot
   delta classification into dedicated schema mutation modules, reducing the
   mutation hub while preserving existing admission behavior.
