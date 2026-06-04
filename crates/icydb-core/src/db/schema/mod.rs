@@ -91,17 +91,19 @@ pub(in crate::db::schema) use mutation::{
     schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
-    SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
-    SchemaDdlMutationAdmissionError, SchemaExpressionIndexRebuildExpression,
-    SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget,
-    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
+    SchemaDdlAcceptedSnapshotDerivation, SchemaDdlFieldDropCandidateError,
+    SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmissionError,
+    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
+    SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
+    SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
     SchemaSecondaryIndexDropCleanupTarget, build_sql_ddl_field_addition_candidate,
-    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_addition_accepted_after,
-    derive_sql_ddl_field_default_accepted_after, derive_sql_ddl_field_drop_accepted_after,
-    derive_sql_ddl_field_nullability_accepted_after,
+    build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
+    derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
+    derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
-    derive_sql_ddl_secondary_index_drop_accepted_after, resolve_sql_ddl_field_drop_dependent_index,
+    derive_sql_ddl_secondary_index_drop_accepted_after, encode_sql_ddl_add_column_default,
+    encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_drop_candidate,
     resolve_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(test)]

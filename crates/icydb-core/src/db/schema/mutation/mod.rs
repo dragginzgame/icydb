@@ -29,11 +29,11 @@ use thiserror::Error as ThisError;
 
 mod field;
 pub(in crate::db) use field::{
-    SchemaFieldAdditionTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
-    SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
+    SchemaDdlFieldDropCandidateError, SchemaFieldAdditionTarget, SchemaFieldDefaultTarget,
+    SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
     derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
     derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
-    derive_sql_ddl_field_rename_accepted_after, resolve_sql_ddl_field_drop_dependent_index,
+    derive_sql_ddl_field_rename_accepted_after, resolve_sql_ddl_field_drop_candidate,
 };
 #[cfg(test)]
 pub(in crate::db) use field::{
@@ -45,6 +45,11 @@ pub(in crate::db) use field::{
 mod field_allocation;
 pub(in crate::db) use field_allocation::build_sql_ddl_field_addition_candidate;
 
+mod field_default_encoding;
+pub(in crate::db) use field_default_encoding::{
+    encode_sql_ddl_add_column_default, encode_sql_ddl_alter_column_default,
+};
+
 mod ddl_admission;
 pub(in crate::db) use ddl_admission::SchemaDdlSchemaVersionAdmissionError;
 
@@ -53,7 +58,8 @@ pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
-    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_path_index_accepted_after,
+    build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
+    derive_sql_ddl_field_path_index_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after,
     resolve_sql_ddl_secondary_index_drop_candidate,
 };

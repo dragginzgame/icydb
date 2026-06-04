@@ -493,6 +493,38 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     Ok((index, field_path))
 }
 
+/// Build one SQL DDL-owned secondary-index candidate with schema-owned ordinal
+/// allocation. SQL DDL supplies author intent and accepted key metadata;
+/// schema mutation code assigns durable catalog identity.
+pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    name: String,
+    store: String,
+    unique: bool,
+    key: PersistedIndexKeySnapshot,
+    predicate_sql: Option<String>,
+) -> PersistedIndexSnapshot {
+    PersistedIndexSnapshot::new_sql_ddl(
+        next_sql_ddl_secondary_index_ordinal(accepted_before),
+        name,
+        store,
+        unique,
+        key,
+        predicate_sql,
+    )
+}
+
+fn next_sql_ddl_secondary_index_ordinal(accepted_before: &AcceptedSchemaSnapshot) -> u16 {
+    accepted_before
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .map(PersistedIndexSnapshot::ordinal)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
+}
+
 fn ddl_drop_index_key_report(key: &PersistedIndexKeySnapshot) -> Option<Vec<String>> {
     match key {
         PersistedIndexKeySnapshot::FieldPath(field_paths) => match field_paths.as_slice() {

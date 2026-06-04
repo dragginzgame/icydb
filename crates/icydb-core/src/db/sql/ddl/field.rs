@@ -3,12 +3,11 @@ use super::{
     BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind,
 };
 use crate::db::{
-    data::encode_runtime_value_for_accepted_field_contract,
     schema::{
-        AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, PersistedFieldKind,
-        PersistedFieldSnapshot, SchemaFieldDefault, SchemaInfo,
-        build_sql_ddl_field_addition_candidate, canonicalize_strict_sql_literal_for_persisted_kind,
-        resolve_sql_ddl_field_drop_dependent_index,
+        AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldSnapshot,
+        SchemaDdlFieldDropCandidateError, SchemaFieldDefault, SchemaInfo,
+        build_sql_ddl_field_addition_candidate, encode_sql_ddl_add_column_default,
+        encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_drop_candidate,
     },
     sql::{
         identifier::identifiers_tail_match,
@@ -363,60 +362,54 @@ pub(super) fn bind_alter_table_drop_column_statement(
         });
     }
 
-    let accepted = accepted_before.persisted_snapshot();
-    let Some(field) = accepted
-        .fields()
-        .iter()
-        .find(|field| field.name() == statement.column_name)
-    else {
-        if statement.if_exists {
-            return Ok(BoundSqlDdlRequest {
-                schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
-                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
-                    mutation_kind: SqlDdlMutationKind::DropField,
-                    index_name: statement.column_name.clone(),
+    let field =
+        match resolve_sql_ddl_field_drop_candidate(accepted_before, statement.column_name.as_str())
+        {
+            Ok(field) => field,
+            Err(SchemaDdlFieldDropCandidateError::Unknown) if statement.if_exists => {
+                return Ok(BoundSqlDdlRequest {
+                    schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
+                    statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                        mutation_kind: SqlDdlMutationKind::DropField,
+                        index_name: statement.column_name.clone(),
+                        entity_name: entity_name.to_string(),
+                        target_store: "-".to_string(),
+                        field_path: vec![statement.column_name.clone()],
+                    }),
+                });
+            }
+            Err(SchemaDdlFieldDropCandidateError::Unknown) => {
+                return Err(SqlDdlBindError::UnknownColumn {
                     entity_name: entity_name.to_string(),
-                    target_store: "-".to_string(),
-                    field_path: vec![statement.column_name.clone()],
-                }),
-            });
-        }
-
-        return Err(SqlDdlBindError::UnknownColumn {
-            entity_name: entity_name.to_string(),
-            column_name: statement.column_name.clone(),
-        });
-    };
-
-    if accepted.primary_key_field_ids().contains(&field.id()) {
-        return Err(SqlDdlBindError::PrimaryKeyFieldDropRejected {
-            entity_name: entity_name.to_string(),
-            column_name: statement.column_name.clone(),
-        });
-    }
-
-    if field.generated() {
-        return Err(SqlDdlBindError::GeneratedFieldDropRejected {
-            entity_name: entity_name.to_string(),
-            column_name: statement.column_name.clone(),
-        });
-    }
-
-    if let Some(index_name) =
-        resolve_sql_ddl_field_drop_dependent_index(accepted_before, field.id())
-    {
-        return Err(SqlDdlBindError::IndexedFieldDropRejected {
-            entity_name: entity_name.to_string(),
-            column_name: statement.column_name.clone(),
-            index_name,
-        });
-    }
+                    column_name: statement.column_name.clone(),
+                });
+            }
+            Err(SchemaDdlFieldDropCandidateError::PrimaryKey) => {
+                return Err(SqlDdlBindError::PrimaryKeyFieldDropRejected {
+                    entity_name: entity_name.to_string(),
+                    column_name: statement.column_name.clone(),
+                });
+            }
+            Err(SchemaDdlFieldDropCandidateError::Generated) => {
+                return Err(SqlDdlBindError::GeneratedFieldDropRejected {
+                    entity_name: entity_name.to_string(),
+                    column_name: statement.column_name.clone(),
+                });
+            }
+            Err(SchemaDdlFieldDropCandidateError::Indexed(index_name)) => {
+                return Err(SqlDdlBindError::IndexedFieldDropRejected {
+                    entity_name: entity_name.to_string(),
+                    column_name: statement.column_name.clone(),
+                    index_name,
+                });
+            }
+        };
 
     Ok(BoundSqlDdlRequest {
         schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
         statement: BoundSqlDdlStatement::DropColumn(BoundSqlDropColumnRequest {
             entity_name: entity_name.to_string(),
-            field: field.clone(),
+            field,
         }),
     })
 }
@@ -591,30 +584,19 @@ fn schema_field_default_for_sql_default(
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
-    let Some(default) = default else {
-        return Ok(SchemaFieldDefault::None);
-    };
-    if matches!(default, crate::value::Value::Null) {
-        return Err(SqlDdlBindError::InvalidAlterTableAddColumnDefault {
-            entity_name: entity_name.to_string(),
-            column_name: column_name.to_string(),
-            detail: "NULL cannot be used as an accepted database default".to_string(),
-        });
-    }
-
-    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(kind, default)
-        .unwrap_or_else(|| default.clone());
-    let contract =
-        AcceptedFieldDecodeContract::new(column_name, kind, nullable, storage_decode, leaf_codec);
-    let payload = encode_runtime_value_for_accepted_field_contract(contract, &normalized).map_err(
-        |error| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
-            entity_name: entity_name.to_string(),
-            column_name: column_name.to_string(),
-            detail: error.to_string(),
-        },
-    )?;
-
-    Ok(SchemaFieldDefault::SlotPayload(payload))
+    encode_sql_ddl_add_column_default(
+        column_name,
+        default,
+        kind,
+        nullable,
+        storage_decode,
+        leaf_codec,
+    )
+    .map_err(|error| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
+        entity_name: entity_name.to_string(),
+        column_name: column_name.to_string(),
+        detail: error.to_string(),
+    })
 }
 
 fn schema_field_default_for_alter_column_default(
@@ -622,32 +604,13 @@ fn schema_field_default_for_alter_column_default(
     field: &PersistedFieldSnapshot,
     default: &crate::value::Value,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
-    if matches!(default, crate::value::Value::Null) {
-        return Err(SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
-            entity_name: entity_name.to_string(),
-            column_name: field.name().to_string(),
-            detail: "NULL cannot be used as an accepted database default".to_string(),
-        });
-    }
-
-    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(field.kind(), default)
-        .unwrap_or_else(|| default.clone());
-    let contract = AcceptedFieldDecodeContract::new(
-        field.name(),
-        field.kind(),
-        field.nullable(),
-        field.storage_decode(),
-        field.leaf_codec(),
-    );
-    let payload = encode_runtime_value_for_accepted_field_contract(contract, &normalized).map_err(
-        |error| SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
+    encode_sql_ddl_alter_column_default(field, default).map_err(|error| {
+        SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
             entity_name: entity_name.to_string(),
             column_name: field.name().to_string(),
             detail: error.to_string(),
-        },
-    )?;
-
-    Ok(SchemaFieldDefault::SlotPayload(payload))
+        }
+    })
 }
 
 fn persisted_field_contract_for_sql_column_type(

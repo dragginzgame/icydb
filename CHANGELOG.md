@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
 
+- `0.178.5` moves SQL DDL default encoding, field-drop candidate
+  classification, and secondary-index candidate identity allocation under
+  schema-owned mutation authority while preserving existing bind diagnostics.
+
 - `0.178.4` moves SQL DDL additive-field allocation back under schema-owned
   mutation authority and closes the remaining invalid-next-version, rollback,
   and no-direct-schema-store publication proofs.

@@ -589,7 +589,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
 
     let mut bound = match ddl {
         SqlDdlStatement::CreateIndex(statement) => {
-            bind_create_index_statement(statement, schema, index_store_path)
+            bind_create_index_statement(statement, accepted_before, schema, index_store_path)
         }
         SqlDdlStatement::DropIndex(statement) => {
             bind_drop_index_statement(statement, accepted_before, schema)

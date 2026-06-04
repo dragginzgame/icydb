@@ -9,7 +9,7 @@ use crate::db::{
         AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, SchemaDdlIndexDropCandidateError, SchemaExpressionIndexInfo,
-        SchemaExpressionIndexKeyItemInfo, SchemaInfo,
+        SchemaExpressionIndexKeyItemInfo, SchemaInfo, build_sql_ddl_secondary_index_candidate,
         resolve_sql_ddl_secondary_index_drop_candidate,
     },
     sql::{
@@ -174,6 +174,7 @@ impl BoundSqlDdlExpressionKey {
 
 pub(super) fn bind_create_index_statement(
     statement: &SqlCreateIndexStatement,
+    accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
     index_store_path: &'static str,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
@@ -257,6 +258,7 @@ pub(super) fn bind_create_index_statement(
         reject_duplicate_expression_index(key_items.as_slice(), predicate_sql.as_deref(), schema)?;
     }
     let candidate_index = candidate_index_snapshot(
+        accepted_before,
         statement.name.as_str(),
         key_items.as_slice(),
         predicate_sql.as_deref(),
@@ -591,6 +593,7 @@ fn reject_duplicate_field_path_index(
 }
 
 fn candidate_index_snapshot(
+    accepted_before: &AcceptedSchemaSnapshot,
     index_name: &str,
     key_items: &[BoundSqlDdlCreateIndexKey],
     predicate_sql: Option<&str>,
@@ -628,8 +631,8 @@ fn candidate_index_snapshot(
         )
     };
 
-    Ok(PersistedIndexSnapshot::new_sql_ddl(
-        schema.next_secondary_index_ordinal(),
+    Ok(build_sql_ddl_secondary_index_candidate(
+        accepted_before,
         index_name.to_string(),
         index_store_path.to_string(),
         matches!(uniqueness, SqlCreateIndexUniqueness::Unique),

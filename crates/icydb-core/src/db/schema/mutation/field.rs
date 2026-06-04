@@ -206,6 +206,20 @@ impl SchemaFieldRenameTarget {
     }
 }
 
+/// Field drop candidate resolution failures for SQL DDL-authored schema
+/// mutations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlFieldDropCandidateError {
+    /// No accepted field matches the requested SQL column name.
+    Unknown,
+    /// The requested accepted field is part of the primary key.
+    PrimaryKey,
+    /// The requested accepted field is generated-owned.
+    Generated,
+    /// The requested accepted field is still referenced by an accepted index.
+    Indexed(String),
+}
+
 /// Admit one SQL DDL field addition through the schema-owned mutation request
 /// boundary. Publication policy is validated against the full accepted-before
 /// and accepted-after snapshots before execution stores the derived snapshot.
@@ -265,11 +279,7 @@ pub(in crate::db) fn admit_sql_ddl_field_rename_candidate(
     }
 }
 
-/// Return the first accepted index that depends on a field-drop candidate.
-///
-/// SQL frontends must ask the schema layer for this dependency check instead
-/// of reading accepted index metadata directly.
-pub(in crate::db) fn resolve_sql_ddl_field_drop_dependent_index(
+fn resolve_sql_ddl_field_drop_dependent_index(
     accepted_before: &AcceptedSchemaSnapshot,
     field_id: FieldId,
 ) -> Option<String> {
@@ -279,6 +289,37 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_dependent_index(
         .iter()
         .find(|index| index.key().references_field(field_id))
         .map(|index| index.name().to_string())
+}
+
+/// Resolve one accepted SQL DDL field-drop candidate and reject primary-key,
+/// generated-owned, or index-referenced fields before the frontend can derive a
+/// catalog mutation.
+pub(in crate::db) fn resolve_sql_ddl_field_drop_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field_name: &str,
+) -> Result<PersistedFieldSnapshot, SchemaDdlFieldDropCandidateError> {
+    let accepted = accepted_before.persisted_snapshot();
+    let field = accepted
+        .fields()
+        .iter()
+        .find(|field| field.name() == field_name)
+        .ok_or(SchemaDdlFieldDropCandidateError::Unknown)?;
+
+    if accepted.primary_key_field_ids().contains(&field.id()) {
+        return Err(SchemaDdlFieldDropCandidateError::PrimaryKey);
+    }
+
+    if field.generated() {
+        return Err(SchemaDdlFieldDropCandidateError::Generated);
+    }
+
+    if let Some(index_name) =
+        resolve_sql_ddl_field_drop_dependent_index(accepted_before, field.id())
+    {
+        return Err(SchemaDdlFieldDropCandidateError::Indexed(index_name));
+    }
+
+    Ok(field.clone())
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL

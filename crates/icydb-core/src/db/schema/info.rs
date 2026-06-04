@@ -746,25 +746,6 @@ impl SchemaInfo {
         ))
     }
 
-    /// Return the next accepted secondary-index ordinal for a DDL candidate.
-    #[must_use]
-    pub(in crate::db) fn next_secondary_index_ordinal(&self) -> u16 {
-        let max_field_path = self
-            .indexes
-            .iter()
-            .map(SchemaIndexInfo::ordinal)
-            .max()
-            .unwrap_or(0);
-        let max_expression = self
-            .expression_indexes
-            .iter()
-            .map(SchemaExpressionIndexInfo::ordinal)
-            .max()
-            .unwrap_or(0);
-
-        max_field_path.max(max_expression).saturating_add(1)
-    }
-
     /// Return the first top-level field that SQL cannot project directly.
     #[must_use]
     pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&str> {

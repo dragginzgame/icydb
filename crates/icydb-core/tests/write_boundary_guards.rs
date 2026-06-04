@@ -549,6 +549,69 @@ fn sql_ddl_add_column_uses_schema_owned_field_allocation() {
 }
 
 #[test]
+fn sql_ddl_default_encoding_uses_schema_owned_field_codecs() {
+    let ddl_field = read_source("src/db/sql/ddl/field.rs");
+    let mutation = read_rust_sources_under("src/db/schema/mutation");
+
+    assert!(
+        ddl_field.contains("encode_sql_ddl_add_column_default(")
+            && ddl_field.contains("encode_sql_ddl_alter_column_default(")
+            && !ddl_field.contains("encode_runtime_value_for_accepted_field_contract")
+            && !ddl_field.contains("AcceptedFieldDecodeContract")
+            && !ddl_field.contains("canonicalize_strict_sql_literal_for_persisted_kind"),
+        "SQL DDL default binding must delegate payload encoding to schema-owned mutation code",
+    );
+    assert!(
+        mutation.contains("pub(in crate::db) fn encode_sql_ddl_add_column_default(")
+            && mutation.contains("pub(in crate::db) fn encode_sql_ddl_alter_column_default(")
+            && mutation.contains("encode_runtime_value_for_accepted_field_contract")
+            && mutation.contains("AcceptedFieldDecodeContract")
+            && mutation.contains("canonicalize_strict_sql_literal_for_persisted_kind"),
+        "schema mutation code must own DDL default canonicalization and accepted-field codec encoding",
+    );
+}
+
+#[test]
+fn sql_ddl_drop_column_uses_schema_owned_field_drop_candidate_resolution() {
+    let ddl_field = read_source("src/db/sql/ddl/field.rs");
+    let mutation = read_rust_sources_under("src/db/schema/mutation");
+
+    assert!(
+        ddl_field.contains("resolve_sql_ddl_field_drop_candidate(")
+            && !ddl_field.contains("primary_key_field_ids().contains")
+            && !ddl_field.contains("resolve_sql_ddl_field_drop_dependent_index"),
+        "SQL DDL DROP COLUMN must map schema-owned candidate classification instead of scanning primary-key or index metadata itself",
+    );
+    assert!(
+        mutation.contains("enum SchemaDdlFieldDropCandidateError")
+            && mutation.contains("pub(in crate::db) fn resolve_sql_ddl_field_drop_candidate(")
+            && mutation.contains("fn resolve_sql_ddl_field_drop_dependent_index(")
+            && mutation.contains("primary_key_field_ids().contains")
+            && mutation.contains("field.generated()"),
+        "schema mutation code must own DROP COLUMN candidate ownership, primary-key, and dependency classification",
+    );
+}
+
+#[test]
+fn sql_ddl_create_index_uses_schema_owned_index_candidate_identity() {
+    let ddl_index = read_source("src/db/sql/ddl/index.rs");
+    let mutation = read_rust_sources_under("src/db/schema/mutation");
+
+    assert!(
+        ddl_index.contains("build_sql_ddl_secondary_index_candidate(")
+            && !ddl_index.contains("PersistedIndexSnapshot::new_sql_ddl")
+            && !ddl_index.contains("next_secondary_index_ordinal"),
+        "SQL DDL CREATE INDEX must bind key intent without owning index ordinal or origin allocation",
+    );
+    assert!(
+        mutation.contains("pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(")
+            && mutation.contains("fn next_sql_ddl_secondary_index_ordinal(")
+            && mutation.contains("PersistedIndexSnapshot::new_sql_ddl("),
+        "schema mutation code must own DDL secondary-index ordinal and origin allocation",
+    );
+}
+
+#[test]
 fn sql_ddl_frontend_does_not_write_schema_store_directly() {
     let sql_ddl = read_rust_sources_under("src/db/sql");
     let session_sql = read_rust_sources_under("src/db/session/sql");
