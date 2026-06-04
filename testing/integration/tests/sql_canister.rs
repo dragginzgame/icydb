@@ -64,6 +64,79 @@ fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryRes
         .expect("sql DDL canister call should decode")
 }
 
+#[derive(Clone, Copy, Debug)]
+struct DdlSchemaVersion {
+    current: u32,
+}
+
+impl DdlSchemaVersion {
+    const fn initial() -> Self {
+        Self { current: 1 }
+    }
+
+    fn publish(
+        &mut self,
+        fixture: &StandaloneCanisterFixture,
+        sql: &str,
+    ) -> Result<SqlQueryResult, Error> {
+        let result = ddl_sql(fixture, &ddl_transition_sql(sql, self.current));
+        if result.is_ok() {
+            self.current = self
+                .current
+                .checked_add(1)
+                .expect("test schema version should fit u32");
+        }
+        result
+    }
+
+    fn reject(
+        &self,
+        fixture: &StandaloneCanisterFixture,
+        sql: &str,
+    ) -> Result<SqlQueryResult, Error> {
+        ddl_sql(fixture, &ddl_transition_sql(sql, self.current))
+    }
+
+    fn no_op(
+        &self,
+        fixture: &StandaloneCanisterFixture,
+        sql: &str,
+    ) -> Result<SqlQueryResult, Error> {
+        ddl_sql(fixture, &ddl_expected_sql(sql, self.current))
+    }
+}
+
+fn ddl_transition_sql(sql: &str, expected_schema_version: u32) -> String {
+    ddl_contract_sql(
+        sql,
+        &format!(
+            "EXPECT SCHEMA VERSION {expected_schema_version} SET SCHEMA VERSION {}",
+            expected_schema_version
+                .checked_add(1)
+                .expect("test schema version should fit u32"),
+        ),
+    )
+}
+
+fn ddl_expected_sql(sql: &str, expected_schema_version: u32) -> String {
+    ddl_contract_sql(
+        sql,
+        &format!("EXPECT SCHEMA VERSION {expected_schema_version}"),
+    )
+}
+
+fn ddl_contract_sql(sql: &str, contract: &str) -> String {
+    if let Some(where_offset) = sql.find(" WHERE ") {
+        format!(
+            "{} {contract}{}",
+            &sql[..where_offset],
+            &sql[where_offset..],
+        )
+    } else {
+        format!("{sql} {contract}")
+    }
+}
+
 fn expect_projection(result: SqlQueryResult) -> SqlQueryRowsOutput {
     match result {
         SqlQueryResult::Projection(rows) => rows,
@@ -211,6 +284,7 @@ fn assert_numeric_query_error(err: Error, expected_message: &str, context: &str)
 
 fn assert_ddl_rejects_without_index_visibility_change(
     fixture: &StandaloneCanisterFixture,
+    schema_version: &DdlSchemaVersion,
     sql: &str,
     forbidden_visibility_fragment: &str,
 ) {
@@ -218,7 +292,9 @@ fn assert_ddl_rejects_without_index_visibility_change(
         query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes before rejected DDL"),
     );
-    let err = ddl_sql(fixture, sql).expect_err("invalid DDL should reject");
+    let err = schema_version
+        .reject(fixture, sql)
+        .expect_err("invalid DDL should reject");
 
     assert_eq!(
         err.kind(),
@@ -243,11 +319,13 @@ fn assert_ddl_rejects_without_index_visibility_change(
 
 fn assert_ddl_rejects_with_index_visibility_unchanged(
     fixture: &StandaloneCanisterFixture,
+    schema_version: &DdlSchemaVersion,
     sql: &str,
     expected_message: &str,
 ) {
     assert_ddl_rejects_with_entity_index_visibility_unchanged(
         fixture,
+        schema_version,
         "SqlTestUser",
         sql,
         expected_message,
@@ -256,6 +334,7 @@ fn assert_ddl_rejects_with_index_visibility_unchanged(
 
 fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
     fixture: &StandaloneCanisterFixture,
+    schema_version: &DdlSchemaVersion,
     entity: &str,
     sql: &str,
     expected_message: &str,
@@ -264,7 +343,9 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
         query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
             .expect("SHOW INDEXES FROM should read accepted indexes before rejected DDL"),
     );
-    let err = ddl_sql(fixture, sql).expect_err("invalid DDL should reject");
+    let err = schema_version
+        .reject(fixture, sql)
+        .expect_err("invalid DDL should reject");
 
     assert_eq!(
         err.kind(),
@@ -290,12 +371,14 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
 fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("supported CREATE INDEX DDL should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("supported CREATE INDEX DDL should publish through the canister endpoint");
 
     let SqlQueryResult::Ddl {
         entity,
@@ -334,12 +417,16 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
 fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
-    )
-    .expect("supported expression CREATE INDEX DDL should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
+        )
+        .expect(
+            "supported expression CREATE INDEX DDL should publish through the canister endpoint",
+        );
 
     let SqlQueryResult::Ddl {
         entity,
@@ -372,11 +459,14 @@ fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
         "SHOW INDEXES FROM should expose the DDL-published expression index: {indexes:?}",
     );
 
-    let no_op = ddl_sql(
-        &fixture,
-        "CREATE INDEX IF NOT EXISTS sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
-    )
-    .expect("matching expression CREATE INDEX IF NOT EXISTS should no-op at the canister endpoint");
+    let no_op = schema_version
+        .no_op(
+            &fixture,
+            "CREATE INDEX IF NOT EXISTS sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
+        )
+        .expect(
+            "matching expression CREATE INDEX IF NOT EXISTS should no-op at the canister endpoint",
+        );
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -403,8 +493,10 @@ fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
 fn sql_canister_ddl_endpoint_publishes_supported_unique_expression_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
+    let ddl = schema_version
+        .publish(
         &fixture,
         "CREATE UNIQUE INDEX sql_test_user_lower_name_unique_idx ON SqlTestUser (LOWER(name))",
     )
@@ -447,12 +539,14 @@ fn sql_canister_ddl_endpoint_publishes_supported_unique_expression_index() {
 fn sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_filtered_rank_idx ON SqlTestUser (rank) WHERE age > 30",
-    )
-    .expect("supported filtered CREATE INDEX DDL should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_filtered_rank_idx ON SqlTestUser (rank) WHERE age > 30",
+        )
+        .expect("supported filtered CREATE INDEX DDL should publish through the canister endpoint");
 
     let SqlQueryResult::Ddl {
         entity,
@@ -490,12 +584,16 @@ fn sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index() {
 fn sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_age_idx ON SqlTestUser (rank, age)",
-    )
-    .expect("supported multi-field CREATE INDEX DDL should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_age_idx ON SqlTestUser (rank, age)",
+        )
+        .expect(
+            "supported multi-field CREATE INDEX DDL should publish through the canister endpoint",
+        );
 
     let SqlQueryResult::Ddl {
         entity,
@@ -533,12 +631,14 @@ fn sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index() {
 fn sql_canister_ddl_endpoint_treats_asc_index_order_as_default_order() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_age_asc_idx ON SqlTestUser (rank ASC, age ASC)",
-    )
-    .expect("CREATE INDEX with explicit ASC should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_age_asc_idx ON SqlTestUser (rank ASC, age ASC)",
+        )
+        .expect("CREATE INDEX with explicit ASC should publish through the canister endpoint");
 
     let SqlQueryResult::Ddl {
         mutation_kind,
@@ -574,12 +674,14 @@ fn sql_canister_ddl_endpoint_treats_asc_index_order_as_default_order() {
 fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("supported CREATE UNIQUE INDEX DDL should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("supported CREATE UNIQUE INDEX DDL should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -611,11 +713,12 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
         "SHOW INDEXES FROM should expose the DDL-published unique index: {indexes:?}",
     );
 
-    let ddl = ddl_sql(
-        &fixture,
-        "DROP INDEX sql_test_user_unique_rank_idx ON SqlTestUser",
-    )
-    .expect("supported DROP INDEX should remove a DDL-published unique field-path index");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "DROP INDEX sql_test_user_unique_rank_idx ON SqlTestUser",
+        )
+        .expect("supported DROP INDEX should remove a DDL-published unique field-path index");
     let SqlQueryResult::Ddl {
         mutation_kind,
         target_index,
@@ -647,14 +750,17 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
 fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("setup CREATE INDEX should publish before DROP INDEX");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("setup CREATE INDEX should publish before DROP INDEX");
 
-    let ddl = ddl_sql(&fixture, "DROP INDEX sql_test_user_rank_idx ON SqlTestUser")
+    let ddl = schema_version
+        .publish(&fixture, "DROP INDEX sql_test_user_rank_idx ON SqlTestUser")
         .expect("supported DROP INDEX DDL should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
@@ -690,15 +796,18 @@ fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
 fn demo_rpg_ddl_endpoint_rejects_targetless_drop_index() {
     let fixture = install_demo_rpg_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX character_renown_idx ON Character (renown)",
-    )
-    .expect("setup CREATE INDEX should publish before targetless DROP INDEX");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX character_renown_idx ON Character (renown)",
+        )
+        .expect("setup CREATE INDEX should publish before targetless DROP INDEX");
 
     assert_ddl_rejects_with_entity_index_visibility_unchanged(
         &fixture,
+        &schema_version,
         "Character",
         "DROP INDEX character_renown_idx",
         "IcyDB SQL DDL requires one target entity",
@@ -709,15 +818,18 @@ fn demo_rpg_ddl_endpoint_rejects_targetless_drop_index() {
 fn sql_canister_ddl_endpoint_rejects_ambiguous_drop_index_shorthand() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("setup CREATE INDEX should publish before ambiguous DROP INDEX");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("setup CREATE INDEX should publish before ambiguous DROP INDEX");
 
     assert_ddl_rejects_with_index_visibility_unchanged(
         &fixture,
+        &schema_version,
         "DROP INDEX sql_test_user_rank_idx",
         "IcyDB SQL DDL requires one target entity",
     );
@@ -727,9 +839,11 @@ fn sql_canister_ddl_endpoint_rejects_ambiguous_drop_index_shorthand() {
 fn sql_canister_ddl_endpoint_rejects_generated_index_drop_without_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_with_index_visibility_unchanged(
         &fixture,
+        &schema_version,
         "DROP INDEX idx_sql_test_user__name ON SqlTestUser",
         "generated by the entity model",
     );
@@ -739,12 +853,14 @@ fn sql_canister_ddl_endpoint_rejects_generated_index_drop_without_publication() 
 fn sql_canister_ddl_endpoint_publishes_create_index_if_not_exists_for_absent_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("absent CREATE INDEX IF NOT EXISTS should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("absent CREATE INDEX IF NOT EXISTS should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -783,18 +899,21 @@ fn sql_canister_ddl_endpoint_publishes_create_index_if_not_exists_for_absent_ind
 fn sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("setup CREATE INDEX should publish before idempotent CREATE INDEX");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("setup CREATE INDEX should publish before idempotent CREATE INDEX");
 
-    let ddl = ddl_sql(
-        &fixture,
-        "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("matching CREATE INDEX IF NOT EXISTS should no-op through the canister endpoint");
+    let ddl = schema_version
+        .no_op(
+            &fixture,
+            "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("matching CREATE INDEX IF NOT EXISTS should no-op through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -836,15 +955,18 @@ fn sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index
 fn sql_canister_ddl_endpoint_rejects_conflicting_create_index_if_not_exists() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("setup CREATE INDEX should publish before conflicting idempotent CREATE INDEX");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("setup CREATE INDEX should publish before conflicting idempotent CREATE INDEX");
 
     assert_ddl_rejects_without_index_visibility_change(
         &fixture,
+        &schema_version,
         "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (age)",
         "INDEX sql_test_user_rank_idx (age)",
     );
@@ -854,18 +976,21 @@ fn sql_canister_ddl_endpoint_rejects_conflicting_create_index_if_not_exists() {
 fn sql_canister_ddl_endpoint_drops_existing_index_with_if_exists() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("setup CREATE INDEX should publish before idempotent DROP INDEX");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("setup CREATE INDEX should publish before idempotent DROP INDEX");
 
-    let ddl = ddl_sql(
-        &fixture,
-        "DROP INDEX IF EXISTS sql_test_user_rank_idx ON SqlTestUser",
-    )
-    .expect("existing DROP INDEX IF EXISTS should publish through the canister endpoint");
+    let ddl = schema_version
+        .publish(
+            &fixture,
+            "DROP INDEX IF EXISTS sql_test_user_rank_idx ON SqlTestUser",
+        )
+        .expect("existing DROP INDEX IF EXISTS should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -904,16 +1029,18 @@ fn sql_canister_ddl_endpoint_drops_existing_index_with_if_exists() {
 fn sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let schema_version = DdlSchemaVersion::initial();
 
     let before = expect_show_indexes(
         query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes before no-op DROP INDEX"),
     );
-    let ddl = ddl_sql(
-        &fixture,
-        "DROP INDEX IF EXISTS sql_test_user_missing_idx ON SqlTestUser",
-    )
-    .expect("missing DROP INDEX IF EXISTS should no-op through the canister endpoint");
+    let ddl = schema_version
+        .no_op(
+            &fixture,
+            "DROP INDEX IF EXISTS sql_test_user_missing_idx ON SqlTestUser",
+        )
+        .expect("missing DROP INDEX IF EXISTS should no-op through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -950,9 +1077,11 @@ fn sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index() {
 fn sql_canister_ddl_endpoint_rejects_generated_index_drop_with_if_exists() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_with_index_visibility_unchanged(
         &fixture,
+        &schema_version,
         "DROP INDEX IF EXISTS idx_sql_test_user__name ON SqlTestUser",
         "generated by the entity model",
     );
@@ -962,6 +1091,7 @@ fn sql_canister_ddl_endpoint_rejects_generated_index_drop_with_if_exists() {
 fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
     let before_describe = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
@@ -991,11 +1121,12 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
         "pre-DDL EXPLAIN must not select the future DDL index: {before_explain}",
     );
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("supported CREATE INDEX DDL should publish before post-DDL visibility checks");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("supported CREATE INDEX DDL should publish before post-DDL visibility checks");
 
     let after_describe = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
@@ -1050,9 +1181,11 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
 fn sql_canister_ddl_endpoint_rejects_unknown_field_path_without_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_without_index_visibility_change(
         &fixture,
+        &schema_version,
         "CREATE INDEX sql_test_user_missing_idx ON SqlTestUser (missing)",
         "sql_test_user_missing_idx",
     );
@@ -1062,15 +1195,18 @@ fn sql_canister_ddl_endpoint_rejects_unknown_field_path_without_publication() {
 fn sql_canister_ddl_endpoint_rejects_duplicate_index_name_without_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
-    )
-    .expect("setup CREATE INDEX should publish before duplicate-name rejection");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("setup CREATE INDEX should publish before duplicate-name rejection");
 
     assert_ddl_rejects_without_index_visibility_change(
         &fixture,
+        &schema_version,
         "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (age)",
         "INDEX sql_test_user_rank_idx (age)",
     );
@@ -1080,9 +1216,11 @@ fn sql_canister_ddl_endpoint_rejects_duplicate_index_name_without_publication() 
 fn sql_canister_ddl_endpoint_rejects_duplicate_field_path_without_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_without_index_visibility_change(
         &fixture,
+        &schema_version,
         "CREATE INDEX sql_test_user_duplicate_name_idx ON SqlTestUser (name)",
         "sql_test_user_duplicate_name_idx",
     );
@@ -1092,9 +1230,11 @@ fn sql_canister_ddl_endpoint_rejects_duplicate_field_path_without_publication() 
 fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_with_index_visibility_unchanged(
         &fixture,
+        &schema_version,
         "CREATE INDEX sql_test_user_rank_desc_idx ON SqlTestUser (rank DESC)",
         "SQL DDL CREATE INDEX key ordering modifiers",
     );
@@ -1104,14 +1244,17 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
 fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
+    schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
-    let set_default = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET DEFAULT 7",
-    )
-    .expect("ALTER COLUMN SET DEFAULT should publish through the canister endpoint");
+    let set_default = schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET DEFAULT 7",
+        )
+        .expect("ALTER COLUMN SET DEFAULT should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -1145,23 +1288,26 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
         }),
         "DESCRIBE should expose the accepted default change: {describe_after_set:?}",
     );
-    let set_default_no_op = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET DEFAULT 7",
-    )
-    .expect("matching ALTER COLUMN SET DEFAULT should no-op through the canister endpoint");
+    let set_default_no_op = schema_version
+        .no_op(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET DEFAULT 7",
+        )
+        .expect("matching ALTER COLUMN SET DEFAULT should no-op through the canister endpoint");
     assert_ddl_no_op(set_default_no_op, "set_field_default", "bonus");
 
-    ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
-    )
-    .expect("setup nullable defaulted ADD COLUMN should publish through the canister endpoint");
-    let drop_default = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP DEFAULT",
-    )
-    .expect("ALTER COLUMN DROP DEFAULT should publish for nullable accepted fields");
+    schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
+        )
+        .expect("setup nullable defaulted ADD COLUMN should publish through the canister endpoint");
+    let drop_default = schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP DEFAULT",
+        )
+        .expect("ALTER COLUMN DROP DEFAULT should publish for nullable accepted fields");
     let SqlQueryResult::Ddl {
         entity,
         mutation_kind,
@@ -1198,17 +1344,20 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
 fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
-    )
-    .expect("setup nullable defaulted ADD COLUMN should publish through the canister endpoint");
-    let set_not_null = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ALTER COLUMN nickname SET NOT NULL",
-    )
-    .expect("ALTER COLUMN SET NOT NULL should publish through the canister endpoint");
+    schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
+        )
+        .expect("setup nullable defaulted ADD COLUMN should publish through the canister endpoint");
+    let set_not_null = schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN nickname SET NOT NULL",
+        )
+        .expect("ALTER COLUMN SET NOT NULL should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         mutation_kind,
         target_index,
@@ -1242,11 +1391,12 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
         "DESCRIBE should expose the accepted nullability change: {describe_after_set:?}",
     );
 
-    let drop_not_null = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
-    )
-    .expect("ALTER COLUMN DROP NOT NULL should publish through the canister endpoint");
+    let drop_not_null = schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
+        )
+        .expect("ALTER COLUMN DROP NOT NULL should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         mutation_kind,
         target_index,
@@ -1264,11 +1414,12 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
     assert_eq!(rows_scanned, 0);
     assert_eq!(index_keys_written, 0);
 
-    let drop_not_null_no_op = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
-    )
-    .expect("matching ALTER COLUMN DROP NOT NULL should no-op through the canister endpoint");
+    let drop_not_null_no_op = schema_version
+        .no_op(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
+        )
+        .expect("matching ALTER COLUMN DROP NOT NULL should no-op through the canister endpoint");
     assert_ddl_no_op(drop_not_null_no_op, "drop_field_not_null", "nickname");
 }
 
@@ -1276,13 +1427,16 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
 fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser ADD COLUMN required_score nat64 NOT NULL DEFAULT 7",
-    )
-    .expect("setup required ADD COLUMN DEFAULT should publish before unsupported DROP DEFAULT");
-    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
+    schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ADD COLUMN required_score nat64 NOT NULL DEFAULT 7",
+        )
+        .expect("setup required ADD COLUMN DEFAULT should publish before unsupported DROP DEFAULT");
+    schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
         .expect("setup nullable ADD COLUMN should publish before invalid SET DEFAULT");
 
     for (sql, expected_message) in [
@@ -1311,8 +1465,9 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
             query_sql(&fixture, "DESCRIBE SqlTestUser")
                 .expect("DESCRIBE should read accepted schema before rejected ALTER COLUMN"),
         );
-        let err =
-            ddl_sql(&fixture, sql).expect_err("ALTER COLUMN should reject before publication");
+        let err = schema_version
+            .reject(&fixture, sql)
+            .expect_err("ALTER COLUMN should reject before publication");
         assert_eq!(
             err.kind(),
             &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
@@ -1338,15 +1493,18 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
 fn sql_canister_ddl_endpoint_publishes_drop_column_for_ddl_owned_field() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let missing = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser DROP COLUMN IF EXISTS missing",
-    )
-    .expect("DROP COLUMN IF EXISTS should no-op for missing accepted fields");
+    let missing = schema_version
+        .no_op(
+            &fixture,
+            "ALTER TABLE SqlTestUser DROP COLUMN IF EXISTS missing",
+        )
+        .expect("DROP COLUMN IF EXISTS should no-op for missing accepted fields");
     assert_ddl_no_op(missing, "drop_field", "missing");
 
-    let generated_err = ddl_sql(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN rank")
+    let generated_err = schema_version
+        .reject(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN rank")
         .expect_err("DROP COLUMN should reject generated accepted fields");
     assert_eq!(
         generated_err.kind(),
@@ -1361,9 +1519,11 @@ fn sql_canister_ddl_endpoint_publishes_drop_column_for_ddl_owned_field() {
         generated_err.message(),
     );
 
-    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+    schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
-    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN handle text")
+    schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN handle text")
         .expect("setup second nullable ADD COLUMN should publish through the canister endpoint");
     let before = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
@@ -1378,7 +1538,8 @@ fn sql_canister_ddl_endpoint_publishes_drop_column_for_ddl_owned_field() {
         status,
         rows_scanned,
         index_keys_written,
-    } = ddl_sql(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
+    } = schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
         .expect("DROP COLUMN should publish retained-slot field removal")
     else {
         panic!("DROP COLUMN should return a DDL payload");
@@ -1423,19 +1584,22 @@ fn sql_canister_ddl_endpoint_publishes_drop_column_for_ddl_owned_field() {
 fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
 
-    let same_name = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser RENAME COLUMN rank TO rank",
-    )
-    .expect("same-name RENAME COLUMN should no-op through the canister endpoint");
+    let same_name = schema_version
+        .no_op(
+            &fixture,
+            "ALTER TABLE SqlTestUser RENAME COLUMN rank TO rank",
+        )
+        .expect("same-name RENAME COLUMN should no-op through the canister endpoint");
     assert_ddl_no_op(same_name, "rename_field", "rank");
 
-    let generated_err = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser RENAME COLUMN rank TO score",
-    )
-    .expect_err("RENAME COLUMN should reject generated accepted fields");
+    let generated_err = schema_version
+        .reject(
+            &fixture,
+            "ALTER TABLE SqlTestUser RENAME COLUMN rank TO score",
+        )
+        .expect_err("RENAME COLUMN should reject generated accepted fields");
     assert_eq!(
         generated_err.kind(),
         &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
@@ -1447,32 +1611,37 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
         generated_err.message(),
     );
 
-    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+    schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_nickname_idx ON SqlTestUser (nickname)",
-    )
-    .expect("setup field-path CREATE INDEX should publish through the canister endpoint");
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_lower_nickname_idx ON SqlTestUser (LOWER(nickname))",
-    )
-    .expect("setup expression CREATE INDEX should publish through the canister endpoint");
-    ddl_sql(
-        &fixture,
-        "CREATE INDEX sql_test_user_filtered_nickname_idx ON SqlTestUser (nickname) WHERE nickname IS NOT NULL",
-    )
-    .expect("setup filtered CREATE INDEX should publish through the canister endpoint");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_nickname_idx ON SqlTestUser (nickname)",
+        )
+        .expect("setup field-path CREATE INDEX should publish through the canister endpoint");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_lower_nickname_idx ON SqlTestUser (LOWER(nickname))",
+        )
+        .expect("setup expression CREATE INDEX should publish through the canister endpoint");
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE INDEX sql_test_user_filtered_nickname_idx ON SqlTestUser (nickname) WHERE nickname IS NOT NULL",
+        )
+        .expect("setup filtered CREATE INDEX should publish through the canister endpoint");
     let before = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
             .expect("DESCRIBE should read accepted schema before RENAME COLUMN"),
     );
-    let rename = ddl_sql(
-        &fixture,
-        "ALTER TABLE SqlTestUser RENAME COLUMN nickname TO handle",
-    )
-    .expect("RENAME COLUMN should publish DDL-owned accepted field metadata");
+    let rename = schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser RENAME COLUMN nickname TO handle",
+        )
+        .expect("RENAME COLUMN should publish DDL-owned accepted field metadata");
     assert_rename_column_ddl_report(rename);
 
     let after = expect_describe(
