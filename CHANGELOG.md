@@ -7,15 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🔧 Changed
-
-- SQL DDL accepted-schema publication now rechecks the binding-time accepted
-  identity inside schema-store publication so stale prepared transitions cannot
-  replace a newer accepted snapshot.
-
 ## [0.178.x] 🧭 - 2026-06-04 - Schema Migration / DDL Transition Admission
 
 Detailed notes: [docs/changelog/0.178.md](docs/changelog/0.178.md)
+
+- `0.178.1` makes SQL DDL publication conditional on the binding-time
+  accepted schema identity, rejecting stale prepared transitions before they
+  can replace a newer accepted snapshot.
 
 - `0.178.0` starts schema migration DDL transition admission by requiring
   explicit expected/next schema versions for mutating SQL DDL, preserving
