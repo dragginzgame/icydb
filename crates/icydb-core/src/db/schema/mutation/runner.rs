@@ -155,9 +155,12 @@ pub(in crate::db::schema) struct SchemaMutationDeveloperReport {
     publish_status: SchemaMutationPublishStatus,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
+    )
 )]
 impl SchemaMutationDeveloperReport {
     #[must_use]
@@ -318,9 +321,12 @@ pub(in crate::db::schema) struct SchemaMutationRunnerRejection {
     missing_capabilities: Vec<SchemaMutationRunnerCapability>,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
+    )
 )]
 impl SchemaMutationRunnerRejection {
     #[must_use]
@@ -402,9 +408,12 @@ pub(in crate::db::schema) struct SchemaMutationRunnerReport {
     index_keys_written: usize,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages runner diagnostics before physical runners consume them"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages runner diagnostics before physical runners consume them"
+    )
 )]
 impl SchemaMutationRunnerReport {
     #[must_use]
@@ -678,9 +687,12 @@ pub(in crate::db::schema) struct SchemaMutationNoopRunner {
     contract: SchemaMutationRunnerContract,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages the no-op runner adapter before physical runners consume inputs"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages the no-op runner adapter before physical runners consume inputs"
+    )
 )]
 impl SchemaMutationNoopRunner {
     #[must_use]

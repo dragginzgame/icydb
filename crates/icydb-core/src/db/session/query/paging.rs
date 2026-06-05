@@ -59,9 +59,12 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This is the explicit grouped execution boundary; scalar load APIs reject
     /// grouped plans to preserve scalar response contracts.
-    #[expect(
-        dead_code,
-        reason = "cursor-aware grouped execution remains a session boundary used by tests and adjacent SQL paths"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "crate-local grouped pagination tests exercise this boundary before public grouped paging APIs expose it"
+        )
     )]
     pub(in crate::db) fn execute_grouped<E>(
         &self,

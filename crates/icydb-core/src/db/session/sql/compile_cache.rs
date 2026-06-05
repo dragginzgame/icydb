@@ -29,9 +29,12 @@ use crate::{
 impl<C: CanisterKind> DbSession<C> {
     // Compile one SQL query-surface string into the session-owned generic-free
     // semantic command artifact before execution.
-    #[expect(
-        dead_code,
-        reason = "crate-local tests and explicit compile/execute callers use this API; immediate SQL query execution uses the context-returning variant"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "crate-local tests and explicit compile/execute callers use this API; immediate SQL query execution uses the context-returning variant"
+        )
     )]
     pub(in crate::db) fn compile_sql_query<E>(
         &self,
@@ -44,9 +47,12 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|(compiled, _, _)| compiled)
     }
 
-    #[allow(
-        dead_code,
-        reason = "kept for compile-cache tests and explicit compile diagnostics; immediate SQL query execution needs the accepted-schema context"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "crate-local tests and explicit compile/execute callers use this API; immediate SQL query execution uses the context-returning variant"
+        )
     )]
     pub(in crate::db::session::sql) fn compile_sql_query_with_cache_attribution<E>(
         &self,

@@ -141,9 +141,12 @@ pub(in crate::db::schema) struct SchemaMutationSupportedExecutionPath {
     target: SchemaFieldPathIndexRebuildTarget,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.154 starts supported-path admission before reconciliation consumes it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.154 starts supported-path admission before reconciliation consumes it"
+    )
 )]
 impl SchemaMutationSupportedExecutionPath {
     #[must_use]
@@ -366,9 +369,12 @@ pub(in crate::db::schema) struct SchemaMutationExecutionPlan {
     steps: Vec<SchemaMutationExecutionStep>,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+    )
 )]
 impl SchemaMutationExecutionPlan {
     const fn publishable_now() -> Self {

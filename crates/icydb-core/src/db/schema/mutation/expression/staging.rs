@@ -99,9 +99,12 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedRebuild {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages in-memory expression rebuild output before physical runners publish stores"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.157 stages in-memory expression rebuild output before physical runners publish stores"
+    )
 )]
 impl SchemaExpressionIndexStagedRebuild {
     pub(in crate::db::schema) fn from_rows<'a>(

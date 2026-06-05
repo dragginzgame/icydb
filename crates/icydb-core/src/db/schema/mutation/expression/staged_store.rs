@@ -177,9 +177,12 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreWriteReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages expression writer diagnostics before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.157 stages expression writer diagnostics before physical stores are mutated"
+    )
 )]
 impl SchemaExpressionIndexStagedStoreWriteReport {
     #[must_use]
@@ -310,9 +313,12 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackSnapsho
     previous_entry: Option<IndexEntryValue>,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages expression rollback snapshots before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.157 stages expression rollback snapshots before physical stores are mutated"
+    )
 )]
 impl SchemaExpressionIndexStagedStoreRollbackSnapshot {
     #[must_use]
@@ -349,9 +355,12 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages expression rollback plans before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.157 stages expression rollback plans before physical stores are mutated"
+    )
 )]
 impl SchemaExpressionIndexStagedStoreRollbackPlan {
     #[must_use]
@@ -508,9 +517,12 @@ pub(in crate::db::schema) enum SchemaExpressionIndexStagedStoreRollbackAction {
     },
 }
 
-#[expect(
-    dead_code,
-    reason = "0.157 stages expression rollback actions before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.157 stages expression rollback actions before physical stores are mutated"
+    )
 )]
 impl SchemaExpressionIndexStagedStoreRollbackAction {
     #[must_use]

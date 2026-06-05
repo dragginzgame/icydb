@@ -104,9 +104,12 @@ impl ScalarIndexExpressionOp {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[expect(
-    dead_code,
-    reason = "scalar expression results intentionally cover every scalar value kind even when a build uses only a subset"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "scalar expression results intentionally cover every scalar value kind even when a build uses only a subset"
+    )
 )]
 pub(in crate::db) enum ScalarExprValue<'a> {
     Null,

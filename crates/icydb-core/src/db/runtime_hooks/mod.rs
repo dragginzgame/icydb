@@ -45,7 +45,7 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub(crate) entity_path: &'static str,
     pub(crate) store_path: &'static str,
     pub(in crate::db) prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
-    pub(crate) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
+    pub(in crate::db) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }
 
 impl<C: CanisterKind> EntityRuntimeHooks<C> {

@@ -173,9 +173,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerReport {
     published_store_report: SchemaFieldPathIndexPublishedStoreReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
+    )
 )]
 impl SchemaFieldPathIndexRunnerReport {
     #[must_use]

@@ -101,9 +101,12 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Borrow accepted nested leaf metadata rooted at this field.
-    #[expect(
-        dead_code,
-        reason = "nested leaf facts are part of the accepted runtime boundary before nested-path row decode consumes them directly"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "runtime layout tests and schema handoff audits exercise nested-leaf access before production row-layout callers need it"
+        )
     )]
     #[must_use]
     pub(in crate::db) const fn nested_leaves(&self) -> &'a [PersistedNestedLeafSnapshot] {
@@ -111,9 +114,12 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Return whether this field permits explicit persisted `NULL`.
-    #[expect(
-        dead_code,
-        reason = "missing-slot nullability is part of the accepted runtime boundary before additive decode support"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "runtime layout tests and schema handoff audits exercise nullability access before production row-layout callers need it"
+        )
     )]
     #[must_use]
     pub(in crate::db) const fn nullable(&self) -> bool {
@@ -646,9 +652,12 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Return the accepted schema version backing this runtime layout.
-    #[expect(
-        dead_code,
-        reason = "schema-version reads are reserved for accepted transition plans beyond exact-match"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "runtime layout tests assert accepted-version handoff before production callers read the descriptor version directly"
+        )
     )]
     #[must_use]
     pub(in crate::db) const fn version(&self) -> SchemaVersion {
@@ -740,9 +749,12 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Borrow one runtime field by accepted physical row slot.
-    #[expect(
-        dead_code,
-        reason = "slot-indexed accepted field lookup becomes live when decode consumes accepted field contracts directly"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "runtime layout tests exercise slot lookup before production callers need the typed slot wrapper"
+        )
     )]
     #[must_use]
     pub(in crate::db) fn field_for_slot(
@@ -764,9 +776,12 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     }
 
     /// Borrow one runtime field by durable accepted field identity.
-    #[expect(
-        dead_code,
-        reason = "field-id accepted lookup becomes live when migration plans remap durable field identities"
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "runtime layout tests exercise field-id lookup before production callers need direct durable-id access"
+        )
     )]
     #[must_use]
     pub(in crate::db) fn field_for_id(

@@ -37,7 +37,7 @@ pub(in crate::db) use validate::validate_delete_strong_relations_for_source;
 /// Function-pointer contract for delete-side strong relation validators.
 ///
 
-pub(crate) type StrongRelationDeleteValidateFn<C> =
+pub(in crate::db) type StrongRelationDeleteValidateFn<C> =
     fn(&Db<C>, &str, &BTreeSet<RawDataStoreKey>) -> Result<(), InternalError>;
 
 ///
@@ -501,7 +501,7 @@ impl InternalError {
     }
 
     /// Construct the canonical strong-relation invalid target-name error.
-    pub(in crate::db) fn strong_relation_target_name_invalid(
+    pub(in crate::db::relation) fn strong_relation_target_name_invalid(
         source_path: &str,
         field_name: &str,
         target_path: &str,
@@ -514,7 +514,7 @@ impl InternalError {
     }
 
     /// Construct the canonical strong-relation target identity mismatch error.
-    pub(in crate::db) fn strong_relation_target_identity_mismatch(
+    pub(in crate::db::relation) fn strong_relation_target_identity_mismatch(
         source_path: &str,
         field_name: &str,
         target_path: &str,
@@ -526,7 +526,7 @@ impl InternalError {
     }
 
     /// Construct the canonical save-time strong-relation missing-target error.
-    pub(crate) fn strong_relation_target_missing(
+    pub(in crate::db::relation) fn strong_relation_target_missing(
         source_path: &'static str,
         field_name: &str,
         target_path: &str,
@@ -538,7 +538,7 @@ impl InternalError {
     }
 
     /// Construct the canonical save-time strong-relation missing-store error.
-    pub(crate) fn strong_relation_target_store_missing(
+    pub(in crate::db::relation) fn strong_relation_target_store_missing(
         source_path: &'static str,
         field_name: &str,
         target_path: &str,
@@ -552,7 +552,7 @@ impl InternalError {
     }
 
     /// Construct the canonical capability-based strong relation target policy error.
-    pub(crate) fn strong_relation_volatile_target_unsupported(
+    pub(in crate::db::relation) fn strong_relation_volatile_target_unsupported(
         source_path: &'static str,
         field_name: &str,
         target_path: &str,

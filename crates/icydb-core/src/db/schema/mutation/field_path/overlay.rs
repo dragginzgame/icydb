@@ -193,9 +193,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlayValidatio
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages isolated overlay validation before publication exists"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages isolated overlay validation before publication exists"
+    )
 )]
 impl SchemaFieldPathIndexStagedStoreOverlayValidation {
     #[must_use]

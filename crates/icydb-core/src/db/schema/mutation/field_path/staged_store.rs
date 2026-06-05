@@ -21,9 +21,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStore {
     report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages in-memory index-store writes before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages in-memory index-store writes before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedStore {
     pub(in crate::db::schema) fn from_rebuild(
@@ -184,9 +187,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages writer diagnostics before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages writer diagnostics before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedStoreWriteReport {
     #[must_use]
@@ -232,9 +238,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteBatch {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages rollback-aware write batches before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages rollback-aware write batches before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedStoreWriteBatch {
     #[must_use]
@@ -319,9 +328,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackSnapshot
     previous_entry: Option<IndexEntryValue>,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages rollback snapshots before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages rollback snapshots before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedStoreRollbackSnapshot {
     #[must_use]
@@ -360,9 +372,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages rollback plans before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages rollback plans before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedStoreRollbackPlan {
     #[must_use]
@@ -465,9 +480,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages rollback diagnostics before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages rollback diagnostics before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedStoreRollbackReport {
     #[must_use]
@@ -525,9 +543,12 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreRollbackAction {
     },
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages rollback actions before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages rollback actions before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedStoreRollbackAction {
     #[must_use]
@@ -587,9 +608,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedDiscardReport {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages rebuild rollback diagnostics before physical stores are mutated"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages rebuild rollback diagnostics before physical stores are mutated"
+    )
 )]
 impl SchemaFieldPathIndexStagedDiscardReport {
     #[must_use]

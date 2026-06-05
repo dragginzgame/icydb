@@ -4,8 +4,11 @@ mod staging;
 pub(in crate::db::schema) use self::staging::*;
 
 mod staged_store;
-#[expect(
-    unused_imports,
-    reason = "expression staged store is consumed by tests and later physical runner wiring"
+#[cfg_attr(
+    not(test),
+    expect(
+        unused_imports,
+        reason = "expression staged store is consumed by tests and later physical runner wiring"
+    )
 )]
 pub(in crate::db::schema) use self::staged_store::*;

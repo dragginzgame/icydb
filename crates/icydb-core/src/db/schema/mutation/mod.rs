@@ -53,9 +53,12 @@ pub(in crate::db) use field_type::{
 };
 
 mod ddl_admission;
-#[expect(
-    unused_imports,
-    reason = "schema root re-exports DDL schema-version admission diagnostics"
+#[cfg_attr(
+    not(test),
+    expect(
+        unused_imports,
+        reason = "schema root re-exports DDL schema-version admission diagnostics"
+    )
 )]
 pub(in crate::db) use ddl_admission::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
@@ -65,9 +68,12 @@ pub(in crate::db) use ddl_admission::{
 };
 
 mod delta;
-#[expect(
-    unused_imports,
-    reason = "mutation planning tests consume delta classifiers through the module root"
+#[cfg_attr(
+    not(test),
+    expect(
+        unused_imports,
+        reason = "mutation planning tests consume delta classifiers through the module root"
+    )
 )]
 pub(in crate::db::schema) use delta::{
     SchemaMutationDelta, classify_schema_mutation_delta, schema_mutation_request_for_snapshots,
@@ -149,9 +155,12 @@ pub(in crate::db::schema) enum SchemaMutation {
 /// must route through this type instead of constructing plans ad hoc.
 ///
 
-#[expect(
-    dead_code,
-    reason = "0.152 stages the internal mutation request API before every request has a live caller"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.152 stages the internal mutation request API before every request has a live caller"
+    )
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
@@ -470,9 +479,12 @@ impl MutationPlan {
     }
 
     /// Borrow the ordered mutation list.
-    #[expect(
-        dead_code,
-        reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
+        )
     )]
     #[must_use]
     pub(in crate::db::schema) const fn mutations(&self) -> &[SchemaMutation] {
@@ -480,9 +492,12 @@ impl MutationPlan {
     }
 
     /// Return the stable compatibility bucket.
-    #[expect(
-        dead_code,
-        reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
+        )
     )]
     #[must_use]
     pub(in crate::db::schema) const fn compatibility(&self) -> MutationCompatibility {
@@ -490,9 +505,12 @@ impl MutationPlan {
     }
 
     /// Return the physical rebuild requirement.
-    #[expect(
-        dead_code,
-        reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
+        )
     )]
     #[must_use]
     pub(in crate::db::schema) const fn rebuild_requirement(&self) -> RebuildRequirement {

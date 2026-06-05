@@ -140,9 +140,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages runtime invalidation before publication exists"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages runtime invalidation before publication exists"
+    )
 )]
 impl SchemaFieldPathIndexRuntimeInvalidationReport {
     #[must_use]
@@ -351,9 +354,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
+    )
 )]
 impl SchemaFieldPathIndexSnapshotPublicationReport {
     #[must_use]
@@ -686,9 +692,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStorePublicationReadi
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages publication readiness before staged stores can be published"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages publication readiness before staged stores can be published"
+    )
 )]
 impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     #[must_use]

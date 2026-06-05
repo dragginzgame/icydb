@@ -349,9 +349,12 @@ pub(in crate::db) struct SchemaIndexExpressionInfo {
     canonical_text: String,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+    )
 )]
 impl SchemaIndexExpressionInfo {
     /// Return the accepted expression operation.
@@ -407,9 +410,12 @@ pub(in crate::db) struct SchemaIndexFieldPathInfo {
     nullable: bool,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
+    )
 )]
 impl SchemaIndexFieldPathInfo {
     /// Return the accepted durable top-level field ID, when this came from a

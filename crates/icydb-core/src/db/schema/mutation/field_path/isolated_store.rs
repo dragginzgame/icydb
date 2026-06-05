@@ -21,9 +21,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreWriter<'a
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages isolated IndexStore mutation before publication exists"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages isolated IndexStore mutation before publication exists"
+    )
 )]
 impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
     pub(in crate::db::schema) fn new(store: &str, index_store: &'a mut IndexStore) -> Self {
@@ -271,9 +274,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreValidatio
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[expect(
-    dead_code,
-    reason = "0.153 stages isolated IndexStore validation before publication exists"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "0.153 stages isolated IndexStore validation before publication exists"
+    )
 )]
 impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
     #[must_use]
