@@ -16,10 +16,13 @@ use crate::{
             CoveringProjectionComponentRows, ExecutionKernel, PreparedAggregatePlan,
             PreparedExecutionPlan,
             aggregate::{
-                AggregateKind, PreparedAggregateSpec, PreparedAggregateStreamingInputs,
-                PreparedAggregateTargetField, PreparedCoveringDistinctStrategy,
-                PreparedScalarProjectionOp, PreparedScalarProjectionStrategy,
-                ScalarProjectionWindow,
+                AggregateKind, CoveringProjectionFacts, CoveringProjectionOrder, Expr,
+                FieldSlot as PlannedFieldSlot, PreparedAggregateSpec,
+                PreparedAggregateStreamingInputs, PreparedAggregateTargetField,
+                PreparedCoveringDistinctStrategy, PreparedScalarProjectionOp,
+                PreparedScalarProjectionStrategy, ScalarProjectionWindow,
+                constant_covering_projection_value_from_access,
+                eval_builder_expr_for_value_preview,
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     extract_orderable_field_value_from_decoded_slot,
@@ -44,11 +47,6 @@ use crate::{
         predicate::MissingRowPolicy,
         query::builder::aggregate::{
             ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
-        },
-        query::plan::{
-            CoveringProjectionFacts, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
-            constant_covering_projection_value_from_access,
-            expr::{Expr, eval_builder_expr_for_value_preview},
         },
     },
     error::InternalError,

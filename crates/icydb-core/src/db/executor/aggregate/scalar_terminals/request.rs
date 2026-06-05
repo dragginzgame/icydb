@@ -5,14 +5,13 @@
 use crate::{
     db::{
         executor::{
-            aggregate::scalar_terminals::terminal::{
-                StructuralAggregateTerminal, resolve_structural_aggregate_terminal,
+            aggregate::{
+                CompiledExpr, Expr, GroupedAggregateExecutionSpec, ProjectionField, ProjectionSpec,
+                scalar_terminals::terminal::{
+                    StructuralAggregateTerminal, resolve_structural_aggregate_terminal,
+                },
             },
             projection::compile_grouped_projection_expr,
-        },
-        query::plan::{
-            GroupedAggregateExecutionSpec,
-            expr::{CompiledExpr, Expr, ProjectionField, ProjectionSpec},
         },
         schema::SchemaInfo,
     },

@@ -12,7 +12,7 @@ mod window;
 use crate::{
     db::executor::{
         aggregate::{
-            ExecutionContext,
+            EffectiveRuntimeFilterProgram, ExecutionContext, FieldSlot, ProjectionSpec,
             runtime::grouped_fold::{
                 count::{finalize::finalize_grouped_count_page, state::GroupedCountState},
                 dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
@@ -37,7 +37,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     route: &GroupedRouteStage,
     stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
-    grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
+    grouped_projection_spec: &ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {
     metrics::record_fold_stage_run();
     let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
@@ -132,16 +132,14 @@ fn fold_row_view_count_rows(
     route: &GroupedRouteStage,
     row_runtime: &StructuralGroupedRowRuntime,
     resolved: &mut ResolvedExecutionKeyStream,
-    effective_runtime_filter_program: Option<
-        &crate::db::query::plan::EffectiveRuntimeFilterProgram,
-    >,
+    effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     grouped_execution_context: &mut ExecutionContext,
     grouped_counts: &mut GroupedCountState,
     counters: (&mut usize, &mut usize),
     mut increment_row: impl FnMut(
         &mut GroupedCountState,
         &RowView,
-        &[crate::db::query::plan::FieldSlot],
+        &[FieldSlot],
         &mut ExecutionContext,
     ) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {

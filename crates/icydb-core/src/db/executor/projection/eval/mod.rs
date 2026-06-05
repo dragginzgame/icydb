@@ -4,16 +4,14 @@
 //! Boundary: production execution stays on compiled scalar programs while test
 //! helpers exercise the same compiled evaluator paths directly.
 
+mod contracts;
 mod scalar;
 
-use crate::{
-    db::{data::CanonicalSlotReader, query::plan::EffectiveRuntimeFilterProgram},
-    error::InternalError,
-    value::Value,
-};
+use crate::{db::data::CanonicalSlotReader, error::InternalError, value::Value};
 use std::borrow::Cow;
 
-pub(in crate::db) use crate::db::query::plan::expr::ProjectionEvalError;
+use self::contracts::EffectiveRuntimeFilterProgram;
+pub(in crate::db) use contracts::ProjectionEvalError;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_required_slot_reader_cow;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_ref_reader;

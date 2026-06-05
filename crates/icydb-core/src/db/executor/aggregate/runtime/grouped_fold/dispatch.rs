@@ -3,9 +3,9 @@
 //! Boundary: resolves route-owned branching before execution loops run.
 
 use crate::{
-    db::{
-        executor::pipeline::contracts::GroupedRouteStage,
-        query::plan::{EffectiveRuntimeFilterProgram, FieldSlot},
+    db::executor::{
+        aggregate::{EffectiveRuntimeFilterProgram, FieldSlot},
+        pipeline::contracts::GroupedRouteStage,
     },
     model::field_kind_has_identity_group_canonical_form,
 };

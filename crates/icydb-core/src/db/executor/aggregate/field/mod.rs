@@ -3,6 +3,7 @@
 //! Does not own: aggregate route planning decisions.
 //! Boundary: field-target aggregate helper surface used by aggregate executors.
 
+use super::contracts::FieldSlot as PlannedFieldSlot;
 #[cfg(test)]
 use crate::model::field::FieldModel;
 use crate::{
@@ -12,7 +13,6 @@ use crate::{
             field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
         },
         numeric::{coerce_numeric_decimal, compare_numeric_or_strict_order},
-        query::plan::FieldSlot as PlannedFieldSlot,
     },
     error::InternalError,
     model::field::FieldKind,

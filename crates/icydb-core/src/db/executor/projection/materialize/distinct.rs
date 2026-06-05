@@ -6,8 +6,7 @@
 use crate::{
     db::{
         executor::group::{GroupKey, KeyCanonicalError, StableHash, stable_hash_from_digest},
-        executor::projection::materialize::row_view::RowView,
-        query::plan::PageSpec,
+        executor::projection::materialize::{contracts::PageSpec, row_view::RowView},
     },
     error::InternalError,
     value::{Value, ValueHashWriter},

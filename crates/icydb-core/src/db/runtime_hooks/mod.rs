@@ -40,10 +40,10 @@ pub(in crate::db) type PrepareRowCommitWithReadersFn<C> =
 ///
 
 pub struct EntityRuntimeHooks<C: CanisterKind> {
-    pub(crate) entity_tag: EntityTag,
-    pub(crate) model: &'static EntityModel,
-    pub(crate) entity_path: &'static str,
-    pub(crate) store_path: &'static str,
+    pub(in crate::db) entity_tag: EntityTag,
+    pub(in crate::db) model: &'static EntityModel,
+    pub(in crate::db) entity_path: &'static str,
+    pub(in crate::db) store_path: &'static str,
     pub(in crate::db) prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
     pub(in crate::db) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }

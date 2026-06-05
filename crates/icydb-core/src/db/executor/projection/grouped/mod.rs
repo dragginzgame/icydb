@@ -2,22 +2,20 @@
 //! Defines grouped-row projection evaluation over finalized group keys and
 //! aggregate outputs.
 
+mod contracts;
+
 use crate::{
-    db::{
-        executor::projection::eval::ProjectionEvalError,
-        query::plan::{
-            FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
-            expr::{CompiledExpr, CompiledExprValueReader, ProjectionSpec},
-        },
-    },
-    error::InternalError,
-    value::Value,
+    db::executor::projection::eval::ProjectionEvalError, error::InternalError, value::Value,
 };
 use std::borrow::Cow;
 
-pub(in crate::db::executor) use crate::db::query::plan::expr::compile_grouped_projection_plan;
-pub(in crate::db::executor) use crate::db::query::plan::expr::{
-    compile_grouped_projection_expr, evaluate_grouped_having_expr,
+use self::contracts::{
+    CompiledExpr, CompiledExprValueReader, FieldSlot, GroupedAggregateExecutionSpec,
+    PlannedProjectionLayout, ProjectionSpec,
+};
+
+pub(in crate::db::executor) use contracts::{
+    compile_grouped_projection_expr, compile_grouped_projection_plan, evaluate_grouped_having_expr,
 };
 
 ///

@@ -1,11 +1,11 @@
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::MissingRowPolicy,
-        query::plan::{
+        executor::prepared_execution_plan::contracts::{
             OrderSpec, constant_covering_projection_value_from_access,
-            covering_index_projection_facts_with_primary_key_names as covering_index_projection_facts,
+            covering_index_projection_facts,
         },
+        predicate::MissingRowPolicy,
     },
     value::Value,
 };

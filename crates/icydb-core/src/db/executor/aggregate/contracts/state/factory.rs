@@ -2,6 +2,7 @@ use crate::db::{
     direction::Direction,
     executor::{
         aggregate::contracts::{
+            plan::{CompiledExpr, FieldSlot},
             spec::{AggregateKind, ScalarTerminalKind},
             state::{
                 GroupedAggregateReducerState, GroupedDistinctExecutionMode,
@@ -11,7 +12,6 @@ use crate::db::{
         },
         group::GroupKeySet,
     },
-    query::plan::{FieldSlot, expr::CompiledExpr},
 };
 
 ///

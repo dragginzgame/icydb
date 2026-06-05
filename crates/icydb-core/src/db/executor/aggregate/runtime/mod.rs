@@ -11,9 +11,9 @@ mod grouped_row;
 mod tests;
 
 use crate::{
-    db::{
-        executor::projection::{GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr},
-        query::plan::expr::CompiledExpr,
+    db::executor::{
+        aggregate::CompiledExpr,
+        projection::{GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr},
     },
     error::InternalError,
 };

@@ -9,8 +9,8 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             aggregate::{
-                AggregateFastPathInputs, AggregateFoldMode, AggregateKind, ScalarAggregateOutput,
-                ScalarTerminalKind,
+                AccessPlannedQuery, AggregateFastPathInputs, AggregateFoldMode, AggregateKind,
+                ScalarAggregateOutput, ScalarTerminalKind,
             },
             pipeline::{
                 contracts::{FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest},
@@ -27,7 +27,6 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
-        query::plan::AccessPlannedQuery,
         registry::StoreHandle,
     },
     error::InternalError,

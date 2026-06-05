@@ -1,3 +1,4 @@
+use super::contracts::{AccessPlannedQuery, ExecutionOrdering, QueryMode};
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
@@ -13,7 +14,6 @@ use crate::{
             },
             terminal::RetainedSlotLayout,
         },
-        query::plan::{AccessPlannedQuery, ExecutionOrdering, QueryMode},
     },
     error::InternalError,
 };

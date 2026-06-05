@@ -16,9 +16,8 @@ use crate::{
     db::{
         direction::Direction,
         executor::aggregate::contracts::{
-            grouped::engine::GroupedAggregateState, spec::AggregateKind,
+            grouped::engine::GroupedAggregateState, plan::FieldSlot, spec::AggregateKind,
         },
-        query::plan::FieldSlot,
     },
     error::InternalError,
 };

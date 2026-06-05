@@ -271,7 +271,7 @@ fn push_entity_snapshot(
     doc,
     doc = "Build one deterministic storage snapshot with default entity-path names.\n\nThis variant is used by generated snapshot endpoints that never pass alias remapping, so it keeps the snapshot root independent from optional alias-resolution machinery."
 )]
-pub(crate) fn storage_report_default<C: CanisterKind>(
+pub(in crate::db) fn storage_report_default<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<StorageReport, InternalError> {
     db.ensure_recovered_state()?;
@@ -283,7 +283,7 @@ pub(crate) fn storage_report_default<C: CanisterKind>(
     doc,
     doc = "Build one deterministic storage snapshot with per-entity rollups.\n\nThis path is read-only and fail-closed on decode/validation errors by counting corrupted keys/entries instead of panicking."
 )]
-pub(crate) fn storage_report<C: CanisterKind>(
+pub(in crate::db) fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],
 ) -> Result<StorageReport, InternalError> {

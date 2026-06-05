@@ -1,0 +1,6 @@
+subsystem	internal_imports	external_imports	loc	independence	adjusted_independence	risk
+planner/query	848	16	48337	0.981	10.59	Low
+executor/runtime	1860	124	53603	0.938	10.21	Low
+cursor/continuation	54	4	2711	0.931	7.36	Low
+access/index	31	4	7493	0.886	7.90	Low
+storage/recovery	674	4	38132	0.994	10.49	Low

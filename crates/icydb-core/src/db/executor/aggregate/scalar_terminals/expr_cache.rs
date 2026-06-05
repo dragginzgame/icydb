@@ -3,8 +3,11 @@
 //! Boundary: owns per-row cache buffers used by reducer execution.
 
 use crate::{
-    db::executor::{projection::ProjectionEvalError, terminal::KernelRow},
-    db::query::plan::expr::{CompiledExpr, admit_true_only_boolean_value},
+    db::executor::{
+        aggregate::{CompiledExpr, admit_true_only_boolean_value},
+        projection::ProjectionEvalError,
+        terminal::KernelRow,
+    },
     error::InternalError,
     value::Value,
 };

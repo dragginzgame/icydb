@@ -3,6 +3,7 @@
 //! Does not own: response envelopes or projected-row DISTINCT finalization.
 //! Boundary: consumes prepared access plans and emits structural projection rows.
 
+mod contracts;
 mod hybrid;
 mod pure;
 mod shared;
@@ -11,12 +12,14 @@ mod shared;
 use std::cell::Cell;
 
 use crate::{
-    db::{Db, executor::EntityAuthority, query::plan::AccessPlannedQuery},
+    db::{Db, executor::EntityAuthority},
     error::InternalError,
     traits::CanisterKind,
     value::Value,
 };
 use std::sync::Arc;
+
+use self::contracts::{AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan};
 
 ///
 /// CoveringProjectionRows
@@ -94,8 +97,8 @@ pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
-    covering: Option<Arc<crate::db::query::plan::CoveringReadExecutionPlan>>,
-    hybrid: impl FnOnce() -> Option<Arc<crate::db::query::plan::CoveringReadPlan>>,
+    covering: Option<Arc<CoveringReadExecutionPlan>>,
+    hybrid: impl FnOnce() -> Option<Arc<CoveringReadPlan>>,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Option<CoveringProjectionRows>, InternalError>
 where

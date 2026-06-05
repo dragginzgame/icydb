@@ -3,24 +3,21 @@
 //! Boundary: keeps DISTINCT route wiring separate from generic and count folds.
 
 use crate::{
-    db::{
-        executor::{
-            aggregate::{
-                ExecutionContext, GroupError,
-                runtime::{
-                    grouped_distinct::{
-                        execute_global_distinct_field_aggregate, page_global_distinct_grouped_row,
-                    },
-                    grouped_fold::metrics,
-                    grouped_output::project_grouped_rows_from_projection,
+    db::executor::{
+        aggregate::{
+            ExecutionContext, GroupError, ProjectionSpec,
+            runtime::{
+                grouped_distinct::{
+                    execute_global_distinct_field_aggregate, page_global_distinct_grouped_row,
                 },
-            },
-            pipeline::{
-                contracts::{GroupedCursorPage, GroupedRouteStage},
-                runtime::{GroupedFoldStage, GroupedStreamStage},
+                grouped_fold::metrics,
+                grouped_output::project_grouped_rows_from_projection,
             },
         },
-        query::plan::expr::ProjectionSpec,
+        pipeline::{
+            contracts::{GroupedCursorPage, GroupedRouteStage},
+            runtime::{GroupedFoldStage, GroupedStreamStage},
+        },
     },
     error::InternalError,
 };

@@ -5,6 +5,7 @@
 
 mod aggregate_plan;
 mod bytes_projection;
+mod contracts;
 mod core;
 mod handoff;
 mod load_plan;
@@ -13,7 +14,10 @@ mod shared_plan;
 mod snapshot;
 
 #[cfg(test)]
-use crate::db::{executor::LoweredIndexPrefixSpec, query::plan::ExecutionOrdering};
+use self::contracts::ExecutionOrdering;
+use self::contracts::{AccessPlannedQuery, OrderSpec, QueryMode};
+#[cfg(test)]
+use crate::db::executor::LoweredIndexPrefixSpec;
 use crate::{
     db::{
         cursor::{ValidatedCursor, ValidatedGroupedCursor},
@@ -22,10 +26,7 @@ use crate::{
             explain::assemble_load_execution_node_descriptor_for_authority,
         },
         predicate::MissingRowPolicy,
-        query::{
-            explain::ExplainExecutionNodeDescriptor,
-            plan::{AccessPlannedQuery, OrderSpec, QueryMode},
-        },
+        query::explain::ExplainExecutionNodeDescriptor,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

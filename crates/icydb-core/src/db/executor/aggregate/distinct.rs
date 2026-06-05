@@ -12,14 +12,16 @@ use crate::{
         cursor::ValidatedGroupedCursor,
         executor::{
             EntityAuthority, PreparedAggregatePlan,
-            aggregate::AggregateKind,
+            aggregate::{
+                AggregateKind, GroupedExecutionConfig,
+                global_distinct_group_spec_for_aggregate_identity,
+            },
             pipeline::{
                 contracts::{GroupedCursorPage, GroupedRouteStage, LoadExecutor},
                 entrypoints::execute_prepared_grouped_route_runtime,
                 grouped_runtime::resolve_grouped_route_for_plan,
             },
         },
-        query::plan::{GroupedExecutionConfig, global_distinct_group_spec_for_aggregate_identity},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

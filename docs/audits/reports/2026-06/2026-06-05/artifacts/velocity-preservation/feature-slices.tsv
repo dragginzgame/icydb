@@ -1,0 +1,4 @@
+feature_slice	source_type	source_reference	included_reason	exclusions	files_modified	subsystems	layers	flow_axes_total	flow_axes_material	revised_caf	els	containment_score	risk	primary_subsystem
+0.179.0 dry cleanup foundation	manual/changelog	0.179.0 content commit	DRY audit follow-through and schema/relation/SQL cleanup	release metadata excluded	10	2	1	2	2	4	0.5	0.333	Low	docs/governance
+0.179.1 structure and complexity cleanup	manual/changelog	0.179.1 content commit	module-structure and complexity-accretion cleanup	release metadata excluded	54	4	3	4	4	20	0.463	0.667	High	docs/governance
+0.179.2 audit cleanup and hub split	manual/changelog	0.179.2 content commits	CLI/core hub split, test relocation, lint expectation cleanup	release metadata excluded	163	5	4	5	5	30	0.325	0.833	High	facade/adapters

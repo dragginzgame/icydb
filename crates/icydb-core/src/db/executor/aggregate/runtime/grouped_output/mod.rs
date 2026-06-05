@@ -7,21 +7,19 @@
 mod tests;
 
 use crate::{
-    db::{
-        executor::{
-            ExecutionOptimization, ExecutionTrace, RuntimeGroupedRow,
-            pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
-            pipeline::runtime::GroupedFoldStage,
-            plan_metrics::{
-                record_load_row_efficiency_for_path, record_rows_aggregated_for_path,
-                record_rows_emitted_for_path, record_rows_filtered_for_path,
-                record_rows_scanned_for_path,
-            },
-            projection::*,
+    db::executor::{
+        ExecutionOptimization, ExecutionTrace, RuntimeGroupedRow,
+        aggregate::{
+            FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout, ProjectionSpec,
         },
-        query::plan::{
-            FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout, expr::ProjectionSpec,
+        pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
+        pipeline::runtime::GroupedFoldStage,
+        plan_metrics::{
+            record_load_row_efficiency_for_path, record_rows_aggregated_for_path,
+            record_rows_emitted_for_path, record_rows_filtered_for_path,
+            record_rows_scanned_for_path,
         },
+        projection::*,
     },
     error::InternalError,
     metrics::sink::{ExecKind, PathSpan},

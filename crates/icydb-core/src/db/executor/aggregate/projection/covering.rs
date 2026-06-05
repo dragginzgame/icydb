@@ -5,10 +5,10 @@
 
 use crate::db::{
     access::AccessPlan,
-    query::plan::{
+    executor::aggregate::{
         CoveringProjectionFacts, OrderSpec,
-        covering_index_adjacent_distinct_eligible as plan_adjacent,
-        covering_index_projection_facts_with_primary_key_names as plan_covering_facts,
+        plan_covering_index_adjacent_distinct_eligible as plan_adjacent,
+        plan_covering_index_projection_facts as plan_covering_facts,
     },
 };
 

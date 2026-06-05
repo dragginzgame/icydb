@@ -3,6 +3,10 @@
 //! Does not own: expression semantics, expression tree evaluation, or planner lowering.
 //! Boundary: adapts executor row/value sources to `CompiledExprValueReader`.
 
+use super::contracts::{
+    CompiledExpr, CompiledExprValueReader, ProjectionEvalError,
+    collapse_true_only_boolean_admission,
+};
 use crate::{
     db::{
         data::{
@@ -10,10 +14,6 @@ use crate::{
             decode_structural_value_storage_bytes,
         },
         executor::projection::path::resolve_path_segments,
-        query::plan::expr::{
-            CompiledExpr, CompiledExprValueReader, ProjectionEvalError,
-            collapse_true_only_boolean_admission,
-        },
     },
     error::InternalError,
     model::field::{LeafCodec, ScalarCodec},

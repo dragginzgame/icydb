@@ -1,3 +1,4 @@
+use super::super::plan::{CompiledExpr, FieldSlot, collapse_true_only_boolean_admission};
 use crate::{
     db::{
         data::DecodedDataStoreKey,
@@ -23,8 +24,6 @@ use crate::{
             projection::ProjectionEvalError,
         },
         key_taxonomy::PrimaryKeyValue,
-        query::plan::FieldSlot,
-        query::plan::expr::{CompiledExpr, collapse_true_only_boolean_admission},
     },
     error::InternalError,
     types::Decimal,

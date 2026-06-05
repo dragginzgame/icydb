@@ -1,0 +1,51 @@
+boundary	path	line	text	classification
+planner_to_executor	crates/icydb-core/src/db/query/plan/validate/mod.rs	10	//! - executor-boundary defensive checks live in `db::executor::plan_validate`.	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/explain/mod.rs	11	use crate::db::query::builder::AggregateExpr;	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/explain/descriptor/shared/predicate.rs	282	let strict_predicate_compatible = crate::db::query::plan::covering_strict_predicate_compatible(	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/explain/descriptor/shared/mod.rs	517	page: &crate::db::query::plan::PageSpec,	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/plan_metrics.rs	9	db::query::plan::{AccessChoiceSelectedReason, AccessPlannedQuery},	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/grouped.rs	18	pub(in crate::db::executor) use crate::db::query::plan::expr::compile_grouped_projection_plan;	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/grouped.rs	19	pub(in crate::db::executor) use crate::db::query::plan::expr::{	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/prepared_execution_plan/shared_plan.rs	99	) -> Option<std::sync::Arc<crate::db::query::plan::CoveringReadExecutionPlan>> {	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/prepared_execution_plan/shared_plan.rs	107	) -> Option<std::sync::Arc<crate::db::query::plan::CoveringReadPlan>> {	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/diagnostics/node.rs	6	use crate::db::query::explain::ExplainExecutionNodeDescriptor;	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/materialize/execute.rs	8	use crate::db::query::plan::expr::CompiledExpr;	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/materialize/execute.rs	10	use crate::db::query::plan::expr::ProjectionSpec;	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/materialize/execute.rs	12	use crate::db::query::plan::expr::compile_scalar_projection_expr_for_model_only;	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/covering/mod.rs	97	covering: Option<Arc<crate::db::query::plan::CoveringReadExecutionPlan>>,	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/covering/mod.rs	98	hybrid: impl FnOnce() -> Option<Arc<crate::db::query::plan::CoveringReadPlan>>,	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/planning/continuation/route.rs	6	use crate::db::query::plan::{ContinuationPolicy, ScalarAccessWindowPlan};	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/planning/route/order_pushdown.rs	8	use crate::db::query::explain::{	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/projection/eval/mod.rs	16	pub(in crate::db) use crate::db::query::plan::expr::ProjectionEvalError;	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/terminals.rs	60	logical_plan: &'a crate::db::query::plan::AccessPlannedQuery,	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/terminals.rs	246	logical_plan: &crate::db::query::plan::AccessPlannedQuery,	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/pipeline/contracts/post_access.rs	7	use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, QueryMode};	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs	7	db::query::plan::expr::{CompiledExpr, admit_true_only_boolean_value},	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/mod.rs	46	pub(in crate::db) use crate::db::query::builder::aggregate::{	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/route_stage/projection.rs	64	) -> &[crate::db::query::plan::FieldSlot] {	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/route_stage/projection.rs	71	) -> &[crate::db::query::plan::GroupedAggregateExecutionSpec] {	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/contracts/spec.rs	14	pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/route_stage/payload.rs	45	pub(in crate::db::executor) group_fields: Vec<crate::db::query::plan::FieldSlot>,	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs	130	group_fields: &[crate::db::query::plan::FieldSlot],	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs	242	group_fields: &[crate::db::query::plan::FieldSlot],	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs	276	group_fields: &[crate::db::query::plan::FieldSlot],	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs	355	group_fields: &[crate::db::query::plan::FieldSlot],	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs	401	group_fields: &'a [crate::db::query::plan::FieldSlot],	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/window.rs	357	grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/planning/route/contracts/execution/observability.rs	9	use crate::db::query::plan::GroupedPlanFallbackReason;	allowed-contract
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs	40	grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs	136	&crate::db::query::plan::EffectiveRuntimeFilterProgram,	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs	144	&[crate::db::query::plan::FieldSlot],	suspect-review
+executor_to_query_sql	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/finalize.rs	20	grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,	suspect-review
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/runtime.rs	11	query::plan::{AccessPlannedQuery, effective_offset_for_cursor_window},	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/runtime.rs	34	plan: &AccessPlannedQuery,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/runtime.rs	95	plan: &AccessPlannedQuery,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	8	access::{AccessPlan, LoweredKey},	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	19	AccessPlannedQuery, OrderSpec, PageSpec, effective_offset_for_cursor_window,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	109	access: &AccessPlan<K>,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	116	previous_index_range_anchor: Option<&LoweredKey>,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	162	plan: &AccessPlannedQuery,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	177	plan: &AccessPlannedQuery,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	189	access: &AccessPlan<K>,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	194	previous_index_range_anchor: Option<&LoweredKey>,	allowed-contract
+cursor_to_plan_internals	crates/icydb-core/src/db/cursor/continuation.rs	229	previous_anchor: Option<&LoweredKey>,	allowed-contract

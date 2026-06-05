@@ -1,3 +1,4 @@
+use super::contracts::{AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan};
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
@@ -11,7 +12,6 @@ use crate::{
                 build_prepared_execution_plan_core_with_schema_fingerprint,
             },
         },
-        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::EntityKind,
@@ -96,7 +96,7 @@ impl SharedPreparedExecutionPlan {
     #[must_use]
     pub(in crate::db::executor) fn projection_covering_read_execution_plan(
         &self,
-    ) -> Option<std::sync::Arc<crate::db::query::plan::CoveringReadExecutionPlan>> {
+    ) -> Option<std::sync::Arc<CoveringReadExecutionPlan>> {
         self.core
             .get_or_init_projection_covering_read_execution_plan(self.authority.clone())
     }
@@ -104,7 +104,7 @@ impl SharedPreparedExecutionPlan {
     #[must_use]
     pub(in crate::db::executor) fn hybrid_covering_read_plan(
         &self,
-    ) -> Option<std::sync::Arc<crate::db::query::plan::CoveringReadPlan>> {
+    ) -> Option<std::sync::Arc<CoveringReadPlan>> {
         self.core
             .get_or_init_hybrid_covering_read_plan(self.authority.clone())
     }

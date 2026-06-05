@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             aggregate::{
-                AggregateKind, ExecutionContext, FoldControl, GroupError,
+                AggregateKind, CompiledExpr, ExecutionContext, FieldSlot, FoldControl, GroupError,
                 contracts::{
                     AggregateStateFactory, GroupedDistinctExecutionMode,
                     GroupedTerminalAggregateState,
@@ -26,7 +26,6 @@ use crate::{
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
-        query::plan::{FieldSlot, expr::CompiledExpr},
     },
     error::InternalError,
     value::Value,

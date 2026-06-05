@@ -12,16 +12,19 @@ use crate::{
         executor::projection::GroupedRowView,
         executor::{
             GroupedPaginationWindow, RuntimeGroupedRow,
-            aggregate::runtime::{
-                group_matches_having_expr,
-                grouped_fold::{
-                    bundle::GroupedAggregateBundle,
-                    utils::{
-                        compare_grouped_boundary_values, grouped_next_cursor_boundary,
-                        grouped_resume_boundary_allows_candidate,
+            aggregate::{
+                CompiledExpr, FieldSlot, OrderDirection, ProjectionSpec,
+                runtime::{
+                    group_matches_having_expr,
+                    grouped_fold::{
+                        bundle::GroupedAggregateBundle,
+                        utils::{
+                            compare_grouped_boundary_values, grouped_next_cursor_boundary,
+                            grouped_resume_boundary_allows_candidate,
+                        },
                     },
+                    grouped_output::project_grouped_values_from_compiled_projection,
                 },
-                grouped_output::project_grouped_values_from_compiled_projection,
             },
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
@@ -31,10 +34,6 @@ use crate::{
             },
         },
         numeric::canonical_value_compare,
-        query::plan::{
-            OrderDirection,
-            expr::{CompiledExpr, ProjectionSpec},
-        },
     },
     error::InternalError,
     value::Value,
@@ -127,7 +126,7 @@ impl GroupedPageCandidate {
     fn matches_window(
         &self,
         compiled_having_expr: Option<&CompiledExpr>,
-        group_fields: &[crate::db::query::plan::FieldSlot],
+        group_fields: &[FieldSlot],
         resume_boundary: Option<&Value>,
     ) -> Result<bool, InternalError> {
         if let Some(compiled_having_expr) = compiled_having_expr
@@ -239,7 +238,7 @@ fn for_each_grouped_page_candidate(
     sorted: bool,
     direction: Direction,
     compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
-    group_fields: &[crate::db::query::plan::FieldSlot],
+    group_fields: &[FieldSlot],
     mut visit_candidate: impl FnMut(GroupedPageCandidate) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
     let aggregate_count = grouped_bundle.aggregate_count();
@@ -273,7 +272,7 @@ fn collect_grouped_page_candidates(
     sorted: bool,
     direction: Direction,
     compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
-    group_fields: &[crate::db::query::plan::FieldSlot],
+    group_fields: &[FieldSlot],
 ) -> Result<Vec<GroupedPageCandidate>, InternalError> {
     let mut candidates = Vec::new();
 
@@ -352,7 +351,7 @@ fn compile_grouped_top_k_order(
 fn compile_grouped_page_candidate_top_k_ranking(
     candidate: &GroupedPageCandidate,
     compiled_order: &CompiledGroupedTopKOrder,
-    group_fields: &[crate::db::query::plan::FieldSlot],
+    group_fields: &[FieldSlot],
 ) -> Result<GroupedPageCandidateRanking, InternalError> {
     let Value::List(group_key_values) = candidate.group_key.canonical_value() else {
         return Err(GroupedRouteStage::canonical_group_key_must_be_list(
@@ -398,7 +397,7 @@ struct GroupedPageFinalizeSelection<'a> {
     direction: Direction,
     compiled_having_expr: Option<CompiledExpr>,
     compiled_top_k_order: Option<CompiledGroupedTopKOrder>,
-    group_fields: &'a [crate::db::query::plan::FieldSlot],
+    group_fields: &'a [FieldSlot],
     pagination_window: &'a GroupedPaginationWindow,
     resume_boundary: Option<&'a Value>,
     compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,

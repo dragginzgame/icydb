@@ -3,6 +3,7 @@
 //! Does not own: row loops, DISTINCT key storage, or structural page dispatch directly.
 //! Boundary: exposes the materialization surface through owner-focused child modules.
 
+mod contracts;
 mod distinct;
 mod execute;
 mod metrics;

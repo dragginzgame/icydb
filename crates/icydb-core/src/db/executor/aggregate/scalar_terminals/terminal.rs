@@ -6,16 +6,16 @@ use crate::{
     db::{
         executor::{
             EntityAuthority,
-            aggregate::scalar_terminals::expr_cache::intern_scalar_terminal_expr,
+            aggregate::{
+                AccessPlannedQuery, AggregateKind, CompiledExpr, Expr, FieldId, FieldSlot,
+                GroupedAggregateExecutionSpec, compile_scalar_projection_expr_from_schema,
+                scalar_terminals::expr_cache::intern_scalar_terminal_expr,
+            },
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::compile_retained_slot_layout_for_mode_with_extra_slots,
             },
             terminal::RetainedSlotLayout,
-        },
-        query::plan::{
-            AccessPlannedQuery, AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
-            expr::{CompiledExpr, Expr, FieldId, compile_scalar_projection_expr_from_schema},
         },
         schema::SchemaInfo,
     },
@@ -580,13 +580,13 @@ fn first_unknown_structural_aggregate_expr_field(
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{
-            executor::aggregate::scalar_terminals::terminal::{
+        db::executor::aggregate::{
+            BinaryOp, CompiledExpr,
+            scalar_terminals::terminal::{
                 InternedScalarAggregateInput, PreparedScalarAggregateTerminal,
                 PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
                 ScalarAggregateTerminalKind,
             },
-            query::plan::expr::{BinaryOp, CompiledExpr},
         },
         value::Value,
     };

@@ -3,24 +3,21 @@
 //! Boundary: preserves borrowed and owned ingest paths without route dispatch.
 
 use crate::{
-    db::{
-        executor::{
-            aggregate::{
-                ExecutionContext,
-                runtime::grouped_fold::{
-                    count::GroupedCountState,
-                    metrics,
-                    utils::{
-                        GroupIndexBucket, find_matching_group_index,
-                        find_matching_single_group_value_index,
-                        stable_hash_group_values_from_row_view, stable_hash_single_group_value,
-                    },
+    db::executor::{
+        aggregate::{
+            ExecutionContext, FieldSlot,
+            runtime::grouped_fold::{
+                count::GroupedCountState,
+                metrics,
+                utils::{
+                    GroupIndexBucket, find_matching_group_index,
+                    find_matching_single_group_value_index, stable_hash_group_values_from_row_view,
+                    stable_hash_single_group_value,
                 },
             },
-            group::{GroupKey, StableHash, StableHashMap},
-            pipeline::runtime::RowView,
         },
-        query::plan::FieldSlot,
+        group::{GroupKey, StableHash, StableHashMap},
+        pipeline::runtime::RowView,
     },
     error::InternalError,
     model::field_kind_has_identity_group_canonical_form,

@@ -9,7 +9,8 @@ use crate::{
         executor::{
             RuntimeGroupedRow,
             aggregate::{
-                ExecutionContext, GroupError,
+                EffectiveRuntimeFilterProgram, ExecutionContext, GlobalDistinctAggregateKind,
+                GroupError, GroupedDistinctExecutionStrategy,
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     resolve_any_aggregate_target_slot_from_planner_slot,
@@ -23,10 +24,6 @@ use crate::{
         },
         numeric::coerce_numeric_decimal,
         predicate::MissingRowPolicy,
-        query::plan::{
-            EffectiveRuntimeFilterProgram, GlobalDistinctAggregateKind,
-            GroupedDistinctExecutionStrategy,
-        },
     },
     error::InternalError,
     types::Decimal,

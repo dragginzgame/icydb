@@ -3,12 +3,10 @@
 //! Boundary: mirrors owned `GroupKey` canonical hashing without materializing keys.
 
 use crate::{
-    db::{
-        executor::{
-            group::{StableHash, stable_hash_from_digest},
-            pipeline::runtime::RowView,
-        },
-        query::plan::FieldSlot,
+    db::executor::{
+        aggregate::FieldSlot,
+        group::{StableHash, stable_hash_from_digest},
+        pipeline::runtime::RowView,
     },
     error::InternalError,
     model::field_kind_has_identity_group_canonical_form,

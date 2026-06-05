@@ -1,0 +1,228 @@
+feature_slice	status	path	subsystem	layer
+0.179.0 dry cleanup foundation	M	CHANGELOG.md	docs/governance	docs/governance
+0.179.0 dry cleanup foundation	M	crates/icydb-core/src/db/relation/mod.rs	storage/recovery	core/runtime
+0.179.0 dry cleanup foundation	M	crates/icydb-core/src/db/relation/reverse_index.rs	storage/recovery	core/runtime
+0.179.0 dry cleanup foundation	M	crates/icydb-core/src/db/relation/save_validate.rs	storage/recovery	core/runtime
+0.179.0 dry cleanup foundation	M	crates/icydb-core/src/db/schema/reconcile.rs	storage/recovery	core/runtime
+0.179.0 dry cleanup foundation	M	crates/icydb-core/src/db/session/sql/execute/mod.rs	executor/runtime	core/runtime
+0.179.0 dry cleanup foundation	A	docs/audits/reports/2026-06/2026-06-04/artifacts/dry-consolidation/dry-consolidation-module-pressure.tsv	docs/governance	docs/governance
+0.179.0 dry cleanup foundation	A	docs/audits/reports/2026-06/2026-06-04/artifacts/dry-consolidation/dry-consolidation-pattern-counts.tsv	docs/governance	docs/governance
+0.179.0 dry cleanup foundation	A	docs/audits/reports/2026-06/2026-06-04/dry-consolidation.md	docs/governance	docs/governance
+0.179.0 dry cleanup foundation	A	docs/changelog/0.179.md	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	M	CHANGELOG.md	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	M	Cargo.toml	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	M	crates/icydb-cli/Cargo.toml	facade/adapters	cli/facade
+0.179.1 structure and complexity cleanup	M	crates/icydb-cli/src/cli/mod.rs	facade/adapters	cli/facade
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/db/query/plan/access_choice/evaluator/range.rs	planner/query	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/query/plan/access_choice/evaluator/range/constraints.rs	planner/query	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/db/relation/reverse_index.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/relation/reverse_index/target_keys.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/db/schema/integrity.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/schema/integrity/index.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/schema/integrity/relation.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/db/schema/reconcile.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/schema/reconcile/sql_ddl.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/schema/reconcile/sql_ddl/field_metadata.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/db/schema/transition.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/schema/transition/admission.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/schema/transition/compatibility.rs	storage/recovery	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/session/sql/execute/metadata.rs	executor/runtime	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/db/session/sql/execute/mod.rs	executor/runtime	core/runtime
+0.179.1 structure and complexity cleanup	A	crates/icydb-core/src/db/sql/parser/statement/ddl.rs	planner/query	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/db/sql/parser/statement/mod.rs	planner/query	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/model/field_kind_semantics.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/types/decimal/arithmetic.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/types/decimal/tests.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/types/duration.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/value/hash.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/value/map.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/value/mod.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/value/ops/text.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/src/value/semantics.rs	other	core/runtime
+0.179.1 structure and complexity cleanup	M	crates/icydb-core/tests/write_boundary_guards.rs	other	tests
+0.179.1 structure and complexity cleanup	M	docs/audits/recurring/crosscutting/crosscutting-module-structure.md	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/artifact-coverage.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/concentration-ratios.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/concept-branch-map.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/concept-branch-summary.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/enum-surface.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/enum-switch-sites.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/flow-constraint-ledger.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/flow-counts.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/function-branch-hotspots.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/invalidating-signals.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/issue-ledger.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/module-branch-hotspots.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/ownership-drift.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/risk-buckets.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/runtime-metrics-after-cleanup.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/runtime-metrics.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/complexity-accretion/semantic-spread.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/artifacts/module-structure/runtime-metrics.tsv	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/complexity-accretion.md	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	A	docs/audits/reports/2026-06/2026-06-05/module-structure.md	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	M	docs/changelog/0.179.md	docs/governance	docs/governance
+0.179.1 structure and complexity cleanup	M	scripts/ci/check-module-structure-hub-thresholds.sh	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	M	CHANGELOG.md	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/cli/canister.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/cli/config.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/cli/metrics.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/cli/mod.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/cli/schema.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/cli/sql.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/cli/target.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/config.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/config/init.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/config/report.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/config/resolution.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/config/surface.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/icp/commands.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/icp/commands/fixtures.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/icp/project.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/icp/project/manifest.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/observability/metrics.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/observability/metrics/render.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/observability/schema.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/observability/schema/render.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/observability/schema_check/analysis.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/observability/schema_check/analysis/fields.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/observability/schema_check/analysis/indexes.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/observability/schema_check/mod.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/observability/schema_check/recommendations.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/observability/snapshot.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/observability/snapshot/render.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/tests/cli.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/tests/config.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/tests/icp.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-cli/src/tests/mod.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/tests/observability.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/tests/observability/schema_check.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb-cli/src/tests/shell.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/access/validate.rs	access/index	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/access/validate/tests.rs	access/index	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/data/key.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/data/key/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/data/persisted_row/reader/metrics.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/data/persisted_row/reader/mod.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/data/store.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/data/store/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/data/structural_field/accepted.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/data/structural_field/accepted/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/data/structural_field/binary.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/data/structural_field/binary/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/executor/diagnostics/node.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/executor/diagnostics/node/tests.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/executor/group/key.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/executor/group/key/tests.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/executor/order.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/executor/order/tests.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/executor/runtime_context/mod.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/executor/terminal/page/metrics.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/index/entry.rs	access/index	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/index/entry/tests.rs	access/index	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/journal/mod.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/key_taxonomy.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/key_taxonomy/tests.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/predicate/encoding.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/predicate/encoding/tests.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/predicate/normalize.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/predicate/normalize/tests.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/query/expr/filter.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/query/expr/filter/tests.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/query/fingerprint/projection_hash.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/query/fingerprint/projection_hash/tests.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/query/intent/state.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/query/intent/state/tests.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/query/plan/semantics/access_projection/tests.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/relation/metadata.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/relation/mod.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/relation/reverse_index.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/relation/reverse_index/target_keys.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/relation/reverse_index/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/relation/save_validate.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/runtime_hooks/mod.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/scalar_expr.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/codec.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/codec/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/describe.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/describe/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/info.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/info/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/execution.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/expression/mod.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/expression/staged_store.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/expression/staging.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/field_path/isolated_store.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/field_path/overlay.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/field_path/publication.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/field_path/runner.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/field_path/staged_store.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/field_path/staging.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/identity.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/index.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/mod.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/mutation/runner.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/proposal.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/proposal/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/reconcile.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/reconcile/sql_ddl.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/reconcile/sql_ddl/field_metadata.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/reconcile/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/runtime.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/runtime/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/snapshot.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/snapshot/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/store.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/store/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/schema/transition.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/schema/transition/tests.rs	storage/recovery	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/session/query/paging.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/session/sql/compile_cache.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/session/sql/execute/mod.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/session/sql/projection/runtime/materialize.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/sql/lowering/mod.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/sql/lowering/normalize.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/db/sql/lowering/normalize/tests.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/db/sql/parser/model.rs	planner/query	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/error/mod.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/metrics/mod.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/metrics/sink.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/metrics/sink/counters.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/metrics/sink/events.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/metrics/sink/tests.rs	executor/runtime	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/model/field_kind_semantics.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/model/field_kind_semantics/tests.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/types/account.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/types/account/tests.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-core/src/types/timestamp.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	A	crates/icydb-core/src/types/timestamp/tests.rs	other	core/runtime
+0.179.2 audit cleanup and hub split	M	crates/icydb-schema-derive/src/imp/default.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	A	crates/icydb-schema-derive/src/imp/default/tests.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	M	crates/icydb-schema-derive/src/node/entity.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	A	crates/icydb-schema-derive/src/node/entity/tests.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	M	crates/icydb-schema-derive/src/node/field.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	A	crates/icydb-schema-derive/src/node/field/tests.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	M	crates/icydb-schema-derive/src/node/item.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	A	crates/icydb-schema-derive/src/node/item/tests.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	M	crates/icydb-schema/src/node/canister.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	A	crates/icydb-schema/src/node/canister/tests.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	M	crates/icydb-schema/src/node/entity.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	A	crates/icydb-schema/src/node/entity/tests.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	M	crates/icydb-schema/src/node/item.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	A	crates/icydb-schema/src/node/item/tests.rs	facade/adapters	schema/derive
+0.179.2 audit cleanup and hub split	M	crates/icydb/src/db/sql/mod.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb/src/db/sql/tests.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	M	crates/icydb/src/error.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	crates/icydb/src/error/tests.rs	facade/adapters	cli/facade
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/artifacts/canonical-semantic-authority/aggregate-identity-signals.txt	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/artifacts/canonical-semantic-authority/broad-normalization-signals.txt	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/artifacts/canonical-semantic-authority/explain-fingerprint-signals.txt	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/artifacts/canonical-semantic-authority/expression-stage-signals.txt	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/artifacts/dry-consolidation/dry-consolidation-module-pressure.tsv	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/artifacts/dry-consolidation/dry-consolidation-pattern-counts.tsv	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/canonical-semantic-authority.md	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/dry-consolidation.md	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	A	docs/audits/reports/2026-06/2026-06-05/summary.md	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	M	docs/changelog/0.179.md	docs/governance	docs/governance
+0.179.2 audit cleanup and hub split	M	testing/macro-tests/src/test/entity.rs	facade/adapters	tests

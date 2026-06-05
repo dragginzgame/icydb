@@ -10,6 +10,7 @@ use crate::{
         executor::{
             RuntimeGroupedRow,
             aggregate::{
+                CompiledExpr, ProjectionSpec,
                 runtime::{
                     group_matches_having_expr,
                     grouped_fold::{
@@ -24,7 +25,6 @@ use crate::{
             pipeline::contracts::{GroupedRouteStage, PageCursor},
             projection::{GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr},
         },
-        query::plan::expr::CompiledExpr,
     },
     error::InternalError,
     value::Value,
@@ -354,7 +354,7 @@ impl GroupedCountPageRows {
     pub(super) fn project_and_build_cursor(
         self,
         route: &GroupedRouteStage,
-        grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
+        grouped_projection_spec: &ProjectionSpec,
     ) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
         metrics::record_projection_rows_input(self.rows.len());
         let next_cursor_boundary = self

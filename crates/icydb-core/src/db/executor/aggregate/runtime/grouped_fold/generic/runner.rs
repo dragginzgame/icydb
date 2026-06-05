@@ -3,24 +3,21 @@
 //! Boundary: owns generic grouped ingest and page finalization wiring.
 
 use crate::{
-    db::{
-        executor::{
-            aggregate::{
-                ExecutionContext, GroupError,
-                contracts::GroupedDistinctExecutionMode,
-                runtime::grouped_fold::{
-                    bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
-                    dispatch::group_fields_support_borrowed_group_probe,
-                    page_finalize::finalize_grouped_page,
-                    utils::group_capacity_hint,
-                },
-            },
-            pipeline::{
-                contracts::{GroupedCursorPage, GroupedRouteStage},
-                runtime::{GroupedFoldStage, GroupedStreamStage},
+    db::executor::{
+        aggregate::{
+            ExecutionContext, FieldSlot, GroupError, ProjectionSpec,
+            contracts::GroupedDistinctExecutionMode,
+            runtime::grouped_fold::{
+                bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
+                dispatch::group_fields_support_borrowed_group_probe,
+                page_finalize::finalize_grouped_page,
+                utils::group_capacity_hint,
             },
         },
-        query::plan::{FieldSlot, expr::ProjectionSpec},
+        pipeline::{
+            contracts::{GroupedCursorPage, GroupedRouteStage},
+            runtime::{GroupedFoldStage, GroupedStreamStage},
+        },
     },
     error::InternalError,
 };

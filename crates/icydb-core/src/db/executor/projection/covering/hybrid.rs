@@ -5,15 +5,15 @@ use crate::{
         data::{DataStore, DecodedDataStoreKey},
         executor::projection::covering::{
             CoveringProjectionMetricsRecorder,
+            contracts::{
+                AccessPlannedQuery, CoveringProjectionOrder, CoveringReadField,
+                CoveringReadFieldSource, CoveringReadPlan, PageSpec,
+            },
             shared::{covering_projection_component_indices, decode_hybrid_covering_components},
         },
         executor::{
             EntityAuthority, apply_offset_limit_window, covering_projection_scan_direction,
             resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
-        },
-        query::plan::{
-            AccessPlannedQuery, CoveringProjectionOrder, CoveringReadField,
-            CoveringReadFieldSource, CoveringReadPlan, PageSpec,
         },
     },
     error::InternalError,

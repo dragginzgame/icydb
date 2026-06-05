@@ -1,13 +1,11 @@
 use crate::{
-    db::{
-        executor::{
-            EntityAuthority, ExecutionPreparation, ExecutorPlanError,
-            PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
-            prepared_execution_plan::{
-                PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
-            },
+    db::executor::{
+        EntityAuthority, ExecutionPreparation, ExecutorPlanError,
+        PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
+        prepared_execution_plan::{
+            PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
+            contracts::GroupSpec,
         },
-        query::plan::GroupSpec,
     },
     error::InternalError,
 };

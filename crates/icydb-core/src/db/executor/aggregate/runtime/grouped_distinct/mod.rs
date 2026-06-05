@@ -5,9 +5,9 @@
 
 mod aggregate;
 
-use crate::db::{
-    executor::RuntimeGroupedRow,
-    query::plan::{AggregateKind, FieldSlot, GroupedDistinctExecutionStrategy},
+use crate::db::executor::{
+    RuntimeGroupedRow,
+    aggregate::{AggregateKind, FieldSlot, GroupedDistinctExecutionStrategy},
 };
 
 ///

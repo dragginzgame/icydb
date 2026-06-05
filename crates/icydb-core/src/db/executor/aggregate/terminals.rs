@@ -12,7 +12,8 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
             PreparedAggregatePlan, PreparedExecutionPlan, TraversalRuntime,
             aggregate::{
-                AggregateFoldMode, AggregateKind, PreparedAggregateSpec,
+                AccessPlannedQuery, AggregateFoldMode, AggregateKind,
+                FieldSlot as PlannedFieldSlot, PageSpec, PreparedAggregateSpec,
                 PreparedAggregateStreamingInputs, PreparedAggregateTargetField,
                 PreparedFieldOrderSensitiveTerminalOp, PreparedOrderSensitiveTerminalBoundary,
                 PreparedOrderSensitiveTerminalOp, PreparedScalarTerminalBoundary,
@@ -32,10 +33,7 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
-        query::{
-            builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
-            plan::{FieldSlot as PlannedFieldSlot, PageSpec},
-        },
+        query::builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
         registry::StoreHandle,
     },
     error::InternalError,
@@ -57,7 +55,7 @@ use std::ops::Bound;
 struct ExistingRowsTerminalRuntime<'a> {
     entity_tag: EntityTag,
     store: StoreHandle,
-    logical_plan: &'a crate::db::query::plan::AccessPlannedQuery,
+    logical_plan: &'a AccessPlannedQuery,
     strict_mode: Option<&'a crate::db::index::IndexPredicateProgram>,
     index_prefix_specs: &'a [crate::db::executor::LoweredIndexPrefixSpec],
     index_range_specs: &'a [crate::db::executor::LoweredIndexRangeSpec],
@@ -243,7 +241,7 @@ fn aggregate_existing_rows_terminal_output_with_runtime(
 // Resolve COUNT for PK full-scan/key-range shapes from store cardinality while
 // preserving canonical page-window and scan-accounting semantics.
 fn aggregate_count_from_pk_cardinality_with_store(
-    logical_plan: &crate::db::query::plan::AccessPlannedQuery,
+    logical_plan: &AccessPlannedQuery,
     lowered_access: &LoweredAccess<'_, Value>,
     entity_tag: EntityTag,
     store: StoreHandle,

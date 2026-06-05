@@ -1,7 +1,7 @@
 use crate::{
     db::{
         data::DecodedDataStoreKey,
-        query::plan::{CoveringReadField, CoveringReadFieldSource},
+        executor::projection::covering::contracts::{CoveringReadField, CoveringReadFieldSource},
     },
     error::InternalError,
     value::Value,

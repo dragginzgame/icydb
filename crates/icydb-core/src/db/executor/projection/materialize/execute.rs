@@ -3,13 +3,11 @@
 //! Does not own: DISTINCT key storage or structural cursor page dispatch.
 //! Boundary: converts retained-slot and data-row inputs into local row views.
 
+use super::contracts::CompiledExpr;
+#[cfg(test)]
+use super::contracts::{ProjectionSpec, compile_scalar_projection_expr_for_model_only};
 #[cfg(test)]
 use crate::db::executor::projection::eval::eval_compiled_expr_with_value_reader;
-use crate::db::query::plan::expr::CompiledExpr;
-#[cfg(test)]
-use crate::db::query::plan::expr::ProjectionSpec;
-#[cfg(test)]
-use crate::db::query::plan::expr::compile_scalar_projection_expr_for_model_only;
 #[cfg(test)]
 use crate::{
     db::response::ProjectedRow,

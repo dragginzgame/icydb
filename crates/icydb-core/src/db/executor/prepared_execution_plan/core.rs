@@ -1,3 +1,7 @@
+use super::contracts::{
+    AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan, ExecutionOrdering, OrderSpec,
+    PlannedContinuationContract, QueryMode,
+};
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
@@ -20,10 +24,6 @@ use crate::{
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
-        query::plan::{
-            AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan, ExecutionOrdering,
-            OrderSpec, PlannedContinuationContract, QueryMode,
-        },
     },
     error::InternalError,
 };

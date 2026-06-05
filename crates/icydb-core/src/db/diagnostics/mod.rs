@@ -27,4 +27,4 @@ pub use model::{
 pub(crate) use model::{
     IndexStoreSnapshotStats, StoreSnapshotAllocationIdentity, StoreSnapshotSchemaMetadata,
 };
-pub(crate) use storage_report::{storage_report, storage_report_default};
+pub(in crate::db) use storage_report::{storage_report, storage_report_default};

@@ -11,7 +11,7 @@
 
 use crate::{db::key_taxonomy::PrimaryKeyValue, error::InternalError};
 
-pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
+pub(in crate::db::executor) use super::plan::AggregateKind;
 
 ///
 /// ScalarAggregateOutput

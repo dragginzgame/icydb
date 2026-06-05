@@ -6,6 +6,7 @@
 
 mod error;
 mod grouped;
+mod plan;
 mod spec;
 mod state;
 
@@ -13,7 +14,19 @@ pub(in crate::db::executor) use error::GroupError;
 pub(in crate::db::executor) use grouped::{
     ExecutionConfig, ExecutionContext, ScalarAggregateEngine, execute_scalar_aggregate,
 };
-pub(in crate::db::executor) use spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind};
+#[cfg(test)]
+pub(in crate::db::executor) use plan::BinaryOp;
+pub(in crate::db::executor) use plan::{
+    AccessPlannedQuery, AggregateKind, CompiledExpr, CoveringProjectionFacts,
+    CoveringProjectionOrder, EffectiveRuntimeFilterProgram, Expr, FieldId, FieldSlot,
+    GlobalDistinctAggregateKind, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
+    GroupedExecutionConfig, OrderDirection, OrderSpec, PageSpec, PlannedProjectionLayout,
+    ProjectionField, ProjectionSpec, admit_true_only_boolean_value,
+    compile_scalar_projection_expr_from_schema, constant_covering_projection_value_from_access,
+    eval_builder_expr_for_value_preview, global_distinct_group_spec_for_aggregate_identity,
+    plan_covering_index_adjacent_distinct_eligible, plan_covering_index_projection_facts,
+};
+pub(in crate::db::executor) use spec::{ScalarAggregateOutput, ScalarTerminalKind};
 pub(in crate::db::executor) use state::{
     AggregateFoldMode, AggregateStateFactory, FoldControl, GroupedDistinctExecutionMode,
     GroupedTerminalAggregateState,

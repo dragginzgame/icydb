@@ -8,13 +8,12 @@ use crate::{
         access::IndexShapeDetails,
         direction::Direction,
         executor::{
-            aggregate::AggregateKind,
+            aggregate::{AccessPlannedQuery, AggregateKind},
             route::{
                 AggregateRouteShape, count_pushdown_shape_supported,
                 primary_key_stream_window_shape_supported,
             },
         },
-        query::plan::AccessPlannedQuery,
     },
     model::{classify_field_kind, field::FieldKind},
 };

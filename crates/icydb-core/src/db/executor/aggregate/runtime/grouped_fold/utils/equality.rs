@@ -7,12 +7,14 @@ use std::cmp::Ordering;
 use crate::{
     db::{
         executor::{
-            aggregate::runtime::grouped_fold::{metrics, utils::GroupIndexBucket},
+            aggregate::{
+                FieldSlot,
+                runtime::grouped_fold::{metrics, utils::GroupIndexBucket},
+            },
             group::GroupKey,
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
-        query::plan::FieldSlot,
     },
     error::InternalError,
     value::Value,

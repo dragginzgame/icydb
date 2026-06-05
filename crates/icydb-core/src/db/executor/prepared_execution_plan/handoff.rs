@@ -1,3 +1,4 @@
+use super::contracts::AccessPlannedQuery;
 use crate::db::{
     commit::CommitSchemaFingerprint,
     executor::{
@@ -6,7 +7,6 @@ use crate::db::{
         prepared_execution_plan::build_prepared_execution_plan_core_with_lowered_access,
         projection::PreparedProjectionContract, terminal::RetainedSlotLayout,
     },
-    query::plan::AccessPlannedQuery,
 };
 use std::sync::Arc;
 

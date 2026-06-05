@@ -8,11 +8,10 @@ use crate::{
         executor::projection::eval::{
             ProjectionEvalError, eval_compiled_expr_with_value_ref_reader,
         },
-        executor::terminal::RowLayout,
-        query::plan::{
-            AccessPlannedQuery,
-            expr::{CompiledExpr, ProjectionSpec},
+        executor::projection::materialize::contracts::{
+            AccessPlannedQuery, CompiledExpr, ProjectionSpec,
         },
+        executor::terminal::RowLayout,
     },
     error::InternalError,
     model::field::{LeafCodec, ScalarCodec},

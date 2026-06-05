@@ -11,10 +11,16 @@ use crate::{
         Db,
         access::lower_access,
         data::DecodedDataStoreKey,
-        executor::projection::covering::shared::{
-            covering_projection_component_indices, project_covering_row_from_decoded_values,
-            project_covering_row_from_owned_decoded_values,
-            project_covering_row_from_single_decoded_value,
+        executor::projection::covering::{
+            contracts::{
+                AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
+                CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
+            },
+            shared::{
+                covering_projection_component_indices, project_covering_row_from_decoded_values,
+                project_covering_row_from_owned_decoded_values,
+                project_covering_row_from_single_decoded_value,
+            },
         },
         executor::{
             CoveringProjectionComponentRows, EntityAuthority, OrderedKeyStreamBox,
@@ -22,10 +28,6 @@ use crate::{
             decode_covering_projection_pairs, decode_single_covering_projection_pairs,
             map_covering_projection_pairs, reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
-        },
-        query::plan::{
-            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-            CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
         },
     },
     error::InternalError,
