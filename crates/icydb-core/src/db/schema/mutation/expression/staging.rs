@@ -99,7 +99,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedRebuild {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages in-memory expression rebuild output before physical runners publish stores"
 )]

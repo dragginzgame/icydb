@@ -18,7 +18,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlay {
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages isolated physical-store overlays before IndexStore mutation exists"
 )]
@@ -193,7 +193,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlayValidatio
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages isolated overlay validation before publication exists"
 )]

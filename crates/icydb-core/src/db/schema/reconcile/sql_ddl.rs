@@ -202,6 +202,10 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         self.after
     }
 
+    pub(super) const fn entity_path(&self) -> &'static str {
+        self.entity_path
+    }
+
     pub(super) const fn publication_gate(&self) -> SchemaPublicationGate {
         SchemaPublicationGate::sql_ddl(self.entity_tag, self.accepted_before_identity)
     }
@@ -305,13 +309,7 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
     let target_keys =
         sql_ddl_drop_target_index_keys(envelope.store(), entity_tag, entity_path, target)?;
     let removed = envelope.store().with_index_mut(|index_store| {
-        if index_store.state() != IndexState::Ready {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL DROP INDEX requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
-                target.name(),
-                index_store.state().as_str(),
-            )));
-        }
+        validate_sql_ddl_drop_ready_index_state(entity_path, target, index_store.state())?;
         let mut removed = 0usize;
         for key in &target_keys {
             if index_store.remove(key).is_some() {
@@ -343,13 +341,7 @@ fn sql_ddl_drop_target_index_keys(
     let target_index_id = IndexId::new(entity_tag, target.ordinal());
 
     store.with_index(|index_store| {
-        if index_store.state() != IndexState::Ready {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL DROP INDEX requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
-                target.name(),
-                index_store.state().as_str(),
-            )));
-        }
+        validate_sql_ddl_drop_ready_index_state(entity_path, target, index_store.state())?;
 
         let mut target_keys = Vec::new();
         index_store.visit_entries(|raw_key, _| {
@@ -370,6 +362,22 @@ fn sql_ddl_drop_target_index_keys(
         })?;
         Ok(target_keys)
     })
+}
+
+fn validate_sql_ddl_drop_ready_index_state(
+    entity_path: &'static str,
+    target: &SchemaSecondaryIndexDropCleanupTarget,
+    state: IndexState,
+) -> Result<(), InternalError> {
+    if state == IndexState::Ready {
+        return Ok(());
+    }
+
+    Err(InternalError::store_unsupported(format!(
+        "SQL DDL DROP INDEX requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
+        target.name(),
+        state.as_str(),
+    )))
 }
 
 fn validate_sql_ddl_drop_physical_cleanup(

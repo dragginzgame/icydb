@@ -12,7 +12,7 @@ use crate::db::schema::PersistedSchemaSnapshot;
 /// making these diagnostics explicit before any runner can mutate storage.
 ///
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runner outcome diagnostics before physical runners consume them"
 )]
@@ -155,7 +155,7 @@ pub(in crate::db::schema) struct SchemaMutationDeveloperReport {
     publish_status: SchemaMutationPublishStatus,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
 )]
@@ -284,7 +284,7 @@ pub(in crate::db::schema) enum SchemaMutationStoreVisibility {
 /// future physical failures distinguishable without matching error strings.
 ///
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
 )]
@@ -318,7 +318,7 @@ pub(in crate::db::schema) struct SchemaMutationRunnerRejection {
     missing_capabilities: Vec<SchemaMutationRunnerCapability>,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
 )]
@@ -402,7 +402,7 @@ pub(in crate::db::schema) struct SchemaMutationRunnerReport {
     index_keys_written: usize,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runner diagnostics before physical runners consume them"
 )]
@@ -678,7 +678,7 @@ pub(in crate::db::schema) struct SchemaMutationNoopRunner {
     contract: SchemaMutationRunnerContract,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages the no-op runner adapter before physical runners consume inputs"
 )]

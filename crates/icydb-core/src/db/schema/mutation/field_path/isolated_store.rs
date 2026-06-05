@@ -21,7 +21,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreWriter<'a
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages isolated IndexStore mutation before publication exists"
 )]
@@ -271,7 +271,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreValidatio
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages isolated IndexStore validation before publication exists"
 )]

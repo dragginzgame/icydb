@@ -4,7 +4,7 @@ mod staging;
 pub(in crate::db::schema) use self::staging::*;
 
 mod staged_store;
-#[allow(
+#[expect(
     unused_imports,
     reason = "expression staged store is consumed by tests and later physical runner wiring"
 )]

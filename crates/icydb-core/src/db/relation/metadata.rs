@@ -35,7 +35,6 @@ pub(in crate::db) enum RelationFieldCardinality {
 ///
 
 #[derive(Clone, Copy)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) struct RelationFieldMetadata {
     field_name: &'static str,
     target_path: &'static str,
@@ -45,7 +44,6 @@ pub(in crate::db) struct RelationFieldMetadata {
     cardinality: RelationFieldCardinality,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl RelationFieldMetadata {
     // Build one canonical relation metadata value from already-classified target
     // metadata and the source field metadata that owns it.

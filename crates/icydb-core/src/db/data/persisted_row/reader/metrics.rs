@@ -14,7 +14,7 @@ use std::cell::{Cell, RefCell};
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StructuralReadMetrics {
     pub rows_opened: u64,
@@ -199,7 +199,7 @@ impl Drop for StructuralSlotReader<'_> {
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 pub fn with_structural_read_metrics<T>(f: impl FnOnce() -> T) -> (T, StructuralReadMetrics) {
     STRUCTURAL_READ_METRICS.with(|metrics| {
         debug_assert!(

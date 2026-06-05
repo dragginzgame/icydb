@@ -162,6 +162,18 @@ fn sql_statement_result_with_default_cache(
     result.map(|result| (result, SqlCacheAttribution::default()))
 }
 
+fn sql_write_statement_result_with_default_cache<E, C>(
+    kind: SqlWriteKind,
+    result: Result<SqlStatementResult, QueryError>,
+) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+where
+    E: PersistedRow<Canister = C> + EntityValue,
+    C: CanisterKind,
+{
+    record_sql_write_error::<E, C>(kind, &result);
+    sql_statement_result_with_default_cache(result)
+}
+
 impl<C: CanisterKind> DbSession<C> {
     // Convert one grouped executor result plus SQL projection labels into the
     // statement result shape shared by normal and diagnostics SQL execution.
@@ -506,7 +518,7 @@ impl<C: CanisterKind> DbSession<C> {
     // cache, planning, executor, and response-finalization phase attribution
     // at the session/executor handoff.
     #[cfg(feature = "diagnostics")]
-    #[allow(
+    #[expect(
         dead_code,
         reason = "explicit compiled SQL diagnostics can still enter without a compile context; query endpoint diagnostics use the context-aware sibling"
     )]
@@ -796,6 +808,35 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|result| (result, SqlCacheAttribution::default()))
     }
 
+    fn execute_metadata_compiled_sql_with_default_cache<E>(
+        &self,
+        compiled: &CompiledSqlCommand,
+    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let result = match compiled {
+            CompiledSqlCommand::DescribeEntity => self.describe_entity_sql_statement_result::<E>(),
+            CompiledSqlCommand::ShowIndexesEntity => self.show_indexes_sql_statement_result::<E>(),
+            CompiledSqlCommand::ShowColumnsEntity => self.show_columns_sql_statement_result::<E>(),
+            CompiledSqlCommand::ShowEntities { verbose } => {
+                self.show_entities_sql_statement_result(*verbose)
+            }
+            CompiledSqlCommand::ShowStores { verbose } => {
+                Ok(self.show_stores_sql_statement_result(*verbose))
+            }
+            CompiledSqlCommand::ShowMemory => Ok(self.show_memory_sql_statement_result()),
+            CompiledSqlCommand::Select { .. }
+            | CompiledSqlCommand::Delete { .. }
+            | CompiledSqlCommand::GlobalAggregate { .. }
+            | CompiledSqlCommand::Explain(_)
+            | CompiledSqlCommand::Insert(_)
+            | CompiledSqlCommand::Update(_) => return None,
+        };
+
+        Some(sql_statement_result_with_default_cache(result))
+    }
+
     #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn execute_compiled_sql_with_cache_attribution<E>(
         &self,
@@ -804,6 +845,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        if let Some(result) = self.execute_metadata_compiled_sql_with_default_cache::<E>(compiled) {
+            return result;
+        }
+
         match compiled {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query)
@@ -811,8 +856,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Delete { query, returning } => {
                 let result =
                     self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
-                record_sql_write_error::<E, C>(SqlWriteKind::Delete, &result);
-                sql_statement_result_with_default_cache(result)
+                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Delete, result)
             }
             CompiledSqlCommand::GlobalAggregate { command } => {
                 self.execute_global_aggregate_statement::<E>(*command.clone())
@@ -822,39 +866,26 @@ impl<C: CanisterKind> DbSession<C> {
             }
             CompiledSqlCommand::Insert(statement) => {
                 let result = self.execute_sql_insert_statement::<E>(statement);
-                record_sql_write_error::<E, C>(sql_insert_write_kind(statement), &result);
-                sql_statement_result_with_default_cache(result)
+                sql_write_statement_result_with_default_cache::<E, C>(
+                    sql_insert_write_kind(statement),
+                    result,
+                )
             }
             CompiledSqlCommand::Update(statement) => {
                 let result = self.execute_sql_update_statement::<E>(statement);
-                record_sql_write_error::<E, C>(SqlWriteKind::Update, &result);
-                sql_statement_result_with_default_cache(result)
+                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Update, result)
             }
-            CompiledSqlCommand::DescribeEntity => sql_statement_result_with_default_cache(
-                self.describe_entity_sql_statement_result::<E>(),
-            ),
-            CompiledSqlCommand::ShowIndexesEntity => sql_statement_result_with_default_cache(
-                self.show_indexes_sql_statement_result::<E>(),
-            ),
-            CompiledSqlCommand::ShowColumnsEntity => sql_statement_result_with_default_cache(
-                self.show_columns_sql_statement_result::<E>(),
-            ),
-            CompiledSqlCommand::ShowEntities { verbose } => {
-                sql_statement_result_with_default_cache(
-                    self.show_entities_sql_statement_result(*verbose),
-                )
-            }
-            CompiledSqlCommand::ShowStores { verbose } => sql_statement_result_with_default_cache(
-                Ok(self.show_stores_sql_statement_result(*verbose)),
-            ),
-            CompiledSqlCommand::ShowMemory => {
-                sql_statement_result_with_default_cache(Ok(self.show_memory_sql_statement_result()))
-            }
+            CompiledSqlCommand::DescribeEntity
+            | CompiledSqlCommand::ShowIndexesEntity
+            | CompiledSqlCommand::ShowColumnsEntity
+            | CompiledSqlCommand::ShowEntities { .. }
+            | CompiledSqlCommand::ShowStores { .. }
+            | CompiledSqlCommand::ShowMemory => unreachable!("metadata SQL handled above"),
         }
     }
 
     #[cfg(any(test, feature = "diagnostics"))]
-    #[allow(
+    #[expect(
         dead_code,
         reason = "available for cache-attribution tests over compile contexts; normal query execution uses owned or diagnostics context entrypoints"
     )]
@@ -886,6 +917,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        if let Some(result) = self.execute_metadata_compiled_sql_with_default_cache::<E>(&compiled)
+        {
+            return result;
+        }
+
         match compiled {
             CompiledSqlCommand::Select { query, .. } => {
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query.as_ref())
@@ -893,8 +929,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Delete { query, returning } => {
                 let result =
                     self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
-                record_sql_write_error::<E, C>(SqlWriteKind::Delete, &result);
-                sql_statement_result_with_default_cache(result)
+                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Delete, result)
             }
             CompiledSqlCommand::GlobalAggregate { command } => {
                 self.execute_global_aggregate_statement::<E>(*command)
@@ -905,34 +940,18 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Insert(statement) => {
                 let kind = sql_insert_write_kind(&statement);
                 let result = self.execute_sql_insert_statement::<E>(&statement);
-                record_sql_write_error::<E, C>(kind, &result);
-                sql_statement_result_with_default_cache(result)
+                sql_write_statement_result_with_default_cache::<E, C>(kind, result)
             }
             CompiledSqlCommand::Update(statement) => {
                 let result = self.execute_sql_update_statement::<E>(&statement);
-                record_sql_write_error::<E, C>(SqlWriteKind::Update, &result);
-                sql_statement_result_with_default_cache(result)
+                sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Update, result)
             }
-            CompiledSqlCommand::DescribeEntity => sql_statement_result_with_default_cache(
-                self.describe_entity_sql_statement_result::<E>(),
-            ),
-            CompiledSqlCommand::ShowIndexesEntity => sql_statement_result_with_default_cache(
-                self.show_indexes_sql_statement_result::<E>(),
-            ),
-            CompiledSqlCommand::ShowColumnsEntity => sql_statement_result_with_default_cache(
-                self.show_columns_sql_statement_result::<E>(),
-            ),
-            CompiledSqlCommand::ShowEntities { verbose } => {
-                sql_statement_result_with_default_cache(
-                    self.show_entities_sql_statement_result(verbose),
-                )
-            }
-            CompiledSqlCommand::ShowStores { verbose } => sql_statement_result_with_default_cache(
-                Ok(self.show_stores_sql_statement_result(verbose)),
-            ),
-            CompiledSqlCommand::ShowMemory => {
-                sql_statement_result_with_default_cache(Ok(self.show_memory_sql_statement_result()))
-            }
+            CompiledSqlCommand::DescribeEntity
+            | CompiledSqlCommand::ShowIndexesEntity
+            | CompiledSqlCommand::ShowColumnsEntity
+            | CompiledSqlCommand::ShowEntities { .. }
+            | CompiledSqlCommand::ShowStores { .. }
+            | CompiledSqlCommand::ShowMemory => unreachable!("metadata SQL handled above"),
         }
     }
 

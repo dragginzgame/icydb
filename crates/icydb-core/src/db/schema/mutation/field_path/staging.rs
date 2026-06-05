@@ -98,7 +98,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedRebuild {
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages in-memory field-path rebuild output before physical runners publish stores"
 )]

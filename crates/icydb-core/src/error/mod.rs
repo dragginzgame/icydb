@@ -1372,7 +1372,7 @@ impl InternalError {
     }
 
     /// Construct the canonical commit-memory id registration failure.
-    #[cfg_attr(test, allow(dead_code))]
+    #[cfg_attr(test, expect(dead_code))]
     pub(crate) fn commit_memory_id_registration_failed(err: impl fmt::Display) -> Self {
         Self::store_internal(format!("commit memory id registration failed: {err}"))
     }

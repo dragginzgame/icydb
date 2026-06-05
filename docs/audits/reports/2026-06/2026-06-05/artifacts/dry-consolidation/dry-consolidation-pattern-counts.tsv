@@ -1,0 +1,11 @@
+Metric	Class	Previous	Current	Delta	Notes
+total_duplication_patterns	M	11	7	-4	Schema DDL metadata validation/publication shells, scalar relation target descriptors, relation runtime descriptor literals, and SQL result shells now share owner-local helpers.
+high_risk_divergence_patterns	C	0	0	0	No high-risk owner-layer drift or competing semantic authority found.
+same_layer_accidental_patterns	C	0	0	0	No same-owner accidental duplication requiring immediate patch.
+cross_layer_intentional_patterns	C	4	4	0	Route, cursor, commit, and schema boundary duplication remains protective.
+defensive_duplication_patterns	C	1	1	0	Commit/recovery and row decode guard duplication remains defensive.
+boundary_protected_patterns	C	9	8	-1	Remaining meaningful repetition is mostly boundary-protected or operation-specific.
+invariants_over_three_sites	C	8	8	0	No new broad invariant repetition found.
+error_construction_families_gt3	C	3	3	0	Error constructors still centralize classification; repeated mapping shells are low risk.
+safe_loc_reduction_estimate	D	28-60	0-8	improved	High- and medium-confidence DRY slices were applied; remaining candidates are boundary-sensitive.
+in_scope_owner_rust_files	M	N/A	829	N/A	Current run applies the documented tests-excluded owner-file scope after test-suite relocation.

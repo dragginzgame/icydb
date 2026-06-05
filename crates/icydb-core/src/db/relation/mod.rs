@@ -178,6 +178,64 @@ where
     Ok(AcceptedRelationTupleEdgeDescriptor { target_contract })
 }
 
+struct AcceptedRelationScalarTargetDescriptor {
+    target_contract: AcceptedRelationEdgeTargetContract,
+    cardinality: AcceptedRelationCardinality,
+}
+
+impl AcceptedRelationScalarTargetDescriptor {
+    const fn primary_key_kinds(&self) -> &[PersistedFieldKind] {
+        self.target_contract.primary_key_kinds()
+    }
+
+    const fn cardinality(&self) -> AcceptedRelationCardinality {
+        self.cardinality
+    }
+
+    fn into_target_contract(self) -> AcceptedRelationEdgeTargetContract {
+        self.target_contract
+    }
+}
+
+fn accepted_strong_scalar_relation_target_descriptor(
+    source_path: &str,
+    diagnostic_relation_name: &str,
+    authority_relation_name: &str,
+    kind: &PersistedFieldKind,
+    expected_edge_target_path: Option<&str>,
+) -> Result<Option<AcceptedRelationScalarTargetDescriptor>, InternalError> {
+    let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
+        return Ok(None);
+    };
+    if target.strength != PersistedRelationStrength::Strong {
+        return Ok(None);
+    }
+    if let Some(edge_target_path) = expected_edge_target_path
+        && target.target_path != edge_target_path
+    {
+        return Err(InternalError::store_invariant(format!(
+            "accepted relation edge '{diagnostic_relation_name}' target path mismatch: edge={edge_target_path} field={}",
+            target.target_path,
+        )));
+    }
+    validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
+
+    Ok(Some(AcceptedRelationScalarTargetDescriptor {
+        target_contract: AcceptedRelationEdgeTargetContract {
+            target: AcceptedRelationTargetAuthority::try_new(
+                source_path,
+                authority_relation_name,
+                target.target_path,
+                target.target_entity_name,
+                target.target_entity_tag,
+                target.target_store_path,
+            )?,
+            primary_key_kinds: vec![target.scalar_target_key_kind.clone()],
+        },
+        cardinality: target.cardinality,
+    }))
+}
+
 fn accepted_relation_edge_target_contract<C>(
     db: &Db<C>,
     source_path: &str,

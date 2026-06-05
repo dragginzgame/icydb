@@ -59,7 +59,7 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This is the explicit grouped execution boundary; scalar load APIs reject
     /// grouped plans to preserve scalar response contracts.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "cursor-aware grouped execution remains a session boundary used by tests and adjacent SQL paths"
     )]

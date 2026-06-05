@@ -12,12 +12,11 @@ use crate::{
         relation::{
             AcceptedRelationTargetAuthority, AcceptedRelationTupleEdgeLocalComponent,
             accepted_relation_target_metadata_from_kind, accepted_relation_tuple_edge_descriptor,
-            for_each_relation_target_value, validate_relation_primary_key_component_kind,
+            accepted_strong_scalar_relation_target_descriptor, for_each_relation_target_value,
         },
         schema::{
             AcceptedRowDecodeContract, OwnedAcceptedFieldDecodeContract,
-            OwnedAcceptedRelationEdgeContract, PersistedFieldKind, PersistedRelationStrength,
-            ensure_accepted_schema_snapshot,
+            OwnedAcceptedRelationEdgeContract, PersistedFieldKind, ensure_accepted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -43,6 +42,20 @@ struct AcceptedSaveStrongRelationLocalComponent {
 }
 
 impl AcceptedSaveStrongRelationInfo {
+    fn new(
+        relation_name: impl Into<String>,
+        local_components: Vec<AcceptedSaveStrongRelationLocalComponent>,
+        target: AcceptedRelationTargetAuthority,
+        target_primary_key_kinds: Vec<PersistedFieldKind>,
+    ) -> Self {
+        Self {
+            relation_name: relation_name.into(),
+            local_components,
+            target,
+            target_primary_key_kinds,
+        }
+    }
+
     fn validate_target_identity<'db, C>(
         &self,
         db: &'db Db<C>,
@@ -60,6 +73,20 @@ impl AcceptedSaveStrongRelationInfo {
             return None;
         };
         accepted_relation_target_metadata_from_kind(&component.kind).map(|_| component)
+    }
+}
+
+impl AcceptedSaveStrongRelationLocalComponent {
+    fn new(index: usize, name: impl Into<String>, kind: PersistedFieldKind) -> Self {
+        Self {
+            index,
+            name: name.into(),
+            kind,
+        }
+    }
+
+    fn from_field(index: usize, field: &OwnedAcceptedFieldDecodeContract) -> Self {
+        Self::new(index, field.field_name(), field.kind().clone())
     }
 }
 
@@ -95,19 +122,7 @@ where
             continue;
         };
 
-        let target_hook = relation.validate_target_identity(db, E::PATH)?;
-        let target_store = target_store_for_relation::<E>(db, &relation)?;
-        validate_strong_relation_storage_capabilities::<E>(db, &relation, target_store)?;
-        if let Some(target_hook) = target_hook {
-            validate_target_accepted_primary_key::<E::Canister>(
-                E::PATH,
-                &relation,
-                target_store,
-                target_hook,
-            )?;
-        }
-
-        validate_save_relation_targets_for_entity::<E>(&relation, target_store, entity)?;
+        validate_save_strong_relation_for_entity::<E>(db, entity, &relation)?;
     }
 
     Ok(())
@@ -128,22 +143,33 @@ where
             continue;
         };
 
-        let target_hook = relation.validate_target_identity(db, E::PATH)?;
-        let target_store = target_store_for_relation::<E>(db, &relation)?;
-        validate_strong_relation_storage_capabilities::<E>(db, &relation, target_store)?;
-        if let Some(target_hook) = target_hook {
-            validate_target_accepted_primary_key::<E::Canister>(
-                E::PATH,
-                &relation,
-                target_store,
-                target_hook,
-            )?;
-        }
-
-        validate_save_relation_targets_for_entity::<E>(&relation, target_store, entity)?;
+        validate_save_strong_relation_for_entity::<E>(db, entity, &relation)?;
     }
 
     Ok(())
+}
+
+fn validate_save_strong_relation_for_entity<E>(
+    db: &Db<E::Canister>,
+    entity: &E,
+    relation: &AcceptedSaveStrongRelationInfo,
+) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let target_hook = relation.validate_target_identity(db, E::PATH)?;
+    let target_store = target_store_for_relation::<E>(db, relation)?;
+    validate_strong_relation_storage_capabilities::<E>(db, relation, target_store)?;
+    if let Some(target_hook) = target_hook {
+        validate_target_accepted_primary_key::<E::Canister>(
+            E::PATH,
+            relation,
+            target_store,
+            target_hook,
+        )?;
+    }
+
+    validate_save_relation_targets_for_entity::<E>(relation, target_store, entity)
 }
 
 fn accepted_save_strong_relation_from_edge<E>(
@@ -188,38 +214,25 @@ where
     E: EntityKind,
 {
     if let [field] = local_fields
-        && let Some(target) = accepted_relation_target_metadata_from_kind(field.kind())
+        && let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+            E::PATH,
+            edge.name(),
+            field.field_name(),
+            field.kind(),
+            Some(edge.target_path()),
+        )?
     {
-        if target.strength != PersistedRelationStrength::Strong {
-            return Ok(None);
-        }
-        if target.target_path != edge.target_path() {
-            return Err(InternalError::store_invariant(format!(
-                "accepted relation edge '{}' target path mismatch: edge={} field={}",
-                edge.name(),
-                edge.target_path(),
-                target.target_path,
-            )));
-        }
-        validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
+        let target_primary_key_kinds = descriptor.primary_key_kinds().to_vec();
 
-        return Ok(Some(AcceptedSaveStrongRelationInfo {
-            relation_name: field.field_name().to_string(),
-            local_components: vec![AcceptedSaveStrongRelationLocalComponent {
-                index: edge.local_field_slots()[0],
-                name: field.field_name().to_string(),
-                kind: field.kind().clone(),
-            }],
-            target: AcceptedRelationTargetAuthority::try_new(
-                E::PATH,
-                field.field_name(),
-                target.target_path,
-                target.target_entity_name,
-                target.target_entity_tag,
-                target.target_store_path,
-            )?,
-            target_primary_key_kinds: vec![target.scalar_target_key_kind.clone()],
-        }));
+        return Ok(Some(AcceptedSaveStrongRelationInfo::new(
+            field.field_name(),
+            vec![AcceptedSaveStrongRelationLocalComponent::from_field(
+                edge.local_field_slots()[0],
+                field,
+            )],
+            descriptor.into_target_contract().into_target(),
+            target_primary_key_kinds,
+        )));
     }
 
     Ok(None)
@@ -248,19 +261,18 @@ where
 
     let mut local_components = Vec::with_capacity(local_fields.len());
     for (offset, field) in local_fields.iter().enumerate() {
-        local_components.push(AcceptedSaveStrongRelationLocalComponent {
-            index: edge.local_field_slots()[offset],
-            name: field.field_name().to_string(),
-            kind: field.kind().clone(),
-        });
+        local_components.push(AcceptedSaveStrongRelationLocalComponent::from_field(
+            edge.local_field_slots()[offset],
+            field,
+        ));
     }
 
-    Ok(Some(AcceptedSaveStrongRelationInfo {
-        relation_name: edge.name().to_string(),
+    Ok(Some(AcceptedSaveStrongRelationInfo::new(
+        edge.name(),
         local_components,
-        target: tuple_descriptor.into_target_contract().into_target(),
+        tuple_descriptor.into_target_contract().into_target(),
         target_primary_key_kinds,
-    }))
+    )))
 }
 
 fn accepted_save_strong_relation_from_field(
@@ -269,31 +281,28 @@ fn accepted_save_strong_relation_from_field(
     field_name: &str,
     kind: &PersistedFieldKind,
 ) -> Result<Option<AcceptedSaveStrongRelationInfo>, InternalError> {
-    let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
+    let Some(descriptor) = accepted_strong_scalar_relation_target_descriptor(
+        source_path,
+        field_name,
+        field_name,
+        kind,
+        None,
+    )?
+    else {
         return Ok(None);
     };
-    if target.strength != PersistedRelationStrength::Strong {
-        return Ok(None);
-    }
-    validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
+    let target_primary_key_kinds = descriptor.primary_key_kinds().to_vec();
 
-    Ok(Some(AcceptedSaveStrongRelationInfo {
-        relation_name: field_name.to_string(),
-        local_components: vec![AcceptedSaveStrongRelationLocalComponent {
-            index: field_index,
-            name: field_name.to_string(),
-            kind: kind.clone(),
-        }],
-        target: AcceptedRelationTargetAuthority::try_new(
-            source_path,
+    Ok(Some(AcceptedSaveStrongRelationInfo::new(
+        field_name,
+        vec![AcceptedSaveStrongRelationLocalComponent::new(
+            field_index,
             field_name,
-            target.target_path,
-            target.target_entity_name,
-            target.target_entity_tag,
-            target.target_store_path,
-        )?,
-        target_primary_key_kinds: vec![target.scalar_target_key_kind.clone()],
-    }))
+            kind.clone(),
+        )],
+        descriptor.into_target_contract().into_target(),
+        target_primary_key_kinds,
+    )))
 }
 
 fn target_store_for_relation<E>(

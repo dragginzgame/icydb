@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(BoundedTextEntity::NAME, "name");
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn fluent_filter_eq_accepts_generated_field_constants(session: &DbSession<TestCanister>) {
         let _ = session
             .load::<Entity>()
@@ -149,7 +149,7 @@ mod tests {
             .one_opt();
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn fluent_filter_helpers_accept_generated_field_constants(session: &DbSession<TestCanister>) {
         let _ = session
             .load::<Entity>()

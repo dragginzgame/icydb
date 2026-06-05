@@ -1,0 +1,394 @@
+use super::*;
+use crate::{
+    db::data::{CanonicalRow, with_structural_read_metrics},
+    db::query::plan::ResolvedOrderField,
+    model::field::FieldKind,
+    traits::EntitySchema,
+    types::{Blob, Text, Ulid},
+    value::Value,
+};
+use icydb_derive::{FieldProjection, PersistedRow};
+use serde::Deserialize;
+use std::{borrow::Cow, cell::Cell, rc::Rc};
+
+struct TestRow {
+    slots: Vec<Option<Value>>,
+}
+
+impl TestRow {
+    fn new(slots: Vec<Option<Value>>) -> Self {
+        Self { slots }
+    }
+}
+
+impl OrderReadableRow for TestRow {
+    fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        self.slots
+            .get(slot)
+            .and_then(Option::as_ref)
+            .map(Cow::Borrowed)
+    }
+}
+
+struct CountingRow {
+    reads: Rc<Cell<usize>>,
+    borrowed: bool,
+    slots: Vec<Option<Value>>,
+}
+
+impl CountingRow {
+    fn new(reads: Rc<Cell<usize>>, slots: Vec<Option<Value>>) -> Self {
+        Self {
+            reads,
+            borrowed: false,
+            slots,
+        }
+    }
+
+    fn borrowed(reads: Rc<Cell<usize>>, slots: Vec<Option<Value>>) -> Self {
+        Self {
+            reads,
+            borrowed: true,
+            slots,
+        }
+    }
+}
+
+impl OrderReadableRow for CountingRow {
+    fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        self.reads.set(self.reads.get().saturating_add(1));
+        self.slots
+            .get(slot)
+            .and_then(Option::as_ref)
+            .map(Cow::Borrowed)
+    }
+
+    fn order_slots_are_borrowed(&self) -> bool {
+        self.borrowed
+    }
+}
+
+fn resolved_order(fields: &[(usize, OrderDirection)]) -> ResolvedOrder {
+    ResolvedOrder::new(
+        fields
+            .iter()
+            .map(|(field_index, direction)| {
+                ResolvedOrderField::new(
+                    ResolvedOrderValueSource::direct_field(*field_index),
+                    *direction,
+                )
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn apply_structural_order_sorts_rows_by_resolved_slots() {
+    let mut rows = vec![
+        TestRow::new(vec![Some(Value::Nat64(3))]),
+        TestRow::new(vec![Some(Value::Nat64(1))]),
+        TestRow::new(vec![Some(Value::Nat64(2))]),
+    ];
+
+    apply_structural_order_window(
+        &mut rows,
+        &resolved_order(&[(0, OrderDirection::Asc)]),
+        None,
+    );
+
+    let ordered = rows
+        .into_iter()
+        .map(|row| row.read_order_slot(0))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ordered,
+        vec![
+            Some(Value::Nat64(1)),
+            Some(Value::Nat64(2)),
+            Some(Value::Nat64(3))
+        ]
+    );
+}
+
+#[test]
+fn apply_structural_order_bounded_keeps_smallest_rows_in_canonical_order() {
+    let mut rows = vec![
+        TestRow::new(vec![Some(Value::Nat64(4))]),
+        TestRow::new(vec![Some(Value::Nat64(2))]),
+        TestRow::new(vec![Some(Value::Nat64(3))]),
+        TestRow::new(vec![Some(Value::Nat64(1))]),
+    ];
+
+    apply_structural_order_window(
+        &mut rows,
+        &resolved_order(&[(0, OrderDirection::Asc)]),
+        Some(2),
+    );
+
+    let ordered = rows
+        .into_iter()
+        .map(|row| row.read_order_slot(0))
+        .collect::<Vec<_>>();
+    assert_eq!(ordered, vec![Some(Value::Nat64(1)), Some(Value::Nat64(2))]);
+}
+
+#[test]
+fn compare_orderable_row_with_boundary_respects_desc_direction() {
+    let row = TestRow::new(vec![Some(Value::Nat64(7))]);
+    let boundary = CursorBoundary {
+        slots: vec![CursorBoundarySlot::Present(Value::Nat64(5))],
+    };
+
+    let ordering = compare_orderable_row_with_boundary(
+        &row,
+        &resolved_order(&[(0, OrderDirection::Desc)]),
+        &boundary,
+    );
+
+    assert_eq!(ordering, Ordering::Less);
+}
+
+#[test]
+fn apply_structural_order_window_caches_slot_reads_once_per_row() {
+    let left_reads = Rc::new(Cell::new(0));
+    let middle_reads = Rc::new(Cell::new(0));
+    let right_reads = Rc::new(Cell::new(0));
+    let mut rows = vec![
+        CountingRow::new(left_reads.clone(), vec![Some(Value::Nat64(3))]),
+        CountingRow::new(middle_reads.clone(), vec![Some(Value::Nat64(1))]),
+        CountingRow::new(right_reads.clone(), vec![Some(Value::Nat64(2))]),
+    ];
+
+    apply_structural_order_window(
+        &mut rows,
+        &resolved_order(&[(0, OrderDirection::Asc)]),
+        Some(2),
+    );
+
+    assert_eq!(left_reads.get(), 1);
+    assert_eq!(middle_reads.get(), 1);
+    assert_eq!(right_reads.get(), 1);
+}
+
+#[test]
+fn apply_structural_order_window_uses_borrowed_direct_slot_fast_path() {
+    let left_reads = Rc::new(Cell::new(0));
+    let middle_reads = Rc::new(Cell::new(0));
+    let right_reads = Rc::new(Cell::new(0));
+    let mut rows = vec![
+        CountingRow::borrowed(left_reads.clone(), vec![Some(Value::Nat64(3))]),
+        CountingRow::borrowed(middle_reads.clone(), vec![Some(Value::Nat64(1))]),
+        CountingRow::borrowed(right_reads.clone(), vec![Some(Value::Nat64(2))]),
+    ];
+
+    apply_structural_order_window(
+        &mut rows,
+        &resolved_order(&[(0, OrderDirection::Asc)]),
+        Some(2),
+    );
+
+    let ordered = rows
+        .iter()
+        .map(|row| row.read_order_slot(0))
+        .collect::<Vec<_>>();
+    assert_eq!(ordered, vec![Some(Value::Nat64(1)), Some(Value::Nat64(2))]);
+    assert!(
+        left_reads.get() + middle_reads.get() + right_reads.get() > 3,
+        "borrowed direct-slot fast path should compare row slots directly instead of using the one-read cache",
+    );
+}
+
+crate::test_canister! {
+    ident = OrderWindowCanister,
+    commit_memory_id = crate::testing::test_commit_memory_id(),
+}
+
+crate::test_store! {
+    ident = OrderWindowStore,
+    canister = OrderWindowCanister,
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct OrderWindowEntity {
+    id: Ulid,
+    title: Text,
+    tags: Vec<Text>,
+    portrait: Blob,
+    x: u64,
+    y: u64,
+}
+
+crate::test_entity! {
+    ident = OrderWindowEntity,
+    entity_name = "OrderWindowEntity",
+    tag = crate::testing::PROBE_ENTITY_TAG,
+    store = OrderWindowStore,
+    canister = OrderWindowCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { title: Text => FieldKind::Text { max_len: None } },
+        crate::test_field! { tags: Vec<Text> => FieldKind::List(&FieldKind::Text { max_len: None }) },
+        crate::test_field! { portrait: Blob => FieldKind::Blob { max_len: None } },
+        crate::test_field! { x: u64 => FieldKind::Nat64 },
+        crate::test_field! { y: u64 => FieldKind::Nat64 },
+    ],
+    indexes = [],
+}
+
+fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<OrderWindowEntity>(entity.id)
+        .expect("test key construction should succeed");
+    let row = CanonicalRow::from_generated_entity_for_test(entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
+
+    (key, row)
+}
+
+#[test]
+fn cursor_boundary_from_orderable_row_handles_heap_cached_values() {
+    let row = TestRow::new(vec![
+        Some(Value::Nat64(1)),
+        Some(Value::Nat64(2)),
+        Some(Value::Nat64(3)),
+        Some(Value::Nat64(4)),
+        Some(Value::Nat64(5)),
+    ]);
+    let boundary = cursor_boundary_from_orderable_row(
+        &row,
+        &resolved_order(&[
+            (0, OrderDirection::Asc),
+            (1, OrderDirection::Asc),
+            (2, OrderDirection::Asc),
+            (3, OrderDirection::Asc),
+            (4, OrderDirection::Asc),
+        ]),
+    );
+
+    assert_eq!(
+        boundary.slots,
+        vec![
+            CursorBoundarySlot::Present(Value::Nat64(1)),
+            CursorBoundarySlot::Present(Value::Nat64(2)),
+            CursorBoundarySlot::Present(Value::Nat64(3)),
+            CursorBoundarySlot::Present(Value::Nat64(4)),
+            CursorBoundarySlot::Present(Value::Nat64(5)),
+        ]
+    );
+}
+
+#[test]
+fn direct_data_row_order_window_uses_sparse_direct_field_decode() {
+    let alpha = OrderWindowEntity {
+        id: Ulid::from_u128(1),
+        title: "alpha".to_string(),
+        tags: vec!["one".to_string(), "two".to_string()],
+        portrait: Blob::from(vec![0x10, 0x20, 0x30]),
+        x: 0,
+        y: 0,
+    };
+    let beta = OrderWindowEntity {
+        id: Ulid::from_u128(2),
+        title: "beta".to_string(),
+        tags: vec!["three".to_string()],
+        portrait: Blob::from(vec![0x40, 0x50, 0x60]),
+        x: 0,
+        y: 0,
+    };
+    let mut rows = vec![direct_data_row(&beta), direct_data_row(&alpha)];
+
+    let (_result, metrics) = with_structural_read_metrics(|| {
+        apply_structural_order_window_to_data_rows(
+            &mut rows,
+            RowLayout::from_generated_model_for_test(OrderWindowEntity::MODEL),
+            &resolved_order(&[(1, OrderDirection::Asc)]),
+            None,
+        )
+    });
+
+    assert_eq!(
+        rows[0]
+            .1
+            .try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+            .unwrap(),
+        alpha
+    );
+    assert_eq!(
+        rows[1]
+            .1
+            .try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+            .unwrap(),
+        beta
+    );
+    assert_eq!(metrics.rows_opened, 2);
+    assert_eq!(
+        metrics.declared_slots_validated, 2,
+        "pure direct-field ordering should validate only the ordered slot per row",
+    );
+    assert_eq!(
+        metrics.validated_non_scalar_slots, 0,
+        "direct-field ordering should not validate untouched non-scalar slots",
+    );
+    assert_eq!(
+        metrics.materialized_non_scalar_slots, 0,
+        "direct-field ordering should leave untouched non-scalar slots unmaterialized",
+    );
+    assert_eq!(metrics.rows_without_lazy_non_scalar_materializations, 2);
+}
+
+#[test]
+fn direct_data_row_order_window_respects_mixed_field_directions() {
+    let low = OrderWindowEntity {
+        id: Ulid::from_u128(11),
+        title: "low".to_string(),
+        tags: Vec::new(),
+        portrait: Blob::from(Vec::new()),
+        x: 0,
+        y: 0,
+    };
+    let high = OrderWindowEntity {
+        id: Ulid::from_u128(12),
+        title: "high".to_string(),
+        tags: Vec::new(),
+        portrait: Blob::from(Vec::new()),
+        x: 0,
+        y: 2,
+    };
+    let next = OrderWindowEntity {
+        id: Ulid::from_u128(13),
+        title: "next".to_string(),
+        tags: Vec::new(),
+        portrait: Blob::from(Vec::new()),
+        x: 1,
+        y: 1,
+    };
+    let mut rows = vec![
+        direct_data_row(&low),
+        direct_data_row(&high),
+        direct_data_row(&next),
+    ];
+
+    apply_structural_order_window_to_data_rows(
+        &mut rows,
+        RowLayout::from_generated_model_for_test(OrderWindowEntity::MODEL),
+        &resolved_order(&[(4, OrderDirection::Asc), (5, OrderDirection::Desc)]),
+        Some(2),
+    )
+    .expect("mixed direct data-row order should sort");
+
+    let ordered = rows
+        .iter()
+        .map(|(_, row)| {
+            row.try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+                .unwrap()
+                .title
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ordered,
+        vec!["high".to_string(), "low".to_string()],
+        "ORDER BY x ASC, y DESC must not collapse to raw x/y ascending row-key order",
+    );
+}

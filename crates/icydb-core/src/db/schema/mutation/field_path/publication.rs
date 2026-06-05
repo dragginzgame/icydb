@@ -41,7 +41,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runtime invalidation before publication exists"
 )]
@@ -140,7 +140,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRuntimeInvalidationReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runtime invalidation before publication exists"
 )]
@@ -246,7 +246,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
 )]
@@ -351,7 +351,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexSnapshotPublicationReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages accepted snapshot publication before schema-store writes are wired"
 )]
@@ -436,7 +436,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStorePlan {
     publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
 )]
@@ -589,7 +589,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStoreReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
 )]
@@ -686,7 +686,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStorePublicationReadi
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages publication readiness before staged stores can be published"
 )]

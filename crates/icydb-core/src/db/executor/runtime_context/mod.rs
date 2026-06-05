@@ -110,7 +110,7 @@ impl<'a> StoreResolver<'a> {
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RowCheckMetrics {
     pub index_entries_scanned: u64,
@@ -333,7 +333,7 @@ const fn record_row_presence_probe_result(_row_exists: bool) {}
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 pub fn with_row_check_metrics<T>(f: impl FnOnce() -> T) -> (T, RowCheckMetrics) {
     ROW_CHECK_METRICS.with(|metrics| {
         debug_assert!(

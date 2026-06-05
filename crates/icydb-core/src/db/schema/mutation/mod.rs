@@ -53,7 +53,7 @@ pub(in crate::db) use field_type::{
 };
 
 mod ddl_admission;
-#[allow(
+#[expect(
     unused_imports,
     reason = "schema root re-exports DDL schema-version admission diagnostics"
 )]
@@ -65,7 +65,7 @@ pub(in crate::db) use ddl_admission::{
 };
 
 mod delta;
-#[allow(
+#[expect(
     unused_imports,
     reason = "mutation planning tests consume delta classifiers through the module root"
 )]
@@ -149,7 +149,7 @@ pub(in crate::db::schema) enum SchemaMutation {
 /// must route through this type instead of constructing plans ad hoc.
 ///
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.152 stages the internal mutation request API before every request has a live caller"
 )]
@@ -470,7 +470,7 @@ impl MutationPlan {
     }
 
     /// Borrow the ordered mutation list.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
     )]
@@ -480,7 +480,7 @@ impl MutationPlan {
     }
 
     /// Return the stable compatibility bucket.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
     )]
@@ -490,7 +490,7 @@ impl MutationPlan {
     }
 
     /// Return the physical rebuild requirement.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "mutation diagnostics and DDL lowering will consume this in the next 0.152 slice"
     )]

@@ -88,7 +88,7 @@ pub(in crate::db) use select::{
 pub struct LoweredSqlCommand(pub(in crate::db::sql::lowering) LoweredSqlCommandInner);
 
 #[derive(Clone, Debug)]
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg_attr(not(test), expect(dead_code))]
 pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     Query(LoweredSqlQuery),
     Explain {

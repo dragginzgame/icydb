@@ -11,7 +11,7 @@ use std::cell::RefCell;
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SqlProjectionMaterializationMetrics {
     pub hybrid_covering_path_hits: u64,
@@ -136,7 +136,7 @@ pub(super) fn record_sql_projection_distinct_bounded_stop() {
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
-#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), expect(unreachable_pub))]
 pub fn with_sql_projection_materialization_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, SqlProjectionMaterializationMetrics) {

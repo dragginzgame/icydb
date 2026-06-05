@@ -29,7 +29,7 @@ use crate::{
 impl<C: CanisterKind> DbSession<C> {
     // Compile one SQL query-surface string into the session-owned generic-free
     // semantic command artifact before execution.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "crate-local tests and explicit compile/execute callers use this API; immediate SQL query execution uses the context-returning variant"
     )]

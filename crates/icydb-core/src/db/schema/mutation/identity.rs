@@ -196,7 +196,7 @@ pub(in crate::db::schema) struct SchemaMutationRuntimeEpoch {
     snapshot_fingerprint: [u8; 16],
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runtime epoch identity before physical runners publish snapshots"
 )]
@@ -246,7 +246,7 @@ pub(in crate::db::schema) struct SchemaMutationPublicationIdentity {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.153 stages runtime publication identity before physical runners publish snapshots"
 )]

@@ -8,7 +8,13 @@ pub(crate) mod sink;
 mod state;
 
 // re-exports
-pub use sink::{MetricsSink, metrics_report, metrics_reset_all};
+pub use sink::{
+    CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
+    MetricsEvent, MetricsSink, MutationCommitClass, PlanChoiceReason, PlanKind,
+    PreparedShapeFinalizationOutcome, SaveMutationKind, SchemaReconcileOutcome,
+    SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind, metrics_report,
+    metrics_reset_all,
+};
 pub use state::{EntitySummary, EventCounters, EventOps, EventReport};
 
 ///

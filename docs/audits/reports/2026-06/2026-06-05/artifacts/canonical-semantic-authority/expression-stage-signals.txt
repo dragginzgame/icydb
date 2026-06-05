@@ -1,0 +1,345 @@
+crates/icydb-core/src/db/predicate/runtime/mod.rs:24:        query::plan::expr::CompiledPredicate,
+crates/icydb-core/src/db/predicate/runtime/mod.rs:172:impl CompiledPredicate for PredicateProgram {
+crates/icydb-core/src/db/query/plan/access_plan.rs:19:        expr::{CompiledExpr, Expr, ProjectionSelection, ProjectionSpec},
+crates/icydb-core/src/db/query/plan/access_plan.rs:55:    Expression(CompiledExpr),
+crates/icydb-core/src/db/query/plan/access_plan.rs:67:    pub(in crate::db) const fn expression(expr: CompiledExpr) -> Self {
+crates/icydb-core/src/db/query/plan/access_plan.rs:199:    pub(in crate::db) scalar_projection_plan: Option<Vec<CompiledExpr>>,
+crates/icydb-core/src/db/query/plan/access_plan.rs:239:    Expr(CompiledExpr),
+crates/icydb-core/src/db/query/plan/access_plan.rs:268:    pub(in crate::db) const fn expression(expr: CompiledExpr) -> Self {
+crates/icydb-core/src/db/query/plan/access_plan.rs:285:    pub(in crate::db) const fn expression_filter(&self) -> Option<&CompiledExpr> {
+crates/icydb-core/src/db/query/plan/semantics/logical.rs:18:                CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
+crates/icydb-core/src/db/query/plan/semantics/logical.rs:238:    ) -> Option<&CompiledExpr> {
+crates/icydb-core/src/db/query/plan/semantics/logical.rs:338:    pub(in crate::db) fn scalar_projection_plan(&self) -> Option<&[CompiledExpr]> {
+crates/icydb-core/src/db/query/plan/semantics/logical.rs:551:                    .map(CompiledExpr::compile)
+crates/icydb-core/src/db/query/plan/semantics/logical.rs:644:            CompiledExpr::compile(&compiled),
+crates/icydb-core/src/db/query/plan/semantics/logical.rs:886:        return Ok(ResolvedOrderValueSource::expression(CompiledExpr::compile(
+crates/icydb-core/src/db/executor/projection/grouped.rs:10:            expr::{CompiledExpr, CompiledExprValueReader, ProjectionSpec},
+crates/icydb-core/src/db/executor/projection/grouped.rs:82:impl CompiledExprValueReader for GroupedRowView<'_> {
+crates/icydb-core/src/db/executor/projection/grouped.rs:107:    compiled_projection: Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/projection/grouped.rs:118:        compiled_projection: Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/projection/grouped.rs:133:    pub(in crate::db::executor) const fn compiled_projection(&self) -> &[CompiledExpr] {
+crates/icydb-core/src/db/executor/projection/grouped.rs:186:    compiled_projection: &[CompiledExpr],
+crates/icydb-core/src/db/executor/projection/materialize/execute.rs:8:use crate::db::query::plan::expr::CompiledExpr;
+crates/icydb-core/src/db/executor/projection/materialize/execute.rs:490:    compiled_fields: &[CompiledExpr],
+crates/icydb-core/src/db/executor/projection/materialize/execute.rs:518:    compiled_fields: &[CompiledExpr],
+crates/icydb-core/src/db/executor/projection/materialize/execute.rs:539:    compiled_fields: &[CompiledExpr],
+crates/icydb-core/src/db/executor/projection/materialize/execute.rs:585:        compiled_fields.push(CompiledExpr::compile(&compiled));
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:14:            BinaryOp, CanonicalExpr, CaseWhenArm, Expr, ExprType, FieldId, Function, UnaryOp,
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:16:            canonicalize_scalar_where_bool_expr, collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:20:            normalize_bool_expr_artifact, predicate_to_runtime_bool_expr_for_test,
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:249:fn compiled_predicates_match_shared_truth_value_admission() {
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:250:    let simple_compare = normalize_bool_expr_artifact(Expr::Binary {
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:255:    assert_compiled_predicate_matches_truth_value(
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:262:    let boolean_composition = normalize_bool_expr_artifact(Expr::Binary {
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:267:    assert_compiled_predicate_matches_truth_value(
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:274:    let scalar_case = normalize_bool_expr_artifact(scalar_case_expr(
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:281:    assert_compiled_predicate_matches_truth_value(
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:288:    let having_like_case = normalize_bool_expr_artifact(scalar_case_expr(
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:295:    assert_compiled_predicate_matches_truth_value(
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:1507:fn assert_compiled_predicate_matches_truth_value(
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:1509:    canonical: &CanonicalExpr,
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:1525:        let expected = collapse_true_only_boolean_admission(evaluated, |found| {
+crates/icydb-core/src/db/query/plan/tests/predicate_bridge.rs:1528:        .expect("canonical boolean expression should collapse through truth_value");
+crates/icydb-core/src/db/executor/projection/tests/materialize.rs:110:            CompiledExpr::compile(&scalar)
+crates/icydb-core/src/db/executor/projection/tests/materialize.rs:407:            CompiledExpr::compile(&scalar)
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:1://! Module: query::plan::expr::truth_value
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:24:pub(in crate::db) fn admit_true_only_boolean_value<E>(
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:38:pub(in crate::db) fn collapse_true_only_boolean_admission<E>(
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:42:    admit_true_only_boolean_value(&value, |found| invalid(Box::new(found.clone())))
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:270:        "TypedExpr",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:273:        "CompiledPredicate",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:276:        "collapse_true_only_boolean_admission",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:312:fn planner_expr_truth_value_policy_does_not_depend_on_pipeline_stages() {
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:314:    let source_path = crate_root.join("src/db/query/plan/expr/truth_value.rs");
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:320:        "CanonicalExpr",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:323:        "TypedExpr",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:326:        "CompiledPredicate",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:350:        "CanonicalExpr",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:354:        "CompiledPredicate",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:459:        source.contains("expr: &CanonicalExpr"),
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:460:        "compiled predicate artifacts must be produced from CanonicalExpr, not raw Expr",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:468:        "predicate subset derivation must expose a CanonicalExpr artifact entrypoint",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:495:        "CompiledPredicate",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:500:        "TypedExpr",
+crates/icydb-core/src/db/query/plan/tests/structural_guards.rs:504:        "fn collapse_true_only_boolean_admission",
+crates/icydb-core/src/db/executor/projection/tests/mod.rs:18:                Alias, BinaryOp, CompiledExpr, CompiledExprValueReader, Expr, FieldId, FieldPath,
+crates/icydb-core/src/db/executor/projection/tests/mod.rs:312:    let compiled = CompiledExpr::compile(expr);
+crates/icydb-core/src/db/executor/projection/tests/mod.rs:323:    let compiled = CompiledExpr::compile(expr);
+crates/icydb-core/src/db/executor/projection/tests/mod.rs:335:    let compiled = CompiledExpr::compile(expr);
+crates/icydb-core/src/db/executor/projection/tests/mod.rs:351:    impl CompiledExprValueReader for RequiredCowReader<'_, '_> {
+crates/icydb-core/src/db/executor/projection/tests/mod.rs:384:    let compiled = CompiledExpr::compile(expr);
+crates/icydb-core/src/db/executor/projection/tests/mod.rs:454:        &EffectiveRuntimeFilterProgram::expression(CompiledExpr::compile(&compiled)),
+crates/icydb-core/src/db/query/plan/expr/preview.rs:9:            collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/expr/preview.rs:83:        if collapse_true_only_boolean_admission(condition, |_| ()).ok()? {
+crates/icydb-core/src/db/executor/projection/materialize/plan.rs:14:            expr::{CompiledExpr, ProjectionSpec},
+crates/icydb-core/src/db/executor/projection/materialize/plan.rs:34:    Scalar(Vec<CompiledExpr>),
+crates/icydb-core/src/db/executor/projection/materialize/plan.rs:70:    pub(in crate::db) const fn scalar_projection_exprs(&self) -> &[CompiledExpr] {
+crates/icydb-core/src/db/executor/projection/materialize/plan.rs:270:    compiled_projection: &[CompiledExpr],
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:17:/// FunctionSpec
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:19:/// FunctionSpec is the planner-owned semantic registry entry for one scalar
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:25:pub(in crate::db::query::plan::expr) struct FunctionSpec {
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:57:impl FunctionSpec {
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:176:    pub(in crate::db::query::plan::expr) const fn spec(self) -> FunctionSpec {
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:187:            | Self::Sqrt => FunctionSpec::strict_numeric_result(&[], &[0], NumericSubtype::Decimal),
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:188:            Self::Coalesce => FunctionSpec::new(
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:195:            Self::CollectionContains => FunctionSpec::new(
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:203:                FunctionSpec::strict_text_bool_result(&[0, 1])
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:206:                FunctionSpec::null_observing_unary_bool_predicate()
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:208:            Self::Left | Self::Right => FunctionSpec::strict_text_result(&[0], &[1]),
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:209:            Self::Length => FunctionSpec::new(
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:220:            Self::OctetLength => FunctionSpec::new(
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:228:                FunctionSpec::strict_unary_text_result()
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:231:                FunctionSpec::strict_numeric_result(&[], &[0, 1], NumericSubtype::Decimal)
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:233:            Self::NullIf => FunctionSpec::new(
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:240:            Self::Position => FunctionSpec::new(
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:251:            Self::Replace => FunctionSpec::strict_text_result(&[0, 1, 2], &[]),
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:252:            Self::Round | Self::Trunc => FunctionSpec::new(
+crates/icydb-core/src/db/query/plan/expr/function_semantics/spec.rs:259:            Self::Substring => FunctionSpec::strict_text_result(&[0], &[1, 2]),
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:36:/// CanonicalExpr
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:44:pub(in crate::db) struct CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:48:impl CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:77:pub(in crate::db) fn normalize_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:82:    CanonicalExpr::new(expr)
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:89:    normalize_bool_expr_artifact(expr).into_expr()
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:95:pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:108:    CanonicalExpr::new(expr)
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:116:    canonicalize_scalar_where_bool_expr_artifact(expr).into_expr()
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:127:pub(in crate::db) fn canonicalize_grouped_having_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:140:    CanonicalExpr::new(expr)
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:148:    canonicalize_grouped_having_bool_expr_artifact(expr).into_expr()
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:4://! Boundary: adapts executor row/value sources to `CompiledExprValueReader`.
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:14:            CompiledExpr, CompiledExprValueReader, ProjectionEvalError,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:15:            collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:113:impl CompiledExprValueReader for ValueSlotReader<'_> {
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:151:/// hot row-local reads borrowed while still sharing `CompiledExpr::evaluate`.
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:159:impl CompiledExprValueReader for ValueRefSlotReader<'_, '_> {
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:196:/// It keeps the execution context in the reader while `CompiledExpr` remains
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:205:impl CompiledExprValueReader for ValueCowSlotReader<'_, '_> {
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:258:/// row-access detail, while `CompiledExpr` owns only the expression dispatch.
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:267:impl CompiledExprValueReader for CanonicalSlotExprReader<'_, '_> {
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:321:    expr: &CompiledExpr,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:334:    expr: &CompiledExpr,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:347:    expr: &'a CompiledExpr,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:410:    expr: &CompiledExpr,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:425:    collapse_true_only_boolean_admission(value, |found| {
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:434:    expr: &CompiledExpr,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:457:    collapse_true_only_boolean_admission(value, |found| {
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:466:    expr: &CompiledExpr,
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs:489:    collapse_true_only_boolean_admission(value, |found| {
+crates/icydb-core/src/db/query/plan/expr/projection_eval.rs:9://! `truth_value` policy after this module has materialized a condition value.
+crates/icydb-core/src/db/query/plan/expr/projection_eval.rs:20:            collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/expr/projection_eval.rs:141:                if collapse_true_only_boolean_admission(condition, |found| {
+crates/icydb-core/src/db/query/plan/group.rs:16:                    CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
+crates/icydb-core/src/db/query/plan/group.rs:56:    compiled_input_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/query/plan/group.rs:57:    compiled_filter_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/query/plan/group.rs:116:    ) -> Result<CompiledExpr, InternalError> {
+crates/icydb-core/src/db/query/plan/group.rs:123:        Ok(CompiledExpr::compile(&scalar))
+crates/icydb-core/src/db/query/plan/group.rs:264:    pub(in crate::db) const fn compiled_input_expr(&self) -> Option<&CompiledExpr> {
+crates/icydb-core/src/db/query/plan/group.rs:270:    pub(in crate::db) const fn compiled_filter_expr(&self) -> Option<&CompiledExpr> {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:4://! Boundary: evaluates already-compiled expression nodes through CompiledExprValueReader.
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:10:            BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, Function,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:12:            admit_true_only_boolean_value, collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:23:impl CompiledExpr {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:31:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:215:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:228:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:241:        reader: &dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:257:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:276:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:297:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:318:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:341:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:360:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:390:        reader: &dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:413:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:414:        when_then_arms: &'row [CompiledExprCaseArm],
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:419:            if admit_true_only_boolean_value(condition.as_ref(), |found| {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:436:        reader: &'row dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:478:    expr: &CompiledExpr,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:479:    grouped_row: &dyn CompiledExprValueReader,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs:481:    collapse_true_only_boolean_admission(expr.evaluate(grouped_row)?.into_owned(), |found| {
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:74:/// TypedExpr
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:82:pub(in crate::db::query::plan::expr) struct TypedExpr {
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:86:impl TypedExpr {
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:119:) -> Result<TypedExpr, PlanError> {
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:120:    infer_expr_type_impl(expr, schema).map(TypedExpr::new)
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:128:    infer_typed_expr(expr, schema).map(TypedExpr::into_expr_type)
+crates/icydb-core/src/db/query/plan/expr/mod.rs:23://!   intentionally schema-independent, so it consumes `CanonicalExpr` rather
+crates/icydb-core/src/db/query/plan/expr/mod.rs:24://!   than `TypedExpr`; schema-aware legality remains owned by validation and
+crates/icydb-core/src/db/query/plan/expr/mod.rs:48://! - `truth_value` owns TRUE-only admission for already-evaluated `Value`
+crates/icydb-core/src/db/query/plan/expr/mod.rs:57://! - `CanonicalExpr` marks expressions that have crossed the canonicalization
+crates/icydb-core/src/db/query/plan/expr/mod.rs:59://! - `TypedExpr` marks expressions that have crossed the type-inference
+crates/icydb-core/src/db/query/plan/expr/mod.rs:61://! - `PredicateCompilation` marks runtime predicates produced by predicate
+crates/icydb-core/src/db/query/plan/expr/mod.rs:62://!   compilation from `CanonicalExpr`.
+crates/icydb-core/src/db/query/plan/expr/mod.rs:81:mod truth_value;
+crates/icydb-core/src/db/query/plan/expr/mod.rs:94:pub(in crate::db) use canonicalize::normalize_bool_expr_artifact;
+crates/icydb-core/src/db/query/plan/expr/mod.rs:96:    CanonicalExpr, canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
+crates/icydb-core/src/db/query/plan/expr/mod.rs:102:    CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, ProjectionEvalError,
+crates/icydb-core/src/db/query/plan/expr/mod.rs:114:    CompiledPredicate, derive_normalized_bool_expr_predicate_subset,
+crates/icydb-core/src/db/query/plan/expr/mod.rs:145:pub(in crate::db) use truth_value::{
+crates/icydb-core/src/db/query/plan/expr/mod.rs:146:    admit_true_only_boolean_value, collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:6://! to be translated into `CompiledExpr`.
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:14:                BinaryOp, CompiledExpr, CompiledExprCaseArm, Expr, FieldPath, ProjectionEvalError,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:22:impl CompiledExpr {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:81:                    .map(CompiledExprCaseArm::compile)
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:123:                when_then_arms: vec![CompiledExprCaseArm::new(condition, then_expr)]
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:256:impl CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:260:            CompiledExpr::compile(arm.condition()),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:261:            CompiledExpr::compile(arm.result()),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:271:) -> Result<Vec<CompiledExpr>, ProjectionEvalError> {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:289:) -> Result<CompiledExpr, ProjectionEvalError> {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:299:            Ok(CompiledExpr::GroupKey {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:318:            Ok(CompiledExpr::Aggregate { index })
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:320:        Expr::Literal(value) => Ok(CompiledExpr::Literal(value.clone())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:321:        Expr::FunctionCall { function, args } => Ok(CompiledExpr::FunctionCall {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:334:        } => Ok(CompiledExpr::Case {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:338:                    Ok::<CompiledExprCaseArm, ProjectionEvalError>(CompiledExprCaseArm::new(
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:359:        Expr::Unary { op, expr } => Ok(CompiledExpr::Unary {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:367:        Expr::Binary { op, left, right } => Ok(CompiledExpr::Binary {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:444:        db::query::plan::expr::{CompiledExpr, ScalarProjectionCaseArm, ScalarProjectionExpr},
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:461:            CompiledExpr::compile(&expr),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs:462:            CompiledExpr::Literal(Value::Text("else".to_string())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:9://! - CompiledExpr is the single expression IR in the system.
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:10://! - The compile submodule is the only planner tree to CompiledExpr translation boundary.
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:11://! - All expression evaluation must go through CompiledExpr::evaluate.
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:14://! - Executor row shapes stay behind CompiledExprValueReader implementations.
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:38:/// It lives beside `CompiledExpr` so scalar, grouped, HAVING, and aggregate
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:157:/// CompiledExprValueReader
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:159:/// CompiledExprValueReader is the only value-access contract visible to the
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:166:pub(in crate::db) trait CompiledExprValueReader {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:213:/// CompiledExpr
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:215:/// CompiledExpr is the single executable scalar-expression IR used by row
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:224:pub(in crate::db) enum CompiledExpr {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:334:        when_then_arms: Box<[CompiledExprCaseArm]>,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:345:/// CompiledExprCaseArm
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:347:/// CompiledExprCaseArm stores one searched-CASE condition/result pair after
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:354:pub(in crate::db) struct CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:355:    condition: CompiledExpr,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:356:    result: CompiledExpr,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:359:impl CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:362:    pub(in crate::db) const fn new(condition: CompiledExpr, result: CompiledExpr) -> Self {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs:367:impl CompiledExpr {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:3:        BinaryOp, CompiledExpr, CompiledExprValueReader, Function, ProjectionEvalError,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:19:impl CompiledExprValueReader for TestRowView {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:36:impl CompiledExprValueReader for TestGroupedView {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:69:fn evaluate(expr: &CompiledExpr) -> Value {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:77:    let expr = CompiledExpr::Slot {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:87:    let expr = CompiledExpr::Add {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:104:    let expr = CompiledExpr::Case {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:106:            super::CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:107:                condition: CompiledExpr::Literal(Value::Null),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:108:                result: CompiledExpr::Literal(Value::Text("null".to_string())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:110:            super::CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:111:                condition: CompiledExpr::BinarySlotLiteral {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:118:                result: CompiledExpr::Literal(Value::Text("selected".to_string())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:122:        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:130:    let expr = CompiledExpr::Case {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:132:            super::CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:133:                condition: CompiledExpr::Literal(Value::Null),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:134:                result: CompiledExpr::Literal(Value::Text("null".to_string())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:136:            super::CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:137:                condition: CompiledExpr::Literal(Value::Bool(false)),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:138:                result: CompiledExpr::Literal(Value::Text("false".to_string())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:142:        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:150:    let expr = CompiledExpr::CaseSlotLiteral {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:156:        then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:157:        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:165:    let expr = CompiledExpr::CaseSlotBool {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:168:        then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:169:        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:177:    let expr = CompiledExpr::FunctionCall {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:179:        args: vec![CompiledExpr::Slot {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:191:    let expr = CompiledExpr::Slot {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:207:    let expr = CompiledExpr::Aggregate { index: 0 };
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:223:    let expr = CompiledExpr::GroupKey {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:242:    let expr = CompiledExpr::Slot {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:262:    let group_key = CompiledExpr::GroupKey {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:266:    let aggregate = CompiledExpr::Aggregate { index: 9 };
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:284:    let expr = CompiledExpr::Case {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:285:        when_then_arms: vec![super::CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:286:            condition: CompiledExpr::Aggregate { index: 0 },
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:287:            result: CompiledExpr::Literal(Value::Text("then".to_string())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:290:        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:307:    let generic = CompiledExpr::Case {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:308:        when_then_arms: vec![super::CompiledExprCaseArm {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:309:            condition: CompiledExpr::Slot {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:313:            result: CompiledExpr::Literal(Value::Text("then".to_string())),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:316:        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:318:    let specialized = CompiledExpr::CaseSlotBool {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:321:        then_expr: Box::new(CompiledExpr::Literal(Value::Text("then".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs:322:        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:18:            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:27:/// PredicateCompilation
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:35:pub(in crate::db) struct PredicateCompilation {
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:39:impl PredicateCompilation {
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:57:    expr: &CanonicalExpr,
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:58:) -> PredicateCompilation {
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:59:    PredicateCompilation::new(compile_normalized_bool_expr_to_predicate_impl(
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:70:    let canonical = CanonicalExpr::from_normalized_bool_expr(expr)
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:93:    expr: &CanonicalExpr,
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:106:    let canonical = CanonicalExpr::from_normalized_bool_expr(expr)?;
+crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs:244:// when the expression is TRUE versus FALSE under the shared `truth_value`
+crates/icydb-core/src/db/query/plan/expr/path.rs:12:/// `CompiledExpr` field-path leaves.
+crates/icydb-core/src/db/query/plan/expr/predicate/mod.rs:20:pub(in crate::db) use compiled::CompiledPredicate;
+crates/icydb-core/src/db/executor/pipeline/runtime/grouped.rs:22:            expr::CompiledExprValueReader,
+crates/icydb-core/src/db/executor/pipeline/runtime/grouped.rs:291:impl CompiledExprValueReader for RowView {
+crates/icydb-core/src/db/executor/aggregate/runtime/mod.rs:16:        query::plan::expr::CompiledExpr,
+crates/icydb-core/src/db/executor/aggregate/runtime/mod.rs:36:    expr: &CompiledExpr,
+crates/icydb-core/src/db/query/plan/expr/predicate/compiled.rs:10:/// CompiledPredicate
+crates/icydb-core/src/db/query/plan/expr/predicate/compiled.rs:12:/// CompiledPredicate is the common expression-layer interface for boolean
+crates/icydb-core/src/db/query/plan/expr/predicate/compiled.rs:21:pub(in crate::db) trait CompiledPredicate {
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs:36:            expr::{CompiledExpr, ProjectionSpec},
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs:74:    expr: CompiledExpr,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs:129:        compiled_having_expr: Option<&CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs:399:    compiled_having_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs:414:        compiled_having_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:18:            expr::{CompiledExpr, Expr, FieldId, compile_scalar_projection_expr_from_schema},
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:116:    input_exprs: Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:117:    filter_exprs: Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:209:        Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:210:        Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:229:    filter: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:240:        filter: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:254:        input_exprs: &mut Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:255:        filter_exprs: &mut Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:322:    Expr(CompiledExpr),
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:539:) -> Result<CompiledExpr, InternalError> {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:552:    Ok(CompiledExpr::compile(&scalar))
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:589:            query::plan::expr::{BinaryOp, CompiledExpr},
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:594:    fn literal_nat(value: u64) -> CompiledExpr {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:595:        CompiledExpr::Literal(Value::Nat64(value))
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:598:    fn repeated_input_expr() -> CompiledExpr {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:599:        CompiledExpr::Binary {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:606:    fn repeated_filter_expr() -> CompiledExpr {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/terminal.rs:607:        CompiledExpr::Binary {
+crates/icydb-core/src/db/executor/aggregate/contracts/state/grouped.rs:27:        query::plan::expr::{CompiledExpr, collapse_true_only_boolean_admission},
+crates/icydb-core/src/db/executor/aggregate/contracts/state/grouped.rs:120:        Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/contracts/state/grouped.rs:122:        Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/contracts/state/grouped.rs:184:        expression: &CompiledExpr,
+crates/icydb-core/src/db/executor/aggregate/contracts/state/grouped.rs:329:        collapse_true_only_boolean_admission(value, |found| {
+crates/icydb-core/src/db/executor/aggregate/contracts/state/factory.rs:14:    query::plan::{FieldSlot, expr::CompiledExpr},
+crates/icydb-core/src/db/executor/aggregate/contracts/state/factory.rs:56:        grouped_input_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/contracts/state/factory.rs:57:        grouped_filter_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:29:        query::plan::{FieldSlot, expr::CompiledExpr},
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:47:    grouped_input_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:48:    grouped_filter_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:68:        compiled_input_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:69:        compiled_filter_expr: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:7:    db::query::plan::expr::{CompiledExpr, admit_true_only_boolean_value},
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:22:    input_exprs: Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:23:    filter_exprs: Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:29:    pub(super) fn new(input_exprs: Vec<CompiledExpr>, filter_exprs: Vec<CompiledExpr>) -> Self {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:82:        admit_true_only_boolean_value(value, |found| {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:91:    exprs: &mut Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:92:    expr: CompiledExpr,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:110:    exprs: &[CompiledExpr],
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/expr_cache.rs:143:    expr: &CompiledExpr,
+crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/entrypoints.rs:34:        query::plan::{AccessPlannedQuery, OrderSpec, PageSpec, expr::CompiledExpr},
+crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/entrypoints.rs:312:                    .any(CompiledExpr::contains_field_path)
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/request.rs:15:            expr::{CompiledExpr, Expr, ProjectionField, ProjectionSpec},
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/request.rs:100:    projection: Vec<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/request.rs:101:    having: Option<CompiledExpr>,
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/request.rs:149:    pub(super) const fn projection(&self) -> &[CompiledExpr] {
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals/request.rs:153:    pub(super) const fn having(&self) -> Option<&CompiledExpr> {
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/window.rs:27:        query::plan::expr::CompiledExpr,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/window.rs:78:    compiled_having_expr: Option<CompiledExpr>,

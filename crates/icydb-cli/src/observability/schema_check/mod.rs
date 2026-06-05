@@ -4,6 +4,7 @@
 //! Boundary: exposes the schema-check command and test-covered report rendering through observability.
 
 mod analysis;
+mod recommendations;
 mod render;
 
 use crate::{

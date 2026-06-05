@@ -21,7 +21,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStore {
     report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages in-memory expression index-store writes before physical stores are mutated"
 )]
@@ -177,7 +177,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreWriteReport {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages expression writer diagnostics before physical stores are mutated"
 )]
@@ -224,7 +224,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreWriteBatch {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages expression rollback-aware write batches before physical stores are mutated"
 )]
@@ -310,7 +310,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackSnapsho
     previous_entry: Option<IndexEntryValue>,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages expression rollback snapshots before physical stores are mutated"
 )]
@@ -349,7 +349,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackPlan {
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages expression rollback plans before physical stores are mutated"
 )]
@@ -450,7 +450,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackReport 
     runner_report: SchemaMutationRunnerReport,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages expression rollback diagnostics before physical stores are mutated"
 )]
@@ -508,7 +508,7 @@ pub(in crate::db::schema) enum SchemaExpressionIndexStagedStoreRollbackAction {
     },
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages expression rollback actions before physical stores are mutated"
 )]
@@ -569,7 +569,7 @@ pub(in crate::db::schema) struct SchemaExpressionIndexStagedDiscardReport {
     store_visibility: SchemaMutationStoreVisibility,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.157 stages expression rebuild rollback diagnostics before physical stores are mutated"
 )]

@@ -6,9 +6,10 @@ use crate::{
         },
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
-            SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
-            SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaRowLayout,
+            AcceptedCatalogIdentity, AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot,
+            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDefaultTarget,
+            SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
+            SchemaRowLayout,
         },
     },
     error::InternalError,
@@ -35,19 +36,12 @@ pub(in crate::db) fn execute_sql_ddl_field_drop(
         accepted_before_identity,
         derivation,
     );
-    let Some(target) = derivation.admission().field_drop_target() else {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-drop execution requires a field target for entity '{entity_path}'",
-        )));
-    };
-    validate_sql_ddl_field_drop_metadata_change(
-        entity_path,
-        envelope.before(),
-        envelope.after(),
-        target,
-    )?;
-
-    envelope.publish()
+    execute_sql_ddl_checked_field_metadata_publication(
+        envelope,
+        derivation.admission().field_drop_target(),
+        "field-drop",
+        validate_sql_ddl_field_drop_metadata_change,
+    )
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
@@ -157,19 +151,12 @@ pub(in crate::db) fn execute_sql_ddl_field_default_change(
         accepted_before_identity,
         derivation,
     );
-    let Some(target) = derivation.admission().field_default_target() else {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-default execution requires a field target for entity '{entity_path}'",
-        )));
-    };
-    validate_sql_ddl_field_default_metadata_change(
-        entity_path,
-        envelope.before(),
-        envelope.after(),
-        target,
-    )?;
-
-    envelope.publish()
+    execute_sql_ddl_checked_field_metadata_publication(
+        envelope,
+        derivation.admission().field_default_target(),
+        "field-default",
+        validate_sql_ddl_field_default_metadata_change,
+    )
 }
 
 fn validate_sql_ddl_field_default_metadata_change(
@@ -178,57 +165,18 @@ fn validate_sql_ddl_field_default_metadata_change(
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldDefaultTarget,
 ) -> Result<(), InternalError> {
-    if before.entity_path() != after.entity_path()
-        || before.entity_name() != after.entity_name()
-        || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
-        || before.indexes() != after.indexes()
-        || before.fields().len() != after.fields().len()
-    {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-default execution supports only metadata default changes for entity '{entity_path}'",
-        )));
-    }
-
-    let mut changed = 0usize;
-    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
-        if before_field.id() == target.field_id() {
-            let field_id_drifted = after_field.id() != target.field_id();
-            let field_name_drifted = after_field.name() != target.name();
-            if field_id_drifted || field_name_drifted {
-                return Err(InternalError::store_unsupported(format!(
-                    "SQL DDL field-default target drifted before publication for entity '{entity_path}': field='{}'",
-                    target.name(),
-                )));
-            }
-            if before_field.clone_with_default(after_field.default().clone()) != *after_field {
-                return Err(InternalError::store_unsupported(format!(
-                    "SQL DDL field-default execution found non-default field drift for entity '{entity_path}': field='{}'",
-                    target.name(),
-                )));
-            }
-            if before_field.default() != after_field.default() {
-                changed = changed.saturating_add(1);
-            }
-            continue;
-        }
-
-        if before_field != after_field {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL field-default execution found unrelated field drift for entity '{entity_path}': field='{}'",
-                before_field.name(),
-            )));
-        }
-    }
-
-    if changed != 1 {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-default execution expected exactly one default change for entity '{entity_path}': field='{}'",
-            target.name(),
-        )));
-    }
-
-    Ok(())
+    validate_sql_ddl_single_field_metadata_change(
+        entity_path,
+        before,
+        after,
+        SqlDdlSingleFieldMetadataTarget {
+            field_id: target.field_id(),
+            before_name: target.name(),
+            after_name: target.name(),
+            diagnostic_name: target.name(),
+        },
+        SqlDdlSingleFieldMetadataChange::Default,
+    )
 }
 
 /// Execute one SQL DDL field-nullability publication.
@@ -283,57 +231,18 @@ fn validate_sql_ddl_field_nullability_metadata_change(
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldNullabilityTarget,
 ) -> Result<(), InternalError> {
-    if before.entity_path() != after.entity_path()
-        || before.entity_name() != after.entity_name()
-        || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
-        || before.indexes() != after.indexes()
-        || before.fields().len() != after.fields().len()
-    {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-nullability execution supports only metadata nullability changes for entity '{entity_path}'",
-        )));
-    }
-
-    let mut changed = 0usize;
-    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
-        if before_field.id() == target.field_id() {
-            let field_id_drifted = after_field.id() != target.field_id();
-            let field_name_drifted = after_field.name() != target.name();
-            if field_id_drifted || field_name_drifted {
-                return Err(InternalError::store_unsupported(format!(
-                    "SQL DDL field-nullability target drifted before publication for entity '{entity_path}': field='{}'",
-                    target.name(),
-                )));
-            }
-            if before_field.clone_with_nullable(after_field.nullable()) != *after_field {
-                return Err(InternalError::store_unsupported(format!(
-                    "SQL DDL field-nullability execution found non-nullability field drift for entity '{entity_path}': field='{}'",
-                    target.name(),
-                )));
-            }
-            if before_field.nullable() != after_field.nullable() {
-                changed = changed.saturating_add(1);
-            }
-            continue;
-        }
-
-        if before_field != after_field {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL field-nullability execution found unrelated field drift for entity '{entity_path}': field='{}'",
-                before_field.name(),
-            )));
-        }
-    }
-
-    if changed != 1 {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-nullability execution expected exactly one nullability change for entity '{entity_path}': field='{}'",
-            target.name(),
-        )));
-    }
-
-    Ok(())
+    validate_sql_ddl_single_field_metadata_change(
+        entity_path,
+        before,
+        after,
+        SqlDdlSingleFieldMetadataTarget {
+            field_id: target.field_id(),
+            before_name: target.name(),
+            after_name: target.name(),
+            diagnostic_name: target.name(),
+        },
+        SqlDdlSingleFieldMetadataChange::Nullability,
+    )
 }
 
 fn target_field_is_required(
@@ -421,19 +330,12 @@ pub(in crate::db) fn execute_sql_ddl_field_rename(
         accepted_before_identity,
         derivation,
     );
-    let Some(target) = derivation.admission().field_rename_target() else {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-rename execution requires a field target for entity '{entity_path}'",
-        )));
-    };
-    validate_sql_ddl_field_rename_metadata_change(
-        entity_path,
-        envelope.before(),
-        envelope.after(),
-        target,
-    )?;
-
-    envelope.publish()
+    execute_sql_ddl_checked_field_metadata_publication(
+        envelope,
+        derivation.admission().field_rename_target(),
+        "field-rename",
+        validate_sql_ddl_field_rename_metadata_change,
+    )
 }
 
 fn validate_sql_ddl_field_rename_metadata_change(
@@ -442,55 +344,18 @@ fn validate_sql_ddl_field_rename_metadata_change(
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldRenameTarget,
 ) -> Result<(), InternalError> {
-    if before.entity_path() != after.entity_path()
-        || before.entity_name() != after.entity_name()
-        || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
-        || before.fields().len() != after.fields().len()
-    {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-rename execution supports only metadata name changes for entity '{entity_path}'",
-        )));
-    }
-
-    let mut changed = 0usize;
-    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
-        if before_field.id() == target.field_id() {
-            let field_id_drifted = after_field.id() != target.field_id();
-            let old_name_drifted = before_field.name() != target.old_name();
-            let new_name_drifted = after_field.name() != target.new_name();
-            if field_id_drifted || old_name_drifted || new_name_drifted {
-                return Err(InternalError::store_unsupported(format!(
-                    "SQL DDL field-rename target drifted before publication for entity '{entity_path}': field='{}'",
-                    target.old_name(),
-                )));
-            }
-            if before_field.clone_with_name(after_field.name().to_string()) != *after_field {
-                return Err(InternalError::store_unsupported(format!(
-                    "SQL DDL field-rename execution found non-name field drift for entity '{entity_path}': field='{}'",
-                    target.old_name(),
-                )));
-            }
-            if before_field.name() != after_field.name() {
-                changed = changed.saturating_add(1);
-            }
-            continue;
-        }
-
-        if before_field != after_field {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL field-rename execution found unrelated field drift for entity '{entity_path}': field='{}'",
-                before_field.name(),
-            )));
-        }
-    }
-
-    if changed != 1 {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-rename execution expected exactly one name change for entity '{entity_path}': field='{}'",
-            target.old_name(),
-        )));
-    }
+    validate_sql_ddl_single_field_metadata_change(
+        entity_path,
+        before,
+        after,
+        SqlDdlSingleFieldMetadataTarget {
+            field_id: target.field_id(),
+            before_name: target.old_name(),
+            after_name: target.new_name(),
+            diagnostic_name: target.old_name(),
+        },
+        SqlDdlSingleFieldMetadataChange::Rename,
+    )?;
 
     let expected_indexes = before
         .indexes()
@@ -513,7 +378,174 @@ fn validate_sql_ddl_field_rename_metadata_change(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct SqlDdlSingleFieldMetadataTarget<'a> {
+    field_id: FieldId,
+    before_name: &'a str,
+    after_name: &'a str,
+    diagnostic_name: &'a str,
+}
+
+#[derive(Clone, Copy)]
+enum SqlDdlSingleFieldMetadataChange {
+    Default,
+    Nullability,
+    Rename,
+}
+
+impl SqlDdlSingleFieldMetadataChange {
+    const fn operation(self) -> &'static str {
+        match self {
+            Self::Default => "field-default",
+            Self::Nullability => "field-nullability",
+            Self::Rename => "field-rename",
+        }
+    }
+
+    const fn supported_change(self) -> &'static str {
+        match self {
+            Self::Default => "metadata default changes",
+            Self::Nullability => "metadata nullability changes",
+            Self::Rename => "metadata name changes",
+        }
+    }
+
+    const fn change_label(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Nullability => "nullability",
+            Self::Rename => "name",
+        }
+    }
+
+    const fn require_unchanged_indexes(self) -> bool {
+        !matches!(self, Self::Rename)
+    }
+
+    fn target_field_matches_allowed_change(
+        self,
+        before_field: &PersistedFieldSnapshot,
+        after_field: &PersistedFieldSnapshot,
+    ) -> bool {
+        match self {
+            Self::Default => {
+                before_field.clone_with_default(after_field.default().clone()) == *after_field
+            }
+            Self::Nullability => {
+                before_field.clone_with_nullable(after_field.nullable()) == *after_field
+            }
+            Self::Rename => {
+                before_field.clone_with_name(after_field.name().to_string()) == *after_field
+            }
+        }
+    }
+
+    fn target_field_changed(
+        self,
+        before_field: &PersistedFieldSnapshot,
+        after_field: &PersistedFieldSnapshot,
+    ) -> bool {
+        match self {
+            Self::Default => before_field.default() != after_field.default(),
+            Self::Nullability => before_field.nullable() != after_field.nullable(),
+            Self::Rename => before_field.name() != after_field.name(),
+        }
+    }
+}
+
+fn validate_sql_ddl_single_field_metadata_change(
+    entity_path: &'static str,
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+    target: SqlDdlSingleFieldMetadataTarget<'_>,
+    change: SqlDdlSingleFieldMetadataChange,
+) -> Result<(), InternalError> {
+    let operation = change.operation();
+    let supported_change = change.supported_change();
+    if before.entity_path() != after.entity_path()
+        || before.entity_name() != after.entity_name()
+        || before.primary_key_field_ids() != after.primary_key_field_ids()
+        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
+        || before.fields().len() != after.fields().len()
+        || (change.require_unchanged_indexes() && before.indexes() != after.indexes())
+    {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL {operation} execution supports only {supported_change} for entity '{entity_path}'",
+        )));
+    }
+
+    let mut changed = 0usize;
+    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
+        if before_field.id() == target.field_id {
+            let field_id_drifted = after_field.id() != target.field_id;
+            let before_name_drifted = before_field.name() != target.before_name;
+            let after_name_drifted = after_field.name() != target.after_name;
+            if field_id_drifted || before_name_drifted || after_name_drifted {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL {operation} target drifted before publication for entity '{entity_path}': field='{}'",
+                    target.diagnostic_name,
+                )));
+            }
+            if !change.target_field_matches_allowed_change(before_field, after_field) {
+                let change_label = change.change_label();
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL {operation} execution found non-{change_label} field drift for entity '{entity_path}': field='{}'",
+                    target.diagnostic_name,
+                )));
+            }
+            if change.target_field_changed(before_field, after_field) {
+                changed = changed.saturating_add(1);
+            }
+            continue;
+        }
+
+        if before_field != after_field {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL {operation} execution found unrelated field drift for entity '{entity_path}': field='{}'",
+                before_field.name(),
+            )));
+        }
+    }
+
+    if changed != 1 {
+        let change_label = change.change_label();
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL {operation} execution expected exactly one {change_label} change for entity '{entity_path}': field='{}'",
+            target.diagnostic_name,
+        )));
+    }
+
+    Ok(())
+}
+
 fn row_layout_allocation_matches(left: &SchemaRowLayout, right: &SchemaRowLayout) -> bool {
     left.field_to_slot() == right.field_to_slot()
         && left.retired_field_slots() == right.retired_field_slots()
+}
+
+fn execute_sql_ddl_checked_field_metadata_publication<T>(
+    envelope: SqlDdlPublicationEnvelope<'_>,
+    target: Option<&T>,
+    operation: &'static str,
+    validate: impl FnOnce(
+        &'static str,
+        &PersistedSchemaSnapshot,
+        &PersistedSchemaSnapshot,
+        &T,
+    ) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    let Some(target) = target else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL {operation} execution requires a field target for entity '{}'",
+            envelope.entity_path(),
+        )));
+    };
+    validate(
+        envelope.entity_path(),
+        envelope.before(),
+        envelope.after(),
+        target,
+    )?;
+
+    envelope.publish()
 }

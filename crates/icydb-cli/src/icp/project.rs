@@ -7,9 +7,9 @@ use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 
-use crate::icp::process::{canister_id, output_stderr, unreachable_network_hint};
+mod manifest;
 
-const ICP_YAML_PATH: &str = "icp.yaml";
+use crate::icp::process::{canister_id, output_stderr, unreachable_network_hint};
 
 /// Fail with IcyDB-specific setup guidance when icp-cli has no local canister id.
 pub(super) fn require_created_canister(environment: &str, canister: &str) -> Result<(), String> {
@@ -24,12 +24,12 @@ pub(super) fn require_created_canister(environment: &str, canister: &str) -> Res
 
 /// Read canister names from the selected icp-cli environment.
 pub(super) fn known_canisters(environment: &str) -> Result<Vec<String>, String> {
-    known_canisters_from_icp(environment).or_else(|_| known_canisters_from_manifest(environment))
+    known_canisters_from_icp(environment).or_else(|_| manifest::known_canisters(environment))
 }
 
 /// Return whether the selected project environment targets the local ICP network.
 pub(super) fn environment_targets_local(environment: &str) -> bool {
-    environment == "local" || environment_targets_local_from_manifest(environment).unwrap_or(false)
+    environment == "local" || manifest::environment_targets_local(environment).unwrap_or(false)
 }
 
 fn known_canisters_from_icp(environment: &str) -> Result<Vec<String>, String> {
@@ -70,97 +70,17 @@ fn parse_icp_canister_list(output: &[u8]) -> Result<Vec<String>, String> {
     ))
 }
 
-fn known_canisters_from_manifest(environment: &str) -> Result<Vec<String>, String> {
-    let contents = std::fs::read_to_string(ICP_YAML_PATH)
-        .map_err(|err| format!("read {ICP_YAML_PATH}: {err}"))?;
-
-    Ok(parse_manifest_canisters(contents.as_str(), environment))
-}
-
-fn environment_targets_local_from_manifest(environment: &str) -> Result<bool, String> {
-    let contents = std::fs::read_to_string(ICP_YAML_PATH)
-        .map_err(|err| format!("read {ICP_YAML_PATH}: {err}"))?;
-
-    Ok(
-        parse_manifest_environment_network(contents.as_str(), environment)
-            .is_some_and(|network| network == "local"),
-    )
-}
-
+#[cfg(test)]
 pub(super) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
-    let mut in_environments = false;
-    let mut in_target_environment = false;
-    for line in contents.lines().map(str::trim) {
-        if line == "environments:" {
-            in_environments = true;
-            in_target_environment = false;
-            continue;
-        }
-
-        if !in_environments {
-            continue;
-        }
-
-        if let Some(name) = environment_name(line) {
-            if in_target_environment {
-                return Vec::new();
-            }
-            in_target_environment = name == environment;
-            continue;
-        }
-
-        if !in_target_environment {
-            continue;
-        }
-
-        let Some(value) = line.strip_prefix("canisters:") else {
-            continue;
-        };
-
-        return parse_inline_canister_list(value);
-    }
-
-    Vec::new()
+    manifest::parse_canisters(contents, environment)
 }
 
+#[cfg(test)]
 pub(super) fn parse_manifest_environment_network<'a>(
     contents: &'a str,
     environment: &str,
 ) -> Option<&'a str> {
-    let mut in_environments = false;
-    let mut in_target_environment = false;
-    for line in contents.lines().map(str::trim) {
-        if line == "environments:" {
-            in_environments = true;
-            in_target_environment = false;
-            continue;
-        }
-
-        if !in_environments {
-            continue;
-        }
-
-        if let Some(name) = environment_name(line) {
-            if in_target_environment {
-                return None;
-            }
-            in_target_environment = name == environment;
-            continue;
-        }
-
-        if !in_target_environment {
-            continue;
-        }
-
-        let Some(network) = line.strip_prefix("network:") else {
-            continue;
-        };
-        let network = network.trim().trim_matches(['"', '\'']);
-
-        return (!network.is_empty()).then_some(network);
-    }
-
-    None
+    manifest::parse_environment_network(contents, environment)
 }
 
 fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {
@@ -168,36 +88,6 @@ fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {
     names.sort();
 
     names
-}
-
-fn environment_name(line: &str) -> Option<&str> {
-    let name = line
-        .strip_prefix("- name:")?
-        .trim()
-        .trim_matches(['"', '\'']);
-
-    (!name.is_empty()).then_some(name)
-}
-
-fn parse_inline_canister_list(value: &str) -> Vec<String> {
-    let trimmed = value.trim();
-    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return Vec::new();
-    }
-
-    sorted_canister_names(
-        trimmed
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .split(',')
-            .filter_map(parse_manifest_name),
-    )
-}
-
-fn parse_manifest_name(value: &str) -> Option<String> {
-    let name = value.trim().trim_matches(['"', '\'']);
-
-    (!name.is_empty()).then(|| name.to_string())
 }
 
 fn missing_canister_message(environment: &str, canister: &str) -> String {

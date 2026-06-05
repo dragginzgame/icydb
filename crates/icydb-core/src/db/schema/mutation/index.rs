@@ -94,7 +94,7 @@ pub(in crate::db) struct SchemaFieldPathIndexRebuildKey {
     pub(in crate::db::schema::mutation) nullable: bool,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
 )]
@@ -228,7 +228,7 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildExpression {
     canonical_text: String,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
 )]
@@ -280,7 +280,7 @@ pub(in crate::db) struct SchemaSecondaryIndexDropCleanupTarget {
     predicate_sql: Option<String>,
 }
 
-#[allow(
+#[expect(
     dead_code,
     reason = "0.152 stages cleanup target contracts before a physical runner consumes them"
 )]
