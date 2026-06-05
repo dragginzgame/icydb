@@ -41,6 +41,10 @@ check_module() {
 check_module "db::session::sql::execute::write" 350 5
 check_module "db::session::sql::execute::write::insert" 450 8
 check_module "db::session::sql::execute::write::update" 250 7
+check_module "db::session::sql::execute" 950 5
+check_module "db::schema::reconcile" 650 8
+check_module "db::schema::reconcile::sql_ddl" 450 5
+check_module "db::schema::reconcile::sql_ddl::field_metadata" 550 5
 check_module "db::schema::mutation" 1300 4
 check_module "db::schema::mutation::field" 550 2
 check_module "db::schema::mutation::index" 750 2
@@ -48,6 +52,9 @@ check_module "db::schema::mutation::runner" 850 3
 check_module "db::sql::ddl" 750 2
 check_module "db::sql::ddl::field" 750 3
 check_module "db::sql::ddl::index" 750 2
+check_module "db::relation" 500 6
+check_module "db::relation::save_validate" 550 5
+check_module "db::relation::reverse_index" 1100 6
 
 if [[ $status -ne 0 ]]; then
   echo "[FAIL] Module-structure hub thresholds failed." >&2

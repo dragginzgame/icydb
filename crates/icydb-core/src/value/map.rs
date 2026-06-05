@@ -107,18 +107,18 @@ fn validate_map_entries(entries: &[(Value, Value)]) -> Result<(), MapValueError>
 }
 
 // Compare two map entries by canonical key order.
-pub(crate) fn compare_map_entry_keys(left: &(Value, Value), right: &(Value, Value)) -> Ordering {
+fn compare_map_entry_keys(left: &(Value, Value), right: &(Value, Value)) -> Ordering {
     Value::canonical_cmp_key(&left.0, &right.0)
 }
 
 // Sort map entries in canonical key order without changing ownership.
-pub(crate) fn sort_map_entries_in_place(entries: &mut [(Value, Value)]) {
+fn sort_map_entries_in_place(entries: &mut [(Value, Value)]) {
     entries.sort_by(compare_map_entry_keys);
 }
 
 // Return `true` when map entries are already in strict canonical order and
 // therefore contain no duplicate canonical keys.
-pub(crate) fn map_entries_are_strictly_canonical(entries: &[(Value, Value)]) -> bool {
+fn map_entries_are_strictly_canonical(entries: &[(Value, Value)]) -> bool {
     entries.windows(2).all(|pair| {
         let [left, right] = pair else {
             return true;

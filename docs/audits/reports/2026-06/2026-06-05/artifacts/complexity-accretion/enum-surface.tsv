@@ -1,0 +1,11 @@
+enum	variants	switch_or_variant_sites	branch_multiplier	decision_owners	domain_scope	mixed_domains	growth_risk	definition_file
+PlanError	3	233	699	1	query plan validation	no	medium	crates/icydb-core/src/db/query/plan/validate/errors.rs
+QueryError	6	246	1476	1	query intent/public detail	no	medium	crates/icydb-core/src/db/query/intent/errors/mod.rs
+ErrorClass	7	101	707	1	public error class	no	medium	crates/icydb-core/src/error/mod.rs
+CursorPlanError	8	57	456	1	cursor planning policy	no	medium	crates/icydb-core/src/db/cursor/error.rs
+AccessPath	7	112	784	1	access planning/runtime path	no	medium	crates/icydb-core/src/db/access/path.rs
+AccessPathKind	7	55	385	1	access path discriminator	no	medium	crates/icydb-core/src/db/access/path.rs
+RouteShapeKind	5	22	110	1	executor route-shape discriminator	no	medium	crates/icydb-core/src/db/executor/planning/route/contracts/shape.rs
+Predicate	14	668	9352	1	predicate AST	no	medium	crates/icydb-core/src/db/predicate/model.rs
+StoreError	4	15	60	1	store-layer public error	no	low	crates/icydb-core/src/error/mod.rs
+PolicyPlanError	7	10	70	1	query policy errors	no	low	crates/icydb-core/src/db/query/plan/validate/errors.rs

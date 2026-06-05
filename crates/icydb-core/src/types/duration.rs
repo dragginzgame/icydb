@@ -69,12 +69,12 @@ impl Duration {
     }
 
     #[must_use]
-    pub(crate) const fn from_micros_truncating(us: u64) -> Self {
+    pub(super) const fn from_micros_truncating(us: u64) -> Self {
         Self(us / Self::MS_PER_SEC)
     }
 
     #[must_use]
-    pub(crate) const fn from_nanos_truncating(ns: u64) -> Self {
+    pub(super) const fn from_nanos_truncating(ns: u64) -> Self {
         Self(ns / 1_000_000)
     }
 

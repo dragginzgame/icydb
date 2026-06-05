@@ -6,7 +6,7 @@ use std::{
 };
 
 impl Decimal {
-    pub(in crate::types::decimal) fn checked_add_impl(self, rhs: Self) -> Option<Self> {
+    fn checked_add_impl(self, rhs: Self) -> Option<Self> {
         let target_scale = self.scale.max(rhs.scale);
         let lhs = Self::align_to_scale(self.mantissa, self.scale, target_scale)?;
         let rhs = Self::align_to_scale(rhs.mantissa, rhs.scale, target_scale)?;

@@ -1548,11 +1548,13 @@ fn accepted_schema_fingerprints_are_snapshot_only() {
 #[test]
 fn schema_admission_fingerprints_stay_out_of_query_hot_paths() {
     let transition = read_source("src/db/schema/transition.rs");
+    let transition_admission = read_source("src/db/schema/transition/admission.rs");
     let reconcile = read_source("src/db/schema/reconcile.rs");
 
     assert!(
         transition.contains("SchemaAdmissionIdentityComparison")
-            && transition.contains("accepted_schema_admission_fingerprint(snapshot)?")
+            && transition_admission.contains("SchemaAdmissionIdentityComparison")
+            && transition_admission.contains("accepted_schema_admission_fingerprint(snapshot)?")
             && reconcile
                 .contains("SchemaAdmissionIdentityComparison::from_snapshots(actual, expected)?")
             && reconcile.contains("schema_admission_rejection(admission_identity)"),
@@ -1729,6 +1731,7 @@ fn schema_store_publication_stays_version_passive() {
     let store = read_source("src/db/schema/store.rs");
     let store_compact = compact_source(&store);
     let reconcile = read_source("src/db/schema/reconcile.rs");
+    let sql_ddl_reconcile = read_source("src/db/schema/reconcile/sql_ddl.rs");
 
     assert!(
         store_compact
@@ -1739,7 +1742,7 @@ fn schema_store_publication_stays_version_passive() {
         "schema store publication must key persisted snapshots by the snapshot-declared version",
     );
     assert!(
-        reconcile.contains(
+        sql_ddl_reconcile.contains(
             "schema_store.insert_persisted_snapshot_if_latest_identity(accepted_before_identity, after)",
         ),
         "SQL DDL publication must condition accepted-after storage on the binding-time accepted identity without version synthesis",
@@ -1752,7 +1755,11 @@ fn schema_store_publication_stays_version_passive() {
         "first-contact schema reconciliation must publish the proposal-produced snapshot without version synthesis",
     );
 
-    for (label, source) in [("store", store), ("reconcile", reconcile)] {
+    for (label, source) in [
+        ("store", store),
+        ("reconcile", reconcile),
+        ("sql_ddl_reconcile", sql_ddl_reconcile),
+    ] {
         let compact = compact_source(&source);
         assert!(
             !source.contains("next_schema")
@@ -2931,7 +2938,10 @@ fn storage_capability_policy_roots_do_not_branch_on_concrete_storage_modes() {
         "src/db/commit",
         "src/db/diagnostics",
     ];
-    let checked_files = ["src/db/schema/reconcile.rs"];
+    let checked_files = [
+        "src/db/schema/reconcile.rs",
+        "src/db/schema/reconcile/sql_ddl.rs",
+    ];
     let allowed_storage_mode_files = [
         "src/db/diagnostics/storage_report.rs",
         "src/db/diagnostics/model.rs",

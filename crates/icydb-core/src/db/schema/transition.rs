@@ -3,25 +3,29 @@
 //! Does not own: startup reconciliation orchestration or schema-store persistence.
 //! Boundary: decides whether one accepted snapshot may become another.
 
-use crate::{
-    db::{
-        codec::hex::encode_hex_lower,
-        commit::CommitSchemaFingerprint,
-        data::decode_runtime_value_from_accepted_field_contract,
-        schema::{
-            AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationPreflight,
-            MutationPublicationStatus, PersistedFieldSnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
-            SchemaMutationExecutionPlan, SchemaMutationRequest, SchemaMutationRunnerContract,
-            SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
-            SchemaVersion, accepted_schema_admission_fingerprint,
-            accepted_schema_admission_fingerprint_method_version,
-            schema_mutation_request_for_snapshots,
-        },
-    },
-    error::InternalError,
-    value::Value,
+mod admission;
+mod compatibility;
+
+use crate::db::schema::{
+    FieldId, MutationPlan, MutationPublicationPreflight, MutationPublicationStatus,
+    PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+    SchemaMutationExecutionPlan, SchemaMutationRequest, SchemaMutationRunnerContract,
+    SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
+    schema_mutation_request_for_snapshots,
 };
+
+pub(in crate::db::schema) use admission::{
+    SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
+    SchemaAdmissionRejectionReason, schema_admission_rejection,
+};
+use compatibility::{
+    accepted_snapshot_extends_generated_indexes,
+    accepted_snapshot_extends_generated_with_ddl_fields,
+    field_has_supported_missing_absence_policy, generated_index_names_only_changed,
+};
+
+#[cfg(test)]
+use admission::classify_schema_admission_rejection;
 
 ///
 /// SchemaTransitionDecision
@@ -37,209 +41,6 @@ use crate::{
 pub(in crate::db::schema) enum SchemaTransitionDecision {
     Accepted(SchemaTransitionPlan),
     Rejected(SchemaTransitionRejection),
-}
-
-///
-/// SchemaAdmissionIdentity
-///
-/// SchemaAdmissionIdentity is the 0.177 version/method/fingerprint tuple that
-/// schema-owned admission compares before mutation compatibility may publish a
-/// changed accepted shape. Query hot paths consume already accepted identity
-/// and must not build this candidate tuple.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaAdmissionIdentity {
-    schema_version: SchemaVersion,
-    fingerprint_method_version: u8,
-    schema_fingerprint: CommitSchemaFingerprint,
-}
-
-impl SchemaAdmissionIdentity {
-    fn from_snapshot(snapshot: &PersistedSchemaSnapshot) -> Result<Self, InternalError> {
-        Ok(Self {
-            schema_version: snapshot.version(),
-            fingerprint_method_version: accepted_schema_admission_fingerprint_method_version(),
-            schema_fingerprint: accepted_schema_admission_fingerprint(snapshot)?,
-        })
-    }
-}
-
-///
-/// SchemaAdmissionIdentityComparison
-///
-/// Pairs stored and candidate admission identity. Enforcement remains separate
-/// so 0.177 can land identity preparation before changing transition policy.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaAdmissionIdentityComparison {
-    stored: SchemaAdmissionIdentity,
-    candidate: SchemaAdmissionIdentity,
-}
-
-impl SchemaAdmissionIdentityComparison {
-    pub(in crate::db::schema) fn from_snapshots(
-        stored: &PersistedSchemaSnapshot,
-        candidate: &PersistedSchemaSnapshot,
-    ) -> Result<Self, InternalError> {
-        Ok(Self {
-            stored: SchemaAdmissionIdentity::from_snapshot(stored)?,
-            candidate: SchemaAdmissionIdentity::from_snapshot(candidate)?,
-        })
-    }
-}
-
-///
-/// SchemaAdmissionRejectionReason
-///
-/// SchemaAdmissionRejectionReason is the schema-version admission reason before
-/// it is rendered into user-facing diagnostic text. Keeping this structured
-/// lets policy tests prove the matrix without matching formatted errors.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum SchemaAdmissionRejectionReason {
-    EmptyVersionBump,
-    FingerprintMethodMismatch,
-    MissingVersionBump,
-    VersionGap,
-    VersionRollback,
-}
-
-impl SchemaAdmissionRejectionReason {
-    const fn detail(self) -> &'static str {
-        match self {
-            Self::EmptyVersionBump => "schema_version bumped without schema shape change",
-            Self::FingerprintMethodMismatch => "schema fingerprint method changed",
-            Self::MissingVersionBump => "schema changed without schema_version bump",
-            Self::VersionGap => "schema_version jumped",
-            Self::VersionRollback => "schema_version moved backwards",
-        }
-    }
-}
-
-///
-/// SchemaAdmissionRejectionClassification
-///
-/// SchemaAdmissionRejectionClassification is the structured admission-matrix
-/// decision used before final transition rejection formatting.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaAdmissionRejectionClassification {
-    reason: SchemaAdmissionRejectionReason,
-    expected_next: Option<u32>,
-}
-
-impl SchemaAdmissionRejectionClassification {
-    const fn new(reason: SchemaAdmissionRejectionReason, expected_next: Option<u32>) -> Self {
-        Self {
-            reason,
-            expected_next,
-        }
-    }
-
-    pub(in crate::db::schema) const fn reason(self) -> SchemaAdmissionRejectionReason {
-        self.reason
-    }
-
-    pub(in crate::db::schema) const fn expected_next(self) -> Option<u32> {
-        self.expected_next
-    }
-}
-
-// Apply the 0.177 version/method/fingerprint gate before mutation compatibility
-// classification. Passing this gate only admits a candidate to compatibility
-// checks; it does not publish the candidate snapshot by itself.
-pub(in crate::db::schema) fn schema_admission_rejection(
-    comparison: SchemaAdmissionIdentityComparison,
-) -> Option<SchemaTransitionRejection> {
-    let classification = classify_schema_admission_rejection(comparison)?;
-    let extra = classification
-        .expected_next
-        .map(|expected_next| format!("expected_next={expected_next}"));
-
-    Some(SchemaTransitionRejection::new(
-        SchemaTransitionRejectionKind::SchemaVersion,
-        schema_admission_rejection_detail(classification.reason.detail(), comparison, extra),
-        Some(classification),
-    ))
-}
-
-fn classify_schema_admission_rejection(
-    comparison: SchemaAdmissionIdentityComparison,
-) -> Option<SchemaAdmissionRejectionClassification> {
-    if comparison.stored.fingerprint_method_version
-        != comparison.candidate.fingerprint_method_version
-    {
-        return Some(SchemaAdmissionRejectionClassification::new(
-            SchemaAdmissionRejectionReason::FingerprintMethodMismatch,
-            None,
-        ));
-    }
-
-    let stored_version = comparison.stored.schema_version.get();
-    let candidate_version = comparison.candidate.schema_version.get();
-    let same_fingerprint =
-        comparison.stored.schema_fingerprint == comparison.candidate.schema_fingerprint;
-
-    if candidate_version < stored_version {
-        return Some(SchemaAdmissionRejectionClassification::new(
-            SchemaAdmissionRejectionReason::VersionRollback,
-            None,
-        ));
-    }
-
-    if stored_version == candidate_version {
-        return (!same_fingerprint).then(|| {
-            SchemaAdmissionRejectionClassification::new(
-                SchemaAdmissionRejectionReason::MissingVersionBump,
-                None,
-            )
-        });
-    }
-
-    if same_fingerprint {
-        return Some(SchemaAdmissionRejectionClassification::new(
-            SchemaAdmissionRejectionReason::EmptyVersionBump,
-            None,
-        ));
-    }
-
-    let expected_next = stored_version.saturating_add(1);
-    if candidate_version == expected_next {
-        None
-    } else {
-        Some(SchemaAdmissionRejectionClassification::new(
-            SchemaAdmissionRejectionReason::VersionGap,
-            Some(expected_next),
-        ))
-    }
-}
-
-fn schema_admission_rejection_detail(
-    reason: &'static str,
-    comparison: SchemaAdmissionIdentityComparison,
-    extra: Option<String>,
-) -> String {
-    let facts = schema_admission_identity_facts(comparison);
-    match extra {
-        Some(extra) => format!("{reason}: {facts} {extra}"),
-        None => format!("{reason}: {facts}"),
-    }
-}
-
-fn schema_admission_identity_facts(comparison: SchemaAdmissionIdentityComparison) -> String {
-    format!(
-        "stored_version={} candidate_version={} stored_method={} candidate_method={} stored_fingerprint={} candidate_fingerprint={}",
-        comparison.stored.schema_version.get(),
-        comparison.candidate.schema_version.get(),
-        comparison.stored.fingerprint_method_version,
-        comparison.candidate.fingerprint_method_version,
-        encode_hex_lower(&comparison.stored.schema_fingerprint),
-        encode_hex_lower(&comparison.candidate.schema_fingerprint),
-    )
 }
 
 ///
@@ -388,7 +189,7 @@ pub(in crate::db::schema) struct SchemaTransitionRejection {
 impl SchemaTransitionRejection {
     // Build one transition rejection from the first schema mismatch detail
     // produced by the diagnostic comparison helpers below.
-    const fn new(
+    pub(super) const fn new(
         kind: SchemaTransitionRejectionKind,
         detail: String,
         admission: Option<SchemaAdmissionRejectionClassification>,
@@ -493,237 +294,6 @@ pub(in crate::db::schema) fn decide_schema_transition(
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
 
     SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail, None))
-}
-
-// Generated index names are diagnostic/catalog metadata; physical index keys
-// are addressed by stable ordinal. This admits hard-cut generated-name changes
-// while preserving extra accepted DDL indexes, but only when every durable
-// generated index contract other than `name` is unchanged.
-fn generated_index_names_only_changed(
-    actual: &PersistedSchemaSnapshot,
-    expected: &PersistedSchemaSnapshot,
-) -> bool {
-    if actual == expected {
-        return false;
-    }
-    if actual.version() != expected.version()
-        || actual.entity_path() != expected.entity_path()
-        || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || !active_row_layout_matches(actual, expected)
-        || actual.fields() != expected.fields()
-    {
-        return false;
-    }
-
-    let mut renamed = false;
-    for expected_index in expected.indexes() {
-        let Some(actual_index) = actual
-            .indexes()
-            .iter()
-            .find(|index| index.ordinal() == expected_index.ordinal())
-        else {
-            return false;
-        };
-        if !index_contract_matches_ignoring_name(actual_index, expected_index) {
-            return false;
-        }
-        renamed |= actual_index.name() != expected_index.name();
-    }
-
-    renamed
-        && actual
-            .indexes()
-            .iter()
-            .filter(|index| {
-                !expected
-                    .indexes()
-                    .iter()
-                    .any(|expected_index| expected_index.ordinal() == index.ordinal())
-            })
-            .all(is_supported_extra_accepted_index)
-}
-
-fn index_contract_matches_ignoring_name(
-    actual: &PersistedIndexSnapshot,
-    expected: &PersistedIndexSnapshot,
-) -> bool {
-    actual.ordinal() == expected.ordinal()
-        && actual.store() == expected.store()
-        && actual.unique() == expected.unique()
-        && actual.key() == expected.key()
-        && actual.predicate_sql() == expected.predicate_sql()
-}
-
-// Accepted schema remains the authority after SQL DDL publishes an index that
-// generated metadata does not declare. Treat those snapshots as compatible
-// when all generated facts are still present and every extra accepted index is
-// a supported DDL-published secondary index.
-fn accepted_snapshot_extends_generated_indexes(
-    actual: &PersistedSchemaSnapshot,
-    expected: &PersistedSchemaSnapshot,
-) -> bool {
-    if actual == expected {
-        return false;
-    }
-    if actual.version() < expected.version()
-        || actual.entity_path() != expected.entity_path()
-        || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
-        || actual.row_layout().retired_field_slots() != expected.row_layout().retired_field_slots()
-        || actual.fields() != expected.fields()
-    {
-        return false;
-    }
-    if !expected
-        .indexes()
-        .iter()
-        .all(|index| actual.indexes().contains(index))
-    {
-        return false;
-    }
-
-    let has_ddl_index_extension = actual
-        .indexes()
-        .iter()
-        .any(|index| !expected.indexes().contains(index));
-    has_ddl_index_extension
-        && actual
-            .indexes()
-            .iter()
-            .filter(|index| !expected.indexes().contains(index))
-            .all(is_supported_extra_accepted_index)
-}
-
-// SQL field DDL will publish DDL-owned accepted fields that generated Rust
-// models do not mention. Treat those snapshots as compatible only when all
-// generated field/layout/index facts are still exact prefixes or members, and
-// every extra accepted field is explicitly DDL-owned.
-fn accepted_snapshot_extends_generated_with_ddl_fields(
-    actual: &PersistedSchemaSnapshot,
-    expected: &PersistedSchemaSnapshot,
-) -> bool {
-    if actual == expected {
-        return false;
-    }
-    if actual.version() < expected.version()
-        || actual.entity_path() != expected.entity_path()
-        || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
-        || actual.fields().len() < expected.fields().len()
-        || actual.row_layout().field_to_slot().len() < expected.row_layout().field_to_slot().len()
-    {
-        return false;
-    }
-    if !actual
-        .fields()
-        .iter()
-        .zip(expected.fields())
-        .all(|(actual_field, expected_field)| actual_field == expected_field)
-    {
-        return false;
-    }
-    if !actual
-        .row_layout()
-        .field_to_slot()
-        .iter()
-        .zip(expected.row_layout().field_to_slot())
-        .all(|(actual_pair, expected_pair)| actual_pair == expected_pair)
-    {
-        return false;
-    }
-    if actual.fields()[expected.fields().len()..]
-        .iter()
-        .any(PersistedFieldSnapshot::generated)
-    {
-        return false;
-    }
-    if !expected
-        .row_layout()
-        .retired_field_slots()
-        .iter()
-        .all(|retired| actual.row_layout().retired_field_slots().contains(retired))
-    {
-        return false;
-    }
-    if actual
-        .row_layout()
-        .retired_field_slots()
-        .iter()
-        .filter(|retired| {
-            !expected
-                .row_layout()
-                .retired_field_slots()
-                .contains(retired)
-        })
-        .any(|(field_id, _)| {
-            expected
-                .fields()
-                .iter()
-                .any(|field| field.id() == *field_id)
-        })
-    {
-        return false;
-    }
-    if !expected
-        .indexes()
-        .iter()
-        .all(|index| actual.indexes().contains(index))
-    {
-        return false;
-    }
-
-    let has_ddl_field_extension = actual.fields().len() > expected.fields().len()
-        || actual.row_layout().field_to_slot().len() > expected.row_layout().field_to_slot().len()
-        || actual.row_layout().retired_field_slots() != expected.row_layout().retired_field_slots();
-    has_ddl_field_extension
-        && actual
-            .indexes()
-            .iter()
-            .filter(|index| !expected.indexes().contains(index))
-            .all(is_supported_extra_accepted_index)
-}
-
-fn active_row_layout_matches(
-    actual: &PersistedSchemaSnapshot,
-    expected: &PersistedSchemaSnapshot,
-) -> bool {
-    actual.row_layout().version() == expected.row_layout().version()
-        && actual.row_layout().field_to_slot() == expected.row_layout().field_to_slot()
-}
-
-fn is_supported_extra_accepted_index(index: &PersistedIndexSnapshot) -> bool {
-    SchemaMutationRequest::from_accepted_field_path_index(index).is_ok()
-        || SchemaMutationRequest::from_accepted_expression_index(index).is_ok()
-}
-
-// Decide whether one added field can be absent from older physical rows.
-// Nullable no-default fields materialize as `NULL`; fields with explicit
-// persisted default payloads materialize from that slot payload.
-fn field_has_supported_missing_absence_policy(field: &PersistedFieldSnapshot) -> bool {
-    (field.nullable() && field.default().is_none()) || field_default_payload_is_valid(field)
-}
-
-// Validate one accepted default payload before a schema transition can rely on
-// it for missing-slot materialization. Defaults are persisted bytes, so policy
-// must ask the accepted field-codec boundary to prove the payload is decodable
-// and non-null instead of trusting the schema metadata blindly.
-fn field_default_payload_is_valid(field: &PersistedFieldSnapshot) -> bool {
-    let Some(payload) = field.default().slot_payload() else {
-        return false;
-    };
-
-    let contract = AcceptedFieldDecodeContract::new(
-        field.name(),
-        field.kind(),
-        field.nullable(),
-        field.storage_decode(),
-        field.leaf_codec(),
-    );
-
-    decode_runtime_value_from_accepted_field_contract(contract, payload)
-        .is_ok_and(|value| !matches!(value, Value::Null))
 }
 
 // Return the first human-readable schema difference between the stored

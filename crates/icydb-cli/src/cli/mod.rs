@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueHint};
 
 pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
 const ICP_ENVIRONMENT_ENV: &str = "ICP_ENVIRONMENT";
@@ -31,7 +31,8 @@ pub(crate) struct SqlShellFields {
 #[command(
     name = "icydb",
     about = "Developer CLI tools for IcyDB",
-    long_about = None
+    long_about = None,
+    version
 )]
 pub(crate) struct CliArgs {
     #[command(subcommand)]
@@ -95,19 +96,25 @@ pub(crate) enum CliCommand {
 )]
 pub(crate) struct SqlArgs {
     /// Target ICP canister name.
-    #[arg(short, long, required = true)]
+    #[arg(short, long, value_name = "CANISTER")]
     canister: String,
 
     /// Target icp-cli environment.
-    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, default_value = DEFAULT_ENVIRONMENT)]
+    #[arg(
+        short,
+        long,
+        env = ICP_ENVIRONMENT_ENV,
+        default_value = DEFAULT_ENVIRONMENT,
+        value_name = "ENV"
+    )]
     environment: String,
 
     /// Interactive shell history file.
-    #[arg(long, default_value = SQL_HISTORY_FILE)]
+    #[arg(long, default_value = SQL_HISTORY_FILE, value_hint = ValueHint::FilePath)]
     history_file: PathBuf,
 
     /// Execute one SQL statement, including supported DDL, and exit.
-    #[arg(long, conflicts_with = "trailing_sql")]
+    #[arg(long, conflicts_with = "trailing_sql", value_name = "SQL")]
     sql: Option<String>,
 
     /// SQL statement, including supported DDL, passed without --sql.
@@ -142,7 +149,13 @@ pub(crate) struct CanisterTarget {
     canister: String,
 
     /// Target icp-cli environment.
-    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, default_value = DEFAULT_ENVIRONMENT)]
+    #[arg(
+        short,
+        long,
+        env = ICP_ENVIRONMENT_ENV,
+        default_value = DEFAULT_ENVIRONMENT,
+        value_name = "ENV"
+    )]
     environment: String,
 }
 
@@ -175,7 +188,13 @@ pub(crate) enum SchemaCommand {
 #[derive(Args, Clone, Debug)]
 pub(crate) struct EnvironmentTarget {
     /// Target icp-cli environment.
-    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, default_value = DEFAULT_ENVIRONMENT)]
+    #[arg(
+        short,
+        long,
+        env = ICP_ENVIRONMENT_ENV,
+        default_value = DEFAULT_ENVIRONMENT,
+        value_name = "ENV"
+    )]
     environment: String,
 }
 
@@ -199,7 +218,7 @@ pub(crate) struct MetricsArgs {
     target: CanisterTarget,
 
     /// Only include metrics windows starting at this millisecond timestamp.
-    #[arg(long, conflicts_with = "reset")]
+    #[arg(long, conflicts_with = "reset", value_name = "MILLIS")]
     window_start_ms: Option<u64>,
 
     /// Reset in-memory metrics instead of reading the metrics report.
@@ -250,11 +269,11 @@ pub(crate) enum ConfigCommand {
 #[derive(Args, Clone, Debug)]
 pub(crate) struct ConfigArgs {
     /// Directory to start nearest `icydb.toml` discovery from.
-    #[arg(long)]
+    #[arg(long, value_name = "DIR", value_hint = ValueHint::DirPath)]
     start_dir: Option<PathBuf>,
 
     /// Optional icp-cli environment used for sync checks.
-    #[arg(short, long, env = ICP_ENVIRONMENT_ENV)]
+    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, value_name = "ENV")]
     environment: Option<String>,
 }
 
@@ -277,19 +296,29 @@ impl ConfigArgs {
 ///
 
 #[derive(Args, Clone, Debug)]
+pub(crate) struct ConfigInitArgs {
+    /// Directory used to choose where `icydb.toml` should be written.
+    #[arg(long, value_name = "DIR", value_hint = ValueHint::DirPath)]
+    start_dir: Option<PathBuf>,
+
+    /// Canister whose generated DB endpoint surfaces should be configured.
+    #[arg(short, long, value_name = "CANISTER")]
+    canister: String,
+
+    #[command(flatten)]
+    surfaces: ConfigInitSurfaceArgs,
+
+    /// Replace an existing target config file.
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Args, Clone, Debug)]
 #[expect(
     clippy::struct_excessive_bools,
     reason = "clap flag bags intentionally mirror independent command-line switches"
 )]
-pub(crate) struct ConfigInitArgs {
-    /// Directory used to choose where `icydb.toml` should be written.
-    #[arg(long)]
-    start_dir: Option<PathBuf>,
-
-    /// Canister whose generated DB endpoint surfaces should be configured.
-    #[arg(short, long, required = true)]
-    canister: String,
-
+struct ConfigInitSurfaceArgs {
     /// Also generate the DDL endpoint.
     #[arg(long)]
     ddl: bool,
@@ -321,10 +350,6 @@ pub(crate) struct ConfigInitArgs {
     /// Disable the default readonly SQL endpoint.
     #[arg(long = "no-readonly", action = ArgAction::SetFalse, default_value_t = true)]
     readonly: bool,
-
-    /// Replace an existing target config file.
-    #[arg(long)]
-    force: bool,
 }
 
 impl ConfigInitArgs {
@@ -337,35 +362,61 @@ impl ConfigInitArgs {
     }
 
     pub(crate) const fn readonly(&self) -> bool {
-        self.readonly
+        self.surfaces.readonly
     }
 
     pub(crate) const fn ddl(&self) -> bool {
-        self.surface_enabled(self.ddl)
+        self.surfaces.ddl()
     }
 
     pub(crate) const fn fixtures(&self) -> bool {
-        self.surface_enabled(self.fixtures)
+        self.surfaces.fixtures()
     }
 
     pub(crate) const fn metrics(&self) -> bool {
-        self.surface_enabled(self.metrics)
+        self.surfaces.metrics()
     }
 
     pub(crate) const fn metrics_reset(&self) -> bool {
-        self.surface_enabled(self.metrics_reset)
+        self.surfaces.metrics_reset()
     }
 
     pub(crate) const fn snapshot(&self) -> bool {
-        self.surface_enabled(self.snapshot)
+        self.surfaces.snapshot()
     }
 
     pub(crate) const fn schema(&self) -> bool {
-        self.surface_enabled(self.schema)
+        self.surfaces.schema()
     }
 
     pub(crate) const fn force(&self) -> bool {
         self.force
+    }
+}
+
+impl ConfigInitSurfaceArgs {
+    const fn ddl(&self) -> bool {
+        self.surface_enabled(self.ddl)
+    }
+
+    const fn fixtures(&self) -> bool {
+        self.surface_enabled(self.fixtures)
+    }
+
+    const fn metrics(&self) -> bool {
+        self.surface_enabled(self.metrics)
+    }
+
+    const fn metrics_reset(&self) -> bool {
+        self.surface_enabled(self.metrics_reset)
+    }
+
+    const fn snapshot(&self) -> bool {
+        self.surface_enabled(self.snapshot)
+    }
+
+    const fn schema(&self) -> bool {
+        self.surface_enabled(self.schema)
     }
 
     const fn surface_enabled(&self, enabled: bool) -> bool {
@@ -409,7 +460,7 @@ pub(crate) struct UpgradeArgs {
     target: CanisterTarget,
 
     /// Wasm path to install after build.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH", value_hint = ValueHint::FilePath)]
     wasm: Option<PathBuf>,
 }
 

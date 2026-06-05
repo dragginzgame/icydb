@@ -13,10 +13,10 @@ use crate::{
 use xxhash_rust::xxh3::Xxh3;
 
 /// Value-hash format version byte used by canonical digest encoding.
-pub(crate) const VALUE_HASH_VERSION: u8 = 1;
+const VALUE_HASH_VERSION: u8 = 1;
 
 /// Stable XXH3 seed used by canonical value hashing across upgrades.
-pub(crate) const VALUE_HASH_SEED: u64 = 0;
+const VALUE_HASH_SEED: u64 = 0;
 
 fn feed_i32(h: &mut Xxh3, x: i32) {
     h.update(&x.to_be_bytes());

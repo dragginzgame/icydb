@@ -1,0 +1,6 @@
+operation	constraint	axes_restricted	combinations_removed	evidence
+save	save validation runs before commit publication and relation/index mutation side effects	operation type,recovery mode	2	db::commit::prepare and db::executor::mutation::save_validation
+delete	delete relation validation blocks target deletion before physical remove	operation type,index uniqueness	2	db::executor::reverse_index and db::relation::reverse_index
+load	prepared load cursor resolution splits scalar/grouped before runtime execution	cursor presence,operation type	2	db::executor::pipeline::orchestrator::strategy
+cursor continuation	continuation signature fixes accepted identity and window/order contract	cursor presence,ordering mode	2	db::cursor::{signature,boundary,planned}
+index mutation	schema mutation runner preflight gates publication for physical index work	index uniqueness,recovery mode	2	db::schema::mutation::{execution,runner}

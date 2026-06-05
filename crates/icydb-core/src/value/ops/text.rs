@@ -7,7 +7,7 @@
 use crate::value::{TextMode, Value};
 use std::borrow::Cow;
 
-pub(crate) fn fold_ci(s: &str) -> Cow<'_, str> {
+fn fold_ci(s: &str) -> Cow<'_, str> {
     if s.is_ascii() {
         return Cow::Owned(s.to_ascii_lowercase());
     }
@@ -35,7 +35,7 @@ fn text_op(
     Some(f(&a, &b))
 }
 
-pub(crate) fn ci_key(value: &Value) -> Option<String> {
+fn ci_key(value: &Value) -> Option<String> {
     match value {
         Value::Text(s) => Some(fold_ci(s).into_owned()),
         Value::Ulid(u) => Some(u.to_string().to_ascii_lowercase()),
@@ -45,7 +45,7 @@ pub(crate) fn ci_key(value: &Value) -> Option<String> {
     }
 }
 
-pub(crate) fn eq_ci(left: &Value, right: &Value) -> bool {
+pub(super) fn eq_ci(left: &Value, right: &Value) -> bool {
     if let (Some(left_key), Some(right_key)) = (ci_key(left), ci_key(right)) {
         return left_key == right_key;
     }

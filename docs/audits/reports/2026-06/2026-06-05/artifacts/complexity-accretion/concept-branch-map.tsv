@@ -1,0 +1,135 @@
+concept	module	file	line	site_text
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	129	return Self::path(AccessPath::ByKeys(Vec::new()));
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	503	AccessPath::index_range(TEST_INDEX, vec![Value::Nat64(7)], lower, upper)
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	550	normalize_access_plan_value(AccessPlan::path(AccessPath::ByKeys(vec![key.clone()])));
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	552	assert_eq!(normalized, AccessPlan::path(AccessPath::ByKey(key)));
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	558	normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	568	AccessPlan::path(AccessPath::IndexPrefix {
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	581	normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	591	AccessPlan::path(AccessPath::IndexMultiLookup {
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	607	AccessPlan::path(AccessPath::ByKeys(vec![k2, k1.clone(), k1.clone()])),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	608	AccessPlan::path(AccessPath::ByKeys(vec![k1])),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	622	AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7)))),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	623	AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	627	assert_eq!(normalized, AccessPlan::path(AccessPath::ByKeys(Vec::new())));
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	633	AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7)))),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	634	AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	639	AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	646	AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	647	AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+AccessPath	db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	650	assert_eq!(normalized, AccessPlan::path(AccessPath::ByKeys(Vec::new())));
+AccessPath	db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	325	AccessPath::IndexPrefix { index, values } => {
+AccessPath	db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	334	AccessPath::IndexMultiLookup { index, values } => {
+AccessPath	db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	345	AccessPath::IndexRange { spec } => {
+AccessPath	db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	361	AccessPath::ByKey(_)
+AccessPath	db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	362	| AccessPath::ByKeys(_)
+AccessPath	db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	363	| AccessPath::KeyRange { .. }
+AccessPath	db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	364	| AccessPath::FullScan => {}
+AccessPath	db::access::path	crates/icydb-core/src/db/access/path.rs	740	Self::ByKey(key) => Ok(AccessPath::ByKey(map_key(key)?)),
+AccessPath	db::access::path	crates/icydb-core/src/db/access/path.rs	747	Ok(AccessPath::ByKeys(mapped))
+AccessPath	db::access::path	crates/icydb-core/src/db/access/path.rs	749	Self::KeyRange { start, end } => Ok(AccessPath::KeyRange {
+AccessPath	db::access::path	crates/icydb-core/src/db/access/path.rs	753	Self::IndexPrefix { index, values } => Ok(AccessPath::IndexPrefix { index, values }),
+AccessPath	db::access::path	crates/icydb-core/src/db/access/path.rs	755	Ok(AccessPath::IndexMultiLookup { index, values })
+AccessPath	db::access::path	crates/icydb-core/src/db/access/path.rs	757	Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
+AccessPath	db::access::path	crates/icydb-core/src/db/access/path.rs	758	Self::FullScan => Ok(AccessPath::FullScan),
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	36	Self::path(AccessPath::ByKey(key))
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	42	Self::path(AccessPath::ByKeys(keys))
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	48	Self::path(AccessPath::KeyRange { start, end })
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	57	Self::path(AccessPath::IndexPrefix { index, values })
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	67	Self::path(AccessPath::IndexMultiLookup { index, values })
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	73	Self::path(AccessPath::IndexRange { spec })
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	79	Self::path(AccessPath::FullScan)
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	147	matches!(self, Self::Path(path) if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty()))
+AccessPath	db::access::plan	crates/icydb-core/src/db/access/plan.rs	199	self.as_path().and_then(AccessPath::selected_index_contract)
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	34	ExplainAccessPath::ByKey {
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	40	ExplainAccessPath::ByKeys {
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	46	ExplainAccessPath::KeyRange {
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	59	ExplainAccessPath::IndexPrefix {
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	73	ExplainAccessPath::IndexMultiLookup {
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	89	ExplainAccessPath::IndexRange {
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	100	ExplainAccessPath::FullScan
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	104	ExplainAccessPath::Union(children)
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	108	ExplainAccessPath::Intersection(children)
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	358	explain_access_strategy_label(&ExplainAccessPath::ByKey {
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	364	explain_access_strategy_label(&ExplainAccessPath::Union(vec![
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	365	ExplainAccessPath::FullScan,
+AccessPath	db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	366	ExplainAccessPath::ByKeys {
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	568	ExplainAccessPath::ByKey { .. } => Self::ByKey,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	569	ExplainAccessPath::ByKeys { .. } => Self::ByKeys,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	570	ExplainAccessPath::KeyRange { .. } => Self::KeyRange,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	571	ExplainAccessPath::IndexPrefix { .. } => Self::IndexPrefix,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	572	ExplainAccessPath::IndexMultiLookup { .. } => Self::IndexMultiLookup,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	573	ExplainAccessPath::IndexRange { .. } => Self::IndexRange,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	574	ExplainAccessPath::FullScan => Self::FullScan,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	575	ExplainAccessPath::Union(_) => Self::Union,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	576	ExplainAccessPath::Intersection(_) => Self::Intersection,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	949	ExplainAccessPath::IndexPrefix { name, .. }
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	950	| ExplainAccessPath::IndexMultiLookup { name, .. }
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	951	| ExplainAccessPath::IndexRange { name, .. } => Some(name.as_str()),
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	952	ExplainAccessPath::ByKey { .. }
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	953	| ExplainAccessPath::ByKeys { .. }
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	954	| ExplainAccessPath::KeyRange { .. }
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	955	| ExplainAccessPath::FullScan
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	956	| ExplainAccessPath::Union(_)
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	957	| ExplainAccessPath::Intersection(_) => None,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	963	ExplainAccessPath::ByKey { .. }
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	964	| ExplainAccessPath::ByKeys { .. }
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	965	| ExplainAccessPath::IndexMultiLookup { .. } => 1,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	966	ExplainAccessPath::KeyRange { .. } => 2,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	967	ExplainAccessPath::IndexPrefix { prefix_len, .. } => *prefix_len,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	968	ExplainAccessPath::IndexRange {
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	974	ExplainAccessPath::FullScan => 0,
+AccessPath	db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	975	ExplainAccessPath::Union(children) | ExplainAccessPath::Intersection(children) => {
+AccessPath	db::query::plan::access_plan	crates/icydb-core/src/db/query/plan/access_plan.rs	352	Self::new(AccessPath::<Value>::FullScan, consistency)
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	153	ExplainAccessPath::ByKey { key } => projection.by_key(key),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	154	ExplainAccessPath::ByKeys { keys } => projection.by_keys(keys),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	155	ExplainAccessPath::KeyRange { start, end } => projection.key_range(start, end),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	156	ExplainAccessPath::IndexPrefix {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	162	ExplainAccessPath::IndexMultiLookup {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	167	ExplainAccessPath::IndexRange {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	175	ExplainAccessPath::FullScan => projection.full_scan(),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	176	ExplainAccessPath::Union(children) => {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	185	ExplainAccessPath::Intersection(children) => {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	493	AccessPlan::path(AccessPath::ByKey(1)),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	494	AccessPlan::path(AccessPath::ByKeys(vec![2, 3])),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	495	AccessPlan::path(AccessPath::KeyRange { start: 4, end: 9 }),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	496	AccessPlan::path(AccessPath::IndexPrefix {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	503	AccessPlan::path(AccessPath::IndexMultiLookup {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	510	AccessPlan::path(AccessPath::index_range(
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	517	AccessPlan::path(AccessPath::FullScan),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	518	AccessPlan::path(AccessPath::ByKey(11)),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	650	let access = ExplainAccessPath::Union(vec![
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	651	ExplainAccessPath::ByKey {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	654	ExplainAccessPath::ByKeys {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	657	ExplainAccessPath::KeyRange {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	661	ExplainAccessPath::IndexPrefix {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	667	ExplainAccessPath::IndexMultiLookup {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	672	ExplainAccessPath::IndexRange {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	680	ExplainAccessPath::Intersection(vec![
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	681	ExplainAccessPath::FullScan,
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	682	ExplainAccessPath::ByKey {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	730	explain_access_kind_label(&ExplainAccessPath::ByKey {
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	736	explain_access_kind_label(&ExplainAccessPath::ByKeys { keys: Vec::new() }),
+AccessPath	db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	740	explain_access_kind_label(&ExplainAccessPath::FullScan),
+RouteShape	db::executor::planning::route::contracts::execution::plan	crates/icydb-core/src/db/executor/planning/route/contracts/execution/plan.rs	65	route_shape_kind: RouteShapeKind::AggregateGrouped,
+RouteShape	db::executor::planning::route::contracts::execution::plan	crates/icydb-core/src/db/executor/planning/route/contracts/execution/plan.rs	144	RouteShapeKind::AggregateGrouped => {
+RouteShape	db::executor::planning::route::contracts::execution::plan	crates/icydb-core/src/db/executor/planning/route/contracts/execution/plan.rs	174	RouteShapeKind::LoadScalar
+RouteShape	db::executor::planning::route::contracts::execution::plan	crates/icydb-core/src/db/executor/planning/route/contracts/execution/plan.rs	175	| RouteShapeKind::AggregateCount
+RouteShape	db::executor::planning::route::contracts::execution::plan	crates/icydb-core/src/db/executor/planning/route/contracts/execution/plan.rs	176	| RouteShapeKind::AggregateNonCount
+RouteShape	db::executor::planning::route::contracts::execution::plan	crates/icydb-core/src/db/executor/planning/route/contracts/execution/plan.rs	177	| RouteShapeKind::MutationDelete => None,
+RouteShape	db::executor::planning::route::planner::execution::aggregate_count	crates/icydb-core/src/db/executor/planning/route/planner/execution/aggregate_count.rs	64	route_shape_kind: RouteShapeKind::AggregateCount,
+RouteShape	db::executor::planning::route::planner::execution::aggregate_grouped	crates/icydb-core/src/db/executor/planning/route/planner/execution/aggregate_grouped.rs	29	route_shape_kind: RouteShapeKind::AggregateGrouped,
+RouteShape	db::executor::planning::route::planner::execution::aggregate_non_count	crates/icydb-core/src/db/executor/planning/route/planner/execution/aggregate_non_count.rs	61	route_shape_kind: RouteShapeKind::AggregateNonCount,
+RouteShape	db::executor::planning::route::planner::execution::load_scalar	crates/icydb-core/src/db/executor/planning/route/planner/execution/load_scalar.rs	33	route_shape_kind: RouteShapeKind::LoadScalar,
+RouteShape	db::executor::planning::route::planner::execution	crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs	69	if route_shape_kind == RouteShapeKind::LoadScalar {
+RouteShape	db::executor::planning::route::planner::execution	crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs	71	} else if route_shape_kind == RouteShapeKind::MutationDelete {
+RouteShape	db::executor::planning::route::planner::execution	crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs	78	} else if route_shape_kind == RouteShapeKind::AggregateCount {
+RouteShape	db::executor::planning::route::planner::execution	crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs	83	} else if route_shape_kind == RouteShapeKind::AggregateNonCount {
+RouteShape	db::executor::planning::route::planner::execution	crates/icydb-core/src/db/executor/planning/route/planner/execution/mod.rs	89	} else if route_shape_kind == RouteShapeKind::AggregateGrouped {
+RouteShape	db::executor::planning::route::planner::intent	crates/icydb-core/src/db/executor/planning/route/planner/intent.rs	25	(true, _) => RouteShapeKind::AggregateGrouped,
+RouteShape	db::executor::planning::route::planner::intent	crates/icydb-core/src/db/executor/planning/route/planner/intent.rs	27	RouteShapeKind::AggregateCount
+RouteShape	db::executor::planning::route::planner::intent	crates/icydb-core/src/db/executor/planning/route/planner/intent.rs	29	(false, Some(_)) => RouteShapeKind::AggregateNonCount,
+RouteShape	db::executor::planning::route::planner::intent	crates/icydb-core/src/db/executor/planning/route/planner/intent.rs	30	(false, None) => RouteShapeKind::LoadScalar,
+RouteShape	db::executor::planning::route::planner::intent	crates/icydb-core/src/db/executor/planning/route/planner/intent.rs	57	|| (matches!(stage.route_shape_kind, RouteShapeKind::MutationDelete)
+RouteShape	db::executor::planning::route::planner::intent	crates/icydb-core/src/db/executor/planning/route/planner/intent.rs	73	if !matches!(stage.route_shape_kind, RouteShapeKind::MutationDelete) {
+RouteShape	db::executor::planning::route::planner::intent	crates/icydb-core/src/db/executor/planning/route/planner/intent.rs	148	RouteShapeKind::MutationDelete,

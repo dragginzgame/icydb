@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.179.md](docs/changelog/0.179.md)
 
+- `0.179.1` records the module-structure and complexity-accretion audit pass,
+  then applies owner-local cleanup across SQL statement parsing, schema
+  reconciliation, transition policy, and integrity checks, access-choice
+  evaluation, SQL execution metadata, relation reverse-index helpers, and
+  CLI/value/classifier surfaces while preserving runtime behavior.
+
 - `0.179.0` starts the repeated-audit cleanup line by recording the dry
   consolidation audit and applying owner-local DRY cleanups across schema DDL,
   relation metadata, and SQL result shells without changing runtime behavior.

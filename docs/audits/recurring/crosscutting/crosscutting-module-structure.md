@@ -69,6 +69,43 @@ Do not collapse pressure and violation language in findings.
 
 ---
 
+# STEP 0 - Audit Definition Fitness Check
+
+Before collecting structural evidence, check that this audit definition still
+matches the current repository shape.
+
+Required checks:
+
+* confirm every explicitly named hub/module path in this checklist exists, or
+  record it as stale and replace it with the current owner-equivalent path;
+* compare the latest prior report's pressure areas with current directories so
+  recently split modules are not accidentally rolled back into old hub names;
+* verify that newly introduced owner boundaries are represented in the hub list
+  when they can affect visibility, dependency direction, or structural pressure;
+* classify method changes as metric-changing or evidence-scope-only. Metric
+  formula changes require `non-comparable`; evidence-scope additions with the
+  same formulas may remain comparable with a method note.
+
+Current owner boundaries that must be considered when present:
+
+* SQL DDL family modules: `db/sql/ddl/{admission,field,index,report}.rs`;
+* schema mutation family modules:
+  `db/schema/mutation/{ddl_admission,delta,execution,field,field_allocation,field_default_encoding,field_type,identity,index,index_candidate,runner}.rs`;
+* schema mutation physical families:
+  `db/schema/mutation/{field_path,expression}/`;
+* schema reconciliation publication wrappers: `db/schema/reconcile.rs`;
+* relation metadata, save validation, and reverse-index boundaries:
+  `db/relation/{mod,save_validate,reverse_index}.rs`;
+* SQL execution family modules:
+  `db/session/sql/execute/{mod,explain,global_aggregate,write,write_returning}.rs`.
+
+Produce:
+
+| Check | Status | Evidence | Method Impact |
+| ---- | ---- | ---- | ---- |
+
+---
+
 # STEP 1 - Public Surface Mapping
 
 ## 1A. Crate Root Enumeration
@@ -153,6 +190,10 @@ Evaluate the following subsystems:
 * commit
 * recovery
 * cursor
+* schema/catalog mutation
+* SQL parser/lowering/DDL
+* session SQL execution
+* relation metadata/reverse-index support
 * error
 * facade (icydb)
 
@@ -384,6 +425,9 @@ For each high-coordination hub module present in the current tree, include:
 * `db/sql/ddl/mod.rs` and DDL-family children when SQL DDL is in scope
 * `db/schema/mutation/mod.rs`, schema mutation-family children, and
   `db/schema/reconcile.rs` when schema mutation or DDL work is in scope
+* `db/relation/mod.rs`, `db/relation/save_validate.rs`, and
+  `db/relation/reverse_index.rs` when relation metadata or reverse-index work
+  is in scope
 
 Required for each hub:
 

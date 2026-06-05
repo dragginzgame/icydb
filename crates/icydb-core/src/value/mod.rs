@@ -48,8 +48,8 @@ pub use tag::ValueTag;
 // CONSTANTS
 //
 
-pub(crate) const VALUE_WIRE_TYPE_NAME: &str = "Value";
-pub(crate) const VALUE_WIRE_VARIANT_LABELS: &[&str] = &[
+const VALUE_WIRE_TYPE_NAME: &str = "Value";
+const VALUE_WIRE_VARIANT_LABELS: &[&str] = &[
     "Account",
     "Blob",
     "Bool",
@@ -78,7 +78,7 @@ pub(crate) const VALUE_WIRE_VARIANT_LABELS: &[&str] = &[
 
 // Name and discriminant owner for the stable `Value` serde wire shape.
 #[derive(Clone, Copy)]
-pub(crate) enum ValueWireVariant {
+enum ValueWireVariant {
     Account,
     Blob,
     Bool,
@@ -107,7 +107,7 @@ pub(crate) enum ValueWireVariant {
 
 impl ValueWireVariant {
     // Resolve one stable serde variant label back to its runtime discriminant.
-    pub(crate) fn from_label(label: &str) -> Option<Self> {
+    fn from_label(label: &str) -> Option<Self> {
         match label {
             "Account" => Some(Self::Account),
             "Blob" => Some(Self::Blob),

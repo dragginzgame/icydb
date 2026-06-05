@@ -1,0 +1,6 @@
+signal	present	expected_distortion	handling_rule
+large module moves	yes	0.178/0.179 schema DDL and runner splits move branch sites without equivalent semantic growth	treat positive file/LOC deltas with module-split caveat
+file splits without semantic change	yes	module count rises while root hub pressure falls	classify as structural improvement when thresholds improve
+generated code expansion	no evidence in runtime metrics scope	none observed	no adjustment
+parser/table-driven conversion replacing branch expressions	unknown	could lower branch counts without reducing semantic surface	do not infer correctness from branch count decrease alone
+branch consolidation into helper functions	yes	function hotspots may move out of large roots into owner-local helpers	use owner-boundary issue ledger rather than score-only conclusion

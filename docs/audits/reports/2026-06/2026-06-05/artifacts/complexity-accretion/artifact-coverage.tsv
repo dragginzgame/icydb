@@ -1,0 +1,16 @@
+artifact	status	reason	comparability_impact
+runtime-metrics.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+module-branch-hotspots.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+enum-surface.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+enum-switch-sites.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+function-branch-hotspots.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+concept-branch-summary.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+concept-branch-map.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+flow-constraint-ledger.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+flow-counts.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+semantic-spread.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+ownership-drift.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+concentration-ratios.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+invalidating-signals.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+risk-buckets.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists
+issue-ledger.tsv	PASS	produced for CA-1.4 run	comparable with CA-1.4 where prior evidence exists

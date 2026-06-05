@@ -166,7 +166,7 @@ proptest! {
             "addition result scale must stay on max operand scale"
         );
 
-        if let Some(exact) = lhs.checked_add_impl(rhs) {
+        if let Some(exact) = lhs.checked_add(rhs) {
             prop_assert_eq!(out, exact);
         } else {
             prop_assert!(

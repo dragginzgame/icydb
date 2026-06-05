@@ -19,7 +19,7 @@ use std::str::FromStr;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FieldKindNumericClass {
+enum FieldKindNumericClass {
     Signed64,
     Unsigned64,
     SignedWide,
@@ -39,7 +39,7 @@ pub(crate) enum FieldKindNumericClass {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FieldKindScalarClass {
+enum FieldKindScalarClass {
     Boolean,
     Numeric(FieldKindNumericClass),
     Text,
@@ -56,7 +56,7 @@ pub(crate) enum FieldKindScalarClass {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FieldKindCategory {
+enum FieldKindCategory {
     Scalar(FieldKindScalarClass),
     Relation(FieldKindScalarClass),
     Collection,
@@ -66,7 +66,7 @@ pub(crate) enum FieldKindCategory {
 impl FieldKindCategory {
     /// Return true when this category participates in numeric aggregates.
     #[must_use]
-    pub(crate) const fn supports_aggregate_numeric(self) -> bool {
+    const fn supports_aggregate_numeric(self) -> bool {
         matches!(
             self,
             Self::Scalar(FieldKindScalarClass::Numeric(_))
@@ -76,7 +76,7 @@ impl FieldKindCategory {
 
     /// Return true when this category supports deterministic aggregate ordering.
     #[must_use]
-    pub(crate) const fn supports_aggregate_ordering(self) -> bool {
+    const fn supports_aggregate_ordering(self) -> bool {
         match self {
             Self::Scalar(class) | Self::Relation(class) => scalar_class_supports_ordering(class),
             Self::Collection | Self::Structured { .. } => false,
@@ -85,7 +85,7 @@ impl FieldKindCategory {
 
     /// Return true when this category participates in predicate numeric widening.
     #[must_use]
-    pub(crate) const fn supports_predicate_numeric_widen(self) -> bool {
+    const fn supports_predicate_numeric_widen(self) -> bool {
         matches!(
             self,
             Self::Scalar(FieldKindScalarClass::Numeric(
@@ -119,13 +119,13 @@ pub(crate) struct FieldKindSemantics {
 impl FieldKindSemantics {
     /// Build one runtime model-owned field-kind semantic contract.
     #[must_use]
-    pub(crate) const fn new(category: FieldKindCategory) -> Self {
+    const fn new(category: FieldKindCategory) -> Self {
         Self { category }
     }
 
     /// Return the coarse semantic category for this field kind.
     #[must_use]
-    pub(crate) const fn category(self) -> FieldKindCategory {
+    const fn category(self) -> FieldKindCategory {
         self.category
     }
 

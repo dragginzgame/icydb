@@ -3,6 +3,8 @@
 //! Does not own: planner query semantics or execution routing policies.
 //! Boundary: applies relation reverse-index mutations during commit pathways.
 
+mod target_keys;
+
 use crate::{
     db::{
         Db,
@@ -34,6 +36,8 @@ use crate::{
     types::EntityTag,
 };
 use std::{cell::RefCell, thread::LocalKey};
+
+use target_keys::RelationTargetKeys;
 
 ///
 /// ReverseRelationSourceInfo
@@ -96,43 +100,6 @@ struct ReverseRelationSourceTransition<'row, 'slots> {
     source_row_contract: StructuralRowContract,
     old_row_fields: Option<&'slots StructuralSlotReader<'row>>,
     new_row_fields: Option<&'slots StructuralSlotReader<'row>>,
-}
-
-struct RelationTargetKeys {
-    values: Vec<PrimaryKeyValue>,
-}
-
-impl RelationTargetKeys {
-    const fn none() -> Self {
-        Self { values: Vec::new() }
-    }
-
-    fn one(value: &PrimaryKeyValue) -> Self {
-        Self {
-            values: vec![*value],
-        }
-    }
-
-    const fn from_values(values: Vec<PrimaryKeyValue>) -> Self {
-        Self { values }
-    }
-
-    fn from_scalar_components(components: Vec<PrimaryKeyComponent>) -> Self {
-        Self::from_values(
-            components
-                .into_iter()
-                .map(PrimaryKeyValue::Scalar)
-                .collect(),
-        )
-    }
-
-    fn contains(&self, target_key: &PrimaryKeyValue) -> bool {
-        self.values.iter().any(|key| key == target_key)
-    }
-
-    fn into_values(self) -> Vec<PrimaryKeyValue> {
-        self.values
-    }
 }
 
 #[derive(Clone, Debug)]
