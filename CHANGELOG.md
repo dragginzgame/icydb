@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Narrowed relation facade error constructors and delete-validator hook types
-  to their owning `db`/`relation` modules.
-- Narrowed relation reverse-index target-key construction to its owning
-  helper.
-
 ## [0.179.x] 🧹 - 2026-06-04 - Repeated Audits / Cleanup
 
 Detailed notes: [docs/changelog/0.179.md](docs/changelog/0.179.md)
