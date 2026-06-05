@@ -20,7 +20,7 @@ impl RelationTargetKeys {
         }
     }
 
-    pub(super) const fn from_values(values: Vec<PrimaryKeyValue>) -> Self {
+    const fn from_values(values: Vec<PrimaryKeyValue>) -> Self {
         Self { values }
     }
 
