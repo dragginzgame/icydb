@@ -145,13 +145,8 @@ impl FinalPayloadStrategy {
 // The executor resolves that family once before the final row-shaping pass.
 #[derive(Clone)]
 pub(in crate::db::executor) enum StructuralCursorPayloadStrategy {
-    DataRows {
-        next_cursor: Option<PageCursor>,
-    },
-    #[cfg(feature = "sql")]
-    SlotRows {
-        next_cursor: Option<PageCursor>,
-    },
+    DataRows { next_cursor: Option<PageCursor> },
+    SlotRows { next_cursor: Option<PageCursor> },
 }
 
 impl StructuralCursorPayloadStrategy {}
@@ -162,7 +157,6 @@ pub(in crate::db::executor) const fn select_structural_cursor_payload_strategy(
     retain_slot_rows: bool,
     next_cursor: Option<PageCursor>,
 ) -> StructuralCursorPayloadStrategy {
-    #[cfg(feature = "sql")]
     if retain_slot_rows {
         return StructuralCursorPayloadStrategy::SlotRows { next_cursor };
     }
@@ -248,7 +242,6 @@ pub(in crate::db::executor) fn finalize_structural_cursor_payload(
             collect_structural_data_rows(rows)?,
             next_cursor,
         )),
-        #[cfg(feature = "sql")]
         StructuralCursorPayloadStrategy::SlotRows { next_cursor } => {
             Ok(StructuralCursorPage::new_with_slot_rows(
                 collect_structural_slot_rows(rows)?,

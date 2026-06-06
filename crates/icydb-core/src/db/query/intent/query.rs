@@ -5,9 +5,14 @@
 
 #[cfg(feature = "sql")]
 use crate::db::query::plan::expr::ProjectionSelection;
+#[cfg(any(test, feature = "sql"))]
+use crate::db::{
+    predicate::Predicate,
+    query::plan::{OrderSpec, expr::Expr},
+};
 use crate::{
     db::{
-        predicate::{CompareOp, MissingRowPolicy, Predicate},
+        predicate::{CompareOp, MissingRowPolicy},
         query::{
             builder::AggregateExpr,
             explain::ExplainPlan,
@@ -15,8 +20,8 @@ use crate::{
             expr::OrderTerm as FluentOrderTerm,
             intent::{AccessRequirements, QueryError, QueryModel, RequiredAccessPath},
             plan::{
-                AccessPlannedQuery, LoadSpec, OrderSpec, PreparedScalarPlanningState, QueryMode,
-                VisibleIndexes, expr::Expr,
+                AccessPlannedQuery, LoadSpec, PreparedScalarPlanningState, QueryMode,
+                VisibleIndexes,
             },
         },
         schema::SchemaInfo,
@@ -130,6 +135,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.intent = self.intent.filter_predicate(predicate);
         self
@@ -142,6 +148,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn filter_expr_with_normalized_predicate(
         mut self,
         expr: Expr,
@@ -161,12 +168,14 @@ impl StructuralQuery {
     // internal SQL lowering and parity callers that must preserve one planner
     // expression without routing through the public typed `FilterExpr` surface.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
         self.intent = self.intent.filter_expr(expr);
         self
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.intent = self.intent.order_spec(order);
         self
@@ -259,6 +268,7 @@ impl StructuralQuery {
         self.try_map_intent(|intent| intent.push_having_expr(expr))
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn having_expr_preserving_shape(
         self,
         expr: Expr,

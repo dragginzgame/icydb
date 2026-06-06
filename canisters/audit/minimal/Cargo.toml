@@ -12,8 +12,7 @@ ignored = ["candid", "icydb-testing-audit-minimal-fixtures"]
 crate-type = ["cdylib"]
 
 [features]
-default = ["sql"]
-sql = ["icydb/sql"]
+default = []
 
 [dependencies]
 candid = { workspace = true }

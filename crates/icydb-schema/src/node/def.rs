@@ -4,7 +4,7 @@ use crate::prelude::*;
 // Def
 //
 
-#[derive(CandidType, Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Def {
     module_path: &'static str,
     ident: &'static str,

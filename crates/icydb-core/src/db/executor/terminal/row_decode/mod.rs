@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::data::SlotReader;
 #[cfg(test)]
 use crate::model::field::EnumVariantModel;
 #[cfg(test)]
@@ -14,8 +16,8 @@ use crate::{
     db::{
         data::{
             CanonicalRow, CanonicalSlotReader, DataRow, DecodedDataStoreKey, RawRow,
-            ScalarSlotValueRef, ScalarValueRef, SlotReader, StructuralRowContract,
-            StructuralSlotReader, canonical_row_from_raw_row_with_structural_contract,
+            ScalarSlotValueRef, ScalarValueRef, StructuralRowContract, StructuralSlotReader,
+            canonical_row_from_raw_row_with_structural_contract,
             decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
             decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
         },
@@ -159,7 +161,7 @@ impl RowLayout {
     /// boundary. Composite-key callers use this path so row validation and
     /// primary-key component materialization do not reopen the scalar
     /// scalar-key accessor.
-    #[cfg(feature = "sql")]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn decode_full_value_row_from_data_key_into(
         &self,
         data_key: &DecodedDataStoreKey,

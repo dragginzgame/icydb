@@ -21,9 +21,7 @@ pub use aggregate::{
     AggregateExpr, avg, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
 };
 pub use field::FieldRef;
-pub use numeric_projection::{
-    NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
-};
+pub(in crate::db) use numeric_projection::{NumericProjectionExpr, RoundProjectionExpr};
 pub(crate) use scalar_projection::ScalarProjectionPlan;
 pub use scalar_projection::ValueProjectionExpr;
 pub use text_projection::{

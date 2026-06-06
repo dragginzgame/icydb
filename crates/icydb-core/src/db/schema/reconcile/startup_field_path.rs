@@ -166,6 +166,7 @@ impl SchemaPublicationGate {
         }
     }
 
+    #[cfg(feature = "sql")]
     pub(super) const fn sql_ddl(
         entity_tag: EntityTag,
         accepted_before_identity: AcceptedCatalogIdentity,

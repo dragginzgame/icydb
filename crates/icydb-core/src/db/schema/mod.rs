@@ -30,7 +30,9 @@ pub use describe::{
 };
 pub use errors::ValidateError;
 
-pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities};
+#[cfg(feature = "sql")]
+pub(in crate::db) use capabilities::SqlCapabilities;
+pub(in crate::db) use capabilities::sql_capabilities;
 pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot};
 #[cfg(test)]
 pub(in crate::db) use codec::{
@@ -84,17 +86,16 @@ pub(in crate::db::schema) use mutation::SchemaRebuildAction;
 pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
     MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
-    MutationPublicationStatus, SchemaExpressionIndexRebuildRow, SchemaExpressionIndexStagedEntry,
-    SchemaExpressionIndexStagedRebuild, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
+    MutationPublicationStatus, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
     SchemaFieldPathIndexRunnerFailure, SchemaFieldPathIndexRunnerReport,
     SchemaMutationAcceptedSnapshotPublicationSink, SchemaMutationDeveloperReport,
-    SchemaMutationExecutionPlan, SchemaMutationExecutionStep, SchemaMutationPublishStatus,
-    SchemaMutationRequest, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-    SchemaMutationRunnerInput, SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch,
-    SchemaMutationRuntimeInvalidationSink, SchemaMutationSupportedExecutionPath,
-    SchemaMutationSupportedPathRejection, SchemaMutationValidationStatus,
-    schema_mutation_request_for_snapshots,
+    SchemaMutationExecutionPlan, SchemaMutationPublishStatus, SchemaMutationRequest,
+    SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaMutationRunnerInput,
+    SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch, SchemaMutationRuntimeInvalidationSink,
+    SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
+    SchemaMutationValidationStatus, schema_mutation_request_for_snapshots,
 };
+#[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlFieldAdditionCandidateError,
     SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
@@ -104,14 +105,12 @@ pub(in crate::db) use mutation::{
     SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexExpressionOpIntent,
     SchemaDdlSecondaryIndexFieldPathIntent, SchemaDdlSecondaryIndexKeyCandidateError,
     SchemaDdlSecondaryIndexKeyIntent, SchemaDdlVersionContractPreflightError,
-    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget, SchemaFieldDropTarget,
-    SchemaFieldNullabilityTarget, SchemaFieldPathIndexRebuildKey,
-    SchemaFieldPathIndexRebuildTarget, SchemaFieldRenameTarget,
-    SchemaSecondaryIndexDropCleanupTarget, build_sql_ddl_field_addition_candidate,
-    build_sql_ddl_secondary_index_candidate, derive_sql_ddl_expression_index_accepted_after,
-    derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
-    derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
+    SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
+    SchemaFieldRenameTarget, SchemaSecondaryIndexDropCleanupTarget,
+    build_sql_ddl_field_addition_candidate, build_sql_ddl_secondary_index_candidate,
+    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_addition_accepted_after,
+    derive_sql_ddl_field_default_accepted_after, derive_sql_ddl_field_drop_accepted_after,
+    derive_sql_ddl_field_nullability_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after, encode_sql_ddl_add_column_default,
     encode_sql_ddl_alter_column_default, resolve_sql_ddl_field_addition_name_candidate,
@@ -129,21 +128,34 @@ pub(in crate::db) use mutation::{
     admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
     admit_sql_ddl_secondary_index_drop_candidate,
 };
+pub(in crate::db) use mutation::{
+    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
+    SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
+    SchemaFieldPathIndexRebuildTarget,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db::schema) use mutation::{
+    SchemaExpressionIndexRebuildRow, SchemaExpressionIndexStagedEntry,
+    SchemaExpressionIndexStagedRebuild, SchemaMutationExecutionStep,
+};
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
+pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_runtime_schemas};
+#[cfg(feature = "sql")]
 pub(in crate::db) use reconcile::{
-    ensure_accepted_schema_snapshot, execute_sql_ddl_expression_index_addition,
-    execute_sql_ddl_field_addition, execute_sql_ddl_field_default_change,
-    execute_sql_ddl_field_drop, execute_sql_ddl_field_nullability_change,
-    execute_sql_ddl_field_path_index_addition, execute_sql_ddl_field_rename,
-    execute_sql_ddl_secondary_index_drop, reconcile_runtime_schemas,
+    execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
+    execute_sql_ddl_field_default_change, execute_sql_ddl_field_drop,
+    execute_sql_ddl_field_nullability_change, execute_sql_ddl_field_path_index_addition,
+    execute_sql_ddl_field_rename, execute_sql_ddl_secondary_index_drop,
 };
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeField;
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract,
     AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
-    AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
-    OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
+    AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
+    OwnedAcceptedRelationEdgeContract,
 };
 #[cfg(test)]
 pub(in crate::db) use runtime::{
@@ -171,7 +183,8 @@ pub(in crate::db) use store::{
 pub(in crate::db::schema) use transition::{
     SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
 };
+#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
+pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
+pub(in crate::db) use types::field_type_from_persisted_kind;
 pub(crate) use types::{FieldType, ScalarType, field_type_from_model_kind, literal_matches_type};
-pub(in crate::db) use types::{
-    canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
-};

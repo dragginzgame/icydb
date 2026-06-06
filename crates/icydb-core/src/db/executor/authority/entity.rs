@@ -1,5 +1,15 @@
+#[cfg(any(test, feature = "sql"))]
+use crate::db::query::plan::CoveringReadPlan;
+#[cfg(any(test, feature = "sql"))]
+use crate::db::query::plan::covering_hybrid_projection_plan_with_schema_info;
+#[cfg(feature = "sql")]
+use crate::db::schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot};
 #[cfg(test)]
 use crate::model::field::FieldModel;
+#[cfg(any(test, feature = "sql"))]
+use crate::traits::EntityKind;
+#[cfg(feature = "sql")]
+use crate::traits::Path;
 use crate::{
     db::{
         access::{SemanticIndexRangeSpec, validate_access_runtime_invariants_with_schema},
@@ -8,21 +18,16 @@ use crate::{
         index::IndexKey,
         key_taxonomy::PrimaryKeyValue,
         query::plan::{
-            AccessPlannedQuery, AggregateKind, CoveringReadExecutionPlan, CoveringReadPlan,
-            PlannedContinuationContract, covering_hybrid_projection_plan_with_schema_info,
-            covering_read_execution_plan_with_schema_info,
+            AccessPlannedQuery, AggregateKind, CoveringReadExecutionPlan,
+            PlannedContinuationContract, covering_read_execution_plan_with_schema_info,
         },
-        schema::{
-            AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract,
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo,
-        },
+        schema::{AcceptedGeneratedRowCompatibilityProof, AcceptedRowDecodeContract, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::{
         PreparedShapeFinalizationOutcome, record_prepared_shape_finalization_for_path,
     },
     model::entity::EntityModel,
-    traits::{EntityKind, Path},
     types::EntityTag,
     value::Value,
 };
@@ -77,6 +82,7 @@ impl EntityAuthority {
     /// The generated model remains the compatibility proof input until
     /// accepted snapshots own every index/layout fact directly, but callers get
     /// back only authority with accepted row decode and schema info attached.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn from_accepted_schema_for_type<E>(
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<Self, InternalError>
@@ -348,6 +354,7 @@ impl EntityAuthority {
 
     /// Derive one hybrid covering projection contract through authority-owned schema metadata.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::executor) fn covering_hybrid_projection_plan(
         &self,
         plan: &AccessPlannedQuery,

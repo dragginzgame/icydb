@@ -12,7 +12,8 @@ use crate::{
             shared::{covering_projection_component_indices, decode_hybrid_covering_components},
         },
         executor::{
-            EntityAuthority, apply_offset_limit_window, covering_projection_scan_direction,
+            EntityAuthority, ExecutorPlanError, apply_offset_limit_window,
+            covering_projection_scan_direction,
             resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
         },
     },
@@ -22,7 +23,6 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-#[cfg(feature = "sql")]
 pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
@@ -42,8 +42,15 @@ where
     let component_indices = covering_projection_component_indices(hybrid.fields.as_slice());
     let row_field_slots = hybrid_projection_row_field_slots(hybrid.fields.as_slice());
     let store = db.recovered_store(authority.store_path())?;
-    let lowered_access = lower_access(authority.entity_tag(), &plan.access)
-        .map_err(crate::db::access::LoweredAccessError::into_internal_error)?;
+    let lowered_access =
+        lower_access(authority.entity_tag(), &plan.access).map_err(|err| match err {
+            crate::db::access::LoweredAccessError::IndexPrefix => {
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            }
+            crate::db::access::LoweredAccessError::IndexRange => {
+                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
+            }
+        })?;
     let index_prefix_specs = lowered_access.index_prefix_specs();
     let index_range_specs = lowered_access.index_range_specs();
 
@@ -133,7 +140,6 @@ where
     ))
 }
 
-#[cfg(feature = "sql")]
 fn hybrid_covering_scan_limit(
     order_contract: CoveringProjectionOrder,
     distinct: bool,
@@ -162,7 +168,6 @@ fn hybrid_covering_scan_limit(
         .unwrap_or(usize::MAX)
 }
 
-#[cfg(feature = "sql")]
 fn hybrid_covering_scan_time_page_skip_count(
     order_contract: CoveringProjectionOrder,
     distinct: bool,
@@ -175,7 +180,6 @@ fn hybrid_covering_scan_time_page_skip_count(
     page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
 }
 
-#[cfg(feature = "sql")]
 fn hybrid_covering_scan_time_page_window_applied(
     order_contract: CoveringProjectionOrder,
     distinct: bool,
@@ -188,7 +192,6 @@ fn hybrid_covering_scan_time_page_window_applied(
     page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
 }
 
-#[cfg(feature = "sql")]
 const fn hybrid_covering_route_can_apply_page_during_scan(
     order_contract: CoveringProjectionOrder,
     distinct: bool,
@@ -196,7 +199,6 @@ const fn hybrid_covering_route_can_apply_page_during_scan(
     !distinct && matches!(order_contract, CoveringProjectionOrder::IndexOrder(_))
 }
 
-#[cfg(feature = "sql")]
 fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize> {
     let mut row_field_slots = Vec::with_capacity(fields.len());
 
@@ -214,7 +216,6 @@ fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize>
     row_field_slots
 }
 
-#[cfg(feature = "sql")]
 fn read_hybrid_projection_row_fields_from_store(
     row_layout: RowLayout,
     data_store: &DataStore,
@@ -270,7 +271,6 @@ fn read_hybrid_projection_row_fields_from_store(
     Ok(Some(row_fields))
 }
 
-#[cfg(feature = "sql")]
 fn project_hybrid_covering_row(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
@@ -315,7 +315,6 @@ fn project_hybrid_covering_row(
     Ok(projected)
 }
 
-#[cfg(feature = "sql")]
 fn covering_index_component_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize, usize> {
     let mut counts = BTreeMap::new();
     for field in fields {
@@ -328,7 +327,6 @@ fn covering_index_component_use_counts(fields: &[CoveringReadField]) -> BTreeMap
     counts
 }
 
-#[cfg(feature = "sql")]
 fn covering_row_field_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize, usize> {
     let mut counts = BTreeMap::new();
     for field in fields {
@@ -341,7 +339,6 @@ fn covering_row_field_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize
     counts
 }
 
-#[cfg(feature = "sql")]
 fn take_or_clone_last_covering_value(
     values: &mut BTreeMap<usize, Value>,
     remaining_uses: &mut BTreeMap<usize, usize>,

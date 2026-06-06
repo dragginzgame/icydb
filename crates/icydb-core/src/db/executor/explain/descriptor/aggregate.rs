@@ -87,6 +87,7 @@ pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor(
 // Assemble one canonical scalar aggregate EXPLAIN descriptor from one
 // aggregate shape plus preselected aggregation semantics.
 #[inline(never)]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn assemble_scalar_aggregate_execution_descriptor_with_projection(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,

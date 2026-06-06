@@ -59,6 +59,7 @@ pub(in crate::db) struct PathSpec {
 impl PathSpec {
     /// Build one nested field path from a root field and non-empty path tail.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
         debug_assert!(
             !segments.is_empty(),
@@ -107,6 +108,7 @@ pub(in crate::db) struct FieldPath {
 impl FieldPath {
     /// Build one nested field path from a root field and non-empty path tail.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
         Self {
             path: PathSpec::new(root, segments),
@@ -151,6 +153,7 @@ impl Alias {
 
     /// Borrow the alias as text.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn as_str(&self) -> &str {
         self.0.as_str()
     }
@@ -235,7 +238,13 @@ impl BinaryOp {
 /// expressions.
 /// This intentionally stays limited to the shipped scalar-function surface.
 ///
-
+#[cfg_attr(
+    all(not(test), not(feature = "sql")),
+    expect(
+        dead_code,
+        reason = "SQL parsing constructs the full scalar-function taxonomy; no-default fluent queries use only the shared subset"
+    )
+)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[remain::sorted]
 pub(in crate::db) enum Function {
@@ -685,10 +694,16 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
 /// Canonical planner-owned expression tree for projection semantics.
 /// This model is semantic-only and intentionally excludes execution logic.
 ///
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum Expr {
     Field(FieldId),
+    #[cfg_attr(
+        all(not(test), not(feature = "sql")),
+        expect(
+            dead_code,
+            reason = "nested field-path expressions are constructed by SQL lowering and tests"
+        )
+    )]
     FieldPath(FieldPath),
     Literal(Value),
     FunctionCall {
@@ -727,6 +742,7 @@ impl Expr {
     /// Return true when this planner expression tree still contains any raw
     /// searched `CASE` node after owner-local canonicalization.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn contains_case(&self) -> bool {
         self.any_tree_expr(&mut |expr| matches!(expr, Self::Case { .. }))
     }

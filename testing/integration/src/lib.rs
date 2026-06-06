@@ -96,12 +96,12 @@ impl CanisterWasmProfile {
     }
 }
 
-/// SQL feature mode for fixture canister builds.
+/// Package feature mode for fixture canister builds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanisterSqlMode {
-    /// Build with the default SQL feature set.
+    /// Build with the package default feature set.
     Enabled,
-    /// Build without default SQL features.
+    /// Build without package default features.
     Disabled,
 }
 
@@ -127,7 +127,7 @@ impl CanisterSqlMode {
 pub struct CanisterBuildOptions {
     /// Cargo profile to use for the wasm build.
     pub profile: CanisterWasmProfile,
-    /// Whether default SQL features stay enabled.
+    /// Whether package default features stay enabled.
     pub sql_mode: CanisterSqlMode,
 }
 

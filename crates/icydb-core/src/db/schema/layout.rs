@@ -134,6 +134,7 @@ impl SchemaRowLayout {
     /// Clone this row layout with a new declared schema version while
     /// preserving all active and retired slot allocation facts.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
         Self::new_with_retired_slots(
             version,
@@ -144,6 +145,7 @@ impl SchemaRowLayout {
 
     /// Return the next never-used physical slot index for additive field DDL.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn next_unallocated_slot(&self) -> SchemaFieldSlot {
         let next = self
             .field_to_slot()
@@ -179,6 +181,7 @@ impl SchemaRowLayout {
 
     /// Clone this layout after retiring one active field slot.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_retiring_field(&self, field_id: FieldId) -> Option<Self> {
         let mut field_to_slot = Vec::with_capacity(self.field_to_slot.len().saturating_sub(1));
         let mut retired_field_slots = self.retired_field_slots.clone();

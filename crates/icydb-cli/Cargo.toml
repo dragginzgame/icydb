@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 candid = { workspace = true }
 clap = { workspace = true }
-icydb = { workspace = true }
+icydb = { workspace = true, features = ["sql"] }
 icydb-config-build = { workspace = true }
 rustyline = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

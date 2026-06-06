@@ -21,8 +21,6 @@ use crate::{
     traits::{EntityCreateInput, EntityValue},
     types::Timestamp,
 };
-use candid::CandidType;
-use serde::Deserialize;
 
 // Debug assertions below are diagnostic sentinels; correctness is enforced by
 // runtime validation earlier in the pipeline.
@@ -35,7 +33,7 @@ use serde::Deserialize;
 // Update  : will only change an existing row
 //
 
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default)]
 enum SaveMode {
     #[default]
     Insert,

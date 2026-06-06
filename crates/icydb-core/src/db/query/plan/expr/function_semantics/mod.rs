@@ -7,8 +7,10 @@ mod evaluation;
 mod spec;
 mod types;
 
+#[cfg(feature = "sql")]
+pub(in crate::db) use types::FunctionSurface;
 pub(in crate::db::query::plan::expr) use types::{
     AggregateInputConstantFoldShape, BooleanFunctionShape, FieldPredicateFunctionKind,
     FunctionDeterminism, FunctionTypeInferenceShape, NullTestFunctionKind, ScalarEvalFunctionShape,
 };
-pub(in crate::db) use types::{FunctionSurface, NumericSubtype, TextPredicateFunctionKind};
+pub(in crate::db) use types::{NumericSubtype, TextPredicateFunctionKind};

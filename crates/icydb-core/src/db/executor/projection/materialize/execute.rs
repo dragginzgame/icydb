@@ -36,7 +36,6 @@ use crate::{
     value::Value,
 };
 
-#[cfg(feature = "sql")]
 pub(super) fn project_slot_row(
     prepared_projection: &PreparedProjectionContract,
     row: RetainedSlotRow,
@@ -52,7 +51,6 @@ pub(super) fn project_slot_row(
 // borrowing each completed projected row from a reusable output buffer.
 // DISTINCT keeps using `project_slot_row` because accepted rows can outlive one
 // projection callback.
-#[cfg(feature = "sql")]
 pub(super) fn visit_slot_row_views(
     prepared_projection: &PreparedProjectionContract,
     rows: Vec<RetainedSlotRow>,
@@ -65,7 +63,6 @@ pub(super) fn visit_slot_row_views(
     visit_scalar_slot_row_views(prepared_projection, rows, visit)
 }
 
-#[cfg(feature = "sql")]
 pub(super) fn project_data_row(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,
@@ -98,7 +95,6 @@ pub(super) fn project_data_row(
 // paths while borrowing each completed projected row from a reusable buffer.
 // DISTINCT still uses the single-row owned projector because it may retain
 // accepted rows after the candidate callback returns.
-#[cfg(feature = "sql")]
 pub(super) fn visit_data_row_views(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,
@@ -131,7 +127,6 @@ pub(super) fn visit_data_row_views(
 // identity projections. The reusable decode buffer backs a borrowed `RowView`
 // for exactly one callback, keeping the final owned row allocation at the
 // structural materialization boundary.
-#[cfg(feature = "sql")]
 pub(super) fn visit_identity_data_row_views(
     row_layout: RowLayout,
     rows: &[DataRow],
@@ -152,7 +147,7 @@ pub(super) fn visit_identity_data_row_views(
     Ok(())
 }
 
-#[cfg(all(feature = "sql", test))]
+#[cfg(test)]
 pub(in crate::db::executor::projection) fn count_borrowed_identity_data_row_views_for_test(
     row_layout: RowLayout,
     rows: &[DataRow],
@@ -183,7 +178,7 @@ pub(in crate::db::executor::projection) fn count_borrowed_identity_data_row_view
     Ok(borrowed_rows)
 }
 
-#[cfg(all(feature = "sql", test))]
+#[cfg(test)]
 pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_test(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,
@@ -215,7 +210,7 @@ pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_tes
     Ok(borrowed_rows)
 }
 
-#[cfg(all(feature = "sql", test))]
+#[cfg(test)]
 pub(in crate::db::executor::projection) fn count_borrowed_slot_row_views_for_test(
     prepared_projection: &PreparedProjectionContract,
     rows: Vec<RetainedSlotRow>,
@@ -235,7 +230,6 @@ pub(in crate::db::executor::projection) fn count_borrowed_slot_row_views_for_tes
     Ok(borrowed_rows)
 }
 
-#[cfg(feature = "sql")]
 // Visit one retained slot-row page through the prepared compiled structural
 // projection evaluator while borrowing from a reusable output buffer.
 fn visit_scalar_slot_row_views(
@@ -257,7 +251,6 @@ fn visit_scalar_slot_row_views(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 fn project_slot_row_dense(
     prepared_projection: &PreparedProjectionContract,
     row: &RetainedSlotRow,
@@ -269,7 +262,6 @@ fn project_slot_row_dense(
     Ok(shaped)
 }
 
-#[cfg(feature = "sql")]
 fn project_slot_row_dense_into(
     prepared_projection: &PreparedProjectionContract,
     row: &RetainedSlotRow,
@@ -293,7 +285,6 @@ fn project_slot_row_dense_into(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 fn project_slot_row_direct_octet_lengths_into(
     prepared_projection: &PreparedProjectionContract,
     row: &RetainedSlotRow,
@@ -339,7 +330,6 @@ fn project_slot_row_direct_octet_lengths_into(
     Ok(true)
 }
 
-#[cfg(feature = "sql")]
 fn retained_slot_octet_length_value(value: &Value) -> Result<Value, InternalError> {
     let value = match value {
         Value::Null => Value::Null,
@@ -356,7 +346,6 @@ fn retained_slot_octet_length_value(value: &Value) -> Result<Value, InternalErro
     Ok(value)
 }
 
-#[cfg(feature = "sql")]
 // Visit one retained dense slot-row page through direct field-slot copies only.
 // The row is still consumed so duplicate projected slots preserve the existing
 // `take_slot` missing-field behavior.
@@ -378,7 +367,6 @@ fn visit_direct_slot_row_views(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 fn project_slot_row_from_direct_field_slots(
     row: RetainedSlotRow,
     field_slots: &[(String, usize)],
@@ -389,7 +377,6 @@ fn project_slot_row_from_direct_field_slots(
     Ok(shaped)
 }
 
-#[cfg(feature = "sql")]
 fn project_slot_row_from_direct_field_slots_into(
     mut row: RetainedSlotRow,
     field_slots: &[(String, usize)],
@@ -412,7 +399,6 @@ fn project_slot_row_from_direct_field_slots_into(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 // Visit one raw data-row page through direct field-slot copies only. The
 // reusable projection buffer is consumed before the next row clears it.
 fn visit_direct_data_row_views(
@@ -440,7 +426,6 @@ fn visit_direct_data_row_views(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 fn project_data_row_from_direct_field_slots(
     row_layout: RowLayout,
     row: &DataRow,
@@ -459,7 +444,6 @@ fn project_data_row_from_direct_field_slots(
     Ok(shaped)
 }
 
-#[cfg(feature = "sql")]
 fn project_data_row_from_direct_field_slots_into(
     row_layout: &RowLayout,
     row: &DataRow,
@@ -482,7 +466,6 @@ fn project_data_row_from_direct_field_slots_into(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 fn visit_scalar_data_row_views(
     row_layout: RowLayout,
     compiled_fields: &[CompiledExpr],
@@ -511,7 +494,6 @@ fn visit_scalar_data_row_views(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 fn project_scalar_data_row(
     compiled_fields: &[CompiledExpr],
     row: &DataRow,
@@ -532,7 +514,6 @@ fn project_scalar_data_row(
     Ok(shaped)
 }
 
-#[cfg(feature = "sql")]
 fn project_scalar_data_row_into(
     compiled_fields: &[CompiledExpr],
     (data_key, raw_row): &DataRow,

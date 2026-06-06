@@ -3,14 +3,14 @@
 //! Does not own: logical planning or physical access path lowering policies.
 //! Boundary: key-stream decoration, materialization, and residual retry behavior.
 
+#[cfg(feature = "sql")]
+use crate::db::executor::pipeline::contracts::KernelRowsExecutionAttempt;
 use crate::{
     db::{
         executor::{
             ExecutionPlan, ScalarContinuationContext,
             pipeline::{
-                contracts::{
-                    ExecutionInputs, KernelRowsExecutionAttempt, MaterializedExecutionAttempt,
-                },
+                contracts::{ExecutionInputs, MaterializedExecutionAttempt},
                 runtime::ExecutionAttemptKernel,
             },
             route::{IndexRangeLimitSpec, widened_residual_filter_predicate_pushdown_fetch},
@@ -48,6 +48,7 @@ impl ExecutionKernel {
     }
 
     /// Materialize one load execution attempt into post-access kernel rows.
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn materialize_kernel_rows_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
@@ -269,10 +270,12 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
 /// instead of finalizing an outward structural cursor page.
 ///
 
+#[cfg(feature = "sql")]
 struct KernelRowsResidualRetrySession<'a, 'b, 'c> {
     route_attempt_materializer: &'c RouteAttemptMaterializer<'a, 'b>,
 }
 
+#[cfg(feature = "sql")]
 impl<'a, 'b, 'c> KernelRowsResidualRetrySession<'a, 'b, 'c> {
     // Build one retry-session controller for the scalar aggregate row sink.
     const fn new(route_attempt_materializer: &'c RouteAttemptMaterializer<'a, 'b>) -> Self {
@@ -428,6 +431,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     }
 
     // Materialize one kernel-row attempt for a specific route-plan candidate.
+    #[cfg(feature = "sql")]
     fn materialize_route_attempt_kernel_rows(
         &self,
         route_plan: &ExecutionPlan,
@@ -471,6 +475,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     }
 
     // Materialize the terminal residual-retry fallback route into kernel rows.
+    #[cfg(feature = "sql")]
     fn materialize_unbounded_retry_fallback_kernel_rows(
         &self,
         route_plan: &ExecutionPlan,

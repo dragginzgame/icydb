@@ -13,7 +13,6 @@ use crate::{
     sanitize::SanitizeWriteContext,
     traits::Visitable,
 };
-use candid::CandidType;
 use serde::Deserialize;
 use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
@@ -70,7 +69,7 @@ impl From<VisitorError> for InternalError {
 // may be lifted into an `InternalError` as needed.
 //
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct VisitorIssues(BTreeMap<String, Vec<String>>);
 
 impl VisitorIssues {

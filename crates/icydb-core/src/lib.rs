@@ -5,7 +5,7 @@
 
 //! Core runtime for IcyDB: entity traits, values, executors, visitors, and
 //! the ergonomics exported via the `prelude`.
-#![warn(unreachable_pub)] // too complex to adhere to right now
+#![warn(unreachable_pub)]
 
 extern crate self as icydb;
 

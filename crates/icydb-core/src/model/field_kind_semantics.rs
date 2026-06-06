@@ -185,6 +185,7 @@ pub(crate) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
 ///
 /// This keeps SQL string tokens usable for scalar key types like `Ulid`
 /// without widening text coercion across the general predicate surface.
+#[cfg(any(test, feature = "sql"))]
 #[must_use]
 pub(crate) fn canonicalize_strict_sql_literal_for_kind(
     kind: &FieldKind,
@@ -431,6 +432,7 @@ fn canonicalize_nat_literal(value: &Value, max: u64) -> Option<Value> {
     (value <= max).then_some(Value::Nat64(value))
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_int_strict_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => *inner,
@@ -441,6 +443,7 @@ fn canonicalize_int_strict_literal(value: &Value, min: i64, max: i64) -> Option<
     (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_nat_strict_literal(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u64::try_from(*inner).ok()?,
@@ -454,6 +457,7 @@ fn canonicalize_nat_strict_literal(value: &Value, max: u64) -> Option<Value> {
 // Keep strict SQL literal canonicalization on its original narrow contract:
 // it only upgrades parsed numeric tokens onto exact integer field kinds and
 // adds the explicit text-to-ULID escape hatch that SQL literal syntax needs.
+#[cfg(any(test, feature = "sql"))]
 fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value) -> Option<Value> {
     match kind {
         FieldKind::Relation { key_kind, .. } => {

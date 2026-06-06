@@ -164,6 +164,7 @@ fn maybe_collapse_truth_wrapper_in_bool_context(
 // wrappers are semantically redundant in boolean filter contexts.
 fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
     match scope {
+        #[cfg(any(test, feature = "sql"))]
         TruthWrapperScope::ScalarWhere => TruthAdmission::is_scalar_condition(expr),
         TruthWrapperScope::GroupedHaving => TruthAdmission::is_grouped_condition(expr),
     }

@@ -14,14 +14,15 @@ mod sql;
 mod tests;
 mod write;
 
+#[cfg(feature = "sql")]
+use crate::db::{IndexState, QueryError, query::plan::VisibleIndexes};
 use crate::{
     db::{
         Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
-        FluentLoadQuery, IndexState, IntegrityReport, MissingRowPolicy, PersistedRow, Query,
-        QueryError, StorageReport, StoreCatalogDescription, StoreRegistry, WriteBatchResponse,
+        FluentLoadQuery, IntegrityReport, MissingRowPolicy, PersistedRow, Query, StorageReport,
+        StoreCatalogDescription, StoreRegistry, WriteBatchResponse,
         commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
-        query::plan::VisibleIndexes,
         schema::{
             AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, AcceptedRowDecodeContract,
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaInfo, SchemaVersion,
@@ -50,8 +51,10 @@ pub use query::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
     QueryExecutionAttribution,
 };
+pub(in crate::db) use response::finalize_scalar_paged_execution;
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
-pub(in crate::db) use response::{finalize_scalar_paged_execution, sql_grouped_cursor_from_bytes};
+#[cfg(feature = "sql")]
+pub(in crate::db) use response::sql_grouped_cursor_from_bytes;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
@@ -141,6 +144,7 @@ impl AcceptedSchemaCatalogContext {
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn identity(&self) -> AcceptedCatalogIdentity {
         self.identity
     }
@@ -569,6 +573,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve the exact secondary-index set that is visible to planner-owned
     // query planning for one recovered store and accepted schema pair.
+    #[cfg(feature = "sql")]
     fn visible_indexes_for_store_accepted_schema(
         &self,
         store_path: &str,
@@ -731,6 +736,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Some(context))
     }
 
+    #[cfg(feature = "sql")]
     fn invalidate_accepted_schema_query_cache_for_entity<E>(&self)
     where
         E: EntityKind<Canister = C>,
@@ -783,6 +789,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Derive typed executor authority from an accepted snapshot the caller
     // already loaded, avoiding a second schema-store pass in SQL write/select
     // adapters that need both write descriptors and read selector authority.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn accepted_entity_authority_for_schema<E>(
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<EntityAuthority, InternalError>

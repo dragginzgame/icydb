@@ -9,7 +9,7 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [features]
-default = ["sql"]
+default = []
 sql = ["icydb-core/sql"]
 diagnostics = ["icydb-core/diagnostics"]
 

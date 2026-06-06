@@ -7,7 +7,7 @@ pub mod sql;
 // Public facade-owned response/session surfaces.
 pub use response::{
     ExecutionTrace, GroupedRow, MutationResult, PagedResponse, ProjectedRow, ProjectionResponse,
-    Response,
+    ProjectionRows, Response, RowProjectionOutput,
 };
 pub use session::{
     DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, StructuralPatch,

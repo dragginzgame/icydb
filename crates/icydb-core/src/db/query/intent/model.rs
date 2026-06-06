@@ -3,10 +3,12 @@
 //! Does not own: planner phase orchestration, executor runtime behavior, or execution routing.
 //! Boundary: stores entity-bound query intent consumed by the planner pipeline.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::predicate::{Predicate, normalize};
 use crate::db::query::intent::{StructuralQueryCacheKey, state::GroupedIntent};
 use crate::{
     db::{
-        predicate::{CompareOp, MissingRowPolicy, Predicate, normalize},
+        predicate::{CompareOp, MissingRowPolicy},
         query::{
             builder::aggregate::AggregateExpr,
             expr::{FilterExpr, OrderTerm as FluentOrderTerm},
@@ -189,6 +191,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::query) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.intent.append_predicate(normalize(&predicate));
         self
@@ -212,6 +215,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn filter_expr_with_normalized_predicate(
         mut self,
         expr: Expr,
@@ -232,6 +236,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     /// Set a fully-specified order spec (validated before reaching this boundary).
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::query) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.intent.set_order_spec(order);
         self
@@ -412,6 +417,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     // Append one widened grouped HAVING expression while preserving the
     // caller-owned grouped semantic shape instead of re-running grouped
     // searched-CASE canonicalization at append time.
+    #[cfg(feature = "sql")]
     pub(in crate::db::query::intent) fn push_having_expr_preserving_shape(
         mut self,
         expr: Expr,

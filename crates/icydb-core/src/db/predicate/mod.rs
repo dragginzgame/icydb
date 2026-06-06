@@ -11,8 +11,11 @@ mod membership;
 mod model;
 mod normalize;
 mod parser;
+#[cfg(any(test, feature = "sql"))]
 mod render;
 mod resolved;
+#[cfg(any(test, feature = "sql"))]
+mod rewrite;
 mod row_policy;
 mod runtime;
 mod semantics;
@@ -45,7 +48,10 @@ pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(crate) use parser::parse_sql_predicate;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use render::relabel_sql_predicate_field_root;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use rewrite::rewrite_field_identifiers;
 
 #[cfg(test)]
 pub(in crate::db) use fingerprint::predicate_fingerprint;

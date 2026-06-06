@@ -5,13 +5,15 @@
 
 #[cfg(feature = "sql")]
 use crate::db::executor::projection::MaterializedProjectionRows;
+#[cfg(feature = "sql")]
+use crate::db::executor::saturating_u32_len;
 use crate::{
     db::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, PreparedExecutionPlan,
-            saturating_u32_len, traversal::row_read_consistency_for_plan,
+            traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
@@ -232,7 +234,6 @@ pub(in crate::db::executor::delete) struct PreparedDeleteProjection {
     pub(in crate::db::executor::delete) commit: PreparedDeleteCommit,
 }
 
-#[cfg(feature = "sql")]
 pub(in crate::db::executor::delete) type DeleteCommitApplyFn<C> = fn(
     &crate::db::Db<C>,
     EntityAuthority,

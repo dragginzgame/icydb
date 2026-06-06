@@ -26,10 +26,13 @@ use crate::db::query::plan::expr::canonicalize::{
     case::canonicalize_normalized_bool_case_in_bool_context, truth_admission::TruthWrapperScope,
 };
 
-pub(in crate::db) use normalize::{is_normalized_bool_expr, simplify_bool_expr_constants};
+pub(in crate::db) use normalize::is_normalized_bool_expr;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use normalize::simplify_bool_expr_constants;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use truth_admission::scalar_where_truth_condition_is_admitted;
 pub(in crate::db) use truth_admission::{
-    scalar_where_truth_condition_is_admitted, truth_condition_binary_compare_op,
-    truth_condition_compare_binary_op,
+    truth_condition_binary_compare_op, truth_condition_compare_binary_op,
 };
 
 ///
@@ -92,6 +95,7 @@ pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
 /// Canonicalize one scalar-WHERE boolean expression into the canonical stage
 /// artifact used by downstream predicate subset derivation.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
     let expr = normalize_bool_expr(expr);
     debug_assert!(is_normalized_bool_expr(&expr));
@@ -112,6 +116,7 @@ pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(expr: Expr) ->
 /// searched-`CASE` boolean seam after the shared structural normalization pass
 /// has already settled the planner-owned tree shape.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
     canonicalize_scalar_where_bool_expr_artifact(expr).into_expr()
 }

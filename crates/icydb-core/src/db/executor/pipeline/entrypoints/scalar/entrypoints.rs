@@ -3,14 +3,23 @@
 //! Does not own: scalar route execution loops, aggregate sink kernels, or finalization internals.
 //! Boundary: shapes caller inputs into prepared scalar runtimes and delegates execution.
 
+use crate::db::executor::aggregate::PreparedAggregateStreamingInputs;
+#[cfg(feature = "sql")]
+use crate::db::{
+    executor::{
+        PreparedScalarRuntimeHandoff,
+        pipeline::entrypoints::scalar::streaming::execute_prepared_scalar_kernel_row_sink_execution,
+        terminal::KernelRow,
+    },
+    query::plan::expr::CompiledExpr,
+};
 use crate::{
     db::{
         Db, PersistedRow,
         cursor::ValidatedCursor,
         executor::{
-            EntityAuthority, LoadCursorInput, PreparedLoadPlan, PreparedScalarRuntimeHandoff,
-            ScalarContinuationContext, StoreResolver,
-            aggregate::PreparedAggregateStreamingInputs,
+            EntityAuthority, LoadCursorInput, PreparedLoadPlan, ScalarContinuationContext,
+            StoreResolver,
             pipeline::{
                 contracts::{CursorEmissionMode, CursorPage, LoadExecutor, StructuralCursorPage},
                 entrypoints::scalar::{
@@ -23,15 +32,14 @@ use crate::{
                         ScalarPreparedRuntimeOptions, ScalarProjectionRuntimeMode,
                         ScalarRoutePlanFamily, prepare_scalar_route_runtime_from_inputs,
                     },
-                    streaming::execute_prepared_scalar_kernel_row_sink_execution,
                 },
                 orchestrator::LoadExecutionSurface,
             },
-            terminal::{KernelRow, RowLayout, decode_data_rows_into_cursor_page},
+            terminal::{RowLayout, decode_data_rows_into_cursor_page},
             validate_executor_plan_for_authority,
         },
         predicate::MissingRowPolicy,
-        query::plan::{AccessPlannedQuery, OrderSpec, PageSpec, expr::CompiledExpr},
+        query::plan::{AccessPlannedQuery, OrderSpec, PageSpec},
         registry::StoreHandle,
     },
     error::InternalError,

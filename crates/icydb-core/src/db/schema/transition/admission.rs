@@ -115,10 +115,12 @@ impl SchemaAdmissionRejectionClassification {
         }
     }
 
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) const fn reason(self) -> SchemaAdmissionRejectionReason {
         self.reason
     }
 
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) const fn expected_next(self) -> Option<u32> {
         self.expected_next
     }

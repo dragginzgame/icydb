@@ -23,10 +23,11 @@ use crate::{
             },
         },
         executor::{
-            CoveringProjectionComponentRows, EntityAuthority, OrderedKeyStreamBox,
-            PrimaryRangeKeyStream, apply_offset_limit_window, covering_projection_scan_direction,
-            decode_covering_projection_pairs, decode_single_covering_projection_pairs,
-            map_covering_projection_pairs, reorder_covering_projection_pairs,
+            CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
+            OrderedKeyStreamBox, PrimaryRangeKeyStream, apply_offset_limit_window,
+            covering_projection_scan_direction, decode_covering_projection_pairs,
+            decode_single_covering_projection_pairs, map_covering_projection_pairs,
+            reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
         },
     },
@@ -35,7 +36,6 @@ use crate::{
     value::Value,
 };
 
-#[cfg(feature = "sql")]
 #[expect(clippy::too_many_lines)]
 pub(super) fn try_execute_covering_projection_rows_with_plan_for_canister<C>(
     db: &Db<C>,
@@ -76,8 +76,15 @@ where
 
     let component_indices = covering_projection_component_indices(covering.fields.as_slice());
     let store = db.recovered_store(authority.store_path())?;
-    let lowered_access = lower_access(authority.entity_tag(), &plan.access)
-        .map_err(crate::db::access::LoweredAccessError::into_internal_error)?;
+    let lowered_access =
+        lower_access(authority.entity_tag(), &plan.access).map_err(|err| match err {
+            crate::db::access::LoweredAccessError::IndexPrefix => {
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            }
+            crate::db::access::LoweredAccessError::IndexRange => {
+                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
+            }
+        })?;
     let index_prefix_specs = lowered_access.index_prefix_specs();
     let index_range_specs = lowered_access.index_range_specs();
 
@@ -369,7 +376,6 @@ where
     Ok(Some(projected_rows))
 }
 
-#[cfg(feature = "sql")]
 fn try_execute_primary_store_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
@@ -431,7 +437,6 @@ where
 // stream. This route is admitted only for planner-proven row-present scans over
 // primary-key and constant fields, so there is no row-presence check or reorder
 // step that would require retaining a temporary key vector.
-#[cfg(feature = "sql")]
 fn assemble_primary_store_covering_rows_in_stream_order(
     stream: OrderedKeyStreamBox,
     skip_count: usize,
@@ -467,7 +472,6 @@ fn assemble_primary_store_covering_rows_in_stream_order(
 // rows that survive the scan-time offset. The helper keeps the fallible stream
 // traversal outside the diagnostics wrapper call site while preserving the same
 // projection assembly accounting as other pure covering lanes.
-#[cfg(feature = "sql")]
 fn collect_primary_store_covering_rows_in_stream_order(
     mut stream: OrderedKeyStreamBox,
     skip_count: usize,
@@ -491,7 +495,6 @@ fn collect_primary_store_covering_rows_in_stream_order(
     Ok(projected_rows)
 }
 
-#[cfg(feature = "sql")]
 fn pure_covering_output_capacity_hint(
     page: Option<&PageSpec>,
     page_window_already_applied: bool,
@@ -504,7 +507,6 @@ fn pure_covering_output_capacity_hint(
         .map_or(0, |limit| usize::try_from(limit).unwrap_or(usize::MAX))
 }
 
-#[cfg(feature = "sql")]
 fn primary_store_covering_key_stream<C>(
     db: &Db<C>,
     authority: EntityAuthority,
@@ -549,7 +551,6 @@ where
     Ok(None)
 }
 
-#[cfg(feature = "sql")]
 fn pure_covering_scan_limit(
     order_contract: CoveringProjectionOrder,
     existing_row_mode: CoveringExistingRowMode,
@@ -585,7 +586,6 @@ fn pure_covering_scan_limit(
         .unwrap_or(usize::MAX)
 }
 
-#[cfg(feature = "sql")]
 fn pure_covering_scan_time_page_skip_count(
     order_contract: CoveringProjectionOrder,
     existing_row_mode: CoveringExistingRowMode,
@@ -600,7 +600,6 @@ fn pure_covering_scan_time_page_skip_count(
     page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
 }
 
-#[cfg(feature = "sql")]
 fn pure_covering_scan_time_page_window_applied(
     order_contract: CoveringProjectionOrder,
     existing_row_mode: CoveringExistingRowMode,
@@ -615,7 +614,6 @@ fn pure_covering_scan_time_page_window_applied(
     page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
 }
 
-#[cfg(feature = "sql")]
 fn pure_covering_route_can_apply_page_during_scan(
     order_contract: CoveringProjectionOrder,
     existing_row_mode: CoveringExistingRowMode,
@@ -629,7 +627,6 @@ fn pure_covering_route_can_apply_page_during_scan(
         )
 }
 
-#[cfg(feature = "sql")]
 fn apply_pure_covering_page_window<T>(
     distinct: bool,
     page: Option<&PageSpec>,
@@ -652,7 +649,6 @@ fn apply_pure_covering_page_window<T>(
     apply_offset_limit_window(rows, page.offset, page.limit);
 }
 
-#[cfg(feature = "sql")]
 fn drop_scan_time_covering_offset(
     mut raw_pairs: CoveringProjectionComponentRows,
     skip_count: usize,
@@ -665,7 +661,6 @@ fn drop_scan_time_covering_offset(
     raw_pairs
 }
 
-#[cfg(feature = "sql")]
 fn assemble_covering_rows_in_index_order<I>(
     items: Vec<I>,
     skip_count: usize,
@@ -688,7 +683,6 @@ fn assemble_covering_rows_in_index_order<I>(
     Ok(projected_rows)
 }
 
-#[cfg(feature = "sql")]
 fn assemble_covering_rows_with_reorder<I>(
     items: Vec<I>,
     order_contract: CoveringProjectionOrder,
@@ -712,7 +706,6 @@ fn assemble_covering_rows_with_reorder<I>(
     Ok(strip_covering_projection_keys(projected_rows))
 }
 
-#[cfg(feature = "sql")]
 fn collect_covering_rows_in_index_order<I>(
     items: Vec<I>,
     skip_count: usize,
@@ -730,7 +723,6 @@ fn collect_covering_rows_in_index_order<I>(
     Ok(projected_rows)
 }
 
-#[cfg(feature = "sql")]
 fn collect_covering_row_pairs_for_reorder<I>(
     items: Vec<I>,
     mut build_row: impl FnMut(I) -> Result<(DecodedDataStoreKey, Vec<Value>), InternalError>,
@@ -746,7 +738,6 @@ fn collect_covering_row_pairs_for_reorder<I>(
     Ok(projected_rows)
 }
 
-#[cfg(feature = "sql")]
 fn strip_covering_projection_keys(
     projected_rows: Vec<(DecodedDataStoreKey, Vec<Value>)>,
 ) -> Vec<Vec<Value>> {

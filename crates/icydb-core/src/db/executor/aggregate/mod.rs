@@ -60,13 +60,16 @@ pub(in crate::db::executor) use contracts::{
     CoveringProjectionOrder, EffectiveRuntimeFilterProgram, ExecutionConfig, ExecutionContext,
     Expr, FieldSlot, FoldControl, GlobalDistinctAggregateKind, GroupError,
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
-    OrderDirection, OrderSpec, PageSpec, PlannedProjectionLayout, ProjectionField, ProjectionSpec,
+    OrderDirection, OrderSpec, PageSpec, PlannedProjectionLayout, ProjectionSpec,
     ScalarAggregateEngine, ScalarAggregateOutput, ScalarTerminalKind,
-    admit_true_only_boolean_value, compile_scalar_projection_expr_from_schema,
     constant_covering_projection_value_from_access, eval_builder_expr_for_value_preview,
     execute_scalar_aggregate, execute_scalar_aggregate as execute_aggregate_engine,
     global_distinct_group_spec_for_aggregate_identity,
     plan_covering_index_adjacent_distinct_eligible, plan_covering_index_projection_facts,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use contracts::{
+    ProjectionField, admit_true_only_boolean_value, compile_scalar_projection_expr_from_schema,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDispatch, AggregateFastPathInputs, PreparedAggregateExecutionState,

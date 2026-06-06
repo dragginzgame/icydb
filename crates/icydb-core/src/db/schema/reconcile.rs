@@ -3,7 +3,9 @@
 //! Does not own: row/index recovery, generated model construction, or runtime layout authority.
 //! Boundary: compares generated schema proposals with persisted schema snapshots.
 
+#[cfg(feature = "sql")]
 mod sql_ddl;
+#[cfg(feature = "sql")]
 mod startup_expression;
 mod startup_field_path;
 
@@ -36,6 +38,7 @@ use std::collections::BTreeSet;
 
 use startup_field_path::{SchemaPublicationGate, execute_supported_field_path_index_addition};
 
+#[cfg(feature = "sql")]
 pub(in crate::db) use sql_ddl::{
     execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
     execute_sql_ddl_field_default_change, execute_sql_ddl_field_drop,

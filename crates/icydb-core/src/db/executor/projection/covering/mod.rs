@@ -29,11 +29,9 @@ use self::contracts::{AccessPlannedQuery, CoveringReadExecutionPlan, CoveringRea
 /// consume the projected value matrix for their own response shaping.
 ///
 
-#[cfg(feature = "sql")]
 #[derive(Debug)]
 pub(in crate::db::executor) struct CoveringProjectionRows(Vec<Vec<Value>>);
 
-#[cfg(feature = "sql")]
 impl CoveringProjectionRows {
     /// Construct one covering projection row payload from executor-owned rows.
     pub(super) const fn new(rows: Vec<Vec<Value>>) -> Self {
@@ -92,7 +90,6 @@ impl CoveringProjectionMetricsRecorder {
     }
 }
 
-#[cfg(feature = "sql")]
 pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,

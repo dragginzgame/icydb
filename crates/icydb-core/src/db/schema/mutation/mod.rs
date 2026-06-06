@@ -17,7 +17,9 @@ use crate::error::InternalError;
 use crate::types::EntityTag;
 use std::collections::BTreeMap;
 
+#[cfg(any(test, feature = "sql"))]
 mod field;
+#[cfg(feature = "sql")]
 pub(in crate::db) use field::{
     SchemaDdlFieldDefaultCandidateError, SchemaDdlFieldDropCandidateError,
     SchemaDdlFieldNullabilityCandidateError, SchemaDdlFieldRenameCandidateError,
@@ -36,23 +38,31 @@ pub(in crate::db) use field::{
     admit_sql_ddl_field_rename_candidate,
 };
 
+#[cfg(any(test, feature = "sql"))]
 mod field_allocation;
+#[cfg(feature = "sql")]
 pub(in crate::db) use field_allocation::{
     SchemaDdlFieldAdditionCandidateError, build_sql_ddl_field_addition_candidate,
     resolve_sql_ddl_field_addition_name_candidate,
 };
 
+#[cfg(any(test, feature = "sql"))]
 mod field_default_encoding;
+#[cfg(feature = "sql")]
 pub(in crate::db) use field_default_encoding::{
     encode_sql_ddl_add_column_default, encode_sql_ddl_alter_column_default,
 };
 
+#[cfg(any(test, feature = "sql"))]
 mod field_type;
+#[cfg(feature = "sql")]
 pub(in crate::db) use field_type::{
     SchemaDdlFieldTypeContract, resolve_sql_ddl_field_type_contract,
 };
 
+#[cfg(any(test, feature = "sql"))]
 mod ddl_admission;
+#[cfg(any(test, feature = "sql"))]
 #[cfg_attr(
     not(test),
     expect(
@@ -79,7 +89,9 @@ pub(in crate::db::schema) use delta::{
     SchemaMutationDelta, classify_schema_mutation_delta, schema_mutation_request_for_snapshots,
 };
 
+#[cfg(any(test, feature = "sql"))]
 mod index_candidate;
+#[cfg(feature = "sql")]
 pub(in crate::db) use index_candidate::{
     SchemaDdlSecondaryIndexAdditionCandidate, SchemaDdlSecondaryIndexAdditionCandidateError,
     SchemaDdlSecondaryIndexExpressionIntent, SchemaDdlSecondaryIndexExpressionOpIntent,
@@ -93,14 +105,17 @@ pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
-    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_path_index_accepted_after,
-    derive_sql_ddl_secondary_index_drop_accepted_after,
-    resolve_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(test)]
 pub(in crate::db) use index::{
     admit_sql_ddl_expression_index_candidate, admit_sql_ddl_field_path_index_candidate,
     admit_sql_ddl_secondary_index_drop_candidate,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use index::{
+    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_path_index_accepted_after,
+    derive_sql_ddl_secondary_index_drop_accepted_after,
+    resolve_sql_ddl_secondary_index_drop_candidate,
 };
 
 mod identity;

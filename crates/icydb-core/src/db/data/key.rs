@@ -212,6 +212,7 @@ impl DecodedDataStoreKey {
         self.key.as_runtime_value()
     }
 
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn primary_key_component_runtime_value(
         &self,
         component_index: usize,

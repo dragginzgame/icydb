@@ -31,7 +31,6 @@ use crate::{
 /// selection and row materialization decisions after this boundary.
 ///
 
-#[cfg(feature = "sql")]
 pub(in crate::db) struct StructuralProjectionRequest {
     debug: bool,
     prepared_plan: SharedPreparedExecutionPlan,
@@ -39,7 +38,6 @@ pub(in crate::db) struct StructuralProjectionRequest {
     materialization_metrics: ProjectionMaterializationMetricsRecorder,
 }
 
-#[cfg(feature = "sql")]
 impl StructuralProjectionRequest {
     /// Build one structural projection request from adapter-provided runtime
     /// switches and diagnostic callback bundles.
@@ -66,13 +64,11 @@ impl StructuralProjectionRequest {
 /// until an adapter consumes it for response DTO shaping.
 ///
 
-#[cfg(feature = "sql")]
 #[derive(Debug)]
 pub(in crate::db) struct StructuralProjectionResult {
     rows: MaterializedProjectionRows,
 }
 
-#[cfg(feature = "sql")]
 impl StructuralProjectionResult {
     /// Build one structural projection result from executor-materialized rows.
     const fn new(rows: MaterializedProjectionRows) -> Self {
@@ -94,7 +90,6 @@ impl StructuralProjectionResult {
 
 /// Execute one prepared structural projection request through the executor-owned
 /// projection coordinator.
-#[cfg(feature = "sql")]
 pub(in crate::db) fn execute_structural_projection_result<C>(
     db: &Db<C>,
     request: StructuralProjectionRequest,

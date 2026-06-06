@@ -17,7 +17,6 @@ use crate::{
     error::InternalError,
 };
 
-#[cfg(feature = "sql")]
 pub(in crate::db) fn project(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,

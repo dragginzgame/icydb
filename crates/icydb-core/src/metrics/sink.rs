@@ -727,6 +727,7 @@ pub(crate) fn record_cache_miss_reason_for_path(
 }
 
 /// Record one SQL compile rejection for a command already scoped to an entity.
+#[cfg(feature = "sql")]
 pub(crate) fn record_sql_compile_reject_for_path(
     phase: SqlCompileRejectPhase,
     entity_path: &'static str,

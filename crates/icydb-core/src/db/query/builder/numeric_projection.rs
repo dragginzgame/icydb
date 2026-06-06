@@ -90,6 +90,7 @@ impl NumericProjectionExpr {
     }
 
     // Build one field-plus-literal numeric projection.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn add_value(
         field: impl Into<String>,
         literal: Value,
@@ -98,6 +99,7 @@ impl NumericProjectionExpr {
     }
 
     // Build one field-minus-literal numeric projection.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn sub_value(
         field: impl Into<String>,
         literal: Value,
@@ -106,6 +108,7 @@ impl NumericProjectionExpr {
     }
 
     // Build one field-times-literal numeric projection.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn mul_value(
         field: impl Into<String>,
         literal: Value,
@@ -114,6 +117,7 @@ impl NumericProjectionExpr {
     }
 
     // Build one field-divided-by-literal numeric projection.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn div_value(
         field: impl Into<String>,
         literal: Value,

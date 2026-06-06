@@ -30,7 +30,7 @@ pub struct StoreHandle {
 /// Diagnostic storage mode carried by a runtime storage capability descriptor.
 ///
 /// Policy code should branch on capability axes instead of this display value.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreRuntimeStorageMode {
     /// Durable stable-memory storage.
     #[default]
@@ -168,7 +168,7 @@ impl StoreSchemaMetadataCapability {
 }
 
 /// Strong relation source capability for a store.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreRelationSourceCapability {
     /// Source rows can own durable relation integrity.
     #[default]
@@ -178,7 +178,7 @@ pub enum StoreRelationSourceCapability {
 }
 
 /// Strong relation target capability for a store.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreRelationTargetCapability {
     /// Target rows can be referenced by durable source rows.
     #[default]
@@ -188,7 +188,7 @@ pub enum StoreRelationTargetCapability {
 }
 
 /// Whether the store can participate in live validation.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreLiveValidationCapability {
     /// Live validation is supported.
     #[default]
@@ -198,7 +198,7 @@ pub enum StoreLiveValidationCapability {
 /// Runtime storage capability descriptor carried by one registered store.
 ///
 /// Capabilities describe storage policy. They are not allocation identity.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct StoreRuntimeStorageCapabilities {
     storage_mode: StoreRuntimeStorageMode,
     allocation_identity: StoreAllocationIdentityCapability,

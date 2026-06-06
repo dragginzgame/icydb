@@ -3,18 +3,19 @@
 //! Does not own: row loops, structural page dispatch, or DISTINCT execution.
 //! Boundary: stores planner-derived projection contract for executor-owned consumers.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::executor::projection::materialize::contracts::ProjectionSpec;
+#[cfg(any(test, feature = "sql"))]
+use crate::model::field::{LeafCodec, ScalarCodec};
 use crate::{
     db::{
         executor::projection::eval::{
             ProjectionEvalError, eval_compiled_expr_with_value_ref_reader,
         },
-        executor::projection::materialize::contracts::{
-            AccessPlannedQuery, CompiledExpr, ProjectionSpec,
-        },
+        executor::projection::materialize::contracts::{AccessPlannedQuery, CompiledExpr},
         executor::terminal::RowLayout,
     },
     error::InternalError,
-    model::field::{LeafCodec, ScalarCodec},
     value::Value,
 };
 
@@ -41,14 +42,17 @@ pub(in crate::db) enum PreparedProjectionPlan {
 /// It freezes the canonical projection semantic spec plus the derived direct
 /// slot layouts needed by compiled scalar projection flow.
 ///
-
 #[derive(Debug)]
 pub(in crate::db) struct PreparedProjectionContract {
+    #[cfg(any(test, feature = "sql"))]
     projection: ProjectionSpec,
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
+    #[cfg(any(test, feature = "sql"))]
     retained_slot_direct_projection_field_slots: Option<Vec<(String, usize)>>,
+    #[cfg(any(test, feature = "sql"))]
     retained_slot_direct_octet_length_projection_slots: Vec<Option<usize>>,
+    #[cfg(any(test, feature = "sql"))]
     data_row_direct_projection_field_slots: Option<Vec<(String, usize)>>,
     #[cfg(any(test, feature = "diagnostics"))]
     projected_slot_mask: Vec<bool>,
@@ -56,6 +60,7 @@ pub(in crate::db) struct PreparedProjectionContract {
 
 impl PreparedProjectionContract {
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
         &self.projection
     }
@@ -66,6 +71,7 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn scalar_projection_exprs(&self) -> &[CompiledExpr] {
         let PreparedProjectionPlan::Scalar(compiled_fields) = self.prepared();
 
@@ -78,6 +84,7 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn retained_slot_direct_projection_field_slots(
         &self,
     ) -> Option<&[(String, usize)]> {
@@ -85,6 +92,7 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn retained_slot_direct_octet_length_projection_slots(
         &self,
     ) -> &[Option<usize>] {
@@ -93,6 +101,7 @@ impl PreparedProjectionContract {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn data_row_direct_projection_field_slots(
         &self,
     ) -> Option<&[(String, usize)]> {
@@ -164,6 +173,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     row_layout: &RowLayout,
     plan: &AccessPlannedQuery,
 ) -> PreparedProjectionContract {
+    #[cfg(any(test, feature = "sql"))]
     let projection = plan.frozen_projection_spec().clone();
     let compiled_projection = plan
         .scalar_projection_plan()
@@ -171,16 +181,19 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
             "scalar execution projection contracts must carry one planner-compiled scalar program",
         )
         .to_vec();
+    #[cfg(any(test, feature = "sql"))]
     let retained_slot_direct_projection_field_slots =
         retained_slot_direct_projection_field_slots_from_projection(
             &projection,
             plan.frozen_direct_projection_slots(),
         );
+    #[cfg(any(test, feature = "sql"))]
     let retained_slot_direct_octet_length_projection_slots =
         retained_slot_direct_octet_length_projection_slots_from_compiled(
             row_layout,
             &compiled_projection,
         );
+    #[cfg(any(test, feature = "sql"))]
     let data_row_direct_projection_field_slots =
         data_row_direct_projection_field_slots_from_projection(
             &projection,
@@ -189,13 +202,19 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask =
         projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask());
+    #[cfg(not(any(test, feature = "diagnostics", feature = "sql")))]
+    let _ = row_layout;
 
     PreparedProjectionContract {
+        #[cfg(any(test, feature = "sql"))]
         projection,
         prepared: PreparedProjectionPlan::Scalar(compiled_projection),
         projection_is_model_identity: plan.projection_is_model_identity(),
+        #[cfg(any(test, feature = "sql"))]
         retained_slot_direct_projection_field_slots,
+        #[cfg(any(test, feature = "sql"))]
         retained_slot_direct_octet_length_projection_slots,
+        #[cfg(any(test, feature = "sql"))]
         data_row_direct_projection_field_slots,
         #[cfg(any(test, feature = "diagnostics"))]
         projected_slot_mask,
@@ -225,6 +244,7 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
 // Validate slot availability for FieldPath-bearing expressions without
 // evaluating the expression itself. Nested path evaluation requires raw
 // persisted bytes and remains owned by the canonical projection executor.
+#[cfg(any(test, feature = "sql"))]
 fn retained_slot_direct_projection_field_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
@@ -243,6 +263,7 @@ fn retained_slot_direct_projection_field_slots_from_projection(
     Some(field_slots)
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn data_row_direct_projection_field_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
@@ -264,6 +285,7 @@ fn data_row_direct_projection_field_slots_from_projection(
     Some(field_slots)
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn retained_slot_direct_octet_length_projection_slots_from_compiled(
     row_layout: &RowLayout,
     compiled_projection: &[CompiledExpr],
@@ -286,6 +308,7 @@ fn retained_slot_direct_octet_length_projection_slots_from_compiled(
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bool {
     row_layout
         .contract()

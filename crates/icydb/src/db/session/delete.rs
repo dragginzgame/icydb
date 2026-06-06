@@ -9,8 +9,7 @@ use crate::{
 };
 use icydb_core as core;
 
-#[cfg(feature = "sql")]
-use crate::db::{DbSession, sql::SqlQueryRowsOutput};
+use crate::db::{DbSession, response::RowProjectionOutput};
 
 ///
 /// SessionDeleteQuery
@@ -25,8 +24,7 @@ pub struct SessionDeleteQuery<'a, E: Entity> {
 }
 
 // Fluent delete returning selection kept private so the public surface only
-// exposes the query wrapper types and the shared SQL-style row payload.
-#[cfg(feature = "sql")]
+// exposes the query wrapper types and the shared row projection payload.
 #[derive(Clone, Debug)]
 enum DeleteReturningSelection {
     All,
@@ -42,7 +40,6 @@ enum DeleteReturningSelection {
 /// inventing a second row-returning result family.
 ///
 
-#[cfg(feature = "sql")]
 pub struct SessionDeleteReturningQuery<'a, E: Entity> {
     inner: core::db::FluentDeleteQuery<'a, E>,
     selection: DeleteReturningSelection,
@@ -98,7 +95,6 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     }
 
     /// Return every declared field from each deleted row.
-    #[cfg(feature = "sql")]
     #[must_use]
     pub fn returning_all(self) -> SessionDeleteReturningQuery<'a, E> {
         SessionDeleteReturningQuery {
@@ -108,7 +104,6 @@ impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     }
 
     /// Return one explicit field list from each deleted row.
-    #[cfg(feature = "sql")]
     #[must_use]
     pub fn returning<I, S>(self, fields: I) -> SessionDeleteReturningQuery<'a, E>
     where
@@ -179,7 +174,6 @@ impl<E: Entity + SingletonEntity> SessionDeleteQuery<'_, E> {
     }
 }
 
-#[cfg(feature = "sql")]
 impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     // ------------------------------------------------------------------
     // Intent inspection
@@ -225,8 +219,8 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
         Ok(self.inner.plan()?)
     }
 
-    /// Execute this delete and return one SQL-style projection payload.
-    pub fn execute(&self) -> Result<SqlQueryRowsOutput, Error>
+    /// Execute this delete and return one row projection payload.
+    pub fn execute(&self) -> Result<RowProjectionOutput, Error>
     where
         E: Entity,
     {
@@ -239,14 +233,14 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
         // row-returning projection contract requested by the fluent surface.
         match &self.selection {
             DeleteReturningSelection::All => {
-                DbSession::<E::Canister>::sql_query_rows_output_from_entities::<E>(
+                DbSession::<E::Canister>::row_projection_output_from_entities::<E>(
                     E::PATH.to_string(),
                     deleted,
                     None,
                 )
             }
             DeleteReturningSelection::Fields(fields) => {
-                DbSession::<E::Canister>::sql_query_rows_output_from_entities::<E>(
+                DbSession::<E::Canister>::row_projection_output_from_entities::<E>(
                     E::PATH.to_string(),
                     deleted,
                     Some(fields.as_slice()),
@@ -272,7 +266,6 @@ impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     }
 }
 
-#[cfg(feature = "sql")]
 impl<E: Entity + SingletonEntity> SessionDeleteReturningQuery<'_, E> {
     /// Delete the singleton entity and return deleted rows.
     #[must_use]

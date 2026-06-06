@@ -26,7 +26,6 @@ pub(in crate::db::query) use key_access::{
 };
 pub(in crate::db::query) use model::QueryModel;
 pub use query::PlannedQuery;
-#[cfg(feature = "sql")]
 pub(in crate::db) use query::StructuralQuery;
 pub use query::{CompiledQuery, Query};
 pub(in crate::db::query::intent) use state::QueryIntent;

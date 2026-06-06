@@ -1,5 +1,6 @@
 mod paged;
 mod query;
+mod rows;
 mod write;
 
 use crate::{error::Error, traits::EntityKind, types::Id};
@@ -12,6 +13,7 @@ use icydb_core::db::{
 pub use icydb_core::db::{ExecutionTrace, GroupedRow, ProjectedRow};
 pub use paged::{PagedGroupedResponse, PagedResponse};
 pub use query::QueryResponse;
+pub use rows::{ProjectionRows, RowProjectionOutput, render_output_value_text};
 pub use write::*;
 
 ///
@@ -111,7 +113,7 @@ impl<E: EntityKind> Response<E> {
 ///
 /// ProjectionResponse
 ///
-/// Public facade over projection-shaped SQL query results.
+/// Public facade over projection-shaped query results.
 /// Wraps the core projection response and exposes projection-row iteration and
 /// cardinality checks on the facade surface.
 ///

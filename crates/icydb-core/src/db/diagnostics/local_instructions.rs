@@ -6,20 +6,16 @@
 
 /// Read the current local instruction counter for diagnostic phase timing.
 #[must_use]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "wasm diagnostics uses the non-const IC performance counter"
-)]
+#[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
 pub(in crate::db) fn read_local_instruction_counter() -> u64 {
-    #[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
-    {
-        crate::runtime::performance_counter(1)
-    }
+    crate::runtime::performance_counter(1)
+}
 
-    #[cfg(not(all(feature = "diagnostics", target_arch = "wasm32")))]
-    {
-        0
-    }
+/// Read the current local instruction counter for diagnostic phase timing.
+#[must_use]
+#[cfg(not(all(feature = "diagnostics", target_arch = "wasm32")))]
+pub(in crate::db) const fn read_local_instruction_counter() -> u64 {
+    0
 }
 
 /// Measure one caller-owned phase with the shared local instruction counter.

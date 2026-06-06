@@ -3,10 +3,12 @@
 //! Does not own: access-path index selection internals or runtime execution behavior.
 //! Boundary: derives planner-owned execution semantics, shape signatures, and continuation policy.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::predicate::MissingRowPolicy;
 use crate::{
     db::{
         access::{AccessPlan, ExecutableAccessPlan, SemanticIndexKeyItemsRef},
-        predicate::{IndexCompileTarget, MissingRowPolicy, Predicate, PredicateProgram},
+        predicate::{IndexCompileTarget, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
@@ -100,6 +102,7 @@ impl AccessPlannedQuery {
     /// Borrow scalar missing-row consistency without exposing the full scalar
     /// plan to executor owners that only need row-presence policy.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn scalar_consistency(&self) -> MissingRowPolicy {
         self.scalar_plan().consistency
     }
@@ -433,6 +436,7 @@ impl AccessPlannedQuery {
 
     /// Borrow the frozen direct projection slots without reopening model ownership.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn frozen_direct_projection_slots(&self) -> Option<&[usize]> {
         self.static_execution_planning_contract()
             .projection_direct_slots
@@ -441,6 +445,7 @@ impl AccessPlannedQuery {
 
     /// Borrow duplicate-preserving direct projection slots for raw data-row readers.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn frozen_data_row_direct_projection_slots(&self) -> Option<&[usize]> {
         self.static_execution_planning_contract()
             .projection_data_row_direct_slots

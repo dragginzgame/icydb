@@ -83,11 +83,13 @@ pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
-pub use diagnostics::{
-    DataStoreSnapshot, EntitySnapshot, ExecutionAccessPathVariant, ExecutionMetrics,
-    ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, IntegrityReport,
-    IntegrityStoreSnapshot, IntegrityTotals, SchemaStoreSnapshot, StorageReport,
-    StoreSnapshotStorageMode,
+pub use diagnostics::execution_trace::{
+    ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
+    ExecutionTrace,
+};
+pub use diagnostics::model::{
+    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
+    IntegrityTotals, SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
 };
 #[doc(hidden)]
 pub use executor::EntityAuthority;
@@ -123,14 +125,17 @@ pub use predicate::{
 pub use predicate::{
     parse_generated_index_predicate_sql, validate_generated_index_predicate_fields,
 };
+pub use query::builder::numeric_projection::{
+    NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
+};
+pub use query::plan::validate::PlanError;
 pub use query::{
     api::ResponseCardinalityExt,
     builder::{
-        AggregateExpr, FieldRef, NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr,
-        ValueProjectionExpr, add, avg, contains, count, count_by, div, ends_with, exists, first,
-        last, left, length, lower, ltrim, max, max_by, min, min_by, mul, position, replace, right,
-        round, round_expr, rtrim, starts_with, sub, substring, substring_with_length, sum, trim,
-        upper,
+        AggregateExpr, FieldRef, TextProjectionExpr, ValueProjectionExpr, avg, contains, count,
+        count_by, ends_with, exists, first, last, left, length, lower, ltrim, max, max_by, min,
+        min_by, position, replace, right, rtrim, starts_with, substring, substring_with_length,
+        sum, trim, upper,
     },
     explain::{
         ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
@@ -148,7 +153,7 @@ pub use query::{
         AccessRequirementError, AccessRequirementViolation, CompiledQuery, IntentError,
         PlannedQuery, Query, QueryError, QueryExecutionError, RequiredAccessPath,
     },
-    plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
+    plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
     trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
 };
 pub use registry::{

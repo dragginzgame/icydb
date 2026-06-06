@@ -239,10 +239,10 @@ impl PreparedAggregateStreamingInputs<'_> {
     ) -> Result<LoweredAccess<'_, Value>, InternalError> {
         lower_access(self.authority.entity_tag(), &self.logical_plan.access).map_err(
             |err| match err {
-                LoweredAccessError::IndexPrefix(_) => {
+                LoweredAccessError::IndexPrefix => {
                     ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
                 }
-                LoweredAccessError::IndexRange(_) => {
+                LoweredAccessError::IndexRange => {
                     ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
                 }
             },

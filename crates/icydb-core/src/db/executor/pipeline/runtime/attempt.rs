@@ -3,14 +3,16 @@
 //! Does not own: execution-input construction or route planning.
 //! Boundary: executes one already-assembled `ExecutionInputs` snapshot.
 
+#[cfg(feature = "sql")]
+use crate::db::executor::pipeline::contracts::KernelRowsExecutionAttempt;
 use crate::{
     db::{
         executor::{
             ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::{
                 contracts::{
-                    ExecutionInputs, KernelRowsExecutionAttempt, MaterializedExecutionAttempt,
-                    MaterializedExecutionPayload, ResolvedExecutionKeyStream,
+                    ExecutionInputs, MaterializedExecutionAttempt, MaterializedExecutionPayload,
+                    ResolvedExecutionKeyStream,
                 },
                 operators::decorate_resolved_execution_key_stream,
                 runtime::ExecutionMaterializationContract,
@@ -127,6 +129,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     }
 
     /// Materialize one route-plan candidate into post-access scalar kernel rows.
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn materialize_route_attempt_kernel_rows(
         &self,
         route_plan: &ExecutionPlan,

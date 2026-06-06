@@ -1,4 +1,3 @@
-use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt};
 
@@ -7,7 +6,7 @@ use std::{collections::HashMap, fmt};
 // Hierarchical error aggregator used by validation to keep nested context.
 //
 
-#[derive(CandidType, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErrorTree {
     /// Errors at the current level.
     messages: Vec<String>,

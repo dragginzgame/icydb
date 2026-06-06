@@ -43,10 +43,11 @@ pub(in crate::db::executor::prepared_execution_plan) use core::{
     build_prepared_execution_plan_core_with_schema_fingerprint,
     build_prepared_execution_plan_core_with_shared_lowered_access,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use handoff::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use handoff::{
     PreparedAccessPlanHandoff, PreparedAggregateStreamingPlanHandoff,
     PreparedGroupedRuntimeHandoff, PreparedScalarRuntimeHandoff,
-    SharedPreparedProjectionRuntimeHandoff,
 };
 pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
 pub(in crate::db) use shared_plan::SharedPreparedExecutionPlan;

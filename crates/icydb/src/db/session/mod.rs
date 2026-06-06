@@ -4,23 +4,18 @@ pub mod load;
 mod macros;
 
 #[cfg(feature = "sql")]
-use crate::db::sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text};
+use crate::db::sql::SqlQueryResult;
 use crate::{
     db::{
         EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
         MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::QueryResponse,
+        response::{ProjectionRows, QueryResponse, RowProjectionOutput, render_output_value_text},
     },
-    error::Error,
+    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
     traits::{CanisterKind, Entity},
-    value::InputValue,
-};
-#[cfg(feature = "sql")]
-use crate::{
-    error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
-    value::OutputValue,
+    value::{InputValue, OutputValue},
 };
 use icydb_core as core;
 
@@ -148,18 +143,14 @@ pub struct DbSession<C: CanisterKind> {
     inner: core::db::DbSession<C>,
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[expect(clippy::missing_const_for_fn)]
+#[cfg(all(feature = "sql", feature = "diagnostics", target_arch = "wasm32"))]
 fn read_sql_response_decode_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        ic_cdk::api::performance_counter(1)
-    }
+    ic_cdk::api::performance_counter(1)
+}
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
+#[cfg(all(feature = "sql", feature = "diagnostics", not(target_arch = "wasm32")))]
+const fn read_sql_response_decode_local_instruction_counter() -> u64 {
+    0
 }
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -360,7 +351,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    #[cfg(feature = "sql")]
     fn projection_selection<E>(
         selected_fields: Option<&[String]>,
     ) -> Result<(Vec<String>, Vec<usize>), Error>
@@ -402,12 +392,11 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    #[cfg(feature = "sql")]
-    pub(crate) fn sql_query_rows_output_from_entities<E>(
+    pub(crate) fn row_projection_output_from_entities<E>(
         entity_name: String,
         entities: Vec<E>,
         selected_fields: Option<&[String]>,
-    ) -> Result<SqlQueryRowsOutput, Error>
+    ) -> Result<RowProjectionOutput, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
@@ -417,7 +406,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (columns, indices) = Self::projection_selection::<E>(selected_fields)?;
         let mut rows = Vec::with_capacity(entities.len());
 
-        // Phase 2: render the selected entity slots into stable SQL-style text
+        // Phase 2: render the selected entity slots into stable row text
         // rows so every row-producing write surface converges on the same
         // outward payload family.
         for entity in entities {
@@ -433,20 +422,19 @@ impl<C: CanisterKind> DbSession<C> {
                         ),
                     )
                 })?;
-                rendered.push(render_value_text(&OutputValue::from(value)));
+                rendered.push(render_output_value_text(&OutputValue::from(value)));
             }
             rows.push(rendered);
         }
 
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
 
-        Ok(SqlQueryRowsOutput::from_projection(
+        Ok(RowProjectionOutput::from_projection(
             entity_name,
-            SqlProjectionRows::new(columns, rows, row_count),
+            ProjectionRows::new(columns, rows, row_count),
         ))
     }
 
-    #[cfg(feature = "sql")]
     fn returning_fields<I, S>(fields: I) -> Vec<String>
     where
         I: IntoIterator<Item = S>,
@@ -458,15 +446,14 @@ impl<C: CanisterKind> DbSession<C> {
             .collect()
     }
 
-    #[cfg(feature = "sql")]
-    fn sql_query_rows_output_from_entity<E>(
+    fn row_projection_output_from_entity<E>(
         entity: E,
         selected_fields: Option<&[String]>,
-    ) -> Result<SqlQueryRowsOutput, Error>
+    ) -> Result<RowProjectionOutput, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
-        Self::sql_query_rows_output_from_entities::<E>(
+        Self::row_projection_output_from_entities::<E>(
             E::PATH.to_string(),
             vec![entity],
             selected_fields,
@@ -601,23 +588,21 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Insert one full entity and return every persisted field.
-    #[cfg(feature = "sql")]
-    pub fn insert_returning_all<E>(&self, entity: E) -> Result<SqlQueryRowsOutput, Error>
+    pub fn insert_returning_all<E>(&self, entity: E) -> Result<RowProjectionOutput, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
         let entity = self.inner.insert(entity)?;
 
-        Self::sql_query_rows_output_from_entity::<E>(entity, None)
+        Self::row_projection_output_from_entity::<E>(entity, None)
     }
 
     /// Insert one full entity and return one explicit field list.
-    #[cfg(feature = "sql")]
     pub fn insert_returning<E, I, S>(
         &self,
         entity: E,
         fields: I,
-    ) -> Result<SqlQueryRowsOutput, Error>
+    ) -> Result<RowProjectionOutput, Error>
     where
         E: crate::traits::EntityFor<C>,
         I: IntoIterator<Item = S>,
@@ -626,7 +611,7 @@ impl<C: CanisterKind> DbSession<C> {
         let entity = self.inner.insert(entity)?;
         let fields = Self::returning_fields(fields);
 
-        Self::sql_query_rows_output_from_entity::<E>(entity, Some(fields.as_slice()))
+        Self::row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
     }
 
     /// Create one authored typed input.
@@ -639,24 +624,22 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Create one authored typed input and return every persisted field.
-    #[cfg(feature = "sql")]
-    pub fn create_returning_all<I>(&self, input: I) -> Result<SqlQueryRowsOutput, Error>
+    pub fn create_returning_all<I>(&self, input: I) -> Result<RowProjectionOutput, Error>
     where
         I: crate::traits::CreateInputFor<C>,
         I::Entity: crate::traits::EntityFor<C>,
     {
         let entity = self.inner.create(input)?;
 
-        Self::sql_query_rows_output_from_entity::<I::Entity>(entity, None)
+        Self::row_projection_output_from_entity::<I::Entity>(entity, None)
     }
 
     /// Create one authored typed input and return one explicit field list.
-    #[cfg(feature = "sql")]
     pub fn create_returning<I, F, S>(
         &self,
         input: I,
         fields: F,
-    ) -> Result<SqlQueryRowsOutput, Error>
+    ) -> Result<RowProjectionOutput, Error>
     where
         I: crate::traits::CreateInputFor<C>,
         I::Entity: crate::traits::EntityFor<C>,
@@ -666,7 +649,7 @@ impl<C: CanisterKind> DbSession<C> {
         let entity = self.inner.create(input)?;
         let fields = Self::returning_fields(fields);
 
-        Self::sql_query_rows_output_from_entity::<I::Entity>(entity, Some(fields.as_slice()))
+        Self::row_projection_output_from_entity::<I::Entity>(entity, Some(fields.as_slice()))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -740,23 +723,21 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Update one full entity and return every persisted field.
-    #[cfg(feature = "sql")]
-    pub fn update_returning_all<E>(&self, entity: E) -> Result<SqlQueryRowsOutput, Error>
+    pub fn update_returning_all<E>(&self, entity: E) -> Result<RowProjectionOutput, Error>
     where
         E: crate::traits::EntityFor<C>,
     {
         let entity = self.inner.update(entity)?;
 
-        Self::sql_query_rows_output_from_entity::<E>(entity, None)
+        Self::row_projection_output_from_entity::<E>(entity, None)
     }
 
     /// Update one full entity and return one explicit field list.
-    #[cfg(feature = "sql")]
     pub fn update_returning<E, I, S>(
         &self,
         entity: E,
         fields: I,
-    ) -> Result<SqlQueryRowsOutput, Error>
+    ) -> Result<RowProjectionOutput, Error>
     where
         E: crate::traits::EntityFor<C>,
         I: IntoIterator<Item = S>,
@@ -765,7 +746,7 @@ impl<C: CanisterKind> DbSession<C> {
         let entity = self.inner.update(entity)?;
         let fields = Self::returning_fields(fields);
 
-        Self::sql_query_rows_output_from_entity::<E>(entity, Some(fields.as_slice()))
+        Self::row_projection_output_from_entity::<E>(entity, Some(fields.as_slice()))
     }
 
     /// Apply one structural mutation under one explicit write-mode contract.

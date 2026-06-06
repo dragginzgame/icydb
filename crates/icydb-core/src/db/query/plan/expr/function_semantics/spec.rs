@@ -1,17 +1,17 @@
-use crate::{
-    db::query::plan::expr::{
-        Expr, Function,
-        function_semantics::types::{
-            AggregateInputConstantFoldShape, BinaryNumericFunctionKind, BooleanFunctionShape,
-            FieldPredicateFunctionKind, FunctionCategory, FunctionDeterminism,
-            FunctionNullBehavior, FunctionSurface, FunctionTypeInferenceShape,
-            LeftRightTextFunctionKind, NullTestFunctionKind, NumericScaleFunctionKind,
-            NumericSubtype, ScalarEvalFunctionShape, TextPredicateFunctionKind,
-            UnaryNumericFunctionKind, UnaryTextFunctionKind,
-        },
+#[cfg(feature = "sql")]
+use crate::db::query::plan::expr::Expr;
+use crate::db::query::plan::expr::{
+    Function,
+    function_semantics::types::{
+        AggregateInputConstantFoldShape, BinaryNumericFunctionKind, BooleanFunctionShape,
+        FieldPredicateFunctionKind, FunctionCategory, FunctionDeterminism, FunctionNullBehavior,
+        FunctionSurface, FunctionTypeInferenceShape, LeftRightTextFunctionKind,
+        NullTestFunctionKind, NumericScaleFunctionKind, NumericSubtype, ScalarEvalFunctionShape,
+        TextPredicateFunctionKind, UnaryNumericFunctionKind, UnaryTextFunctionKind,
     },
-    value::Value,
 };
+#[cfg(feature = "sql")]
+use crate::value::Value;
 
 ///
 /// FunctionSpec
@@ -154,6 +154,7 @@ impl FunctionSpec {
     /// Return whether this function specification is admitted on the given
     /// planner-owned expression surface.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db::query::plan::expr) fn supports_surface(
         self,
         surface: FunctionSurface,
@@ -271,6 +272,7 @@ impl Function {
     /// Return whether this canonical scalar function is admitted on the given
     /// planner-owned expression surface.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn supports_surface(self, surface: FunctionSurface) -> bool {
         self.spec().supports_surface(surface)
     }
@@ -293,6 +295,7 @@ impl Function {
     /// Return one fixed decimal display scale implied by this scalar function
     /// and its planner-frozen arguments, if the function family carries one.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn fixed_decimal_scale(self, args: &[Expr]) -> Option<u32> {
         if !matches!(self, Self::Round | Self::Trunc) {
             return None;

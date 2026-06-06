@@ -754,6 +754,7 @@ impl InternalError {
     /// Construct a query-origin SQL DDL admission error with structured detail.
     #[cold]
     #[inline(never)]
+    #[cfg(feature = "sql")]
     pub(crate) fn query_schema_ddl_admission(
         error: SchemaDdlAdmissionError,
         message: impl Into<String>,

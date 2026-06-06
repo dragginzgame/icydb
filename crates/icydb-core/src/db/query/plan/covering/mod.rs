@@ -299,6 +299,7 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
 /// Derive one planner-owned hybrid direct-field projection plan from accepted
 /// schema authority.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -852,7 +853,13 @@ fn primary_store_covering_access_facts<K>(
 /// This keeps the only real divergence between pure covering and hybrid
 /// covering explicit at the source-classification seam.
 ///
-
+#[cfg_attr(
+    all(not(test), not(feature = "sql")),
+    expect(
+        dead_code,
+        reason = "SQL projection planning constructs hybrid row fallback; no-default fluent projections stay strict-covering only"
+    )
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CoveringProjectionFieldSourcePolicy {
     StrictCovering,

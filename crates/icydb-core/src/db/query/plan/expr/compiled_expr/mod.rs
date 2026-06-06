@@ -389,6 +389,7 @@ impl CompiledExpr {
 
     /// Return whether this compiled expression contains a nested field-path leaf.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn contains_field_path(&self) -> bool {
         match self {
             Self::FieldPath { .. } => true,

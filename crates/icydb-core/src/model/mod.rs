@@ -23,10 +23,11 @@ pub use field::{
     DEFAULT_BIG_INT_MAX_BYTES, EnumVariantModel, FieldDatabaseDefault, FieldInsertGeneration,
     FieldKind, FieldModel, FieldStorageDecode, FieldWriteManagement, RelationStrength,
 };
+#[cfg(any(test, feature = "sql"))]
+pub(crate) use field_kind_semantics::canonicalize_strict_sql_literal_for_kind;
 pub(crate) use field_kind_semantics::{
     canonicalize_filter_literal_for_kind,
-    canonicalize_grouped_having_numeric_literal_for_field_kind,
-    canonicalize_strict_sql_literal_for_kind, classify_field_kind,
+    canonicalize_grouped_having_numeric_literal_for_field_kind, classify_field_kind,
     field_kind_has_identity_group_canonical_form,
 };
 pub use index::{

@@ -8,7 +8,6 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-#[cfg(feature = "sql")]
 pub(super) fn covering_projection_component_indices(fields: &[CoveringReadField]) -> Vec<usize> {
     let mut component_indices = Vec::with_capacity(fields.len());
 
@@ -26,7 +25,6 @@ pub(super) fn covering_projection_component_indices(fields: &[CoveringReadField]
     component_indices
 }
 
-#[cfg(feature = "sql")]
 pub(super) fn project_covering_row_from_decoded_values(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
@@ -75,7 +73,6 @@ pub(super) fn project_covering_row_from_decoded_values(
     Ok(projected)
 }
 
-#[cfg(feature = "sql")]
 pub(super) fn project_covering_row_from_owned_decoded_values(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
@@ -128,7 +125,6 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
     Ok(projected)
 }
 
-#[cfg(feature = "sql")]
 pub(super) fn project_covering_row_from_single_decoded_value(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
@@ -197,7 +193,6 @@ pub(super) fn project_covering_row_from_single_decoded_value(
     Ok(projected)
 }
 
-#[cfg(feature = "sql")]
 fn covering_component_position_use_counts(
     fields: &[CoveringReadField],
     component_indices: &[usize],
@@ -219,7 +214,6 @@ fn covering_component_position_use_counts(
     counts
 }
 
-#[cfg(feature = "sql")]
 fn take_or_clone_last_component_value(
     decoded_values: &mut [Value],
     remaining_component_uses: &mut [usize],
@@ -247,7 +241,6 @@ fn take_or_clone_last_component_value(
         .ok_or_else(|| InternalError::query_executor_invariant(missing_message))
 }
 
-#[cfg(feature = "sql")]
 pub(super) fn decode_hybrid_covering_components(
     component_indices: &[usize],
     components: std::sync::Arc<[Vec<u8>]>,

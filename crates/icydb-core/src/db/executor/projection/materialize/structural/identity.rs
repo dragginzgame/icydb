@@ -20,7 +20,6 @@ use crate::{
 // Materialize model-identity projections straight from the structural scan
 // payload. Raw data-row pages use the dense row decoder and retained-slot pages
 // fall back to direct field movement when another caller still asks for slots.
-#[cfg(feature = "sql")]
 pub(in crate::db::executor::projection::materialize::structural) fn project_identity_page(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,

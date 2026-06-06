@@ -9,13 +9,17 @@
 // All execution paths (scalar, grouped, global) must delegate here.
 // Does NOT handle DISTINCT, grouping, or key-stream semantics.
 
+#[cfg(feature = "sql")]
 use crate::{
     db::numeric::{
         NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked,
-        canonical_value_compare, coerce_numeric_decimal, compare_numeric_or_strict_order,
+        coerce_numeric_decimal,
     },
-    error::InternalError,
     types::Decimal,
+};
+use crate::{
+    db::numeric::{canonical_value_compare, compare_numeric_or_strict_order},
+    error::InternalError,
     value::Value,
 };
 
@@ -27,22 +31,38 @@ use crate::{
 /// responsible for DISTINCT admission, row access, filters, and route-specific
 /// control flow.
 ///
-
 pub(in crate::db::executor::aggregate) enum ValueReducerState {
-    Count { count: u64 },
-    Sum { sum: Option<Decimal>, count: u64 },
-    Avg { sum: Decimal, count: u64 },
-    Min { selected: Option<Value> },
-    Max { selected: Option<Value> },
+    #[cfg(feature = "sql")]
+    Count {
+        count: u64,
+    },
+    #[cfg(feature = "sql")]
+    Sum {
+        sum: Option<Decimal>,
+        count: u64,
+    },
+    #[cfg(feature = "sql")]
+    Avg {
+        sum: Decimal,
+        count: u64,
+    },
+    Min {
+        selected: Option<Value>,
+    },
+    Max {
+        selected: Option<Value>,
+    },
 }
 
 impl ValueReducerState {
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) const fn count() -> Self {
         Self::Count { count: 0 }
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) const fn sum() -> Self {
         Self::Sum {
             sum: None,
@@ -51,6 +71,7 @@ impl ValueReducerState {
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) const fn avg() -> Self {
         Self::Avg {
             sum: Decimal::ZERO,
@@ -73,6 +94,7 @@ impl ValueReducerState {
     /// COUNT ignores NULL, SUM/AVG coerce numeric values, and MIN/MAX compare
     /// with the same numeric-or-strict ordering used by scalar expression
     /// aggregates. Values are cloned only when they become the selected extrema.
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) fn ingest(
         &mut self,
         value: &Value,
@@ -119,7 +141,9 @@ impl ValueReducerState {
         }
 
         match self {
+            #[cfg(feature = "sql")]
             Self::Count { .. } => self.increment_count(),
+            #[cfg(feature = "sql")]
             Self::Sum { .. } | Self::Avg { .. } => {
                 let decimal = coerce_numeric_decimal(&value).ok_or_else(|| {
                     InternalError::query_executor_invariant(format!(
@@ -146,6 +170,7 @@ impl ValueReducerState {
         }
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) fn increment_count(
         &mut self,
     ) -> Result<(), InternalError> {
@@ -160,6 +185,7 @@ impl ValueReducerState {
         }
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) fn ingest_decimal(
         &mut self,
         value: Decimal,
@@ -186,6 +212,13 @@ impl ValueReducerState {
         }
     }
 
+    #[cfg_attr(
+        all(not(test), not(feature = "sql")),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "SQL scalar reducer variants can reject state mismatches; no-default min/max-only builds keep the shared reducer signature stable"
+        )
+    )]
     pub(in crate::db::executor::aggregate) fn ingest_canonical_ordered_owned(
         &mut self,
         value: Value,
@@ -215,6 +248,7 @@ impl ValueReducerState {
 
                 Ok(())
             }
+            #[cfg(feature = "sql")]
             Self::Count { .. } | Self::Sum { .. } | Self::Avg { .. } => {
                 Err(reducer_state_mismatch("MIN/MAX"))
             }
@@ -225,10 +259,18 @@ impl ValueReducerState {
     pub(in crate::db::executor::aggregate) const fn selected(&self) -> Option<&Value> {
         match self {
             Self::Min { selected } | Self::Max { selected } => selected.as_ref(),
+            #[cfg(feature = "sql")]
             Self::Count { .. } | Self::Sum { .. } | Self::Avg { .. } => None,
         }
     }
 
+    #[cfg_attr(
+        all(not(test), not(feature = "sql")),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "SQL scalar reducer variants can fail; no-default min/max-only builds keep the shared reducer signature stable"
+        )
+    )]
     pub(in crate::db::executor::aggregate) fn replace_selected(
         &mut self,
         value: Value,
@@ -238,6 +280,7 @@ impl ValueReducerState {
                 *selected = Some(value);
                 Ok(())
             }
+            #[cfg(feature = "sql")]
             Self::Count { .. } | Self::Sum { .. } | Self::Avg { .. } => {
                 Err(reducer_state_mismatch("MIN/MAX"))
             }
@@ -245,10 +288,20 @@ impl ValueReducerState {
     }
 
     /// Finalize this reducer into the canonical structural aggregate value.
+    #[cfg_attr(
+        all(not(test), not(feature = "sql")),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "SQL scalar reducer variants can fail during AVG finalization; no-default min/max-only builds keep the shared reducer signature stable"
+        )
+    )]
     pub(in crate::db::executor::aggregate) fn finalize(&self) -> Result<Value, InternalError> {
         match self {
+            #[cfg(feature = "sql")]
             Self::Count { count } => Ok(finalize_count(*count)),
+            #[cfg(feature = "sql")]
             Self::Sum { sum, .. } => Ok(sum.map_or(Value::Null, Value::Decimal)),
+            #[cfg(feature = "sql")]
             Self::Avg { sum, count } => {
                 if *count == 0 {
                     return Ok(Value::Null);
@@ -267,6 +320,7 @@ impl ValueReducerState {
     /// Consume this reducer into the canonical structural aggregate value.
     /// This avoids cloning selected extrema when the caller no longer needs
     /// the reducer state after finalization.
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::aggregate) fn into_final_value(
         self,
     ) -> Result<Value, InternalError> {
@@ -328,6 +382,7 @@ fn selected_value_should_replace(
     })
 }
 
+#[cfg(feature = "sql")]
 fn reducer_state_mismatch(kind: &'static str) -> InternalError {
     InternalError::query_executor_invariant(format!(
         "value aggregate reducer {kind} state mismatch"

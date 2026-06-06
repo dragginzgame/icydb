@@ -40,11 +40,13 @@ impl<'a, K> LoweredAccess<'a, K> {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
         self.index_prefix_specs.as_slice()
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn index_range_specs(&self) -> &[LoweredIndexRangeSpec] {
         self.index_range_specs.as_slice()
     }
@@ -74,17 +76,8 @@ impl<'a, K> LoweredAccess<'a, K> {
 
 #[derive(Debug)]
 pub(in crate::db) enum LoweredAccessError {
-    IndexPrefix(InternalError),
-    IndexRange(InternalError),
-}
-
-impl LoweredAccessError {
-    #[must_use]
-    pub(in crate::db) fn into_internal_error(self) -> InternalError {
-        match self {
-            Self::IndexPrefix(err) | Self::IndexRange(err) => err,
-        }
-    }
+    IndexPrefix,
+    IndexRange,
 }
 
 /// Lower one structural access plan into executable and raw index-bound specs.
@@ -329,7 +322,7 @@ fn lower_index_specs_for_path<K>(
                 values,
                 index_prefix_specs,
             )
-            .map_err(LoweredAccessError::IndexPrefix)?;
+            .map_err(|_err| LoweredAccessError::IndexPrefix)?;
         }
         AccessPath::IndexMultiLookup { index, values } => {
             for value in values {
@@ -339,7 +332,7 @@ fn lower_index_specs_for_path<K>(
                     std::slice::from_ref(value),
                     index_prefix_specs,
                 )
-                .map_err(LoweredAccessError::IndexPrefix)?;
+                .map_err(|_err| LoweredAccessError::IndexPrefix)?;
             }
         }
         AccessPath::IndexRange { spec } => {
@@ -355,7 +348,7 @@ fn lower_index_specs_for_path<K>(
                 spec.lower(),
                 spec.upper(),
             )
-            .map_err(LoweredAccessError::IndexRange)?;
+            .map_err(|_err| LoweredAccessError::IndexRange)?;
             index_range_specs.push(LoweredIndexRangeSpec::new(spec.index(), lower, upper));
         }
         AccessPath::ByKey(_)

@@ -58,16 +58,21 @@ pub(in crate::db) use aggregate::{
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::{
     CoveringComponentValues, CoveringProjectionComponentRows, covering_projection_scan_direction,
-    covering_requires_row_presence_check, decode_covering_projection_component,
-    decode_covering_projection_pairs, decode_single_covering_projection_pairs,
-    decode_single_covering_projection_value, map_covering_projection_pairs,
-    reorder_covering_projection_pairs, resolve_covering_projection_components_from_lowered_specs,
+    covering_requires_row_presence_check, decode_single_covering_projection_pairs,
+    decode_single_covering_projection_value, reorder_covering_projection_pairs,
+    resolve_covering_projection_components_from_lowered_specs,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use covering::{
+    decode_covering_projection_component, decode_covering_projection_pairs,
+    map_covering_projection_pairs,
 };
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
 #[cfg(test)]
 pub(in crate::db) use explain::assemble_load_execution_node_descriptor;
+#[cfg(feature = "sql")]
 pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
     freeze_load_execution_route_facts_for_authority,
@@ -80,6 +85,7 @@ pub(in crate::db::executor) use order::{
     compare_orderable_row_with_boundary,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
 pub(in crate::db::executor) use pipeline::contracts::{
@@ -101,10 +107,11 @@ pub(in crate::db::executor) use prepared_execution_plan::BytesByProjectionMode;
 pub use prepared_execution_plan::ExecutionFamily;
 pub(in crate::db) use prepared_execution_plan::PreparedExecutionPlan;
 pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use prepared_execution_plan::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use prepared_execution_plan::{
     PreparedAggregatePlan, PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
-    PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, SharedPreparedProjectionRuntimeHandoff,
-    classify_bytes_by_projection_mode,
+    PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, classify_bytes_by_projection_mode,
 };
 pub(in crate::db::executor) use profiling::{
     ExecutionProfileStats, measure_execution_stats_phase, record_aggregation,
@@ -119,9 +126,12 @@ pub(in crate::db) use projection::project;
 pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use projection::{
     CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use projection::{
     StructuralProjectionRequest, execute_structural_projection_result,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -143,15 +153,16 @@ pub(in crate::db::executor) use runtime_context::{
     sum_row_payload_bytes_full_scan_window_with_store,
     sum_row_payload_bytes_key_range_window_with_store,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
 pub(in crate::db::executor) use stream::access::{
-    ExecutableAccess, IndexScan, PrimaryRangeKeyStream, PrimaryScan, TraversalRuntime,
+    ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
 };
 pub(in crate::db::executor) use stream::key::{
     KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,
     exact_output_key_count_hint, key_stream_budget_is_redundant,
     ordered_key_stream_from_materialized_keys,
 };
-#[cfg(feature = "sql")]
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(feature = "diagnostics")]
 pub use terminal::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};

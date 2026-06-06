@@ -4,9 +4,9 @@
 //! Boundary: DDL metadata relabeling consumes this to avoid text replacement.
 
 use crate::{
-    db::{
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, parse_sql_predicate},
-        sql::identifier::rewrite_field_identifiers,
+    db::predicate::{
+        CoercionId, CompareOp, ComparePredicate, Predicate, parse_sql_predicate,
+        rewrite_field_identifiers,
     },
     value::Value,
 };

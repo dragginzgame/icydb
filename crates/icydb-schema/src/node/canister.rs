@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 /// Canister
 ///
 
-#[derive(CandidType, Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Canister {
     def: Def,
     memory_namespace: &'static str,

@@ -16,8 +16,9 @@ use crate::{
         predicate::canonical_cmp,
         relation::validate_save_strong_relations_with_accepted_contract,
         schema::{
-            AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract, PersistedFieldKind, SchemaInfo,
-            literal_matches_type,
+            AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract, PersistedFieldKind,
+            PersistedFieldKindCategory, PersistedScalarClass, SchemaInfo,
+            classify_persisted_field_kind, literal_matches_type,
         },
     },
     error::InternalError,
@@ -772,39 +773,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 // schema metadata without converting accepted field kinds back into generated
 // model metadata.
 const fn persisted_field_kind_is_queryable(kind: &PersistedFieldKind) -> bool {
-    match kind {
-        PersistedFieldKind::Map { .. } => false,
-        PersistedFieldKind::Structured { queryable } => *queryable,
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Blob { .. }
-        | PersistedFieldKind::Bool
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Decimal { .. }
-        | PersistedFieldKind::Duration
-        | PersistedFieldKind::Enum { .. }
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig { .. }
-        | PersistedFieldKind::List(_)
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Relation { .. }
-        | PersistedFieldKind::Set(_)
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Text { .. }
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig { .. }
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => true,
+    match classify_persisted_field_kind(kind).category() {
+        PersistedFieldKindCategory::Scalar(_) | PersistedFieldKindCategory::Relation(_) => true,
+        PersistedFieldKindCategory::Collection => !matches!(kind, PersistedFieldKind::Map { .. }),
+        PersistedFieldKindCategory::Structured { queryable } => queryable,
     }
 }
 
@@ -812,42 +784,95 @@ const fn persisted_field_kind_is_queryable(kind: &PersistedFieldKind) -> bool {
 // Relation, list/set, and map shapes recurse exactly like generated field
 // validation, but the accepted snapshot remains the kind authority.
 fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) -> bool {
-    match (kind, value) {
-        (PersistedFieldKind::Account, Value::Account(_))
-        | (PersistedFieldKind::Blob { .. }, Value::Blob(_))
-        | (PersistedFieldKind::Bool, Value::Bool(_))
-        | (PersistedFieldKind::Date, Value::Date(_))
-        | (PersistedFieldKind::Decimal { .. }, Value::Decimal(_))
-        | (PersistedFieldKind::Duration, Value::Duration(_))
-        | (PersistedFieldKind::Enum { .. }, Value::Enum(_))
-        | (PersistedFieldKind::Float32, Value::Float32(_))
-        | (PersistedFieldKind::Float64, Value::Float64(_))
-        | (PersistedFieldKind::Int64, Value::Int64(_))
-        | (PersistedFieldKind::Int128, Value::Int128(_))
-        | (PersistedFieldKind::Nat64, Value::Nat64(_))
-        | (PersistedFieldKind::Principal, Value::Principal(_))
-        | (PersistedFieldKind::Subaccount, Value::Subaccount(_))
-        | (PersistedFieldKind::Text { .. }, Value::Text(_))
-        | (PersistedFieldKind::Timestamp, Value::Timestamp(_))
-        | (PersistedFieldKind::Nat128, Value::Nat128(_))
-        | (PersistedFieldKind::Ulid, Value::Ulid(_))
-        | (PersistedFieldKind::Unit, Value::Unit)
-        | (PersistedFieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
-        (PersistedFieldKind::Int8, Value::Int64(value)) => i8::try_from(*value).is_ok(),
-        (PersistedFieldKind::Int16, Value::Int64(value)) => i16::try_from(*value).is_ok(),
-        (PersistedFieldKind::Int32, Value::Int64(value)) => i32::try_from(*value).is_ok(),
-        (PersistedFieldKind::IntBig { max_bytes }, Value::IntBig(value)) => {
-            value.to_leb128().len() <= *max_bytes as usize
+    match classify_persisted_field_kind(kind).category() {
+        PersistedFieldKindCategory::Scalar(class) => {
+            persisted_scalar_class_accepts_value(kind, class, value)
         }
-        (PersistedFieldKind::Nat8, Value::Nat64(value)) => u8::try_from(*value).is_ok(),
-        (PersistedFieldKind::Nat16, Value::Nat64(value)) => u16::try_from(*value).is_ok(),
-        (PersistedFieldKind::Nat32, Value::Nat64(value)) => u32::try_from(*value).is_ok(),
-        (PersistedFieldKind::NatBig { max_bytes }, Value::NatBig(value)) => {
-            value.to_leb128().len() <= *max_bytes as usize
-        }
-        (PersistedFieldKind::Relation { key_kind, .. }, value) => {
+        PersistedFieldKindCategory::Relation(_) => {
+            let PersistedFieldKind::Relation { key_kind, .. } = kind else {
+                return false;
+            };
+
             persisted_field_kind_accepts_value(key_kind, value)
         }
+        PersistedFieldKindCategory::Collection => {
+            persisted_collection_kind_accepts_value(kind, value)
+        }
+        PersistedFieldKindCategory::Structured { .. } => {
+            matches!(value, Value::List(_) | Value::Map(_))
+        }
+    }
+}
+
+fn persisted_scalar_class_accepts_value(
+    kind: &PersistedFieldKind,
+    class: PersistedScalarClass,
+    value: &Value,
+) -> bool {
+    match (class, value) {
+        (PersistedScalarClass::Account, Value::Account(_))
+        | (PersistedScalarClass::Blob, Value::Blob(_))
+        | (PersistedScalarClass::Bool, Value::Bool(_))
+        | (PersistedScalarClass::Date, Value::Date(_))
+        | (PersistedScalarClass::Decimal, Value::Decimal(_))
+        | (PersistedScalarClass::Duration, Value::Duration(_))
+        | (PersistedScalarClass::Enum, Value::Enum(_))
+        | (PersistedScalarClass::Float32, Value::Float32(_))
+        | (PersistedScalarClass::Float64, Value::Float64(_))
+        | (PersistedScalarClass::Signed128, Value::Int128(_))
+        | (PersistedScalarClass::Principal, Value::Principal(_))
+        | (PersistedScalarClass::Subaccount, Value::Subaccount(_))
+        | (PersistedScalarClass::Text, Value::Text(_))
+        | (PersistedScalarClass::Timestamp, Value::Timestamp(_))
+        | (PersistedScalarClass::Unsigned128, Value::Nat128(_))
+        | (PersistedScalarClass::Ulid, Value::Ulid(_))
+        | (PersistedScalarClass::Unit, Value::Unit) => true,
+        (PersistedScalarClass::Signed64, Value::Int64(value)) => {
+            persisted_signed64_kind_accepts_value(kind, *value)
+        }
+        (PersistedScalarClass::SignedBig, Value::IntBig(value)) => {
+            let PersistedFieldKind::IntBig { max_bytes } = kind else {
+                return false;
+            };
+
+            value.to_leb128().len() <= *max_bytes as usize
+        }
+        (PersistedScalarClass::Unsigned64, Value::Nat64(value)) => {
+            persisted_unsigned64_kind_accepts_value(kind, *value)
+        }
+        (PersistedScalarClass::UnsignedBig, Value::NatBig(value)) => {
+            let PersistedFieldKind::NatBig { max_bytes } = kind else {
+                return false;
+            };
+
+            value.to_leb128().len() <= *max_bytes as usize
+        }
+        _ => false,
+    }
+}
+
+const fn persisted_signed64_kind_accepts_value(kind: &PersistedFieldKind, value: i64) -> bool {
+    match kind {
+        PersistedFieldKind::Int8 => value >= i8::MIN as i64 && value <= i8::MAX as i64,
+        PersistedFieldKind::Int16 => value >= i16::MIN as i64 && value <= i16::MAX as i64,
+        PersistedFieldKind::Int32 => value >= i32::MIN as i64 && value <= i32::MAX as i64,
+        PersistedFieldKind::Int64 => true,
+        _ => false,
+    }
+}
+
+const fn persisted_unsigned64_kind_accepts_value(kind: &PersistedFieldKind, value: u64) -> bool {
+    match kind {
+        PersistedFieldKind::Nat8 => value <= u8::MAX as u64,
+        PersistedFieldKind::Nat16 => value <= u16::MAX as u64,
+        PersistedFieldKind::Nat32 => value <= u32::MAX as u64,
+        PersistedFieldKind::Nat64 => true,
+        _ => false,
+    }
+}
+
+fn persisted_collection_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) -> bool {
+    match (kind, value) {
         (PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner), Value::List(items)) => {
             items
                 .iter()
@@ -864,5 +889,107 @@ fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) 
             })
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{persisted_field_kind_accepts_value, persisted_field_kind_is_queryable};
+    use crate::{
+        db::schema::{PersistedFieldKind, PersistedRelationStrength},
+        types::EntityTag,
+        value::Value,
+    };
+
+    fn relation_to_key(key_kind: PersistedFieldKind) -> PersistedFieldKind {
+        PersistedFieldKind::Relation {
+            target_path: "target::Entity".into(),
+            target_entity_name: "Target".into(),
+            target_entity_tag: EntityTag::new(77),
+            target_store_path: "target::Store".into(),
+            key_kind: Box::new(key_kind),
+            strength: PersistedRelationStrength::Weak,
+        }
+    }
+
+    #[test]
+    fn persisted_field_kind_queryability_uses_schema_semantics_for_kind_shape() {
+        let scalar_kind = PersistedFieldKind::Nat64;
+        let relation_kind = relation_to_key(PersistedFieldKind::Ulid);
+        let list_kind = PersistedFieldKind::List(Box::new(PersistedFieldKind::Nat64));
+        let set_kind = PersistedFieldKind::Set(Box::new(PersistedFieldKind::Nat64));
+        let map_kind = PersistedFieldKind::Map {
+            key: Box::new(PersistedFieldKind::Text { max_len: None }),
+            value: Box::new(PersistedFieldKind::Nat64),
+        };
+        let shown_structured = PersistedFieldKind::Structured { queryable: true };
+        let hidden_structured = PersistedFieldKind::Structured { queryable: false };
+
+        assert!(persisted_field_kind_is_queryable(&scalar_kind));
+        assert!(persisted_field_kind_is_queryable(&relation_kind));
+        assert!(persisted_field_kind_is_queryable(&list_kind));
+        assert!(persisted_field_kind_is_queryable(&set_kind));
+        assert!(!persisted_field_kind_is_queryable(&map_kind));
+        assert!(persisted_field_kind_is_queryable(&shown_structured));
+        assert!(!persisted_field_kind_is_queryable(&hidden_structured));
+    }
+
+    #[test]
+    fn persisted_field_kind_value_acceptance_uses_schema_semantics_for_shape_dispatch() {
+        let nat8_kind = PersistedFieldKind::Nat8;
+        let int16_kind = PersistedFieldKind::Int16;
+        let relation_kind = relation_to_key(PersistedFieldKind::Nat8);
+        let list_kind =
+            PersistedFieldKind::List(Box::new(PersistedFieldKind::Text { max_len: None }));
+        let map_kind = PersistedFieldKind::Map {
+            key: Box::new(PersistedFieldKind::Text { max_len: None }),
+            value: Box::new(PersistedFieldKind::Nat8),
+        };
+        let structured_kind = PersistedFieldKind::Structured { queryable: false };
+
+        assert!(persisted_field_kind_accepts_value(
+            &nat8_kind,
+            &Value::Nat64(u64::from(u8::MAX)),
+        ));
+        assert!(!persisted_field_kind_accepts_value(
+            &nat8_kind,
+            &Value::Nat64(u64::from(u8::MAX) + 1),
+        ));
+        assert!(persisted_field_kind_accepts_value(
+            &int16_kind,
+            &Value::Int64(i64::from(i16::MIN)),
+        ));
+        assert!(!persisted_field_kind_accepts_value(
+            &int16_kind,
+            &Value::Int64(i64::from(i16::MIN) - 1),
+        ));
+        assert!(persisted_field_kind_accepts_value(
+            &relation_kind,
+            &Value::Nat64(7),
+        ));
+        assert!(persisted_field_kind_accepts_value(
+            &list_kind,
+            &Value::List(vec![Value::Text("alpha".into())]),
+        ));
+        assert!(!persisted_field_kind_accepts_value(
+            &list_kind,
+            &Value::List(vec![Value::Nat64(7)]),
+        ));
+        assert!(persisted_field_kind_accepts_value(
+            &map_kind,
+            &Value::Map(vec![(Value::Text("alpha".into()), Value::Nat64(7))]),
+        ));
+        assert!(!persisted_field_kind_accepts_value(
+            &map_kind,
+            &Value::Map(vec![(Value::Text("alpha".into()), Value::Nat64(300))]),
+        ));
+        assert!(persisted_field_kind_accepts_value(
+            &structured_kind,
+            &Value::Map(Vec::new()),
+        ));
+        assert!(!persisted_field_kind_accepts_value(
+            &structured_kind,
+            &Value::Nat64(7),
+        ));
     }
 }

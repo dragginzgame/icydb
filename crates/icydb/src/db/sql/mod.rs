@@ -8,6 +8,7 @@ mod table_render;
 mod types;
 mod value_render;
 
+pub use crate::db::response::render_output_value_text as render_value_text;
 pub(crate) use convert::sql_query_result_from_statement;
 pub use table_render::{
     render_count_lines, render_describe_lines, render_explain_lines, render_grouped_lines,
@@ -16,7 +17,6 @@ pub use table_render::{
     render_show_stores_lines, render_show_stores_verbose_lines,
 };
 pub use types::{SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput};
-pub use value_render::render_value_text;
 
 //
 // TESTS

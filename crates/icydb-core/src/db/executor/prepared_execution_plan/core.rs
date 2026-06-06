@@ -216,6 +216,7 @@ impl PreparedScalarPlanCore {
         self.core.plan()
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn continuation_signature_for_runtime(
         &self,
     ) -> Result<ContinuationSignature, InternalError> {
@@ -251,6 +252,7 @@ impl PreparedScalarPlanCore {
         self.core.get_or_init_initial_scalar_route_plan(authority)
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn get_or_init_scalar_layout(
         &self,
         authority: EntityAuthority,
@@ -320,6 +322,7 @@ impl PreparedExecutionPlanCore {
             .clone()
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_covering_read_execution_plan(
         &self,
         authority: EntityAuthority,
@@ -334,6 +337,7 @@ impl PreparedExecutionPlanCore {
             .clone()
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_hybrid_covering_read_plan(
         &self,
         authority: EntityAuthority,
@@ -705,13 +709,13 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
                 false,
             )
         }
-        Err(LoweredAccessError::IndexPrefix(_)) => (
+        Err(LoweredAccessError::IndexPrefix) => (
             Arc::from(Vec::<LoweredIndexPrefixSpec>::new()),
             true,
             Arc::from(Vec::<LoweredIndexRangeSpec>::new()),
             false,
         ),
-        Err(LoweredAccessError::IndexRange(_)) => (
+        Err(LoweredAccessError::IndexRange) => (
             Arc::from(Vec::<LoweredIndexPrefixSpec>::new()),
             false,
             Arc::from(Vec::<LoweredIndexRangeSpec>::new()),

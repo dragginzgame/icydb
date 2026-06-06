@@ -54,13 +54,16 @@ pub(in crate::db::query) use access_planner::{
 pub(in crate::db) use continuation::{
     PlannedContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use covering::CoveringReadField;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use covering::covering_hybrid_projection_plan_with_schema_info;
 #[cfg(test)]
 pub(in crate::db) use covering::covering_read_execution_plan_from_fields;
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringProjectionFacts, CoveringProjectionOrder,
-    CoveringReadExecutionPlan, CoveringReadField, CoveringReadFieldSource, CoveringReadPlan,
-    constant_covering_projection_value_from_access,
-    covering_hybrid_projection_plan_with_schema_info, covering_index_adjacent_distinct_eligible,
+    CoveringReadExecutionPlan, CoveringReadFieldSource, CoveringReadPlan,
+    constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
     covering_index_projection_facts_with_primary_key_names,
     covering_read_execution_plan_from_fields_with_primary_key_names,
     covering_read_execution_plan_with_schema_info, covering_read_reason_code_for_load_plan,
@@ -126,6 +129,7 @@ pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,
     residual_query_predicate_after_filtered_access_contract,
 };
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use projection::lower_global_aggregate_projection;
 pub(in crate::db::query) use projection::{
     lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
@@ -151,7 +155,7 @@ pub(in crate::db) use semantics::{
 };
 #[cfg(test)]
 pub(crate) use validate::GroupPlanError;
-pub use validate::PlanError;
+pub(crate) use validate::PlanError;
 pub(crate) use validate::PolicyPlanError;
 pub(in crate::db::query) use validate::{
     CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessKind,

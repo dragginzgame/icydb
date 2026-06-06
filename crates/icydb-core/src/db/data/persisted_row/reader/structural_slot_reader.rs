@@ -42,6 +42,7 @@ use std::{borrow::Cow, cell::OnceCell};
 
 // Materialize one borrowed scalar slot view when a caller reaches a boundary
 // that still requires owned runtime `Value` cells.
+#[cfg(any(test, feature = "sql"))]
 fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
     match value {
         ScalarSlotValueRef::Null => Value::Null,
@@ -352,6 +353,7 @@ impl<'a> StructuralSlotReader<'a> {
     }
 
     /// Materialize one slot for a direct projection with a scalar value-storage fast path.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn required_direct_projection_value(
         &self,
         slot: usize,
@@ -367,6 +369,7 @@ impl<'a> StructuralSlotReader<'a> {
     // value-storage shortcut is attempted only from accepted field contracts;
     // cache materialization remains the fallback for mismatched value-storage
     // tags.
+    #[cfg(any(test, feature = "sql"))]
     fn required_direct_projection_value_with_accepted_contract(
         &self,
         slot: usize,
@@ -391,6 +394,7 @@ impl<'a> StructuralSlotReader<'a> {
     // Project one direct value through generated-compatible field metadata.
     // Accepted rows use the helper above so this compatibility lane no longer
     // branches on accepted schema contracts inside the projection path.
+    #[cfg(any(test, feature = "sql"))]
     fn required_direct_projection_value_with_generated_contract(
         &self,
         slot: usize,

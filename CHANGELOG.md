@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Removes unused Candid derives from executor-internal save mode, visitor
+  diagnostics, runtime store capability descriptors, and build-time schema
+  graph/error types.
+
 ## [0.179.x] 🧹 - 2026-06-04 - Repeated Audits / Cleanup
 
 Detailed notes: [docs/changelog/0.179.md](docs/changelog/0.179.md)
+
+- `0.179.6` continues the repeated-audit cleanup line by routing accepted
+  queryability/value-shape checks through schema-owned semantics, hard-cutting
+  SQL to explicit opt-in, and refreshing the wasm-footprint audit.
 
 - `0.179.5` records the forward-looking velocity and wasm-footprint audit
   follow-through by making generated endpoints metrics-only by default, adding

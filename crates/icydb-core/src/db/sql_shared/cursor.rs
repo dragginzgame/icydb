@@ -1,7 +1,9 @@
+#[cfg(feature = "sql")]
+use crate::db::sql_shared::types::token_kind_sql_fragment;
 use crate::{
     db::sql_shared::{
         Keyword, SqlParseError, TokenKind,
-        types::{Token, parse_number_literal, token_kind_sql_fragment},
+        types::{Token, parse_number_literal},
     },
     value::Value,
 };
@@ -132,7 +134,8 @@ impl SqlTokenCursor {
 
     // Read one future token kind without cloning the cursor state when parser
     // lookahead only needs local postfix disambiguation.
-    pub(in crate::db) fn peek_kind_at(&self, offset: usize) -> Option<&TokenKind> {
+    #[cfg(feature = "sql")]
+    pub(crate) fn peek_kind_at(&self, offset: usize) -> Option<&TokenKind> {
         self.tokens
             .get(self.pos.saturating_add(offset))
             .map(|token| &token.kind)
@@ -140,7 +143,8 @@ impl SqlTokenCursor {
 
     // Reuse the shared token slice for one-token keyword lookahead so postfix
     // parsers do not clone the whole cursor just to inspect the next token.
-    pub(in crate::db) fn peek_keyword_at(&self, offset: usize, keyword: Keyword) -> bool {
+    #[cfg(feature = "sql")]
+    pub(crate) fn peek_keyword_at(&self, offset: usize, keyword: Keyword) -> bool {
         matches!(
             self.peek_kind_at(offset),
             Some(TokenKind::Keyword(found)) if *found == keyword
@@ -156,7 +160,8 @@ impl SqlTokenCursor {
 
     // Mirror `peek_identifier_keyword` for fixed-offset lookahead so the
     // parser can probe `NOT LIKE` / `NOT ILIKE` without cloning the cursor.
-    pub(in crate::db) fn peek_identifier_keyword_at(&self, offset: usize, keyword: &str) -> bool {
+    #[cfg(feature = "sql")]
+    pub(crate) fn peek_identifier_keyword_at(&self, offset: usize, keyword: &str) -> bool {
         matches!(
             self.peek_kind_at(offset),
             Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case(keyword)
@@ -202,7 +207,8 @@ impl SqlTokenCursor {
         true
     }
 
-    pub(in crate::db) fn eat_plus(&mut self) -> bool {
+    #[cfg(feature = "sql")]
+    pub(crate) fn eat_plus(&mut self) -> bool {
         if !matches!(self.peek_kind(), Some(TokenKind::Plus)) {
             return false;
         }
@@ -211,7 +217,8 @@ impl SqlTokenCursor {
         true
     }
 
-    pub(in crate::db) fn eat_question(&mut self) -> bool {
+    #[cfg(feature = "sql")]
+    pub(crate) fn eat_question(&mut self) -> bool {
         if !matches!(self.peek_kind(), Some(TokenKind::Question)) {
             return false;
         }
@@ -220,7 +227,8 @@ impl SqlTokenCursor {
         true
     }
 
-    pub(in crate::db) fn eat_minus(&mut self) -> bool {
+    #[cfg(feature = "sql")]
+    pub(crate) fn eat_minus(&mut self) -> bool {
         if !matches!(self.peek_kind(), Some(TokenKind::Minus)) {
             return false;
         }
@@ -229,7 +237,8 @@ impl SqlTokenCursor {
         true
     }
 
-    pub(in crate::db) fn eat_slash(&mut self) -> bool {
+    #[cfg(feature = "sql")]
+    pub(crate) fn eat_slash(&mut self) -> bool {
         if !matches!(self.peek_kind(), Some(TokenKind::Slash)) {
             return false;
         }

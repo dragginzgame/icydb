@@ -1,19 +1,26 @@
-use super::contracts::{AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan};
+use super::contracts::AccessPlannedQuery;
+#[cfg(feature = "sql")]
+use super::contracts::{CoveringReadExecutionPlan, CoveringReadPlan};
+#[cfg(feature = "sql")]
+use crate::{
+    db::executor::{
+        ExecutorPlanError, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
+        SharedPreparedProjectionRuntimeHandoff,
+        pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
+    },
+    error::InternalError,
+};
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         executor::{
-            EntityAuthority, ExecutorPlanError, PreparedScalarPlanCore,
-            PreparedScalarRuntimeHandoff,
-            pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
+            EntityAuthority,
             prepared_execution_plan::{
                 PreparedExecutionPlan, PreparedExecutionPlanCore,
-                SharedPreparedProjectionRuntimeHandoff,
                 build_prepared_execution_plan_core_with_schema_fingerprint,
             },
         },
     },
-    error::InternalError,
     traits::EntityKind,
 };
 use std::marker::PhantomData;
@@ -78,6 +85,7 @@ impl SharedPreparedExecutionPlan {
         self.authority.clone()
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn validate_lowered_access_specs(
         &self,
     ) -> Result<(), InternalError> {
@@ -94,6 +102,7 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn projection_covering_read_execution_plan(
         &self,
     ) -> Option<std::sync::Arc<CoveringReadExecutionPlan>> {
@@ -102,6 +111,7 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn hybrid_covering_read_plan(
         &self,
     ) -> Option<std::sync::Arc<CoveringReadPlan>> {
@@ -112,6 +122,7 @@ impl SharedPreparedExecutionPlan {
     // Projection runtime adapters consume these three shared prepared residents
     // together, so hand them off as one bundle instead of re-reading the same
     // plan shell through parallel field-level accessors.
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn into_projection_runtime_handoff(
         self,
     ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {

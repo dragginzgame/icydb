@@ -21,7 +21,13 @@ use crate::{
 /// Invariant: projection order is planner-authoritative and must remain stable
 /// through executor/materialization boundaries.
 ///
-
+#[cfg_attr(
+    all(not(test), not(feature = "sql")),
+    expect(
+        dead_code,
+        reason = "SQL lowering constructs explicit field and expression projections; no-default fluent queries use full-model projection"
+    )
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ProjectionSelection {
     All,

@@ -12,6 +12,7 @@ use std::borrow::Cow;
 
 use self::contracts::EffectiveRuntimeFilterProgram;
 pub(in crate::db) use contracts::ProjectionEvalError;
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_required_slot_reader_cow;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_ref_reader;
@@ -75,7 +76,6 @@ where
 // against a canonical structural slot reader. This is the scan-time lane used
 // before raw rows are reduced to retained `Value` slots, so field-path filters
 // can resolve nested value-storage payloads without planner/index pushdown.
-#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_reader(
     filter_program: &EffectiveRuntimeFilterProgram,
     slots: &dyn CanonicalSlotReader,
@@ -97,7 +97,6 @@ pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_r
 // borrowed slot reader. Predicate-backed filters stay on the predicate hot
 // loop while expression-backed residual filters reuse the shared scalar
 // TRUE-only boolean admission boundary.
-#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_value_ref_reader<'a, F>(
     filter_program: &EffectiveRuntimeFilterProgram,
     read_slot: &mut F,
@@ -126,7 +125,6 @@ where
 // slot reader that may return borrowed or owned values. This keeps predicate
 // evaluation on the canonical cow-reader path while letting expression-backed
 // residual filters reuse the same TRUE-only boolean admission seam.
-#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_value_cow_reader<'a, F>(
     filter_program: &EffectiveRuntimeFilterProgram,
     read_slot: &mut F,

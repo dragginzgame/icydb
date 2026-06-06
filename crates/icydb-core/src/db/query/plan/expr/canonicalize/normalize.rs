@@ -94,6 +94,7 @@ pub(in crate::db) fn is_normalized_bool_expr(expr: &Expr) -> bool {
 /// Simplify mixed boolean trees after constant folding so downstream predicate
 /// extraction can keep reusing one derived lane when one side has collapsed.
 #[must_use]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn simplify_bool_expr_constants(expr: Expr) -> Expr {
     match expr {
         Expr::Binary {
@@ -471,6 +472,7 @@ fn is_normalized_bool_function_call(function: Function, args: &[Expr]) -> bool {
     )
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn simplify_boolean_and(left: Expr, right: Expr) -> Expr {
     match (left, right) {
         (Expr::Literal(Value::Bool(false)), _) | (_, Expr::Literal(Value::Bool(false))) => {
@@ -485,6 +487,7 @@ fn simplify_boolean_and(left: Expr, right: Expr) -> Expr {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn simplify_boolean_or(left: Expr, right: Expr) -> Expr {
     match (left, right) {
         (Expr::Literal(Value::Bool(true)), _) | (_, Expr::Literal(Value::Bool(true))) => {

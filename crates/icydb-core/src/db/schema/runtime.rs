@@ -681,6 +681,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     /// This first-component helper remains for scalar-only execution paths.
     /// Composite-aware code must read `primary_key_names`.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn first_primary_key_name(&self) -> &'a str {
         self.primary_key_names[0]
     }
@@ -702,6 +703,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     /// This first-component helper remains for scalar-only SQL literal
     /// coercion paths. Composite-aware code must read `primary_key_kinds`.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn first_primary_key_kind(&self) -> &'a PersistedFieldKind {
         self.primary_key_kinds[0]
     }
@@ -811,6 +813,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
 
     /// Borrow one runtime field's accepted persisted kind by name.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&PersistedFieldKind> {
         self.field_by_name(name)
             .map(AcceptedRowLayoutRuntimeField::kind)

@@ -26,6 +26,7 @@ use crate::{
     traits::{EntityValue, KeyValueCodec, Storable},
     types::Timestamp,
 };
+#[cfg(feature = "sql")]
 use std::collections::HashSet;
 
 ///
@@ -53,11 +54,13 @@ struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
 /// admission has already rejected generated and managed field ownership escapes.
 ///
 
+#[cfg(feature = "sql")]
 struct StructuralMutationBatchItem<E: PersistedRow + EntityValue> {
     key: E::Key,
     patch: StructuralPatch,
 }
 
+#[cfg(feature = "sql")]
 impl<E: PersistedRow + EntityValue> StructuralMutationBatchItem<E> {
     // Build one internally lowered structural batch item after the caller has
     // crossed its admission boundary and selected the batch mutation mode.
@@ -87,6 +90,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
     // Build one request from an internally lowered structural patch, such as a
     // SQL INSERT/UPDATE assignment set that has already crossed its own syntax
     // and generated-field policy boundary.
+    #[cfg(feature = "sql")]
     const fn internal_lowered(
         mode: MutationMode,
         key: E::Key,
@@ -135,6 +139,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Strong relation validation intentionally remains committed-store-only here:
     // same-statement relation targets are not visible until the relation domain
     // grows an overlay-aware reader seam of its own.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn apply_internal_lowered_structural_mutation_batch(
         &self,
         mode: MutationMode,
@@ -158,6 +163,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Prepare and commit one executor-owned batch of internal structural
     // mutation items. Keeping the item type private prevents SQL/session code
     // from depending on mutation staging internals.
+    #[cfg(feature = "sql")]
     fn apply_internal_structural_mutation_batch(
         &self,
         mode: MutationMode,

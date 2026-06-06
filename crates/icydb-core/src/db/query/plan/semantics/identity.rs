@@ -148,6 +148,7 @@ impl AggregateIdentity {
 
     /// Move the identity aggregate input expression out of this identity.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn into_input_expr(self) -> Option<Expr> {
         match self {
             Self::Count { input_expr, .. }
@@ -247,6 +248,7 @@ impl AggregateSemanticKey {
 
     /// Move this key into its identity and filter components.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn into_identity_and_filter(self) -> (AggregateIdentity, Option<Expr>) {
         (self.identity, self.filter_expr)
     }

@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use candid::CandidType;
 use darling::FromMeta;
 use icydb_primitives::ScalarKind;
 use proc_macro2::TokenStream;
@@ -15,7 +14,7 @@ use std::str::FromStr;
 // `Many` means repeated values (for list/set-like shapes).
 //
 
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Cardinality {
     #[default]
     One,
@@ -59,7 +58,7 @@ impl ToTokens for Cardinality {
 // (ordering, arithmetic, casting, key-encoding, and hashing support).
 //
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[remain::sorted]
 pub enum Primitive {
     Account,

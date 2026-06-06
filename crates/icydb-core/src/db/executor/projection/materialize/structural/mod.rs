@@ -21,11 +21,9 @@ pub(in crate::db::executor::projection) use distinct_entrypoints::project_distin
 /// shaping.
 ///
 
-#[cfg(feature = "sql")]
 #[derive(Debug)]
 pub(in crate::db) struct MaterializedProjectionRows(Vec<Vec<Value>>);
 
-#[cfg(feature = "sql")]
 impl MaterializedProjectionRows {
     /// Build structural projection rows from executor-owned value rows.
     pub(in crate::db::executor) const fn from_value_rows(rows: Vec<Vec<Value>>) -> Self {

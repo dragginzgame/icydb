@@ -15,8 +15,9 @@ pub(in crate::db::executor) use inputs::{
     PreparedExecutionProjection, ProjectionMaterializationMode, RowCollectorMaterializationRequest,
     RuntimePageMaterializationRequest,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use outcomes::KernelRowsExecutionAttempt;
 pub(in crate::db::executor) use outcomes::{
-    ExecutionOutcomeMetrics, KernelRowsExecutionAttempt, MaterializedExecutionAttempt,
-    MaterializedExecutionPayload,
+    ExecutionOutcomeMetrics, MaterializedExecutionAttempt, MaterializedExecutionPayload,
 };
 pub(in crate::db::executor) use stream::ResolvedExecutionKeyStream;

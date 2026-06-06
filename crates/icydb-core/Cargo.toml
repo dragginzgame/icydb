@@ -12,7 +12,7 @@ authors = { workspace = true }
 doctest = false
 
 [features]
-default = ["sql"]
+default = []
 sql = []
 diagnostics = []
 

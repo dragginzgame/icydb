@@ -4,13 +4,12 @@
 //! dependency graph. It may inspect expression shape, but it must not call
 //! normalization, CASE lowering, or rewrite entrypoints.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::query::plan::expr::function_is_compare_operand_coarse_family;
 use crate::{
     db::{
         predicate::CompareOp,
-        query::plan::expr::{
-            BinaryOp, BooleanFunctionShape, Expr, Function, UnaryOp,
-            function_is_compare_operand_coarse_family,
-        },
+        query::plan::expr::{BinaryOp, BooleanFunctionShape, Expr, Function, UnaryOp},
     },
     value::Value,
 };
@@ -26,6 +25,7 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::query::plan::expr::canonicalize) enum TruthWrapperScope {
+    #[cfg(any(test, feature = "sql"))]
     ScalarWhere,
     GroupedHaving,
 }
@@ -44,6 +44,7 @@ pub(in crate::db::query::plan::expr::canonicalize) struct TruthAdmission;
 impl TruthAdmission {
     /// Return whether one expression is admitted as a scalar `WHERE`
     /// condition.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::query::plan::expr::canonicalize) fn is_scalar_condition(expr: &Expr) -> bool {
         match expr {
             Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(Value::Bool(_) | Value::Null) => {
@@ -101,6 +102,7 @@ impl TruthAdmission {
     }
 
     /// Return whether one expression is admitted as a scalar compare operand.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::query::plan::expr::canonicalize) fn is_scalar_compare_operand(
         expr: &Expr,
     ) -> bool {
@@ -224,6 +226,7 @@ pub(in crate::db) const fn truth_condition_binary_compare_op(op: BinaryOp) -> Op
 
 /// Report whether one planner expression belongs to the admitted scalar-WHERE
 /// truth-condition family.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bool {
     TruthAdmission::is_scalar_condition(expr)
 }
@@ -231,6 +234,7 @@ pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bo
 // Keep scalar truth-condition admission aligned with the bounded boolean
 // function family already consumed by scalar WHERE lowering and predicate
 // compilation.
+#[cfg(any(test, feature = "sql"))]
 fn scalar_truth_function_call_is_admitted(function: Function, args: &[Expr]) -> bool {
     bool_function_args_match(
         function,

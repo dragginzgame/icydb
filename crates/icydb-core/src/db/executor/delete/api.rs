@@ -4,14 +4,15 @@
 //! Does not own: row resolution, rollback packaging, or commit preparation.
 //! Boundary: wraps prepared delete plans with metrics and final response shaping.
 
+#[cfg(feature = "sql")]
+use crate::db::executor::delete::{DeleteProjection, execute_structural_delete_projection_core};
 use crate::{
     db::{
         Db, PersistedRow,
         executor::{
             PreparedExecutionPlan,
             delete::{
-                DeleteProjection, apply_delete_commit_window_for_type,
-                execute_structural_delete_count_core, execute_structural_delete_projection_core,
+                apply_delete_commit_window_for_type, execute_structural_delete_count_core,
                 package_typed_delete_rows, prepare_delete_runtime, prepare_typed_delete_core,
             },
             plan_metrics::{record_plan_metrics, set_rows_from_len},

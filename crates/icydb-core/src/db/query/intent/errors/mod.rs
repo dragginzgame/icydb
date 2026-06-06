@@ -12,6 +12,8 @@ mod tests;
 
 use super::AccessRequirementError;
 #[cfg(feature = "sql")]
+use crate::db::query::plan::validate::ExprPlanError;
+#[cfg(feature = "sql")]
 use crate::db::sql::{ddl::SqlDdlPrepareError, lowering::SqlLoweringError, parser::SqlParseError};
 #[cfg(feature = "sql")]
 use crate::error::{ErrorDetail, SchemaDdlAdmissionError, StoreError};
@@ -21,7 +23,7 @@ use crate::{
         numeric::NumericEvalError,
         query::plan::{
             CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
-            PlanError, PlannerError, PolicyPlanError, validate::ExprPlanError,
+            PlanError, PlannerError, PolicyPlanError,
         },
         response::ResponseError,
         schema::ValidateError,

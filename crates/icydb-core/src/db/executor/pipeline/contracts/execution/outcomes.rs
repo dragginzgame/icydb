@@ -3,9 +3,9 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::{
-    ExecutionOptimization, pipeline::contracts::StructuralCursorPage, terminal::KernelRow,
-};
+#[cfg(feature = "sql")]
+use crate::db::executor::terminal::KernelRow;
+use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
 
 /// Shared materialization payload for one scalar execution attempt.
 pub(in crate::db::executor) type MaterializedExecutionPayload = StructuralCursorPage;
@@ -36,6 +36,7 @@ pub(in crate::db::executor) struct MaterializedExecutionAttempt {
 /// retained-slot page materialization would otherwise run.
 ///
 
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) struct KernelRowsExecutionAttempt {
     pub(in crate::db::executor) rows: Vec<KernelRow>,
     pub(in crate::db::executor) rows_scanned: usize,

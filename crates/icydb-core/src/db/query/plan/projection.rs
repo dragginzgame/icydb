@@ -43,6 +43,7 @@ pub(in crate::db::query) fn lower_projection_intent(
 /// Lower one already-validated global aggregate output field list into the
 /// canonical planner-owned projection semantic shape.
 #[must_use]
+#[cfg(feature = "sql")]
 pub(in crate::db) const fn lower_global_aggregate_projection(
     fields: Vec<ProjectionField>,
 ) -> ProjectionSpec {

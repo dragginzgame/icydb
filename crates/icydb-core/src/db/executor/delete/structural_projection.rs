@@ -4,6 +4,14 @@
 //! Boundary: converts selected structural rows into projection payloads and
 //! commit-ready rollback rows.
 
+#[cfg(feature = "sql")]
+use crate::{
+    db::executor::{
+        delete::types::{DeletePreparation, DeleteProjection, PreparedDeleteProjection},
+        projection::MaterializedProjectionRows,
+    },
+    value::Value,
+};
 use crate::{
     db::{
         Db,
@@ -12,13 +20,11 @@ use crate::{
                 apply_delete_post_access_rows, prepare_delete_commit,
                 resolve_delete_candidate_rows_as,
                 types::{
-                    DeleteCommitApplyFn, DeleteCountPreparation, DeletePreparation,
-                    DeleteProjection, PreparedDeleteCommit, PreparedDeleteExecutionState,
-                    PreparedDeleteProjection,
+                    DeleteCommitApplyFn, DeleteCountPreparation, PreparedDeleteCommit,
+                    PreparedDeleteExecutionState,
                 },
             },
             plan_metrics::record_rows_scanned_for_path,
-            projection::MaterializedProjectionRows,
             saturating_u32_len,
             terminal::{KernelRow, RowDecoder},
         },
@@ -26,7 +32,6 @@ use crate::{
     },
     error::InternalError,
     traits::CanisterKind,
-    value::Value,
 };
 
 // Decode structural delete rows, apply the shared delete post-access flow,
@@ -45,6 +50,7 @@ fn prepare_structural_delete_leaf<T>(
 
 // Package surviving structural delete kernel rows plus rollback rows for
 // commit preparation.
+#[cfg(feature = "sql")]
 fn package_structural_delete_rows(
     rows: Vec<KernelRow>,
 ) -> Result<DeletePreparation, InternalError> {
@@ -135,6 +141,7 @@ where
 
 // Resolve, filter, and package one structural delete result before the
 // outer typed wrapper applies the final commit window.
+#[cfg(feature = "sql")]
 fn prepare_structural_delete_projection<C>(
     db: &Db<C>,
     store: StoreHandle,
@@ -177,6 +184,7 @@ where
 
 // Execute one structural delete projection through the shared delete core
 // while leaving only the final typed commit-window bridge to the caller.
+#[cfg(feature = "sql")]
 pub(in crate::db::executor::delete) fn execute_structural_delete_projection_core<C>(
     db: &Db<C>,
     store: StoreHandle,

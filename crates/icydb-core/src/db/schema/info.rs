@@ -3,22 +3,26 @@
 //! Does not own: query planning policy or runtime predicate evaluation.
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
+#[cfg(feature = "sql")]
+use crate::db::schema::{SqlCapabilities, sql_capabilities};
+#[cfg(any(test, feature = "sql"))]
+use crate::{
+    db::schema::canonicalize_strict_sql_literal_for_persisted_kind,
+    model::canonicalize_strict_sql_literal_for_kind, value::Value,
+};
 use crate::{
     db::schema::{
         AcceptedSchemaSnapshot, FieldId, FieldType, PersistedFieldKind, PersistedFieldSnapshot,
         PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
         PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldSlot, SqlCapabilities,
-        canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_model_kind,
-        field_type_from_persisted_kind, sql_capabilities,
+        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldSlot,
+        field_type_from_model_kind, field_type_from_persisted_kind,
     },
     model::{
-        canonicalize_strict_sql_literal_for_kind,
         entity::EntityModel,
         field::{FieldKind, FieldModel, LeafCodec},
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
-    value::Value,
 };
 #[cfg(test)]
 use std::cell::Cell;
@@ -138,7 +142,9 @@ struct SchemaFieldInfo {
     kind: Option<FieldKind>,
     nullable: bool,
     leaf_codec: LeafCodec,
+    #[cfg(feature = "sql")]
     sql_capabilities: SqlCapabilities,
+    #[cfg(feature = "sql")]
     persisted_kind: Option<PersistedFieldKind>,
     indexed: bool,
     nested_leaves: Option<Vec<PersistedNestedLeafSnapshot>>,
@@ -492,9 +498,11 @@ impl SchemaInfo {
                         kind: Some(field.kind()),
                         nullable: field.nullable(),
                         leaf_codec: field.leaf_codec(),
+                        #[cfg(feature = "sql")]
                         sql_capabilities: sql_capabilities(&PersistedFieldKind::from_model_kind(
                             field.kind(),
                         )),
+                        #[cfg(feature = "sql")]
                         persisted_kind: None,
                         indexed: false,
                         nested_leaves: None,
@@ -570,6 +578,7 @@ impl SchemaInfo {
     /// generated schema views retain generated field metadata for test-only
     /// compatibility callers.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn field_nullable(&self, name: &str) -> Option<bool> {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.nullable)
     }
@@ -590,6 +599,7 @@ impl SchemaInfo {
     /// Borrow the schema-owned entity name when this schema view was built
     /// from an entity model or accepted persisted snapshot.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn entity_name(&self) -> Option<&str> {
         self.entity_name.as_deref()
     }
@@ -677,12 +687,14 @@ impl SchemaInfo {
     /// use generated model metadata for compile-time-only callers.
     ///
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn sql_capabilities(&self, name: &str) -> Option<SqlCapabilities> {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.sql_capabilities)
     }
 
     /// Return whether one top-level field stores a structured record value.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn field_is_structured_value(&self, name: &str) -> bool {
         schema_field_info(self.fields.as_slice(), name)
             .is_some_and(|field| matches!(field.ty, FieldType::Structured { .. }))
@@ -694,6 +706,7 @@ impl SchemaInfo {
     /// metadata. Generated schema views derive the same facts from generated
     /// nested `FieldModel` metadata until live row-layout authority exists.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn nested_sql_capabilities(
         &self,
         name: &str,
@@ -714,6 +727,7 @@ impl SchemaInfo {
 
     /// Return the first top-level field that SQL cannot project directly.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&str> {
         self.fields
             .iter()
@@ -759,6 +773,7 @@ impl SchemaInfo {
     /// Generated schema views retain the old generated-kind fallback for
     /// direct lowering tests and compile-time-only callers.
     ///
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn canonicalize_strict_sql_literal(
         &self,
@@ -838,7 +853,9 @@ impl SchemaInfo {
                         kind: generated_kind,
                         nullable: field.nullable(),
                         leaf_codec: field.leaf_codec(),
+                        #[cfg(feature = "sql")]
                         sql_capabilities: sql_capabilities(field.kind()),
+                        #[cfg(feature = "sql")]
                         persisted_kind: Some(field.kind().clone()),
                         indexed: indexed_field_ids.contains(&field.id()),
                         nested_leaves: Some(field.nested_leaves().to_vec()),

@@ -237,6 +237,7 @@ pub(crate) fn token_kind_label(kind: &TokenKind) -> String {
     }
 }
 
+#[cfg(feature = "sql")]
 pub(crate) fn token_kind_sql_fragment(kind: &TokenKind) -> String {
     match kind {
         TokenKind::Identifier(name) | TokenKind::Number(name) => name.clone(),
@@ -271,6 +272,7 @@ pub(crate) fn token_kind_sql_fragment(kind: &TokenKind) -> String {
     }
 }
 
+#[cfg(feature = "sql")]
 const fn hex_digit(nibble: u8) -> char {
     match nibble {
         0..=9 => (b'0' + nibble) as char,

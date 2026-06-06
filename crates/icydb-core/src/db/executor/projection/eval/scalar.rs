@@ -7,16 +7,17 @@ use super::contracts::{
     CompiledExpr, CompiledExprValueReader, ProjectionEvalError,
     collapse_true_only_boolean_admission,
 };
+#[cfg(any(test, feature = "sql"))]
+use crate::{
+    db::data::{ScalarSlotValueRef, ScalarValueRef},
+    model::field::{LeafCodec, ScalarCodec},
+};
 use crate::{
     db::{
-        data::{
-            CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef,
-            decode_structural_value_storage_bytes,
-        },
+        data::{CanonicalSlotReader, decode_structural_value_storage_bytes},
         executor::projection::path::resolve_path_segments,
     },
     error::InternalError,
-    model::field::{LeafCodec, ScalarCodec},
     value::Value,
 };
 use std::{borrow::Cow, cell::RefCell, fmt};
@@ -343,6 +344,7 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_value_ref_reader<'a>(
 }
 
 /// Evaluate one compiled expression through a canonical raw-row slot reader.
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<'a>(
     expr: &'a CompiledExpr,
     slots: &'a dyn CanonicalSlotReader,
@@ -370,6 +372,7 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<
 // materializing `Value::Text` or `Value::Blob`. Unsupported slot shapes return
 // `None` so the normal compiled-expression evaluator preserves existing
 // diagnostics for non-scalar and expression-derived inputs.
+#[cfg(any(test, feature = "sql"))]
 fn eval_direct_scalar_octet_length(
     slots: &dyn CanonicalSlotReader,
     record_slot: &mut dyn FnMut(usize),

@@ -14,9 +14,11 @@ use crate::db::schema::{
     schema_mutation_request_for_snapshots,
 };
 
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::schema) use admission::SchemaAdmissionRejectionReason;
 pub(in crate::db::schema) use admission::{
     SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
-    SchemaAdmissionRejectionReason, schema_admission_rejection,
+    schema_admission_rejection,
 };
 use compatibility::{
     accepted_snapshot_extends_generated_indexes,
@@ -213,6 +215,7 @@ impl SchemaTransitionRejection {
 
     // Return the structured schema-version admission decision when this
     // rejection came from the 0.177 version/method/fingerprint gate.
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::schema) const fn admission(
         &self,
     ) -> Option<SchemaAdmissionRejectionClassification> {

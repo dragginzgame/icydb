@@ -3,6 +3,8 @@
 //! Does not own: planner semantic validation or executor runtime behavior.
 //! Boundary: records intent-shape state consumed by planner-owned validation/build stages.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::query::plan::expr::normalized_bool_expr_from_predicate;
 use crate::db::{
     predicate::Predicate,
     query::{
@@ -12,7 +14,7 @@ use crate::db::{
             LogicalPlanningInputs, OrderSpec, QueryMode,
             expr::{
                 BinaryOp, Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset,
-                is_normalized_bool_expr, normalize_bool_expr, normalized_bool_expr_from_predicate,
+                is_normalized_bool_expr, normalize_bool_expr,
             },
             has_explicit_order,
         },
@@ -59,6 +61,7 @@ impl NormalizedFilter {
     /// predicate subset, used by SQL lowering after it has canonicalized both
     /// views through the same semantic pass.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::query::intent) fn from_normalized_expr_and_predicate_subset(
         expr: Expr,
         predicate_subset: Predicate,
@@ -79,6 +82,7 @@ impl NormalizedFilter {
     /// Build one normalized filter from a runtime predicate by routing it
     /// through the planner-owned boolean-expression representation.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::query::intent) fn from_normalized_predicate(predicate: Predicate) -> Self {
         let expr = normalized_bool_expr_from_predicate(&predicate);
 

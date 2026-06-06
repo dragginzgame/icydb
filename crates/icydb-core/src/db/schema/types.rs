@@ -3,6 +3,8 @@
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::types::{IntBig, NatBig, Ulid};
 use crate::{
     db::schema::{
         PersistedFieldKind, PersistedFieldKindCategory, PersistedScalarClass,
@@ -10,7 +12,6 @@ use crate::{
     },
     model::field::FieldKind,
     traits::RuntimeValueKind,
-    types::{IntBig, NatBig, Ulid},
     value::{CoercionFamily, Value},
 };
 use std::fmt;
@@ -295,6 +296,7 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
 }
 
 /// Canonicalize one strict SQL literal against accepted persisted field metadata.
+#[cfg(any(test, feature = "sql"))]
 #[must_use]
 pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
     kind: &PersistedFieldKind,
@@ -371,6 +373,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
     }
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_signed64_persisted_literal(
     kind: &PersistedFieldKind,
     value: &Value,
@@ -390,6 +393,7 @@ fn canonicalize_signed64_persisted_literal(
     }
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_unsigned64_persisted_literal(
     kind: &PersistedFieldKind,
     value: &Value,
@@ -530,6 +534,7 @@ const fn scalar_type_from_persisted_class(class: PersistedScalarClass) -> Scalar
     }
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => *inner,
@@ -540,6 +545,7 @@ fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Opti
     (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u64::try_from(*inner).ok()?,
@@ -550,6 +556,7 @@ fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> 
     (value <= max).then_some(Value::Nat64(value))
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => i128::from(*inner),
@@ -565,6 +572,7 @@ fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     Some(Value::Int128(value))
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u128::try_from(*inner).ok()?,
@@ -580,6 +588,7 @@ fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
     Some(Value::Nat128(value))
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => IntBig::from(*inner),
@@ -592,6 +601,7 @@ fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Opti
     (value.to_leb128().len() <= max_bytes as usize).then_some(Value::IntBig(value))
 }
 
+#[cfg(feature = "sql")]
 fn canonicalize_nat_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => NatBig::from(u64::try_from(*inner).ok()?),

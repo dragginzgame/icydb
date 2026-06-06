@@ -3,6 +3,8 @@
 //! Does not own: query planning semantics, execution, or cache-key fingerprint generation.
 //! Boundary: resolves store visibility and memoizes prepared plans for typed and SQL callers.
 
+#[cfg(feature = "sql")]
+use crate::db::schema::accepted_schema_cache_fingerprint;
 use crate::{
     db::{
         DbSession, Query, QueryError, TraceReuseArtifactClass, TraceReuseEvent,
@@ -15,8 +17,7 @@ use crate::{
         },
         schema::{
             AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-            SchemaInfo, SchemaVersion, accepted_schema_cache_fingerprint,
-            accepted_schema_cache_fingerprint_method_version,
+            SchemaInfo, SchemaVersion, accepted_schema_cache_fingerprint_method_version,
         },
         session::AcceptedSchemaCatalogContext,
     },
@@ -312,6 +313,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(visibility)
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority(
         &self,
         authority: EntityAuthority,
@@ -329,6 +331,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
         &self,
         authority: EntityAuthority,

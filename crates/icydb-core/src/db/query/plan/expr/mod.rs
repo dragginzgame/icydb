@@ -73,6 +73,7 @@ mod compiled_expr;
 mod function_semantics;
 mod path;
 mod predicate;
+#[cfg(any(test, feature = "sql"))]
 mod preview;
 mod projection;
 mod projection_eval;
@@ -82,8 +83,10 @@ mod truth_value;
 mod type_inference;
 
 pub(in crate::db) use aggregate_input::canonicalize_aggregate_input_expr;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use ast::Alias;
 pub(in crate::db) use ast::{
-    Alias, BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
+    BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
     supported_order_expr_requires_index_satisfied_access,
 };
 #[cfg(test)]
@@ -93,26 +96,30 @@ pub(in crate::db) use ast::{
 #[cfg(test)]
 pub(in crate::db) use canonicalize::normalize_bool_expr_artifact;
 pub(in crate::db) use canonicalize::{
-    CanonicalExpr, canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
-    is_normalized_bool_expr, normalize_bool_expr, scalar_where_truth_condition_is_admitted,
-    simplify_bool_expr_constants, truth_condition_binary_compare_op,
-    truth_condition_compare_binary_op,
+    CanonicalExpr, canonicalize_grouped_having_bool_expr, is_normalized_bool_expr,
+    normalize_bool_expr, truth_condition_binary_compare_op, truth_condition_compare_binary_op,
+};
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use canonicalize::{
+    canonicalize_scalar_where_bool_expr, scalar_where_truth_condition_is_admitted,
+    simplify_bool_expr_constants,
 };
 pub(in crate::db) use compiled_expr::{
     CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, ProjectionEvalError,
     compile_grouped_projection_expr, compile_grouped_projection_plan, evaluate_grouped_having_expr,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use function_semantics::FunctionSurface;
 pub(in crate::db::query::plan::expr) use function_semantics::{
     AggregateInputConstantFoldShape, BooleanFunctionShape, FieldPredicateFunctionKind,
     FunctionDeterminism, FunctionTypeInferenceShape, NullTestFunctionKind, ScalarEvalFunctionShape,
 };
-pub(in crate::db) use function_semantics::{
-    FunctionSurface, NumericSubtype, TextPredicateFunctionKind,
-};
+pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
 pub(in crate::db) use path::CompiledPath;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use predicate::normalized_bool_expr_from_predicate;
 pub(in crate::db) use predicate::{
     CompiledPredicate, derive_normalized_bool_expr_predicate_subset,
-    normalized_bool_expr_from_predicate,
 };
 #[cfg(test)]
 pub(in crate::db) use predicate::{
@@ -122,6 +129,7 @@ pub(in crate::db) use predicate::{
 pub(in crate::db) use predicate::{
     compile_canonical_bool_expr_to_compiled_predicate, compile_normalized_bool_expr_to_predicate,
 };
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use preview::eval_literal_only_expr_value;
 #[cfg(test)]
 pub(in crate::db) use projection::GroupedOrderExprClass;
@@ -135,12 +143,15 @@ pub(in crate::db) use projection_eval::{
     ProjectionFunctionEvalError, eval_builder_expr_for_value_preview,
     eval_projection_function_call_checked,
 };
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use rewrite::rewrite_affine_numeric_compare_expr;
 #[cfg(test)]
 pub(in crate::db) use scalar::compile_scalar_projection_expr_for_model_only;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use scalar::compile_scalar_projection_expr_from_schema;
 pub(in crate::db) use scalar::{
-    ScalarProjectionCaseArm, ScalarProjectionExpr, compile_scalar_projection_expr_from_schema,
-    compile_scalar_projection_expr_with_schema, compile_scalar_projection_plan_with_schema,
+    ScalarProjectionCaseArm, ScalarProjectionExpr, compile_scalar_projection_expr_with_schema,
+    compile_scalar_projection_plan_with_schema,
 };
 pub(in crate::db) use truth_value::{
     admit_true_only_boolean_value, collapse_true_only_boolean_admission,

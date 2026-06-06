@@ -145,7 +145,6 @@ pub(in crate::db) struct StructuralCursorPage {
 
 pub(in crate::db::executor) enum StructuralCursorPagePayload {
     DataRows(Vec<DataRow>),
-    #[cfg(feature = "sql")]
     SlotRows(Vec<RetainedSlotRow>),
 }
 
@@ -164,7 +163,6 @@ impl StructuralCursorPage {
 
     /// Build one structural scalar page while retaining already-decoded slot
     /// rows for one structural consumer over the executor boundary.
-    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) const fn new_with_slot_rows(
         slot_rows: Vec<RetainedSlotRow>,
@@ -181,7 +179,6 @@ impl StructuralCursorPage {
     pub(in crate::db) const fn row_count(&self) -> usize {
         match &self.payload {
             StructuralCursorPagePayload::DataRows(data_rows) => data_rows.len(),
-            #[cfg(feature = "sql")]
             StructuralCursorPagePayload::SlotRows(slot_rows) => slot_rows.len(),
         }
     }
@@ -191,14 +188,13 @@ impl StructuralCursorPage {
     pub(in crate::db) const fn data_rows(&self) -> &[DataRow] {
         match &self.payload {
             StructuralCursorPagePayload::DataRows(data_rows) => data_rows.as_slice(),
-            #[cfg(feature = "sql")]
             StructuralCursorPagePayload::SlotRows(_) => &[],
         }
     }
 
     /// Dispatch one structural projection consumer onto the page's concrete row
     /// payload without exposing the payload enum to the session boundary.
-    #[cfg(feature = "sql")]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn consume_projection_rows<T>(
         self,
         handle_slot_rows: impl FnOnce(Vec<RetainedSlotRow>) -> T,
@@ -220,7 +216,6 @@ impl StructuralCursorPage {
     ) {
         let data_rows = match self.payload {
             StructuralCursorPagePayload::DataRows(data_rows) => data_rows,
-            #[cfg(feature = "sql")]
             StructuralCursorPagePayload::SlotRows(_) => Vec::new(),
         };
 
@@ -258,7 +253,13 @@ impl CursorEmissionMode {
 /// behavior explicit at the execution boundary instead of scattering multiple
 /// interdependent bool flags across kernel/runtime contracts.
 ///
-
+#[cfg_attr(
+    all(not(test), not(feature = "sql")),
+    expect(
+        dead_code,
+        reason = "SQL projection execution constructs retained-slot row materialization; no-default fluent execution validates shared projection rows only"
+    )
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum ProjectionMaterializationMode {
     None,

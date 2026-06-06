@@ -3,14 +3,13 @@
 //! Does not own: startup reconciliation, stable-memory storage, or generated model metadata.
 //! Boundary: schema-owned DTOs that can become the `__icydb_schema` payload.
 
+#[cfg(any(test, feature = "sql"))]
+use crate::db::predicate::relabel_sql_predicate_field_root;
 use crate::{
-    db::{
-        predicate::relabel_sql_predicate_field_root,
-        schema::{
-            FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-            schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
-            schema_snapshot_relation_integrity_detail,
-        },
+    db::schema::{
+        FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        schema_snapshot_relation_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -388,6 +387,7 @@ impl PersistedSchemaSnapshot {
     /// DDL callers supply the version from source intent; storage must never
     /// synthesize it.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
         Self::new_with_primary_key_fields_and_indexes(
             version,
@@ -490,6 +490,7 @@ impl PersistedIndexSnapshot {
 
     /// Build one SQL DDL-created accepted index snapshot.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn new_sql_ddl(
         ordinal: u16,
         name: String,
@@ -584,6 +585,7 @@ impl PersistedIndexSnapshot {
 
     /// Clone this accepted index with display metadata updated for a renamed
     /// accepted field. Physical index identity and key shape remain unchanged.
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
@@ -659,6 +661,7 @@ impl PersistedIndexKeySnapshot {
     /// Clone this key with direct field-path root labels renamed for the
     /// supplied durable field ID.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
@@ -707,6 +710,7 @@ impl PersistedIndexKeyItemSnapshot {
 
     /// Clone this item with direct field-path root labels renamed.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
@@ -792,6 +796,7 @@ impl PersistedIndexFieldPathSnapshot {
     /// Clone this key item with a renamed top-level accepted field label when
     /// it targets the supplied durable field ID.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_renamed_root(&self, field_id: FieldId, new_name: &str) -> Self {
         let mut path = self.path.clone();
         if self.field_id == field_id
@@ -879,6 +884,7 @@ impl PersistedIndexExpressionSnapshot {
     /// Clone this expression with its accepted source field-path root label
     /// renamed and canonical expression text regenerated from the new path.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_renamed_source_root(
         &self,
         field_id: FieldId,
@@ -897,6 +903,7 @@ impl PersistedIndexExpressionSnapshot {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn canonical_expression_text_for_path(op: PersistedIndexExpressionOp, path: &[String]) -> String {
     let path = path.join(".");
     match op {
@@ -1110,6 +1117,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated database-level default.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_default(&self, default: SchemaFieldDefault) -> Self {
         Self {
             id: self.id,
@@ -1128,6 +1136,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated nullability contract.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_nullable(&self, nullable: bool) -> Self {
         Self {
             id: self.id,
@@ -1146,6 +1155,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy of this field with an updated accepted SQL/catalog name.
     #[must_use]
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) fn clone_with_name(&self, name: String) -> Self {
         Self {
             id: self.id,

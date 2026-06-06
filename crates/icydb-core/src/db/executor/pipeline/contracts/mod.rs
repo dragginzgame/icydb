@@ -10,6 +10,8 @@ mod materialization;
 mod post_access;
 mod scan;
 
+#[cfg(feature = "sql")]
+use crate::db::executor::saturating_u32_len;
 use crate::{
     db::{
         Db,
@@ -17,20 +19,20 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow,
-            saturating_u32_len,
         },
         response::EntityResponse,
     },
     traits::EntityKind,
 };
 
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use execution::KernelRowsExecutionAttempt;
 pub(in crate::db) use execution::StructuralCursorPage;
 pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-    KernelRowsExecutionAttempt, MaterializedExecutionAttempt, MaterializedExecutionPayload,
-    PreparedExecutionInputContext, PreparedExecutionProjection, ProjectionMaterializationMode,
-    ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest,
+    MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionInputContext,
+    PreparedExecutionProjection, ProjectionMaterializationMode, ResolvedExecutionKeyStream,
+    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
 };
 pub(in crate::db::executor) use fast_stream::{FastStreamRouteKind, FastStreamRouteRequest};
 pub(in crate::db::executor) use grouped::{
@@ -142,6 +144,7 @@ impl StructuralGroupedProjectionResult {
 
     /// Return the grouped row count computed at the executor boundary.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn row_count(&self) -> u32 {
         saturating_u32_len(self.page.rows.len())
     }
