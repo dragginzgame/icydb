@@ -411,7 +411,7 @@ crate::test_entity! {
     tag = RECOVERY_NULLABLE_INDEXED_ENTITY_TAG,
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
-    schema_version = 2,
+    version = 2,
     key_type = Ulid,
     primary_key = [id],
     fields = [

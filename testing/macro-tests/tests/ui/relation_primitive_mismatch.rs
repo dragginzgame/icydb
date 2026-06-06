@@ -16,7 +16,7 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
@@ -24,7 +24,7 @@ pub struct Target;
 
 #[entity(
     store = "UiDataStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),

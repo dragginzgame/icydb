@@ -1,5 +1,5 @@
 error: Unknown value: `one`
-  --> tests/ui/schema_version_non_integer.rs:19:22
+  --> tests/ui/schema_version_non_integer.rs:19:15
    |
-19 |     schema_version = "one",
-   |                      ^^^^^
+19 |     version = "one",
+   |               ^^^^^

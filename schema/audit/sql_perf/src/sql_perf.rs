@@ -49,7 +49,7 @@ pub struct PerfAuditJournaledStore {}
 
 #[entity(
     store = "PerfAuditStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["name"]),
     index(fields = ["age", "id"]),
@@ -74,7 +74,7 @@ pub struct PerfAuditUser {}
 
 #[entity(
     store = "PerfAuditStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
@@ -94,7 +94,7 @@ pub struct PerfAuditStableUser {}
 
 #[entity(
     store = "PerfAuditHeapStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
@@ -114,7 +114,7 @@ pub struct PerfAuditHeapUser {}
 
 #[entity(
     store = "PerfAuditJournaledStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
@@ -134,7 +134,7 @@ pub struct PerfAuditJournaledUser {}
 
 #[entity(
     store = "PerfAuditStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["bucket", "id"]),
     index(fields = ["label"]),
@@ -157,7 +157,7 @@ pub struct PerfAuditBlob {}
 
 #[entity(
     store = "PerfAuditStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["handle"], predicate = "active = true"),
     index(fields = ["LOWER(handle)"], predicate = "active = true"),

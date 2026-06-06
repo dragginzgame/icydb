@@ -16,7 +16,7 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["tenant_id", "local_id"]),
     fields(
         field(ident = "tenant_id", value(item(prim = "Nat64"))),
@@ -27,7 +27,7 @@ pub struct CompositeTarget;
 
 #[entity(
     store = "UiDataStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),

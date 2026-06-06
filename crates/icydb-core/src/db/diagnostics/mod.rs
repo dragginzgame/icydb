@@ -15,7 +15,7 @@ pub use execution_trace::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,
 };
-pub(crate) use integrity::integrity_report;
+pub(in crate::db) use integrity::integrity_report;
 pub(in crate::db) use integrity::integrity_report_after_recovery;
 pub(in crate::db) use local_instructions::measure_local_instruction_delta;
 #[cfg(feature = "diagnostics")]

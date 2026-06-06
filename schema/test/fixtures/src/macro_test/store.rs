@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Nat64"))))
 )]

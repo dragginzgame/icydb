@@ -27,7 +27,7 @@ use std::{
     doc,
     doc = "Build one deterministic integrity scan over all registered stores.\n\nThis scan is read-only and classifies findings as:\n- corruption: malformed persisted bytes, incompatible persisted formats, or inconsistent structural links\n- misuse: unsupported runtime wiring (for example missing entity hooks)"
 )]
-pub(crate) fn integrity_report<C: CanisterKind>(
+pub(in crate::db) fn integrity_report<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<IntegrityReport, InternalError> {
     db.ensure_recovered_state()?;

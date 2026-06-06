@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -28,7 +28,7 @@ pub struct HasRelation;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -47,7 +47,7 @@ pub struct HasManyRelation;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -66,7 +66,7 @@ pub struct HasPluralRelation;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(
         ident = "id",
@@ -82,7 +82,7 @@ pub struct EntityA;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Nat16"))))
 )]
@@ -94,7 +94,7 @@ pub struct EntityB;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Principal"))))
 )]
@@ -106,7 +106,7 @@ pub struct EntityC;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(
         ident = "id",
@@ -122,7 +122,7 @@ pub struct Orders;
 
 #[entity(
     store = "RelationDataStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(
         ident = "id",
@@ -138,7 +138,7 @@ pub struct RelationOwner;
 
 #[entity(
     store = "RelationDataStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -175,7 +175,7 @@ pub struct RelationRecord;
 #[cfg(test)]
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(

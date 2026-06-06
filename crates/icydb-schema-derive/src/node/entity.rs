@@ -13,6 +13,7 @@ pub struct Entity {
 
     pub(crate) store: Path,
 
+    #[darling(rename = "version")]
     pub(crate) schema_version: u32,
 
     #[darling(rename = "pk")]
@@ -384,10 +385,8 @@ impl Entity {
 
     fn validate_schema_version(&self) -> Result<(), DarlingError> {
         if self.schema_version == 0 {
-            return Err(
-                DarlingError::custom("schema_version must be a positive integer")
-                    .with_span(&self.def.ident()),
-            );
+            return Err(DarlingError::custom("version must be a positive integer")
+                .with_span(&self.def.ident()));
         }
 
         Ok(())

@@ -304,7 +304,7 @@ fn validate_rejects_expression_index_field_not_found() {
 fn from_list_parses_nested_indexes_and_fields() {
     let args = NestedMeta::parse_meta_list(quote!(
         store = "UiDataStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         index(fields = ["missing_field"]),
         fields(field(
@@ -345,7 +345,7 @@ fn from_list_parses_nested_indexes_and_fields() {
 fn from_list_parses_relation_edges() {
     let args = NestedMeta::parse_meta_list(quote!(
         store = "UiDataStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         relation(
             ident = "author",

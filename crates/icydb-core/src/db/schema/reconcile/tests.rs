@@ -79,7 +79,7 @@ crate::test_entity! {
     tag = EntityTag::new(0x696e_6478_7363_6865),
     store = SchemaReconcileTestStore,
     canister = SchemaReconcileTestCanister,
-    schema_version = 2,
+    version = 2,
     key_type = Ulid,
     primary_key = [id],
     fields = [

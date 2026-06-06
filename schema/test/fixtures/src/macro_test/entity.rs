@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(field = "id"),
     index(field = "a"),
     fields(
@@ -27,7 +27,7 @@ pub struct Entity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Unit"))),
@@ -43,7 +43,7 @@ pub struct UnitKey {}
 #[entity(
     name = "Potato",
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(
         ident = "id",
@@ -59,7 +59,7 @@ pub struct RenamedEntity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -78,7 +78,7 @@ pub struct BoundedTextEntity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -97,7 +97,7 @@ pub struct BoundedBlobEntity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -121,7 +121,7 @@ pub struct DatabaseDefaultEntity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["pid"], source = "external"),
     fields(
         field(ident = "pid", value(item(prim = "Principal")), default = "2vxsx-fae"),
@@ -136,7 +136,7 @@ pub struct ExternalPrimaryKeyEntity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["tenant_id", "local_id"]),
     fields(
         field(ident = "tenant_id", value(item(prim = "Nat64")), default = 1u64),

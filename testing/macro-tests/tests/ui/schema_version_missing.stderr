@@ -1,4 +1,4 @@
-error: Missing field `schema_version`
+error: Missing field `version`
   --> tests/ui/schema_version_missing.rs:17:1
    |
 17 | / #[entity(

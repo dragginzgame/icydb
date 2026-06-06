@@ -113,7 +113,7 @@ macro_rules! define_simple_audit_entities {
             #[doc = ""]
             #[entity(
                 store = $store,
-                schema_version = 1,
+                version = 1,
                 pk(fields = ["id"]),
                 fields(
                     field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
@@ -255,7 +255,7 @@ macro_rules! define_complex_audit_entities {
             #[doc = ""]
             #[entity(
                 store = $store,
-                schema_version = 1,
+                version = 1,
                 pk(fields = ["id"]),
                 fields(
                     field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),

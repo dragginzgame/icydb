@@ -16,7 +16,7 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["missing_field"]),
     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))

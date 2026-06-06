@@ -7,7 +7,7 @@ use icydb::{base, design::prelude::*};
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(
         ident = "id",
@@ -23,7 +23,7 @@ pub struct SimpleEntity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -42,7 +42,7 @@ pub struct BlobEntity {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -62,7 +62,7 @@ pub struct Searchable {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["value"]),
     fields(field(ident = "value", value(item(prim = "Nat32"))))
 )]
@@ -74,7 +74,7 @@ pub struct Limit {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(
         ident = "id",
@@ -111,7 +111,7 @@ pub struct MissingFieldLarge {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -130,7 +130,7 @@ pub struct ContainsBlob {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -160,7 +160,7 @@ pub struct ContainsOpts {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -218,7 +218,7 @@ pub struct ContainsManyRelations {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["x"]),
     index(fields = ["y"], unique),
@@ -264,7 +264,7 @@ pub struct LowerIndexText {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["username"], unique),
     fields(
@@ -285,7 +285,7 @@ pub struct IndexSanitized {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["create_blob_id"]),
     fields(
@@ -308,7 +308,7 @@ pub struct IndexRelation {}
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     index(fields = ["value"], unique),
     fields(

@@ -3,7 +3,7 @@ error: primary key field 'singleton' cannot use Unit inside a composite primary 
    |
 17 | / #[entity(
 18 | |     store = "UiDataStore",
-19 | |     schema_version = 1,
+19 | |     version = 1,
 20 | |     pk(fields = ["tenant_id", "singleton"]),
 ...  |
 25 | | )]

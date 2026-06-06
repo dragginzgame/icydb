@@ -1792,7 +1792,7 @@ fn schema_version_hard_cut_rejects_obsolete_and_non_positive_internal_formats() 
             && integrity.contains("schema_version must be positive")
             && entity_model.contains("schema_version > 0")
             && entity_model.contains("generated schema_version must be positive")
-            && macro_zero.contains("schema_version must be a positive integer"),
+            && macro_zero.contains("version must be a positive integer"),
         "generated and persisted schema_version boundaries must reject non-positive versions",
     );
     assert!(
@@ -1803,7 +1803,7 @@ fn schema_version_hard_cut_rejects_obsolete_and_non_positive_internal_formats() 
 }
 
 #[test]
-fn workspace_entity_declarations_keep_explicit_schema_versions() {
+fn workspace_entity_declarations_keep_explicit_versions() {
     let manifest_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo_roots = [
         "../../schema",
@@ -1841,7 +1841,8 @@ fn workspace_entity_declarations_keep_explicit_schema_versions() {
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
         for entity_attr in entity_attribute_blocks(&source) {
-            if !entity_attr.contains("schema_version") {
+            let compact_attr = compact_source(&entity_attr);
+            if !compact_attr.contains("version=") || compact_attr.contains("schema_version=") {
                 violations.push(relative.clone());
             }
         }
@@ -1849,7 +1850,7 @@ fn workspace_entity_declarations_keep_explicit_schema_versions() {
 
     assert!(
         violations.is_empty(),
-        "all non-negative-test generated entity declarations must carry explicit schema_version. Violations: {}",
+        "all non-negative-test generated entity declarations must carry explicit version. Violations: {}",
         violations.join(", "),
     );
 }

@@ -86,6 +86,7 @@ pub struct AppStore {}
 
 #[entity(
     store = "AppStore",
+    version = 1,
     pk(field = "id"),
     index(field = "name"),
     index(fields = ["active", "score"]),

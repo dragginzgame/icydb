@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(
         ident = "id",
@@ -23,7 +23,7 @@ pub struct User;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["user_id"]),
     fields(field(ident = "user_id", value(item(rel = "User", prim = "Ulid"))))
 )]
@@ -35,7 +35,7 @@ pub struct UserProjects;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Int128"))))
 )]
@@ -47,7 +47,7 @@ pub struct Int128RelationTarget;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Nat128"))))
 )]
@@ -59,7 +59,7 @@ pub struct Nat128RelationTarget;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(
@@ -78,7 +78,7 @@ pub struct Int128RelationOwner;
 
 #[entity(
     store = "TestStore",
-    schema_version = 1,
+    version = 1,
     pk(fields = ["id"]),
     fields(
         field(

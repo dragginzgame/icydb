@@ -208,7 +208,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         fields(field(
             ident = "id",
@@ -228,7 +228,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         fields(field(
             ident = "id",
@@ -275,7 +275,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         fields(
             field(
@@ -294,7 +294,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         fields(
             field(
@@ -329,7 +329,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         fields(
             field(
@@ -355,7 +355,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         fields(
             field(
@@ -373,7 +373,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        schema_version = 1,
+        version = 1,
         pk(fields = ["id"]),
         fields(
             field(
