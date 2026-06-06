@@ -1,0 +1,20 @@
+[package]
+name = "icydb-diagnostic-code"
+edition = { workspace = true }
+rust-version = "1.88.0"
+version = { workspace = true }
+license = { workspace = true }
+description = "Compact diagnostic codes and structured error details for IcyDB"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[features]
+default = []
+wire = ["dep:candid", "dep:serde"]
+
+[dependencies]
+candid = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+
+[lints]
+workspace = true

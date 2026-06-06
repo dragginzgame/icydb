@@ -41,6 +41,31 @@ fn query_validate_maps_to_validate_kind() {
 }
 
 #[test]
+fn query_validate_exposes_compact_diagnostic_bridge() {
+    let err = QueryError::Validate(Box::new(ValidateError::UnknownField {
+        field: "field".to_string(),
+    }));
+    let facade = Error::from(err);
+    let diagnostic = facade.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryValidate
+    );
+    assert_eq!(diagnostic.class(), icydb_diagnostic_code::ErrorClass::Query);
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+            kind: icydb_diagnostic_code::QueryErrorKind::Validate,
+        })
+    );
+}
+
+#[test]
 fn query_intent_maps_to_intent_kind() {
     let err = QueryError::Intent(IntentError::ByIdsWithPredicate);
     let facade = Error::from(err);
@@ -66,6 +91,21 @@ fn response_error_maps_with_response_origin() {
 
     assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::NotFound));
     assert_eq!(facade.origin(), ErrorOrigin::Response);
+}
+
+#[test]
+fn response_error_preserves_origin_in_compact_diagnostic_bridge() {
+    let facade = Error::from(ResponseError::NotFound { entity: "Entity" });
+    let diagnostic = facade.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryNotFound
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Response
+    );
 }
 
 #[test]
@@ -137,6 +177,35 @@ fn query_execute_preserves_runtime_class_and_origin() {
         assert_eq!(facade.kind(), &ErrorKind::Runtime(expected_kind));
         assert_eq!(facade.origin(), expected_origin);
     }
+}
+
+#[test]
+fn runtime_error_exposes_compact_diagnostic_bridge() {
+    let facade = Error::from(InternalError::new(
+        CoreErrorClass::Unsupported,
+        CoreErrorOrigin::Query,
+        "unsupported query path",
+    ));
+    let diagnostic = facade.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported
+    );
+    assert_eq!(
+        diagnostic.class(),
+        icydb_diagnostic_code::ErrorClass::Unsupported
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeKind {
+            kind: icydb_diagnostic_code::RuntimeErrorKind::Unsupported,
+        })
+    );
 }
 
 #[test]

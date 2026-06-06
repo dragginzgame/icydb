@@ -16,6 +16,7 @@ members = [
     "crates/icydb-config-build",
     "crates/icydb-core",
     "crates/icydb-derive",
+    "crates/icydb-diagnostic-code",
     "crates/icydb-primitives",
     "crates/icydb-schema",
     "crates/icydb-schema-derive",
@@ -76,6 +77,7 @@ icydb-build = { path = "crates/icydb-build", version = "0.179.6" }
 icydb-config-build = { path = "crates/icydb-config-build", version = "0.179.6" }
 icydb-core = { path = "crates/icydb-core", version = "0.179.6" }
 icydb-derive = { path = "crates/icydb-derive", version = "0.179.6" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "0.179.6" }
 icydb-primitives = { path = "crates/icydb-primitives", version = "0.179.6" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.179.6" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.179.6" }
@@ -151,6 +153,7 @@ wildcard_imports = "allow"
 [patch.crates-io]
 icydb = { path = "crates/icydb" }
 icydb-core = { path = "crates/icydb-core" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code" }
 icydb-derive = { path = "crates/icydb-derive" }
 icydb-primitives = { path = "crates/icydb-primitives" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive" }

@@ -127,6 +127,14 @@ pub mod visitor {
 // facade modules
 pub mod base;
 pub mod db;
+pub mod diagnostic {
+    //! Compact diagnostic identity for CLI and canister callers.
+
+    pub use icydb_diagnostic_code::{
+        Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorOrigin, QueryErrorKind,
+        RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode,
+    };
+}
 mod error;
 pub mod traits;
 pub use error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind};

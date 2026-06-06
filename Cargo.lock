@@ -1195,6 +1195,7 @@ dependencies = [
  "icydb-build",
  "icydb-core",
  "icydb-derive",
+ "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-schema-derive",
  "icydb-utils",
@@ -1270,6 +1271,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "icydb-diagnostic-code"
+version = "0.179.6"
+dependencies = [
+ "candid",
+ "serde",
 ]
 
 [[package]]
