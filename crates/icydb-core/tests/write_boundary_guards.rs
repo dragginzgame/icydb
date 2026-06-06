@@ -1841,7 +1841,7 @@ fn workspace_entity_declarations_keep_explicit_versions() {
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
         for entity_attr in entity_attribute_blocks(&source) {
-            let compact_attr = compact_source(&entity_attr);
+            let compact_attr = compact_source(entity_attr);
             if !compact_attr.contains("version=") || compact_attr.contains("schema_version=") {
                 violations.push(relative.clone());
             }
