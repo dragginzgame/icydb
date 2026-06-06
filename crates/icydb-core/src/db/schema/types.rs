@@ -321,7 +321,23 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             PersistedFieldKind::Map { .. } => None,
             _ => unreachable!("collection semantics should come from collection persisted kind"),
         },
-        PersistedFieldKindCategory::Structured { .. } => None,
+        PersistedFieldKindCategory::Structured { .. }
+        | PersistedFieldKindCategory::Scalar(
+            PersistedScalarClass::Account
+            | PersistedScalarClass::Blob
+            | PersistedScalarClass::Bool
+            | PersistedScalarClass::Date
+            | PersistedScalarClass::Decimal
+            | PersistedScalarClass::Duration
+            | PersistedScalarClass::Enum
+            | PersistedScalarClass::Float32
+            | PersistedScalarClass::Float64
+            | PersistedScalarClass::Principal
+            | PersistedScalarClass::Subaccount
+            | PersistedScalarClass::Text
+            | PersistedScalarClass::Timestamp
+            | PersistedScalarClass::Unit,
+        ) => None,
         PersistedFieldKindCategory::Scalar(PersistedScalarClass::Signed64) => {
             canonicalize_signed64_persisted_literal(kind, value)
         }
@@ -352,22 +368,6 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
         },
-        PersistedFieldKindCategory::Scalar(
-            PersistedScalarClass::Account
-            | PersistedScalarClass::Blob
-            | PersistedScalarClass::Bool
-            | PersistedScalarClass::Date
-            | PersistedScalarClass::Decimal
-            | PersistedScalarClass::Duration
-            | PersistedScalarClass::Enum
-            | PersistedScalarClass::Float32
-            | PersistedScalarClass::Float64
-            | PersistedScalarClass::Principal
-            | PersistedScalarClass::Subaccount
-            | PersistedScalarClass::Text
-            | PersistedScalarClass::Timestamp
-            | PersistedScalarClass::Unit,
-        ) => None,
     }
 }
 
