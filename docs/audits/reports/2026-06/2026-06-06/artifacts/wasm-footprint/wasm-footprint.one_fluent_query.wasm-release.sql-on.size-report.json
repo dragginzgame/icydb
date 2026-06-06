@@ -1,0 +1,76 @@
+{
+  "canister": "one_fluent_query",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_fluent_query.wasm-release.did",
+      "bytes": 946,
+      "sha256": "2db7f4b5c7ff61e63943b5660df9c698dcecf9d9a08b5c43e5c75bd866ccbfe5"
+    },
+    "candid_export": "available",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_fluent_query.wasm-release.icp-built.wasm",
+      "bytes": 2568374,
+      "sha256": "79485cba9ae42402e019fe6b0a224eb9348fb9288c19d2e17cad73ff9c593042"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_fluent_query.wasm-release.icp-built.wasm.gz",
+      "bytes": 829997,
+      "sha256": "d4c02d8cbdc26b6a807c1e0dd868558abb352b2e657c912bf5c5cd93df2c4731"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_fluent_query.wasm-release.icp-shrunk.wasm",
+      "bytes": 2392849,
+      "sha256": "e4b1faa7ef7667ae8d56b2e651d6c7c97770fd70ac3e5be583776ff45e456b61"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_fluent_query.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 788140,
+      "sha256": "fbb3723ee70544b5ca0d135f312740a94638db857e17f55cab8cdec6057ee792"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 5719,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 179028,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query query_one_fluent (func_5717)",
+        "get_candid_pointer (func_5718)"
+      ]
+    },
+    "icp_shrunk": {
+      "function_count": 5719,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 179028,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query query_one_fluent (func_5709)",
+        "get_candid_pointer (func_5710)"
+      ]
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_reset": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": [
+      "query_one_fluent"
+    ]
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 175525,
+    "shrink_wasm_gz_bytes": 41857
+  }
+}

@@ -28,7 +28,7 @@ use std::cmp::Ordering;
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(crate) enum CursorBoundarySlot {
+pub(in crate::db) enum CursorBoundarySlot {
     Missing,
     Present(Value),
 }
@@ -39,8 +39,8 @@ pub(crate) enum CursorBoundarySlot {
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub(crate) struct CursorBoundary {
-    pub(crate) slots: Vec<CursorBoundarySlot>,
+pub(in crate::db) struct CursorBoundary {
+    pub(in crate::db) slots: Vec<CursorBoundarySlot>,
 }
 
 /// Apply one order direction to one base slot ordering.

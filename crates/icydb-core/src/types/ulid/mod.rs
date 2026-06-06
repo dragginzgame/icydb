@@ -1,7 +1,7 @@
 //! Module: types::ulid
 //! Defines the ULID runtime type used by typed keys and persistence encoding.
 
-pub(crate) mod generator;
+mod generator;
 #[cfg(test)]
 mod tests;
 
@@ -86,13 +86,13 @@ impl Ulid {
 
     /// Monotonic increment; returns `None` on overflow.
     #[must_use]
-    pub(crate) fn increment(&self) -> Option<Self> {
+    fn increment(&self) -> Option<Self> {
         self.0.increment().map(Self)
     }
 
     /// try_generate
     /// Fallible ULID generation preserving error type (e.g., overflow).
-    pub(crate) fn try_generate() -> Result<Self, UlidError> {
+    fn try_generate() -> Result<Self, UlidError> {
         #[cfg(test)]
         random::seed_if_uninitialized_for_tests([0x55; 32]);
 
@@ -112,7 +112,7 @@ impl Ulid {
     }
 
     #[must_use]
-    pub(crate) const fn timestamp_ms(self) -> u64 {
+    const fn timestamp_ms(self) -> u64 {
         self.0.timestamp_ms()
     }
 

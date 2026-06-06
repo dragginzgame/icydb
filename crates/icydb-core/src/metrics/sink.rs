@@ -649,7 +649,13 @@ pub(crate) struct PathSpan {
     finished: bool,
 }
 
-#[expect(clippy::missing_const_for_fn)]
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    expect(
+        clippy::missing_const_for_fn,
+        reason = "host metrics counter stub intentionally mirrors the wasm runtime hook"
+    )
+)]
 fn read_perf_counter() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {

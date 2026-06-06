@@ -119,14 +119,14 @@ pub(in crate::db) enum LoopAction {
 /// Used by raw index scans to validate directional advancement.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ContinuationKeyRef<'a> {
+pub(in crate::db) struct ContinuationKeyRef<'a> {
     raw_key: &'a RawIndexStoreKey,
 }
 
 impl<'a> ContinuationKeyRef<'a> {
     /// Build one scan-key reference for continuation runtime checks.
     #[must_use]
-    pub(crate) const fn scan(raw_key: &'a RawIndexStoreKey) -> Self {
+    pub(in crate::db) const fn scan(raw_key: &'a RawIndexStoreKey) -> Self {
         Self { raw_key }
     }
 }

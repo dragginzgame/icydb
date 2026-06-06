@@ -2,7 +2,9 @@
 members = [
     "canisters/audit/minimal",
     "canisters/audit/one_complex",
+    "canisters/audit/one_fluent_query",
     "canisters/audit/one_simple",
+    "canisters/audit/one_sql_query",
     "canisters/audit/sql_perf",
     "canisters/audit/ten_complex",
     "canisters/audit/ten_simple",

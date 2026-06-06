@@ -12,7 +12,7 @@ use thiserror::Error as ThisError;
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-pub(crate) enum TokenWireError {
+pub(in crate::db) enum TokenWireError {
     #[error("failed to encode cursor token: {0}")]
     Encode(String),
 

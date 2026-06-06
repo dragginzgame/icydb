@@ -3,7 +3,10 @@
 //! Does not own: SQL lowering, query planning, or executor routing.
 //! Boundary: classifies what SQL may request from accepted live schema fields.
 
-use crate::db::schema::PersistedFieldKind;
+use crate::db::schema::{
+    PersistedFieldKind, PersistedFieldKindCategory, PersistedFieldKindSemantics,
+    classify_persisted_field_kind,
+};
 
 const SQL_CAPABILITY_SELECTABLE: u8 = 1 << 0;
 const SQL_CAPABILITY_COMPARABLE: u8 = 1 << 1;
@@ -111,63 +114,39 @@ impl SqlCapabilities {
     }
 }
 
-///
-/// PersistedSqlScalarFamily
-///
-/// Internal scalar-family projection for persisted field kinds.
-/// The families are deliberately coarse and exist only to derive SQL
-/// capabilities without converting back into generated `FieldKind`.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PersistedSqlScalarFamily {
-    Boolean,
-    Numeric { arithmetic: bool },
-    Text,
-    OrderedOpaque,
-    Opaque,
-    Unit,
-}
-
-impl PersistedSqlScalarFamily {
-    // Return true when SQL may compare this scalar with equality predicates.
-    const fn comparable(self) -> bool {
-        !matches!(self, Self::Unit)
-    }
-
-    // Return true when SQL may use this scalar in ORDER BY.
-    const fn orderable(self) -> bool {
-        matches!(
-            self,
-            Self::Boolean | Self::Numeric { .. } | Self::Text | Self::OrderedOpaque
-        )
-    }
-
-    // Return true when SQL may use this scalar as grouping identity.
-    const fn groupable(self) -> bool {
-        !matches!(self, Self::Unit)
-    }
-
-    // Return true when SQL `SUM`/`AVG` style numeric aggregates may consume this scalar.
-    const fn supports_numeric_aggregate(self) -> bool {
-        matches!(self, Self::Numeric { arithmetic: true })
-    }
-}
-
 /// Return the SQL capability projection for one persisted schema field kind.
 #[must_use]
 pub(in crate::db) fn sql_capabilities(kind: &PersistedFieldKind) -> SqlCapabilities {
-    match persisted_sql_scalar_family(kind) {
-        Some(family) => sql_capabilities_for_scalar_family(family),
-        None => sql_capabilities_for_non_scalar(kind),
+    let semantics = classify_persisted_field_kind(kind);
+    match semantics.category() {
+        PersistedFieldKindCategory::Scalar(_) | PersistedFieldKindCategory::Relation(Some(_)) => {
+            sql_capabilities_for_scalar_semantics(semantics)
+        }
+        PersistedFieldKindCategory::Relation(None) => {
+            unreachable!("relation persisted field kind should have a scalar key kind")
+        }
+        PersistedFieldKindCategory::Collection => SqlCapabilities::new(
+            SQL_CAPABILITY_SELECTABLE,
+            SqlAggregateInputCapabilities::new(false, false, false),
+        ),
+        PersistedFieldKindCategory::Structured { queryable } => SqlCapabilities::new(
+            if queryable {
+                SQL_CAPABILITY_SELECTABLE
+            } else {
+                0
+            },
+            SqlAggregateInputCapabilities::new(false, false, false),
+        ),
     }
 }
 
-const fn sql_capabilities_for_scalar_family(family: PersistedSqlScalarFamily) -> SqlCapabilities {
-    let comparable = family.comparable();
-    let orderable = family.orderable();
-    let groupable = family.groupable();
-    let numeric = family.supports_numeric_aggregate();
+const fn sql_capabilities_for_scalar_semantics(
+    semantics: PersistedFieldKindSemantics,
+) -> SqlCapabilities {
+    let comparable = semantics.is_sql_comparable();
+    let orderable = semantics.is_orderable();
+    let groupable = comparable;
+    let numeric = semantics.is_numeric() && semantics.supports_arithmetic_numeric();
     let mut flags = SQL_CAPABILITY_SELECTABLE;
     if comparable {
         flags |= SQL_CAPABILITY_COMPARABLE;
@@ -183,98 +162,6 @@ const fn sql_capabilities_for_scalar_family(family: PersistedSqlScalarFamily) ->
         flags,
         SqlAggregateInputCapabilities::new(comparable, numeric, orderable),
     )
-}
-
-fn sql_capabilities_for_non_scalar(kind: &PersistedFieldKind) -> SqlCapabilities {
-    match kind {
-        PersistedFieldKind::List(_)
-        | PersistedFieldKind::Set(_)
-        | PersistedFieldKind::Map { .. } => SqlCapabilities::new(
-            SQL_CAPABILITY_SELECTABLE,
-            SqlAggregateInputCapabilities::new(false, false, false),
-        ),
-        PersistedFieldKind::Structured { queryable } => SqlCapabilities::new(
-            if *queryable {
-                SQL_CAPABILITY_SELECTABLE
-            } else {
-                0
-            },
-            SqlAggregateInputCapabilities::new(false, false, false),
-        ),
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Blob { .. }
-        | PersistedFieldKind::Bool
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Decimal { .. }
-        | PersistedFieldKind::Duration
-        | PersistedFieldKind::Enum { .. }
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig { .. }
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Text { .. }
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig { .. }
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit
-        | PersistedFieldKind::Relation { .. } => {
-            unreachable!(
-                "scalar persisted field kind should be handled by scalar-family projection"
-            )
-        }
-    }
-}
-
-fn persisted_sql_scalar_family(kind: &PersistedFieldKind) -> Option<PersistedSqlScalarFamily> {
-    match kind {
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Date
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Ulid => Some(PersistedSqlScalarFamily::OrderedOpaque),
-        PersistedFieldKind::Blob { .. } => Some(PersistedSqlScalarFamily::Opaque),
-        PersistedFieldKind::Bool => Some(PersistedSqlScalarFamily::Boolean),
-        PersistedFieldKind::Decimal { .. }
-        | PersistedFieldKind::Float32
-        | PersistedFieldKind::Float64
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::IntBig { .. }
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::NatBig { .. } => {
-            Some(PersistedSqlScalarFamily::Numeric { arithmetic: true })
-        }
-        PersistedFieldKind::Duration | PersistedFieldKind::Timestamp => {
-            Some(PersistedSqlScalarFamily::Numeric { arithmetic: false })
-        }
-        PersistedFieldKind::Enum { .. } | PersistedFieldKind::Text { .. } => {
-            Some(PersistedSqlScalarFamily::Text)
-        }
-        PersistedFieldKind::Unit => Some(PersistedSqlScalarFamily::Unit),
-        PersistedFieldKind::Relation { key_kind, .. } => persisted_sql_scalar_family(key_kind),
-        PersistedFieldKind::List(_)
-        | PersistedFieldKind::Set(_)
-        | PersistedFieldKind::Map { .. }
-        | PersistedFieldKind::Structured { .. } => None,
-    }
 }
 
 ///

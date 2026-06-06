@@ -16,9 +16,9 @@ pub(in crate::db::cursor) use codec::MAX_CURSOR_TOKEN_BYTES;
 pub(in crate::db::cursor::token) use codec::{
     decode_grouped_token, decode_scalar_token, encode_grouped_token, encode_scalar_token,
 };
-pub(crate) use error::TokenWireError;
+pub(in crate::db) use error::TokenWireError;
 pub(in crate::db) use grouped::GroupedContinuationToken;
-pub(crate) use scalar::ContinuationToken;
+pub(in crate::db) use scalar::ContinuationToken;
 
 ///
 /// IndexRangeCursorAnchor

@@ -32,7 +32,7 @@ use crate::{
 pub(in crate::db) use anchor::{
     ValidatedInEnvelopeIndexRangeCursorAnchor, cursor_anchor_from_raw_index_store_key,
 };
-pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
+pub(in crate::db) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
     apply_order_direction, decode_pk_cursor_boundary_primary_key_value_for_names,
     validate_cursor_boundary_for_order, validate_cursor_direction, validate_cursor_window_offset,
@@ -52,7 +52,7 @@ pub use signature::ContinuationSignature;
 pub(in crate::db) use string::encode_grouped_cursor_token;
 #[expect(unreachable_pub)]
 pub use string::{CursorDecodeError, decode_cursor, encode_cursor};
-pub(crate) use token::{ContinuationToken, TokenWireError};
+pub(in crate::db) use token::{ContinuationToken, TokenWireError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 pub(in crate::db) use validated::{ValidatedCursor, ValidatedGroupedCursor};
 

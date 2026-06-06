@@ -38,6 +38,14 @@ const FIXTURE_CANISTERS: &[FixtureCanister] = &[
         package: "canister_audit_one_simple",
     },
     FixtureCanister {
+        name: "one_sql_query",
+        package: "canister_audit_one_sql_query",
+    },
+    FixtureCanister {
+        name: "one_fluent_query",
+        package: "canister_audit_one_fluent_query",
+    },
+    FixtureCanister {
         name: "sql_perf",
         package: "canister_audit_sql_perf",
     },

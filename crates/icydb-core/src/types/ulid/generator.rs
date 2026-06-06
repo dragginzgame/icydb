@@ -13,7 +13,7 @@ thread_local! {
 }
 
 /// Generate a ULID using the global monotonic generator.
-pub(crate) fn generate() -> Result<Ulid, UlidError> {
+pub(super) fn generate() -> Result<Ulid, UlidError> {
     GENERATOR.with(|g| g.borrow_mut().generate())
 }
 
@@ -24,7 +24,7 @@ pub(crate) fn generate() -> Result<Ulid, UlidError> {
 /// as the ulid crate doesn't support a no-std generator
 ///
 
-pub(crate) struct Generator {
+struct Generator {
     previous: Ulid,
     #[cfg(target_arch = "wasm32")]
     sequence: u64,
@@ -43,7 +43,7 @@ impl Default for Generator {
 impl Generator {
     // generate
     /// Monotonic ULID generation; increments within the same millisecond.
-    pub(crate) fn generate(&mut self) -> Result<Ulid, UlidError> {
+    fn generate(&mut self) -> Result<Ulid, UlidError> {
         let last_ts = self.previous.timestamp_ms();
         let ts = now_millis();
 

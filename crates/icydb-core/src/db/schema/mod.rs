@@ -7,6 +7,7 @@ mod capabilities;
 mod codec;
 mod describe;
 mod errors;
+mod field_kind_semantics;
 mod fingerprint;
 mod format;
 mod identity;
@@ -39,6 +40,10 @@ pub(in crate::db) use codec::{
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
+};
+pub(in crate::db) use field_kind_semantics::{
+    PersistedFieldKindCategory, PersistedFieldKindSemantics, PersistedScalarClass,
+    classify_persisted_field_kind,
 };
 pub(in crate::db) use fingerprint::{
     accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,

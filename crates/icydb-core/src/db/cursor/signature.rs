@@ -19,11 +19,11 @@ use std::fmt;
 pub struct ContinuationSignature([u8; 32]);
 
 impl ContinuationSignature {
-    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub(in crate::db) const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
-    pub(crate) const fn into_bytes(self) -> [u8; 32] {
+    pub(in crate::db) const fn into_bytes(self) -> [u8; 32] {
         self.0
     }
 

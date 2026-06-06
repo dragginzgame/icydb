@@ -13,7 +13,10 @@ use crate::{
         Db, EntityRuntimeHooks,
         data::RawDataStoreKey,
         identity::EntityName,
-        schema::{PersistedFieldKind, PersistedRelationStrength, ensure_accepted_schema_snapshot},
+        schema::{
+            PersistedFieldKind, PersistedRelationStrength, classify_persisted_field_kind,
+            ensure_accepted_schema_snapshot,
+        },
     },
     error::InternalError,
     traits::CanisterKind,
@@ -325,29 +328,16 @@ fn accepted_relation_target_metadata_from_kind(
 fn validate_relation_primary_key_component_kind(
     key_kind: &PersistedFieldKind,
 ) -> Result<(), InternalError> {
-    match key_kind {
-        PersistedFieldKind::Account
-        | PersistedFieldKind::Int8
-        | PersistedFieldKind::Int16
-        | PersistedFieldKind::Int32
-        | PersistedFieldKind::Int64
-        | PersistedFieldKind::Int128
-        | PersistedFieldKind::Principal
-        | PersistedFieldKind::Subaccount
-        | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Nat8
-        | PersistedFieldKind::Nat16
-        | PersistedFieldKind::Nat32
-        | PersistedFieldKind::Nat64
-        | PersistedFieldKind::Nat128
-        | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => Ok(()),
-        PersistedFieldKind::Relation { key_kind, .. } => {
-            validate_relation_primary_key_component_kind(key_kind)
-        }
-        other => Err(InternalError::relation_source_row_unsupported_key_kind(
-            other,
-        )),
+    if let PersistedFieldKind::Relation { key_kind, .. } = key_kind {
+        return validate_relation_primary_key_component_kind(key_kind);
+    }
+
+    if classify_persisted_field_kind(key_kind).is_relation_key_eligible() {
+        Ok(())
+    } else {
+        Err(InternalError::relation_source_row_unsupported_key_kind(
+            key_kind,
+        ))
     }
 }
 

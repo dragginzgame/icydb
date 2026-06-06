@@ -16,7 +16,7 @@ use crate::db::cursor::token::{TokenWireError, decode_scalar_token, encode_scala
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ContinuationToken {
+pub(in crate::db) struct ContinuationToken {
     signature: ContinuationSignature,
     boundary: CursorBoundary,
     direction: Direction,
@@ -56,11 +56,11 @@ impl ContinuationToken {
         }
     }
 
-    pub(crate) const fn signature(&self) -> ContinuationSignature {
+    pub(in crate::db) const fn signature(&self) -> ContinuationSignature {
         self.signature
     }
 
-    pub(crate) const fn boundary(&self) -> &CursorBoundary {
+    pub(in crate::db) const fn boundary(&self) -> &CursorBoundary {
         &self.boundary
     }
 
@@ -76,7 +76,7 @@ impl ContinuationToken {
         self.index_range_anchor.as_ref()
     }
 
-    pub(crate) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
+    pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
         encode_scalar_token(
             self.signature,
             &self.boundary,
@@ -86,7 +86,7 @@ impl ContinuationToken {
         )
     }
 
-    pub(crate) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
+    pub(in crate::db) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
         let payload = decode_scalar_token(bytes)?;
 
         match payload.index_range_anchor {

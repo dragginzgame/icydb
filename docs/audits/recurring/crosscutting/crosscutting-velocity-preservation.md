@@ -4,21 +4,28 @@
 
 ## Purpose
 
-Evaluate whether the architecture still supports:
+Evaluate whether the current code organization preserves future feature
+velocity.
 
-* Rapid feature iteration
-* Contained feature changes
-* Low cross-layer amplification
-* Predictable extension cost
+This audit asks:
+
+* Where would the next feature become hard to add?
+* Which modules force unrelated owners to change together?
+* Which boundaries are too porous or too implicit?
+* Which decision surfaces will multiply update sites as the product grows?
 
 This is NOT:
 
-* A correctness audit
-* A DRY audit
-* A style audit
-* A redesign proposal exercise
+* a recent delivery-speed audit
+* a PR file-count audit
+* a correctness audit
+* a DRY audit
+* a style audit
+* a redesign proposal exercise
 
-This audit measures structural feature agility.
+This audit measures future extension friction from the code as it exists now.
+Do not score recent patch history, commit size, or files touched by previous
+slices. Those belong to delivery governance, not this recurring score.
 
 ## Audit Identity
 
@@ -31,28 +38,11 @@ Do not merge it with:
 * Layer violation
 * Module structure
 
-Velocity is the change-cost lens: how expensive feature evolution is in practice.
+Velocity is the extension-friction lens: whether future features can be added
+through clear owners and stable contracts without cross-layer amplification.
 
-## Internal Modes (Single Artifact)
-
-Use two internal sections inside one weekly artifact.
-
-Mode A — Empirical Change Surface:
-
-* Feature slice selection
-* Change surface mapping (`revised_caf`, `ELS`, containment)
-* Edit blast radius and concentration
-
-Mode B — Structural Extension Friction:
-
-* Boundary leakage
-* Gravity wells and hub containment
-* Enum shock radius
-* Subsystem independence
-* Independent-axis growth
-* Decision surface size
-
-Do not split this into two separate recurring audits.
+Historical change data may be used only as non-scoring context after the score
+is computed. It must not raise or lower the score.
 
 ---
 
@@ -60,115 +50,66 @@ Do not split this into two separate recurring audits.
 
 Low-risk velocity architecture has:
 
-* Contained change surfaces
-* Stable layer boundaries
-* Low cross-cutting amplification
-* Clear ownership per subsystem
-* Predictable growth vectors
+* clear owner boundaries
+* stable contracts between layers
+* few cross-cutting update requirements
+* localized decision surfaces
+* obvious extension paths for representative future features
 
 Velocity degrades when:
 
-* Features require multi-layer edits
-* Planner, executor, and recovery are tightly coupled
-* Modules become gravity wells
-* A single enum change multiplies update sites across layers
+* a feature must edit several owners before behavior can change
+* planner, executor, cursor, storage, or facade code depends on each other's
+  internal decisions
+* module roots become coordination gravity wells
+* one enum or decision family requires repeated switch-site edits across layers
+* generated or facade surfaces force runtime semantics to follow fixture shape
 
 ---
 
-# STEP 0 — Run Metadata + Method / Comparability (Mandatory)
+# STEP 0 — Run Metadata + Method (Mandatory)
 
 Capture method metadata before scoring.
 
 Required run metadata:
 
-* compared baseline report path
+* code snapshot identifier
+* dirty-worktree status
 * method tag/version
-* feature-slice selection source
 * subsystem taxonomy version
 * boundary-crossing regex/rule set version
-* fan-in definition
+* fan-in/fanout definition
 * hub-family taxonomy version
-* independent-axis rule version
+* decision-surface rule version
 * facade/adapters inclusion mode
 
 Produce:
 
-| Method Component | Current | Previous | Comparable |
-| ---- | ---- | ---- | ---- |
-| feature-slice selection source/rules |  |  |  |
-| subsystem taxonomy |  |  |  |
-| boundary crossing rule set |  |  |  |
-| fan-in definition |  |  |  |
-| hub-family taxonomy |  |  |  |
-| independent-axis rule |  |  |  |
-| facade/adapters inclusion |  |  |  |
+| Method Component | Current |
+| ---- | ---- |
+| code snapshot identifier |  |
+| dirty-worktree status |  |
+| method tag/version | `VP-FEF-1.0` |
+| subsystem taxonomy |  |
+| boundary crossing rule set |  |
+| fan-in/fanout definition |  |
+| hub-family taxonomy |  |
+| decision-surface rule |  |
+| facade/adapters inclusion |  |
 
-Comparability gate:
+Rules:
 
-* Mark run `non-comparable` if any method component above changed.
-* If `non-comparable`, still compute metrics but do not treat deltas as trend evidence.
-
----
-
-# STEP 1 — Baseline Capture (Mandatory)
-
-Capture baseline values first.
-
-Baseline source rule:
-
-* first run of day (`velocity-preservation.md`): compare to latest prior comparable velocity report (or `N/A`)
-* same-day rerun (`velocity-preservation-*.md`): compare to that day's `velocity-preservation.md` baseline
-
-Produce:
-
-| Metric | Previous | Current | Delta |
-| ---- | ----: | ----: | ----: |
-| Velocity Risk Index |  |  |  |
-| Cross-layer suspect crossings |  |  |  |
-| Avg files touched per feature slice |  |  |  |
-| Median files touched |  |  |  |
-| p95 files touched |  |  |  |
-| Top gravity-well fan-in |  |  |  |
-| Route-planner high-impact cross-layer families |  |  |  |
-| Edit concentration in top 5 modules (%) |  |  |  |
-| Fan-in concentration in top 5 modules (%) |  |  |  |
-| Decision-site concentration in top 3 enums (%) |  |  |  |
-
-If no prior comparable report exists for the first run of day, mark baseline as `N/A` and treat that run as the daily baseline.
+* Score only the current code snapshot.
+* If the worktree is dirty, state whether dirty files affect the audited
+  surfaces.
+* Do not compute deltas against prior reports in the scored sections.
+* Prior reports may appear only in an optional non-scoring appendix.
 
 ---
 
-# STEP 2 — Feature Slice Selection (Mandatory)
+# STEP 1 — Scope + Ownership Map (Mandatory)
 
-Analyze exactly 3-5 major feature slices per run.
-
-Selection priority:
-
-1. merged PR slices in window
-2. milestone/tracker slices when PR metadata is unavailable
-3. contiguous commit groups tied to one feature objective when tracker metadata is unavailable
-
-Selection rules:
-
-* Exclude refactor-only slices unless they directly supported a shipped feature objective.
-* Use the same selected slice set for STEP 3 and STEP 4.
-* Record source type for each slice to keep run-to-run comparability stable.
-
-Produce:
-
-| Feature Slice | Source Type (`PR`/`tracker`/`commits`/`manual`) | Source Reference | Included Reason | Exclusions |
-| ---- | ---- | ---- | ---- | ---- |
-
----
-
-# STEP 3 — Change Surface Mapping (Mode A, Empirical)
-
-Map each selected slice and compute deterministic locality/amplification metrics.
-
-Produce:
-
-| Feature Slice | Files Modified | Subsystems | Layers | Flow Axes Total | Flow Axes Material | Revised CAF | ELS | Containment Score | Risk |
-| ---- | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
+Map the current code ownership before judging risk.
 
 Fixed subsystem taxonomy:
 
@@ -177,341 +118,358 @@ Fixed subsystem taxonomy:
 * cursor/continuation
 * access/index
 * storage/recovery
-* facade/adapters (include only when run metadata says included)
-
-Definitions:
-
-* `revised_caf = max(subsystems, layers) × flow_axes_material`
-* `flow_axes_total`: all axes present in the feature shape
-* `flow_axes_material`: axes that actually drove edits across distinct logic families
-* `ELS (Extension Locality Score) = primary_subsystem_files / total_files_modified`
-* `containment_score = subsystems_modified / total_subsystems`
-
-Primary subsystem rule:
-
-* Primary subsystem is the subsystem containing the plurality of modified files.
-* Tie-break using documented semantic feature owner when available.
-
-Interpretation:
-
-* `ELS > 0.70`: good locality
-* `ELS 0.40-0.70`: moderate
-* `ELS < 0.40`: poor locality
-* `containment_score <= 0.30`: strongly contained
-* `containment_score 0.30-0.60`: moderate
-* `containment_score > 0.60`: cross-system change
-
-Flag:
-
-* revised CAF trend up week-over-week
-* low ELS on core slices
-* high containment scores on routine features
-
----
-
-# STEP 4 — Edit Blast Radius Summary (Mode A, Empirical)
-
-Use the same selected slices from STEP 2.
-
-Produce sample metadata:
-
-| Sampling Mode | Sample Source | Sample Size | Slice IDs | Comparable |
-| ---- | ---- | ----: | ---- | ---- |
-
-Produce blast-radius metrics:
-
-| Metric | Current | Previous | Delta |
-| ---- | ----: | ----: | ----: |
-| average files touched per feature slice |  |  |  |
-| median files touched |  |  |  |
-| p95 files touched |  |  |  |
-
-SLO gates:
-
-* median files touched `<= 8`
-* p95 files touched `<= 15`
-
-Edit concentration metrics:
-
-| Concentration Metric | Current | Previous | Delta | Risk |
-| ---- | ----: | ----: | ----: | ---- |
-| % of slice edits in top 5 modules |  |  |  |  |
-| % of fan-in in top 5 modules |  |  |  |  |
-| % of decision sites in top 3 enums |  |  |  |  |
-
-If an SLO gate is missed in a comparable run, record an explicit follow-up with owner boundary and target date.
-
----
-
-# STEP 5 — Boundary Leakage (Mode B, Mechanical + Triaged)
-
-Track crossings with two-stage classification.
-
-Required checks:
-
-* planner -> executor types
-* executor -> planner validation helpers
-* index -> query-layer AST/types
-* cursor -> executable plan internals
-* recovery -> query semantics
+* schema/catalog
+* SQL parser/lowering/session
+* facade/adapters
+* generated/test support
 
 Produce:
 
-| Boundary | Mechanical Crossings | Allowed Contract Crossings | Suspect Crossings | Previous Suspect | Delta | Risk |
-| ---- | ----: | ----: | ----: | ----: | ----: | ---- |
+| Subsystem | Primary Owner Modules | Public/Crate Boundary | Runtime Authority | Notes |
+| ---- | ---- | ---- | ---- | ---- |
 
-Method:
+Flag:
 
-* First pass must be mechanical (regex/rule-set driven).
-* Second pass triages into allowed vs suspect crossings.
+* runtime behavior owned by generated/test/facade code
+* owner modules that expose broad `pub(crate)` surfaces without nonlocal need
+* module roots that coordinate unrelated policy families
 
 ---
 
-# STEP 6 — Gravity Wells + Hub Containment (Mode B)
+# STEP 2 — Future Feature Probes (Mandatory)
 
-Fan-in definition for this audit:
+Choose 3-5 plausible future feature probes. These are hypothetical extension
+paths, not recent landed slices.
+
+Selection rules:
+
+* Pick probes from product-shaped growth areas, not from commit history.
+* Include at least one query/planner or executor probe when relevant.
+* Include a schema/storage or generated/facade probe only if the current code
+  suggests pressure there.
+* Prefer probes that would naturally stress known boundaries.
+
+Examples:
+
+* add a new SQL aggregate behavior
+* add a new order/cursor policy
+* add a new persisted scalar kind
+* add a new generated canister endpoint class
+* add a new index scan route shape
+
+Produce:
+
+| Future Feature Probe | Expected Owner | Required Modules | Layers Crossed | Contract Blockers | Risk |
+| ---- | ---- | ----: | ----: | ---- | ---- |
+
+Method:
+
+* Read current code and imports to estimate expected edit points.
+* Count only modules that would need semantic changes, not tests or fixtures.
+* Treat a probe as high risk if ownership is unclear or if unrelated layers must
+  change before the feature can be expressed.
+
+---
+
+# STEP 3 — Boundary Leakage (Mechanical + Triaged)
+
+Track current code crossings with two-stage classification.
+
+Required checks:
+
+* planner/query -> executor runtime internals
+* executor/runtime -> query/sql internals
+* index/access -> query/sql AST or lowering types
+* cursor/continuation -> executable plan internals
+* storage/recovery -> query semantics
+* generated/facade -> runtime semantic authority
+
+Produce:
+
+| Boundary | Mechanical Crossings | Allowed Contract Crossings | Suspect Crossings | Risk |
+| ---- | ----: | ----: | ----: | ---- |
+
+Method:
+
+* First pass must be mechanical using the current rule set.
+* Second pass triages into allowed contract crossings vs suspect crossings.
+* A crossing is suspect when the callee owns behavior the caller should not know
+  about, or when adding a feature would require the caller to mirror callee
+  decisions.
+
+---
+
+# STEP 4 — Owner / Contract Clarity
+
+Evaluate whether future features have obvious places to land.
+
+Produce:
+
+| Surface | Owner | Contract Type | Ambiguity | Extension Impact | Risk |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+
+Contract types:
+
+* `facade-public`
+* `crate-boundary`
+* `subsystem-boundary`
+* `owner-private`
+* `generated-boundary`
+* `test-support`
+
+Flag:
+
+* broad `pub(crate)` or `pub` surfaces without external authority
+* re-exports that turn owner-private helpers into subsystem contracts
+* runtime fallbacks reconstructed from generated models
+* test-only helpers that widen production visibility
+* modules whose header responsibility does not match their imports or exports
+
+---
+
+# STEP 5 — Gravity Wells + Hub Containment
+
+Fan-in/fanout definitions for this audit:
 
 * `fan_in = number of runtime modules referencing the module`
+* `fanout = number of runtime module families referenced by the module`
 * count import and type-reference sites at module granularity
 * exclude tests by default
-* exclude generated code by default
+* exclude generated code by default unless facade/adapters are in scope
 * count re-export-driven runtime references when resolved
 
 Produce gravity-well table:
 
-| Module | Class | LOC | LOC Delta | Fan-In | Fan-In Delta | Domains | Edit Frequency (30d) | Risk |
-| ---- | ---- | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
+| Module | Class | LOC | Fan-In | Fanout | Domains | Owner Clarity | Risk |
+| ---- | ---- | ----: | ----: | ----: | ----: | ---- | ---- |
 
 Gravity-well classes:
 
-* `growth gravity well`: `LOC delta > 2x weekly average` and `fan-in delta > 1`
-* `stable gravity well`: already high fan-in with high edit frequency and multi-domain pressure
+* `coordination hub`: intentionally gathers contracts for one owner
+* `decision hub`: contains policy branches for multiple feature families
+* `mixed-owner hub`: mixes policy, dispatch, and runtime behavior from
+  different owners
+* `stable large module`: large but owner-clear and not cross-domain
 
-Fixed domain categories:
+Produce hub containment table:
 
-* planner/query
-* executor/runtime
-* cursor/continuation
-* access/index
-* storage/recovery
-
-Track hub contract containment with fixed family taxonomy.
-
-Produce:
-
-| Hub Module | Contract Boundary | Cross-Layer Families | Previous | Delta | Allowed Max | Status | Risk |
-| ---- | ---- | ----: | ----: | ----: | ----: | ---- | ---- |
-
-Cross-layer family taxonomy:
-
-* planner semantics
-* access-route contracts
-* executor dispatch
-* terminal/load shaping
-* cursor/continuation
-* storage/recovery
+| Hub Module | Contract Boundary | Cross-Layer Families | Allowed Max | Status | Risk |
+| ---- | ---- | ----: | ----: | ---- | ---- |
 
 Required hubs:
 
 * `executor/route/planner/mod.rs`
-* `executor/load/mod.rs` (or split successor modules)
-
-Required route-planner contract:
-
-* planner -> `RouteShape` -> executor dispatch
-* route planner consumes access-route contracts, not access internals
-
-Required load-hub containment direction:
-
-* decompose toward `dispatch`, `strategy`, `terminal` seams
-* avoid mixed policy + dispatch + terminal logic in one hub file
+* SQL execution/session roots
+* cursor/continuation roots
+* any current module root over local threshold that imports more than one
+  subsystem family
 
 Gate guidance:
 
 * route-planner high-impact cross-layer families target `<=1`
-* persistent `>1` for two comparable runs requires explicit decomposition plan
+* a mixed-owner hub with no clear split point is high future-friction risk
+* large owner-clear modules are monitor items, not automatic failures
 
 ---
 
-# STEP 7 — Enum Shock Radius (Mode B, Density-Adjusted)
+# STEP 6 — Decision Shock Radius
 
-Track enum expansion velocity impact.
+Track current decision surfaces that would make future feature additions
+expensive.
 
 Produce:
 
-| Enum | Variants | Switch Sites | Modules Using Enum | Switch Density | Subsystems | Shock Radius | Risk |
-| ---- | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
+| Decision Surface | Variants / Cases | Change-Relevant Sites | Modules | Subsystems | Shock Radius | Risk |
+| ---- | ----: | ----: | ----: | ----: | ----: | ---- |
 
 Definitions:
 
-* `switch_density = switch_sites / modules_using_enum`
-* `shock_radius = variants × switch_density × subsystems`
+* `change-relevant site`: a place that would need semantic updates for a new
+  case, not every syntactic match
+* `shock_radius = variants_or_cases × change_relevant_sites × subsystems`
 
 Flag:
 
-* high shock-radius enums with upward trend
-* concentration where top 3 enums dominate decision-site share
+* enums used as cross-layer policy buses
+* match sites spread across planner, executor, storage, and facade layers
+* generated fixtures that must change for runtime-only semantics
+* decision surfaces with no owner-local strategy table or adapter
 
 ---
 
-# STEP 8 — Subsystem Independence Score (Mode B, Size-Adjusted)
+# STEP 7 — Subsystem Independence
 
-Measure subsystem self-sufficiency with small-module noise suppression.
+Measure whether each subsystem can evolve without importing another subsystem's
+private decisions.
 
 Produce:
 
-| Subsystem | Internal Imports | External Imports | LOC | Independence | Adjusted Independence | Risk |
+| Subsystem | Internal Imports | External Imports | LOC | Independence | Private Decision Imports | Risk |
 | ---- | ----: | ----: | ----: | ----: | ----: | ---- |
 
 Definitions:
 
 * `independence = internal / (internal + external)`
-* `adjusted_independence = independence × log(module_loc)`
+* `private decision import`: an import of a helper/type that encodes another
+  subsystem's policy rather than a stable contract
 
-Low adjusted independence means feature work is coupling-driven in materially sized subsystems.
+Low independence is only high risk when the imported surface is a private
+decision surface or when future feature probes must cross that boundary.
 
 ---
 
-# STEP 9 — Decision-Axis Growth (Mode B, Independence-Aware)
+# STEP 8 — Extension Path Rehearsal
 
-Track axis growth for core operations.
+For each future feature probe from STEP 2, write the expected extension path.
 
 Produce:
 
-| Operation | Axes | Axis Count | Independent Axes | Previous Independent Axes | Delta | Risk |
-| ---- | ---- | ----: | ----: | ----: | ----: | ---- |
+| Probe | Ideal Owner-Local Path | Actual Current Path | Extra Owners Required | Main Blocker | Risk |
+| ---- | ---- | ---- | ----: | ---- | ---- |
 
-Axis-independence rule:
+Guidance:
 
-* Count an axis as independent only if it can vary without forcing another axis by contract.
-* It must change behavior at a distinct subsystem or decision site.
-
-Risk should be driven by `independent_axes`, not raw axis count.
-
----
-
-# STEP 10 — Decision Surface Size (Mode B, Change-Relevant)
-
-Track where enum behavior changes require feature updates.
-
-Produce:
-
-| Enum | Decision Sites Requiring Feature Updates | Previous | Delta | Risk |
-| ---- | ----: | ----: | ----: | ---- |
-
-Method:
-
-* Mechanical scan is allowed for candidate sites.
-* Final count must include only change-relevant decision sites, not every syntactic match.
+* The ideal path should name one primary owner and any stable contracts it would
+  call.
+* The actual path should name the modules that would probably need changes.
+* Count an extra owner only when semantic behavior must change there.
+* Tests, fixtures, and generated expectations are support cost, not semantic
+  owner count, unless they own runtime behavior.
 
 ---
 
-# STEP 11 — Refactor Noise Filter
+# STEP 9 — Future Extension Friction Index
 
-Before finalizing risk, classify transient spikes.
+Score each bucket from `1` to `10`, then apply the weighted aggregate.
 
-Rules:
-
-* If module split increases file count but reduces fan-in, mark `structural improvement`.
-* If change surface grows while revised CAF and shock radius are flat/down, mark `refactor transient`.
-
-Produce:
-
-| Signal | Raw Trend | Noise Classification | Adjusted Interpretation |
-| ---- | ---- | ---- | ---- |
-
----
-
-# STEP 12 — Velocity Risk Index (Semi-Mechanical, Rubric-Anchored)
-
-Score each bucket (1-10), then apply weighted aggregate.
+Lower is better.
 
 Weighted buckets:
 
-* enum shock radius ×2
-* CAF trend ×2
-* cross-layer leakage (suspect) ×2
-* gravity-well growth/stability ×2
-* hub contract containment ×2
-* edit blast radius (SLO-based) ×2
+* future feature probe friction ×3
+* boundary leakage ×2
+* owner/contract clarity ×2
+* gravity-well and hub containment ×2
+* decision shock radius ×2
+* subsystem independence ×1
 
 Produce:
 
-| Area | Score | Weight | Weighted Score |
-| ---- | ----: | ----: | ----: |
+| Area | Score | Weight | Weighted Score | Evidence |
+| ---- | ----: | ----: | ----: | ---- |
 
-`overall_index = weighted_sum / weight_sum`
+`future_extension_friction_index = weighted_sum / weight_sum`
 
 Rubric anchors:
 
-* CAF trend:
-* `2` median revised CAF `<=4` with flat/down comparable trend
-* `5` median `5-6` or one transient spike
-* `8` median `>6` with upward comparable trend
-* `10` sustained `>6` for two comparable runs without containment improvement
-* cross-layer leakage (suspect):
-* `2` suspect crossings `<=2` and non-increasing
-* `5` suspect crossings `3-5` or flat at moderate level
-* `8` suspect crossings `>=6` or delta `>=+2`
-* `10` sustained high suspect crossings for two comparable runs
-* gravity wells:
-* `2` no growth class and no stable high-risk wells
-* `5` one stable or one growth well with active containment plan
-* `8` multiple stable/growth wells or repeated same-hub pressure
-* `10` repeated worsening with no active containment plan
-* hub containment:
-* `2` all hubs at/below allowed max
-* `5` one hub exceeds by `+1` in one run
-* `8` persistent overage for two comparable runs
-* `10` widening overage with no decomposition commitment
-* enum shock radius:
-* `2` hotspots flat/down and concentration controlled
-* `5` one moderate hotspot rising
-* `8` multiple rising hotspots or concentration spike
-* `10` sustained hotspot growth with concentrated decision pressure
-* edit blast radius:
-* `2` median `<=6` and p95 `<=12`
-* `5` median `7-8` or p95 `13-15`
-* `8` median `>8` and p95 `>15`
-* `10` repeated SLO misses across comparable runs
+Future feature probe friction:
 
-Concentration adjustment:
+* `2`: probes land through one owner plus stable contracts
+* `5`: one probe needs two owners or an unclear adapter
+* `8`: multiple probes require cross-layer semantic edits
+* `10`: routine probes require broad planner/executor/storage/facade edits
 
-* If any concentration metric exceeds `70%` in a comparable run, apply `+1` to the most relevant bucket (`enum shock radius`, `gravity wells`, or `edit blast radius`), capped at `10`.
+Boundary leakage:
+
+* `2`: suspect crossings `<=2`, and no authority inversion
+* `5`: suspect crossings `3-5`, or one moderate authority leak
+* `8`: suspect crossings `>=6`, or a high-impact private decision import
+* `10`: boundary inversion where runtime authority depends on facade/generated
+  shape
+
+Owner/contract clarity:
+
+* `2`: most extension surfaces are owner-private or explicit contracts
+* `5`: one important surface is overexposed or ambiguously owned
+* `8`: multiple extension surfaces require reading unrelated owners
+* `10`: no clear owner for routine feature classes
+
+Gravity-well and hub containment:
+
+* `2`: hubs are owner-clear and below cross-layer family limits
+* `5`: one coordination hub needs monitoring
+* `8`: one mixed-owner hub blocks clear extension paths
+* `10`: multiple mixed-owner hubs absorb unrelated feature policy
+
+Decision shock radius:
+
+* `2`: new cases localize behind owner adapters or strategy tables
+* `5`: one moderate decision surface has scattered update sites
+* `8`: multiple decision surfaces require cross-subsystem updates
+* `10`: a common feature class requires updating widespread switch sites
+
+Subsystem independence:
+
+* `2`: subsystems mostly import stable contracts
+* `5`: moderate external imports, but few private decision imports
+* `8`: private decision imports shape routine feature paths
+* `10`: subsystems cannot express routine changes without mutual policy edits
 
 Interpretation:
 
-* `1-3` low risk and structurally healthy
-* `4-6` moderate risk and manageable pressure
-* `7-8` high risk and needs active containment
-* `9-10` critical risk and structural instability
+* `1-3`: low future extension friction
+* `4-6`: moderate future extension friction
+* `7-8`: high future extension friction; needs active organization work
+* `9-10`: critical future extension friction; routine features are structurally
+  blocked
+
+Do not adjust this score for:
+
+* recent files touched
+* PR count
+* commit size
+* generated fixture churn
+* docs/audit report breadth
 
 ---
 
-# STEP 13 — Final Output + Verification Readout
+# STEP 10 — Non-Scoring Delivery Context (Optional)
+
+Use this section only when recent work explains why a future-friction risk was
+noticed. It is not part of the score.
+
+Produce:
+
+| Context Signal | Observation | Why Non-Scoring |
+| ---- | ---- | ---- |
+
+Allowed context:
+
+* a recent wide slice revealed an unclear owner
+* a repeated review comment exposed a contract ambiguity
+* fixture churn made a generated boundary suspicious
+
+Forbidden context:
+
+* raising risk because a recent slice touched many files
+* lowering risk because a recent cleanup reduced file count
+* using historical deltas as score evidence
+
+---
+
+# STEP 11 — Final Output + Verification Readout
 
 Final output order:
 
-1. Run Metadata + Method / Comparability
-2. Baseline Capture
-3. Feature Slice Selection
-4. Empirical Change Surface Mapping
-5. Edit Blast Radius Summary
-6. Boundary Leakage
-7. Gravity Wells + Hub Containment
-8. Enum Shock Radius
-9. Subsystem Independence
-10. Independent-Axis Growth
-11. Decision Surface Size
-12. Refactor Noise Filter
-13. Velocity Risk Index
-14. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+1. Run Metadata + Method
+2. Scope + Ownership Map
+3. Future Feature Probes
+4. Boundary Leakage
+5. Owner / Contract Clarity
+6. Gravity Wells + Hub Containment
+7. Decision Shock Radius
+8. Subsystem Independence
+9. Extension Path Rehearsal
+10. Future Extension Friction Index
+11. Non-Scoring Delivery Context, if relevant
+12. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Verification readout must include:
 
-* method comparability status (`comparable` or `non-comparable` with reason)
+* whether the score used only current-code evidence
 * whether all mandatory steps/tables are present
-* whether SLO gates were evaluated against comparable samples
+* whether historical change data was excluded from scoring
+* whether any dirty-worktree files affected the audited surfaces
 
 ---
 
@@ -526,14 +484,16 @@ Do NOT say:
 Every claim must include:
 
 * subsystems involved
-* layer count or dependency count
-* change multiplier estimate
+* dependency or boundary evidence
+* expected future change multiplier
 * growth vector
 
 ---
 
 # Why This Audit Matters
 
-Velocity audits measure whether the system still bends without breaking when features are added.
+Velocity audits should identify code that will slow future work before it does.
 
-That is architectural longevity.
+The useful output is not "the last slice was too wide." The useful output is
+"this owner boundary, hub, or decision surface should be organized before the
+next feature has to cross it."

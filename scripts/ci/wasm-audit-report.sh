@@ -81,7 +81,7 @@ for canister_name in "${canister_names[@]}"; do
     fi
 done
 if [[ "${#canister_names[@]}" -eq 0 ]]; then
-    canister_names=(minimal one_simple one_complex ten_simple ten_complex)
+    canister_names=(minimal one_simple one_sql_query one_fluent_query one_complex ten_simple ten_complex)
 fi
 
 audit_month="${audit_date:0:7}"
@@ -178,6 +178,10 @@ def load_baseline_metrics(root: Path, baseline_path: str, artifact_scope: str, c
     return None, None
 
 
+def yes_no(value: bool) -> str:
+    return "yes" if value else "no"
+
+
 root = Path(os.environ["ROOT"])
 report_dir = Path(os.environ["REPORT_DIR"])
 artifact_scope_dir = Path(os.environ["ARTIFACT_SCOPE_DIR"])
@@ -188,11 +192,11 @@ sql_variant = os.environ["SQL_VARIANT"]
 canisters = [canister for canister in sys.argv[1].split(",") if canister]
 report_path = report_dir / f"{report_scope}.md"
 
-rows = []
-for path in root.glob("docs/audits/reports/*/*/wasm-footprint.md"):
-    if path.resolve().parent == report_dir.resolve():
-        continue
-    rows.append(str(path.relative_to(root)))
+rows = sorted(
+    str(path.relative_to(root))
+    for path in root.glob("docs/audits/reports/*/*/wasm-footprint.md")
+    if path.resolve().parent != report_dir.resolve()
+)
 
 baseline_path = rows[-1] if rows else "N/A"
 
@@ -241,7 +245,7 @@ for canister in canisters:
         if baseline_artifact_path is None:
             baseline_note = "baseline size artifact missing"
         else:
-            baseline_note = f"baseline size artifact missing at `{display_path(root, baseline_artifact_path)}`"
+            baseline_note = f"baseline size artifact lacks current ICP metrics at `{display_path(root, baseline_artifact_path)}`"
     else:
         status = "PASS"
         baseline_note = "baseline size artifact loaded"
@@ -256,6 +260,7 @@ for canister in canisters:
             "previous_shrunk": previous_shrunk,
             "previous_gz": previous_gz,
             "detail_report_path": display_path(root, detail_report_path),
+            "build": current.get("build", {}),
         }
     )
 
@@ -264,7 +269,7 @@ if baseline_path == "N/A":
 elif all_baselines_available:
     comparability = "comparable"
 else:
-    comparability = "non-comparable (one or more baseline size artifacts are missing)"
+    comparability = "non-comparable (one or more baseline size artifacts are missing or use an incompatible metric schema)"
 
 status_counts = {"PASS": 0, "PARTIAL": 0, "FAIL": 0}
 for item in per_canister:
@@ -299,7 +304,7 @@ if all_baselines_available and baseline_path != "N/A":
 elif baseline_path == "N/A":
     lines.append("| Baseline delta availability | PARTIAL | first tracked summary-layout run; establishes new baseline layout |")
 else:
-    lines.append("| Baseline delta availability | PARTIAL | one or more prior scoped size artifacts are missing |")
+    lines.append("| Baseline delta availability | PARTIAL | one or more prior scoped size artifacts are missing or use an incompatible metric schema |")
 
 lines.extend(
     [
@@ -327,6 +332,33 @@ for item in per_canister:
 lines.extend(
     [
         "",
+        "## Generated Endpoint Surface",
+        "",
+        "| Canister | SQL query | SQL DDL | SQL fixtures | Metrics | Metrics reset | Snapshot | Schema | Custom exports |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+)
+
+for item in per_canister:
+    build = item["build"]
+    surface = build.get("generated_endpoint_surface", {})
+    custom_exports = build.get("custom_exports", [])
+    custom_text = ", ".join(f"`{export}`" for export in custom_exports) if custom_exports else "none"
+    lines.append(
+        f"| `{item['canister']}` | "
+        f"{yes_no(surface.get('sql_readonly', False))} | "
+        f"{yes_no(surface.get('sql_ddl', False))} | "
+        f"{yes_no(surface.get('sql_fixtures', False))} | "
+        f"{yes_no(surface.get('metrics', False))} | "
+        f"{yes_no(surface.get('metrics_reset', False))} | "
+        f"{yes_no(surface.get('snapshot', False))} | "
+        f"{yes_no(surface.get('schema', False))} | "
+        f"{custom_text} |"
+    )
+
+lines.extend(
+    [
+        "",
         "## Follow-Up Actions",
         "",
     ]
@@ -340,7 +372,7 @@ elif all_baselines_available:
     lines.append("- No follow-up actions required for this run.")
 else:
     lines.append(
-        "- owner boundary: `wasm-audit history`; action: preserve scoped baseline size artifacts so future consolidated summary runs stay comparable."
+        "- owner boundary: `wasm-audit history`; action: preserve scoped current-schema baseline size artifacts so future consolidated summary runs stay comparable."
     )
 
 lines.extend(

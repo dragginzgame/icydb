@@ -2,18 +2,24 @@
 
 This document defines release-engineering rules that protect feature velocity.
 
-The recurring `velocity-preservation` audit measures change cost after the
-fact.
+The recurring `velocity-preservation` audit measures future extension friction
+from the current codebase. It asks which owner boundaries, hubs, and decision
+surfaces will make future feature work harder unless they are organized better.
 
-These rules turn the highest-signal audit findings into enforceable process and
-CI guardrails.
+The slice-shape rules in this document are separate delivery guardrails. They
+measure PR/review width and landing discipline; they do not define the
+recurring audit score.
 
 ---
 
 # 1. Purpose
 
-Velocity degrades when routine feature work lands as one wide cross-layer
-bundle.
+Future velocity degrades when routine feature work must cross unclear owner
+boundaries, mixed-purpose hubs, or decision surfaces spread across unrelated
+layers.
+
+Delivery discipline also matters: routine work becomes hard to review when it
+lands as one wide cross-layer bundle.
 
 The goal of this document is to keep routine work:
 
@@ -22,9 +28,10 @@ The goal of this document is to keep routine work:
 - predictable to review
 - cheap to extend in follow-up patches
 
-These rules describe code-review and landing slices. A slice is not a patch
-release. Routine work may accumulate through several small slices before one
-published patch release is prepared.
+The recurring audit owns the forward-looking code-structure score. These rules
+describe code-review and landing slices. A slice is not a patch release. Routine
+work may accumulate through several small slices before one published patch
+release is prepared.
 
 These rules are intended to be followed by automated agents and by CI checks.
 

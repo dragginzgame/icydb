@@ -1,0 +1,76 @@
+{
+  "canister": "one_sql_query",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.did",
+      "bytes": 3561,
+      "sha256": "3ad164c10310888e2c40ef0ffa7bff44f4aaa86184766d2ec31a55619e569537"
+    },
+    "candid_export": "available",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm",
+      "bytes": 3170357,
+      "sha256": "542411b98cf89c84541d47436fb610562df284e05c020e356db6bb38bcc9eb36"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm.gz",
+      "bytes": 1071418,
+      "sha256": "abcc207301660a74b4352bba90c79c61a8ad1eb3ab0b8ba472affdf86735baa6"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm",
+      "bytes": 2955322,
+      "sha256": "59222d0730d200129a35290d68fc3a3793feaa234a180dfbc1e1b5b8ac4c603e"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 1021895,
+      "sha256": "1cb6596b9527f7d8912cc149d0dbcddad285b146ade75d2e1c078a7a3e8fa82b"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 6920,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 241340,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query query_one_sql (func_6918)",
+        "get_candid_pointer (func_6919)"
+      ]
+    },
+    "icp_shrunk": {
+      "function_count": 6920,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 241340,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query query_one_sql (func_6903)",
+        "get_candid_pointer (func_6904)"
+      ]
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_reset": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": [
+      "query_one_sql"
+    ]
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 215035,
+    "shrink_wasm_gz_bytes": 49523
+  }
+}

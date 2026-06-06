@@ -216,6 +216,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_audit_one_fluent_query"
+version = "0.179.4"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-one-simple-fixtures",
+]
+
+[[package]]
 name = "canister_audit_one_simple"
 version = "0.179.4"
 dependencies = [
@@ -225,6 +235,16 @@ dependencies = [
  "icydb-config-build",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
+]
+
+[[package]]
+name = "canister_audit_one_sql_query"
+version = "0.179.4"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-one-simple-fixtures",
 ]
 
 [[package]]

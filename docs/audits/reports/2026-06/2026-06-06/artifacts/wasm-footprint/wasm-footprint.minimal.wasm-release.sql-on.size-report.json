@@ -1,0 +1,74 @@
+{
+  "canister": "minimal",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.did",
+      "bytes": 11962,
+      "sha256": "3b0542b41475b41bd02e6b355645c005bc8ff97964865f5975e600846a0ed500"
+    },
+    "candid_export": "available",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm",
+      "bytes": 370056,
+      "sha256": "ec44ba60a78d40e5a5b2d359fa1663ea1d0c2b9869745e7370481c4f207f0139"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm.gz",
+      "bytes": 132684,
+      "sha256": "b4f4b6b7e93f13c1a013292c2faaf89297d7e5f35a9623164f7a23ec0a03555c"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm",
+      "bytes": 339468,
+      "sha256": "0ff9fc2eda0e21266f7a7d80c9e730388df1b189d0ab37c99ef13e4ad17e1feb"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 125290,
+      "sha256": "0c11dd84ede042e9523a6697619552a185a89333b0f7fb996aedeb25a91dacf9"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 1028,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 39952,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query __icydb_metrics (func_1026)",
+        "get_candid_pointer (func_1027)"
+      ]
+    },
+    "icp_shrunk": {
+      "function_count": 1028,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 39952,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query __icydb_metrics (func_1021)",
+        "get_candid_pointer (func_1022)"
+      ]
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": true,
+      "metrics_reset": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": []
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 30588,
+    "shrink_wasm_gz_bytes": 7394
+  }
+}

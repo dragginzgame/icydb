@@ -12,25 +12,25 @@ thread_local! {
 }
 
 #[derive(Debug, ThisError)]
-pub(crate) enum RandomError {
+pub(in crate::types) enum RandomError {
     #[error("randomness is not initialized")]
     NotInitialized,
 }
 
 #[cfg(test)]
-pub(crate) fn seed_from(seed: [u8; 32]) {
+pub(in crate::types) fn seed_from(seed: [u8; 32]) {
     RNG.with_borrow_mut(|rng| {
         *rng = Some(ChaCha20Rng::from_seed(seed));
     });
 }
 
 #[cfg(test)]
-pub(crate) fn clear_for_tests() {
+pub(in crate::types) fn clear_for_tests() {
     RNG.with_borrow_mut(|rng| *rng = None);
 }
 
 #[cfg(test)]
-pub(crate) fn seed_if_uninitialized_for_tests(seed: [u8; 32]) {
+pub(in crate::types) fn seed_if_uninitialized_for_tests(seed: [u8; 32]) {
     RNG.with_borrow_mut(|rng| {
         if rng.is_none() {
             *rng = Some(ChaCha20Rng::from_seed(seed));
@@ -52,7 +52,7 @@ fn seed_from_system() -> Result<ChaCha20Rng, RandomError> {
     }
 }
 
-pub(crate) fn next_u128() -> Result<u128, RandomError> {
+pub(in crate::types) fn next_u128() -> Result<u128, RandomError> {
     RNG.with_borrow_mut(|rng| {
         if rng.is_none() {
             *rng = Some(seed_from_system()?);

@@ -13,7 +13,7 @@ use serde::Deserialize;
 ///
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
-pub(crate) enum Direction {
+pub(in crate::db) enum Direction {
     #[default]
     Asc,
     Desc,

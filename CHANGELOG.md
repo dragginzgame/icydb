@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.179.md](docs/changelog/0.179.md)
 
+- `0.179.5` records the forward-looking velocity and wasm-footprint audit
+  follow-through by making generated endpoints metrics-only by default, adding
+  reachable SQL/fluent wasm fixtures, centralizing persisted-kind semantics,
+  and tightening cursor/scalar visibility without changing runtime behavior.
+
 - `0.179.4` records the next repeated-audit pass, lowers SQL execution
   diagnostics hub pressure, narrows diagnostics integrity ownership, and moves
   generated entity declarations from `schema_version` to `version` without

@@ -5,7 +5,7 @@
 
 /// Parse one fixed-width ASCII digit slice into an `i32`.
 #[must_use]
-pub(crate) fn parse_fixed_ascii_i32(bytes: &[u8]) -> Option<i32> {
+pub(in crate::types) fn parse_fixed_ascii_i32(bytes: &[u8]) -> Option<i32> {
     let mut value = 0_i32;
     for &byte in bytes {
         let digit = byte.checked_sub(b'0')?;
@@ -20,7 +20,7 @@ pub(crate) fn parse_fixed_ascii_i32(bytes: &[u8]) -> Option<i32> {
 
 /// Parse one fixed-width ASCII digit slice into a `u8`.
 #[must_use]
-pub(crate) fn parse_fixed_ascii_u8(bytes: &[u8]) -> Option<u8> {
+pub(in crate::types) fn parse_fixed_ascii_u8(bytes: &[u8]) -> Option<u8> {
     let mut value = 0_u8;
     for &byte in bytes {
         let digit = byte.checked_sub(b'0')?;

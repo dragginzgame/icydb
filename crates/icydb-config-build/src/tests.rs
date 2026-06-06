@@ -6,14 +6,66 @@ use crate::{
 };
 
 #[test]
-fn absent_config_defaults_all_optional_surfaces_off() {
+fn absent_config_defaults_metrics_on_and_heavy_or_mutating_surfaces_off() {
     let config = parse_icydb_toml("", &[]).expect("empty config should parse");
+
+    assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
+    assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
+    assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
+    assert!(!config.canister_snapshot_enabled("demo_rpg"));
+    assert!(!config.canister_schema_enabled("demo_rpg"));
+}
+
+#[test]
+fn explicit_false_disables_metrics_default_surface() {
+    let config = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.sql]
+            readonly = false
+
+            [canisters.demo_rpg.metrics]
+            enabled = false
+
+            [canisters.demo_rpg.snapshot]
+            enabled = false
+
+            [canisters.demo_rpg.schema]
+            enabled = false
+        ",
+        &["demo_rpg"],
+    )
+    .expect("valid config should parse");
 
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
+    assert!(!config.canister_snapshot_enabled("demo_rpg"));
+    assert!(!config.canister_schema_enabled("demo_rpg"));
+}
+
+#[test]
+fn partial_config_entries_inherit_metrics_default_only() {
+    let config = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.sql]
+            ddl = true
+
+            [canisters.demo_rpg.metrics]
+            reset = true
+        ",
+        &["demo_rpg"],
+    )
+    .expect("valid config should parse");
+
+    assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
+    assert!(config.canister_sql_ddl_enabled("demo_rpg"));
+    assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert!(config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
 }

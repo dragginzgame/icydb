@@ -44,10 +44,19 @@ struct BuildSqlOptions {
     fixtures_enabled: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BuildMetricsOptions {
     enabled: bool,
     reset_enabled: bool,
+}
+
+impl Default for BuildMetricsOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            reset_enabled: false,
+        }
+    }
 }
 
 impl BuildOptions {
@@ -293,5 +302,23 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
     quote! {
         #metrics_endpoint
         #metrics_reset_endpoint
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BuildOptions;
+
+    #[test]
+    fn default_build_options_enable_metrics_only() {
+        let options = BuildOptions::default();
+
+        assert!(!options.sql_readonly_enabled());
+        assert!(!options.sql_ddl_enabled());
+        assert!(!options.sql_fixtures_enabled());
+        assert!(options.metrics_enabled());
+        assert!(!options.metrics_reset_enabled());
+        assert!(!options.snapshot_enabled());
+        assert!(!options.schema_enabled());
     }
 }

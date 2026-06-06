@@ -7,7 +7,10 @@ use std::{
 
 use crate::{
     ConfigBuildError, GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig,
-    model::{GeneratedCanisterMetricsConfig, GeneratedCanisterSqlConfig},
+    model::{
+        DEFAULT_METRICS_ENABLED, DEFAULT_SCHEMA_ENABLED, DEFAULT_SNAPSHOT_ENABLED,
+        DEFAULT_SQL_READONLY_ENABLED, GeneratedCanisterMetricsConfig, GeneratedCanisterSqlConfig,
+    },
     resolve::resolve_config_path,
 };
 
@@ -128,24 +131,27 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
 
     GeneratedCanisterConfig::new(
         GeneratedCanisterSqlConfig::new(
-            sql.and_then(|sql| sql.readonly).unwrap_or(false),
+            sql.and_then(|sql| sql.readonly)
+                .unwrap_or(DEFAULT_SQL_READONLY_ENABLED),
             sql.and_then(|sql| sql.ddl).unwrap_or(false),
             sql.and_then(|sql| sql.fixtures).unwrap_or(false),
         ),
         GeneratedCanisterMetricsConfig::new(
-            metrics.and_then(|metrics| metrics.enabled).unwrap_or(false),
+            metrics
+                .and_then(|metrics| metrics.enabled)
+                .unwrap_or(DEFAULT_METRICS_ENABLED),
             metrics.and_then(|metrics| metrics.reset).unwrap_or(false),
         ),
         raw_config
             .snapshot
             .as_ref()
             .and_then(|snapshot| snapshot.enabled)
-            .unwrap_or(false),
+            .unwrap_or(DEFAULT_SNAPSHOT_ENABLED),
         raw_config
             .schema
             .as_ref()
             .and_then(|schema| schema.enabled)
-            .unwrap_or(false),
+            .unwrap_or(DEFAULT_SCHEMA_ENABLED),
     )
 }
 

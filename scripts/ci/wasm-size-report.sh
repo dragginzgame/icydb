@@ -59,7 +59,7 @@ for canister_name in "${canister_names[@]}"; do
     fi
 done
 if [[ "${#canister_names[@]}" -eq 0 ]]; then
-    canister_names=(minimal one_simple one_complex ten_simple ten_complex)
+    canister_names=(minimal one_simple one_sql_query one_fluent_query one_complex ten_simple ten_complex)
 fi
 
 mkdir -p "$out_dir"
@@ -203,6 +203,56 @@ def parse_info(path: Path) -> dict:
     }
 
 
+GENERATED_EXPORTS = {
+    "__icydb_query": "sql_readonly",
+    "__icydb_ddl": "sql_ddl",
+    "__icydb_fixtures_reset": "sql_fixtures",
+    "__icydb_fixtures_load": "sql_fixtures",
+    "__icydb_metrics": "metrics",
+    "__icydb_metrics_reset": "metrics_reset",
+    "__icydb_snapshot": "snapshot",
+    "__icydb_schema": "schema",
+    "__icydb_schema_check": "schema",
+}
+
+
+def export_name(export: str) -> str:
+    match = re.search(r"canister_(?:query|update)\s+([^\s]+)", export)
+    if match:
+        return match.group(1)
+    return export.split(" ", 1)[0]
+
+
+def has_export(exports: list[str], name: str) -> bool:
+    return any(export_name(export) == name for export in exports)
+
+
+def endpoint_surface(info: dict) -> dict:
+    exports = info["exported_methods"]
+    generated = {
+        "sql_readonly": has_export(exports, "__icydb_query"),
+        "sql_ddl": has_export(exports, "__icydb_ddl"),
+        "sql_fixtures": has_export(exports, "__icydb_fixtures_reset")
+        or has_export(exports, "__icydb_fixtures_load"),
+        "metrics": has_export(exports, "__icydb_metrics"),
+        "metrics_reset": has_export(exports, "__icydb_metrics_reset"),
+        "snapshot": has_export(exports, "__icydb_snapshot"),
+        "schema": has_export(exports, "__icydb_schema")
+        or has_export(exports, "__icydb_schema_check"),
+    }
+    generated_names = set(GENERATED_EXPORTS)
+    custom_exports = [
+        name
+        for name in (export_name(export) for export in exports)
+        if name not in generated_names and name != "get_candid_pointer"
+    ]
+
+    return {
+        "generated_endpoint_surface": generated,
+        "custom_exports": custom_exports,
+    }
+
+
 canister = os.environ["CANISTER_NAME"]
 profile = os.environ["PROFILE"]
 sql_variant = os.environ["SQL_VARIANT"]
@@ -243,6 +293,7 @@ report = {
         "icp_built": raw_info_meta,
         "icp_shrunk": shrunk_info_meta,
     },
+    "build": endpoint_surface(shrunk_info_meta),
     "deltas": {
         "shrink_wasm_bytes": raw_wasm_meta["bytes"] - shrunk_wasm_meta["bytes"],
         "shrink_wasm_gz_bytes": raw_gz_meta["bytes"] - shrunk_gz_meta["bytes"],
@@ -277,6 +328,23 @@ summary_lines.extend(
         f"| Shrink delta `.wasm.gz` | {report['deltas']['shrink_wasm_gz_bytes']} |",
         "",
         f"SQL variant: `{sql_variant}`",
+        "",
+        "Generated endpoint surface:",
+        "",
+        "| Option | Enabled |",
+        "| --- | --- |",
+    ]
+)
+
+for option, enabled in report["build"]["generated_endpoint_surface"].items():
+    summary_lines.append(f"| `{option}` | {'yes' if enabled else 'no'} |")
+
+custom_exports = report["build"]["custom_exports"]
+summary_lines.extend(
+    [
+        "",
+        "Custom exports: "
+        + (", ".join(f"`{export}`" for export in custom_exports) if custom_exports else "none"),
         "",
         f"Exports (shrunk): {shrunk_info_meta['exported_method_count']}",
         "",

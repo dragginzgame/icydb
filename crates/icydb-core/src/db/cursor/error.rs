@@ -76,23 +76,24 @@ pub enum CursorPlanError {
 
 impl CursorPlanError {
     /// Canonical policy text for missing cursor ORDER BY requirements.
-    pub(crate) const fn cursor_requires_order_message() -> &'static str {
+    pub(in crate::db) const fn cursor_requires_order_message() -> &'static str {
         "cursor pagination requires an explicit ordering"
     }
 
     /// Canonical invariant text for cursor surfaces that require either
     /// explicit scalar ordering or canonical grouped ordering.
-    pub(crate) const fn cursor_requires_explicit_or_grouped_ordering_message() -> &'static str {
+    pub(in crate::db) const fn cursor_requires_explicit_or_grouped_ordering_message() -> &'static str
+    {
         "cursor pagination requires explicit or grouped ordering"
     }
 
     /// Canonical policy text for missing cursor LIMIT requirements.
-    pub(crate) const fn cursor_requires_limit_message() -> &'static str {
+    pub(in crate::db) const fn cursor_requires_limit_message() -> &'static str {
         "cursor pagination requires a limit"
     }
 
     /// Canonical payload text for empty cursor ORDER BY specifications.
-    pub(crate) const fn cursor_requires_non_empty_order_message() -> &'static str {
+    pub(in crate::db) const fn cursor_requires_non_empty_order_message() -> &'static str {
         "cursor pagination requires non-empty ordering"
     }
 
