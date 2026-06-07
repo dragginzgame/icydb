@@ -1,6 +1,6 @@
 use super::*;
 use candid::types::{CandidType, Label, Type, TypeInner};
-use icydb_core::db::{IntentError, PlanError, ValidateError};
+use icydb_core::db::{IntentError, PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
 
 fn expect_record_fields(ty: Type) -> Vec<String> {
@@ -36,7 +36,10 @@ fn query_validate_maps_to_validate_kind() {
     }));
     let facade = Error::from(err);
 
-    assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::Validate));
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryValidate
+    );
     assert_eq!(facade.origin(), ErrorOrigin::Query);
 }
 
@@ -70,7 +73,10 @@ fn query_intent_maps_to_intent_kind() {
     let err = QueryError::Intent(IntentError::ByIdsWithPredicate);
     let facade = Error::from(err);
 
-    assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::Intent));
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryIntent
+    );
     assert_eq!(facade.origin(), ErrorOrigin::Query);
 }
 
@@ -81,7 +87,10 @@ fn plan_errors_map_to_plan_kind() {
     })));
     let facade = Error::from(err);
 
-    assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::Plan));
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryPlan
+    );
     assert_eq!(facade.origin(), ErrorOrigin::Query);
 }
 
@@ -89,7 +98,10 @@ fn plan_errors_map_to_plan_kind() {
 fn response_error_maps_with_response_origin() {
     let facade = Error::from(ResponseError::NotFound { entity: "Entity" });
 
-    assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::NotFound));
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryNotFound
+    );
     assert_eq!(facade.origin(), ErrorOrigin::Response);
 }
 
@@ -105,6 +117,35 @@ fn response_error_preserves_origin_in_compact_diagnostic_bridge() {
     assert_eq!(
         diagnostic.origin(),
         icydb_diagnostic_code::ErrorOrigin::Response
+    );
+}
+
+#[test]
+fn public_error_from_diagnostic_preserves_compact_detail() {
+    let diagnostic = icydb_diagnostic_code::Diagnostic::new(
+        icydb_diagnostic_code::DiagnosticCode::SchemaDdlAdmission,
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        Some(
+            icydb_diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                reason: icydb_diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
+            },
+        ),
+    );
+    let facade = Error::from_diagnostic(diagnostic);
+
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::DiagnosticCode::SchemaDdlAdmission
+    );
+    assert_eq!(facade.class(), icydb_diagnostic_code::ErrorClass::Query);
+    assert_eq!(facade.origin(), ErrorOrigin::Query);
+    assert_eq!(
+        facade.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                reason: icydb_diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
+            }
+        ),
     );
 }
 
@@ -130,7 +171,7 @@ fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
         let core_err = InternalError::new(class, CoreErrorOrigin::Index, "runtime failure");
         let facade = Error::from(core_err);
 
-        assert_eq!(facade.kind(), &ErrorKind::Runtime(expected_kind));
+        assert_eq!(facade.code(), expected_kind.diagnostic_code());
         assert_eq!(facade.origin(), ErrorOrigin::Index);
     }
 }
@@ -174,7 +215,7 @@ fn query_execute_preserves_runtime_class_and_origin() {
         )));
         let facade = Error::from(query_err);
 
-        assert_eq!(facade.kind(), &ErrorKind::Runtime(expected_kind));
+        assert_eq!(facade.code(), expected_kind.diagnostic_code());
         assert_eq!(facade.origin(), expected_origin);
     }
 }
@@ -200,12 +241,7 @@ fn runtime_error_exposes_compact_diagnostic_bridge() {
         diagnostic.origin(),
         icydb_diagnostic_code::ErrorOrigin::Query
     );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeKind {
-            kind: icydb_diagnostic_code::RuntimeErrorKind::Unsupported,
-        })
-    );
+    assert_eq!(diagnostic.detail(), None);
 }
 
 #[test]
@@ -247,7 +283,7 @@ fn query_execute_storage_and_index_origins_map_to_runtime_contract() {
         )));
         let facade = Error::from(query_err);
 
-        assert_eq!(facade.kind(), &ErrorKind::Runtime(expected_kind));
+        assert_eq!(facade.code(), expected_kind.diagnostic_code());
         assert_eq!(facade.origin(), expected_origin);
     }
 }
@@ -275,10 +311,16 @@ fn origin_mapping_includes_new_core_domains() {
 fn error_struct_candid_shape_is_stable() {
     let fields = expect_record_fields(Error::ty());
 
-    for field in ["kind", "origin", "message"] {
+    for field in ["code", "class", "origin", "detail"] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "Error must keep `{field}` as Candid field key",
+        );
+    }
+    for removed in ["kind", "message"] {
+        assert!(
+            fields.iter().all(|candidate| candidate != removed),
+            "Error compact wire shape must not keep legacy `{removed}` field",
         );
     }
 }

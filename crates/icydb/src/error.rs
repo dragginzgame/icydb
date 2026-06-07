@@ -1,153 +1,126 @@
 use candid::CandidType;
 use icydb_core::{
-    db::{QueryError, QueryExecutionError, ResponseError},
-    error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
+    db::{QueryError, ResponseError},
+    error::{ErrorOrigin as CoreErrorOrigin, InternalError},
 };
 use serde::Deserialize;
-use thiserror::Error as ThisError;
+use std::fmt;
 
 //
 // Error
 //
 
 #[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
-#[derive(CandidType, Debug, Deserialize, ThisError)]
-#[error("{message}")]
+#[derive(CandidType, Debug, Deserialize)]
 pub struct Error {
-    kind: ErrorKind,
+    code: icydb_diagnostic_code::DiagnosticCode,
+    class: icydb_diagnostic_code::ErrorClass,
     origin: ErrorOrigin,
-    message: String,
+    detail: Option<icydb_diagnostic_code::DiagnosticDetail>,
 }
 
 impl Error {
-    pub fn new(kind: ErrorKind, origin: ErrorOrigin, message: impl Into<String>) -> Self {
+    /// Build a compact public error from one diagnostic code and origin.
+    #[must_use]
+    pub const fn from_code(
+        code: icydb_diagnostic_code::DiagnosticCode,
+        origin: ErrorOrigin,
+    ) -> Self {
         Self {
-            kind,
+            code,
+            class: code.class(),
             origin,
-            message: message.into(),
+            detail: None,
         }
     }
 
-    fn from_response_error(err: ResponseError) -> Self {
+    /// Build a compact public error from one public category and origin.
+    ///
+    /// This helper keeps generated endpoint code concise while the wire
+    /// payload itself remains code/detail-first.
+    #[must_use]
+    pub const fn from_kind(kind: ErrorKind, origin: ErrorOrigin) -> Self {
+        let code = kind.diagnostic_code();
+
+        Self {
+            code,
+            class: code.class(),
+            origin,
+            detail: Some(kind.diagnostic_detail()),
+        }
+    }
+
+    /// Build a compact public error from a full diagnostic payload.
+    #[must_use]
+    pub fn from_diagnostic(diagnostic: icydb_diagnostic_code::Diagnostic) -> Self {
+        Self {
+            code: diagnostic.code(),
+            class: diagnostic.class(),
+            origin: diagnostic.origin().into(),
+            detail: diagnostic.detail().cloned(),
+        }
+    }
+
+    const fn from_response_error(err: ResponseError) -> Self {
         match err {
-            ResponseError::NotFound { .. } => Self::new(
+            ResponseError::NotFound { .. } => Self::from_kind(
                 ErrorKind::Query(QueryErrorKind::NotFound),
                 ErrorOrigin::Response,
-                err.to_string(),
             ),
 
-            ResponseError::NotUnique { .. } => Self::new(
+            ResponseError::NotUnique { .. } => Self::from_kind(
                 ErrorKind::Query(QueryErrorKind::NotUnique),
                 ErrorOrigin::Response,
-                err.to_string(),
             ),
         }
     }
 
+    /// Return the compact diagnostic code.
     #[must_use]
-    pub const fn kind(&self) -> &ErrorKind {
-        &self.kind
+    pub const fn code(&self) -> icydb_diagnostic_code::DiagnosticCode {
+        self.code
     }
 
+    /// Return the broad compact diagnostic class.
+    #[must_use]
+    pub const fn class(&self) -> icydb_diagnostic_code::ErrorClass {
+        self.class
+    }
+
+    /// Return the diagnostic origin.
     #[must_use]
     pub const fn origin(&self) -> ErrorOrigin {
         self.origin
     }
 
+    /// Return compact structured diagnostic detail, when available.
     #[must_use]
-    pub fn message(&self) -> &str {
-        &self.message
+    pub const fn detail(&self) -> Option<&icydb_diagnostic_code::DiagnosticDetail> {
+        self.detail.as_ref()
     }
 
     /// Return compact diagnostic identity for this error.
-    ///
-    /// This is an additive bridge for 0.180 compact diagnostics. The public
-    /// wire shape still carries `kind`, `origin`, and `message`; callers can
-    /// use this method to migrate to code/detail assertions before the future
-    /// hard cut removes rich text from production canister errors.
     #[must_use]
     pub fn diagnostic(&self) -> icydb_diagnostic_code::Diagnostic {
-        icydb_diagnostic_code::Diagnostic::new(
-            self.kind.diagnostic_code(),
-            self.origin.into(),
-            Some(self.kind.diagnostic_detail()),
-        )
+        icydb_diagnostic_code::Diagnostic::new(self.code, self.origin.into(), self.detail.clone())
     }
 
     /// Return the compact diagnostic code for this error.
     #[must_use]
     pub const fn diagnostic_code(&self) -> icydb_diagnostic_code::DiagnosticCode {
-        self.kind.diagnostic_code()
+        self.code
     }
 }
 
 impl From<InternalError> for Error {
     fn from(err: InternalError) -> Self {
-        Self::new(
-            ErrorKind::Runtime(map_class(err.class())),
-            err.origin().into(),
-            err.into_message(),
-        )
+        Self::from_diagnostic(err.diagnostic())
     }
 }
 
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
-        match err {
-            QueryError::Validate(_) => Self::new(
-                ErrorKind::Query(QueryErrorKind::Validate),
-                ErrorOrigin::Query,
-                err.to_string(),
-            ),
-
-            QueryError::Intent(_) => Self::new(
-                ErrorKind::Query(QueryErrorKind::Intent),
-                ErrorOrigin::Query,
-                err.to_string(),
-            ),
-
-            QueryError::Plan(ref plan) => {
-                let kind = if plan.as_ref().is_unordered_pagination() {
-                    QueryErrorKind::UnorderedPagination
-                } else {
-                    QueryErrorKind::Plan
-                };
-
-                Self::new(ErrorKind::Query(kind), ErrorOrigin::Query, err.to_string())
-            }
-
-            QueryError::AccessRequirement(_) => Self::new(
-                ErrorKind::Query(QueryErrorKind::Plan),
-                ErrorOrigin::Query,
-                err.to_string(),
-            ),
-
-            QueryError::Response(err) => Self::from_response_error(err),
-
-            QueryError::Execute(err) => match err {
-                QueryExecutionError::Corruption(inner)
-                | QueryExecutionError::IncompatiblePersistedFormat(inner)
-                | QueryExecutionError::InvariantViolation(inner)
-                | QueryExecutionError::Conflict(inner)
-                | QueryExecutionError::NotFound(inner)
-                | QueryExecutionError::Unsupported(inner)
-                | QueryExecutionError::Internal(inner) => inner.into(),
-            },
-        }
-    }
-}
-
-const fn map_class(class: CoreErrorClass) -> RuntimeErrorKind {
-    match class {
-        CoreErrorClass::Corruption => RuntimeErrorKind::Corruption,
-        CoreErrorClass::IncompatiblePersistedFormat => {
-            RuntimeErrorKind::IncompatiblePersistedFormat
-        }
-        CoreErrorClass::InvariantViolation => RuntimeErrorKind::InvariantViolation,
-        CoreErrorClass::Conflict => RuntimeErrorKind::Conflict,
-        CoreErrorClass::NotFound => RuntimeErrorKind::NotFound,
-        CoreErrorClass::Unsupported => RuntimeErrorKind::Unsupported,
-        CoreErrorClass::Internal => RuntimeErrorKind::Internal,
+        Self::from_diagnostic(err.diagnostic())
     }
 }
 
@@ -157,8 +130,16 @@ impl From<ResponseError> for Error {
     }
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.code)
+    }
+}
+
+impl std::error::Error for Error {}
+
 #[cfg_attr(doc, doc = "ErrorKind\n\nPublic error category.")]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum ErrorKind {
     Query(QueryErrorKind),
 
@@ -169,14 +150,14 @@ pub enum ErrorKind {
 impl ErrorKind {
     /// Return the compact diagnostic code for this public error category.
     #[must_use]
-    pub const fn diagnostic_code(&self) -> icydb_diagnostic_code::DiagnosticCode {
+    pub const fn diagnostic_code(self) -> icydb_diagnostic_code::DiagnosticCode {
         match self {
             Self::Query(kind) => kind.diagnostic_code(),
             Self::Runtime(kind) => kind.diagnostic_code(),
         }
     }
 
-    const fn diagnostic_detail(&self) -> icydb_diagnostic_code::DiagnosticDetail {
+    const fn diagnostic_detail(self) -> icydb_diagnostic_code::DiagnosticDetail {
         match self {
             Self::Query(kind) => icydb_diagnostic_code::DiagnosticDetail::QueryKind {
                 kind: kind.diagnostic_kind(),
@@ -203,7 +184,7 @@ pub enum RuntimeErrorKind {
 impl RuntimeErrorKind {
     /// Return the compact diagnostic code for this runtime category.
     #[must_use]
-    pub const fn diagnostic_code(&self) -> icydb_diagnostic_code::DiagnosticCode {
+    pub const fn diagnostic_code(self) -> icydb_diagnostic_code::DiagnosticCode {
         match self {
             Self::Corruption => icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption,
             Self::IncompatiblePersistedFormat => {
@@ -262,7 +243,7 @@ pub enum QueryErrorKind {
 impl QueryErrorKind {
     /// Return the compact diagnostic code for this query category.
     #[must_use]
-    pub const fn diagnostic_code(&self) -> icydb_diagnostic_code::DiagnosticCode {
+    pub const fn diagnostic_code(self) -> icydb_diagnostic_code::DiagnosticCode {
         match self {
             Self::Validate => icydb_diagnostic_code::DiagnosticCode::QueryValidate,
             Self::Intent => icydb_diagnostic_code::DiagnosticCode::QueryIntent,
@@ -305,6 +286,7 @@ pub enum ErrorOrigin {
     Query,
     Recovery,
     Response,
+    Runtime,
     Serialize,
     Store,
 }
@@ -339,8 +321,28 @@ impl From<ErrorOrigin> for icydb_diagnostic_code::ErrorOrigin {
             ErrorOrigin::Query => Self::Query,
             ErrorOrigin::Recovery => Self::Recovery,
             ErrorOrigin::Response => Self::Response,
+            ErrorOrigin::Runtime => Self::Runtime,
             ErrorOrigin::Serialize => Self::Serialize,
             ErrorOrigin::Store => Self::Store,
+        }
+    }
+}
+
+impl From<icydb_diagnostic_code::ErrorOrigin> for ErrorOrigin {
+    fn from(origin: icydb_diagnostic_code::ErrorOrigin) -> Self {
+        match origin {
+            icydb_diagnostic_code::ErrorOrigin::Cursor => Self::Cursor,
+            icydb_diagnostic_code::ErrorOrigin::Executor => Self::Executor,
+            icydb_diagnostic_code::ErrorOrigin::Identity => Self::Identity,
+            icydb_diagnostic_code::ErrorOrigin::Index => Self::Index,
+            icydb_diagnostic_code::ErrorOrigin::Interface => Self::Interface,
+            icydb_diagnostic_code::ErrorOrigin::Planner => Self::Planner,
+            icydb_diagnostic_code::ErrorOrigin::Query => Self::Query,
+            icydb_diagnostic_code::ErrorOrigin::Recovery => Self::Recovery,
+            icydb_diagnostic_code::ErrorOrigin::Response => Self::Response,
+            icydb_diagnostic_code::ErrorOrigin::Runtime => Self::Runtime,
+            icydb_diagnostic_code::ErrorOrigin::Serialize => Self::Serialize,
+            icydb_diagnostic_code::ErrorOrigin::Store => Self::Store,
         }
     }
 }

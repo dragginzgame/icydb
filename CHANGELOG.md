@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Starts 0.180 compact diagnostics with a production-safe diagnostic-code crate
-  and an additive `Error::diagnostic()` bridge, without changing public error
-  wire behavior yet.
+### 🧹 Cleanup
+
+- Removes an unused Candid derive from the catalog count helper while keeping
+  SQL catalog result DTOs wire-compatible.
+
+## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
+
+Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.1` hard-cuts the public error payload to compact diagnostic
+  code/class/origin/detail fields and routes core query/runtime details through
+  compact mappings plus CLI-owned text rendering instead of public message
+  strings.
+
+- `0.180.0` starts compact diagnostics with a production-safe diagnostic-code
+  crate and an additive public `Error::diagnostic()` bridge, without changing
+  public error wire behavior yet.
 
 ## [0.179.x] 🧹 - 2026-06-04 - Repeated Audits / Cleanup
 

@@ -6,6 +6,7 @@
 mod cli;
 mod commands;
 mod config;
+mod diagnostic;
 mod icp;
 mod observability;
 mod shell;

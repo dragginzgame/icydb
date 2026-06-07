@@ -73,7 +73,7 @@ fn endpoint_result_error(
     method: &str,
     err: icydb::Error,
 ) -> String {
-    let detail = err.to_string();
+    let detail = crate::diagnostic::render_error(&err);
 
     method_error(
         label,

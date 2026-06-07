@@ -66,12 +66,9 @@ impl SqlSurfaceTokens {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
                     #query_arms
                     None => #show_entities_dispatch,
-                    Some(entity) => Err(::icydb::Error::new(
+                    Some(_entity) => Err(::icydb::Error::from_kind(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
-                        format!(
-                            "IcyDB SQL query target entity '{entity}' is not available on this canister"
-                        ),
                     )),
                 }
             }
@@ -112,17 +109,13 @@ impl SqlSurfaceTokens {
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
                     #ddl_arms
-                    None => Err(::icydb::Error::new(
+                    None => Err(::icydb::Error::from_kind(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
-                        "IcyDB SQL DDL requires one target entity",
                     )),
-                    Some(entity) => Err(::icydb::Error::new(
+                    Some(_entity) => Err(::icydb::Error::from_kind(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
-                        format!(
-                            "IcyDB SQL DDL target entity '{entity}' is not available on this canister"
-                        ),
                     )),
                 }
             }
@@ -159,13 +152,12 @@ impl quote::ToTokens for SqlSurfaceTokens {
 fn sql_surface_controller_guard() -> TokenStream {
     quote! {
         #[cfg(feature = "sql")]
-        fn icydb_sql_surface_require_controller(action: &str) -> Result<(), ::icydb::Error> {
+        fn icydb_sql_surface_require_controller(_action: &str) -> Result<(), ::icydb::Error> {
             let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
             if !::icydb::__reexports::ic_cdk::api::is_controller(&caller) {
-                return Err(::icydb::Error::new(
+                return Err(::icydb::Error::from_kind(
                     ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                     ::icydb::ErrorOrigin::Interface,
-                    format!("IcyDB SQL {action} requires a controller caller"),
                 ));
             }
 
@@ -325,10 +317,9 @@ fn sql_surface_entity_match_guard(entity_ty: &syn::Path) -> TokenStream {
 
 fn empty_sql_surface_query_dispatch() -> TokenStream {
     quote! {
-        Err(::icydb::Error::new(
+        Err(::icydb::Error::from_kind(
             ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
             ::icydb::ErrorOrigin::Interface,
-            "IcyDB SQL query requires at least one canister entity",
         ))
     }
 }

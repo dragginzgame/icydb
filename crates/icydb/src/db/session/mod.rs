@@ -375,13 +375,9 @@ impl<C: CanisterKind> DbSession<C> {
                         .iter()
                         .position(|candidate| candidate.name() == field.as_str())
                         .ok_or_else(|| {
-                            Error::new(
+                            Error::from_kind(
                                 ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
                                 ErrorOrigin::Query,
-                                format!(
-                                    "RETURNING field '{field}' does not exist on the target entity '{}'",
-                                    E::PATH
-                                ),
                             )
                         })?;
                     indices.push(index);
@@ -413,13 +409,9 @@ impl<C: CanisterKind> DbSession<C> {
             let mut rendered = Vec::with_capacity(indices.len());
             for index in &indices {
                 let value = entity.get_value_by_index(*index).ok_or_else(|| {
-                    Error::new(
+                    Error::from_kind(
                         ErrorKind::Runtime(RuntimeErrorKind::Internal),
                         ErrorOrigin::Query,
-                        format!(
-                            "RETURNING projection row must align with declared columns: entity='{}' index={index}",
-                            E::PATH
-                        ),
                     )
                 })?;
                 rendered.push(render_output_value_text(&OutputValue::from(value)));

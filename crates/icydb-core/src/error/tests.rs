@@ -147,6 +147,96 @@ fn query_unsupported_sql_feature_preserves_query_detail_label() {
     );
 }
 
+#[cfg(feature = "sql")]
+#[test]
+fn query_unsupported_sql_feature_exposes_compact_diagnostic_detail() {
+    let err = InternalError::query_unsupported_sql_feature("JOIN");
+    let diagnostic = err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
+                feature: icydb_diagnostic_code::SqlFeatureCode::Join,
+            }
+        ),
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn query_schema_ddl_admission_exposes_compact_diagnostic_detail() {
+    let err = InternalError::query_schema_ddl_admission(
+        SchemaDdlAdmissionError::PublicationRaceLost,
+        "stale publication",
+    );
+    let diagnostic = err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::SchemaDdlAdmission
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                reason: icydb_diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
+            }
+        ),
+    );
+}
+
+#[test]
+fn schema_ddl_publication_race_exposes_compact_admission_detail() {
+    let err = InternalError::schema_ddl_publication_race_lost("User");
+    let diagnostic = err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::SchemaDdlAdmission
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Store
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                reason: icydb_diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
+            }
+        ),
+    );
+}
+
+#[test]
+fn internal_error_without_detail_uses_class_origin_compact_code() {
+    let err = InternalError::classified(
+        ErrorClass::InvariantViolation,
+        ErrorOrigin::Planner,
+        "planner invariant",
+    );
+    let diagnostic = err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Planner
+    );
+    assert_eq!(diagnostic.detail(), None);
+}
+
 #[test]
 fn executor_access_plan_error_mapping_stays_invariant_violation() {
     let err = AccessPlanError::IndexPrefixEmpty.into_internal_error();

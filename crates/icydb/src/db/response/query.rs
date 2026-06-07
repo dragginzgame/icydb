@@ -56,10 +56,9 @@ impl<E: EntityKind> QueryResponse<E> {
     pub fn into_rows(self) -> Result<Response<E>, Error> {
         match self {
             Self::Rows(rows) => Ok(rows),
-            Self::Grouped(_) => Err(Error::new(
+            Self::Grouped(_) => Err(Error::from_kind(
                 ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
                 ErrorOrigin::Query,
-                "grouped queries return grouped rows; inspect QueryResponse::Grouped",
             )),
         }
     }
@@ -68,10 +67,9 @@ impl<E: EntityKind> QueryResponse<E> {
     pub fn into_grouped(self) -> Result<PagedGroupedResponse, Error> {
         match self {
             Self::Grouped(grouped) => Ok(grouped),
-            Self::Rows(_) => Err(Error::new(
+            Self::Rows(_) => Err(Error::from_kind(
                 ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
                 ErrorOrigin::Query,
-                "scalar queries return entity rows; grouped results are not available",
             )),
         }
     }

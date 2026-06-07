@@ -16,7 +16,7 @@ use serde::Deserialize;
     doc,
     doc = "EntityCatalogCounts\n\nCompact count metadata for one SHOW ENTITIES row."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityCatalogCounts {
     columns: u32,
     indexes: u32,

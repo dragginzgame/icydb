@@ -8,6 +8,7 @@
 #[cfg(test)]
 mod tests;
 
+use icydb_diagnostic_code as diagnostic_code;
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -176,6 +177,27 @@ impl InternalError {
     #[must_use]
     pub const fn detail(&self) -> Option<&ErrorDetail> {
         self.detail.as_ref()
+    }
+
+    /// Return compact diagnostic identity for this internal error.
+    #[must_use]
+    pub fn diagnostic(&self) -> diagnostic_code::Diagnostic {
+        diagnostic_code::Diagnostic::new(
+            self.diagnostic_code(),
+            self.origin.diagnostic_origin(),
+            self.detail
+                .as_ref()
+                .and_then(ErrorDetail::diagnostic_detail),
+        )
+    }
+
+    /// Return the compact diagnostic code for this internal error.
+    #[must_use]
+    pub fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        self.detail.as_ref().map_or_else(
+            || self.class.diagnostic_code(self.origin),
+            ErrorDetail::diagnostic_code,
+        )
     }
 
     /// Consume and return the rendered internal error message.
@@ -1650,6 +1672,181 @@ pub enum SchemaDdlAdmissionError {
     PublicationRaceLost,
 }
 
+impl ErrorDetail {
+    /// Return the compact diagnostic code for this structured detail.
+    #[must_use]
+    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::Store(error) => error.diagnostic_code(),
+            Self::Query(error) => error.diagnostic_code(),
+        }
+    }
+
+    /// Return compact structured diagnostic detail when the payload carries one.
+    #[must_use]
+    pub fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+        match self {
+            Self::Store(error) => error.diagnostic_detail(),
+            Self::Query(error) => error.diagnostic_detail(),
+        }
+    }
+}
+
+impl StoreError {
+    /// Return the compact diagnostic code for this store detail.
+    #[must_use]
+    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::NotFound { .. } => diagnostic_code::DiagnosticCode::StoreNotFound,
+            Self::Corrupt { .. } => diagnostic_code::DiagnosticCode::StoreCorruption,
+            Self::InvariantViolation { .. } => {
+                diagnostic_code::DiagnosticCode::StoreInvariantViolation
+            }
+            Self::SchemaDdlPublicationRaceLost { .. } => {
+                diagnostic_code::DiagnosticCode::SchemaDdlAdmission
+            }
+        }
+    }
+
+    /// Return compact structured diagnostic detail when the store error has one.
+    #[must_use]
+    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+        match self {
+            Self::SchemaDdlPublicationRaceLost { .. } => {
+                Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                    reason: diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
+                })
+            }
+            Self::NotFound { .. } | Self::Corrupt { .. } | Self::InvariantViolation { .. } => None,
+        }
+    }
+}
+
+impl QueryErrorDetail {
+    /// Return the compact diagnostic code for this query detail.
+    #[must_use]
+    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::NumericOverflow => diagnostic_code::DiagnosticCode::QueryNumericOverflow,
+            Self::NumericNotRepresentable => {
+                diagnostic_code::DiagnosticCode::QueryNumericNotRepresentable
+            }
+            Self::UnsupportedSqlFeature { .. } => {
+                diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
+            }
+            Self::SchemaDdlAdmission { .. } => diagnostic_code::DiagnosticCode::SchemaDdlAdmission,
+        }
+    }
+
+    /// Return compact structured diagnostic detail when the query detail has one.
+    #[must_use]
+    pub fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+        match self {
+            Self::UnsupportedSqlFeature { feature } => {
+                Some(diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
+                    feature: sql_feature_code(feature),
+                })
+            }
+            Self::SchemaDdlAdmission { error } => {
+                Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                    reason: error.diagnostic_code(),
+                })
+            }
+            Self::NumericOverflow | Self::NumericNotRepresentable => None,
+        }
+    }
+}
+
+impl SchemaDdlAdmissionError {
+    /// Return the compact diagnostic code for this SQL DDL admission reason.
+    #[must_use]
+    pub const fn diagnostic_code(&self) -> diagnostic_code::SchemaDdlAdmissionCode {
+        match self {
+            Self::MissingExpectedSchemaVersion => {
+                diagnostic_code::SchemaDdlAdmissionCode::MissingExpectedSchemaVersion
+            }
+            Self::MissingNextSchemaVersion => {
+                diagnostic_code::SchemaDdlAdmissionCode::MissingNextSchemaVersion
+            }
+            Self::StaleExpectedSchemaVersion => {
+                diagnostic_code::SchemaDdlAdmissionCode::StaleExpectedSchemaVersion
+            }
+            Self::InvalidExpectedSchemaVersion => {
+                diagnostic_code::SchemaDdlAdmissionCode::InvalidExpectedSchemaVersion
+            }
+            Self::InvalidNextSchemaVersion => {
+                diagnostic_code::SchemaDdlAdmissionCode::InvalidNextSchemaVersion
+            }
+            Self::AcceptedSchemaChangeWithoutVersionBump => {
+                diagnostic_code::SchemaDdlAdmissionCode::AcceptedSchemaChangeWithoutVersionBump
+            }
+            Self::EmptyVersionBump => diagnostic_code::SchemaDdlAdmissionCode::EmptyVersionBump,
+            Self::VersionGap => diagnostic_code::SchemaDdlAdmissionCode::VersionGap,
+            Self::VersionRollback => diagnostic_code::SchemaDdlAdmissionCode::VersionRollback,
+            Self::FingerprintMethodMismatch => {
+                diagnostic_code::SchemaDdlAdmissionCode::FingerprintMethodMismatch
+            }
+            Self::UnsupportedTransitionClass => {
+                diagnostic_code::SchemaDdlAdmissionCode::UnsupportedTransitionClass
+            }
+            Self::PhysicalRunnerMissing => {
+                diagnostic_code::SchemaDdlAdmissionCode::PhysicalRunnerMissing
+            }
+            Self::ValidationFailed => diagnostic_code::SchemaDdlAdmissionCode::ValidationFailed,
+            Self::PublicationRaceLost => {
+                diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost
+            }
+        }
+    }
+}
+
+fn sql_feature_code(feature: &str) -> diagnostic_code::SqlFeatureCode {
+    match feature {
+        "aggregate FILTER clauses" => diagnostic_code::SqlFeatureCode::AggregateFilterClause,
+        "column/expression aliases" => diagnostic_code::SqlFeatureCode::ColumnAlias,
+        "CREATE INDEX modifiers" => diagnostic_code::SqlFeatureCode::CreateIndexModifiers,
+        "DESCRIBE modifiers" => diagnostic_code::SqlFeatureCode::DescribeModifier,
+        "DROP INDEX modifiers" => diagnostic_code::SqlFeatureCode::DropIndexModifiers,
+        "HAVING" => diagnostic_code::SqlFeatureCode::Having,
+        "INSERT" => diagnostic_code::SqlFeatureCode::Insert,
+        "JOIN" => diagnostic_code::SqlFeatureCode::Join,
+        "LIKE patterns beyond trailing '%' prefix form" => {
+            diagnostic_code::SqlFeatureCode::LikePatternBeyondTrailingPrefix
+        }
+        "multi-statement SQL input" => diagnostic_code::SqlFeatureCode::MultiStatementSql,
+        "ORDER BY terms beyond supported fields, bounded arithmetic, or supported scalar-function forms" => {
+            diagnostic_code::SqlFeatureCode::OrderByUnsupportedForm
+        }
+        "quoted identifiers" => diagnostic_code::SqlFeatureCode::QuotedIdentifiers,
+        "RETURNING" => diagnostic_code::SqlFeatureCode::ReturningUnsupportedShape,
+        "searched CASE in grouped ORDER BY expressions" => {
+            diagnostic_code::SqlFeatureCode::SearchedCaseGroupedOrderBy
+        }
+        "SHOW COLUMNS modifiers" => diagnostic_code::SqlFeatureCode::ShowColumnsModifiers,
+        "SHOW ENTITIES modifiers" => diagnostic_code::SqlFeatureCode::ShowEntitiesModifiers,
+        "SHOW INDEXES modifiers" => diagnostic_code::SqlFeatureCode::ShowIndexesModifiers,
+        "SHOW MEMORY modifiers" => diagnostic_code::SqlFeatureCode::ShowMemoryModifiers,
+        "SHOW STORES modifiers" => diagnostic_code::SqlFeatureCode::ShowStoresModifiers,
+        "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY" => {
+            diagnostic_code::SqlFeatureCode::ShowUnsupportedCommand
+        }
+        "supported grouped ORDER BY expression family" => {
+            diagnostic_code::SqlFeatureCode::SupportedGroupedOrderByExpressionFamily
+        }
+        "supported ORDER BY expression family" => {
+            diagnostic_code::SqlFeatureCode::SupportedOrderByExpressionFamily
+        }
+        "UNION/INTERSECT/EXCEPT" => diagnostic_code::SqlFeatureCode::UnionIntersectExcept,
+        "SQL function namespace beyond supported aggregate or scalar function forms" => {
+            diagnostic_code::SqlFeatureCode::UnsupportedFunctionNamespace
+        }
+        "UPDATE" => diagnostic_code::SqlFeatureCode::Update,
+        "window functions / OVER" => diagnostic_code::SqlFeatureCode::WindowFunction,
+        "WITH" => diagnostic_code::SqlFeatureCode::With,
+        _ => diagnostic_code::SqlFeatureCode::Other,
+    }
+}
+
 ///
 /// ErrorClass
 /// Internal error taxonomy for runtime classification.
@@ -1665,6 +1862,33 @@ pub enum ErrorClass {
     Conflict,
     Unsupported,
     InvariantViolation,
+}
+
+impl ErrorClass {
+    /// Return a compact diagnostic code for this broad class and origin pair.
+    #[must_use]
+    pub const fn diagnostic_code(self, origin: ErrorOrigin) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::Corruption if matches!(origin, ErrorOrigin::Store) => {
+                diagnostic_code::DiagnosticCode::StoreCorruption
+            }
+            Self::Corruption => diagnostic_code::DiagnosticCode::RuntimeCorruption,
+            Self::IncompatiblePersistedFormat => {
+                diagnostic_code::DiagnosticCode::RuntimeIncompatiblePersistedFormat
+            }
+            Self::NotFound if matches!(origin, ErrorOrigin::Store) => {
+                diagnostic_code::DiagnosticCode::StoreNotFound
+            }
+            Self::NotFound => diagnostic_code::DiagnosticCode::RuntimeNotFound,
+            Self::Internal => diagnostic_code::DiagnosticCode::RuntimeInternal,
+            Self::Conflict => diagnostic_code::DiagnosticCode::RuntimeConflict,
+            Self::Unsupported => diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+            Self::InvariantViolation if matches!(origin, ErrorOrigin::Store) => {
+                diagnostic_code::DiagnosticCode::StoreInvariantViolation
+            }
+            Self::InvariantViolation => diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        }
+    }
 }
 
 impl fmt::Display for ErrorClass {
@@ -1701,6 +1925,26 @@ pub enum ErrorOrigin {
     Response,
     Executor,
     Interface,
+}
+
+impl ErrorOrigin {
+    /// Return the compact diagnostic origin for this internal origin.
+    #[must_use]
+    pub const fn diagnostic_origin(self) -> diagnostic_code::ErrorOrigin {
+        match self {
+            Self::Serialize => diagnostic_code::ErrorOrigin::Serialize,
+            Self::Store => diagnostic_code::ErrorOrigin::Store,
+            Self::Index => diagnostic_code::ErrorOrigin::Index,
+            Self::Identity => diagnostic_code::ErrorOrigin::Identity,
+            Self::Query => diagnostic_code::ErrorOrigin::Query,
+            Self::Planner => diagnostic_code::ErrorOrigin::Planner,
+            Self::Cursor => diagnostic_code::ErrorOrigin::Cursor,
+            Self::Recovery => diagnostic_code::ErrorOrigin::Recovery,
+            Self::Response => diagnostic_code::ErrorOrigin::Response,
+            Self::Executor => diagnostic_code::ErrorOrigin::Executor,
+            Self::Interface => diagnostic_code::ErrorOrigin::Interface,
+        }
+    }
 }
 
 impl fmt::Display for ErrorOrigin {

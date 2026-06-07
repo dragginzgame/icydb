@@ -32,10 +32,9 @@ impl quote::ToTokens for SchemaSurfaceTokens {
             fn icydb_schema_surface_require_controller() -> Result<(), ::icydb::Error> {
                 let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
                 if !::icydb::__reexports::ic_cdk::api::is_controller(&caller) {
-                    return Err(::icydb::Error::new(
+                    return Err(::icydb::Error::from_kind(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
-                        "IcyDB schema report requires a controller caller",
                     ));
                 }
 

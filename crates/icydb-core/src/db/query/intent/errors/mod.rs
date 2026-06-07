@@ -30,6 +30,7 @@ use crate::{
     },
     error::{ErrorClass, InternalError},
 };
+use icydb_diagnostic_code as diagnostic_code;
 use thiserror::Error as ThisError;
 
 ///
@@ -66,6 +67,72 @@ impl QueryError {
     /// Construct an execution-domain query error from one classified runtime error.
     pub(in crate::db) fn execute(err: InternalError) -> Self {
         Self::Execute(QueryExecutionError::from(err))
+    }
+
+    /// Return compact diagnostic identity for this query error.
+    #[must_use]
+    pub fn diagnostic(&self) -> diagnostic_code::Diagnostic {
+        if let Self::Execute(error) = self {
+            return error.diagnostic();
+        }
+
+        diagnostic_code::Diagnostic::new(
+            self.diagnostic_code(),
+            self.diagnostic_origin(),
+            self.diagnostic_detail(),
+        )
+    }
+
+    /// Return the compact diagnostic code for this query error.
+    #[must_use]
+    pub fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        match self {
+            Self::Validate(_) => diagnostic_code::DiagnosticCode::QueryValidate,
+            Self::Plan(error) if error.is_unordered_pagination() => {
+                diagnostic_code::DiagnosticCode::QueryUnorderedPagination
+            }
+            Self::Plan(_) => diagnostic_code::DiagnosticCode::QueryPlan,
+            Self::Intent(_) => diagnostic_code::DiagnosticCode::QueryIntent,
+            Self::AccessRequirement(_) => diagnostic_code::DiagnosticCode::QueryAccessRequirement,
+            Self::Response(ResponseError::NotFound { .. }) => {
+                diagnostic_code::DiagnosticCode::QueryNotFound
+            }
+            Self::Response(ResponseError::NotUnique { .. }) => {
+                diagnostic_code::DiagnosticCode::QueryNotUnique
+            }
+            Self::Execute(error) => error.diagnostic_code(),
+        }
+    }
+
+    const fn diagnostic_origin(&self) -> diagnostic_code::ErrorOrigin {
+        match self {
+            Self::Response(_) => diagnostic_code::ErrorOrigin::Response,
+            Self::Execute(error) => error.as_internal().origin().diagnostic_origin(),
+            Self::Validate(_) | Self::Plan(_) | Self::Intent(_) | Self::AccessRequirement(_) => {
+                diagnostic_code::ErrorOrigin::Query
+            }
+        }
+    }
+
+    fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+        let kind = match self {
+            Self::Validate(_) => diagnostic_code::QueryErrorKind::Validate,
+            Self::Plan(error) if error.is_unordered_pagination() => {
+                diagnostic_code::QueryErrorKind::UnorderedPagination
+            }
+            Self::Plan(_) => diagnostic_code::QueryErrorKind::Plan,
+            Self::Intent(_) => diagnostic_code::QueryErrorKind::Intent,
+            Self::AccessRequirement(_) => diagnostic_code::QueryErrorKind::AccessRequirement,
+            Self::Response(ResponseError::NotFound { .. }) => {
+                diagnostic_code::QueryErrorKind::NotFound
+            }
+            Self::Response(ResponseError::NotUnique { .. }) => {
+                diagnostic_code::QueryErrorKind::NotUnique
+            }
+            Self::Execute(_) => return None,
+        };
+
+        Some(diagnostic_code::DiagnosticDetail::QueryKind { kind })
     }
 
     /// Construct one query-origin invariant-violation execution error.
@@ -279,6 +346,18 @@ impl QueryExecutionError {
             | Self::Unsupported(err)
             | Self::Internal(err) => err,
         }
+    }
+
+    /// Return compact diagnostic identity for this execution error.
+    #[must_use]
+    pub fn diagnostic(&self) -> diagnostic_code::Diagnostic {
+        self.as_internal().diagnostic()
+    }
+
+    /// Return the compact diagnostic code for this execution error.
+    #[must_use]
+    pub fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
+        self.as_internal().diagnostic_code()
     }
 }
 

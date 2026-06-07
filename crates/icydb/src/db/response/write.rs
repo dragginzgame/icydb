@@ -99,11 +99,10 @@ impl<E: Entity> MutationResult<E> {
         }
     }
 
-    fn unsupported_shape_error(expected: &str, actual: &str) -> Error {
-        Error::new(
+    const fn unsupported_shape_error(_expected: &str, _actual: &str) -> Error {
+        Error::from_kind(
             ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
             ErrorOrigin::Response,
-            format!("mutation result does not contain {expected}; actual shape={actual}"),
         )
     }
 }

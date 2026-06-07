@@ -202,19 +202,38 @@ pub enum RuntimeErrorKind {
 )]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SqlFeatureCode {
+    AggregateFilterClause,
     AlterTableUnsupportedOperation,
     ColumnAlias,
+    CreateIndexModifiers,
     DescribeModifier,
+    DropIndexModifiers,
     DropStatementBeyondDropIndex,
+    Having,
+    Insert,
     Join,
+    LikePatternBeyondTrailingPrefix,
     MultiStatementSql,
     OrderByUnsupportedForm,
+    Other,
     ParameterBinding,
     ParameterizedSchemaVersion,
+    QuotedIdentifiers,
     ReturningUnsupportedShape,
+    SearchedCaseGroupedOrderBy,
+    ShowColumnsModifiers,
+    ShowEntitiesModifiers,
+    ShowIndexesModifiers,
+    ShowMemoryModifiers,
+    ShowStoresModifiers,
     ShowUnsupportedCommand,
+    SupportedGroupedOrderByExpressionFamily,
+    SupportedOrderByExpressionFamily,
     UnionIntersectExcept,
+    UnsupportedFunctionNamespace,
+    Update,
     WindowFunction,
+    With,
 }
 
 ///

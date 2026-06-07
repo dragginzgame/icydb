@@ -22,7 +22,7 @@ ic-memory = { workspace = true }
 icydb-build = { workspace = true }
 icydb-core = { workspace = true }
 icydb-derive = { workspace = true }
-icydb-diagnostic-code = { workspace = true }
+icydb-diagnostic-code = { workspace = true, features = ["wire"] }
 icydb-schema = { workspace = true }
 icydb-schema-derive = { workspace = true }
 icydb-utils = { workspace = true }

@@ -1247,6 +1247,7 @@ dependencies = [
  "ic-memory",
  "icrc-ledger-types",
  "icydb-derive",
+ "icydb-diagnostic-code",
  "icydb-primitives",
  "icydb-utils",
  "num-bigint",

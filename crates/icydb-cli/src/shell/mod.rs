@@ -139,9 +139,11 @@ fn execute_sql_ddl(
 }
 
 fn render_sql_error(err: icydb::Error, environment: &str, canister: &str) -> String {
+    let rendered = crate::diagnostic::render_error(&err);
+
     format!(
         "ERROR: {}",
-        call::sql_error_with_recovery_hint(&err.to_string(), environment, canister)
+        call::sql_error_with_recovery_hint(rendered.as_str(), environment, canister)
     )
 }
 

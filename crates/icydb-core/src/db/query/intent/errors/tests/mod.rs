@@ -6,7 +6,10 @@
 #[cfg(feature = "sql")]
 use crate::error::{ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError};
 use crate::{
-    db::query::intent::{IntentError, QueryError, QueryExecutionError},
+    db::{
+        query::intent::{IntentError, QueryError, QueryExecutionError},
+        response::ResponseError,
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 
@@ -82,6 +85,38 @@ fn planner_plan_mapping_stays_in_query_plan_error_boundary() {
     assert!(
         matches!(query_err, QueryError::Plan(_)),
         "planner plan errors must remain in query plan boundary, not execution boundary",
+    );
+}
+
+#[test]
+fn query_plan_unordered_pagination_exposes_compact_diagnostic_code() {
+    let query_err = QueryError::from(PlanError::from(PolicyPlanError::UnorderedPagination));
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnorderedPagination
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::QueryKind {
+            kind: icydb_diagnostic_code::QueryErrorKind::UnorderedPagination,
+        }),
+    );
+}
+
+#[test]
+fn query_response_error_exposes_response_origin_compact_diagnostic() {
+    let query_err = QueryError::from(ResponseError::not_unique("User", 2));
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryNotUnique
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Response
     );
 }
 
@@ -214,6 +249,26 @@ fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
         QueryError::Execute(QueryExecutionError::Unsupported(inner))
             if inner.class == ErrorClass::Unsupported
                 && inner.origin == ErrorOrigin::Query
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn unsupported_sql_feature_query_error_exposes_compact_feature_code() {
+    let query_err = QueryError::unsupported_sql_feature("JOIN");
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
+                feature: icydb_diagnostic_code::SqlFeatureCode::Join,
+            }
+        ),
     );
 }
 
