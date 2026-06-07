@@ -41,6 +41,7 @@ use crate::{
     types::Ulid,
     value::Value,
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 use serde::Deserialize;
 use std::{
     fs,
@@ -4036,7 +4037,7 @@ fn compile_sql_command_like_non_prefix_pattern_rejects() {
         std::assert_matches!(
             err,
             SqlLoweringError::Parse(SqlParseError::UnsupportedFeature {
-                feature: "LIKE patterns beyond trailing '%' prefix form"
+                feature: SqlFeatureCode::LikePatternBeyondTrailingPrefix
             })
         );
     }

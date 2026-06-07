@@ -2,6 +2,7 @@ use crate::db::{
     predicate::CoercionId,
     sql_shared::{SqlParseError, SqlTokenCursor, TokenKind},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 ///
 /// TextPredicateWrapper
@@ -17,14 +18,10 @@ pub(in crate::db::predicate::parser) enum TextPredicateWrapper {
 }
 
 impl TextPredicateWrapper {
-    pub(in crate::db::predicate::parser) const fn unsupported_feature(self) -> &'static str {
+    pub(in crate::db::predicate::parser) const fn unsupported_feature(self) -> SqlFeatureCode {
         match self {
-            Self::Lower => {
-                "LOWER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds"
-            }
-            Self::Upper => {
-                "UPPER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds"
-            }
+            Self::Lower => SqlFeatureCode::LowerFieldPredicateUnsupported,
+            Self::Upper => SqlFeatureCode::UpperFieldPredicateUnsupported,
         }
     }
 }

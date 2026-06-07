@@ -9,6 +9,7 @@ use crate::{
     },
     value::Value,
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 ///
 /// SqlExprPhase
@@ -146,7 +147,7 @@ fn lower_sql_like_expr(
 ) -> Result<Expr, SqlLoweringError> {
     let Some(prefix) = sql_like_prefix_from_pattern(pattern) else {
         return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-            "LIKE patterns beyond trailing '%' prefix form",
+            SqlFeatureCode::LikePatternBeyondTrailingPrefix,
         )
         .into());
     };

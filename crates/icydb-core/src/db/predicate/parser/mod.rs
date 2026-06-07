@@ -14,6 +14,7 @@ use crate::db::{
     predicate::{CompareOp, Predicate},
     sql_shared::{Keyword, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 pub(in crate::db) use crate::db::predicate::parser::expression::parse_predicate_from_cursor;
 
@@ -28,7 +29,7 @@ pub(crate) fn parse_sql_predicate(sql: &str) -> Result<Predicate, SqlParseError>
 
     if cursor.eat_semicolon() && !cursor.is_eof() {
         return Err(SqlParseError::unsupported_feature(
-            "multi-statement SQL input",
+            SqlFeatureCode::MultiStatementSql,
         ));
     }
 
@@ -68,26 +69,26 @@ pub(in crate::db::predicate::parser) fn parse_compare_operator(
     Ok(op)
 }
 
-// Map trailing reduced-SQL tokens to the same user-facing unsupported feature
-// labels as the statement parser while keeping feature policy out of sql_shared.
-const fn predicate_unsupported_feature(kind: Option<&TokenKind>) -> Option<&'static str> {
+// Map trailing reduced-SQL tokens to the same unsupported feature codes as the
+// statement parser while keeping feature policy out of sql_shared.
+const fn predicate_unsupported_feature(kind: Option<&TokenKind>) -> Option<SqlFeatureCode> {
     match kind {
-        Some(TokenKind::Keyword(Keyword::As)) => Some("column/expression aliases"),
-        Some(TokenKind::Keyword(Keyword::Describe)) => Some("DESCRIBE modifiers"),
-        Some(TokenKind::Keyword(Keyword::Having)) => Some("HAVING"),
-        Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
-        Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
-        Some(TokenKind::Keyword(Keyword::Filter)) => Some("aggregate FILTER clauses"),
-        Some(TokenKind::Keyword(Keyword::Over)) => Some("window functions / OVER"),
-        Some(TokenKind::Keyword(Keyword::Returning)) => Some("RETURNING"),
-        Some(TokenKind::Keyword(Keyword::Show)) => Some(
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
-        ),
-        Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
-        Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
-            Some("UNION/INTERSECT/EXCEPT")
+        Some(TokenKind::Keyword(Keyword::As)) => Some(SqlFeatureCode::ColumnAlias),
+        Some(TokenKind::Keyword(Keyword::Describe)) => Some(SqlFeatureCode::DescribeModifier),
+        Some(TokenKind::Keyword(Keyword::Having)) => Some(SqlFeatureCode::Having),
+        Some(TokenKind::Keyword(Keyword::Insert)) => Some(SqlFeatureCode::Insert),
+        Some(TokenKind::Keyword(Keyword::Join)) => Some(SqlFeatureCode::Join),
+        Some(TokenKind::Keyword(Keyword::Filter)) => Some(SqlFeatureCode::AggregateFilterClause),
+        Some(TokenKind::Keyword(Keyword::Over)) => Some(SqlFeatureCode::WindowFunction),
+        Some(TokenKind::Keyword(Keyword::Returning)) => {
+            Some(SqlFeatureCode::ReturningUnsupportedShape)
         }
-        Some(TokenKind::Keyword(Keyword::Update)) => Some("UPDATE"),
+        Some(TokenKind::Keyword(Keyword::Show)) => Some(SqlFeatureCode::ShowUnsupportedCommand),
+        Some(TokenKind::Keyword(Keyword::With)) => Some(SqlFeatureCode::With),
+        Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
+            Some(SqlFeatureCode::UnionIntersectExcept)
+        }
+        Some(TokenKind::Keyword(Keyword::Update)) => Some(SqlFeatureCode::Update),
         _ => None,
     }
 }

@@ -20,6 +20,7 @@ use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
     value::Value,
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 fn ddl_field_paths(paths: &[&str]) -> Vec<SqlCreateIndexKeyItem> {
     paths
@@ -2375,19 +2376,19 @@ fn parse_ddl_schema_version_contracts_reject_duplicates_and_non_literals() {
     for (sql, expected_feature) in [
         (
             "ALTER TABLE users EXPECT SCHEMA VERSION 3 EXPECT SCHEMA VERSION 4 ADD COLUMN nickname text",
-            "duplicate EXPECT SCHEMA VERSION clauses",
+            SqlFeatureCode::DdlSchemaVersionDuplicateExpectedClause,
         ),
         (
             "ALTER TABLE users SET SCHEMA VERSION 4 SET SCHEMA VERSION 5 ADD COLUMN nickname text",
-            "duplicate SET SCHEMA VERSION clauses",
+            SqlFeatureCode::DdlSchemaVersionDuplicateSetClause,
         ),
         (
             "ALTER TABLE users EXPECT SCHEMA VERSION 3 ADD COLUMN nickname text EXPECT SCHEMA VERSION 4",
-            "duplicate EXPECT SCHEMA VERSION clauses",
+            SqlFeatureCode::DdlSchemaVersionDuplicateExpectedClause,
         ),
         (
             "CREATE INDEX user_age_idx ON users (age) SET SCHEMA VERSION 4 SET SCHEMA VERSION 5",
-            "duplicate SET SCHEMA VERSION clauses",
+            SqlFeatureCode::DdlSchemaVersionDuplicateSetClause,
         ),
     ] {
         let err = parse_sql(sql).expect_err("duplicate DDL schema-version clauses should reject");
@@ -2396,7 +2397,7 @@ fn parse_ddl_schema_version_contracts_reject_duplicates_and_non_literals() {
             super::SqlParseError::UnsupportedFeature {
                 feature: expected_feature
             },
-            "duplicate DDL schema-version clause should keep a stable feature label: {sql}",
+            "duplicate DDL schema-version clause should keep a stable feature code: {sql}",
         );
     }
 
@@ -4101,67 +4102,73 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
 }
 
 #[test]
-fn parse_sql_unsupported_feature_labels_are_stable() {
+fn parse_sql_unsupported_feature_codes_are_stable() {
     let cases = [
         (
             "SELECT * FROM users JOIN other ON users.id = other.id",
-            "JOIN",
+            SqlFeatureCode::Join,
         ),
         (
             "WITH cte AS (SELECT * FROM users) SELECT * FROM cte",
-            "WITH",
+            SqlFeatureCode::With,
         ),
         (
             "SELECT * FROM users UNION SELECT * FROM users",
-            "UNION/INTERSECT/EXCEPT",
+            SqlFeatureCode::UnionIntersectExcept,
         ),
         (
             "SELECT * FROM users INTERSECT SELECT * FROM users",
-            "UNION/INTERSECT/EXCEPT",
+            SqlFeatureCode::UnionIntersectExcept,
         ),
         (
             "SELECT * FROM users EXCEPT SELECT * FROM users",
-            "UNION/INTERSECT/EXCEPT",
+            SqlFeatureCode::UnionIntersectExcept,
         ),
-        ("EXPLAIN INSERT INTO users VALUES (1)", "INSERT"),
+        (
+            "EXPLAIN INSERT INTO users VALUES (1)",
+            SqlFeatureCode::Insert,
+        ),
         (
             "SELECT * FROM users; SELECT * FROM users",
-            "multi-statement SQL input",
+            SqlFeatureCode::MultiStatementSql,
         ),
-        ("SELECT \"name\" FROM users", "quoted identifiers"),
+        (
+            "SELECT \"name\" FROM users",
+            SqlFeatureCode::QuotedIdentifiers,
+        ),
         (
             "SELECT len(name) FROM users",
-            "SQL function namespace beyond supported aggregate or scalar function forms",
+            SqlFeatureCode::UnsupportedFunctionNamespace,
         ),
         (
             "SELECT ROW_NUMBER() OVER (ORDER BY age DESC) FROM users",
-            "window functions / OVER",
+            SqlFeatureCode::WindowFunction,
         ),
         (
             "INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING LOWER(name)",
-            "SQL function namespace beyond supported aggregate or scalar function forms",
-        ),
-        ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
-        ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
-        (
-            "SHOW DATABASES",
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
+            SqlFeatureCode::UnsupportedFunctionNamespace,
         ),
         (
-            "SHOW TABLES",
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
+            "DESCRIBE users WHERE age > 1",
+            SqlFeatureCode::DescribeModifier,
         ),
+        ("EXPLAIN DESCRIBE users", SqlFeatureCode::DescribeModifier),
+        ("SHOW DATABASES", SqlFeatureCode::ShowUnsupportedCommand),
+        ("SHOW TABLES", SqlFeatureCode::ShowUnsupportedCommand),
         (
             "SHOW INDEXES FROM users WHERE age > 1",
-            "SHOW INDEXES modifiers",
+            SqlFeatureCode::ShowIndexesModifiers,
         ),
-        ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
-        ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
-        ("SHOW STORES users", "SHOW STORES modifiers"),
-        ("SHOW MEMORY users", "SHOW MEMORY modifiers"),
+        (
+            "SHOW COLUMNS users WHERE age > 1",
+            SqlFeatureCode::ShowColumnsModifiers,
+        ),
+        ("SHOW ENTITIES users", SqlFeatureCode::ShowEntitiesModifiers),
+        ("SHOW STORES users", SqlFeatureCode::ShowStoresModifiers),
+        ("SHOW MEMORY users", SqlFeatureCode::ShowMemoryModifiers),
         (
             "CREATE INDEX user_age_idx ON users (age DESC)",
-            "SQL DDL CREATE INDEX key ordering modifiers",
+            SqlFeatureCode::CreateIndexKeyOrderingModifiers,
         ),
     ];
 
@@ -4172,7 +4179,7 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             super::SqlParseError::UnsupportedFeature {
                 feature: expected_feature
             },
-            "unsupported feature label should stay stable for SQL: {sql}",
+            "unsupported feature code should stay stable for SQL: {sql}",
         );
     }
 }
@@ -4285,7 +4292,7 @@ fn parse_select_statement_rejects_simple_case_expressions() {
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "simple CASE expressions"
+            feature: SqlFeatureCode::SimpleCaseExpression
         }
     );
 }
@@ -4360,7 +4367,7 @@ fn parse_sql_rejects_multi_statement_input() {
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "multi-statement SQL input"
+            feature: SqlFeatureCode::MultiStatementSql
         }
     );
 }
@@ -4373,7 +4380,7 @@ fn parse_sql_rejects_unknown_function_namespace() {
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "SQL function namespace beyond supported aggregate or scalar function forms"
+            feature: SqlFeatureCode::UnsupportedFunctionNamespace
         }
     );
 }
@@ -4486,7 +4493,7 @@ fn parse_sql_rejects_aggregate_filter_window_pairing() {
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "window functions / OVER"
+            feature: SqlFeatureCode::WindowFunction
         }
     );
 }
@@ -4768,7 +4775,7 @@ fn parse_sql_rejects_quoted_identifier_syntax() {
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "quoted identifiers"
+            feature: SqlFeatureCode::QuotedIdentifiers
         }
     );
 }

@@ -1,4 +1,5 @@
 use crate::{types::Decimal, value::Value};
+use icydb_diagnostic_code::SqlFeatureCode;
 use std::str::FromStr;
 use thiserror::Error as ThisError;
 
@@ -12,15 +13,15 @@ pub(crate) enum SqlParseError {
     #[error("empty SQL input")]
     EmptyInput,
 
-    #[error("unsupported SQL feature: {feature}")]
-    UnsupportedFeature { feature: &'static str },
+    #[error("unsupported SQL feature: {feature:?}")]
+    UnsupportedFeature { feature: SqlFeatureCode },
 
     #[error("invalid SQL syntax: {message}")]
     InvalidSyntax { message: String },
 }
 
 impl SqlParseError {
-    pub(in crate::db) const fn unsupported_feature(feature: &'static str) -> Self {
+    pub(in crate::db) const fn unsupported_feature(feature: SqlFeatureCode) -> Self {
         Self::UnsupportedFeature { feature }
     }
 

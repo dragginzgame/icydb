@@ -8,9 +8,10 @@ use crate::{
     },
     value::Value,
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
-const DIRECT_STARTS_WITH_NON_FIELD_FEATURE: &str =
-    "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers";
+const DIRECT_STARTS_WITH_NON_FIELD_FEATURE: SqlFeatureCode =
+    SqlFeatureCode::PredicateStartsWithFirstArgument;
 
 ///
 /// PrefixTextPredicateOperator
@@ -71,7 +72,7 @@ pub(in crate::db::predicate::parser) fn parse_prefix_text_predicate(
     };
     let Some(prefix) = like_prefix_from_pattern(pattern.as_str()) else {
         return Err(SqlParseError::unsupported_feature(
-            "LIKE patterns beyond trailing '%' prefix form",
+            SqlFeatureCode::LikePatternBeyondTrailingPrefix,
         ));
     };
     let prefix = prefix.to_string();

@@ -4,6 +4,7 @@ use crate::db::{
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 impl Parser {
     pub(in crate::db::sql::parser) fn parse_aggregate_kind(&self) -> Option<SqlAggregateKind> {
@@ -64,7 +65,7 @@ impl Parser {
 
         if matches!(expr, SqlExpr::Aggregate(_)) {
             return Err(SqlParseError::unsupported_feature(
-                "nested aggregate references inside aggregate input expressions",
+                SqlFeatureCode::NestedAggregateInput,
             ));
         }
 

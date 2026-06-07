@@ -1440,11 +1440,11 @@ impl InternalError {
     }
 
     /// Construct a query-origin unsupported error preserving one SQL parser
-    /// unsupported-feature label in structured error detail.
+    /// unsupported-feature code in structured error detail.
     #[cfg(feature = "sql")]
-    pub(crate) fn query_unsupported_sql_feature(feature: &'static str) -> Self {
+    pub(crate) fn query_unsupported_sql_feature(feature: diagnostic_code::SqlFeatureCode) -> Self {
         let message = format!(
-            "SQL query is not executable in this release: unsupported SQL feature: {feature}"
+            "SQL query is not executable in this release: unsupported SQL feature: {feature:?}"
         );
 
         Self {
@@ -1454,6 +1454,23 @@ impl InternalError {
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnsupportedSqlFeature { feature },
             )),
+        }
+    }
+
+    /// Construct a query-origin unsupported error preserving one SQL endpoint
+    /// surface mismatch in structured error detail.
+    #[cfg(feature = "sql")]
+    pub(crate) fn query_sql_surface_mismatch(
+        mismatch: diagnostic_code::SqlSurfaceMismatchCode,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: message.into(),
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlSurfaceMismatch {
+                mismatch,
+            })),
         }
     }
 
@@ -1612,8 +1629,15 @@ pub enum QueryErrorDetail {
     #[error("numeric result is not representable")]
     NumericNotRepresentable,
 
-    #[error("unsupported SQL feature: {feature}")]
-    UnsupportedSqlFeature { feature: &'static str },
+    #[error("unsupported SQL feature: {feature:?}")]
+    UnsupportedSqlFeature {
+        feature: diagnostic_code::SqlFeatureCode,
+    },
+
+    #[error("SQL endpoint surface mismatch: {mismatch:?}")]
+    SqlSurfaceMismatch {
+        mismatch: diagnostic_code::SqlSurfaceMismatchCode,
+    },
 
     #[error("SQL DDL admission rejected: {error}")]
     SchemaDdlAdmission { error: SchemaDdlAdmissionError },
@@ -1684,7 +1708,7 @@ impl ErrorDetail {
 
     /// Return compact structured diagnostic detail when the payload carries one.
     #[must_use]
-    pub fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         match self {
             Self::Store(error) => error.diagnostic_detail(),
             Self::Query(error) => error.diagnostic_detail(),
@@ -1734,17 +1758,23 @@ impl QueryErrorDetail {
             Self::UnsupportedSqlFeature { .. } => {
                 diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
             }
+            Self::SqlSurfaceMismatch { .. } => {
+                diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch
+            }
             Self::SchemaDdlAdmission { .. } => diagnostic_code::DiagnosticCode::SchemaDdlAdmission,
         }
     }
 
     /// Return compact structured diagnostic detail when the query detail has one.
     #[must_use]
-    pub fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
+    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         match self {
             Self::UnsupportedSqlFeature { feature } => {
-                Some(diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
-                    feature: sql_feature_code(feature),
+                Some(diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature { feature: *feature })
+            }
+            Self::SqlSurfaceMismatch { mismatch } => {
+                Some(diagnostic_code::DiagnosticDetail::SqlSurfaceMismatch {
+                    mismatch: *mismatch,
                 })
             }
             Self::SchemaDdlAdmission { error } => {
@@ -1797,53 +1827,6 @@ impl SchemaDdlAdmissionError {
                 diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost
             }
         }
-    }
-}
-
-fn sql_feature_code(feature: &str) -> diagnostic_code::SqlFeatureCode {
-    match feature {
-        "aggregate FILTER clauses" => diagnostic_code::SqlFeatureCode::AggregateFilterClause,
-        "column/expression aliases" => diagnostic_code::SqlFeatureCode::ColumnAlias,
-        "CREATE INDEX modifiers" => diagnostic_code::SqlFeatureCode::CreateIndexModifiers,
-        "DESCRIBE modifiers" => diagnostic_code::SqlFeatureCode::DescribeModifier,
-        "DROP INDEX modifiers" => diagnostic_code::SqlFeatureCode::DropIndexModifiers,
-        "HAVING" => diagnostic_code::SqlFeatureCode::Having,
-        "INSERT" => diagnostic_code::SqlFeatureCode::Insert,
-        "JOIN" => diagnostic_code::SqlFeatureCode::Join,
-        "LIKE patterns beyond trailing '%' prefix form" => {
-            diagnostic_code::SqlFeatureCode::LikePatternBeyondTrailingPrefix
-        }
-        "multi-statement SQL input" => diagnostic_code::SqlFeatureCode::MultiStatementSql,
-        "ORDER BY terms beyond supported fields, bounded arithmetic, or supported scalar-function forms" => {
-            diagnostic_code::SqlFeatureCode::OrderByUnsupportedForm
-        }
-        "quoted identifiers" => diagnostic_code::SqlFeatureCode::QuotedIdentifiers,
-        "RETURNING" => diagnostic_code::SqlFeatureCode::ReturningUnsupportedShape,
-        "searched CASE in grouped ORDER BY expressions" => {
-            diagnostic_code::SqlFeatureCode::SearchedCaseGroupedOrderBy
-        }
-        "SHOW COLUMNS modifiers" => diagnostic_code::SqlFeatureCode::ShowColumnsModifiers,
-        "SHOW ENTITIES modifiers" => diagnostic_code::SqlFeatureCode::ShowEntitiesModifiers,
-        "SHOW INDEXES modifiers" => diagnostic_code::SqlFeatureCode::ShowIndexesModifiers,
-        "SHOW MEMORY modifiers" => diagnostic_code::SqlFeatureCode::ShowMemoryModifiers,
-        "SHOW STORES modifiers" => diagnostic_code::SqlFeatureCode::ShowStoresModifiers,
-        "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY" => {
-            diagnostic_code::SqlFeatureCode::ShowUnsupportedCommand
-        }
-        "supported grouped ORDER BY expression family" => {
-            diagnostic_code::SqlFeatureCode::SupportedGroupedOrderByExpressionFamily
-        }
-        "supported ORDER BY expression family" => {
-            diagnostic_code::SqlFeatureCode::SupportedOrderByExpressionFamily
-        }
-        "UNION/INTERSECT/EXCEPT" => diagnostic_code::SqlFeatureCode::UnionIntersectExcept,
-        "SQL function namespace beyond supported aggregate or scalar function forms" => {
-            diagnostic_code::SqlFeatureCode::UnsupportedFunctionNamespace
-        }
-        "UPDATE" => diagnostic_code::SqlFeatureCode::Update,
-        "window functions / OVER" => diagnostic_code::SqlFeatureCode::WindowFunction,
-        "WITH" => diagnostic_code::SqlFeatureCode::With,
-        _ => diagnostic_code::SqlFeatureCode::Other,
     }
 }
 

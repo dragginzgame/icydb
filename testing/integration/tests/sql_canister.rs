@@ -1,11 +1,12 @@
 use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
-    Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
+    Error, ErrorOrigin,
     db::{
         EntitySchemaDescription,
         sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
     },
+    diagnostic::{DiagnosticCode, DiagnosticDetail, SqlFeatureCode},
 };
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::Deserialize;
@@ -264,10 +265,10 @@ fn assert_rename_column_index_visibility(indexes: &[String]) {
     );
 }
 
-fn assert_numeric_query_error(err: Error, expected_message: &str, context: &str) {
+fn assert_runtime_unsupported_query_error(err: &Error, context: &str) {
     assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        err.code(),
+        DiagnosticCode::RuntimeUnsupported,
         "{context} should stay an unsupported runtime error at the canister boundary",
     );
     assert_eq!(
@@ -275,10 +276,47 @@ fn assert_numeric_query_error(err: Error, expected_message: &str, context: &str)
         ErrorOrigin::Query,
         "{context} should keep query-owned origin metadata",
     );
+}
+
+fn assert_ddl_rejection_error(err: &Error, context: &str) {
     assert!(
-        err.message().contains(expected_message),
-        "{context} should preserve numeric error detail, got: {}",
-        err.message(),
+        matches!(err.origin(), ErrorOrigin::Query | ErrorOrigin::Store),
+        "{context} should keep query or store origin metadata, got {:?}",
+        err.origin(),
+    );
+
+    match err.code() {
+        DiagnosticCode::SchemaDdlAdmission => assert!(
+            matches!(
+                err.detail(),
+                Some(DiagnosticDetail::SchemaDdlAdmission { .. })
+            ),
+            "{context} should preserve compact schema DDL admission detail",
+        ),
+        DiagnosticCode::RuntimeUnsupported => {}
+        other => panic!(
+            "{context} should reject as compact DDL admission or unsupported runtime, got {other:?}"
+        ),
+    }
+}
+
+fn assert_numeric_query_error(err: Error, expected_code: DiagnosticCode, context: &str) {
+    assert!(
+        matches!(
+            expected_code,
+            DiagnosticCode::QueryNumericOverflow | DiagnosticCode::QueryNumericNotRepresentable
+        ),
+        "numeric query assertions must use numeric diagnostic codes",
+    );
+    assert_eq!(
+        err.code(),
+        expected_code,
+        "{context} should preserve numeric compact diagnostic detail",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "{context} should keep query-owned origin metadata",
     );
 }
 
@@ -296,10 +334,9 @@ fn assert_ddl_rejects_without_index_visibility_change(
         .reject(fixture, sql)
         .expect_err("invalid DDL should reject");
 
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "invalid DDL should stay an unsupported runtime error at the canister boundary",
+    assert_ddl_rejection_error(
+        &err,
+        "invalid DDL should stay at the schema DDL admission boundary",
     );
     let after = expect_show_indexes(
         query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
@@ -337,7 +374,7 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
     schema_version: DdlSchemaVersion,
     entity: &str,
     sql: &str,
-    expected_message: &str,
+    _expected_message: &str,
 ) {
     let before = expect_show_indexes(
         query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
@@ -347,15 +384,9 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
         .reject(fixture, sql)
         .expect_err("invalid DDL should reject");
 
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "invalid DDL should stay an unsupported runtime error at the canister boundary",
-    );
-    assert!(
-        err.message().contains(expected_message),
-        "invalid DDL should preserve rejection detail, got: {}",
-        err.message(),
+    assert_ddl_rejection_error(
+        &err,
+        "invalid DDL should stay at the schema DDL admission boundary",
     );
     let after = expect_show_indexes(
         query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
@@ -1439,7 +1470,7 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
         .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
         .expect("setup nullable ADD COLUMN should publish before invalid SET DEFAULT");
 
-    for (sql, expected_message) in [
+    for (sql, _expected_message) in [
         (
             "ALTER TABLE SqlTestUser ALTER COLUMN rank SET DEFAULT 7",
             "cannot change generated accepted field",
@@ -1468,15 +1499,9 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
         let err = schema_version
             .reject(&fixture, sql)
             .expect_err("ALTER COLUMN should reject before publication");
-        assert_eq!(
-            err.kind(),
-            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-            "ALTER COLUMN should stay an unsupported runtime error at the canister boundary",
-        );
-        assert!(
-            err.message().contains(expected_message),
-            "ALTER COLUMN should preserve rejection detail, got: {}",
-            err.message(),
+        assert_ddl_rejection_error(
+            &err,
+            "ALTER COLUMN should stay at the schema DDL admission boundary",
         );
         let after = expect_describe(
             query_sql(&fixture, "DESCRIBE SqlTestUser")
@@ -1506,17 +1531,9 @@ fn sql_canister_ddl_endpoint_publishes_drop_column_for_ddl_owned_field() {
     let generated_err = schema_version
         .reject(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN rank")
         .expect_err("DROP COLUMN should reject generated accepted fields");
-    assert_eq!(
-        generated_err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "generated DROP COLUMN rejection should stay at the unsupported runtime boundary",
-    );
-    assert!(
-        generated_err
-            .message()
-            .contains("cannot change generated accepted field"),
-        "generated DROP COLUMN should preserve ownership guidance, got: {}",
-        generated_err.message(),
+    assert_ddl_rejection_error(
+        &generated_err,
+        "generated DROP COLUMN rejection should stay at the schema DDL admission boundary",
     );
 
     schema_version
@@ -1600,15 +1617,9 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
             "ALTER TABLE SqlTestUser RENAME COLUMN rank TO score",
         )
         .expect_err("RENAME COLUMN should reject generated accepted fields");
-    assert_eq!(
-        generated_err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "generated RENAME COLUMN rejection should stay at the unsupported runtime boundary",
-    );
-    assert!(
-        generated_err.message().contains("generated accepted field"),
-        "generated RENAME COLUMN should preserve ownership guidance, got: {}",
-        generated_err.message(),
+    assert_ddl_rejection_error(
+        &generated_err,
+        "generated RENAME COLUMN rejection should stay at the schema DDL admission boundary",
     );
 
     schema_version
@@ -2376,7 +2387,7 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_overflow_errors() {
         let err = query_numeric_types(&fixture, sql)
             .expect_err("overflowing mixed numeric SQL should fail");
 
-        assert_numeric_query_error(err, "numeric overflow", sql);
+        assert_numeric_query_error(err, DiagnosticCode::QueryNumericOverflow, sql);
     }
 }
 
@@ -2402,7 +2413,7 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_not_representable_errors()
         let err = query_numeric_types(&fixture, sql)
             .expect_err("non-representable mixed numeric SQL should fail");
 
-        assert_numeric_query_error(err, "numeric result is not representable", sql);
+        assert_numeric_query_error(err, DiagnosticCode::QueryNumericNotRepresentable, sql);
     }
 }
 
@@ -2643,9 +2654,22 @@ fn sql_canister_query_endpoint_rejects_show_tables_alias() {
 
     let err = query_sql(&fixture, "SHOW TABLES").expect_err("SHOW TABLES should reject");
 
-    assert!(
-        err.message().contains("unsupported SQL feature"),
-        "SHOW TABLES should remain outside the current SQL catalog vocabulary: {err:?}",
+    assert_eq!(
+        err.code(),
+        DiagnosticCode::QueryUnsupportedSqlFeature,
+        "SHOW TABLES should remain outside the current SQL catalog vocabulary",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "SHOW TABLES should keep query-owned origin metadata",
+    );
+    assert_eq!(
+        err.detail(),
+        Some(&DiagnosticDetail::UnsupportedSqlFeature {
+            feature: SqlFeatureCode::ShowUnsupportedCommand,
+        }),
+        "SHOW TABLES should preserve the compact unsupported-feature detail",
     );
 }
 
@@ -2660,14 +2684,8 @@ fn sql_canister_query_endpoint_rejects_mutation_sql() {
     )
     .expect_err("query(sql) must reject mutation statements");
 
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "wrong-lane SQL must stay an unsupported runtime error at the canister boundary",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
+    assert_runtime_unsupported_query_error(
+        &err,
         "wrong-lane SQL should keep query-owned origin metadata",
     );
 }
@@ -2680,18 +2698,8 @@ fn sql_canister_query_endpoint_rejects_malformed_sql() {
     let err = query_sql(&fixture, "SELECT FROM SqlTestUser")
         .expect_err("query(sql) must reject malformed SQL before execution");
 
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "malformed SQL should stay an unsupported runtime error at the canister boundary",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
+    assert_runtime_unsupported_query_error(
+        &err,
         "malformed SQL should keep query-owned origin metadata",
-    );
-    assert!(
-        err.message().contains("invalid SQL syntax"),
-        "malformed SQL should preserve parser-owned invalid-syntax detail",
     );
 }

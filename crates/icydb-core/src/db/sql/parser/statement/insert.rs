@@ -3,6 +3,7 @@ use crate::db::{
     sql_shared::{Keyword, SqlParseError},
 };
 use crate::value::Value;
+use icydb_diagnostic_code::SqlFeatureCode;
 
 impl Parser {
     pub(super) fn parse_insert_statement(&mut self) -> Result<SqlInsertStatement, SqlParseError> {
@@ -89,7 +90,7 @@ impl Parser {
         let mut fields = vec![self.expect_identifier()?];
         if self.peek_lparen() {
             return Err(SqlParseError::unsupported_feature(
-                "SQL function namespace beyond supported aggregate or scalar function forms",
+                SqlFeatureCode::UnsupportedFunctionNamespace,
             ));
         }
 
@@ -97,7 +98,7 @@ impl Parser {
             let field = self.expect_identifier()?;
             if self.peek_lparen() {
                 return Err(SqlParseError::unsupported_feature(
-                    "SQL function namespace beyond supported aggregate or scalar function forms",
+                    SqlFeatureCode::UnsupportedFunctionNamespace,
                 ));
             }
             fields.push(field);

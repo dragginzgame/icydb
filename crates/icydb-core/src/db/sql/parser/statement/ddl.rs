@@ -9,6 +9,7 @@ use crate::db::{
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 impl Parser {
     pub(super) fn parse_create_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
@@ -19,7 +20,7 @@ impl Parser {
         };
         if !self.eat_keyword(Keyword::Index) {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL CREATE statements beyond CREATE INDEX",
+                SqlFeatureCode::CreateStatementBeyondCreateIndex,
             ));
         }
 
@@ -31,7 +32,7 @@ impl Parser {
     pub(super) fn parse_drop_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
         if !self.eat_keyword(Keyword::Index) {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL DROP statements beyond DROP INDEX",
+                SqlFeatureCode::DropStatementBeyondDropIndex,
             ));
         }
 
@@ -43,7 +44,7 @@ impl Parser {
     pub(super) fn parse_alter_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
         if !self.eat_identifier_keyword("TABLE") {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL ALTER statements beyond ALTER TABLE",
+                SqlFeatureCode::AlterStatementBeyondAlterTable,
             ));
         }
 
@@ -87,29 +88,29 @@ impl Parser {
         }
 
         Err(SqlParseError::unsupported_feature(
-            "SQL DDL ALTER TABLE statements beyond ADD COLUMN, ALTER COLUMN, DROP COLUMN, and RENAME COLUMN",
+            SqlFeatureCode::AlterTableUnsupportedOperation,
         ))
     }
 
     pub(super) const fn ddl_clause_order_error(statement: &SqlDdlStatement) -> SqlParseError {
         match statement {
             SqlDdlStatement::CreateIndex(_) => {
-                SqlParseError::unsupported_feature("CREATE INDEX modifiers")
+                SqlParseError::unsupported_feature(SqlFeatureCode::CreateIndexModifiers)
             }
             SqlDdlStatement::DropIndex(_) => {
-                SqlParseError::unsupported_feature("DROP INDEX modifiers")
+                SqlParseError::unsupported_feature(SqlFeatureCode::DropIndexModifiers)
             }
             SqlDdlStatement::AlterTableAddColumn(_) => {
-                SqlParseError::unsupported_feature("ALTER TABLE ADD COLUMN modifiers")
+                SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableAddColumnModifiers)
             }
             SqlDdlStatement::AlterTableAlterColumn(_) => {
-                SqlParseError::unsupported_feature("ALTER TABLE ALTER COLUMN modifiers")
+                SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableAlterColumnModifiers)
             }
             SqlDdlStatement::AlterTableDropColumn(_) => {
-                SqlParseError::unsupported_feature("ALTER TABLE DROP COLUMN modifiers")
+                SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableDropColumnModifiers)
             }
             SqlDdlStatement::AlterTableRenameColumn(_) => {
-                SqlParseError::unsupported_feature("ALTER TABLE RENAME COLUMN modifiers")
+                SqlParseError::unsupported_feature(SqlFeatureCode::AlterTableRenameColumnModifiers)
             }
         }
     }
@@ -160,7 +161,7 @@ impl Parser {
                 // sugar rather than a stored DDL contract.
             } else if self.peek_keyword(Keyword::Desc) {
                 return Err(SqlParseError::unsupported_feature(
-                    "SQL DDL CREATE INDEX key ordering modifiers",
+                    SqlFeatureCode::CreateIndexKeyOrderingModifiers,
                 ));
             }
             key_items.push(key_item);
@@ -181,7 +182,7 @@ impl Parser {
 
         let Some(function) = SqlCreateIndexExpressionFunction::parse(head.as_str()) else {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL expression index functions beyond LOWER, UPPER, TRIM",
+                SqlFeatureCode::ExpressionIndexUnsupportedFunction,
             ));
         };
         self.expect_lparen()?;
@@ -200,7 +201,7 @@ impl Parser {
         if self.eat_identifier_keyword("IF") {
             if !self.eat_keyword(Keyword::Not) || !self.eat_identifier_keyword("EXISTS") {
                 return Err(SqlParseError::unsupported_feature(
-                    "CREATE INDEX IF NOT EXISTS",
+                    SqlFeatureCode::CreateIndexIfNotExistsSyntax,
                 ));
             }
 
@@ -230,7 +231,9 @@ impl Parser {
     fn parse_drop_index_if_exists(&mut self) -> Result<bool, SqlParseError> {
         if self.eat_identifier_keyword("IF") {
             if !self.eat_identifier_keyword("EXISTS") {
-                return Err(SqlParseError::unsupported_feature("DROP INDEX IF EXISTS"));
+                return Err(SqlParseError::unsupported_feature(
+                    SqlFeatureCode::DropIndexIfExistsSyntax,
+                ));
             }
 
             return Ok(true);
@@ -245,7 +248,7 @@ impl Parser {
     ) -> Result<SqlAlterTableAddColumnStatement, SqlParseError> {
         if !self.eat_identifier_keyword("COLUMN") {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL ALTER TABLE ADD statements beyond ADD COLUMN",
+                SqlFeatureCode::AlterTableAddStatementBeyondAddColumn,
             ));
         }
         let column_name = self.expect_identifier()?;
@@ -257,7 +260,7 @@ impl Parser {
             if self.eat_identifier_keyword("DEFAULT") {
                 if default.is_some() {
                     return Err(SqlParseError::unsupported_feature(
-                        "ALTER TABLE ADD COLUMN duplicate DEFAULT clauses",
+                        SqlFeatureCode::AlterTableAddColumnDuplicateDefault,
                     ));
                 }
                 default = Some(self.parse_literal()?);
@@ -305,7 +308,7 @@ impl Parser {
     ) -> Result<SqlAlterTableAlterColumnStatement, SqlParseError> {
         if !self.eat_identifier_keyword("COLUMN") {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL ALTER TABLE ALTER statements beyond ALTER COLUMN",
+                SqlFeatureCode::AlterTableAlterStatementBeyondAlterColumn,
             ));
         }
         let column_name = self.expect_identifier()?;
@@ -317,7 +320,7 @@ impl Parser {
                 SqlAlterColumnAction::SetNotNull
             } else {
                 return Err(SqlParseError::unsupported_feature(
-                    "ALTER TABLE ALTER COLUMN SET actions beyond DEFAULT and NOT NULL",
+                    SqlFeatureCode::AlterTableAlterColumnSetUnsupportedAction,
                 ));
             }
         } else if self.eat_keyword(Keyword::Drop) {
@@ -328,12 +331,12 @@ impl Parser {
                 SqlAlterColumnAction::DropNotNull
             } else {
                 return Err(SqlParseError::unsupported_feature(
-                    "ALTER TABLE ALTER COLUMN DROP actions beyond DEFAULT and NOT NULL",
+                    SqlFeatureCode::AlterTableAlterColumnDropUnsupportedAction,
                 ));
             }
         } else {
             return Err(SqlParseError::unsupported_feature(
-                "ALTER TABLE ALTER COLUMN actions beyond SET/DROP DEFAULT and SET/DROP NOT NULL",
+                SqlFeatureCode::AlterTableAlterColumnUnsupportedAction,
             ));
         };
 
@@ -351,7 +354,7 @@ impl Parser {
     ) -> Result<SqlAlterTableDropColumnStatement, SqlParseError> {
         if !self.eat_identifier_keyword("COLUMN") {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL ALTER TABLE DROP statements beyond DROP COLUMN",
+                SqlFeatureCode::AlterTableDropStatementBeyondDropColumn,
             ));
         }
         let if_exists = self.parse_drop_column_if_exists()?;
@@ -369,7 +372,7 @@ impl Parser {
         if self.eat_identifier_keyword("IF") {
             if !self.eat_identifier_keyword("EXISTS") {
                 return Err(SqlParseError::unsupported_feature(
-                    "ALTER TABLE DROP COLUMN IF EXISTS",
+                    SqlFeatureCode::AlterTableDropColumnIfExistsSyntax,
                 ));
             }
 
@@ -385,13 +388,13 @@ impl Parser {
     ) -> Result<SqlAlterTableRenameColumnStatement, SqlParseError> {
         if !self.eat_identifier_keyword("COLUMN") {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL ALTER TABLE RENAME statements beyond RENAME COLUMN",
+                SqlFeatureCode::AlterTableRenameStatementBeyondRenameColumn,
             ));
         }
         let old_column_name = self.expect_identifier()?;
         if !self.eat_identifier_keyword("TO") {
             return Err(SqlParseError::unsupported_feature(
-                "ALTER TABLE RENAME COLUMN without TO",
+                SqlFeatureCode::AlterTableRenameColumnMissingTo,
             ));
         }
         let new_column_name = self.expect_identifier()?;
@@ -413,7 +416,7 @@ impl Parser {
             if self.eat_identifier_keyword("EXPECT") {
                 if contract.expected_schema_version.is_some() {
                     return Err(SqlParseError::unsupported_feature(
-                        "duplicate EXPECT SCHEMA VERSION clauses",
+                        SqlFeatureCode::DdlSchemaVersionDuplicateExpectedClause,
                     ));
                 }
                 self.expect_identifier_keyword("SCHEMA")?;
@@ -423,7 +426,7 @@ impl Parser {
             } else if self.eat_identifier_keyword("SET") {
                 if contract.next_schema_version.is_some() {
                     return Err(SqlParseError::unsupported_feature(
-                        "duplicate SET SCHEMA VERSION clauses",
+                        SqlFeatureCode::DdlSchemaVersionDuplicateSetClause,
                     ));
                 }
                 self.expect_identifier_keyword("SCHEMA")?;
@@ -443,12 +446,12 @@ impl Parser {
     ) -> Result<SqlDdlSchemaVersionContract, SqlParseError> {
         if prefix.expected_schema_version.is_some() && suffix.expected_schema_version.is_some() {
             return Err(SqlParseError::unsupported_feature(
-                "duplicate EXPECT SCHEMA VERSION clauses",
+                SqlFeatureCode::DdlSchemaVersionDuplicateExpectedClause,
             ));
         }
         if prefix.next_schema_version.is_some() && suffix.next_schema_version.is_some() {
             return Err(SqlParseError::unsupported_feature(
-                "duplicate SET SCHEMA VERSION clauses",
+                SqlFeatureCode::DdlSchemaVersionDuplicateSetClause,
             ));
         }
 

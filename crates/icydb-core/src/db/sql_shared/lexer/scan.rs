@@ -3,6 +3,7 @@ use crate::db::sql_shared::{
     lexer::{Lexer, keywords::is_identifier_start},
     types::Token,
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 impl<'a> Lexer<'a> {
     pub(super) fn tokenize(sql: &'a str) -> Result<Vec<Token>, SqlParseError> {
@@ -36,7 +37,9 @@ impl<'a> Lexer<'a> {
                     TokenKind::BlobLiteral(self.lex_blob_literal()?)
                 }
                 b'"' | b'`' => {
-                    return Err(SqlParseError::unsupported_feature("quoted identifiers"));
+                    return Err(SqlParseError::unsupported_feature(
+                        SqlFeatureCode::QuotedIdentifiers,
+                    ));
                 }
                 next if next.is_ascii_digit() => TokenKind::Number(self.lex_number()),
                 next if is_identifier_start(next) => self.lex_identifier_or_keyword(),

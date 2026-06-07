@@ -242,7 +242,8 @@ fn continuation_kind_mismatch_helpers_preserve_invariant_messages() {
 #[cfg(feature = "sql")]
 #[test]
 fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
-    let query_err = QueryError::unsupported_sql_feature("JOIN");
+    let query_err =
+        QueryError::unsupported_sql_feature(icydb_diagnostic_code::SqlFeatureCode::Join);
 
     std::assert_matches!(
         query_err,
@@ -255,7 +256,8 @@ fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
 #[cfg(feature = "sql")]
 #[test]
 fn unsupported_sql_feature_query_error_exposes_compact_feature_code() {
-    let query_err = QueryError::unsupported_sql_feature("JOIN");
+    let query_err =
+        QueryError::unsupported_sql_feature(icydb_diagnostic_code::SqlFeatureCode::Join);
     let diagnostic = query_err.diagnostic();
 
     assert_eq!(
@@ -267,6 +269,29 @@ fn unsupported_sql_feature_query_error_exposes_compact_feature_code() {
         Some(
             &icydb_diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
                 feature: icydb_diagnostic_code::SqlFeatureCode::Join,
+            }
+        ),
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn sql_surface_mismatch_query_error_exposes_compact_mismatch_code() {
+    let query_err = QueryError::sql_surface_mismatch(
+        icydb_diagnostic_code::SqlSurfaceMismatchCode::QueryRejectsInsert,
+        "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+    );
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::SqlSurfaceMismatch {
+                mismatch: icydb_diagnostic_code::SqlSurfaceMismatchCode::QueryRejectsInsert,
             }
         ),
     );

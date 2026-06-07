@@ -27,6 +27,7 @@ pub enum DiagnosticCode {
     QueryNumericOverflow,
     QueryNumericNotRepresentable,
     QueryUnsupportedSqlFeature,
+    QuerySqlSurfaceMismatch,
     SchemaDdlAdmission,
     StoreNotFound,
     StoreCorruption,
@@ -51,7 +52,9 @@ impl DiagnosticCode {
                 ErrorClass::NotFound
             }
             Self::RuntimeConflict => ErrorClass::Conflict,
-            Self::QueryUnsupportedSqlFeature | Self::RuntimeUnsupported => ErrorClass::Unsupported,
+            Self::QueryUnsupportedSqlFeature
+            | Self::QuerySqlSurfaceMismatch
+            | Self::RuntimeUnsupported => ErrorClass::Unsupported,
             Self::StoreInvariantViolation | Self::RuntimeInvariantViolation => {
                 ErrorClass::InvariantViolation
             }
@@ -94,6 +97,7 @@ impl DiagnosticCode {
             | Self::QueryNumericOverflow
             | Self::QueryNumericNotRepresentable
             | Self::QueryUnsupportedSqlFeature
+            | Self::QuerySqlSurfaceMismatch
             | Self::SchemaDdlAdmission => ErrorOrigin::Query,
         }
     }
@@ -203,23 +207,51 @@ pub enum RuntimeErrorKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SqlFeatureCode {
     AggregateFilterClause,
+    AlterStatementBeyondAlterTable,
+    AlterTableAddColumnDuplicateDefault,
+    AlterTableAddColumnModifiers,
+    AlterTableAddStatementBeyondAddColumn,
+    AlterTableAlterColumnDropUnsupportedAction,
+    AlterTableAlterColumnModifiers,
+    AlterTableAlterColumnSetUnsupportedAction,
+    AlterTableAlterColumnUnsupportedAction,
+    AlterTableAlterStatementBeyondAlterColumn,
+    AlterTableDropColumnIfExistsSyntax,
+    AlterTableDropColumnModifiers,
+    AlterTableDropStatementBeyondDropColumn,
+    AlterTableRenameColumnMissingTo,
+    AlterTableRenameColumnModifiers,
+    AlterTableRenameStatementBeyondRenameColumn,
     AlterTableUnsupportedOperation,
     ColumnAlias,
+    CreateIndexIfNotExistsSyntax,
+    CreateIndexKeyOrderingModifiers,
     CreateIndexModifiers,
+    CreateStatementBeyondCreateIndex,
     DescribeModifier,
+    DdlSchemaVersionDuplicateExpectedClause,
+    DdlSchemaVersionDuplicateSetClause,
     DropIndexModifiers,
+    DropIndexIfExistsSyntax,
     DropStatementBeyondDropIndex,
+    ExpressionIndexUnsupportedFunction,
     Having,
     Insert,
     Join,
     LikePatternBeyondTrailingPrefix,
+    LowerFieldPredicateUnsupported,
     MultiStatementSql,
+    NestedAggregateInput,
+    NestedProjectionFunctionInArithmetic,
     OrderByUnsupportedForm,
     Other,
     ParameterBinding,
     ParameterizedSchemaVersion,
+    PredicateStartsWithFirstArgument,
     QuotedIdentifiers,
     ReturningUnsupportedShape,
+    ScalarFunctionExpressionPosition,
+    ScaleTakingNumericFunctionExpressionPosition,
     SearchedCaseGroupedOrderBy,
     ShowColumnsModifiers,
     ShowEntitiesModifiers,
@@ -227,13 +259,41 @@ pub enum SqlFeatureCode {
     ShowMemoryModifiers,
     ShowStoresModifiers,
     ShowUnsupportedCommand,
+    SimpleCaseExpression,
+    StandaloneLiteralProjectionItem,
     SupportedGroupedOrderByExpressionFamily,
     SupportedOrderByExpressionFamily,
     UnionIntersectExcept,
     UnsupportedFunctionNamespace,
     Update,
+    UpperFieldPredicateUnsupported,
     WindowFunction,
     With,
+}
+
+///
+/// SqlSurfaceMismatchCode
+///
+/// Compact SQL endpoint surface mismatch identifier.
+///
+
+#[cfg_attr(
+    feature = "wire",
+    derive(candid::CandidType, serde::Deserialize, serde::Serialize)
+)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SqlSurfaceMismatchCode {
+    QueryRejectsInsert,
+    QueryRejectsUpdate,
+    QueryRejectsDelete,
+    UpdateRejectsSelect,
+    UpdateRejectsExplain,
+    UpdateRejectsDescribe,
+    UpdateRejectsShowIndexes,
+    UpdateRejectsShowColumns,
+    UpdateRejectsShowEntities,
+    UpdateRejectsShowStores,
+    UpdateRejectsShowMemory,
 }
 
 ///
@@ -280,6 +340,7 @@ pub enum DiagnosticDetail {
     RuntimeKind { kind: RuntimeErrorKind },
     SchemaDdlAdmission { reason: SchemaDdlAdmissionCode },
     UnsupportedSqlFeature { feature: SqlFeatureCode },
+    SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode },
 }
 
 ///
@@ -361,6 +422,10 @@ mod tests {
     fn diagnostic_code_reports_broad_class() {
         assert_eq!(
             DiagnosticCode::QueryUnsupportedSqlFeature.class(),
+            ErrorClass::Unsupported
+        );
+        assert_eq!(
+            DiagnosticCode::QuerySqlSurfaceMismatch.class(),
             ErrorClass::Unsupported
         );
         assert_eq!(DiagnosticCode::QueryPlan.class(), ErrorClass::Query);

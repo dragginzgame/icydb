@@ -208,8 +208,17 @@ impl QueryError {
 
     /// Construct one query-origin unsupported SQL-feature execution error.
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn unsupported_sql_feature(feature: &'static str) -> Self {
+    pub(in crate::db) fn unsupported_sql_feature(feature: diagnostic_code::SqlFeatureCode) -> Self {
         Self::execute(InternalError::query_unsupported_sql_feature(feature))
+    }
+
+    /// Construct one query-origin unsupported SQL endpoint surface mismatch.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn sql_surface_mismatch(
+        mismatch: diagnostic_code::SqlSurfaceMismatchCode,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::execute(InternalError::query_sql_surface_mismatch(mismatch, message))
     }
 
     /// Construct one query error from one SQL lowering failure.

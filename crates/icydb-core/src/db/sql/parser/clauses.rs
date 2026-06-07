@@ -10,8 +10,9 @@ use crate::db::{
     },
     sql_shared::{Keyword, SqlParseError},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
-const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported fields, bounded arithmetic, or supported scalar-function forms";
+const ORDER_BY_UNSUPPORTED_FEATURE: SqlFeatureCode = SqlFeatureCode::OrderByUnsupportedForm;
 
 impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {

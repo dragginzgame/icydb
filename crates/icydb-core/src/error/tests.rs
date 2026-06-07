@@ -133,7 +133,8 @@ fn query_unsupported_uses_query_origin() {
 #[cfg(feature = "sql")]
 #[test]
 fn query_unsupported_sql_feature_preserves_query_detail_label() {
-    let err = InternalError::query_unsupported_sql_feature("JOIN");
+    let err =
+        InternalError::query_unsupported_sql_feature(icydb_diagnostic_code::SqlFeatureCode::Join);
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Query);
@@ -141,16 +142,17 @@ fn query_unsupported_sql_feature_preserves_query_detail_label() {
         matches!(
             err.detail(),
             Some(ErrorDetail::Query(QueryErrorDetail::UnsupportedSqlFeature { feature }))
-                if feature == &"JOIN"
+                if feature == &icydb_diagnostic_code::SqlFeatureCode::Join
         ),
-        "query unsupported SQL feature helper should preserve structured feature label detail",
+        "query unsupported SQL feature helper should preserve structured feature code detail",
     );
 }
 
 #[cfg(feature = "sql")]
 #[test]
 fn query_unsupported_sql_feature_exposes_compact_diagnostic_detail() {
-    let err = InternalError::query_unsupported_sql_feature("JOIN");
+    let err =
+        InternalError::query_unsupported_sql_feature(icydb_diagnostic_code::SqlFeatureCode::Join);
     let diagnostic = err.diagnostic();
 
     assert_eq!(
@@ -166,6 +168,29 @@ fn query_unsupported_sql_feature_exposes_compact_diagnostic_detail() {
         Some(
             &icydb_diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
                 feature: icydb_diagnostic_code::SqlFeatureCode::Join,
+            }
+        ),
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn query_sql_surface_mismatch_exposes_compact_diagnostic_detail() {
+    let err = InternalError::query_sql_surface_mismatch(
+        icydb_diagnostic_code::SqlSurfaceMismatchCode::QueryRejectsInsert,
+        "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+    );
+    let diagnostic = err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::SqlSurfaceMismatch {
+                mismatch: icydb_diagnostic_code::SqlSurfaceMismatchCode::QueryRejectsInsert,
             }
         ),
     );

@@ -13,6 +13,7 @@ use crate::{
     },
     value::Value,
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 #[test]
 fn parse_sql_predicate_parses_expression_without_statement_wrapper() {
@@ -364,7 +365,7 @@ fn parse_sql_predicate_wrapped_equality_remains_fail_closed() {
     assert_eq!(
         err,
         SqlParseError::UnsupportedFeature {
-            feature: "LOWER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds",
+            feature: SqlFeatureCode::LowerFieldPredicateUnsupported,
         }
     );
 }
@@ -398,7 +399,7 @@ fn parse_sql_predicate_direct_starts_with_rejects_non_casefold_wrapper_argument(
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+            feature: SqlFeatureCode::PredicateStartsWithFirstArgument,
         }
     );
 }

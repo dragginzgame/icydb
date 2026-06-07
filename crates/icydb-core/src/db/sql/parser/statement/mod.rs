@@ -18,6 +18,7 @@ use crate::db::{
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 impl Parser {
     pub(super) fn parse_statement(&mut self) -> Result<SqlStatement, SqlParseError> {
@@ -78,24 +79,24 @@ impl Parser {
                 SqlExplainTarget::Select(select) => self.select_clause_order_error(select),
                 SqlExplainTarget::Delete(delete) => self.delete_clause_order_error(delete),
             },
-            SqlStatement::Describe(_) => {
-                Some(SqlParseError::unsupported_feature("DESCRIBE modifiers"))
-            }
-            SqlStatement::ShowIndexes(_) => {
-                Some(SqlParseError::unsupported_feature("SHOW INDEXES modifiers"))
-            }
-            SqlStatement::ShowColumns(_) => {
-                Some(SqlParseError::unsupported_feature("SHOW COLUMNS modifiers"))
-            }
-            SqlStatement::ShowEntities(_) => Some(SqlParseError::unsupported_feature(
-                "SHOW ENTITIES modifiers",
+            SqlStatement::Describe(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::DescribeModifier,
             )),
-            SqlStatement::ShowStores(_) => {
-                Some(SqlParseError::unsupported_feature("SHOW STORES modifiers"))
-            }
-            SqlStatement::ShowMemory(_) => {
-                Some(SqlParseError::unsupported_feature("SHOW MEMORY modifiers"))
-            }
+            SqlStatement::ShowIndexes(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::ShowIndexesModifiers,
+            )),
+            SqlStatement::ShowColumns(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::ShowColumnsModifiers,
+            )),
+            SqlStatement::ShowEntities(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::ShowEntitiesModifiers,
+            )),
+            SqlStatement::ShowStores(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::ShowStoresModifiers,
+            )),
+            SqlStatement::ShowMemory(_) => Some(SqlParseError::unsupported_feature(
+                SqlFeatureCode::ShowMemoryModifiers,
+            )),
         }
     }
 
@@ -125,7 +126,7 @@ impl Parser {
         }
 
         Err(SqlParseError::unsupported_feature(
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW STORES/SHOW MEMORY",
+            SqlFeatureCode::ShowUnsupportedCommand,
         ))
     }
 

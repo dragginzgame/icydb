@@ -28,6 +28,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, StoreError},
 };
+use icydb_diagnostic_code::SqlSurfaceMismatchCode;
 use std::collections::HashSet;
 
 // Assert that one representative SQL surface stays fail-closed for a matrix of
@@ -122,24 +123,22 @@ fn assert_sql_ddl_admission_detail(err: QueryError, expected: SchemaDdlAdmission
     );
 }
 
-// Assert that one representative SQL surface keeps its own user-facing lane
-// rejection message for each disallowed statement family.
-fn assert_sql_surface_rejects_statement_lanes_with_message<T, F>(
-    cases: &[(&str, &str)],
-    mut execute: F,
-    surface: &str,
-) where
-    F: FnMut(&str) -> Result<T, QueryError>,
-{
-    for (sql, expected) in cases {
-        let Err(err) = execute(sql) else {
-            panic!("{surface} should reject the non-owned lane: {sql}");
-        };
-        assert!(
-            err.to_string().contains(expected),
-            "{surface} should preserve a surface-local lane boundary message: {sql}",
-        );
-    }
+fn assert_sql_surface_mismatch_detail(err: QueryError, expected: SqlSurfaceMismatchCode) {
+    let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
+        err
+    else {
+        panic!("SQL surface mismatch should map to unsupported query execution");
+    };
+    assert_eq!(internal.class(), ErrorClass::Unsupported);
+    assert!(
+        matches!(
+            internal.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::SqlSurfaceMismatch { mismatch }))
+                if *mismatch == expected
+        ),
+        "SQL surface mismatch should carry {expected:?}, got {:?}",
+        internal.detail(),
+    );
 }
 
 // Encode one old physical row for `SessionNullableSqlEntity` as it existed
@@ -294,9 +293,9 @@ fn assert_projection_rows(
 }
 
 // Assert that one unsupported SQL feature is surfaced with the same parser
-// detail label through the selected SQL surface.
+// detail code through the selected SQL surface.
 fn assert_sql_surface_preserves_unsupported_feature_detail<T, F>(
-    cases: &[(&str, &'static str)],
+    cases: &[(&str, SqlFeatureCode)],
     mut execute: F,
 ) where
     F: FnMut(&str) -> Result<T, QueryError>,
@@ -305,7 +304,7 @@ fn assert_sql_surface_preserves_unsupported_feature_detail<T, F>(
         let Err(err) = execute(sql) else {
             panic!("unsupported SQL feature should fail through the SQL surface: {sql}");
         };
-        assert_sql_unsupported_feature_detail(err, feature);
+        assert_sql_unsupported_feature_detail(err, *feature);
     }
 }
 
@@ -448,8 +447,8 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
         |sql| lower_select_query_for_tests::<SessionSqlEntity>(&session, sql),
     );
 
-    // Phase 2: require both executable query entrypoints to preserve their
-    // own surface-local lane boundary messages for the same non-query SQL.
+    // Phase 2: require both executable query entrypoints to reject the same
+    // non-query SQL before helper-specific execution.
     let message_cases = [
         (
             "EXPLAIN SELECT * FROM SessionSqlEntity",
@@ -485,11 +484,9 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
             "scalar SELECT helper rejects UPDATE",
         ),
     ];
-    assert_sql_surface_rejects_statement_lanes_with_message(
-        &message_cases,
-        |sql| execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql),
-        "scalar SELECT helper",
-    );
+    assert_sql_surface_rejects_statement_lanes(&message_cases, |sql| {
+        execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
+    });
 
     let grouped_cases = [
         (
@@ -527,11 +524,9 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
         ),
     ];
 
-    assert_sql_surface_rejects_statement_lanes_with_message(
-        &grouped_cases,
-        |sql| execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None),
-        "grouped SELECT helper",
-    );
+    assert_sql_surface_rejects_statement_lanes(&grouped_cases, |sql| {
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+    });
 }
 
 #[test]
@@ -2468,27 +2463,24 @@ fn execute_sql_query_rejects_supported_single_entity_mutation_shapes() {
     for (sql, expected, context) in [
         (
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
-            "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+            SqlSurfaceMismatchCode::QueryRejectsInsert,
             "query SQL surface should reject INSERT",
         ),
         (
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
-            "execute_sql_query rejects UPDATE; use execute_sql_update::<E>()",
+            SqlSurfaceMismatchCode::QueryRejectsUpdate,
             "query SQL surface should reject UPDATE",
         ),
         (
             "DELETE FROM SessionSqlWriteEntity WHERE id = 1",
-            "execute_sql_query rejects DELETE; use execute_sql_update::<E>()",
+            SqlSurfaceMismatchCode::QueryRejectsDelete,
             "query SQL surface should reject DELETE",
         ),
     ] {
         let err = session
             .execute_sql_query::<SessionSqlWriteEntity>(sql)
             .expect_err(context);
-        assert!(
-            err.to_string().contains(expected),
-            "{context} should preserve the query-to-update guidance",
-        );
+        assert_sql_surface_mismatch_detail(err, expected);
     }
 }
 
@@ -8066,11 +8058,7 @@ fn sql_compile_cache_keeps_query_and_update_surfaces_separate() {
     let err = session
         .compile_sql_query::<SessionSqlWriteEntity>(insert_sql)
         .expect_err("query surface must not reuse the cached update artifact");
-    assert!(
-        err.to_string()
-            .contains("execute_sql_query rejects INSERT; use execute_sql_update::<E>()"),
-        "query surface should preserve its own lane boundary after an update-surface cache fill",
-    );
+    assert_sql_surface_mismatch_detail(err, SqlSurfaceMismatchCode::QueryRejectsInsert);
 }
 
 #[test]

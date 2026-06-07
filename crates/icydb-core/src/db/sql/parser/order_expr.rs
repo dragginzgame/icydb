@@ -13,6 +13,7 @@ use crate::{
     },
     value::Value,
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 pub(in crate::db) type SqlOrderExprAst = SqlExpr;
 
@@ -172,7 +173,7 @@ const fn supported_order_function_shape(
 trait SupportedOrderFunctionParser {
     fn cursor(&mut self) -> &mut SqlTokenCursor;
 
-    fn unsupported_surface(&self) -> &'static str;
+    fn unsupported_surface(&self) -> SqlFeatureCode;
 
     fn parse_expr_arg(&mut self) -> Result<SqlExpr, SqlParseError>;
 
@@ -422,8 +423,8 @@ impl SupportedOrderFunctionParser for SupportedOrderExprParser {
         &mut self.cursor
     }
 
-    fn unsupported_surface(&self) -> &'static str {
-        "supported ORDER BY expression family"
+    fn unsupported_surface(&self) -> SqlFeatureCode {
+        SqlFeatureCode::SupportedOrderByExpressionFamily
     }
 
     fn parse_expr_arg(&mut self) -> Result<SqlExpr, SqlParseError> {
@@ -616,7 +617,7 @@ impl SupportedGroupedOrderExprParser {
 
         if when_then_arms.is_empty() {
             return Err(SqlParseError::unsupported_feature(
-                "searched CASE in grouped ORDER BY expressions",
+                SqlFeatureCode::SearchedCaseGroupedOrderBy,
             ));
         }
 
@@ -708,8 +709,8 @@ impl SupportedOrderFunctionParser for SupportedGroupedOrderExprParser {
         &mut self.cursor
     }
 
-    fn unsupported_surface(&self) -> &'static str {
-        "supported grouped ORDER BY expression family"
+    fn unsupported_surface(&self) -> SqlFeatureCode {
+        SqlFeatureCode::SupportedGroupedOrderByExpressionFamily
     }
 
     fn parse_expr_arg(&mut self) -> Result<SqlExpr, SqlParseError> {

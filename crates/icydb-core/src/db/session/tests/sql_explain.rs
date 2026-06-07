@@ -1,4 +1,5 @@
 use super::*;
+use icydb_diagnostic_code::SqlFeatureCode;
 
 // Execute one identifier-normalization EXPLAIN pair and assert both spellings
 // collapse onto the same public output.
@@ -1070,12 +1071,12 @@ fn explain_sql_delete_rejection_matrix_preserves_unsupported_feature_detail() {
     for (sql, feature, context) in [
         (
             "EXPLAIN SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
-            "JOIN",
+            SqlFeatureCode::Join,
             "EXPLAIN JOIN",
         ),
         (
             "EXPLAIN JSON SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
-            "JOIN",
+            SqlFeatureCode::Join,
             "EXPLAIN JSON JOIN",
         ),
     ] {

@@ -2,6 +2,7 @@ use crate::db::{
     sql::parser::{Parser, SqlExpr, SqlExprBinaryOp},
     sql_shared::{SqlParseError, TokenKind},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 impl Parser {
     fn parse_projection_arithmetic_expr(
@@ -71,7 +72,7 @@ impl Parser {
             let field = self.expect_identifier()?;
             if self.peek_lparen() {
                 return Err(SqlParseError::unsupported_feature(
-                    "nested projection functions inside arithmetic expressions",
+                    SqlFeatureCode::NestedProjectionFunctionInArithmetic,
                 ));
             }
 

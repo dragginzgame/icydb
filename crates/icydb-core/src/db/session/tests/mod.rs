@@ -106,6 +106,7 @@ use crate::{
     value::{OutputValue, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
+use icydb_diagnostic_code::SqlFeatureCode;
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, sync::LazyLock};
 
@@ -4190,9 +4191,9 @@ fn assert_cursor_mapping_parity(
     assert_query_error_is_cursor_plan(mapped_via_plan, &predicate);
 }
 
-// Assert SQL parser unsupported-feature labels remain preserved through
+// Assert SQL parser unsupported-feature codes remain preserved through
 // query-facing execution error detail payloads.
-fn assert_sql_unsupported_feature_detail(err: QueryError, expected_feature: &'static str) {
+fn assert_sql_unsupported_feature_detail(err: QueryError, expected_feature: SqlFeatureCode) {
     let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
         err
     else {
@@ -4207,7 +4208,7 @@ fn assert_sql_unsupported_feature_detail(err: QueryError, expected_feature: &'st
             Some(ErrorDetail::Query(QueryErrorDetail::UnsupportedSqlFeature { feature }))
                 if *feature == expected_feature
         ),
-        "unsupported SQL feature detail label should be preserved",
+        "unsupported SQL feature detail code should be preserved",
     );
 }
 
@@ -4227,40 +4228,40 @@ fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, conte
     );
 }
 
-const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
+const fn unsupported_sql_feature_cases() -> [(&'static str, SqlFeatureCode); 5] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
-            "JOIN",
+            SqlFeatureCode::Join,
         ),
         (
             "SELECT \"name\" FROM SessionSqlEntity",
-            "quoted identifiers",
+            SqlFeatureCode::QuotedIdentifiers,
         ),
         (
             "SELECT * FROM SessionSqlEntity WHERE name LIKE '%Al'",
-            "LIKE patterns beyond trailing '%' prefix form",
+            SqlFeatureCode::LikePatternBeyondTrailingPrefix,
         ),
         (
             "SELECT * FROM SessionSqlEntity WHERE LOWER(name) LIKE '%Al'",
-            "LIKE patterns beyond trailing '%' prefix form",
+            SqlFeatureCode::LikePatternBeyondTrailingPrefix,
         ),
         (
             "SELECT * FROM SessionSqlEntity WHERE UPPER(name) LIKE '%Al'",
-            "LIKE patterns beyond trailing '%' prefix form",
+            SqlFeatureCode::LikePatternBeyondTrailingPrefix,
         ),
     ]
 }
 
-const fn unsupported_sql_parser_feature_cases() -> [(&'static str, &'static str); 2] {
+const fn unsupported_sql_parser_feature_cases() -> [(&'static str, SqlFeatureCode); 2] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
-            "JOIN",
+            SqlFeatureCode::Join,
         ),
         (
             "SELECT \"name\" FROM SessionSqlEntity",
-            "quoted identifiers",
+            SqlFeatureCode::QuotedIdentifiers,
         ),
     ]
 }

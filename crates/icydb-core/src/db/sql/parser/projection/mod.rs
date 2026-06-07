@@ -16,6 +16,7 @@ use crate::db::{
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
+use icydb_diagnostic_code::SqlFeatureCode;
 
 ///
 /// SqlExprParseSurface
@@ -185,7 +186,7 @@ impl Parser {
             SqlExpr::FieldPath { .. } => Ok(SqlSelectItem::Expr(expr)),
             SqlExpr::Aggregate(aggregate) => Ok(SqlSelectItem::Aggregate(aggregate)),
             SqlExpr::Literal(_) => Err(SqlParseError::unsupported_feature(
-                "standalone literal projection items are not supported",
+                SqlFeatureCode::StandaloneLiteralProjectionItem,
             )),
             other => Ok(SqlSelectItem::Expr(other)),
         }
@@ -268,7 +269,7 @@ impl Parser {
             let aggregate = self.parse_aggregate_call(kind)?;
             if self.peek_keyword(Keyword::Over) {
                 return Err(SqlParseError::unsupported_feature(
-                    "window functions / OVER",
+                    SqlFeatureCode::WindowFunction,
                 ));
             }
 
@@ -292,12 +293,12 @@ impl Parser {
         let Some(function) = SqlScalarFunction::from_identifier(field.as_str()) else {
             if self.function_call_is_followed_by_keyword(Keyword::Over) {
                 return Err(SqlParseError::unsupported_feature(
-                    "window functions / OVER",
+                    SqlFeatureCode::WindowFunction,
                 ));
             }
 
             return Err(SqlParseError::unsupported_feature(
-                "SQL function namespace beyond supported aggregate or scalar function forms",
+                SqlFeatureCode::UnsupportedFunctionNamespace,
             ));
         };
 
@@ -305,13 +306,13 @@ impl Parser {
             .planner_function()
             .supports_surface(surface.function_surface())
         {
-            return Err(SqlParseError::unsupported_feature(
-                if function.uses_numeric_scale_special_case() {
-                    "scale-taking numeric functions are not supported in this expression position"
-                } else {
-                    "functions beyond supported scalar forms are not supported in this expression position"
-                },
-            ));
+            let feature = if function.uses_numeric_scale_special_case() {
+                SqlFeatureCode::ScaleTakingNumericFunctionExpressionPosition
+            } else {
+                SqlFeatureCode::ScalarFunctionExpressionPosition
+            };
+
+            return Err(SqlParseError::unsupported_feature(feature));
         }
 
         if matches!(surface, SqlExprParseSurface::Where) {
@@ -321,7 +322,7 @@ impl Parser {
         let call = self.parse_scalar_function_call(function, surface)?;
         if self.peek_keyword(Keyword::Over) {
             return Err(SqlParseError::unsupported_feature(
-                "window functions / OVER",
+                SqlFeatureCode::WindowFunction,
             ));
         }
 
@@ -334,7 +335,7 @@ impl Parser {
     ) -> Result<SqlExpr, SqlParseError> {
         if !self.eat_keyword(Keyword::When) {
             return Err(SqlParseError::unsupported_feature(
-                "simple CASE expressions",
+                SqlFeatureCode::SimpleCaseExpression,
             ));
         }
 
