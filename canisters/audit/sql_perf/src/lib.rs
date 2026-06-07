@@ -84,12 +84,16 @@ struct StorageWritePerfResult {
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 
 #[cfg(feature = "sql")]
-fn invalid_perf_loop_runs_error() -> icydb::Error {
-    icydb::Error::new(
+const fn query_validate_error() -> icydb::Error {
+    icydb::Error::from_kind(
         ErrorKind::Query(QueryErrorKind::Validate),
         ErrorOrigin::Query,
-        "sql perf loop requires runs > 0",
     )
+}
+
+#[cfg(feature = "sql")]
+fn invalid_perf_loop_runs_error() -> icydb::Error {
+    query_validate_error()
 }
 
 #[cfg(feature = "sql")]
@@ -718,11 +722,7 @@ fn run_user_fluent_scenario_once(
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
-        _ => Err(icydb::Error::new(
-            ErrorKind::Query(QueryErrorKind::Validate),
-            ErrorOrigin::Query,
-            format!("unknown fluent user perf scenario: {scenario}"),
-        )),
+        _ => Err(query_validate_error()),
     }
 }
 
@@ -742,11 +742,7 @@ fn run_stable_user_fluent_scenario_once(
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
-        _ => Err(icydb::Error::new(
-            ErrorKind::Query(QueryErrorKind::Validate),
-            ErrorOrigin::Query,
-            format!("unknown fluent stable user perf scenario: {scenario}"),
-        )),
+        _ => Err(query_validate_error()),
     }
 }
 
@@ -793,11 +789,7 @@ fn run_account_fluent_scenario_once(
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
-        _ => Err(icydb::Error::new(
-            ErrorKind::Query(QueryErrorKind::Validate),
-            ErrorOrigin::Query,
-            format!("unknown fluent account perf scenario: {scenario}"),
-        )),
+        _ => Err(query_validate_error()),
     }
 }
 
@@ -817,11 +809,7 @@ fn run_journaled_user_fluent_scenario_once(
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
-        _ => Err(icydb::Error::new(
-            ErrorKind::Query(QueryErrorKind::Validate),
-            ErrorOrigin::Query,
-            format!("unknown fluent journaled user perf scenario: {scenario}"),
-        )),
+        _ => Err(query_validate_error()),
     }
 }
 
@@ -838,11 +826,7 @@ fn run_heap_user_fluent_scenario_once(
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
-        _ => Err(icydb::Error::new(
-            ErrorKind::Query(QueryErrorKind::Validate),
-            ErrorOrigin::Query,
-            format!("unknown fluent heap user perf scenario: {scenario}"),
-        )),
+        _ => Err(query_validate_error()),
     }
 }
 
@@ -898,11 +882,7 @@ fn query_fluent_scenario_loop(
             "heap_user" => run_heap_user_fluent_scenario_once(&session, scenario)?,
             "journaled_user" => run_journaled_user_fluent_scenario_once(&session, scenario)?,
             _ => {
-                return Err(icydb::Error::new(
-                    ErrorKind::Query(QueryErrorKind::Validate),
-                    ErrorOrigin::Query,
-                    format!("unknown fluent perf surface: {surface}"),
-                ));
+                return Err(query_validate_error());
             }
         };
 
@@ -1217,12 +1197,8 @@ fn query_stable_user_loop_with_perf(
 }
 
 #[cfg(feature = "sql")]
-fn unexpected_write_perf_count_error(label: &str, expected: u32, actual: u32) -> icydb::Error {
-    icydb::Error::new(
-        ErrorKind::Query(QueryErrorKind::Validate),
-        ErrorOrigin::Query,
-        format!("{label} expected {expected} affected rows, got {actual}"),
-    )
+fn unexpected_write_perf_count_error(_label: &str, _expected: u32, _actual: u32) -> icydb::Error {
+    query_validate_error()
 }
 
 #[cfg(feature = "sql")]
