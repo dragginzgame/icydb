@@ -92,7 +92,7 @@ const fn query_validate_error() -> icydb::Error {
 }
 
 #[cfg(feature = "sql")]
-fn invalid_perf_loop_runs_error() -> icydb::Error {
+const fn invalid_perf_loop_runs_error() -> icydb::Error {
     query_validate_error()
 }
 
@@ -1197,7 +1197,11 @@ fn query_stable_user_loop_with_perf(
 }
 
 #[cfg(feature = "sql")]
-fn unexpected_write_perf_count_error(_label: &str, _expected: u32, _actual: u32) -> icydb::Error {
+const fn unexpected_write_perf_count_error(
+    _label: &str,
+    _expected: u32,
+    _actual: u32,
+) -> icydb::Error {
     query_validate_error()
 }
 
