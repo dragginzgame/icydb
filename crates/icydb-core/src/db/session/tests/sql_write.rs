@@ -2066,11 +2066,9 @@ fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix()
             other => panic!("unexpected write RETURNING case: {other}"),
         };
 
-        assert!(
-            err.to_string().contains(
-                "SQL function namespace beyond supported aggregate or scalar function forms"
-            ),
-            "{entity_kind} RETURNING should preserve the parser-owned unsupported feature detail",
+        assert_sql_unsupported_feature_detail(
+            err,
+            icydb_diagnostic_code::SqlFeatureCode::UnsupportedFunctionNamespace,
         );
     }
 }
