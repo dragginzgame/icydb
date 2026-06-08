@@ -114,8 +114,14 @@ pub(crate) mod test_support {
 
     pub(crate) fn decode_metrics_report(
         candid_bytes: &[u8],
-    ) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
+    ) -> Result<Result<icydb::metrics::CompactMetricsReport, icydb::Error>, String> {
         super::metrics::decode_metrics_report(candid_bytes)
+    }
+
+    pub(crate) fn decode_extended_metrics_report(
+        candid_bytes: &[u8],
+    ) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
+        super::metrics::decode_extended_metrics_report(candid_bytes)
     }
 
     pub(crate) fn decode_metrics_reset_response(
@@ -146,8 +152,12 @@ pub(crate) mod test_support {
         super::render::render_field_list(fields)
     }
 
-    pub(crate) fn render_metrics_report(report: &icydb::metrics::EventReport) -> String {
+    pub(crate) fn render_metrics_report(report: &icydb::metrics::CompactMetricsReport) -> String {
         super::metrics::render_metrics_report(report)
+    }
+
+    pub(crate) fn render_extended_metrics_report(report: &icydb::metrics::EventReport) -> String {
+        super::metrics::render_extended_metrics_report(report)
     }
 
     pub(crate) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {

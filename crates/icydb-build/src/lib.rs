@@ -47,6 +47,7 @@ struct BuildSqlOptions {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BuildMetricsOptions {
     enabled: bool,
+    extended_enabled: bool,
     reset_enabled: bool,
 }
 
@@ -54,6 +55,7 @@ impl Default for BuildMetricsOptions {
     fn default() -> Self {
         Self {
             enabled: true,
+            extended_enabled: false,
             reset_enabled: false,
         }
     }
@@ -88,6 +90,14 @@ impl BuildOptions {
     #[must_use]
     pub const fn with_metrics_enabled(mut self, enabled: bool) -> Self {
         self.metrics.enabled = enabled;
+
+        self
+    }
+
+    /// Build options with generated extended metrics report endpoint emission configured.
+    #[must_use]
+    pub const fn with_metrics_extended_enabled(mut self, enabled: bool) -> Self {
+        self.metrics.extended_enabled = enabled;
 
         self
     }
@@ -138,6 +148,12 @@ impl BuildOptions {
     #[must_use]
     pub const fn metrics_enabled(self) -> bool {
         self.metrics.enabled
+    }
+
+    /// Return whether generated actor glue should export extended metrics report endpoints.
+    #[must_use]
+    pub const fn metrics_extended_enabled(self) -> bool {
+        self.metrics.extended_enabled
     }
 
     /// Return whether generated actor glue should export metrics reset endpoints.
@@ -282,7 +298,16 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
     let metrics_endpoint = builder.options.metrics_enabled().then(|| {
         quote! {
         #[::icydb::__reexports::ic_cdk::query]
-        pub fn __icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
+        pub fn __icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::CompactMetricsReport, ::icydb::Error> {
+            Ok(::icydb::metrics::compact_metrics_report(window_start_ms))
+        }
+        }
+    });
+
+    let metrics_extended_endpoint = builder.options.metrics_extended_enabled().then(|| {
+        quote! {
+        #[::icydb::__reexports::ic_cdk::query]
+        pub fn __icydb_metrics_extended(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
             Ok(::icydb::metrics::metrics_report(window_start_ms))
         }
         }
@@ -301,6 +326,7 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
 
     quote! {
         #metrics_endpoint
+        #metrics_extended_endpoint
         #metrics_reset_endpoint
     }
 }
@@ -317,6 +343,7 @@ mod tests {
         assert!(!options.sql_ddl_enabled());
         assert!(!options.sql_fixtures_enabled());
         assert!(options.metrics_enabled());
+        assert!(!options.metrics_extended_enabled());
         assert!(!options.metrics_reset_enabled());
         assert!(!options.snapshot_enabled());
         assert!(!options.schema_enabled());

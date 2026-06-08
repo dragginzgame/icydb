@@ -182,7 +182,38 @@ fn cli_args_group_metrics_under_top_level_keyword() {
     assert_eq!(args.target().canister_name(), "demo_rpg");
     assert_eq!(args.target().environment(), DEFAULT_ENVIRONMENT);
     assert_eq!(args.window_start_ms(), Some(123));
+    assert!(!args.extended());
     assert!(!args.reset());
+}
+
+#[test]
+fn cli_args_group_extended_metrics_under_top_level_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "metrics",
+        "demo_rpg",
+        "--extended",
+        "--window-start-ms",
+        "123",
+    ])
+    .expect("extended metrics command should parse");
+    let CliCommand::Metrics(args) = args.into_command() else {
+        panic!("expected metrics command");
+    };
+
+    assert_eq!(args.target().canister_name(), "demo_rpg");
+    assert_eq!(args.target().environment(), DEFAULT_ENVIRONMENT);
+    assert_eq!(args.window_start_ms(), Some(123));
+    assert!(args.extended());
+    assert!(!args.reset());
+}
+
+#[test]
+fn cli_args_reject_extended_metrics_reset_conflict() {
+    let err = CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg", "--extended", "--reset"])
+        .expect_err("metrics reset and extended report should conflict");
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
 
 #[test]
@@ -203,6 +234,7 @@ fn cli_args_group_metrics_reset_under_top_level_keyword() {
     assert_eq!(args.target().canister_name(), "demo_rpg");
     assert_eq!(args.target().environment(), "test");
     assert_eq!(args.window_start_ms(), None);
+    assert!(!args.extended());
     assert!(args.reset());
 }
 
@@ -295,6 +327,7 @@ fn cli_args_group_config_init_under_config_keyword() {
         "--ddl",
         "--fixtures",
         "--metrics",
+        "--metrics-extended",
         "--metrics-reset",
         "--snapshot",
         "--schema",
@@ -311,6 +344,7 @@ fn cli_args_group_config_init_under_config_keyword() {
     assert!(args.ddl());
     assert!(args.fixtures());
     assert!(args.metrics());
+    assert!(args.metrics_extended());
     assert!(args.metrics_reset());
     assert!(args.snapshot());
     assert!(args.schema());
@@ -337,6 +371,7 @@ fn cli_args_config_init_no_readonly_overrides_all() {
     assert!(args.ddl());
     assert!(args.fixtures());
     assert!(args.metrics());
+    assert!(args.metrics_extended());
     assert!(args.metrics_reset());
     assert!(args.snapshot());
     assert!(args.schema());

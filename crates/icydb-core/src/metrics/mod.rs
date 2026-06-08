@@ -12,10 +12,13 @@ pub use sink::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
     MetricsEvent, MetricsSink, MutationCommitClass, PlanChoiceReason, PlanKind,
     PreparedShapeFinalizationOutcome, SaveMutationKind, SchemaReconcileOutcome,
-    SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind, metrics_report,
-    metrics_reset_all,
+    SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind, compact_metrics_report,
+    metrics_report, metrics_reset_all,
 };
-pub use state::{EntitySummary, EventCounters, EventOps, EventReport};
+pub use state::{
+    CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport, EntitySummary,
+    EventCounters, EventOps, EventReport, compact_metric_code,
+};
 
 ///
 /// TESTS

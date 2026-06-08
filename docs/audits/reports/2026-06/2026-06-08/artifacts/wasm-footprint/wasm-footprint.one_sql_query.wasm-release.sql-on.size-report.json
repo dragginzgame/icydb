@@ -11,47 +11,47 @@
     "candid_export": "available",
     "icp_built_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm",
-      "bytes": 3162448,
-      "sha256": "6b11216a3df09abf83baac4c1fb7f4723fd6b6220514314bc4556d2f14a5926d"
+      "bytes": 3162325,
+      "sha256": "b6426b8bdfe62c442eae641424f8309ef3636d910aceb562b1cd5e7886687fa7"
     },
     "icp_built_wasm_gz_deterministic": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm.gz",
-      "bytes": 1070720,
-      "sha256": "7b30b92cb6b9471e0ced171f6f09c5e30f0cb6b334fb21353b9f9d6abc4f7662"
+      "bytes": 1070499,
+      "sha256": "69ef6abaebc47079fd2e4972714dc513f8f80f2c00cb9405784dea596d17ff20"
     },
     "icp_built_wasm_gz_emitted": null,
     "icp_shrunk_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm",
-      "bytes": 2948284,
-      "sha256": "76aff0211b36b4ddc8b571411da8927b5a02f8a5d837452c116b01599055902a"
+      "bytes": 2948166,
+      "sha256": "e220eb754533930e3a445ff0efc6e8f02a231ddf804b0fe47ac0ae7171dc53aa"
     },
     "icp_shrunk_wasm_gz": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm.gz",
-      "bytes": 1021717,
-      "sha256": "7a04b1a43c96317a7013ff785ba805e771c89803fbddf544f6d06715922afd3e"
+      "bytes": 1021941,
+      "sha256": "c6385bc8e91e1e96620cd824873b93b677f10cd820a9a5097f67321846149931"
     }
   },
   "analysis": {
     "icp_built": {
-      "function_count": 6903,
+      "function_count": 6902,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 241252,
+      "data_section_bytes": 241260,
       "exported_method_count": 2,
       "exported_methods": [
-        "canister_query query_one_sql (func_6901)",
-        "get_candid_pointer (func_6902)"
+        "canister_query query_one_sql (func_6900)",
+        "get_candid_pointer (func_6901)"
       ]
     },
     "icp_shrunk": {
-      "function_count": 6903,
+      "function_count": 6902,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 241252,
+      "data_section_bytes": 241260,
       "exported_method_count": 2,
       "exported_methods": [
-        "canister_query query_one_sql (func_6886)",
-        "get_candid_pointer (func_6887)"
+        "canister_query query_one_sql (func_6885)",
+        "get_candid_pointer (func_6886)"
       ]
     }
   },
@@ -70,7 +70,7 @@
     ]
   },
   "deltas": {
-    "shrink_wasm_bytes": 214164,
-    "shrink_wasm_gz_bytes": 49003
+    "shrink_wasm_bytes": 214159,
+    "shrink_wasm_gz_bytes": 48558
   }
 }

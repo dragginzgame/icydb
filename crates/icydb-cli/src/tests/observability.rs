@@ -12,9 +12,10 @@ use icydb::db::{
 };
 
 use crate::observability::test_support::{
-    decode_metrics_report, decode_metrics_reset_response, decode_schema_report,
-    decode_snapshot_report, method_error, metrics_candid_arg, render_field_list,
-    render_metrics_report, render_schema_report, render_snapshot_report, yes_no,
+    decode_extended_metrics_report, decode_metrics_report, decode_metrics_reset_response,
+    decode_schema_report, decode_snapshot_report, method_error, metrics_candid_arg,
+    render_extended_metrics_report, render_field_list, render_metrics_report, render_schema_report,
+    render_snapshot_report, yes_no,
 };
 
 #[test]
@@ -25,12 +26,25 @@ fn metrics_candid_arg_renders_optional_window() {
 
 #[test]
 fn decode_metrics_report_accepts_generated_response_shape() {
-    let response: Result<icydb::metrics::EventReport, icydb::Error> =
-        Ok(icydb::metrics::EventReport::default());
+    let response: Result<icydb::metrics::CompactMetricsReport, icydb::Error> =
+        Ok(icydb::metrics::CompactMetricsReport::default());
     let candid_bytes = Encode!(&response).expect("metrics response should encode");
     let decoded = decode_metrics_report(candid_bytes.as_slice())
         .expect("metrics response should decode")
         .expect("metrics response should be ok");
+
+    assert_eq!(decoded.entity_counters().len(), 0);
+    assert_eq!(decoded.requested_window_start_ms(), None);
+}
+
+#[test]
+fn decode_extended_metrics_report_accepts_generated_response_shape() {
+    let response: Result<icydb::metrics::EventReport, icydb::Error> =
+        Ok(icydb::metrics::EventReport::default());
+    let candid_bytes = Encode!(&response).expect("extended metrics response should encode");
+    let decoded = decode_extended_metrics_report(candid_bytes.as_slice())
+        .expect("extended metrics response should decode")
+        .expect("extended metrics response should be ok");
 
     assert_eq!(decoded.entity_counters().len(), 0);
     assert_eq!(decoded.requested_window_start_ms(), None);
@@ -241,7 +255,17 @@ fn schema_report_renders_composite_primary_key_fields() {
 
 #[test]
 fn metrics_report_rendering_uses_human_summary() {
-    let text = render_metrics_report(&icydb::metrics::EventReport::default());
+    let text = render_metrics_report(&icydb::metrics::CompactMetricsReport::default());
+
+    assert!(text.contains("IcyDB metrics"));
+    assert!(text.contains("requested window start ms: none"));
+    assert!(text.contains("counters: none"));
+    assert!(text.contains("entities\n  None"));
+}
+
+#[test]
+fn extended_metrics_report_rendering_uses_human_summary() {
+    let text = render_extended_metrics_report(&icydb::metrics::EventReport::default());
 
     assert!(text.contains("IcyDB metrics"));
     assert!(text.contains("requested window start ms: none"));

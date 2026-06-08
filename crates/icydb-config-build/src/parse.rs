@@ -8,8 +8,9 @@ use std::{
 use crate::{
     ConfigBuildError, GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig,
     model::{
-        DEFAULT_METRICS_ENABLED, DEFAULT_SCHEMA_ENABLED, DEFAULT_SNAPSHOT_ENABLED,
-        DEFAULT_SQL_READONLY_ENABLED, GeneratedCanisterMetricsConfig, GeneratedCanisterSqlConfig,
+        DEFAULT_METRICS_ENABLED, DEFAULT_METRICS_EXTENDED_ENABLED, DEFAULT_SCHEMA_ENABLED,
+        DEFAULT_SNAPSHOT_ENABLED, DEFAULT_SQL_READONLY_ENABLED, GeneratedCanisterMetricsConfig,
+        GeneratedCanisterSqlConfig,
     },
     resolve::resolve_config_path,
 };
@@ -140,6 +141,9 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
             metrics
                 .and_then(|metrics| metrics.enabled)
                 .unwrap_or(DEFAULT_METRICS_ENABLED),
+            metrics
+                .and_then(|metrics| metrics.extended)
+                .unwrap_or(DEFAULT_METRICS_EXTENDED_ENABLED),
             metrics.and_then(|metrics| metrics.reset).unwrap_or(false),
         ),
         raw_config
@@ -213,6 +217,7 @@ struct RawCanisterSqlConfig {
 #[serde(deny_unknown_fields)]
 struct RawCanisterMetricsConfig {
     enabled: Option<bool>,
+    extended: Option<bool>,
     reset: Option<bool>,
 }
 

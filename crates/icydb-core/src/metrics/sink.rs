@@ -582,6 +582,15 @@ pub fn metrics_report(window_start_ms: Option<u64>) -> metrics::EventReport {
     metrics::report_window_start(window_start_ms)
 }
 
+/// Snapshot the current metrics state using the compact endpoint payload.
+///
+/// `window_start_ms` filters by window start (`EventState::window_start_ms`),
+/// not by per-event timestamps.
+#[must_use]
+pub fn compact_metrics_report(window_start_ms: Option<u64>) -> metrics::CompactMetricsReport {
+    metrics::compact_report_window_start(window_start_ms)
+}
+
 /// Reset all metrics state (counters + perf).
 pub fn metrics_reset_all() {
     metrics::reset_all();

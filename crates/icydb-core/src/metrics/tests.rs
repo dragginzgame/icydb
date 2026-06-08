@@ -10,8 +10,9 @@ use crate::metrics::{
         SqlCompileRejectPhase, record,
     },
     state::{
-        EntityCounters, EventOps, MetricRatio, report_window_start, reset_all, with_state,
-        with_state_mut,
+        CompactMetric, CompactMetricsReport, EntityCounters, EventOps, MetricRatio,
+        compact_metric_code, compact_report_window_start, report_window_start, reset_all,
+        with_state, with_state_mut,
     },
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
@@ -96,6 +97,72 @@ fn report_sorts_entities_by_visible_activity() {
 }
 
 #[test]
+fn compact_report_returns_sparse_base_metrics() {
+    use compact_metric_code::{
+        CACHE_SHARED_QUERY_PLAN_HITS, EXEC_ERRORS, LOAD_CALLS, ROWS_LOADED, SAVE_CALLS,
+    };
+
+    reset_all();
+    with_state_mut(|m| {
+        m.ops.load_calls = 3;
+        m.ops.exec_error_conflict = 2;
+        m.ops.rows_loaded = 5;
+        m.ops.cache_shared_query_plan_hits = 7;
+        m.entities.insert(
+            "alpha".to_string(),
+            EntityCounters {
+                load_calls: 1,
+                rows_loaded: 4,
+                ..Default::default()
+            },
+        );
+        m.entities
+            .insert("beta".to_string(), EntityCounters::default());
+        m.window_start_ms = 99;
+    });
+
+    let report = compact_report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("matching compact window should keep global counters");
+
+    assert!(report.window_filter_matched());
+    assert_eq!(report.active_window_start_ms(), 99);
+    assert_eq!(metric_value(counters.metrics(), LOAD_CALLS), 3);
+    assert_eq!(metric_value(counters.metrics(), EXEC_ERRORS), 2);
+    assert_eq!(metric_value(counters.metrics(), ROWS_LOADED), 5);
+    assert_eq!(
+        metric_value(counters.metrics(), CACHE_SHARED_QUERY_PLAN_HITS),
+        7
+    );
+    assert_eq!(metric_value(counters.metrics(), SAVE_CALLS), 0);
+    assert!(counters.metrics().iter().all(|metric| metric.value() != 0));
+    assert_eq!(report.entity_counters().len(), 1);
+    assert_eq!(report.entity_counters()[0].path(), "alpha");
+    assert_eq!(
+        metric_value(report.entity_counters()[0].metrics(), ROWS_LOADED),
+        4,
+    );
+}
+
+#[test]
+fn compact_report_future_window_returns_empty_report() {
+    reset_all();
+    with_state_mut(|m| {
+        m.ops.load_calls = 3;
+        m.window_start_ms = 99;
+    });
+
+    let report = compact_report_window_start(Some(100));
+
+    assert!(!report.window_filter_matched());
+    assert_eq!(report.requested_window_start_ms(), Some(100));
+    assert_eq!(report.active_window_start_ms(), 99);
+    assert!(report.counters().is_none());
+    assert!(report.entity_counters().is_empty());
+}
+
+#[test]
 fn event_report_candid_shape_is_stable() {
     reset_all();
     with_state_mut(|state| {
@@ -159,6 +226,52 @@ fn event_report_candid_shape_is_stable() {
             .window_end_ms()
             .saturating_sub(counters.window_start_ms()),
     );
+}
+
+#[test]
+fn compact_metrics_report_candid_shape_is_stable() {
+    let report_fields = expect_record_fields(CompactMetricsReport::ty());
+    for field in [
+        "counters",
+        "entity_counters",
+        "window_filter_matched",
+        "requested_window_start_ms",
+        "active_window_start_ms",
+    ] {
+        assert!(
+            report_fields.iter().any(|candidate| candidate == field),
+            "CompactMetricsReport must keep `{field}` as Candid field key",
+        );
+    }
+
+    let counters_fields = expect_record_fields(crate::metrics::state::CompactEventCounters::ty());
+    for field in [
+        "metrics",
+        "window_start_ms",
+        "window_end_ms",
+        "window_duration_ms",
+    ] {
+        assert!(
+            counters_fields.iter().any(|candidate| candidate == field),
+            "CompactEventCounters must keep `{field}` as Candid field key",
+        );
+    }
+
+    let entity_fields = expect_record_fields(crate::metrics::state::CompactEntityMetrics::ty());
+    for field in ["path", "metrics"] {
+        assert!(
+            entity_fields.iter().any(|candidate| candidate == field),
+            "CompactEntityMetrics must keep `{field}` as Candid field key",
+        );
+    }
+
+    let metric_fields = expect_record_fields(CompactMetric::ty());
+    for field in ["code", "value"] {
+        assert!(
+            metric_fields.iter().any(|candidate| candidate == field),
+            "CompactMetric must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 // The stable Candid shape test intentionally keeps the public field inventory
@@ -286,6 +399,13 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
             "EventOps must keep `{field}` as Candid field key",
         );
     }
+}
+
+fn metric_value(metrics: &[CompactMetric], code: u16) -> u64 {
+    metrics
+        .iter()
+        .find(|metric| metric.code() == code)
+        .map_or(0, CompactMetric::value)
 }
 
 #[test]

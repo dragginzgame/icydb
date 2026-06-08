@@ -8,9 +8,9 @@ use clap::Parser;
 use crate::{
     cli::{CliArgs, CliCommand, ConfigCommand},
     config::{
-        ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT,
-        SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT,
-        SQL_QUERY_ENDPOINT, init_config,
+        ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT,
+        METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT,
+        SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, init_config,
         test_support::{
             config_surface_enabled_for_resolved, config_sync_issues,
             configured_endpoint_enabled_for_resolved, disabled_config_surface_message,
@@ -40,6 +40,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         "--ddl",
         "--fixtures",
         "--metrics",
+        "--metrics-extended",
         "--metrics-reset",
         "--snapshot",
         "--schema",
@@ -55,7 +56,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nreset = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\nreset = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -80,6 +81,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
 
             [canisters.demo_rpg.metrics]
             enabled = true
+            extended = true
             reset = true
 
             [canisters.demo_rpg.snapshot]
@@ -100,17 +102,25 @@ fn config_report_marks_canister_settings_against_icp_environment() {
         &resolved,
     );
 
-    assert!(report.contains(
-        "  canister   SQL surfaces              metrics          snapshot   schema    ICP environment\n"
-    ));
+    assert!(report.lines().any(|line| {
+        line.contains("canister")
+            && line.contains("SQL surfaces")
+            && line.contains("metrics")
+            && line.contains("snapshot")
+            && line.contains("schema")
+            && line.contains("ICP environment")
+    }));
     assert!(
         report
             .lines()
             .any(|line| line.starts_with("  --------   -----------------------"))
     );
-    assert!(report.contains(
-        "  demo_rpg   readonly, ddl, fixtures   enabled, reset   enabled    enabled   ok\n"
-    ));
+    assert!(report.lines().any(|line| {
+        line.contains("demo_rpg")
+            && line.contains("readonly, ddl, fixtures")
+            && line.contains("enabled, extended, reset")
+            && line.contains("ok")
+    }));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
@@ -162,6 +172,7 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
 
             [canisters.demo_rpg.metrics]
             enabled = true
+            extended = false
             reset = false
 
             [canisters.demo_rpg.snapshot]
@@ -194,6 +205,11 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
         &resolved,
         "demo_rpg",
         ConfigSurface::Metrics,
+    ));
+    assert!(!config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::MetricsExtended,
     ));
     assert!(!config_surface_enabled_for_resolved(
         &resolved,
@@ -236,6 +252,7 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
 
             [canisters.demo_rpg.metrics]
             enabled = true
+            extended = true
             reset = false
 
             [canisters.demo_rpg.snapshot]
@@ -268,6 +285,11 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
         &resolved,
         "demo_rpg",
         METRICS_ENDPOINT,
+    ));
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        METRICS_EXTENDED_ENDPOINT,
     ));
     assert!(!configured_endpoint_enabled_for_resolved(
         &resolved,
@@ -323,6 +345,10 @@ fn configured_endpoint_methods_match_generated_endpoint_names() {
     assert_eq!(SCHEMA_ENDPOINT.method(), "__icydb_schema");
     assert_eq!(SCHEMA_CHECK_ENDPOINT.method(), "__icydb_schema_check");
     assert_eq!(METRICS_ENDPOINT.method(), "__icydb_metrics");
+    assert_eq!(
+        METRICS_EXTENDED_ENDPOINT.method(),
+        "__icydb_metrics_extended"
+    );
     assert_eq!(METRICS_RESET_ENDPOINT.method(), "__icydb_metrics_reset");
     assert_eq!(FIXTURES_LOAD_ENDPOINT.method(), "__icydb_fixtures_load");
     assert_eq!(SQL_QUERY_ENDPOINT.method(), "__icydb_query");

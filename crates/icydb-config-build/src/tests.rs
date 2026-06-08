@@ -13,6 +13,7 @@ fn absent_config_defaults_metrics_on_and_heavy_or_mutating_surfaces_off() {
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
@@ -27,6 +28,7 @@ fn explicit_false_disables_metrics_default_surface() {
 
             [canisters.demo_rpg.metrics]
             enabled = false
+            extended = false
 
             [canisters.demo_rpg.snapshot]
             enabled = false
@@ -42,6 +44,7 @@ fn explicit_false_disables_metrics_default_surface() {
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert!(!config.canister_metrics_enabled("demo_rpg"));
+    assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
@@ -55,6 +58,7 @@ fn partial_config_entries_inherit_metrics_default_only() {
             ddl = true
 
             [canisters.demo_rpg.metrics]
+            extended = true
             reset = true
         ",
         &["demo_rpg"],
@@ -65,6 +69,7 @@ fn partial_config_entries_inherit_metrics_default_only() {
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert!(config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
@@ -81,6 +86,7 @@ fn readonly_ddl_fixtures_metrics_snapshot_and_schema_config_validate() {
 
             [canisters.demo_rpg.metrics]
             enabled = true
+            extended = true
             reset = true
 
             [canisters.demo_rpg.snapshot]
@@ -97,6 +103,7 @@ fn readonly_ddl_fixtures_metrics_snapshot_and_schema_config_validate() {
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(config.canister_sql_fixtures_enabled("demo_rpg"));
     assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert!(config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(config.canister_snapshot_enabled("demo_rpg"));
     assert!(config.canister_schema_enabled("demo_rpg"));

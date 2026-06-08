@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.5` compacts the default generated metrics endpoint, gates the rich
+  `EventReport` behind opt-in extended metrics and `icydb metrics
+  --extended`, and verifies the baseline wasm reduction.
+
 - `0.180.4` hard-cuts canister error wire output to numeric-only `Error`
   records, removes rich diagnostic Candid exposure, and verifies the wasm
   footprint reduction with a refreshed audit.

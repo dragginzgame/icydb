@@ -7,6 +7,7 @@ pub(crate) const DEFAULT_SQL_READONLY_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_DDL_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_FIXTURES_ENABLED: bool = false;
 pub(crate) const DEFAULT_METRICS_ENABLED: bool = true;
+pub(crate) const DEFAULT_METRICS_EXTENDED_ENABLED: bool = false;
 pub(crate) const DEFAULT_METRICS_RESET_ENABLED: bool = false;
 pub(crate) const DEFAULT_SNAPSHOT_ENABLED: bool = false;
 pub(crate) const DEFAULT_SCHEMA_ENABLED: bool = false;
@@ -89,6 +90,16 @@ impl GeneratedIcydbConfig {
             canister_name,
             DEFAULT_METRICS_ENABLED,
             GeneratedCanisterConfig::metrics,
+        )
+    }
+
+    /// Return whether extended metrics report endpoints should be generated for one canister.
+    #[must_use]
+    pub fn canister_metrics_extended_enabled(&self, canister_name: &str) -> bool {
+        self.canister_enabled(
+            canister_name,
+            DEFAULT_METRICS_EXTENDED_ENABLED,
+            GeneratedCanisterConfig::metrics_extended,
         )
     }
 
@@ -186,6 +197,12 @@ impl GeneratedCanisterConfig {
         self.metrics.enabled
     }
 
+    /// Return whether generated actor glue should export extended metrics report endpoints.
+    #[must_use]
+    pub const fn metrics_extended(&self) -> bool {
+        self.metrics.extended
+    }
+
     /// Return whether generated actor glue should export metrics reset endpoints.
     #[must_use]
     pub const fn metrics_reset(&self) -> bool {
@@ -227,11 +244,16 @@ impl GeneratedCanisterSqlConfig {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GeneratedCanisterMetricsConfig {
     enabled: bool,
+    extended: bool,
     reset: bool,
 }
 
 impl GeneratedCanisterMetricsConfig {
-    pub(crate) const fn new(enabled: bool, reset: bool) -> Self {
-        Self { enabled, reset }
+    pub(crate) const fn new(enabled: bool, extended: bool, reset: bool) -> Self {
+        Self {
+            enabled,
+            extended,
+            reset,
+        }
     }
 }
