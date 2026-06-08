@@ -363,6 +363,10 @@ impl ErrorCode {
     pub const SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH: Self = Self(141);
     pub const SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION: Self = Self(142);
     pub const SQL_WRITE_INVALID_FIELD_LITERAL: Self = Self(143);
+    pub const SQL_WRITE_UNKNOWN_RETURNING_FIELD: Self = Self(144);
+    pub const SQL_WRITE_DUPLICATE_RETURNING_FIELD: Self = Self(145);
+    pub const SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE: Self = Self(146);
+    pub const SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE: Self = Self(147);
 
     /// Build an error code from its raw public wire value.
     #[must_use]
@@ -416,7 +420,7 @@ impl ErrorCode {
             11 | 37..=99 => DiagnosticCode::QueryUnsupportedSqlFeature,
             12 | 100..=110 => DiagnosticCode::QuerySqlSurfaceMismatch,
             13 | 111..=131 => DiagnosticCode::SchemaDdlAdmission,
-            132..=143 => DiagnosticCode::QuerySqlWriteBoundary,
+            132..=147 => DiagnosticCode::QuerySqlWriteBoundary,
             14 => DiagnosticCode::StoreNotFound,
             15 => DiagnosticCode::StoreCorruption,
             16 => DiagnosticCode::StoreInvariantViolation,
@@ -446,7 +450,7 @@ impl ErrorCode {
             37..=99 => Self::sql_feature_detail(self.raw()),
             100..=110 => Self::sql_surface_detail(self.raw()),
             111..=131 => Self::schema_ddl_detail(self.raw()),
-            132..=143 => Self::sql_write_boundary_detail(self.raw()),
+            132..=147 => Self::sql_write_boundary_detail(self.raw()),
             _ => None,
         }
     }
@@ -765,6 +769,18 @@ impl ErrorCode {
             143 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::InvalidFieldLiteral,
             }),
+            144 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::UnknownReturningField,
+            }),
+            145 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::DuplicateReturningField,
+            }),
+            146 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::UpdateMissingWherePredicate,
+            }),
+            147 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::WriteOrderByUnsupportedShape,
+            }),
             _ => None,
         }
     }
@@ -993,6 +1009,10 @@ pub enum SqlWriteBoundaryCode {
     InsertSelectWidthMismatch,
     UpdatePrimaryKeyMutation,
     InvalidFieldLiteral,
+    UnknownReturningField,
+    DuplicateReturningField,
+    UpdateMissingWherePredicate,
+    WriteOrderByUnsupportedShape,
 }
 
 ///
@@ -1113,7 +1133,7 @@ impl Diagnostic {
 mod tests {
     use super::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode, ErrorOrigin};
 
-    const ORDERED_ERROR_CODES: [ErrorCode; 143] = [
+    const ORDERED_ERROR_CODES: [ErrorCode; 147] = [
         ErrorCode::QUERY_VALIDATE,
         ErrorCode::QUERY_INTENT,
         ErrorCode::QUERY_PLAN,
@@ -1257,6 +1277,10 @@ mod tests {
         ErrorCode::SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH,
         ErrorCode::SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION,
         ErrorCode::SQL_WRITE_INVALID_FIELD_LITERAL,
+        ErrorCode::SQL_WRITE_UNKNOWN_RETURNING_FIELD,
+        ErrorCode::SQL_WRITE_DUPLICATE_RETURNING_FIELD,
+        ErrorCode::SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE,
+        ErrorCode::SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE,
     ];
 
     #[test]

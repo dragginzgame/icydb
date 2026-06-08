@@ -286,6 +286,16 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         SqlWriteBoundaryCode::InvalidFieldLiteral => {
             "SQL write literal is not compatible with the target field type"
         }
+        SqlWriteBoundaryCode::UnknownReturningField => {
+            "RETURNING references a field that does not exist on the target entity"
+        }
+        SqlWriteBoundaryCode::DuplicateReturningField => {
+            "RETURNING field lists cannot repeat the same target field"
+        }
+        SqlWriteBoundaryCode::UpdateMissingWherePredicate => "UPDATE requires a WHERE predicate",
+        SqlWriteBoundaryCode::WriteOrderByUnsupportedShape => {
+            "SQL write ORDER BY only supports direct field targets"
+        }
     }
 }
 

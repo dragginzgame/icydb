@@ -33,6 +33,7 @@ use crate::{
     },
     model::entity::EntityModel,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 use crate::db::sql::lowering::select::{
     aggregate::lower_having_clauses,
@@ -824,8 +825,8 @@ fn lower_update_selector_shape(
     primary_key_names: &[String],
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let Some(predicate) = statement.predicate.clone() else {
-        return Err(QueryError::unsupported_query(
-            "SQL UPDATE requires WHERE predicate in this release",
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::UpdateMissingWherePredicate,
         )
         .into());
     };
@@ -833,8 +834,8 @@ fn lower_update_selector_shape(
 
     for term in &order_by {
         if term.direct_field_name().is_none() {
-            return Err(QueryError::unsupported_query(
-                "SQL write ORDER BY only supports direct field targets in this release",
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::WriteOrderByUnsupportedShape,
             )
             .into());
         }

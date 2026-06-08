@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_simple` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `1043f2d10`
+- code snapshot identifier: `95088970b`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,26 +24,26 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,623,214 | 2,571,095 | -52,119 |
-| icp-built deterministic `.wasm.gz` | 843,777 | 827,291 | -16,486 |
-| icp-shrunk `.wasm` | 2,442,434 | 2,394,529 | -47,905 |
-| icp-shrunk `.wasm.gz` | 801,233 | 785,550 | -15,683 |
+| icp-built `.wasm` | 2,623,214 | 2,571,843 | -51,371 |
+| icp-built deterministic `.wasm.gz` | 843,777 | 827,053 | -16,724 |
+| icp-shrunk `.wasm` | 2,442,434 | 2,395,255 | -47,179 |
+| icp-shrunk `.wasm.gz` | 801,233 | 786,012 | -15,221 |
 
 ## Structural Snapshot (ic-wasm)
 
 | Metric | icp-built | icp-shrunk |
 | --- | ---: | ---: |
-| Function count | 5,755 | 5,755 |
+| Function count | 5,756 | 5,756 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 181,484 | 181,484 |
+| Data section bytes | 181,828 | 181,828 |
 | Exported methods | 3 | 3 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 181,218 | 7.57% |
+| 1 | data[0] | 181,562 | 7.58% |
 | 2 | code[0] | 33,635 | 1.40% |
 | 3 | code[1] | 32,386 | 1.35% |
 | 4 | code[2] | 27,593 | 1.15% |
@@ -58,14 +58,14 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query query_one_simple_fluent" | 635,600 | 26.54% |
-| 2 | code[5733] | 635,558 | 26.54% |
-| 3 | code[13] | 635,549 | 26.54% |
+| 1 | export "canister_query query_one_simple_fluent" | 635,890 | 26.55% |
+| 2 | code[5734] | 635,848 | 26.55% |
+| 3 | code[13] | 635,839 | 26.55% |
 | 4 | code[10] | 368,119 | 15.37% |
 | 5 | code[398] | 213,550 | 8.92% |
 | 6 | code[25] | 212,407 | 8.87% |
 | 7 | code[24] | 192,058 | 8.02% |
-| 8 | data[0] | 181,218 | 7.57% |
+| 8 | data[0] | 181,562 | 7.58% |
 | 9 | code[31] | 180,117 | 7.52% |
 | 10 | code[76] | 169,006 | 7.06% |
 

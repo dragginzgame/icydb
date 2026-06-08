@@ -13,7 +13,12 @@ use crate::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
         },
-        session::sql::{SqlStatementResult, execute::write_returning::sql_write_statement_result},
+        session::sql::{
+            SqlStatementResult,
+            execute::write_returning::{
+                sql_write_statement_result, validate_sql_returning_projection_fields,
+            },
+        },
         sql::{
             lowering::{
                 bind_prepared_sql_select_statement_structural_with_schema,
@@ -360,6 +365,7 @@ impl<C: CanisterKind> DbSession<C> {
         let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
         let columns = sql_insert_columns(&descriptor, statement);
         ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
+        validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = Vec::new();
         let mut save_schema_info = None;

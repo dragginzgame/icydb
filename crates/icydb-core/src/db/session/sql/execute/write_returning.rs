@@ -19,6 +19,7 @@ use crate::{
     traits::EntityValue,
     value::Value,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 /// Shape one SQL INSERT/UPDATE mutation result after the write has already run.
 ///
@@ -85,6 +86,20 @@ pub(in crate::db::session::sql::execute) fn projection_labels_from_accepted_writ
         .collect()
 }
 
+/// Validate one SQL write RETURNING projection before mutation execution.
+pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fields(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    returning: Option<&SqlReturningProjection>,
+) -> Result<(), QueryError> {
+    let Some(SqlReturningProjection::Fields(fields)) = returning else {
+        return Ok(());
+    };
+    let columns = projection_labels_from_accepted_write_descriptor(descriptor);
+    let indices = sql_returning_field_indices(columns.as_slice(), fields)?;
+
+    sql_returning_field_selection(indices.as_slice()).map(|_| ())
+}
+
 // Materialize every field from one typed write result for `RETURNING *`.
 fn sql_returning_all_values<E>(entity: &E, field_count: usize) -> Result<Vec<Value>, QueryError>
 where
@@ -138,9 +153,7 @@ fn sql_returning_field_indices(
             .iter()
             .position(|column| column == field)
             .ok_or_else(|| {
-                QueryError::unsupported_query(format!(
-                    "SQL RETURNING field '{field}' does not exist on the target entity"
-                ))
+                QueryError::sql_write_boundary(SqlWriteBoundaryCode::UnknownReturningField)
             })?;
         indices.push(index);
     }
@@ -199,7 +212,9 @@ fn sql_returning_field_selection(indices: &[usize]) -> Result<Vec<(usize, usize)
             .iter()
             .any(|(existing_index, _)| *existing_index == input_index)
         {
-            return Err(sql_returning_projection_alignment_error());
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::DuplicateReturningField,
+            ));
         }
         selection.push((input_index, output_index));
     }

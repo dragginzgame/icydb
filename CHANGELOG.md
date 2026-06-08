@@ -9,13 +9,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
-- Moved SQL write boundary failures onto compact diagnostic leaf codes with
-  CLI-owned text rendering, reducing retained runtime error strings while
-  preserving query-origin unsupported error semantics.
+- Preflights SQL write `RETURNING` field lists and update-selector policy
+  gates before mutation execution, reporting those failures through compact
+  SQL write boundary codes.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.7` moves SQL write boundary failures onto compact diagnostic leaf
+  codes, keeps detailed SQL write prose in the CLI renderer, and verifies
+  another comparable wasm-footprint reduction.
 
 - `0.180.6` moves more SQL DDL admission and SQL endpoint diagnostics onto
   compact leaf codes, trims internal error strings and unused helper Candid

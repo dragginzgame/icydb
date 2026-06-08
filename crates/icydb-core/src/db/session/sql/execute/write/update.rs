@@ -12,7 +12,12 @@ use crate::{
         executor::MutationMode,
         query::intent::StructuralQuery,
         schema::AcceptedRowLayoutRuntimeContract,
-        session::sql::{SqlStatementResult, execute::write_returning::sql_write_statement_result},
+        session::sql::{
+            SqlStatementResult,
+            execute::write_returning::{
+                sql_write_statement_result, validate_sql_returning_projection_fields,
+            },
+        },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
             parser::SqlUpdateStatement,
@@ -123,6 +128,7 @@ impl<C: CanisterKind> DbSession<C> {
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
+        validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
         let authority = Self::accepted_entity_authority_for_schema::<E>(&schema)
             .map_err(QueryError::execute)?;
         let schema_info = authority.accepted_schema_info().ok_or_else(|| {

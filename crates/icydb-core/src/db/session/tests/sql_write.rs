@@ -2073,6 +2073,47 @@ fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix()
 }
 
 #[test]
+fn execute_sql_statement_returning_field_list_rejects_invalid_fields_before_mutation() {
+    let cases = [
+        (
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (2, 'Bob', 22) \
+             RETURNING missing",
+            SqlWriteBoundaryCode::UnknownReturningField,
+            "INSERT unknown RETURNING field",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING missing",
+            SqlWriteBoundaryCode::UnknownReturningField,
+            "UPDATE unknown RETURNING field",
+        ),
+        (
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING missing",
+            SqlWriteBoundaryCode::UnknownReturningField,
+            "DELETE unknown RETURNING field",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING name, name",
+            SqlWriteBoundaryCode::DuplicateReturningField,
+            "UPDATE duplicate RETURNING field",
+        ),
+    ];
+
+    for (sql, boundary, context) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_write_entities(&session, &[(1, "Ada", 21)]);
+        let baseline = persisted_write_rows(&session);
+
+        assert_statement_write_boundary::<SessionSqlWriteEntity>(&session, sql, boundary, context);
+        assert_eq!(
+            persisted_write_rows(&session),
+            baseline,
+            "{context} should reject before mutation",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_update_rejects_unsupported_sql_without_mutation() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2144,10 +2185,26 @@ fn execute_sql_statement_update_requires_where_predicate() {
     )
     .expect_err("SQL UPDATE without WHERE predicate should stay fail-closed");
 
-    assert!(
-        err.to_string()
-            .contains("SQL UPDATE requires WHERE predicate"),
-        "UPDATE without WHERE predicate should keep an actionable boundary message",
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::UpdateMissingWherePredicate);
+}
+
+#[test]
+fn execute_sql_statement_update_rejects_unsupported_order_by_shape_before_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+    let baseline = persisted_write_rows(&session);
+
+    assert_statement_write_boundary::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 ORDER BY age + 1",
+        SqlWriteBoundaryCode::WriteOrderByUnsupportedShape,
+        "UPDATE expression ORDER BY",
+    );
+    assert_eq!(
+        persisted_write_rows(&session),
+        baseline,
+        "unsupported UPDATE ORDER BY shape should reject before mutation",
     );
 }
 

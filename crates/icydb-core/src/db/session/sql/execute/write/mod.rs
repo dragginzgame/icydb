@@ -17,7 +17,7 @@ use crate::{
                 SqlStatementResult,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
-                    sql_returning_statement_projection,
+                    sql_returning_statement_projection, validate_sql_returning_projection_fields,
                 },
             },
         },
@@ -280,6 +280,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .ensure_accepted_schema_snapshot::<E>()
                     .map_err(QueryError::execute)?;
                 let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
+                validate_sql_returning_projection_fields(&descriptor, Some(returning))?;
 
                 // Phase 2: returning deletes reuse the structural projection
                 // terminal once, then shape the requested outbound row contract
