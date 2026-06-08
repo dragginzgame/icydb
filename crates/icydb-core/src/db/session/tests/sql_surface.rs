@@ -28,7 +28,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorDetail, QueryErrorDetail, SchemaDdlAdmissionError, StoreError},
 };
-use icydb_diagnostic_code::SqlSurfaceMismatchCode;
+use icydb_diagnostic_code::{SqlLoweringCode, SqlSurfaceMismatchCode};
 use std::collections::HashSet;
 
 // Assert that one representative SQL surface stays fail-closed for a matrix of
@@ -137,6 +137,24 @@ fn assert_sql_surface_mismatch_detail(err: QueryError, expected: SqlSurfaceMisma
                 if *mismatch == expected
         ),
         "SQL surface mismatch should carry {expected:?}, got {:?}",
+        internal.detail(),
+    );
+}
+
+fn assert_sql_lowering_detail(err: QueryError, expected: SqlLoweringCode) {
+    let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
+        err
+    else {
+        panic!("SQL lowering rejection should map to unsupported query execution");
+    };
+    assert_eq!(internal.class(), ErrorClass::Unsupported);
+    assert!(
+        matches!(
+            internal.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::SqlLowering { reason }))
+                if *reason == expected
+        ),
+        "SQL lowering rejection should carry {expected:?}, got {:?}",
         internal.detail(),
     );
 }
@@ -3674,13 +3692,17 @@ fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
     let session = sql_session();
     let sql = "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)";
 
-    assert_unsupported_sql_surface_result(
-        session.execute_sql_query::<SessionSqlEntity>(sql),
-        "query surface should reject parsed DDL before execution",
+    assert_sql_lowering_detail(
+        session
+            .execute_sql_query::<SessionSqlEntity>(sql)
+            .expect_err("query surface should reject parsed DDL before execution"),
+        SqlLoweringCode::SqlDdlExecutionUnsupported,
     );
-    assert_unsupported_sql_surface_result(
-        session.execute_sql_update::<SessionSqlEntity>(sql),
-        "update surface should reject parsed DDL before execution",
+    assert_sql_lowering_detail(
+        session
+            .execute_sql_update::<SessionSqlEntity>(sql)
+            .expect_err("update surface should reject parsed DDL before execution"),
+        SqlLoweringCode::SqlDdlExecutionUnsupported,
     );
     let SqlStatementResult::ShowIndexes(indexes) = session
         .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")

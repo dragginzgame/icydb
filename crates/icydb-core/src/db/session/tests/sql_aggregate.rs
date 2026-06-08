@@ -523,28 +523,25 @@ fn global_aggregate_filter_rejection_matrix_stays_fail_closed() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let cases = [
-        (
-            "DISTINCT + FILTER",
-            "SELECT COUNT(DISTINCT age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
-            "unsupported SQL SELECT projection",
-        ),
-        (
-            "alias inside FILTER",
-            "SELECT COUNT(*) FILTER (WHERE total_rows > 1) AS total_rows FROM SessionSqlEntity",
-            "unknown expression field 'total_rows'",
-        ),
-    ];
+    let err = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(DISTINCT age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
+    )
+    .expect_err("DISTINCT + FILTER shape should stay rejected");
 
-    for (context, sql, expected_message) in cases {
-        let err = statement_projection_rows::<SessionSqlEntity>(&session, sql)
-            .expect_err("out-of-scope aggregate FILTER shape should stay rejected");
+    assert_sql_lowering_detail(err, SqlLoweringCode::SelectProjectionShape);
 
-        assert!(
-            err.to_string().contains(expected_message),
-            "{context} should preserve its fail-closed SQL surface detail",
-        );
-    }
+    let err = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FILTER (WHERE total_rows > 1) AS total_rows FROM SessionSqlEntity",
+    )
+    .expect_err("alias inside FILTER shape should stay rejected");
+
+    assert!(
+        err.to_string()
+            .contains("unknown expression field 'total_rows'"),
+        "alias inside FILTER should preserve planner-owned unknown-field detail",
+    );
 }
 
 #[test]

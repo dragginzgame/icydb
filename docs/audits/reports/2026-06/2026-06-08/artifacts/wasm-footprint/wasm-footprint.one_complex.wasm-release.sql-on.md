@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `4ce80891e`
+- code snapshot identifier: `16abe9f7b`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,26 +24,26 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,649,374 | 2,574,218 | -75,156 |
-| icp-built deterministic `.wasm.gz` | 852,454 | 827,932 | -24,522 |
-| icp-shrunk `.wasm` | 2,467,165 | 2,397,956 | -69,209 |
-| icp-shrunk `.wasm.gz` | 809,131 | 786,107 | -23,024 |
+| icp-built `.wasm` | 2,649,374 | 2,574,913 | -74,461 |
+| icp-built deterministic `.wasm.gz` | 852,454 | 828,253 | -24,201 |
+| icp-shrunk `.wasm` | 2,467,165 | 2,398,629 | -68,536 |
+| icp-shrunk `.wasm.gz` | 809,131 | 786,287 | -22,844 |
 
 ## Structural Snapshot (ic-wasm)
 
 | Metric | icp-built | icp-shrunk |
 | --- | ---: | ---: |
-| Function count | 5,742 | 5,742 |
+| Function count | 5,743 | 5,743 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 184,276 | 184,276 |
+| Data section bytes | 184,796 | 184,796 |
 | Exported methods | 2 | 2 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 184,010 | 7.67% |
+| 1 | data[0] | 184,530 | 7.69% |
 | 2 | code[0] | 33,635 | 1.40% |
 | 3 | code[1] | 32,386 | 1.35% |
 | 4 | code[2] | 27,593 | 1.15% |
@@ -58,16 +58,16 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query query_one_complex_fluent" | 651,753 | 27.18% |
-| 2 | code[5721] | 651,710 | 27.18% |
-| 3 | code[13] | 651,701 | 27.18% |
-| 4 | code[10] | 368,003 | 15.35% |
-| 5 | code[396] | 213,550 | 8.91% |
+| 1 | export "canister_query query_one_complex_fluent" | 651,814 | 27.17% |
+| 2 | code[5722] | 651,771 | 27.17% |
+| 3 | code[13] | 651,762 | 27.17% |
+| 4 | code[10] | 368,003 | 15.34% |
+| 5 | code[396] | 213,550 | 8.90% |
 | 6 | code[25] | 212,407 | 8.86% |
 | 7 | code[24] | 192,058 | 8.01% |
-| 8 | data[0] | 184,010 | 7.67% |
+| 8 | data[0] | 184,530 | 7.69% |
 | 9 | code[32] | 180,118 | 7.51% |
-| 10 | table[0] | 176,837 | 7.37% |
+| 10 | table[0] | 176,929 | 7.38% |
 
 ## Artifacts
 

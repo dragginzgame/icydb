@@ -2103,12 +2103,7 @@ fn execute_sql_select_distinct_rejects_order_by_non_projected_field() {
     )
     .expect_err("DISTINCT ORDER BY on a non-projected field should fail closed");
 
-    assert!(
-        err.to_string().contains(
-            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
-        ),
-        "session SQL should preserve the DISTINCT projected-tuple boundary message: {err}",
-    );
+    assert_sql_lowering_detail(err, SqlLoweringCode::DistinctOrderByProjection);
 }
 
 #[test]
@@ -2126,12 +2121,7 @@ fn execute_sql_select_distinct_rejects_order_by_wrapped_non_projected_field() {
     )
     .expect_err("DISTINCT ORDER BY wrapping a non-projected field should fail closed");
 
-    assert!(
-        err.to_string().contains(
-            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
-        ),
-        "session SQL should preserve the wrapped DISTINCT projected-tuple boundary message: {err}",
-    );
+    assert_sql_lowering_detail(err, SqlLoweringCode::DistinctOrderByProjection);
 }
 
 #[test]
@@ -2150,12 +2140,7 @@ fn execute_sql_select_distinct_rejects_order_by_source_field_from_expression_pro
         "DISTINCT ORDER BY on the source field behind an expression projection should fail closed",
     );
 
-    assert!(
-        err.to_string().contains(
-            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
-        ),
-        "session SQL should preserve the expression-projection DISTINCT projected-tuple boundary: {err}",
-    );
+    assert_sql_lowering_detail(err, SqlLoweringCode::DistinctOrderByProjection);
 }
 
 #[test]

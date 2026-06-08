@@ -3662,11 +3662,7 @@ fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be orderable");
 
-    assert!(
-        err.to_string()
-            .contains("order field 'name' is not orderable"),
-        "accepted blob ORDER BY should preserve planner orderability message: {err}",
-    );
+    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
 }
 
 #[test]
@@ -3686,11 +3682,7 @@ fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct DELETE ORDER BY target");
 
-    assert!(
-        err.to_string()
-            .contains("order field 'name' is not orderable"),
-        "accepted blob DELETE ORDER BY should preserve planner orderability message: {err}",
-    );
+    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
 }
 
 #[test]
@@ -3712,11 +3704,7 @@ fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct UPDATE ORDER BY target");
 
-    assert!(
-        err.to_string()
-            .contains("order field 'name' is not orderable"),
-        "accepted blob UPDATE ORDER BY should preserve planner orderability message: {err}",
-    );
+    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
 }
 
 #[test]
@@ -4837,12 +4825,7 @@ fn compile_sql_command_rejects_distinct_order_by_non_projected_field() {
     )
     .expect_err("DISTINCT ORDER BY on a non-projected field should fail closed");
 
-    assert!(
-        err.to_string().contains(
-            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
-        ),
-        "DISTINCT ORDER BY rejection should explain the projected-tuple boundary: {err}",
-    );
+    std::assert_matches!(err, SqlLoweringError::DistinctOrderByRequiresProjectedTuple);
 }
 
 #[test]
@@ -4853,12 +4836,7 @@ fn compile_sql_command_rejects_distinct_order_by_wrapped_non_projected_field() {
     )
     .expect_err("DISTINCT ORDER BY wrapping a non-projected field should fail closed");
 
-    assert!(
-        err.to_string().contains(
-            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
-        ),
-        "wrapped DISTINCT ORDER BY rejection should preserve the projected-tuple boundary: {err}",
-    );
+    std::assert_matches!(err, SqlLoweringError::DistinctOrderByRequiresProjectedTuple);
 }
 
 #[test]
@@ -4871,12 +4849,7 @@ fn compile_sql_command_rejects_distinct_order_by_direct_field_from_expression_pr
         "DISTINCT ORDER BY on the source field behind an expression projection should fail closed",
     );
 
-    assert!(
-        err.to_string().contains(
-            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
-        ),
-        "expression-projection DISTINCT ORDER BY rejection should preserve the projected-tuple boundary: {err}",
-    );
+    std::assert_matches!(err, SqlLoweringError::DistinctOrderByRequiresProjectedTuple);
 }
 
 #[test]

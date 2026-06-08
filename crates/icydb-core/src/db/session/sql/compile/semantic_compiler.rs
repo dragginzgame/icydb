@@ -32,6 +32,7 @@ use crate::{
     model::entity::EntityModel,
     traits::CanisterKind,
 };
+use icydb_diagnostic_code::SqlLoweringCode;
 
 impl<C: CanisterKind> DbSession<C> {
     // Compile one parsed SQL statement into the generic-free session-owned
@@ -53,8 +54,8 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, model, schema),
             SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name),
             SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
-            SqlStatement::Ddl(_) => Err(QueryError::unsupported_query(
-                "SQL DDL execution is not supported in this release",
+            SqlStatement::Ddl(_) => Err(QueryError::sql_lowering(
+                SqlLoweringCode::SqlDdlExecutionUnsupported,
             )),
             SqlStatement::Explain(_) => {
                 Self::compile_explain(statement, entity_name, model, schema)

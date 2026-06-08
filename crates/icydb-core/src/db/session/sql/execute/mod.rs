@@ -46,6 +46,8 @@ use crate::{
 use diagnostics::GroupedSqlDiagnosticsCollector;
 #[cfg(feature = "diagnostics")]
 use diagnostics::measure_execute_phase_with_physical_access;
+#[cfg(test)]
+use icydb_diagnostic_code::SqlLoweringCode;
 
 // Collapse SQL execution failures into the stable error taxonomy used by the
 // public metrics report instead of exposing internal query-error variants.
@@ -949,8 +951,8 @@ impl<C: CanisterKind> DbSession<C> {
                 self.compile_sql_query_with_cache_attribution::<E>(sql)?
             }
             crate::db::sql::parser::SqlStatement::Ddl(_) => {
-                return Err(QueryError::unsupported_query(
-                    "SQL DDL execution is not supported in this release",
+                return Err(QueryError::sql_lowering(
+                    SqlLoweringCode::SqlDdlExecutionUnsupported,
                 ));
             }
         };

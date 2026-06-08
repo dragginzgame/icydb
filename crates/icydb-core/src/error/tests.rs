@@ -175,6 +175,26 @@ fn query_unsupported_sql_feature_exposes_compact_diagnostic_detail() {
 
 #[cfg(feature = "sql")]
 #[test]
+fn query_sql_lowering_exposes_compact_diagnostic_detail() {
+    let err = InternalError::query_sql_lowering(
+        icydb_diagnostic_code::SqlLoweringCode::DistinctOrderByProjection,
+    );
+    let diagnostic = err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::SqlLowering {
+            reason: icydb_diagnostic_code::SqlLoweringCode::DistinctOrderByProjection,
+        }),
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
 fn query_sql_surface_mismatch_exposes_compact_diagnostic_detail() {
     let err = InternalError::query_sql_surface_mismatch(
         icydb_diagnostic_code::SqlSurfaceMismatchCode::QueryRejectsInsert,

@@ -578,11 +578,19 @@ fn sql_order_by_blob_field_is_rejected() {
          ORDER BY chunk ASC",
     )
     .expect_err("ORDER BY over a raw blob field should fail planner validation");
+    let diagnostic = err.diagnostic();
 
-    assert!(
-        err.to_string()
-            .contains("order field 'chunk' is not orderable"),
-        "blob ORDER BY should preserve the unorderable-field planner error",
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryUnsupportedSqlFeature,
+        "blob ORDER BY should preserve the unsupported-SQL-feature diagnostic code",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::UnsupportedSqlFeature {
+            feature: SqlFeatureCode::OrderByFieldNotOrderable,
+        }),
+        "blob ORDER BY should preserve the unorderable-field diagnostic detail",
     );
 }
 

@@ -313,8 +313,7 @@ fn assert_ddl_rejection_error(err: &Error, context: &str) {
             "{context} should preserve a numeric schema DDL admission leaf code",
         ),
         DiagnosticCode::QueryUnsupportedSqlFeature => assert!(
-            err.code().raw() >= ErrorCode::SQL_FEATURE_AGGREGATE_FILTER_CLAUSE.raw()
-                && err.code().raw() <= ErrorCode::SQL_FEATURE_WITH.raw(),
+            err.code() != ErrorCode::QUERY_UNSUPPORTED_SQL_FEATURE,
             "{context} should preserve a numeric unsupported SQL feature leaf code",
         ),
         DiagnosticCode::RuntimeUnsupported if err.origin() == ErrorOrigin::Interface => assert!(

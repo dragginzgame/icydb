@@ -7,45 +7,45 @@
     "candid_export": "unavailable",
     "icp_built_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm",
-      "bytes": 3128202,
-      "sha256": "210d0bd0265ab07fdf2a071df4a38256d149ade4b8a655862e808c393ca8bdb0"
+      "bytes": 3129414,
+      "sha256": "73be72caca7dfcf4b12992c4d1dc67b0b73c651955fb99b963cada9ec500e26c"
     },
     "icp_built_wasm_gz_deterministic": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm.gz",
-      "bytes": 1051596,
-      "sha256": "2092aa352ab715b76a82358e3843c4bb15934abcfb99a2c6c9113cd63986fb0b"
+      "bytes": 1053326,
+      "sha256": "806543df53dbd2d4d34d8a97348cae5fdca29bd739830436bf3d88a52d45ecdf"
     },
     "icp_built_wasm_gz_emitted": null,
     "icp_shrunk_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm",
-      "bytes": 2915803,
-      "sha256": "4c89a9032bb167504f29003a8e67356ce851b6af1a1459f9d5cab29ef9e04784"
+      "bytes": 2916941,
+      "sha256": "7cad205048f84df35c16a40e4bc1089cba0ffbb367b7bf89318b3a829bba6d23"
     },
     "icp_shrunk_wasm_gz": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm.gz",
-      "bytes": 1006452,
-      "sha256": "10fc6c5d0e8319a84f87692a26035fe90e5aab91e802e93262977d4e2ed433d4"
+      "bytes": 1006786,
+      "sha256": "5b6c3a26c790aa479b5ae2cc01630e15085949fdf1b8a9cffc6f62fa0620073a"
     }
   },
   "analysis": {
     "icp_built": {
-      "function_count": 6861,
+      "function_count": 6866,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 239524,
+      "data_section_bytes": 240044,
       "exported_method_count": 1,
       "exported_methods": [
-        "canister_query query_one_sql (func_6860)"
+        "canister_query query_one_sql (func_6865)"
       ]
     },
     "icp_shrunk": {
-      "function_count": 6861,
+      "function_count": 6866,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 239524,
+      "data_section_bytes": 240044,
       "exported_method_count": 1,
       "exported_methods": [
-        "canister_query query_one_sql (func_6845)"
+        "canister_query query_one_sql (func_6850)"
       ]
     }
   },
@@ -64,7 +64,7 @@
     ]
   },
   "deltas": {
-    "shrink_wasm_bytes": 212399,
-    "shrink_wasm_gz_bytes": 45144
+    "shrink_wasm_bytes": 212473,
+    "shrink_wasm_gz_bytes": 46540
   }
 }

@@ -401,6 +401,23 @@ impl ErrorCode {
     pub const QUERY_RESULT_SHAPE_MISMATCH: Self = Self(163);
     pub const QUERY_RESULT_EXPECTED_ROWS: Self = Self(164);
     pub const QUERY_RESULT_EXPECTED_GROUPED: Self = Self(165);
+    pub const SQL_LOWERING_ENTITY_MISMATCH: Self = Self(166);
+    pub const SQL_LOWERING_SELECT_PROJECTION_SHAPE: Self = Self(167);
+    pub const SQL_LOWERING_SELECT_DISTINCT: Self = Self(168);
+    pub const SQL_LOWERING_DISTINCT_ORDER_BY_PROJECTION: Self = Self(169);
+    pub const SQL_LOWERING_GLOBAL_AGGREGATE_PROJECTION: Self = Self(170);
+    pub const SQL_LOWERING_GLOBAL_AGGREGATE_GROUP_BY: Self = Self(171);
+    pub const SQL_LOWERING_SELECT_GROUP_BY_SHAPE: Self = Self(172);
+    pub const SQL_LOWERING_GROUPED_PROJECTION_EXPLICIT_LIST_REQUIRED: Self = Self(173);
+    pub const SQL_LOWERING_GROUPED_PROJECTION_AGGREGATE_REQUIRED: Self = Self(174);
+    pub const SQL_LOWERING_GROUPED_PROJECTION_NON_GROUP_FIELD: Self = Self(175);
+    pub const SQL_LOWERING_GROUPED_PROJECTION_SCALAR_AFTER_AGGREGATE: Self = Self(176);
+    pub const SQL_LOWERING_HAVING_REQUIRES_GROUP_BY: Self = Self(177);
+    pub const SQL_LOWERING_SELECT_HAVING_SHAPE: Self = Self(178);
+    pub const SQL_LOWERING_AGGREGATE_INPUT_EXPRESSIONS: Self = Self(179);
+    pub const SQL_LOWERING_WHERE_EXPRESSION_SHAPE: Self = Self(180);
+    pub const SQL_LOWERING_PARAMETER_PLACEMENT: Self = Self(181);
+    pub const SQL_LOWERING_SQL_DDL_EXECUTION_UNSUPPORTED: Self = Self(182);
 
     /// Build an error code from its raw public wire value.
     #[must_use]
@@ -439,6 +456,7 @@ impl ErrorCode {
             Some(DiagnosticDetail::QueryResultShape { reason }) => {
                 Self::from_query_result_shape(reason)
             }
+            Some(DiagnosticDetail::SqlLowering { reason }) => Self::from_sql_lowering(reason),
             None => code.error_code(),
         }
     }
@@ -460,7 +478,7 @@ impl ErrorCode {
             11 => DiagnosticCode::QueryUnknownAggregateTargetField,
             151..=162 => DiagnosticCode::QueryUnsupportedProjection,
             163..=165 => DiagnosticCode::QueryResultShapeMismatch,
-            12 | 38..=102 => DiagnosticCode::QueryUnsupportedSqlFeature,
+            12 | 38..=102 | 166..=182 => DiagnosticCode::QueryUnsupportedSqlFeature,
             13 | 103..=113 => DiagnosticCode::QuerySqlSurfaceMismatch,
             14 | 114..=134 => DiagnosticCode::SchemaDdlAdmission,
             135..=150 => DiagnosticCode::QuerySqlWriteBoundary,
@@ -496,6 +514,7 @@ impl ErrorCode {
             136..=150 => Self::sql_write_boundary_detail(self.raw()),
             152..=162 => Self::query_projection_detail(self.raw()),
             164..=165 => Self::query_result_shape_detail(self.raw()),
+            166..=182 => Self::sql_lowering_detail(self.raw()),
             _ => None,
         }
     }
@@ -559,6 +578,10 @@ impl ErrorCode {
 
     const fn from_query_result_shape(reason: QueryResultShapeCode) -> Self {
         Self(Self::QUERY_RESULT_EXPECTED_ROWS.raw() + reason as u16)
+    }
+
+    const fn from_sql_lowering(reason: SqlLoweringCode) -> Self {
+        Self(Self::SQL_LOWERING_ENTITY_MISMATCH.raw() + reason as u16)
     }
 
     const fn query_kind_detail(raw: u16) -> Option<DiagnosticDetail> {
@@ -888,6 +911,63 @@ impl ErrorCode {
             _ => None,
         }
     }
+
+    const fn sql_lowering_detail(raw: u16) -> Option<DiagnosticDetail> {
+        match raw {
+            166 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::EntityMismatch,
+            }),
+            167 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::SelectProjectionShape,
+            }),
+            168 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::SelectDistinct,
+            }),
+            169 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::DistinctOrderByProjection,
+            }),
+            170 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::GlobalAggregateProjection,
+            }),
+            171 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::GlobalAggregateGroupBy,
+            }),
+            172 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::SelectGroupByShape,
+            }),
+            173 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::GroupedProjectionExplicitListRequired,
+            }),
+            174 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::GroupedProjectionAggregateRequired,
+            }),
+            175 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::GroupedProjectionNonGroupField,
+            }),
+            176 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::GroupedProjectionScalarAfterAggregate,
+            }),
+            177 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::HavingRequiresGroupBy,
+            }),
+            178 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::SelectHavingShape,
+            }),
+            179 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::AggregateInputExpressions,
+            }),
+            180 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::WhereExpressionShape,
+            }),
+            181 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::ParameterPlacement,
+            }),
+            182 => Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::SqlDdlExecutionUnsupported,
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Debug for ErrorCode {
@@ -1109,6 +1189,35 @@ pub enum SqlFeatureCode {
 }
 
 ///
+/// SqlLoweringCode
+///
+/// Compact SQL lowering rejection identifier used after parsing succeeds but
+/// before a statement becomes canonical query intent.
+///
+
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SqlLoweringCode {
+    EntityMismatch,
+    SelectProjectionShape,
+    SelectDistinct,
+    DistinctOrderByProjection,
+    GlobalAggregateProjection,
+    GlobalAggregateGroupBy,
+    SelectGroupByShape,
+    GroupedProjectionExplicitListRequired,
+    GroupedProjectionAggregateRequired,
+    GroupedProjectionNonGroupField,
+    GroupedProjectionScalarAfterAggregate,
+    HavingRequiresGroupBy,
+    SelectHavingShape,
+    AggregateInputExpressions,
+    WhereExpressionShape,
+    ParameterPlacement,
+    SqlDdlExecutionUnsupported,
+}
+
+///
 /// SqlSurfaceMismatchCode
 ///
 /// Compact SQL endpoint surface mismatch identifier.
@@ -1205,6 +1314,7 @@ pub enum DiagnosticDetail {
     SqlWriteBoundary { boundary: SqlWriteBoundaryCode },
     QueryProjection { reason: QueryProjectionCode },
     QueryResultShape { reason: QueryResultShapeCode },
+    SqlLowering { reason: SqlLoweringCode },
 }
 
 ///
@@ -1276,10 +1386,10 @@ impl Diagnostic {
 mod tests {
     use super::{
         Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
-        QueryProjectionCode, SqlFeatureCode,
+        QueryProjectionCode, SqlFeatureCode, SqlLoweringCode,
     };
 
-    const ORDERED_ERROR_CODES: [ErrorCode; 165] = [
+    const ORDERED_ERROR_CODES: [ErrorCode; 182] = [
         ErrorCode::QUERY_VALIDATE,
         ErrorCode::QUERY_INTENT,
         ErrorCode::QUERY_PLAN,
@@ -1445,6 +1555,23 @@ mod tests {
         ErrorCode::QUERY_RESULT_SHAPE_MISMATCH,
         ErrorCode::QUERY_RESULT_EXPECTED_ROWS,
         ErrorCode::QUERY_RESULT_EXPECTED_GROUPED,
+        ErrorCode::SQL_LOWERING_ENTITY_MISMATCH,
+        ErrorCode::SQL_LOWERING_SELECT_PROJECTION_SHAPE,
+        ErrorCode::SQL_LOWERING_SELECT_DISTINCT,
+        ErrorCode::SQL_LOWERING_DISTINCT_ORDER_BY_PROJECTION,
+        ErrorCode::SQL_LOWERING_GLOBAL_AGGREGATE_PROJECTION,
+        ErrorCode::SQL_LOWERING_GLOBAL_AGGREGATE_GROUP_BY,
+        ErrorCode::SQL_LOWERING_SELECT_GROUP_BY_SHAPE,
+        ErrorCode::SQL_LOWERING_GROUPED_PROJECTION_EXPLICIT_LIST_REQUIRED,
+        ErrorCode::SQL_LOWERING_GROUPED_PROJECTION_AGGREGATE_REQUIRED,
+        ErrorCode::SQL_LOWERING_GROUPED_PROJECTION_NON_GROUP_FIELD,
+        ErrorCode::SQL_LOWERING_GROUPED_PROJECTION_SCALAR_AFTER_AGGREGATE,
+        ErrorCode::SQL_LOWERING_HAVING_REQUIRES_GROUP_BY,
+        ErrorCode::SQL_LOWERING_SELECT_HAVING_SHAPE,
+        ErrorCode::SQL_LOWERING_AGGREGATE_INPUT_EXPRESSIONS,
+        ErrorCode::SQL_LOWERING_WHERE_EXPRESSION_SHAPE,
+        ErrorCode::SQL_LOWERING_PARAMETER_PLACEMENT,
+        ErrorCode::SQL_LOWERING_SQL_DDL_EXECUTION_UNSUPPORTED,
     ];
 
     #[test]
@@ -1496,6 +1623,12 @@ mod tests {
             ErrorCode::QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED.diagnostic_detail(),
             Some(DiagnosticDetail::QueryProjection {
                 reason: QueryProjectionCode::NumericLiteralRequired,
+            })
+        );
+        assert_eq!(
+            ErrorCode::SQL_LOWERING_DISTINCT_ORDER_BY_PROJECTION.diagnostic_detail(),
+            Some(DiagnosticDetail::SqlLowering {
+                reason: SqlLoweringCode::DistinctOrderByProjection,
             })
         );
     }

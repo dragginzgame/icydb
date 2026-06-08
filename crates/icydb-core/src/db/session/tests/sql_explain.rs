@@ -1413,7 +1413,7 @@ fn explain_sql_distinct_rejects_order_by_non_projected_field() {
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, context) in [
+    for (sql, _context) in [
         (
             "EXPLAIN SELECT DISTINCT name FROM SessionSqlEntity ORDER BY age ASC",
             "logical EXPLAIN DISTINCT ORDER BY non-projected field",
@@ -1430,12 +1430,7 @@ fn explain_sql_distinct_rejects_order_by_non_projected_field() {
         let err = statement_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect_err("EXPLAIN DISTINCT ORDER BY on a non-projected field should fail closed");
 
-        assert!(
-            err.to_string().contains(
-                "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
-            ),
-            "{context} should preserve the DISTINCT projected-tuple boundary message: {err}",
-        );
+        assert_sql_lowering_detail(err, SqlLoweringCode::DistinctOrderByProjection);
     }
 }
 

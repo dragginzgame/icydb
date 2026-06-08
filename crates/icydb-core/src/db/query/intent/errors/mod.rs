@@ -220,6 +220,12 @@ impl QueryError {
         Self::execute(InternalError::query_unsupported_sql_feature(feature))
     }
 
+    /// Construct one query-origin unsupported SQL lowering execution error.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn sql_lowering(reason: diagnostic_code::SqlLoweringCode) -> Self {
+        Self::execute(InternalError::query_sql_lowering(reason))
+    }
+
     /// Construct one query-origin unsupported projection error.
     pub(in crate::db) fn unsupported_projection(
         reason: diagnostic_code::QueryProjectionCode,
@@ -256,6 +262,7 @@ impl QueryError {
             SqlLoweringError::UnknownField { field } => {
                 Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
             }
+            err if let Some(reason) = err.compact_diagnostic_code() => Self::sql_lowering(reason),
             _ => Self::unsupported_query(err.to_string()),
         }
     }

@@ -106,7 +106,9 @@ use crate::{
     value::{OutputValue, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use icydb_diagnostic_code::{SqlFeatureCode, SqlWriteBoundaryCode};
+use icydb_diagnostic_code::{
+    DiagnosticCode, DiagnosticDetail, SqlFeatureCode, SqlLoweringCode, SqlWriteBoundaryCode,
+};
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, sync::LazyLock};
 
@@ -4209,6 +4211,27 @@ fn assert_sql_unsupported_feature_detail(err: QueryError, expected_feature: SqlF
                 if *feature == expected_feature
         ),
         "unsupported SQL feature detail code should be preserved",
+    );
+}
+
+// Assert SQL lowering compact codes remain preserved through query-facing
+// execution error detail payloads.
+fn assert_sql_lowering_detail(err: QueryError, expected_reason: SqlLoweringCode) {
+    let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
+        err
+    else {
+        panic!("expected query execution unsupported error variant");
+    };
+
+    assert_eq!(internal.class(), ErrorClass::Unsupported);
+    assert_eq!(internal.origin(), ErrorOrigin::Query);
+    assert!(
+        matches!(
+            internal.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::SqlLowering { reason }))
+                if *reason == expected_reason
+        ),
+        "SQL lowering detail code should be preserved",
     );
 }
 

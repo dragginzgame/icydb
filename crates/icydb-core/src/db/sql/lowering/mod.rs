@@ -29,6 +29,7 @@ use crate::{
     db::{predicate::MissingRowPolicy, query::intent::Query},
     traits::EntityKind,
 };
+use icydb_diagnostic_code::SqlLoweringCode;
 use thiserror::Error as ThisError;
 
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
@@ -395,6 +396,50 @@ impl SqlLoweringError {
     /// Construct one unsupported SQL DDL lowering error.
     pub(crate) const fn unsupported_sql_ddl() -> Self {
         Self::UnsupportedSqlDdl
+    }
+
+    /// Return the compact public diagnostic reason for lowering failures that
+    /// do not need dynamic message payloads at the public boundary.
+    pub(crate) const fn compact_diagnostic_code(&self) -> Option<SqlLoweringCode> {
+        match self {
+            Self::EntityMismatch { .. } => Some(SqlLoweringCode::EntityMismatch),
+            Self::UnsupportedSelectProjection => Some(SqlLoweringCode::SelectProjectionShape),
+            Self::UnsupportedSelectDistinct => Some(SqlLoweringCode::SelectDistinct),
+            Self::DistinctOrderByRequiresProjectedTuple => {
+                Some(SqlLoweringCode::DistinctOrderByProjection)
+            }
+            Self::UnsupportedGlobalAggregateProjection => {
+                Some(SqlLoweringCode::GlobalAggregateProjection)
+            }
+            Self::GlobalAggregateDoesNotSupportGroupBy => {
+                Some(SqlLoweringCode::GlobalAggregateGroupBy)
+            }
+            Self::UnsupportedSelectGroupBy => Some(SqlLoweringCode::SelectGroupByShape),
+            Self::GroupedProjectionRequiresExplicitList => {
+                Some(SqlLoweringCode::GroupedProjectionExplicitListRequired)
+            }
+            Self::GroupedProjectionRequiresAggregate => {
+                Some(SqlLoweringCode::GroupedProjectionAggregateRequired)
+            }
+            Self::GroupedProjectionReferencesNonGroupField { .. } => {
+                Some(SqlLoweringCode::GroupedProjectionNonGroupField)
+            }
+            Self::GroupedProjectionScalarAfterAggregate { .. } => {
+                Some(SqlLoweringCode::GroupedProjectionScalarAfterAggregate)
+            }
+            Self::HavingRequiresGroupBy => Some(SqlLoweringCode::HavingRequiresGroupBy),
+            Self::UnsupportedSelectHaving => Some(SqlLoweringCode::SelectHavingShape),
+            Self::UnsupportedAggregateInputExpressions => {
+                Some(SqlLoweringCode::AggregateInputExpressions)
+            }
+            Self::UnsupportedWhereExpression => Some(SqlLoweringCode::WhereExpressionShape),
+            Self::UnsupportedParameterPlacement { .. } => Some(SqlLoweringCode::ParameterPlacement),
+            Self::UnsupportedSqlDdl => Some(SqlLoweringCode::SqlDdlExecutionUnsupported),
+            Self::Parse(_)
+            | Self::Query(_)
+            | Self::UnknownField { .. }
+            | Self::UnexpectedQueryLaneStatement => None,
+        }
     }
 }
 

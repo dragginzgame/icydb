@@ -5,7 +5,7 @@
 
 use icydb::diagnostic::{
     DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryProjectionCode, QueryResultShapeCode,
-    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode,
+    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
     SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
@@ -48,6 +48,9 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
         }
         DiagnosticDetail::QueryResultShape { reason } => {
             query_result_shape_text(reason).to_string()
+        }
+        DiagnosticDetail::SqlLowering { reason } => {
+            format!("unsupported SQL lowering: {}", sql_lowering_text(reason))
         }
     }
 }
@@ -178,6 +181,46 @@ const fn query_result_shape_text(reason: QueryResultShapeCode) -> &'static str {
         }
         QueryResultShapeCode::ExpectedGroupedRows => {
             "scalar query result cannot be consumed as grouped rows"
+        }
+    }
+}
+
+const fn sql_lowering_text(reason: SqlLoweringCode) -> &'static str {
+    match reason {
+        SqlLoweringCode::EntityMismatch => {
+            "statement target entity does not match the requested entity"
+        }
+        SqlLoweringCode::SelectProjectionShape => "unsupported SELECT projection shape",
+        SqlLoweringCode::SelectDistinct => "unsupported SELECT DISTINCT shape",
+        SqlLoweringCode::DistinctOrderByProjection => {
+            "SELECT DISTINCT ORDER BY terms must be derivable from the projected tuple"
+        }
+        SqlLoweringCode::GlobalAggregateProjection => {
+            "unsupported global aggregate projection shape"
+        }
+        SqlLoweringCode::GlobalAggregateGroupBy => "global aggregate SQL does not support GROUP BY",
+        SqlLoweringCode::SelectGroupByShape => "unsupported SELECT GROUP BY shape",
+        SqlLoweringCode::GroupedProjectionExplicitListRequired => {
+            "grouped SELECT requires an explicit projection list"
+        }
+        SqlLoweringCode::GroupedProjectionAggregateRequired => {
+            "grouped SELECT projection must include at least one aggregate expression"
+        }
+        SqlLoweringCode::GroupedProjectionNonGroupField => {
+            "grouped projection references fields outside GROUP BY keys"
+        }
+        SqlLoweringCode::GroupedProjectionScalarAfterAggregate => {
+            "grouped projection scalar expression appears after aggregate expressions"
+        }
+        SqlLoweringCode::HavingRequiresGroupBy => "HAVING requires GROUP BY",
+        SqlLoweringCode::SelectHavingShape => "unsupported SQL HAVING shape",
+        SqlLoweringCode::AggregateInputExpressions => {
+            "aggregate input expressions are not executable in this release"
+        }
+        SqlLoweringCode::WhereExpressionShape => "unsupported SQL WHERE expression shape",
+        SqlLoweringCode::ParameterPlacement => "unsupported SQL parameter placement",
+        SqlLoweringCode::SqlDdlExecutionUnsupported => {
+            "SQL DDL execution is not supported in this release"
         }
     }
 }
@@ -625,6 +668,22 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_QUERY_RESULT_SHAPE_MISMATCH: grouped query result cannot be consumed as entity rows",
+        );
+    }
+
+    #[test]
+    fn renders_sql_lowering_detail() {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+            icydb::diagnostic::DiagnosticCode::QueryUnsupportedSqlFeature,
+            icydb::diagnostic::ErrorOrigin::Query,
+            Some(icydb::diagnostic::DiagnosticDetail::SqlLowering {
+                reason: icydb::diagnostic::SqlLoweringCode::DistinctOrderByProjection,
+            }),
+        ));
+
+        assert_eq!(
+            render_error(&err),
+            "E_QUERY_UNSUPPORTED_SQL_FEATURE: unsupported SQL lowering: SELECT DISTINCT ORDER BY terms must be derivable from the projected tuple",
         );
     }
 

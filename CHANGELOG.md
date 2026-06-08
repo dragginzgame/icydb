@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Move SQL lowering, query projection, and query result-shape failures onto
-  compact diagnostic codes, with CLI-owned explanatory text.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.12` moves accepted-catalog `ORDER BY`, SQL lowering, and duplicate
+  SQL DDL execution-unsupported failures onto compact diagnostic leaf codes,
+  with another comparable wasm-footprint audit.
+
+- `0.180.11` moves SQL lowering, query projection, and query result-shape
+  failures onto compact diagnostic leaf codes, keeps explanatory text in the
+  CLI renderer, and verifies the wasm-footprint reduction.
 
 - `0.180.10` gates audit, demo, and test canister Candid metadata export
   behind an explicit local-build feature, keeping wasm-release builds

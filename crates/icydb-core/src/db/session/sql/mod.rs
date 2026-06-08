@@ -47,7 +47,7 @@ use crate::{
     },
     traits::{CanisterKind, EntityValue, Path},
 };
-use icydb_diagnostic_code::SqlSurfaceMismatchCode;
+use icydb_diagnostic_code::{SqlLoweringCode, SqlSurfaceMismatchCode};
 
 pub(in crate::db::session::sql) use crate::db::diagnostics::measure_local_instruction_delta as measure_sql_stage;
 pub use crate::db::sql::ddl::{SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport};
@@ -320,8 +320,8 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlCompiledCommandSurface::Update,
                 SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_),
             ) => Ok(()),
-            (_, SqlStatement::Ddl(_)) => Err(QueryError::unsupported_query(
-                "SQL DDL execution is not supported in this release",
+            (_, SqlStatement::Ddl(_)) => Err(QueryError::sql_lowering(
+                SqlLoweringCode::SqlDdlExecutionUnsupported,
             )),
             (SqlCompiledCommandSurface::Query, SqlStatement::Insert(_)) => Err(
                 QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::QueryRejectsInsert),

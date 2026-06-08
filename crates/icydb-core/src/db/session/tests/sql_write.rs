@@ -1569,26 +1569,20 @@ fn execute_sql_statement_write_rejects_entity_mismatch_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, sql_entity, context) in [
+    for (sql, context) in [
         (
             "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
-            "SessionSqlGeneratedFieldEntity",
             "insert entity mismatch",
         ),
         (
             "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Ada' WHERE id = 1",
-            "SessionSqlGeneratedTimestampEntity",
             "update entity mismatch",
         ),
     ] {
-        assert_statement_error_contains::<SessionSqlWriteEntity>(
-            &session,
-            sql,
-            &format!(
-                "SQL entity '{sql_entity}' does not match requested entity type 'SessionSqlWriteEntity'"
-            ),
-            context,
-        );
+        let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
+            .expect_err(context);
+
+        assert_sql_lowering_detail(err, SqlLoweringCode::EntityMismatch);
     }
 }
 

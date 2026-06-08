@@ -1472,6 +1472,18 @@ impl InternalError {
         }
     }
 
+    /// Construct a query-origin unsupported SQL lowering error preserving one
+    /// compact lowering reason in structured error detail.
+    #[cfg(feature = "sql")]
+    pub(crate) fn query_sql_lowering(reason: diagnostic_code::SqlLoweringCode) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: "unsupported SQL lowering".to_string(),
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlLowering { reason })),
+        }
+    }
+
     /// Construct a query-origin unsupported projection error preserving one
     /// compact projection reason in structured error detail.
     pub(crate) fn query_unsupported_projection(
@@ -1711,6 +1723,11 @@ pub enum QueryErrorDetail {
         feature: diagnostic_code::SqlFeatureCode,
     },
 
+    #[error("unsupported SQL lowering")]
+    SqlLowering {
+        reason: diagnostic_code::SqlLoweringCode,
+    },
+
     #[error("unsupported query projection")]
     UnsupportedProjection {
         reason: diagnostic_code::QueryProjectionCode,
@@ -1880,6 +1897,7 @@ impl QueryErrorDetail {
             Self::UnsupportedSqlFeature { .. } => {
                 diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
             }
+            Self::SqlLowering { .. } => diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature,
             Self::UnsupportedProjection { .. } => {
                 diagnostic_code::DiagnosticCode::QueryUnsupportedProjection
             }
@@ -1903,6 +1921,9 @@ impl QueryErrorDetail {
         match self {
             Self::UnsupportedSqlFeature { feature } => {
                 Some(diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature { feature: *feature })
+            }
+            Self::SqlLowering { reason } => {
+                Some(diagnostic_code::DiagnosticDetail::SqlLowering { reason: *reason })
             }
             Self::UnsupportedProjection { reason } => {
                 Some(diagnostic_code::DiagnosticDetail::QueryProjection { reason: *reason })
