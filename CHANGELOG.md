@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.6` moves more SQL DDL admission and SQL endpoint diagnostics onto
+  compact leaf codes, trims internal error strings and unused helper Candid
+  derives, and verifies another wasm-footprint reduction.
+
 - `0.180.5` compacts the default generated metrics endpoint, gates the rich
   `EventReport` behind opt-in extended metrics and `icydb metrics
   --extended`, and verifies the baseline wasm reduction.

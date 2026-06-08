@@ -13,7 +13,7 @@ pub(crate) enum SqlParseError {
     #[error("empty SQL input")]
     EmptyInput,
 
-    #[error("unsupported SQL feature: {feature:?}")]
+    #[error("unsupported SQL feature")]
     UnsupportedFeature { feature: SqlFeatureCode },
 
     #[error("invalid SQL syntax: {message}")]

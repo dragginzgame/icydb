@@ -16,19 +16,6 @@ fn expect_record_fields(ty: Type) -> Vec<String> {
     }
 }
 
-fn expect_variant_labels(ty: Type) -> Vec<String> {
-    match ty.as_ref() {
-        TypeInner::Variant(fields) => fields
-            .iter()
-            .map(|field| match field.id.as_ref() {
-                Label::Named(name) => name.clone(),
-                other => panic!("expected named variant label, got {other:?}"),
-            })
-            .collect(),
-        other => panic!("expected candid variant, got {other:?}"),
-    }
-}
-
 #[test]
 fn query_validate_maps_to_validate_kind() {
     let err = QueryError::Validate(Box::new(ValidateError::UnknownField {
@@ -357,54 +344,6 @@ fn error_struct_candid_shape_is_stable() {
         assert!(
             fields.iter().all(|candidate| candidate != removed),
             "Error compact wire shape must not keep legacy `{removed}` field",
-        );
-    }
-}
-
-#[test]
-fn error_kind_candid_shape_is_stable() {
-    let labels = expect_variant_labels(ErrorKind::ty());
-    assert!(
-        labels.iter().any(|candidate| candidate == "Runtime"),
-        "ErrorKind must keep `Runtime` variant label",
-    );
-}
-
-#[test]
-fn runtime_error_and_origin_variant_labels_are_stable() {
-    let runtime_labels = expect_variant_labels(RuntimeErrorKind::ty());
-    assert!(
-        runtime_labels
-            .iter()
-            .any(|candidate| candidate == "InvariantViolation"),
-        "RuntimeErrorKind must keep `InvariantViolation` variant label",
-    );
-
-    let origin_labels = expect_variant_labels(ErrorOrigin::ty());
-    assert!(
-        origin_labels
-            .iter()
-            .any(|candidate| candidate == "Serialize"),
-        "ErrorOrigin must keep `Serialize` variant label",
-    );
-}
-
-#[test]
-fn query_error_kind_variant_labels_are_stable() {
-    let labels = expect_variant_labels(QueryErrorKind::ty());
-
-    for label in [
-        "Validate",
-        "Intent",
-        "Plan",
-        "UnorderedPagination",
-        "InvalidContinuationCursor",
-        "NotFound",
-        "NotUnique",
-    ] {
-        assert!(
-            labels.iter().any(|candidate| candidate == label),
-            "QueryErrorKind must keep `{label}` variant label",
         );
     }
 }

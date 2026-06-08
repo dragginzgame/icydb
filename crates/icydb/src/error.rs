@@ -169,7 +169,7 @@ const fn error_class_wire_code(class: icydb_diagnostic_code::ErrorClass) -> u8 {
 }
 
 #[cfg_attr(doc, doc = "ErrorKind\n\nPublic error category.")]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErrorKind {
     Query(QueryErrorKind),
 
@@ -200,7 +200,7 @@ impl ErrorKind {
 }
 
 #[cfg_attr(doc, doc = "RuntimeErrorKind\n\nPublic runtime error class.")]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeErrorKind {
     Corruption,
     IncompatiblePersistedFormat,
@@ -246,7 +246,7 @@ impl RuntimeErrorKind {
 }
 
 #[cfg_attr(doc, doc = "QueryErrorKind\n\nPublic query error class.")]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QueryErrorKind {
     /// Validation failed.
     Validate,
@@ -305,7 +305,7 @@ impl QueryErrorKind {
 }
 
 #[cfg_attr(doc, doc = "ErrorOrigin\n\nPublic error origin.")]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErrorOrigin {
     Cursor,
     Executor,

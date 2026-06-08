@@ -279,7 +279,6 @@ fn unsupported_sql_feature_query_error_exposes_compact_feature_code() {
 fn sql_surface_mismatch_query_error_exposes_compact_mismatch_code() {
     let query_err = QueryError::sql_surface_mismatch(
         icydb_diagnostic_code::SqlSurfaceMismatchCode::QueryRejectsInsert,
-        "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
     );
     let diagnostic = query_err.diagnostic();
 

@@ -540,16 +540,10 @@ fn validated_create_index_predicate_sql(
     let Some(predicate_sql) = predicate_sql else {
         return Ok(None);
     };
-    let predicate = parse_sql_predicate(predicate_sql).map_err(|error| {
-        SqlDdlBindError::InvalidFilteredIndexPredicate {
-            detail: error.to_string(),
-        }
-    })?;
-    validate_predicate(schema, &predicate).map_err(|error| {
-        SqlDdlBindError::InvalidFilteredIndexPredicate {
-            detail: error.to_string(),
-        }
-    })?;
+    let predicate = parse_sql_predicate(predicate_sql)
+        .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
+    validate_predicate(schema, &predicate)
+        .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
 
     Ok(Some(predicate_sql.to_string()))
 }

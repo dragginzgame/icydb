@@ -323,72 +323,39 @@ impl<C: CanisterKind> DbSession<C> {
             (_, SqlStatement::Ddl(_)) => Err(QueryError::unsupported_query(
                 "SQL DDL execution is not supported in this release",
             )),
-            (SqlCompiledCommandSurface::Query, SqlStatement::Insert(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::QueryRejectsInsert,
-                    "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Query, SqlStatement::Update(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::QueryRejectsUpdate,
-                    "execute_sql_query rejects UPDATE; use execute_sql_update::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Query, SqlStatement::Delete(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::QueryRejectsDelete,
-                    "execute_sql_query rejects DELETE; use execute_sql_update::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::Select(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsSelect,
-                    "execute_sql_update rejects SELECT; use execute_sql_query::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::Explain(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsExplain,
-                    "execute_sql_update rejects EXPLAIN; use execute_sql_query::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::Describe(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsDescribe,
-                    "execute_sql_update rejects DESCRIBE; use execute_sql_query::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowIndexes(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsShowIndexes,
-                    "execute_sql_update rejects SHOW INDEXES; use execute_sql_query::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowColumns(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsShowColumns,
-                    "execute_sql_update rejects SHOW COLUMNS; use execute_sql_query::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowEntities(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsShowEntities,
-                    "execute_sql_update rejects SHOW ENTITIES; use execute_sql_query::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowStores(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsShowStores,
-                    "execute_sql_update rejects SHOW STORES; use execute_sql_query::<E>()",
-                ))
-            }
-            (SqlCompiledCommandSurface::Update, SqlStatement::ShowMemory(_)) => {
-                Err(QueryError::sql_surface_mismatch(
-                    SqlSurfaceMismatchCode::UpdateRejectsShowMemory,
-                    "execute_sql_update rejects SHOW MEMORY; use execute_sql_query::<E>()",
-                ))
-            }
+            (SqlCompiledCommandSurface::Query, SqlStatement::Insert(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::QueryRejectsInsert),
+            ),
+            (SqlCompiledCommandSurface::Query, SqlStatement::Update(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::QueryRejectsUpdate),
+            ),
+            (SqlCompiledCommandSurface::Query, SqlStatement::Delete(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::QueryRejectsDelete),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::Select(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsSelect),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::Explain(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsExplain),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::Describe(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsDescribe),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowIndexes(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowIndexes),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowColumns(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowColumns),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowEntities(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowEntities),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowStores(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowStores),
+            ),
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowMemory(_)) => Err(
+                QueryError::sql_surface_mismatch(SqlSurfaceMismatchCode::UpdateRejectsShowMemory),
+            ),
         }
     }
 

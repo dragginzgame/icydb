@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `ten_simple` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `16b63b730`
+- code snapshot identifier: `1043f2d10`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,10 +24,10 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,650,262 | 2,608,942 | -41,320 |
-| icp-built deterministic `.wasm.gz` | 845,981 | 838,384 | -7,597 |
-| icp-shrunk `.wasm` | 2,467,798 | 2,430,703 | -37,095 |
-| icp-shrunk `.wasm.gz` | 803,888 | 795,235 | -8,653 |
+| icp-built `.wasm` | 2,650,262 | 2,596,315 | -53,947 |
+| icp-built deterministic `.wasm.gz` | 845,981 | 829,270 | -16,711 |
+| icp-shrunk `.wasm` | 2,467,798 | 2,418,068 | -49,730 |
+| icp-shrunk `.wasm.gz` | 803,888 | 788,003 | -15,885 |
 
 ## Structural Snapshot (ic-wasm)
 
@@ -36,38 +36,38 @@ PASS=5, PARTIAL=0, FAIL=0
 | Function count | 5,776 | 5,776 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 182,948 | 182,948 |
+| Data section bytes | 183,276 | 183,276 |
 | Exported methods | 3 | 3 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 182,682 | 7.52% |
-| 2 | code[0] | 34,152 | 1.41% |
-| 3 | code[1] | 31,464 | 1.29% |
+| 1 | data[0] | 183,010 | 7.57% |
+| 2 | code[0] | 33,635 | 1.39% |
+| 3 | code[1] | 32,386 | 1.34% |
 | 4 | code[2] | 27,593 | 1.14% |
-| 5 | code[3] | 19,951 | 0.82% |
-| 6 | code[4] | 17,727 | 0.73% |
+| 5 | code[3] | 20,378 | 0.84% |
+| 6 | code[4] | 17,859 | 0.74% |
 | 7 | code[5] | 15,294 | 0.63% |
-| 8 | code[7] | 14,370 | 0.59% |
-| 9 | code[6] | 14,134 | 0.58% |
-| 10 | code[8] | 13,335 | 0.55% |
+| 8 | code[7] | 14,258 | 0.59% |
+| 9 | code[6] | 14,213 | 0.59% |
+| 10 | code[8] | 13,140 | 0.54% |
 
 ## Twiggy Retained Hotspots
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query query_ten_simple_fluent" | 640,162 | 26.34% |
-| 2 | code[5754] | 640,120 | 26.33% |
-| 3 | code[13] | 640,111 | 26.33% |
-| 4 | code[11] | 368,119 | 15.14% |
-| 5 | code[409] | 213,550 | 8.79% |
-| 6 | code[26] | 212,407 | 8.74% |
-| 7 | code[24] | 192,058 | 7.90% |
-| 8 | data[0] | 182,682 | 7.52% |
-| 9 | code[25] | 181,271 | 7.46% |
-| 10 | table[0] | 174,741 | 7.19% |
+| 1 | export "canister_query query_ten_simple_fluent" | 635,600 | 26.29% |
+| 2 | code[5754] | 635,558 | 26.28% |
+| 3 | code[13] | 635,549 | 26.28% |
+| 4 | code[10] | 368,119 | 15.22% |
+| 5 | code[408] | 213,550 | 8.83% |
+| 6 | code[25] | 212,407 | 8.78% |
+| 7 | code[24] | 192,058 | 7.94% |
+| 8 | data[0] | 183,010 | 7.57% |
+| 9 | code[31] | 180,117 | 7.45% |
+| 10 | table[0] | 172,493 | 7.13% |
 
 ## Artifacts
 

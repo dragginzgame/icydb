@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `minimal` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `16b63b730`
+- code snapshot identifier: `1043f2d10`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -25,9 +25,9 @@ PASS=5, PARTIAL=0, FAIL=0
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
 | icp-built `.wasm` | 370,058 | 328,729 | -41,329 |
-| icp-built deterministic `.wasm.gz` | 132,701 | 122,771 | -9,930 |
+| icp-built deterministic `.wasm.gz` | 132,701 | 122,773 | -9,928 |
 | icp-shrunk `.wasm` | 339,468 | 302,135 | -37,333 |
-| icp-shrunk `.wasm.gz` | 125,278 | 116,166 | -9,112 |
+| icp-shrunk `.wasm.gz` | 125,278 | 116,164 | -9,114 |
 
 ## Structural Snapshot (ic-wasm)
 

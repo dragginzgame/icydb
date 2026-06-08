@@ -216,9 +216,8 @@ impl QueryError {
     #[cfg(feature = "sql")]
     pub(in crate::db) fn sql_surface_mismatch(
         mismatch: diagnostic_code::SqlSurfaceMismatchCode,
-        message: impl Into<String>,
     ) -> Self {
-        Self::execute(InternalError::query_sql_surface_mismatch(mismatch, message))
+        Self::execute(InternalError::query_sql_surface_mismatch(mismatch))
     }
 
     /// Construct one query error from one SQL lowering failure.
@@ -254,7 +253,7 @@ impl QueryError {
 
         Self::execute(InternalError::query_schema_ddl_admission(
             reason,
-            format!("SQL DDL preparation failed before execution: {err}"),
+            "SQL DDL preparation failed before execution",
         ))
     }
 
@@ -272,6 +271,18 @@ impl QueryError {
             return Self::execute(InternalError::query_schema_ddl_admission(
                 SchemaDdlAdmissionError::PublicationRaceLost,
                 message,
+            ));
+        }
+
+        if matches!(
+            err.detail(),
+            Some(ErrorDetail::Store(
+                StoreError::SchemaDdlSetNotNullValidationFailed { .. }
+            ))
+        ) {
+            return Self::execute(InternalError::query_schema_ddl_admission(
+                SchemaDdlAdmissionError::SetNotNullValidationFailed,
+                "SQL DDL SET NOT NULL validation failed",
             ));
         }
 

@@ -656,10 +656,9 @@ fn schema_field_default_for_sql_default(
         contract.storage_decode(),
         contract.leaf_codec(),
     )
-    .map_err(|error| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
+    .map_err(|_| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
         entity_name: entity_name.to_string(),
         column_name: column_name.to_string(),
-        detail: error.to_string(),
     })
 }
 
@@ -668,11 +667,10 @@ fn schema_field_default_for_alter_column_default(
     field: &PersistedFieldSnapshot,
     default: &crate::value::Value,
 ) -> Result<SchemaFieldDefault, SqlDdlBindError> {
-    encode_sql_ddl_alter_column_default(field, default).map_err(|error| {
+    encode_sql_ddl_alter_column_default(field, default).map_err(|_| {
         SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
             entity_name: entity_name.to_string(),
             column_name: field.name().to_string(),
-            detail: error.to_string(),
         }
     })
 }

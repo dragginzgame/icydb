@@ -340,6 +340,13 @@ impl ErrorCode {
     pub const SCHEMA_DDL_PHYSICAL_RUNNER_MISSING: Self = Self(122);
     pub const SCHEMA_DDL_VALIDATION_FAILED: Self = Self(123);
     pub const SCHEMA_DDL_PUBLICATION_RACE_LOST: Self = Self(124);
+    pub const SCHEMA_DDL_INVALID_ADD_COLUMN_DEFAULT: Self = Self(125);
+    pub const SCHEMA_DDL_INVALID_ALTER_COLUMN_DEFAULT: Self = Self(126);
+    pub const SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED: Self = Self(127);
+    pub const SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED: Self = Self(128);
+    pub const SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED: Self = Self(129);
+    pub const SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED: Self = Self(130);
+    pub const SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED: Self = Self(131);
 
     /// Build an error code from its raw public wire value.
     #[must_use]
@@ -389,7 +396,7 @@ impl ErrorCode {
             10 => DiagnosticCode::QueryNumericNotRepresentable,
             11 | 37..=99 => DiagnosticCode::QueryUnsupportedSqlFeature,
             12 | 100..=110 => DiagnosticCode::QuerySqlSurfaceMismatch,
-            13 | 111..=124 => DiagnosticCode::SchemaDdlAdmission,
+            13 | 111..=131 => DiagnosticCode::SchemaDdlAdmission,
             14 => DiagnosticCode::StoreNotFound,
             15 => DiagnosticCode::StoreCorruption,
             16 => DiagnosticCode::StoreInvariantViolation,
@@ -418,7 +425,7 @@ impl ErrorCode {
             24..=36 => Self::runtime_boundary_detail(self.raw()),
             37..=99 => Self::sql_feature_detail(self.raw()),
             100..=110 => Self::sql_surface_detail(self.raw()),
-            111..=124 => Self::schema_ddl_detail(self.raw()),
+            111..=131 => Self::schema_ddl_detail(self.raw()),
             _ => None,
         }
     }
@@ -673,6 +680,27 @@ impl ErrorCode {
             124 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::PublicationRaceLost,
             }),
+            125 => Some(DiagnosticDetail::SchemaDdlAdmission {
+                reason: SchemaDdlAdmissionCode::InvalidAddColumnDefault,
+            }),
+            126 => Some(DiagnosticDetail::SchemaDdlAdmission {
+                reason: SchemaDdlAdmissionCode::InvalidAlterColumnDefault,
+            }),
+            127 => Some(DiagnosticDetail::SchemaDdlAdmission {
+                reason: SchemaDdlAdmissionCode::GeneratedIndexDropRejected,
+            }),
+            128 => Some(DiagnosticDetail::SchemaDdlAdmission {
+                reason: SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported,
+            }),
+            129 => Some(DiagnosticDetail::SchemaDdlAdmission {
+                reason: SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected,
+            }),
+            130 => Some(DiagnosticDetail::SchemaDdlAdmission {
+                reason: SchemaDdlAdmissionCode::GeneratedFieldNullabilityChangeRejected,
+            }),
+            131 => Some(DiagnosticDetail::SchemaDdlAdmission {
+                reason: SchemaDdlAdmissionCode::SetNotNullValidationFailed,
+            }),
             _ => None,
         }
     }
@@ -904,6 +932,13 @@ pub enum SchemaDdlAdmissionCode {
     PhysicalRunnerMissing,
     ValidationFailed,
     PublicationRaceLost,
+    InvalidAddColumnDefault,
+    InvalidAlterColumnDefault,
+    GeneratedIndexDropRejected,
+    RequiredDropDefaultUnsupported,
+    GeneratedFieldDefaultChangeRejected,
+    GeneratedFieldNullabilityChangeRejected,
+    SetNotNullValidationFailed,
 }
 
 ///
@@ -991,7 +1026,7 @@ impl Diagnostic {
 mod tests {
     use super::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode, ErrorOrigin};
 
-    const ORDERED_ERROR_CODES: [ErrorCode; 124] = [
+    const ORDERED_ERROR_CODES: [ErrorCode; 131] = [
         ErrorCode::QUERY_VALIDATE,
         ErrorCode::QUERY_INTENT,
         ErrorCode::QUERY_PLAN,
@@ -1116,6 +1151,13 @@ mod tests {
         ErrorCode::SCHEMA_DDL_PHYSICAL_RUNNER_MISSING,
         ErrorCode::SCHEMA_DDL_VALIDATION_FAILED,
         ErrorCode::SCHEMA_DDL_PUBLICATION_RACE_LOST,
+        ErrorCode::SCHEMA_DDL_INVALID_ADD_COLUMN_DEFAULT,
+        ErrorCode::SCHEMA_DDL_INVALID_ALTER_COLUMN_DEFAULT,
+        ErrorCode::SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED,
+        ErrorCode::SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED,
+        ErrorCode::SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED,
+        ErrorCode::SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED,
+        ErrorCode::SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED,
     ];
 
     #[test]

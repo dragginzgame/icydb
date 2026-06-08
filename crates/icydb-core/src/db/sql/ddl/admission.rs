@@ -143,9 +143,13 @@ impl SqlDdlBindError {
                 SchemaDdlAdmissionError::InvalidExpectedSchemaVersion
             }
             Self::EmptySchemaVersionBump { .. } => SchemaDdlAdmissionError::EmptyVersionBump,
-            Self::InvalidFilteredIndexPredicate { .. }
-            | Self::InvalidAlterTableAddColumnDefault { .. }
-            | Self::InvalidAlterTableAlterColumnDefault { .. }
+            Self::InvalidAlterTableAddColumnDefault { .. } => {
+                SchemaDdlAdmissionError::InvalidAddColumnDefault
+            }
+            Self::InvalidAlterTableAlterColumnDefault { .. } => {
+                SchemaDdlAdmissionError::InvalidAlterColumnDefault
+            }
+            Self::InvalidFilteredIndexPredicate
             | Self::DuplicateIndexName { .. }
             | Self::DuplicateFieldPathIndex { .. }
             | Self::DuplicateColumn { .. }
@@ -157,18 +161,26 @@ impl SqlDdlBindError {
             | Self::NotDdl => SchemaDdlAdmissionError::ValidationFailed,
             Self::FieldPathNotIndexable { .. }
             | Self::FieldPathNotAcceptedCatalogBacked { .. }
-            | Self::GeneratedIndexDropRejected { .. }
             | Self::UnsupportedDropIndex { .. }
             | Self::UnsupportedAlterTableAddColumnNotNull { .. }
             | Self::UnsupportedAlterTableAddColumnType { .. }
-            | Self::UnsupportedAlterTableDropDefaultRequired { .. }
-            | Self::GeneratedFieldDefaultChangeRejected { .. }
-            | Self::GeneratedFieldNullabilityChangeRejected { .. }
             | Self::PrimaryKeyFieldDropRejected { .. }
             | Self::GeneratedFieldDropRejected { .. }
             | Self::IndexedFieldDropRejected { .. }
             | Self::GeneratedFieldRenameRejected { .. } => {
                 SchemaDdlAdmissionError::UnsupportedTransitionClass
+            }
+            Self::GeneratedIndexDropRejected { .. } => {
+                SchemaDdlAdmissionError::GeneratedIndexDropRejected
+            }
+            Self::UnsupportedAlterTableDropDefaultRequired { .. } => {
+                SchemaDdlAdmissionError::RequiredDropDefaultUnsupported
+            }
+            Self::GeneratedFieldDefaultChangeRejected { .. } => {
+                SchemaDdlAdmissionError::GeneratedFieldDefaultChangeRejected
+            }
+            Self::GeneratedFieldNullabilityChangeRejected { .. } => {
+                SchemaDdlAdmissionError::GeneratedFieldNullabilityChangeRejected
             }
         }
     }

@@ -10,7 +10,7 @@ use ic_cdk::update;
 use icydb::types::Timestamp;
 #[cfg(feature = "sql")]
 use icydb::{
-    ErrorKind, ErrorOrigin, QueryErrorKind,
+    ErrorCode, ErrorOrigin,
     db::{
         DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
         QueryExecutionAttribution, SqlCompileAttribution, SqlExecutionAttribution,
@@ -85,10 +85,7 @@ const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
 
 #[cfg(feature = "sql")]
 const fn query_validate_error() -> icydb::Error {
-    icydb::Error::from_kind(
-        ErrorKind::Query(QueryErrorKind::Validate),
-        ErrorOrigin::Query,
-    )
+    icydb::Error::from_error_code(ErrorCode::QUERY_VALIDATE, ErrorOrigin::Query)
 }
 
 #[cfg(feature = "sql")]

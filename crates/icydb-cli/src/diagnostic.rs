@@ -190,6 +190,27 @@ const fn schema_ddl_text(reason: SchemaDdlAdmissionCode) -> &'static str {
         }
         SchemaDdlAdmissionCode::ValidationFailed => "candidate schema validation failed",
         SchemaDdlAdmissionCode::PublicationRaceLost => "accepted schema changed after DDL binding",
+        SchemaDdlAdmissionCode::InvalidAddColumnDefault => {
+            "ADD COLUMN default value is not encodable"
+        }
+        SchemaDdlAdmissionCode::InvalidAlterColumnDefault => {
+            "ALTER COLUMN SET DEFAULT value is not encodable"
+        }
+        SchemaDdlAdmissionCode::GeneratedIndexDropRejected => {
+            "generated index cannot be dropped by SQL DDL"
+        }
+        SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported => {
+            "DROP DEFAULT is not supported for required fields"
+        }
+        SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected => {
+            "generated field default cannot be changed by SQL DDL"
+        }
+        SchemaDdlAdmissionCode::GeneratedFieldNullabilityChangeRejected => {
+            "generated field nullability cannot be changed by SQL DDL"
+        }
+        SchemaDdlAdmissionCode::SetNotNullValidationFailed => {
+            "SET NOT NULL validation found existing NULL values"
+        }
     }
 }
 

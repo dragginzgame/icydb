@@ -1384,6 +1384,25 @@ impl InternalError {
         }
     }
 
+    /// Construct the canonical SQL DDL SET NOT NULL validation failure.
+    #[cfg(feature = "sql")]
+    pub(crate) fn schema_ddl_set_not_null_validation_failed(
+        entity_path: &'static str,
+        column_name: &str,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Store,
+            message: "SQL DDL SET NOT NULL validation failed".to_string(),
+            detail: Some(ErrorDetail::Store(
+                StoreError::SchemaDdlSetNotNullValidationFailed {
+                    entity_path: entity_path.to_string(),
+                    column_name: column_name.to_string(),
+                },
+            )),
+        }
+    }
+
     /// Construct the canonical unsupported persisted entity-tag store error.
     pub(crate) fn unsupported_entity_tag_in_data_store(
         entity_tag: crate::types::EntityTag,
@@ -1443,14 +1462,10 @@ impl InternalError {
     /// unsupported-feature code in structured error detail.
     #[cfg(feature = "sql")]
     pub(crate) fn query_unsupported_sql_feature(feature: diagnostic_code::SqlFeatureCode) -> Self {
-        let message = format!(
-            "SQL query is not executable in this release: unsupported SQL feature: {feature:?}"
-        );
-
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message,
+            message: "unsupported SQL feature".to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnsupportedSqlFeature { feature },
             )),
@@ -1462,12 +1477,11 @@ impl InternalError {
     #[cfg(feature = "sql")]
     pub(crate) fn query_sql_surface_mismatch(
         mismatch: diagnostic_code::SqlSurfaceMismatchCode,
-        message: impl Into<String>,
     ) -> Self {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: message.into(),
+            message: "SQL endpoint surface mismatch".to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlSurfaceMismatch {
                 mismatch,
             })),
@@ -1613,6 +1627,12 @@ pub enum StoreError {
 
     #[error("schema DDL publication race lost for entity: {entity_path}")]
     SchemaDdlPublicationRaceLost { entity_path: String },
+
+    #[error("schema DDL SET NOT NULL validation failed")]
+    SchemaDdlSetNotNullValidationFailed {
+        entity_path: String,
+        column_name: String,
+    },
 }
 
 ///
@@ -1629,17 +1649,17 @@ pub enum QueryErrorDetail {
     #[error("numeric result is not representable")]
     NumericNotRepresentable,
 
-    #[error("unsupported SQL feature: {feature:?}")]
+    #[error("unsupported SQL feature")]
     UnsupportedSqlFeature {
         feature: diagnostic_code::SqlFeatureCode,
     },
 
-    #[error("SQL endpoint surface mismatch: {mismatch:?}")]
+    #[error("SQL endpoint surface mismatch")]
     SqlSurfaceMismatch {
         mismatch: diagnostic_code::SqlSurfaceMismatchCode,
     },
 
-    #[error("SQL DDL admission rejected: {error}")]
+    #[error("SQL DDL admission rejected")]
     SchemaDdlAdmission { error: SchemaDdlAdmissionError },
 }
 
@@ -1694,6 +1714,27 @@ pub enum SchemaDdlAdmissionError {
 
     #[error("publication race lost")]
     PublicationRaceLost,
+
+    #[error("invalid ADD COLUMN default")]
+    InvalidAddColumnDefault,
+
+    #[error("invalid ALTER COLUMN default")]
+    InvalidAlterColumnDefault,
+
+    #[error("generated index drop rejected")]
+    GeneratedIndexDropRejected,
+
+    #[error("required DROP DEFAULT unsupported")]
+    RequiredDropDefaultUnsupported,
+
+    #[error("generated field default change rejected")]
+    GeneratedFieldDefaultChangeRejected,
+
+    #[error("generated field nullability change rejected")]
+    GeneratedFieldNullabilityChangeRejected,
+
+    #[error("SET NOT NULL validation failed")]
+    SetNotNullValidationFailed,
 }
 
 impl ErrorDetail {
@@ -1726,7 +1767,8 @@ impl StoreError {
             Self::InvariantViolation { .. } => {
                 diagnostic_code::DiagnosticCode::StoreInvariantViolation
             }
-            Self::SchemaDdlPublicationRaceLost { .. } => {
+            Self::SchemaDdlPublicationRaceLost { .. }
+            | Self::SchemaDdlSetNotNullValidationFailed { .. } => {
                 diagnostic_code::DiagnosticCode::SchemaDdlAdmission
             }
         }
@@ -1739,6 +1781,11 @@ impl StoreError {
             Self::SchemaDdlPublicationRaceLost { .. } => {
                 Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
+                })
+            }
+            Self::SchemaDdlSetNotNullValidationFailed { .. } => {
+                Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                    reason: diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed,
                 })
             }
             Self::NotFound { .. } | Self::Corrupt { .. } | Self::InvariantViolation { .. } => None,
@@ -1825,6 +1872,27 @@ impl SchemaDdlAdmissionError {
             Self::ValidationFailed => diagnostic_code::SchemaDdlAdmissionCode::ValidationFailed,
             Self::PublicationRaceLost => {
                 diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost
+            }
+            Self::InvalidAddColumnDefault => {
+                diagnostic_code::SchemaDdlAdmissionCode::InvalidAddColumnDefault
+            }
+            Self::InvalidAlterColumnDefault => {
+                diagnostic_code::SchemaDdlAdmissionCode::InvalidAlterColumnDefault
+            }
+            Self::GeneratedIndexDropRejected => {
+                diagnostic_code::SchemaDdlAdmissionCode::GeneratedIndexDropRejected
+            }
+            Self::RequiredDropDefaultUnsupported => {
+                diagnostic_code::SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported
+            }
+            Self::GeneratedFieldDefaultChangeRejected => {
+                diagnostic_code::SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected
+            }
+            Self::GeneratedFieldNullabilityChangeRejected => {
+                diagnostic_code::SchemaDdlAdmissionCode::GeneratedFieldNullabilityChangeRejected
+            }
+            Self::SetNotNullValidationFailed => {
+                diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed
             }
         }
     }

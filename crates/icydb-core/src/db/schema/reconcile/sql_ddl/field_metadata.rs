@@ -301,10 +301,10 @@ fn validate_sql_ddl_set_not_null_rows(
             reader.validate_primary_key(&key)?;
             let value = reader.get_value(required_slot)?;
             if matches!(value, Some(Value::Null) | None) {
-                return Err(InternalError::store_unsupported(format!(
-                    "SQL DDL ALTER COLUMN SET NOT NULL found NULL value for entity '{entity_path}' column '{}'",
+                return Err(InternalError::schema_ddl_set_not_null_validation_failed(
+                    entity_path,
                     target.name(),
-                )));
+                ));
             }
             Ok(StoreVisit::Continue)
         })?;

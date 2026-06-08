@@ -6,6 +6,7 @@ mod macros;
 #[cfg(feature = "sql")]
 use crate::db::sql::SqlQueryResult;
 use crate::{
+    ErrorCode,
     db::{
         EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
         MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
@@ -13,7 +14,7 @@ use crate::{
         response::{ProjectionRows, QueryResponse, RowProjectionOutput, render_output_value_text},
     },
     diagnostic::RuntimeBoundaryCode,
-    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    error::{Error, ErrorOrigin},
     metrics::MetricsSink,
     traits::{CanisterKind, Entity},
     value::{InputValue, OutputValue},
@@ -410,10 +411,7 @@ impl<C: CanisterKind> DbSession<C> {
             let mut rendered = Vec::with_capacity(indices.len());
             for index in &indices {
                 let value = entity.get_value_by_index(*index).ok_or_else(|| {
-                    Error::from_kind(
-                        ErrorKind::Runtime(RuntimeErrorKind::Internal),
-                        ErrorOrigin::Query,
-                    )
+                    Error::from_error_code(ErrorCode::RUNTIME_INTERNAL, ErrorOrigin::Query)
                 })?;
                 rendered.push(render_output_value_text(&OutputValue::from(value)));
             }
