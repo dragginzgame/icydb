@@ -6,7 +6,7 @@ use icydb::{
         EntitySchemaDescription,
         sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
     },
-    diagnostic::{DiagnosticCode, DiagnosticDetail, SqlFeatureCode},
+    diagnostic::{DiagnosticCode, DiagnosticDetail, SqlFeatureCode, SqlSurfaceMismatchCode},
 };
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::Deserialize;
@@ -278,10 +278,35 @@ fn assert_runtime_unsupported_query_error(err: &Error, context: &str) {
     );
 }
 
+fn assert_query_sql_surface_mismatch_error(
+    err: &Error,
+    expected: SqlSurfaceMismatchCode,
+    context: &str,
+) {
+    assert_eq!(
+        err.code(),
+        DiagnosticCode::QuerySqlSurfaceMismatch,
+        "{context} should stay at the compact SQL surface mismatch boundary",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "{context} should keep query-owned origin metadata",
+    );
+    assert_eq!(
+        err.detail(),
+        Some(&DiagnosticDetail::SqlSurfaceMismatch { mismatch: expected }),
+        "{context} should preserve the compact SQL surface mismatch detail",
+    );
+}
+
 fn assert_ddl_rejection_error(err: &Error, context: &str) {
     assert!(
-        matches!(err.origin(), ErrorOrigin::Query | ErrorOrigin::Store),
-        "{context} should keep query or store origin metadata, got {:?}",
+        matches!(
+            err.origin(),
+            ErrorOrigin::Query | ErrorOrigin::Store | ErrorOrigin::Interface
+        ),
+        "{context} should keep query, store, or interface origin metadata, got {:?}",
         err.origin(),
     );
 
@@ -293,9 +318,16 @@ fn assert_ddl_rejection_error(err: &Error, context: &str) {
             ),
             "{context} should preserve compact schema DDL admission detail",
         ),
+        DiagnosticCode::QueryUnsupportedSqlFeature => assert!(
+            matches!(
+                err.detail(),
+                Some(DiagnosticDetail::UnsupportedSqlFeature { .. })
+            ),
+            "{context} should preserve compact unsupported SQL feature detail",
+        ),
         DiagnosticCode::RuntimeUnsupported => {}
         other => panic!(
-            "{context} should reject as compact DDL admission or unsupported runtime, got {other:?}"
+            "{context} should reject as compact DDL admission, unsupported SQL feature, or unsupported runtime, got {other:?}"
         ),
     }
 }
@@ -2684,8 +2716,9 @@ fn sql_canister_query_endpoint_rejects_mutation_sql() {
     )
     .expect_err("query(sql) must reject mutation statements");
 
-    assert_runtime_unsupported_query_error(
+    assert_query_sql_surface_mismatch_error(
         &err,
+        SqlSurfaceMismatchCode::QueryRejectsDelete,
         "wrong-lane SQL should keep query-owned origin metadata",
     );
 }
