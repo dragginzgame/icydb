@@ -10,28 +10,31 @@ use icydb::diagnostic::{
 
 /// Render one compact public IcyDB error for CLI output.
 pub(crate) fn render_error(err: &icydb::Error) -> String {
-    let detail = err
+    let diagnostic = err.diagnostic();
+    let code = diagnostic.code();
+    let detail = diagnostic
         .detail()
-        .map_or_else(|| code_text(err.code()).to_string(), diagnostic_detail_text);
+        .copied()
+        .map_or_else(|| code_text(code).to_string(), diagnostic_detail_text);
 
-    format!("{}: {detail}", code_label(err.code()))
+    format!("{}: {detail}", code_label(code))
 }
 
-fn diagnostic_detail_text(detail: &DiagnosticDetail) -> String {
+fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
     match detail {
-        DiagnosticDetail::QueryKind { kind } => query_kind_text(*kind).to_string(),
-        DiagnosticDetail::RuntimeKind { kind } => runtime_kind_text(*kind).to_string(),
+        DiagnosticDetail::QueryKind { kind } => query_kind_text(kind).to_string(),
+        DiagnosticDetail::RuntimeKind { kind } => runtime_kind_text(kind).to_string(),
         DiagnosticDetail::RuntimeBoundary { boundary } => {
-            runtime_boundary_text(*boundary).to_string()
+            runtime_boundary_text(boundary).to_string()
         }
         DiagnosticDetail::SchemaDdlAdmission { reason } => {
-            format!("SQL DDL admission rejected: {}", schema_ddl_text(*reason))
+            format!("SQL DDL admission rejected: {}", schema_ddl_text(reason))
         }
         DiagnosticDetail::UnsupportedSqlFeature { feature } => {
-            format!("unsupported SQL feature: {}", sql_feature_text(*feature))
+            format!("unsupported SQL feature: {}", sql_feature_text(feature))
         }
         DiagnosticDetail::SqlSurfaceMismatch { mismatch } => {
-            sql_surface_mismatch_text(*mismatch).to_string()
+            sql_surface_mismatch_text(mismatch).to_string()
         }
     }
 }

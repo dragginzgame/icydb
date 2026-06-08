@@ -131,14 +131,15 @@ pub mod diagnostic {
     //! Compact diagnostic identity for CLI and canister callers.
 
     pub use icydb_diagnostic_code::{
-        Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorOrigin, QueryErrorKind,
-        RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode,
-        SqlSurfaceMismatchCode,
+        Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
+        QueryErrorKind, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
+        SqlFeatureCode, SqlSurfaceMismatchCode,
     };
 }
 mod error;
 pub mod traits;
 pub use error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind};
+pub use icydb_diagnostic_code::ErrorCode;
 
 /// Generic create-input alias for one entity type.
 pub type Create<E> = <E as icydb_core::traits::EntityCreateType>::Create;

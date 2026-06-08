@@ -1,15 +1,12 @@
 use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
-    Error, ErrorOrigin,
+    Error, ErrorCode, ErrorOrigin,
     db::{
         EntitySchemaDescription,
         sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
     },
-    diagnostic::{
-        DiagnosticCode, DiagnosticDetail, RuntimeBoundaryCode, SqlFeatureCode,
-        SqlSurfaceMismatchCode,
-    },
+    diagnostic::DiagnosticCode,
 };
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::Deserialize;
@@ -271,7 +268,7 @@ fn assert_rename_column_index_visibility(indexes: &[String]) {
 fn assert_runtime_unsupported_query_error(err: &Error, context: &str) {
     assert_eq!(
         err.code(),
-        DiagnosticCode::RuntimeUnsupported,
+        ErrorCode::RUNTIME_UNSUPPORTED,
         "{context} should stay an unsupported runtime error at the canister boundary",
     );
     assert_eq!(
@@ -281,13 +278,9 @@ fn assert_runtime_unsupported_query_error(err: &Error, context: &str) {
     );
 }
 
-fn assert_query_sql_surface_mismatch_error(
-    err: &Error,
-    expected: SqlSurfaceMismatchCode,
-    context: &str,
-) {
+fn assert_query_sql_surface_mismatch_error(err: &Error, expected: ErrorCode, context: &str) {
     assert_eq!(
-        err.code(),
+        err.diagnostic_code(),
         DiagnosticCode::QuerySqlSurfaceMismatch,
         "{context} should stay at the compact SQL surface mismatch boundary",
     );
@@ -297,9 +290,9 @@ fn assert_query_sql_surface_mismatch_error(
         "{context} should keep query-owned origin metadata",
     );
     assert_eq!(
-        err.detail(),
-        Some(&DiagnosticDetail::SqlSurfaceMismatch { mismatch: expected }),
-        "{context} should preserve the compact SQL surface mismatch detail",
+        err.code(),
+        expected,
+        "{context} should preserve the numeric SQL surface mismatch leaf code",
     );
 }
 
@@ -313,34 +306,25 @@ fn assert_ddl_rejection_error(err: &Error, context: &str) {
         err.origin(),
     );
 
-    match err.code() {
+    match err.diagnostic_code() {
         DiagnosticCode::SchemaDdlAdmission => assert!(
-            matches!(
-                err.detail(),
-                Some(DiagnosticDetail::SchemaDdlAdmission { .. })
-            ),
-            "{context} should preserve compact schema DDL admission detail",
+            err.code().raw() >= ErrorCode::SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION.raw()
+                && err.code().raw() <= ErrorCode::SCHEMA_DDL_PUBLICATION_RACE_LOST.raw(),
+            "{context} should preserve a numeric schema DDL admission leaf code",
         ),
         DiagnosticCode::QueryUnsupportedSqlFeature => assert!(
-            matches!(
-                err.detail(),
-                Some(DiagnosticDetail::UnsupportedSqlFeature { .. })
-            ),
-            "{context} should preserve compact unsupported SQL feature detail",
+            err.code().raw() >= ErrorCode::SQL_FEATURE_AGGREGATE_FILTER_CLAUSE.raw()
+                && err.code().raw() <= ErrorCode::SQL_FEATURE_WITH.raw(),
+            "{context} should preserve a numeric unsupported SQL feature leaf code",
         ),
-        DiagnosticCode::RuntimeUnsupported if err.origin() == ErrorOrigin::Interface => {
-            assert!(
-                matches!(
-                    err.detail(),
-                    Some(DiagnosticDetail::RuntimeBoundary {
-                        boundary: RuntimeBoundaryCode::SqlDdlTargetRequired
-                            | RuntimeBoundaryCode::SqlDdlEntityNotConfigured
-                    })
-                ),
-                "{context} should preserve compact generated DDL boundary detail, got {:?}",
-                err.detail(),
-            );
-        }
+        DiagnosticCode::RuntimeUnsupported if err.origin() == ErrorOrigin::Interface => assert!(
+            matches!(
+                err.code(),
+                ErrorCode::RUNTIME_BOUNDARY_SQL_DDL_TARGET_REQUIRED
+                    | ErrorCode::RUNTIME_BOUNDARY_SQL_DDL_ENTITY_NOT_CONFIGURED
+            ),
+            "{context} should preserve a numeric generated DDL boundary leaf code",
+        ),
         DiagnosticCode::RuntimeUnsupported => {}
         other => panic!(
             "{context} should reject as compact DDL admission, unsupported SQL feature, or unsupported runtime, got {other:?}"
@@ -348,18 +332,18 @@ fn assert_ddl_rejection_error(err: &Error, context: &str) {
     }
 }
 
-fn assert_numeric_query_error(err: Error, expected_code: DiagnosticCode, context: &str) {
+fn assert_numeric_query_error(err: Error, expected_code: ErrorCode, context: &str) {
     assert!(
         matches!(
             expected_code,
-            DiagnosticCode::QueryNumericOverflow | DiagnosticCode::QueryNumericNotRepresentable
+            ErrorCode::QUERY_NUMERIC_OVERFLOW | ErrorCode::QUERY_NUMERIC_NOT_REPRESENTABLE
         ),
         "numeric query assertions must use numeric diagnostic codes",
     );
     assert_eq!(
         err.code(),
         expected_code,
-        "{context} should preserve numeric compact diagnostic detail",
+        "{context} should preserve numeric compact diagnostic code",
     );
     assert_eq!(
         err.origin(),
@@ -2435,7 +2419,7 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_overflow_errors() {
         let err = query_numeric_types(&fixture, sql)
             .expect_err("overflowing mixed numeric SQL should fail");
 
-        assert_numeric_query_error(err, DiagnosticCode::QueryNumericOverflow, sql);
+        assert_numeric_query_error(err, ErrorCode::QUERY_NUMERIC_OVERFLOW, sql);
     }
 }
 
@@ -2461,7 +2445,7 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_not_representable_errors()
         let err = query_numeric_types(&fixture, sql)
             .expect_err("non-representable mixed numeric SQL should fail");
 
-        assert_numeric_query_error(err, DiagnosticCode::QueryNumericNotRepresentable, sql);
+        assert_numeric_query_error(err, ErrorCode::QUERY_NUMERIC_NOT_REPRESENTABLE, sql);
     }
 }
 
@@ -2703,7 +2687,7 @@ fn sql_canister_query_endpoint_rejects_show_tables_alias() {
     let err = query_sql(&fixture, "SHOW TABLES").expect_err("SHOW TABLES should reject");
 
     assert_eq!(
-        err.code(),
+        err.diagnostic_code(),
         DiagnosticCode::QueryUnsupportedSqlFeature,
         "SHOW TABLES should remain outside the current SQL catalog vocabulary",
     );
@@ -2713,11 +2697,9 @@ fn sql_canister_query_endpoint_rejects_show_tables_alias() {
         "SHOW TABLES should keep query-owned origin metadata",
     );
     assert_eq!(
-        err.detail(),
-        Some(&DiagnosticDetail::UnsupportedSqlFeature {
-            feature: SqlFeatureCode::ShowUnsupportedCommand,
-        }),
-        "SHOW TABLES should preserve the compact unsupported-feature detail",
+        err.code(),
+        ErrorCode::SQL_FEATURE_SHOW_UNSUPPORTED_COMMAND,
+        "SHOW TABLES should preserve the numeric unsupported-feature leaf code",
     );
 }
 
@@ -2734,7 +2716,7 @@ fn sql_canister_query_endpoint_rejects_mutation_sql() {
 
     assert_query_sql_surface_mismatch_error(
         &err,
-        SqlSurfaceMismatchCode::QueryRejectsDelete,
+        ErrorCode::SQL_SURFACE_QUERY_REJECTS_DELETE,
         "wrong-lane SQL should keep query-owned origin metadata",
     );
 }

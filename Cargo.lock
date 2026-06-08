@@ -1277,10 +1277,6 @@ dependencies = [
 [[package]]
 name = "icydb-diagnostic-code"
 version = "0.180.3"
-dependencies = [
- "candid",
- "serde",
-]
 
 [[package]]
 name = "icydb-primitives"

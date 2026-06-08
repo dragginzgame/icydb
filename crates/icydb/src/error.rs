@@ -13,10 +13,9 @@ use std::fmt;
 #[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
 #[derive(CandidType, Debug, Deserialize)]
 pub struct Error {
-    code: icydb_diagnostic_code::DiagnosticCode,
-    class: icydb_diagnostic_code::ErrorClass,
-    origin: ErrorOrigin,
-    detail: Option<icydb_diagnostic_code::DiagnosticDetail>,
+    code: u16,
+    class: u8,
+    origin: u8,
 }
 
 impl Error {
@@ -26,11 +25,19 @@ impl Error {
         code: icydb_diagnostic_code::DiagnosticCode,
         origin: ErrorOrigin,
     ) -> Self {
+        Self::from_error_code(code.error_code(), origin)
+    }
+
+    /// Build a public error from one numeric wire code and origin.
+    #[must_use]
+    pub const fn from_error_code(
+        code: icydb_diagnostic_code::ErrorCode,
+        origin: ErrorOrigin,
+    ) -> Self {
         Self {
-            code,
-            class: code.class(),
-            origin,
-            detail: None,
+            code: code.raw(),
+            class: error_class_wire_code(code.class()),
+            origin: origin.wire_code(),
         }
     }
 
@@ -41,13 +48,10 @@ impl Error {
     #[must_use]
     pub const fn from_kind(kind: ErrorKind, origin: ErrorOrigin) -> Self {
         let code = kind.diagnostic_code();
+        let error_code =
+            icydb_diagnostic_code::ErrorCode::from_parts(code, Some(kind.diagnostic_detail()));
 
-        Self {
-            code,
-            class: code.class(),
-            origin,
-            detail: Some(kind.diagnostic_detail()),
-        }
+        Self::from_error_code(error_code, origin)
     }
 
     /// Build a compact public runtime-boundary error.
@@ -56,25 +60,18 @@ impl Error {
         boundary: icydb_diagnostic_code::RuntimeBoundaryCode,
         origin: ErrorOrigin,
     ) -> Self {
-        let code = icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported;
+        let error_code = icydb_diagnostic_code::ErrorCode::from_parts(
+            icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+            Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }),
+        );
 
-        Self {
-            code,
-            class: code.class(),
-            origin,
-            detail: Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }),
-        }
+        Self::from_error_code(error_code, origin)
     }
 
     /// Build a compact public error from a full diagnostic payload.
     #[must_use]
     pub fn from_diagnostic(diagnostic: icydb_diagnostic_code::Diagnostic) -> Self {
-        Self {
-            code: diagnostic.code(),
-            class: diagnostic.class(),
-            origin: diagnostic.origin().into(),
-            detail: diagnostic.detail().cloned(),
-        }
+        Self::from_error_code(diagnostic.error_code(), diagnostic.origin().into())
     }
 
     const fn from_response_error(err: ResponseError) -> Self {
@@ -93,38 +90,42 @@ impl Error {
 
     /// Return the compact diagnostic code.
     #[must_use]
-    pub const fn code(&self) -> icydb_diagnostic_code::DiagnosticCode {
-        self.code
+    pub const fn code(&self) -> icydb_diagnostic_code::ErrorCode {
+        icydb_diagnostic_code::ErrorCode::from_raw(self.code)
     }
 
     /// Return the broad compact diagnostic class.
     #[must_use]
     pub const fn class(&self) -> icydb_diagnostic_code::ErrorClass {
-        self.class
+        match self.class {
+            1 => icydb_diagnostic_code::ErrorClass::Query,
+            2 => icydb_diagnostic_code::ErrorClass::Corruption,
+            3 => icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat,
+            4 => icydb_diagnostic_code::ErrorClass::NotFound,
+            5 => icydb_diagnostic_code::ErrorClass::Internal,
+            6 => icydb_diagnostic_code::ErrorClass::Conflict,
+            7 => icydb_diagnostic_code::ErrorClass::Unsupported,
+            8 => icydb_diagnostic_code::ErrorClass::InvariantViolation,
+            _ => self.code().class(),
+        }
     }
 
     /// Return the diagnostic origin.
     #[must_use]
     pub const fn origin(&self) -> ErrorOrigin {
-        self.origin
-    }
-
-    /// Return compact structured diagnostic detail, when available.
-    #[must_use]
-    pub const fn detail(&self) -> Option<&icydb_diagnostic_code::DiagnosticDetail> {
-        self.detail.as_ref()
+        ErrorOrigin::from_wire_code(self.origin)
     }
 
     /// Return compact diagnostic identity for this error.
     #[must_use]
     pub fn diagnostic(&self) -> icydb_diagnostic_code::Diagnostic {
-        icydb_diagnostic_code::Diagnostic::new(self.code, self.origin.into(), self.detail.clone())
+        self.code().diagnostic(self.origin().into())
     }
 
     /// Return the compact diagnostic code for this error.
     #[must_use]
     pub const fn diagnostic_code(&self) -> icydb_diagnostic_code::DiagnosticCode {
-        self.code
+        self.code().diagnostic_code()
     }
 }
 
@@ -148,11 +149,24 @@ impl From<ResponseError> for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.code)
+        write!(f, "E{}", self.code)
     }
 }
 
 impl std::error::Error for Error {}
+
+const fn error_class_wire_code(class: icydb_diagnostic_code::ErrorClass) -> u8 {
+    match class {
+        icydb_diagnostic_code::ErrorClass::Query => 1,
+        icydb_diagnostic_code::ErrorClass::Corruption => 2,
+        icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat => 3,
+        icydb_diagnostic_code::ErrorClass::NotFound => 4,
+        icydb_diagnostic_code::ErrorClass::Internal => 5,
+        icydb_diagnostic_code::ErrorClass::Conflict => 6,
+        icydb_diagnostic_code::ErrorClass::Unsupported => 7,
+        icydb_diagnostic_code::ErrorClass::InvariantViolation => 8,
+    }
+}
 
 #[cfg_attr(doc, doc = "ErrorKind\n\nPublic error category.")]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -305,6 +319,42 @@ pub enum ErrorOrigin {
     Runtime,
     Serialize,
     Store,
+}
+
+impl ErrorOrigin {
+    const fn wire_code(self) -> u8 {
+        match self {
+            Self::Cursor => 1,
+            Self::Executor => 2,
+            Self::Identity => 3,
+            Self::Index => 4,
+            Self::Interface => 5,
+            Self::Planner => 6,
+            Self::Query => 7,
+            Self::Recovery => 8,
+            Self::Response => 9,
+            Self::Runtime => 10,
+            Self::Serialize => 11,
+            Self::Store => 12,
+        }
+    }
+
+    const fn from_wire_code(code: u8) -> Self {
+        match code {
+            1 => Self::Cursor,
+            2 => Self::Executor,
+            3 => Self::Identity,
+            4 => Self::Index,
+            5 => Self::Interface,
+            6 => Self::Planner,
+            7 => Self::Query,
+            8 => Self::Recovery,
+            9 => Self::Response,
+            11 => Self::Serialize,
+            12 => Self::Store,
+            _ => Self::Runtime,
+        }
+    }
 }
 
 impl From<CoreErrorOrigin> for ErrorOrigin {
