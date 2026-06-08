@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.4` hard-cuts canister error wire output to numeric-only `Error`
+  records, removes rich diagnostic Candid exposure, and verifies the wasm
+  footprint reduction with a refreshed audit.
+
 - `0.180.3` hardens CI and developer bootstrap paths by making actionlint and
   rustup downloads file-backed and retryable, while adding a mutation
   atomicity invariant against async/re-entrant mutation paths.
