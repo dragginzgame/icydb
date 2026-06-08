@@ -5,9 +5,9 @@
 
 use crate::{
     db::{
-        executor::aggregate::numeric::add_numeric_decimal,
-        numeric::{NumericEvalError, average_decimal_terms_checked},
+        executor::aggregate::numeric::add_numeric_decimal, numeric::average_decimal_terms_checked,
     },
+    error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     types::Decimal,
 };
 
@@ -18,7 +18,15 @@ fn aggregate_numeric_addition_reports_checked_overflow() {
 
     let err = add_numeric_decimal(left, right).expect_err("overflow should fail checked addition");
 
-    assert_eq!(err.message(), NumericEvalError::Overflow.to_string());
+    assert_eq!(err.class(), ErrorClass::Unsupported);
+    assert_eq!(err.origin(), ErrorOrigin::Query);
+    assert!(
+        matches!(
+            err.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::NumericOverflow))
+        ),
+        "numeric overflow should preserve structured query error detail"
+    );
 }
 
 #[test]
