@@ -115,9 +115,9 @@ were narrowed out of the production facade.
 | public/re-export scan | pass |
 | stale-signal scan | pass; no `allow(dead_code)`, stale compatibility, fallback, shim, deprecated, or generated-model reconstruction signal in target module |
 | consumer scan | pass; direct production consumers and broad deterministic-fixture counts inspected |
-| focused validation | pass; core compile, facade compile, SQL-feature ULID test filter, SQL-feature diagnostics fixture test, SQL-feature direct persisted-row codec tests, and SQL-feature core-library clippy completed after cleanup |
+| focused validation | pass; core compile, facade compile, SQL-feature ULID test filter, SQL-feature diagnostics fixture test, SQL-feature direct persisted-row codec tests, downstream macro-test library target, and SQL-feature core-library clippy completed after cleanup |
 | no-feature lib-test filter | blocked; unrelated SQL-gated test/support imports currently keep `cargo test -p icydb-core types::ulid --lib` from compiling without `--features sql` |
 
 ## Follow-Up Actions
 
-None from this pass. Done in the cleanup slice: `Ulid::from_timestamp_and_randomness` is private, `Ulid::from_u128` is test-only crate-local fixture support, public parse failure is `UlidParseError`, and private generation failure is `UlidGenerationError`.
+None from this pass. Done in the cleanup slice: `Ulid::from_timestamp_and_randomness` is private, downstream macro-test fixtures use a local deterministic `Ulid::from_bytes` helper, `Ulid::from_u128` is test-only crate-local fixture support, public parse failure is `UlidParseError`, and private generation failure is `UlidGenerationError`.

@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_simple` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `16abe9f7b`
+- code snapshot identifier: `115184a8a`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,16 +24,16 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,623,214 | 2,551,067 | -72,147 |
-| icp-built deterministic `.wasm.gz` | 843,777 | 820,518 | -23,259 |
-| icp-shrunk `.wasm` | 2,442,434 | 2,376,211 | -66,223 |
-| icp-shrunk `.wasm.gz` | 801,233 | 779,078 | -22,155 |
+| icp-built `.wasm` | 2,623,214 | 2,551,082 | -72,132 |
+| icp-built deterministic `.wasm.gz` | 843,777 | 819,561 | -24,216 |
+| icp-shrunk `.wasm` | 2,442,434 | 2,376,231 | -66,203 |
+| icp-shrunk `.wasm.gz` | 801,233 | 779,048 | -22,185 |
 
 ## Structural Snapshot (ic-wasm)
 
 | Metric | icp-built | icp-shrunk |
 | --- | ---: | ---: |
-| Function count | 5,704 | 5,704 |
+| Function count | 5,703 | 5,703 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
 | Data section bytes | 182,492 | 182,492 |
@@ -58,16 +58,16 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query query_one_simple_fluent" | 635,112 | 26.73% |
-| 2 | code[5683] | 635,070 | 26.73% |
-| 3 | code[13] | 635,061 | 26.73% |
+| 1 | export "canister_query query_one_simple_fluent" | 635,186 | 26.73% |
+| 2 | code[5682] | 635,144 | 26.73% |
+| 3 | code[13] | 635,135 | 26.73% |
 | 4 | code[10] | 368,119 | 15.49% |
 | 5 | code[393] | 213,550 | 8.99% |
 | 6 | code[24] | 212,407 | 8.94% |
 | 7 | code[23] | 192,058 | 8.08% |
 | 8 | data[0] | 182,226 | 7.67% |
 | 9 | code[31] | 180,117 | 7.58% |
-| 10 | table[0] | 177,007 | 7.45% |
+| 10 | table[0] | 177,041 | 7.45% |
 
 ## Artifacts
 

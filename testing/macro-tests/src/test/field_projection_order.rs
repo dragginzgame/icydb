@@ -36,7 +36,7 @@ mod tests {
     #[test]
     fn field_projection_slot_order_matches_entity_model_field_order() {
         let entity = ProjectionOrderEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(100, 1),
+            id: test_ulid(100, 1),
             title: "alpha".to_string(),
             score: 42,
             nickname: Some("nick".to_string()),
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn field_projection_optional_none_is_null_in_declared_slot() {
         let entity = ProjectionOrderEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(101, 1),
+            id: test_ulid(101, 1),
             title: "beta".to_string(),
             score: 7,
             nickname: None,

@@ -7,6 +7,7 @@ pub use icydb_testing_test_fixtures::macro_test::identity_borrowing::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_ulid;
     use icydb::{
         traits::EntityKey,
         types::{Id, Ulid},
@@ -52,7 +53,7 @@ mod tests {
             <UserProjects as icydb::__macro::EntityValue>::id;
 
         let row = UserProjects {
-            user_id: Ulid::from_timestamp_and_randomness(7, 1),
+            user_id: test_ulid(7, 1),
             created_at: icydb::types::Timestamp::default(),
             updated_at: icydb::types::Timestamp::default(),
         };

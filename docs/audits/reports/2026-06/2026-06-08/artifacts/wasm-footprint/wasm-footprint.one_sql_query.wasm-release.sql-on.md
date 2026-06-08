@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_sql_query` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `16abe9f7b`
+- code snapshot identifier: `115184a8a`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,10 +24,10 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 3,170,336 | 3,129,414 | -40,922 |
-| icp-built deterministic `.wasm.gz` | 1,071,475 | 1,053,326 | -18,149 |
-| icp-shrunk `.wasm` | 2,955,294 | 2,916,941 | -38,353 |
-| icp-shrunk `.wasm.gz` | 1,023,008 | 1,006,786 | -16,222 |
+| icp-built `.wasm` | 3,170,336 | 3,129,276 | -41,060 |
+| icp-built deterministic `.wasm.gz` | 1,071,475 | 1,052,868 | -18,607 |
+| icp-shrunk `.wasm` | 2,955,294 | 2,916,794 | -38,500 |
+| icp-shrunk `.wasm.gz` | 1,023,008 | 1,006,633 | -16,375 |
 
 ## Structural Snapshot (ic-wasm)
 
@@ -36,20 +36,20 @@ PASS=5, PARTIAL=0, FAIL=0
 | Function count | 6,866 | 6,866 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 240,044 | 240,044 |
+| Data section bytes | 239,900 | 239,900 |
 | Exported methods | 1 | 1 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 239,778 | 8.22% |
+| 1 | data[0] | 239,634 | 8.22% |
 | 2 | code[0] | 33,635 | 1.15% |
 | 3 | code[1] | 31,925 | 1.09% |
 | 4 | code[2] | 30,722 | 1.05% |
 | 5 | code[3] | 27,594 | 0.95% |
 | 6 | code[4] | 24,676 | 0.85% |
-| 7 | code[5] | 20,123 | 0.69% |
+| 7 | code[5] | 20,113 | 0.69% |
 | 8 | code[6] | 19,154 | 0.66% |
 | 9 | code[7] | 18,570 | 0.64% |
 | 10 | code[8] | 17,160 | 0.59% |
@@ -58,12 +58,12 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query query_one_sql" | 1,120,015 | 38.40% |
-| 2 | code[6840] | 1,119,983 | 38.40% |
-| 3 | code[5] | 1,118,540 | 38.35% |
+| 1 | export "canister_query query_one_sql" | 1,120,061 | 38.40% |
+| 2 | code[6840] | 1,120,029 | 38.40% |
+| 3 | code[5] | 1,118,586 | 38.35% |
 | 4 | code[15] | 368,111 | 12.62% |
 | 5 | code[8] | 257,798 | 8.84% |
-| 6 | data[0] | 239,778 | 8.22% |
+| 6 | data[0] | 239,634 | 8.22% |
 | 7 | code[484] | 213,550 | 7.32% |
 | 8 | code[32] | 212,407 | 7.28% |
 | 9 | code[4] | 196,024 | 6.72% |

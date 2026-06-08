@@ -13,7 +13,7 @@ Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
 - `0.180.13` narrows ULID/Subaccount scalar helper surfaces, compacts
   structured query and DDL diagnostic strings, and keeps storage/key byte paths
-  unchanged.
+  unchanged while refreshing the comparable wasm-footprint audit.
 
 - `0.180.12` moves accepted-catalog `ORDER BY`, SQL lowering, and duplicate
   SQL DDL execution-unsupported failures onto compact diagnostic leaf codes,

@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn entity_field_projection_preserves_nested_record_payload() {
         let entity = StructuredProfileEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(700, 1),
+            id: test_ulid(700, 1),
             profile: StructuredProfileHarness::default(),
             opt_profile: Some(StructuredProfileHarness::default()),
             created_at: icydb::types::Timestamp::default(),
@@ -634,7 +634,7 @@ mod tests {
         assert_eq!(entity.get_value_by_index(2), Some(expected_profile_value()));
 
         let none_entity = StructuredProfileEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(701, 1),
+            id: test_ulid(701, 1),
             profile: StructuredProfileHarness::default(),
             opt_profile: None,
             created_at: icydb::types::Timestamp::default(),
@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn generated_persisted_row_roundtrip_preserves_structured_field_matrix() {
         let entity = StructuredPersistenceMatrixEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(710, 1),
+            id: test_ulid(710, 1),
             profile: profile_with("Ada", 7),
             opt_profile: Some(profile_with("Grace", 9)),
             nested_profile: nested_profile_with("Primary", "Paris", 75_001),
@@ -714,7 +714,7 @@ mod tests {
     #[test]
     fn generated_persisted_row_distinguishes_required_record_from_optional_null() {
         let entity = StructuredPersistenceMatrixEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(711, 1),
+            id: test_ulid(711, 1),
             profile: profile_with("Required", 13),
             opt_profile: None,
             nested_profile: nested_profile_with("Nested", "Berlin", 10_115),
@@ -753,7 +753,7 @@ mod tests {
     #[test]
     fn generated_persisted_row_projection_preserves_many_record_field_shape() {
         let entity = StructuredPersistenceMatrixEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(712, 1),
+            id: test_ulid(712, 1),
             profile: profile_with("Primary", 5),
             opt_profile: Some(profile_with("Optional", 8)),
             nested_profile: nested_profile_with("Nested", "Rome", 10042),
@@ -777,16 +777,10 @@ mod tests {
     #[test]
     fn relation_backed_ulid_record_many_roundtrips_through_generated_persisted_row() {
         let entity = StructuredSelectedPartEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(720, 1),
+            id: test_ulid(720, 1),
             selected_parts: vec![
-                selected_part_with(
-                    Ulid::from_timestamp_and_randomness(721, 1),
-                    Ulid::from_timestamp_and_randomness(721, 2),
-                ),
-                selected_part_with(
-                    Ulid::from_timestamp_and_randomness(722, 1),
-                    Ulid::from_timestamp_and_randomness(722, 2),
-                ),
+                selected_part_with(test_ulid(721, 1), test_ulid(721, 2)),
+                selected_part_with(test_ulid(722, 1), test_ulid(722, 2)),
             ],
             created_at: icydb::types::Timestamp::default(),
             updated_at: icydb::types::Timestamp::default(),
@@ -811,10 +805,7 @@ mod tests {
 
     #[test]
     fn relation_backed_ulid_record_field_value_roundtrips_as_value_ulids() {
-        let selected = selected_part_with(
-            Ulid::from_timestamp_and_randomness(730, 1),
-            Ulid::from_timestamp_and_randomness(730, 2),
-        );
+        let selected = selected_part_with(test_ulid(730, 1), test_ulid(730, 2));
         let value = runtime_value_to_value(&selected);
 
         assert_eq!(value, selected_part_value(&selected));
@@ -828,22 +819,16 @@ mod tests {
     fn record_with_optional_ulid_roundtrips_through_generated_persisted_row() {
         let cases = [
             asset_selection_with(vec![], None),
-            asset_selection_with(vec![Ulid::from_timestamp_and_randomness(740, 1)], None),
+            asset_selection_with(vec![test_ulid(740, 1)], None),
             asset_selection_with(
-                vec![
-                    Ulid::from_timestamp_and_randomness(741, 1),
-                    Ulid::from_timestamp_and_randomness(741, 2),
-                ],
-                Some(Ulid::from_timestamp_and_randomness(741, 2)),
+                vec![test_ulid(741, 1), test_ulid(741, 2)],
+                Some(test_ulid(741, 2)),
             ),
         ];
 
         for (case_index, asset_selection) in cases.into_iter().enumerate() {
             let entity = StructuredAssetSelectionEntityHarness {
-                id: Ulid::from_timestamp_and_randomness(
-                    740,
-                    u128::try_from(case_index + 1).expect("case id fits"),
-                ),
+                id: test_ulid(740, u128::try_from(case_index + 1).expect("case id fits")),
                 asset_selection,
                 created_at: icydb::types::Timestamp::default(),
                 updated_at: icydb::types::Timestamp::default(),
@@ -962,7 +947,7 @@ mod tests {
     #[test]
     fn generated_persisted_row_materializes_default_and_optional_missing_slots() {
         let entity = StructuredDefaultedEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(713, 1),
+            id: test_ulid(713, 1),
             nickname: "custom".to_string(),
             note: Some("memo".to_string()),
             created_at: icydb::types::Timestamp::default(),
@@ -984,7 +969,7 @@ mod tests {
     #[test]
     fn generated_persisted_row_sparse_defaults_converge_with_dense_slot_emission() {
         let sparse_source = StructuredDefaultedEntityHarness {
-            id: Ulid::from_timestamp_and_randomness(714, 1),
+            id: test_ulid(714, 1),
             nickname: "custom".to_string(),
             note: Some("memo".to_string()),
             created_at: icydb::types::Timestamp::default(),

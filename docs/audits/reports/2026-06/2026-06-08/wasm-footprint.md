@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `minimal, one_simple, one_sql_query, one_fluent_query, one_complex, ten_simple, ten_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `16abe9f7b`
+- code snapshot identifier: `115184a8a`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,13 +24,13 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Canister | Baseline Status | Previous shrunk `.wasm` | Current shrunk `.wasm` | Previous shrunk `.wasm.gz` | Current shrunk `.wasm.gz` | Detail Report |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| `minimal` | PASS | 339,468 | 287,347 | 125,278 | 110,603 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.minimal.wasm-release.sql-on.md` |
-| `one_simple` | PASS | 2,442,434 | 2,376,211 | 801,233 | 779,078 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_simple.wasm-release.sql-on.md` |
-| `one_sql_query` | PASS | 2,955,294 | 2,916,941 | 1,023,008 | 1,006,786 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_sql_query.wasm-release.sql-on.md` |
-| `one_fluent_query` | PASS | 2,389,137 | 2,358,337 | 786,522 | 772,762 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_fluent_query.wasm-release.sql-on.md` |
-| `one_complex` | PASS | 2,467,165 | 2,398,629 | 809,131 | 786,287 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_complex.wasm-release.sql-on.md` |
-| `ten_simple` | PASS | 2,467,798 | 2,399,750 | 803,888 | 781,877 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.ten_simple.wasm-release.sql-on.md` |
-| `ten_complex` | PASS | 2,492,449 | 2,422,088 | 812,186 | 788,856 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.ten_complex.wasm-release.sql-on.md` |
+| `minimal` | PASS | 339,468 | 287,347 | 125,278 | 110,600 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.minimal.wasm-release.sql-on.md` |
+| `one_simple` | PASS | 2,442,434 | 2,376,231 | 801,233 | 779,048 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_simple.wasm-release.sql-on.md` |
+| `one_sql_query` | PASS | 2,955,294 | 2,916,794 | 1,023,008 | 1,006,633 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_sql_query.wasm-release.sql-on.md` |
+| `one_fluent_query` | PASS | 2,389,137 | 2,358,229 | 786,522 | 772,595 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_fluent_query.wasm-release.sql-on.md` |
+| `one_complex` | PASS | 2,467,165 | 2,398,649 | 809,131 | 786,254 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.one_complex.wasm-release.sql-on.md` |
+| `ten_simple` | PASS | 2,467,798 | 2,399,770 | 803,888 | 781,843 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.ten_simple.wasm-release.sql-on.md` |
+| `ten_complex` | PASS | 2,492,449 | 2,422,108 | 812,186 | 788,861 | `docs/audits/reports/2026-06/2026-06-08/artifacts/wasm-footprint/wasm-footprint.ten_complex.wasm-release.sql-on.md` |
 
 ## Generated Endpoint Surface
 
