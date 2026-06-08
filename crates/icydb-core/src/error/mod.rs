@@ -1488,6 +1488,21 @@ impl InternalError {
         }
     }
 
+    /// Construct a query-origin unsupported SQL write boundary error.
+    #[cfg(feature = "sql")]
+    pub(crate) fn query_sql_write_boundary(
+        boundary: diagnostic_code::SqlWriteBoundaryCode,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: "SQL write boundary rejected".to_string(),
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlWriteBoundary {
+                boundary,
+            })),
+        }
+    }
+
     pub fn store_not_found(key: impl Into<String>) -> Self {
         let key = key.into();
 
@@ -1659,6 +1674,11 @@ pub enum QueryErrorDetail {
         mismatch: diagnostic_code::SqlSurfaceMismatchCode,
     },
 
+    #[error("SQL write boundary rejected")]
+    SqlWriteBoundary {
+        boundary: diagnostic_code::SqlWriteBoundaryCode,
+    },
+
     #[error("SQL DDL admission rejected")]
     SchemaDdlAdmission { error: SchemaDdlAdmissionError },
 }
@@ -1808,6 +1828,7 @@ impl QueryErrorDetail {
             Self::SqlSurfaceMismatch { .. } => {
                 diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch
             }
+            Self::SqlWriteBoundary { .. } => diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary,
             Self::SchemaDdlAdmission { .. } => diagnostic_code::DiagnosticCode::SchemaDdlAdmission,
         }
     }
@@ -1822,6 +1843,11 @@ impl QueryErrorDetail {
             Self::SqlSurfaceMismatch { mismatch } => {
                 Some(diagnostic_code::DiagnosticDetail::SqlSurfaceMismatch {
                     mismatch: *mismatch,
+                })
+            }
+            Self::SqlWriteBoundary { boundary } => {
+                Some(diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+                    boundary: *boundary,
                 })
             }
             Self::SchemaDdlAdmission { error } => {

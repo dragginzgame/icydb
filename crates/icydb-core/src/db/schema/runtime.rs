@@ -676,16 +676,6 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         self.max_physical_slot_count
     }
 
-    /// Borrow the first accepted primary-key field name carried by this layout.
-    ///
-    /// This first-component helper remains for scalar-only execution paths.
-    /// Composite-aware code must read `primary_key_names`.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn first_primary_key_name(&self) -> &'a str {
-        self.primary_key_names[0]
-    }
-
     /// Borrow accepted primary-key field names in key order.
     #[must_use]
     pub(in crate::db) const fn primary_key_names(&self) -> &[&'a str] {

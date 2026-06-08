@@ -24,6 +24,7 @@ pub enum DiagnosticCode {
     QueryNumericNotRepresentable,
     QueryUnsupportedSqlFeature,
     QuerySqlSurfaceMismatch,
+    QuerySqlWriteBoundary,
     SchemaDdlAdmission,
     StoreNotFound,
     StoreCorruption,
@@ -50,6 +51,7 @@ impl DiagnosticCode {
             Self::RuntimeConflict => ErrorClass::Conflict,
             Self::QueryUnsupportedSqlFeature
             | Self::QuerySqlSurfaceMismatch
+            | Self::QuerySqlWriteBoundary
             | Self::RuntimeUnsupported => ErrorClass::Unsupported,
             Self::StoreInvariantViolation | Self::RuntimeInvariantViolation => {
                 ErrorClass::InvariantViolation
@@ -94,6 +96,7 @@ impl DiagnosticCode {
             | Self::QueryNumericNotRepresentable
             | Self::QueryUnsupportedSqlFeature
             | Self::QuerySqlSurfaceMismatch
+            | Self::QuerySqlWriteBoundary
             | Self::SchemaDdlAdmission => ErrorOrigin::Query,
         }
     }
@@ -114,6 +117,7 @@ impl DiagnosticCode {
             Self::QueryNumericNotRepresentable => ErrorCode::QUERY_NUMERIC_NOT_REPRESENTABLE,
             Self::QueryUnsupportedSqlFeature => ErrorCode::QUERY_UNSUPPORTED_SQL_FEATURE,
             Self::QuerySqlSurfaceMismatch => ErrorCode::QUERY_SQL_SURFACE_MISMATCH,
+            Self::QuerySqlWriteBoundary => ErrorCode::QUERY_SQL_WRITE_BOUNDARY,
             Self::SchemaDdlAdmission => ErrorCode::SCHEMA_DDL_ADMISSION,
             Self::StoreNotFound => ErrorCode::STORE_NOT_FOUND,
             Self::StoreCorruption => ErrorCode::STORE_CORRUPTION,
@@ -347,6 +351,18 @@ impl ErrorCode {
     pub const SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED: Self = Self(129);
     pub const SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED: Self = Self(130);
     pub const SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED: Self = Self(131);
+    pub const QUERY_SQL_WRITE_BOUNDARY: Self = Self(132);
+    pub const SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE: Self = Self(133);
+    pub const SQL_WRITE_PRIMARY_KEY_LITERAL_INCOMPATIBLE: Self = Self(134);
+    pub const SQL_WRITE_MISSING_PRIMARY_KEY: Self = Self(135);
+    pub const SQL_WRITE_MISSING_REQUIRED_FIELDS: Self = Self(136);
+    pub const SQL_WRITE_EXPLICIT_MANAGED_FIELD: Self = Self(137);
+    pub const SQL_WRITE_EXPLICIT_GENERATED_FIELD: Self = Self(138);
+    pub const SQL_WRITE_INSERT_SELECT_REQUIRES_SCALAR: Self = Self(139);
+    pub const SQL_WRITE_INSERT_SELECT_AGGREGATE_PROJECTION: Self = Self(140);
+    pub const SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH: Self = Self(141);
+    pub const SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION: Self = Self(142);
+    pub const SQL_WRITE_INVALID_FIELD_LITERAL: Self = Self(143);
 
     /// Build an error code from its raw public wire value.
     #[must_use]
@@ -376,6 +392,9 @@ impl ErrorCode {
             Some(DiagnosticDetail::SqlSurfaceMismatch { mismatch }) => {
                 Self::from_sql_surface_mismatch(mismatch)
             }
+            Some(DiagnosticDetail::SqlWriteBoundary { boundary }) => {
+                Self::from_sql_write_boundary(boundary)
+            }
             None => code.error_code(),
         }
     }
@@ -397,6 +416,7 @@ impl ErrorCode {
             11 | 37..=99 => DiagnosticCode::QueryUnsupportedSqlFeature,
             12 | 100..=110 => DiagnosticCode::QuerySqlSurfaceMismatch,
             13 | 111..=131 => DiagnosticCode::SchemaDdlAdmission,
+            132..=143 => DiagnosticCode::QuerySqlWriteBoundary,
             14 => DiagnosticCode::StoreNotFound,
             15 => DiagnosticCode::StoreCorruption,
             16 => DiagnosticCode::StoreInvariantViolation,
@@ -426,6 +446,7 @@ impl ErrorCode {
             37..=99 => Self::sql_feature_detail(self.raw()),
             100..=110 => Self::sql_surface_detail(self.raw()),
             111..=131 => Self::schema_ddl_detail(self.raw()),
+            132..=143 => Self::sql_write_boundary_detail(self.raw()),
             _ => None,
         }
     }
@@ -477,6 +498,10 @@ impl ErrorCode {
 
     const fn from_schema_ddl(reason: SchemaDdlAdmissionCode) -> Self {
         Self(Self::SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION.raw() + reason as u16)
+    }
+
+    const fn from_sql_write_boundary(boundary: SqlWriteBoundaryCode) -> Self {
+        Self(Self::SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE.raw() + boundary as u16)
     }
 
     const fn query_kind_detail(raw: u16) -> Option<DiagnosticDetail> {
@@ -704,6 +729,45 @@ impl ErrorCode {
             _ => None,
         }
     }
+
+    const fn sql_write_boundary_detail(raw: u16) -> Option<DiagnosticDetail> {
+        match raw {
+            133 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
+            }),
+            134 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible,
+            }),
+            135 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::MissingPrimaryKey,
+            }),
+            136 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::MissingRequiredFields,
+            }),
+            137 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::ExplicitManagedField,
+            }),
+            138 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::ExplicitGeneratedField,
+            }),
+            139 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::InsertSelectRequiresScalar,
+            }),
+            140 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::InsertSelectAggregateProjection,
+            }),
+            141 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::InsertSelectWidthMismatch,
+            }),
+            142 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::UpdatePrimaryKeyMutation,
+            }),
+            143 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::InvalidFieldLiteral,
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Debug for ErrorCode {
@@ -910,6 +974,28 @@ pub enum SqlSurfaceMismatchCode {
 }
 
 ///
+/// SqlWriteBoundaryCode
+///
+/// Compact SQL write fail-closed boundary identifier.
+///
+
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SqlWriteBoundaryCode {
+    PrimaryKeyLiteralShape,
+    PrimaryKeyLiteralIncompatible,
+    MissingPrimaryKey,
+    MissingRequiredFields,
+    ExplicitManagedField,
+    ExplicitGeneratedField,
+    InsertSelectRequiresScalar,
+    InsertSelectAggregateProjection,
+    InsertSelectWidthMismatch,
+    UpdatePrimaryKeyMutation,
+    InvalidFieldLiteral,
+}
+
+///
 /// SchemaDdlAdmissionCode
 ///
 /// Compact SQL DDL admission rejection reason.
@@ -955,6 +1041,7 @@ pub enum DiagnosticDetail {
     SchemaDdlAdmission { reason: SchemaDdlAdmissionCode },
     UnsupportedSqlFeature { feature: SqlFeatureCode },
     SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode },
+    SqlWriteBoundary { boundary: SqlWriteBoundaryCode },
 }
 
 ///
@@ -1026,7 +1113,7 @@ impl Diagnostic {
 mod tests {
     use super::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode, ErrorOrigin};
 
-    const ORDERED_ERROR_CODES: [ErrorCode; 131] = [
+    const ORDERED_ERROR_CODES: [ErrorCode; 143] = [
         ErrorCode::QUERY_VALIDATE,
         ErrorCode::QUERY_INTENT,
         ErrorCode::QUERY_PLAN,
@@ -1158,6 +1245,18 @@ mod tests {
         ErrorCode::SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED,
         ErrorCode::SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED,
         ErrorCode::SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED,
+        ErrorCode::QUERY_SQL_WRITE_BOUNDARY,
+        ErrorCode::SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE,
+        ErrorCode::SQL_WRITE_PRIMARY_KEY_LITERAL_INCOMPATIBLE,
+        ErrorCode::SQL_WRITE_MISSING_PRIMARY_KEY,
+        ErrorCode::SQL_WRITE_MISSING_REQUIRED_FIELDS,
+        ErrorCode::SQL_WRITE_EXPLICIT_MANAGED_FIELD,
+        ErrorCode::SQL_WRITE_EXPLICIT_GENERATED_FIELD,
+        ErrorCode::SQL_WRITE_INSERT_SELECT_REQUIRES_SCALAR,
+        ErrorCode::SQL_WRITE_INSERT_SELECT_AGGREGATE_PROJECTION,
+        ErrorCode::SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH,
+        ErrorCode::SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION,
+        ErrorCode::SQL_WRITE_INVALID_FIELD_LITERAL,
     ];
 
     #[test]

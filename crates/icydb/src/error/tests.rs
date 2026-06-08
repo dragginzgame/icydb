@@ -168,6 +168,39 @@ fn public_error_runtime_boundary_collapses_detail_to_leaf_code() {
 }
 
 #[test]
+fn public_error_sql_write_boundary_collapses_detail_to_leaf_code() {
+    let diagnostic = icydb_diagnostic_code::Diagnostic::new(
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary,
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        Some(icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+            boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::MissingPrimaryKey,
+        }),
+    );
+    let facade = Error::from_diagnostic(diagnostic);
+
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::ErrorCode::SQL_WRITE_MISSING_PRIMARY_KEY,
+    );
+    assert_eq!(
+        facade.class(),
+        icydb_diagnostic_code::ErrorClass::Unsupported
+    );
+    assert_eq!(facade.origin(), ErrorOrigin::Query);
+    let diagnostic = facade.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary,
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+            boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::MissingPrimaryKey,
+        }),
+    );
+}
+
+#[test]
 fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
     let cases = [
         (CoreErrorClass::Corruption, RuntimeErrorKind::Corruption),

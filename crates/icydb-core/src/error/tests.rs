@@ -197,6 +197,26 @@ fn query_sql_surface_mismatch_exposes_compact_diagnostic_detail() {
 
 #[cfg(feature = "sql")]
 #[test]
+fn query_sql_write_boundary_exposes_compact_diagnostic_detail() {
+    let err = InternalError::query_sql_write_boundary(
+        icydb_diagnostic_code::SqlWriteBoundaryCode::MissingPrimaryKey,
+    );
+    let diagnostic = err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+            boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::MissingPrimaryKey,
+        }),
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
 fn query_schema_ddl_admission_exposes_compact_diagnostic_detail() {
     let err = InternalError::query_schema_ddl_admission(
         SchemaDdlAdmissionError::PublicationRaceLost,

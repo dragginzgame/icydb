@@ -30,6 +30,7 @@ use crate::{
     },
     model::entity::EntityModel,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 /// Prepare one parsed SQL statement for one expected entity route.
 #[inline(never)]
@@ -410,8 +411,8 @@ fn prepare_insert_select_source(
     let statement = prepare_select_statement(statement, expected_entity)?;
 
     if !statement.group_by.is_empty() || !statement.having.is_empty() {
-        return Err(QueryError::unsupported_query(
-            "SQL INSERT SELECT requires scalar SELECT source in this release",
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::InsertSelectRequiresScalar,
         )
         .into());
     }
@@ -419,8 +420,8 @@ fn prepare_insert_select_source(
     if let SqlProjection::Items(items) = &statement.projection {
         for item in items {
             if item.contains_aggregate() {
-                return Err(QueryError::unsupported_query(
-                    "SQL INSERT SELECT does not support aggregate source projection in this release",
+                return Err(QueryError::sql_write_boundary(
+                    SqlWriteBoundaryCode::InsertSelectAggregateProjection,
                 )
                 .into());
             }

@@ -7,7 +7,7 @@ use crate::{
         data::{FieldSlot, StructuralPatch},
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
-            SchemaInfo, ValidateError, accepted_commit_schema_fingerprint,
+            SchemaInfo, accepted_commit_schema_fingerprint,
             canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
             literal_matches_type,
         },
@@ -27,6 +27,7 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
     value::Value,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 fn sql_write_key_from_literal<E>(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
@@ -37,10 +38,9 @@ where
 {
     if descriptor.primary_key_names().len() > 1 {
         let Value::List(values) = value else {
-            return Err(QueryError::unsupported_query(format!(
-                "SQL write primary key literal for '{}' must contain all composite key components",
-                primary_key_label(descriptor),
-            )));
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
+            ));
         };
 
         return sql_write_key_from_component_literals::<E>(descriptor, values.as_slice());
@@ -50,15 +50,12 @@ where
         return Ok(key);
     }
 
-    let pk_name = descriptor.first_primary_key_name();
     let primary_key_kind = descriptor.first_primary_key_kind();
     let normalized = canonicalize_strict_sql_literal_for_persisted_kind(primary_key_kind, value)
         .unwrap_or_else(|| value.clone());
 
     <E::Key as KeyValueCodec>::from_key_value(&normalized).ok_or_else(|| {
-        QueryError::unsupported_query(format!(
-            "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
-        ))
+        QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
     })
 }
 
@@ -72,11 +69,9 @@ where
     let primary_key_names = descriptor.primary_key_names();
     let primary_key_kinds = descriptor.primary_key_kinds();
     if values.len() != primary_key_names.len() {
-        return Err(QueryError::unsupported_query(format!(
-            "SQL write primary key literal for '{}' must contain {} component(s)",
-            primary_key_label(descriptor),
-            primary_key_names.len(),
-        )));
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
+        ));
     }
 
     let mut normalized = Vec::with_capacity(values.len());
@@ -101,15 +96,8 @@ where
     };
 
     <E::Key as KeyValueCodec>::from_key_value(&key_value).ok_or_else(|| {
-        QueryError::unsupported_query(format!(
-            "SQL write primary key literal for '{}' is not compatible with entity key type",
-            primary_key_label(descriptor),
-        ))
+        QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
     })
-}
-
-fn primary_key_label(descriptor: &AcceptedRowLayoutRuntimeContract<'_>) -> String {
-    descriptor.primary_key_names().join(", ")
 }
 
 fn checked_accepted_write_descriptor<E>(
@@ -200,9 +188,8 @@ fn sql_write_value_for_accepted_field(
 
     let field_type = field_type_from_persisted_kind(accepted_kind);
     if !literal_matches_type(&normalized, &field_type) {
-        return Err(QueryError::unsupported_query(
-            ValidateError::invalid_literal(field_name, "literal type does not match field type")
-                .to_string(),
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::InvalidFieldLiteral,
         ));
     }
 
@@ -212,16 +199,15 @@ fn sql_write_value_for_accepted_field(
 fn reject_explicit_sql_write_to_managed_field(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
-    statement_kind: &str,
 ) -> Result<(), QueryError> {
     let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
         return Ok(());
     };
 
     if policy.write_management().is_some() {
-        return Err(QueryError::unsupported_query(format!(
-            "SQL {statement_kind} does not allow explicit writes to managed field '{field_name}' in this release"
-        )));
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::ExplicitManagedField,
+        ));
     }
 
     Ok(())
@@ -230,16 +216,15 @@ fn reject_explicit_sql_write_to_managed_field(
 fn reject_explicit_sql_write_to_generated_field(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
-    statement_kind: &str,
 ) -> Result<(), QueryError> {
     let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
         return Ok(());
     };
 
     if policy.insert_generation().is_some() {
-        return Err(QueryError::unsupported_query(format!(
-            "SQL {statement_kind} does not allow explicit writes to generated field '{field_name}' in this release"
-        )));
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::ExplicitGeneratedField,
+        ));
     }
 
     Ok(())

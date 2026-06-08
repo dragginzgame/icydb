@@ -313,7 +313,6 @@ fn accepted_row_layout_runtime_contract_uses_row_layout_slot_authority() {
 
     assert_eq!(descriptor.version(), SchemaVersion::initial());
     assert_eq!(descriptor.required_slot_count(), 10);
-    assert_eq!(descriptor.first_primary_key_name(), "id");
     assert_eq!(descriptor.primary_key_names(), ["id"]);
     assert_eq!(descriptor.first_primary_key_slot_index(), 0);
     assert_eq!(descriptor.primary_key_slot_indices(), [0]);
@@ -381,7 +380,6 @@ fn accepted_row_layout_runtime_contract_exposes_ordered_primary_key_fields() {
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted composite primary-key schema should build contract");
 
-    assert_eq!(descriptor.first_primary_key_name(), "id");
     assert_eq!(descriptor.primary_key_names(), ["id", "nickname"]);
     assert_eq!(descriptor.first_primary_key_slot_index(), 0);
     assert_eq!(descriptor.primary_key_slot_indices(), [0, 1]);
@@ -495,7 +493,6 @@ fn accepted_row_layout_runtime_contract_builds_descriptor_and_row_compatibility_
 
     assert_eq!(descriptor.required_slot_count(), 2);
     assert_eq!(descriptor.first_primary_key_slot_index(), 0);
-    assert_eq!(descriptor.first_primary_key_name(), "id");
     assert_eq!(descriptor.primary_key_names(), ["id"]);
     assert_eq!(
         descriptor.first_primary_key_kind(),

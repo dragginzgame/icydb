@@ -182,6 +182,14 @@ impl QueryError {
         Self::execute(InternalError::query_unsupported(message))
     }
 
+    /// Construct one query-origin unsupported SQL write boundary error.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn sql_write_boundary(
+        boundary: diagnostic_code::SqlWriteBoundaryCode,
+    ) -> Self {
+        Self::execute(InternalError::query_sql_write_boundary(boundary))
+    }
+
     /// Construct one query execution error from a checked numeric evaluation failure.
     pub(in crate::db) fn from_numeric_eval_error(err: NumericEvalError) -> Self {
         Self::execute(err.into_internal_error())

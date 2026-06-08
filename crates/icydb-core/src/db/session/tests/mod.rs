@@ -106,7 +106,7 @@ use crate::{
     value::{OutputValue, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use icydb_diagnostic_code::SqlFeatureCode;
+use icydb_diagnostic_code::{SqlFeatureCode, SqlWriteBoundaryCode};
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, sync::LazyLock};
 
@@ -4209,6 +4209,27 @@ fn assert_sql_unsupported_feature_detail(err: QueryError, expected_feature: SqlF
                 if *feature == expected_feature
         ),
         "unsupported SQL feature detail code should be preserved",
+    );
+}
+
+// Assert SQL write boundary codes remain preserved through query-facing
+// execution error detail payloads.
+fn assert_sql_write_boundary_detail(err: QueryError, expected_boundary: SqlWriteBoundaryCode) {
+    let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
+        err
+    else {
+        panic!("expected query execution unsupported error variant");
+    };
+
+    assert_eq!(internal.class(), ErrorClass::Unsupported);
+    assert_eq!(internal.origin(), ErrorOrigin::Query);
+    assert!(
+        matches!(
+            internal.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::SqlWriteBoundary { boundary }))
+                if *boundary == expected_boundary
+        ),
+        "SQL write boundary detail code should be preserved",
     );
 }
 

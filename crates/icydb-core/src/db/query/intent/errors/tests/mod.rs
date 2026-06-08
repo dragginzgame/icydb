@@ -298,6 +298,26 @@ fn sql_surface_mismatch_query_error_exposes_compact_mismatch_code() {
 
 #[cfg(feature = "sql")]
 #[test]
+fn sql_write_boundary_query_error_exposes_compact_boundary_code() {
+    let query_err = QueryError::sql_write_boundary(
+        icydb_diagnostic_code::SqlWriteBoundaryCode::MissingRequiredFields,
+    );
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QuerySqlWriteBoundary
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+            boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::MissingRequiredFields,
+        }),
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
 fn sql_ddl_publication_race_maps_to_query_admission_detail() {
     let query_err = QueryError::from_sql_ddl_execution_error(
         InternalError::schema_ddl_publication_race_lost("User"),

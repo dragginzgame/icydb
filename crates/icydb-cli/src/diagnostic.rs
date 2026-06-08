@@ -5,7 +5,7 @@
 
 use icydb::diagnostic::{
     DiagnosticCode, DiagnosticDetail, QueryErrorKind, RuntimeBoundaryCode, RuntimeErrorKind,
-    SchemaDdlAdmissionCode, SqlFeatureCode, SqlSurfaceMismatchCode,
+    SchemaDdlAdmissionCode, SqlFeatureCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
 /// Render one compact public IcyDB error for CLI output.
@@ -36,6 +36,9 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
         DiagnosticDetail::SqlSurfaceMismatch { mismatch } => {
             sql_surface_mismatch_text(mismatch).to_string()
         }
+        DiagnosticDetail::SqlWriteBoundary { boundary } => {
+            format!("SQL write rejected: {}", sql_write_boundary_text(boundary))
+        }
     }
 }
 
@@ -53,6 +56,7 @@ const fn code_label(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryNumericNotRepresentable => "E_QUERY_NUMERIC_NOT_REPRESENTABLE",
         DiagnosticCode::QueryUnsupportedSqlFeature => "E_QUERY_UNSUPPORTED_SQL_FEATURE",
         DiagnosticCode::QuerySqlSurfaceMismatch => "E_QUERY_SQL_SURFACE_MISMATCH",
+        DiagnosticCode::QuerySqlWriteBoundary => "E_QUERY_SQL_WRITE_BOUNDARY",
         DiagnosticCode::SchemaDdlAdmission => "E_SCHEMA_DDL_ADMISSION",
         DiagnosticCode::StoreNotFound => "E_STORE_NOT_FOUND",
         DiagnosticCode::StoreCorruption => "E_STORE_CORRUPTION",
@@ -83,6 +87,7 @@ const fn code_text(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryNumericNotRepresentable => "numeric result is not representable",
         DiagnosticCode::QueryUnsupportedSqlFeature => "SQL feature is not supported",
         DiagnosticCode::QuerySqlSurfaceMismatch => "SQL statement used the wrong endpoint surface",
+        DiagnosticCode::QuerySqlWriteBoundary => "SQL write boundary rejected",
         DiagnosticCode::SchemaDdlAdmission => "SQL DDL admission rejected",
         DiagnosticCode::StoreNotFound => "store key was not found",
         DiagnosticCode::StoreCorruption => "store corruption detected",
@@ -248,6 +253,38 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
         }
         SqlSurfaceMismatchCode::UpdateRejectsShowMemory => {
             "execute_sql_update rejects SHOW MEMORY; use execute_sql_query::<E>()"
+        }
+    }
+}
+
+const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str {
+    match boundary {
+        SqlWriteBoundaryCode::PrimaryKeyLiteralShape => "primary key literal has the wrong shape",
+        SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible => {
+            "primary key literal is not compatible with the entity key type"
+        }
+        SqlWriteBoundaryCode::MissingPrimaryKey => "INSERT is missing required primary key fields",
+        SqlWriteBoundaryCode::MissingRequiredFields => {
+            "INSERT is missing required non-generated fields"
+        }
+        SqlWriteBoundaryCode::ExplicitManagedField => {
+            "explicit writes to managed fields are not allowed"
+        }
+        SqlWriteBoundaryCode::ExplicitGeneratedField => {
+            "explicit writes to generated fields are not allowed"
+        }
+        SqlWriteBoundaryCode::InsertSelectRequiresScalar => {
+            "INSERT SELECT requires a scalar SELECT source"
+        }
+        SqlWriteBoundaryCode::InsertSelectAggregateProjection => {
+            "INSERT SELECT does not support aggregate source projections"
+        }
+        SqlWriteBoundaryCode::InsertSelectWidthMismatch => {
+            "INSERT SELECT projection width must match the target column list"
+        }
+        SqlWriteBoundaryCode::UpdatePrimaryKeyMutation => "UPDATE cannot mutate primary key fields",
+        SqlWriteBoundaryCode::InvalidFieldLiteral => {
+            "SQL write literal is not compatible with the target field type"
         }
     }
 }
@@ -447,6 +484,22 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_QUERY_SQL_SURFACE_MISMATCH: execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+        );
+    }
+
+    #[test]
+    fn renders_sql_write_boundary_detail() {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+            icydb::diagnostic::DiagnosticCode::QuerySqlWriteBoundary,
+            icydb::diagnostic::ErrorOrigin::Query,
+            Some(icydb::diagnostic::DiagnosticDetail::SqlWriteBoundary {
+                boundary: icydb::diagnostic::SqlWriteBoundaryCode::MissingPrimaryKey,
+            }),
+        ));
+
+        assert_eq!(
+            render_error(&err),
+            "E_QUERY_SQL_WRITE_BOUNDARY: SQL write rejected: INSERT is missing required primary key fields",
         );
     }
 

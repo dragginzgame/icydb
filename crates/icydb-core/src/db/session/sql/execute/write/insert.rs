@@ -32,6 +32,7 @@ use crate::{
     types::{Timestamp, Ulid},
     value::Value,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 const fn write_policy_for_accepted_field(
     field: &AcceptedRowLayoutRuntimeField<'_>,
@@ -86,22 +87,19 @@ fn ensure_sql_insert_required_fields(
         .all(|field| primary_key_names.contains(field));
     if missing_only_primary_key_fields {
         if primary_key_names.len() == 1 {
-            let pk_name = primary_key_names[0];
-            return Err(QueryError::unsupported_query(format!(
-                "SQL INSERT requires primary key column '{pk_name}' in this release",
-            )));
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::MissingPrimaryKey,
+            ));
         }
 
-        return Err(QueryError::unsupported_query(format!(
-            "SQL INSERT requires primary key columns '{}' in this release",
-            missing_required_fields.join(", "),
-        )));
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::MissingPrimaryKey,
+        ));
     }
 
-    Err(QueryError::unsupported_query(format!(
-        "SQL INSERT requires explicit values for non-generated fields {} in this release",
-        missing_required_fields.join(", ")
-    )))
+    Err(QueryError::sql_write_boundary(
+        SqlWriteBoundaryCode::MissingRequiredFields,
+    ))
 }
 
 fn sql_insert_source_width_hint(
@@ -194,9 +192,9 @@ fn sql_insert_primary_key_values(
             continue;
         }
 
-        return Err(QueryError::unsupported_query(format!(
-            "SQL INSERT requires primary key column '{primary_key_name}' in this release"
-        )));
+        return Err(QueryError::sql_write_boundary(
+            SqlWriteBoundaryCode::MissingPrimaryKey,
+        ));
     }
 
     Ok(key_values)
@@ -239,8 +237,8 @@ impl<C: CanisterKind> DbSession<C> {
             )?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
-            reject_explicit_sql_write_to_generated_field(descriptor, field, "INSERT")?;
-            reject_explicit_sql_write_to_managed_field(descriptor, field, "INSERT")?;
+            reject_explicit_sql_write_to_generated_field(descriptor, field)?;
+            reject_explicit_sql_write_to_managed_field(descriptor, field)?;
             let normalized = sql_write_value_for_accepted_field(descriptor, field, value)?;
             patch = sql_write_patch_set_accepted_field(descriptor, patch, field, normalized)?;
         }
@@ -319,8 +317,8 @@ impl<C: CanisterKind> DbSession<C> {
         rows.reserve(projected_rows.len());
         for row in projected_rows {
             if row.len() != columns.len() {
-                return Err(QueryError::unsupported_query(
-                    "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
+                return Err(QueryError::sql_write_boundary(
+                    SqlWriteBoundaryCode::InsertSelectWidthMismatch,
                 ));
             }
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🔧 Changed
+
+- Moved SQL write boundary failures onto compact diagnostic leaf codes with
+  CLI-owned text rendering, reducing retained runtime error strings while
+  preserving query-origin unsupported error semantics.
+
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)

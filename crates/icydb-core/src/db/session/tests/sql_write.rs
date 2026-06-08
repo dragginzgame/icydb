@@ -47,6 +47,21 @@ fn assert_statement_error_contains<E>(
     );
 }
 
+// Execute one write statement that must stay fail-closed and assert it carries
+// the compact SQL write boundary code instead of relying on message text.
+fn assert_statement_write_boundary<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_boundary: SqlWriteBoundaryCode,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let err = execute_sql_statement_for_tests::<E>(session, sql).expect_err(context);
+
+    assert_sql_write_boundary_detail(err, expected_boundary);
+}
+
 // Execute one signed write statement that widens parser literals and assert it
 // returns the canonical count payload plus the expected persisted signed rows.
 fn assert_signed_write_count_and_rows(
@@ -851,12 +866,12 @@ fn execute_sql_insert_rejects_missing_composite_primary_key_component() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_statement_error_contains::<SessionSqlCompositeWriteEntity>(
+    assert_statement_write_boundary::<SessionSqlCompositeWriteEntity>(
         &session,
         "INSERT INTO SessionSqlCompositeWriteEntity \
          (tenant_id, name, age) \
          VALUES (1, 'Ada', 21)",
-        "SQL INSERT requires primary key columns 'local_id'",
+        SqlWriteBoundaryCode::MissingPrimaryKey,
         "composite primary-key SQL INSERT missing component",
     );
 }
@@ -874,12 +889,12 @@ fn execute_sql_update_rejects_composite_primary_key_mutation() {
         1,
         "composite primary-key SQL INSERT setup",
     );
-    assert_statement_error_contains::<SessionSqlCompositeWriteEntity>(
+    assert_statement_write_boundary::<SessionSqlCompositeWriteEntity>(
         &session,
         "UPDATE SessionSqlCompositeWriteEntity \
          SET local_id = 12 \
          WHERE tenant_id = 1 AND local_id = 10",
-        "SQL UPDATE does not allow primary key mutation for 'local_id'",
+        SqlWriteBoundaryCode::UpdatePrimaryKeyMutation,
         "composite primary-key SQL UPDATE mutation",
     );
 }
@@ -997,22 +1012,22 @@ fn execute_sql_statement_insert_rejects_missing_required_fields_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, expected_message, context) in [
+    for (sql, expected_boundary, context) in [
         (
             "INSERT INTO SessionSqlWriteEntity (id, name) VALUES (1, 'Ada')",
-            "SQL INSERT requires explicit values for non-generated fields age",
+            SqlWriteBoundaryCode::MissingRequiredFields,
             "missing non-generated field",
         ),
         (
             "INSERT INTO SessionSqlWriteEntity (name, age) VALUES ('Ada', 21)",
-            "SQL INSERT requires primary key column 'id'",
+            SqlWriteBoundaryCode::MissingPrimaryKey,
             "missing primary key field",
         ),
     ] {
-        assert_statement_error_contains::<SessionSqlWriteEntity>(
+        assert_statement_write_boundary::<SessionSqlWriteEntity>(
             &session,
             sql,
-            expected_message,
+            expected_boundary,
             context,
         );
     }
@@ -1023,19 +1038,19 @@ fn execute_sql_statement_write_rejects_explicit_managed_timestamp_fields_matrix(
     let cases = [
         (
             "INSERT INTO SessionSqlManagedWriteEntity (id, name, created_at) VALUES (1, 'Ada', 0)",
-            "SQL INSERT does not allow explicit writes to managed field 'created_at'",
+            SqlWriteBoundaryCode::ExplicitManagedField,
             "INSERT explicit managed timestamp write",
             false,
         ),
         (
             "UPDATE SessionSqlManagedWriteEntity SET updated_at = 0 WHERE id = 1",
-            "SQL UPDATE does not allow explicit writes to managed field 'updated_at'",
+            SqlWriteBoundaryCode::ExplicitManagedField,
             "UPDATE explicit managed timestamp write",
             true,
         ),
     ];
 
-    for (sql, expected_message, context, seed_row) in cases {
+    for (sql, expected_boundary, context, seed_row) in cases {
         reset_session_sql_store();
         let session = sql_session();
 
@@ -1050,10 +1065,10 @@ fn execute_sql_statement_write_rejects_explicit_managed_timestamp_fields_matrix(
                 .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
         }
 
-        assert_statement_error_contains::<SessionSqlManagedWriteEntity>(
+        assert_statement_write_boundary::<SessionSqlManagedWriteEntity>(
             &session,
             sql,
-            expected_message,
+            expected_boundary,
             context,
         );
     }
@@ -1064,22 +1079,22 @@ fn execute_sql_statement_insert_rejects_explicit_generated_fields_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, expected_message, context) in [
+    for (sql, expected_boundary, context) in [
         (
             "INSERT INTO SessionSqlGeneratedTimestampEntity (id, created_on_insert, name) VALUES (1, 7, 'Ada')",
-            "SQL INSERT does not allow explicit writes to generated field 'created_on_insert'",
+            SqlWriteBoundaryCode::ExplicitGeneratedField,
             "named-column generated timestamp insert",
         ),
         (
             "INSERT INTO SessionSqlGeneratedTimestampEntity VALUES (2, 9, 'Bea')",
-            "SQL INSERT does not allow explicit writes to generated field 'created_on_insert'",
+            SqlWriteBoundaryCode::ExplicitGeneratedField,
             "positional generated timestamp insert",
         ),
     ] {
-        assert_statement_error_contains::<SessionSqlGeneratedTimestampEntity>(
+        assert_statement_write_boundary::<SessionSqlGeneratedTimestampEntity>(
             &session,
             sql,
-            expected_message,
+            expected_boundary,
             context,
         );
     }
@@ -1213,14 +1228,7 @@ fn execute_sql_statement_update_rejects_explicit_generated_fields_matrix() {
         "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = 7 WHERE id = 1",
     )
     .expect_err("insert-generated fields should stay system-owned on SQL UPDATE");
-    let err_text = err.to_string();
-
-    assert!(
-        err_text.contains(
-            "SQL UPDATE does not allow explicit writes to generated field 'created_on_insert'",
-        ),
-        "SQL UPDATE should keep the generated-field ownership boundary explicit: {err_text}",
-    );
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ExplicitGeneratedField);
 }
 
 #[test]
@@ -1403,11 +1411,7 @@ fn execute_sql_statement_rejects_incompatible_assignment_literal_for_signed_fiel
     )
     .expect_err("signed field assignment should stay fail-closed for incompatible literals");
 
-    assert!(
-        err.to_string()
-            .contains("invalid literal for field 'delta': literal type does not match field type"),
-        "incompatible signed assignment should keep the literal-type boundary explicit",
-    );
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::InvalidFieldLiteral);
 }
 
 #[test]
@@ -1669,20 +1673,20 @@ fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
 }
 
 #[test]
-fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_messages() {
+fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_codes() {
     let cases = [
         (
             "aggregate source",
             "INSERT INTO SessionSqlEntity (name, age) \
              SELECT COUNT(*), COUNT(*) FROM SessionSqlEntity",
-            "SQL INSERT SELECT does not support aggregate source projection",
+            SqlWriteBoundaryCode::InsertSelectAggregateProjection,
             vec![(Ulid::from_u128(1), "Ada", 21_u64)],
         ),
         (
             "grouped source",
             "INSERT INTO SessionSqlEntity (name, age) \
              SELECT name, COUNT(*) FROM SessionSqlEntity GROUP BY name",
-            "SQL INSERT SELECT requires scalar SELECT source",
+            SqlWriteBoundaryCode::InsertSelectRequiresScalar,
             vec![
                 (Ulid::from_u128(1), "Ada", 21_u64),
                 (Ulid::from_u128(2), "Bea", 22_u64),
@@ -1690,7 +1694,7 @@ fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_messa
         ),
     ];
 
-    for (context, sql, expected_message, seed_rows) in cases {
+    for (context, sql, expected_boundary, seed_rows) in cases {
         reset_session_sql_store();
         let session = sql_session();
 
@@ -1704,10 +1708,10 @@ fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_messa
                 .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
         }
 
-        assert_statement_error_contains::<SessionSqlEntity>(
+        assert_statement_write_boundary::<SessionSqlEntity>(
             &session,
             sql,
-            expected_message,
+            expected_boundary,
             context,
         );
     }
@@ -1801,12 +1805,7 @@ fn execute_sql_statement_write_rejects_incompatible_primary_key_literal() {
     )
     .expect_err("unsigned SQL insert key boundary should stay fail-closed for signed literals");
 
-    assert!(
-        err.to_string().contains(
-            "SQL write primary key literal for 'id' is not compatible with entity key type"
-        ),
-        "incompatible primary-key literal should keep the reduced-SQL boundary explicit",
-    );
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible);
 }
 
 #[test]
@@ -2190,9 +2189,5 @@ fn execute_sql_statement_update_rejects_primary_key_mutation() {
     )
     .expect_err("SQL UPDATE primary-key mutation should stay fail-closed");
 
-    assert!(
-        err.to_string()
-            .contains("SQL UPDATE does not allow primary key mutation"),
-        "UPDATE primary-key mutation should keep an actionable boundary message",
-    );
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::UpdatePrimaryKeyMutation);
 }

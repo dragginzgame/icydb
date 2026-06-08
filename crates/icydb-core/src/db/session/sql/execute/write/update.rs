@@ -24,6 +24,7 @@ use crate::{
     types::Timestamp,
     value::Value,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 impl<C: CanisterKind> DbSession<C> {
     fn sql_structural_patch(
@@ -33,21 +34,12 @@ impl<C: CanisterKind> DbSession<C> {
         let mut patch = StructuralPatch::new();
         for assignment in &statement.assignments {
             if descriptor.is_primary_key_field_name(assignment.field.as_str()) {
-                return Err(QueryError::unsupported_query(format!(
-                    "SQL UPDATE does not allow primary key mutation for '{}' in this release",
-                    assignment.field,
-                )));
+                return Err(QueryError::sql_write_boundary(
+                    SqlWriteBoundaryCode::UpdatePrimaryKeyMutation,
+                ));
             }
-            reject_explicit_sql_write_to_generated_field(
-                descriptor,
-                assignment.field.as_str(),
-                "UPDATE",
-            )?;
-            reject_explicit_sql_write_to_managed_field(
-                descriptor,
-                assignment.field.as_str(),
-                "UPDATE",
-            )?;
+            reject_explicit_sql_write_to_generated_field(descriptor, assignment.field.as_str())?;
+            reject_explicit_sql_write_to_managed_field(descriptor, assignment.field.as_str())?;
             let normalized = sql_write_value_for_accepted_field(
                 descriptor,
                 assignment.field.as_str(),
