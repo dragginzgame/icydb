@@ -7,12 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Narrow ULID and Subaccount scalar helper surfaces out of the production
-  facade while keeping their storage/key byte paths unchanged.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.13` narrows ULID/Subaccount scalar helper surfaces, compacts
+  structured query and DDL diagnostic strings, and keeps storage/key byte paths
+  unchanged.
 
 - `0.180.12` moves accepted-catalog `ORDER BY`, SQL lowering, and duplicate
   SQL DDL execution-unsupported failures onto compact diagnostic leaf codes,
