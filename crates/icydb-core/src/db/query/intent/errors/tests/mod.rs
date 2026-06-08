@@ -314,7 +314,7 @@ fn result_shape_mismatch_query_error_exposes_compact_shape_code() {
 
 #[cfg(feature = "sql")]
 #[test]
-fn sql_lowering_fallback_query_error_exposes_compact_other_feature_code() {
+fn sql_lowering_fallback_query_error_preserves_lowering_message() {
     let query_err = QueryError::from_sql_lowering_error(
         crate::db::sql::lowering::SqlLoweringError::UnsupportedWhereExpression,
     );
@@ -322,15 +322,14 @@ fn sql_lowering_fallback_query_error_exposes_compact_other_feature_code() {
 
     assert_eq!(
         diagnostic.code(),
-        icydb_diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported
     );
-    assert_eq!(
-        diagnostic.detail(),
-        Some(
-            &icydb_diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
-                feature: icydb_diagnostic_code::SqlFeatureCode::Other,
-            }
-        ),
+    assert_eq!(diagnostic.detail(), None);
+    assert!(
+        query_err
+            .to_string()
+            .contains("unsupported SQL WHERE expression shape"),
+        "SQL lowering fallback should preserve the lowering-owned message: {query_err}",
     );
 }
 

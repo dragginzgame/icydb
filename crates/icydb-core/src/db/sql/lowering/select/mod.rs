@@ -33,7 +33,7 @@ use crate::{
     },
     model::entity::EntityModel,
 };
-use icydb_diagnostic_code::{SqlFeatureCode, SqlWriteBoundaryCode};
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 
 use crate::db::sql::lowering::select::{
     aggregate::lower_having_clauses,
@@ -521,9 +521,10 @@ fn validate_order_sql_capabilities(
             continue;
         };
         if !capabilities.orderable() {
-            return Err(QueryError::unsupported_sql_feature(
-                SqlFeatureCode::OrderByFieldNotOrderable,
-            )
+            return Err(QueryError::unsupported_query(format!(
+                "order field '{}' is not orderable",
+                field.as_str(),
+            ))
             .into());
         }
     }

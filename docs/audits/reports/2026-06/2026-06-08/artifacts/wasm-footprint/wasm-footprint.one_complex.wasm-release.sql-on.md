@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `75f6d6e9a`
+- code snapshot identifier: `4ce80891e`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,26 +24,26 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,649,374 | 2,575,004 | -74,370 |
-| icp-built deterministic `.wasm.gz` | 852,454 | 827,089 | -25,365 |
-| icp-shrunk `.wasm` | 2,467,165 | 2,398,618 | -68,547 |
-| icp-shrunk `.wasm.gz` | 809,131 | 786,145 | -22,986 |
+| icp-built `.wasm` | 2,649,374 | 2,574,218 | -75,156 |
+| icp-built deterministic `.wasm.gz` | 852,454 | 827,932 | -24,522 |
+| icp-shrunk `.wasm` | 2,467,165 | 2,397,956 | -69,209 |
+| icp-shrunk `.wasm.gz` | 809,131 | 786,107 | -23,024 |
 
 ## Structural Snapshot (ic-wasm)
 
 | Metric | icp-built | icp-shrunk |
 | --- | ---: | ---: |
-| Function count | 5,743 | 5,743 |
+| Function count | 5,742 | 5,742 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 184,036 | 184,036 |
+| Data section bytes | 184,276 | 184,276 |
 | Exported methods | 2 | 2 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 183,770 | 7.66% |
+| 1 | data[0] | 184,010 | 7.67% |
 | 2 | code[0] | 33,635 | 1.40% |
 | 3 | code[1] | 32,386 | 1.35% |
 | 4 | code[2] | 27,593 | 1.15% |
@@ -58,16 +58,16 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query query_one_complex_fluent" | 652,886 | 27.22% |
-| 2 | code[5722] | 652,843 | 27.22% |
-| 3 | code[13] | 652,834 | 27.22% |
-| 4 | code[10] | 368,003 | 15.34% |
-| 5 | code[396] | 213,550 | 8.90% |
-| 6 | code[26] | 212,407 | 8.86% |
-| 7 | code[25] | 192,058 | 8.01% |
-| 8 | data[0] | 183,770 | 7.66% |
+| 1 | export "canister_query query_one_complex_fluent" | 651,753 | 27.18% |
+| 2 | code[5721] | 651,710 | 27.18% |
+| 3 | code[13] | 651,701 | 27.18% |
+| 4 | code[10] | 368,003 | 15.35% |
+| 5 | code[396] | 213,550 | 8.91% |
+| 6 | code[25] | 212,407 | 8.86% |
+| 7 | code[24] | 192,058 | 8.01% |
+| 8 | data[0] | 184,010 | 7.67% |
 | 9 | code[32] | 180,118 | 7.51% |
-| 10 | table[0] | 176,619 | 7.36% |
+| 10 | table[0] | 176,837 | 7.37% |
 
 ## Artifacts
 

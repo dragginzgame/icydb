@@ -7,47 +7,47 @@
     "candid_export": "unavailable",
     "icp_built_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-built.wasm",
-      "bytes": 2600144,
-      "sha256": "1b4172c5e66c6c8b95915ed4e205c459c5bf389a3f1bc2ef40c94f75d12d146d"
+      "bytes": 2599358,
+      "sha256": "42a61d0006f9eb3f0eaa2ab05db42214881095edb63c22214e1adcab830c414e"
     },
     "icp_built_wasm_gz_deterministic": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-built.wasm.gz",
-      "bytes": 829137,
-      "sha256": "6978efec00fde4224ff7ea48ec2cf26145f35bba131bbf145df787114ee06ccc"
+      "bytes": 829872,
+      "sha256": "b5b7d0cd6ec491097ab488aa995356d63714d905a9cd9dffbfffa443ced953e6"
     },
     "icp_built_wasm_gz_emitted": null,
     "icp_shrunk_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-shrunk.wasm",
-      "bytes": 2422077,
-      "sha256": "27f46818ff7c606d88cf144ea1af63d4904c25b3ad85304bb8b7b88c39de1419"
+      "bytes": 2421415,
+      "sha256": "3911bafa4a4ab0b898278e1c26bcc74e959a4ea018adb69366c2c15b68a04434"
     },
     "icp_shrunk_wasm_gz": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-shrunk.wasm.gz",
-      "bytes": 788645,
-      "sha256": "d2a90315bf7dfb214e7d0d41e0b9d129e92b5ae104623733062a44f00e63b846"
+      "bytes": 788782,
+      "sha256": "1539f09898564575fd822083d130bb6f37b0f79a8ff53822a576e979e1811b6e"
     }
   },
   "analysis": {
     "icp_built": {
-      "function_count": 5764,
+      "function_count": 5763,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 185828,
+      "data_section_bytes": 186068,
       "exported_method_count": 2,
       "exported_methods": [
-        "canister_query __icydb_metrics (func_5762)",
-        "canister_query query_ten_complex_fluent (func_5763)"
+        "canister_query __icydb_metrics (func_5761)",
+        "canister_query query_ten_complex_fluent (func_5762)"
       ]
     },
     "icp_shrunk": {
-      "function_count": 5764,
+      "function_count": 5763,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 185828,
+      "data_section_bytes": 186068,
       "exported_method_count": 2,
       "exported_methods": [
-        "canister_query __icydb_metrics (func_5754)",
-        "canister_query query_ten_complex_fluent (func_5755)"
+        "canister_query __icydb_metrics (func_5753)",
+        "canister_query query_ten_complex_fluent (func_5754)"
       ]
     }
   },
@@ -66,7 +66,7 @@
     ]
   },
   "deltas": {
-    "shrink_wasm_bytes": 178067,
-    "shrink_wasm_gz_bytes": 40492
+    "shrink_wasm_bytes": 177943,
+    "shrink_wasm_gz_bytes": 41090
   }
 }

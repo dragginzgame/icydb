@@ -3662,7 +3662,11 @@ fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be orderable");
 
-    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
+    assert!(
+        err.to_string()
+            .contains("order field 'name' is not orderable"),
+        "accepted blob ORDER BY should preserve planner orderability message: {err}",
+    );
 }
 
 #[test]
@@ -3682,7 +3686,11 @@ fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct DELETE ORDER BY target");
 
-    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
+    assert!(
+        err.to_string()
+            .contains("order field 'name' is not orderable"),
+        "accepted blob DELETE ORDER BY should preserve planner orderability message: {err}",
+    );
 }
 
 #[test]
@@ -3704,7 +3712,11 @@ fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct UPDATE ORDER BY target");
 
-    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
+    assert!(
+        err.to_string()
+            .contains("order field 'name' is not orderable"),
+        "accepted blob UPDATE ORDER BY should preserve planner orderability message: {err}",
+    );
 }
 
 #[test]

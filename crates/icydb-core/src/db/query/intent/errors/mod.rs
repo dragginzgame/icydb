@@ -256,7 +256,7 @@ impl QueryError {
             SqlLoweringError::UnknownField { field } => {
                 Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
             }
-            _ => Self::unsupported_sql_feature(diagnostic_code::SqlFeatureCode::Other),
+            _ => Self::unsupported_query(err.to_string()),
         }
     }
 
