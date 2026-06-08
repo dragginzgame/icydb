@@ -29,7 +29,6 @@ use crate::{
     traits::{EnumValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueMeta},
     types::*,
 };
-use candid::CandidType;
 use serde::Deserialize;
 use std::{cmp::Ordering, fmt};
 
@@ -162,7 +161,7 @@ pub enum TextMode {
 // Null        → the field’s value is Option::None (i.e., SQL NULL).
 // Unit        → internal placeholder for RHS; not a real value.
 //
-#[derive(CandidType, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum Value {
     Account(Account),
     Blob(Vec<u8>),
@@ -441,7 +440,7 @@ impl From<()> for Value {
 // handles the Enum case; `path` is optional to allow strict (typed) or loose matching.
 //
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, PartialOrd)]
 pub struct ValueEnum {
     variant: String,
     path: Option<String>,

@@ -195,6 +195,33 @@ pub enum RuntimeErrorKind {
 }
 
 ///
+/// RuntimeBoundaryCode
+///
+/// Compact public-runtime boundary identifier.
+///
+
+#[cfg_attr(
+    feature = "wire",
+    derive(candid::CandidType, serde::Deserialize, serde::Serialize)
+)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RuntimeBoundaryCode {
+    SqlSurfaceControllerRequired,
+    SchemaSurfaceControllerRequired,
+    SqlQueryNoConfiguredEntities,
+    SqlQueryEntityNotConfigured,
+    SqlDdlTargetRequired,
+    SqlDdlEntityNotConfigured,
+    QueryResponseRowsRequired,
+    QueryResponseGroupedRowsRequired,
+    MutationResultEntityRequired,
+    MutationResultEntitiesRequired,
+    MutationResultIdRequired,
+    MutationResultIdsRequired,
+    RowProjectionFieldNotConfigured,
+}
+
+///
 /// SqlFeatureCode
 ///
 /// Compact SQL feature identifier used by unsupported-feature diagnostics.
@@ -338,6 +365,7 @@ pub enum SchemaDdlAdmissionCode {
 pub enum DiagnosticDetail {
     QueryKind { kind: QueryErrorKind },
     RuntimeKind { kind: RuntimeErrorKind },
+    RuntimeBoundary { boundary: RuntimeBoundaryCode },
     SchemaDdlAdmission { reason: SchemaDdlAdmissionCode },
     UnsupportedSqlFeature { feature: SqlFeatureCode },
     SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode },

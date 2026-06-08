@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🧹 Cleanup
-
-- Removes an unused Candid derive from the catalog count helper while keeping
-  SQL catalog result DTOs wire-compatible.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.2` adds compact runtime-boundary diagnostics for generated endpoint
+  and response-shape errors, with CLI rendering and unused internal Candid
+  derives trimmed without changing public DTO wire shapes.
 
 - `0.180.1` hard-cuts the public error payload to compact diagnostic
   code/class/origin/detail fields and routes core query/runtime details through

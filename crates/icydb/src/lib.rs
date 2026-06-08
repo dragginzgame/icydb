@@ -132,7 +132,8 @@ pub mod diagnostic {
 
     pub use icydb_diagnostic_code::{
         Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorOrigin, QueryErrorKind,
-        RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlSurfaceMismatchCode,
+        RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode,
+        SqlSurfaceMismatchCode,
     };
 }
 mod error;

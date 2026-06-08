@@ -6,7 +6,10 @@ use icydb::{
         EntitySchemaDescription,
         sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
     },
-    diagnostic::{DiagnosticCode, DiagnosticDetail, SqlFeatureCode, SqlSurfaceMismatchCode},
+    diagnostic::{
+        DiagnosticCode, DiagnosticDetail, RuntimeBoundaryCode, SqlFeatureCode,
+        SqlSurfaceMismatchCode,
+    },
 };
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::Deserialize;
@@ -325,6 +328,19 @@ fn assert_ddl_rejection_error(err: &Error, context: &str) {
             ),
             "{context} should preserve compact unsupported SQL feature detail",
         ),
+        DiagnosticCode::RuntimeUnsupported if err.origin() == ErrorOrigin::Interface => {
+            assert!(
+                matches!(
+                    err.detail(),
+                    Some(DiagnosticDetail::RuntimeBoundary {
+                        boundary: RuntimeBoundaryCode::SqlDdlTargetRequired
+                            | RuntimeBoundaryCode::SqlDdlEntityNotConfigured
+                    })
+                ),
+                "{context} should preserve compact generated DDL boundary detail, got {:?}",
+                err.detail(),
+            );
+        }
         DiagnosticCode::RuntimeUnsupported => {}
         other => panic!(
             "{context} should reject as compact DDL admission, unsupported SQL feature, or unsupported runtime, got {other:?}"

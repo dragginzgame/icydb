@@ -150,6 +150,30 @@ fn public_error_from_diagnostic_preserves_compact_detail() {
 }
 
 #[test]
+fn public_error_runtime_boundary_preserves_compact_detail() {
+    let facade = Error::from_runtime_boundary(
+        icydb_diagnostic_code::RuntimeBoundaryCode::SqlDdlTargetRequired,
+        ErrorOrigin::Interface,
+    );
+
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+    );
+    assert_eq!(
+        facade.class(),
+        icydb_diagnostic_code::ErrorClass::Unsupported
+    );
+    assert_eq!(facade.origin(), ErrorOrigin::Interface);
+    assert_eq!(
+        facade.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::SqlDdlTargetRequired,
+        }),
+    );
+}
+
+#[test]
 fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
     let cases = [
         (CoreErrorClass::Corruption, RuntimeErrorKind::Corruption),

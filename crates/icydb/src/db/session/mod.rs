@@ -12,6 +12,7 @@ use crate::{
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{ProjectionRows, QueryResponse, RowProjectionOutput, render_output_value_text},
     },
+    diagnostic::RuntimeBoundaryCode,
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
     traits::{CanisterKind, Entity},
@@ -375,8 +376,8 @@ impl<C: CanisterKind> DbSession<C> {
                         .iter()
                         .position(|candidate| candidate.name() == field.as_str())
                         .ok_or_else(|| {
-                            Error::from_kind(
-                                ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                            Error::from_runtime_boundary(
+                                RuntimeBoundaryCode::RowProjectionFieldNotConfigured,
                                 ErrorOrigin::Query,
                             )
                         })?;

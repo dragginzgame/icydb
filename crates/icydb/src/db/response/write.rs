@@ -1,5 +1,6 @@
 use crate::{
-    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    diagnostic::RuntimeBoundaryCode,
+    error::{Error, ErrorOrigin},
     traits::Entity,
     types::Id,
 };
@@ -86,7 +87,9 @@ impl<E: Entity> MutationResult<E> {
                     u32::try_from(count).unwrap_or(u32::MAX),
                 ))),
             },
-            Self::Count { .. } => Err(Self::unsupported_shape_error("entity", "count")),
+            Self::Count { .. } => Err(Self::unsupported_shape_error(
+                RuntimeBoundaryCode::MutationResultEntityRequired,
+            )),
         }
     }
 
@@ -95,15 +98,14 @@ impl<E: Entity> MutationResult<E> {
         match self {
             Self::Entity(entity) => Ok(vec![entity]),
             Self::Entities(entities) => Ok(entities),
-            Self::Count { .. } => Err(Self::unsupported_shape_error("entities", "count")),
+            Self::Count { .. } => Err(Self::unsupported_shape_error(
+                RuntimeBoundaryCode::MutationResultEntitiesRequired,
+            )),
         }
     }
 
-    const fn unsupported_shape_error(_expected: &str, _actual: &str) -> Error {
-        Error::from_kind(
-            ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-            ErrorOrigin::Response,
-        )
+    const fn unsupported_shape_error(boundary: RuntimeBoundaryCode) -> Error {
+        Error::from_runtime_boundary(boundary, ErrorOrigin::Response)
     }
 }
 
@@ -120,7 +122,9 @@ impl<E: Entity> MutationResult<E> {
                     u32::try_from(many.len()).unwrap_or(u32::MAX),
                 ))),
             },
-            Self::Count { .. } => Err(Self::unsupported_shape_error("id", "count")),
+            Self::Count { .. } => Err(Self::unsupported_shape_error(
+                RuntimeBoundaryCode::MutationResultIdRequired,
+            )),
         }
     }
 
@@ -132,7 +136,9 @@ impl<E: Entity> MutationResult<E> {
                 .iter()
                 .map(icydb_core::traits::EntityValue::id)
                 .collect()),
-            Self::Count { .. } => Err(Self::unsupported_shape_error("ids", "count")),
+            Self::Count { .. } => Err(Self::unsupported_shape_error(
+                RuntimeBoundaryCode::MutationResultIdsRequired,
+            )),
         }
     }
 }

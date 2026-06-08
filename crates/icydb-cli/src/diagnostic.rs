@@ -4,8 +4,8 @@
 //! Boundary: keeps rich diagnostic prose out of production canister crates.
 
 use icydb::diagnostic::{
-    DiagnosticCode, DiagnosticDetail, QueryErrorKind, RuntimeErrorKind, SchemaDdlAdmissionCode,
-    SqlFeatureCode, SqlSurfaceMismatchCode,
+    DiagnosticCode, DiagnosticDetail, QueryErrorKind, RuntimeBoundaryCode, RuntimeErrorKind,
+    SchemaDdlAdmissionCode, SqlFeatureCode, SqlSurfaceMismatchCode,
 };
 
 /// Render one compact public IcyDB error for CLI output.
@@ -21,6 +21,9 @@ fn diagnostic_detail_text(detail: &DiagnosticDetail) -> String {
     match detail {
         DiagnosticDetail::QueryKind { kind } => query_kind_text(*kind).to_string(),
         DiagnosticDetail::RuntimeKind { kind } => runtime_kind_text(*kind).to_string(),
+        DiagnosticDetail::RuntimeBoundary { boundary } => {
+            runtime_boundary_text(*boundary).to_string()
+        }
         DiagnosticDetail::SchemaDdlAdmission { reason } => {
             format!("SQL DDL admission rejected: {}", schema_ddl_text(*reason))
         }
@@ -115,6 +118,46 @@ const fn runtime_kind_text(kind: RuntimeErrorKind) -> &'static str {
         RuntimeErrorKind::NotFound => "runtime item was not found",
         RuntimeErrorKind::Unsupported => "operation is not supported",
         RuntimeErrorKind::Internal => "internal runtime failure",
+    }
+}
+
+const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
+    match boundary {
+        RuntimeBoundaryCode::SqlSurfaceControllerRequired => {
+            "SQL endpoint requires controller access"
+        }
+        RuntimeBoundaryCode::SchemaSurfaceControllerRequired => {
+            "schema endpoint requires controller access"
+        }
+        RuntimeBoundaryCode::SqlQueryNoConfiguredEntities => {
+            "SQL query endpoint has no configured entities"
+        }
+        RuntimeBoundaryCode::SqlQueryEntityNotConfigured => {
+            "SQL query target entity is not configured for this canister"
+        }
+        RuntimeBoundaryCode::SqlDdlTargetRequired => "SQL DDL requires one target entity",
+        RuntimeBoundaryCode::SqlDdlEntityNotConfigured => {
+            "SQL DDL target entity is not configured for this canister"
+        }
+        RuntimeBoundaryCode::QueryResponseRowsRequired => "query response contains grouped rows",
+        RuntimeBoundaryCode::QueryResponseGroupedRowsRequired => {
+            "query response contains scalar rows"
+        }
+        RuntimeBoundaryCode::MutationResultEntityRequired => {
+            "mutation result contains a count, not one entity"
+        }
+        RuntimeBoundaryCode::MutationResultEntitiesRequired => {
+            "mutation result contains a count, not entity rows"
+        }
+        RuntimeBoundaryCode::MutationResultIdRequired => {
+            "mutation result contains a count, not one entity id"
+        }
+        RuntimeBoundaryCode::MutationResultIdsRequired => {
+            "mutation result contains a count, not entity ids"
+        }
+        RuntimeBoundaryCode::RowProjectionFieldNotConfigured => {
+            "requested projection field is not configured for this entity"
+        }
     }
 }
 
@@ -380,6 +423,19 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_QUERY_SQL_SURFACE_MISMATCH: execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+        );
+    }
+
+    #[test]
+    fn renders_runtime_boundary_detail() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
+            icydb::ErrorOrigin::Interface,
+        );
+
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: SQL DDL requires one target entity",
         );
     }
 

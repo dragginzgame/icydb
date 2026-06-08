@@ -50,6 +50,22 @@ impl Error {
         }
     }
 
+    /// Build a compact public runtime-boundary error.
+    #[must_use]
+    pub const fn from_runtime_boundary(
+        boundary: icydb_diagnostic_code::RuntimeBoundaryCode,
+        origin: ErrorOrigin,
+    ) -> Self {
+        let code = icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported;
+
+        Self {
+            code,
+            class: code.class(),
+            origin,
+            detail: Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }),
+        }
+    }
+
     /// Build a compact public error from a full diagnostic payload.
     #[must_use]
     pub fn from_diagnostic(diagnostic: icydb_diagnostic_code::Diagnostic) -> Self {

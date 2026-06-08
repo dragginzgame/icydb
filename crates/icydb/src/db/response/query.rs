@@ -2,7 +2,8 @@ use icydb_core::db::LoadQueryResult as CoreLoadQueryResult;
 
 use crate::{
     db::response::{PagedGroupedResponse, Response},
-    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    diagnostic::RuntimeBoundaryCode,
+    error::{Error, ErrorOrigin},
     traits::EntityKind,
 };
 
@@ -56,8 +57,8 @@ impl<E: EntityKind> QueryResponse<E> {
     pub fn into_rows(self) -> Result<Response<E>, Error> {
         match self {
             Self::Rows(rows) => Ok(rows),
-            Self::Grouped(_) => Err(Error::from_kind(
-                ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            Self::Grouped(_) => Err(Error::from_runtime_boundary(
+                RuntimeBoundaryCode::QueryResponseRowsRequired,
                 ErrorOrigin::Query,
             )),
         }
@@ -67,8 +68,8 @@ impl<E: EntityKind> QueryResponse<E> {
     pub fn into_grouped(self) -> Result<PagedGroupedResponse, Error> {
         match self {
             Self::Grouped(grouped) => Ok(grouped),
-            Self::Rows(_) => Err(Error::from_kind(
-                ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            Self::Rows(_) => Err(Error::from_runtime_boundary(
+                RuntimeBoundaryCode::QueryResponseGroupedRowsRequired,
                 ErrorOrigin::Query,
             )),
         }

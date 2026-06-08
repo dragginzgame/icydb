@@ -66,8 +66,8 @@ impl SqlSurfaceTokens {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
                     #query_arms
                     None => #show_entities_dispatch,
-                    Some(_entity) => Err(::icydb::Error::from_kind(
-                        ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                    Some(_entity) => Err(::icydb::Error::from_runtime_boundary(
+                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryEntityNotConfigured,
                         ::icydb::ErrorOrigin::Interface,
                     )),
                 }
@@ -109,12 +109,12 @@ impl SqlSurfaceTokens {
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
                     #ddl_arms
-                    None => Err(::icydb::Error::from_kind(
-                        ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                    None => Err(::icydb::Error::from_runtime_boundary(
+                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
                         ::icydb::ErrorOrigin::Interface,
                     )),
-                    Some(_entity) => Err(::icydb::Error::from_kind(
-                        ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                    Some(_entity) => Err(::icydb::Error::from_runtime_boundary(
+                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlDdlEntityNotConfigured,
                         ::icydb::ErrorOrigin::Interface,
                     )),
                 }
@@ -155,8 +155,8 @@ fn sql_surface_controller_guard() -> TokenStream {
         fn icydb_sql_surface_require_controller(_action: &str) -> Result<(), ::icydb::Error> {
             let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
             if !::icydb::__reexports::ic_cdk::api::is_controller(&caller) {
-                return Err(::icydb::Error::from_kind(
-                    ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                return Err(::icydb::Error::from_runtime_boundary(
+                    ::icydb::diagnostic::RuntimeBoundaryCode::SqlSurfaceControllerRequired,
                     ::icydb::ErrorOrigin::Interface,
                 ));
             }
@@ -317,8 +317,8 @@ fn sql_surface_entity_match_guard(entity_ty: &syn::Path) -> TokenStream {
 
 fn empty_sql_surface_query_dispatch() -> TokenStream {
     quote! {
-        Err(::icydb::Error::from_kind(
-            ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+        Err(::icydb::Error::from_runtime_boundary(
+            ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
             ::icydb::ErrorOrigin::Interface,
         ))
     }
