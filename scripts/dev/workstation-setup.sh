@@ -91,7 +91,29 @@ ensure_rustup() {
     return
   fi
 
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  local rustup_installer
+  local tmp_dir
+
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+  rustup_installer="$tmp_dir/rustup-init.sh"
+  curl \
+    --proto '=https' \
+    --tlsv1.2 \
+    --fail \
+    --location \
+    --show-error \
+    --silent \
+    --retry 5 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --connect-timeout 15 \
+    --max-time 120 \
+    --output "$rustup_installer" \
+    https://sh.rustup.rs
+  sh "$rustup_installer" -y
+  trap - EXIT
+  rm -rf "$tmp_dir"
 }
 
 install_tooling() {

@@ -33,20 +33,48 @@ main() {
   local version_no_v="${VERSION#v}"
   local archive="actionlint_${version_no_v}_$(platform).tar.gz"
   local url="https://github.com/rhysd/actionlint/releases/download/v${version_no_v}/${archive}"
+  local archive_path
+  local install_path="$INSTALL_DIR/actionlint"
+  local installed_version
   local tmp_dir
+
+  if [[ -x "$install_path" ]]; then
+    installed_version="$("$install_path" -version 2>&1 | sed -n '1{s/[[:space:]].*//;p;}')"
+    if [[ "$installed_version" == "$version_no_v" ]]; then
+      printf '%s\n' "$install_path"
+      return
+    fi
+  fi
 
   if [[ -n "${TMPDIR:-}" ]]; then
     mkdir -p "$TMPDIR"
   fi
 
   tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+  archive_path="$tmp_dir/$archive"
   mkdir -p "$INSTALL_DIR"
-  curl -fsSL "$url" | tar -xz -C "$tmp_dir" actionlint
-  mv "$tmp_dir/actionlint" "$INSTALL_DIR/actionlint"
-  chmod +x "$INSTALL_DIR/actionlint"
+  curl \
+    --fail \
+    --location \
+    --show-error \
+    --silent \
+    --retry 5 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --connect-timeout 15 \
+    --max-time 120 \
+    --output "$archive_path" \
+    "$url"
+
+  tar -tzf "$archive_path" actionlint >/dev/null
+  tar -xzf "$archive_path" -C "$tmp_dir" actionlint
+  mv "$tmp_dir/actionlint" "$install_path"
+  chmod +x "$install_path"
+  trap - EXIT
   rm -rf "$tmp_dir"
 
-  printf '%s/actionlint\n' "$INSTALL_DIR"
+  printf '%s\n' "$install_path"
 }
 
 main "$@"

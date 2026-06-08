@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.3` hardens CI and developer bootstrap paths by making actionlint and
+  rustup downloads file-backed and retryable, while adding a mutation
+  atomicity invariant against async/re-entrant mutation paths.
+
 - `0.180.2` adds compact runtime-boundary diagnostics for generated endpoint
   and response-shape errors, with CLI rendering and unused internal Candid
   derives trimmed without changing public DTO wire shapes.
