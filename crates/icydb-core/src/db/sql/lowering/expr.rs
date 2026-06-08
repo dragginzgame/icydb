@@ -317,18 +317,16 @@ fn lower_sql_numeric_scale_function_call(
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
     if !(1..=2).contains(&args.len()) {
-        return Err(crate::db::QueryError::unsupported_query(format!(
-            "{}(...) expects 1 or 2 args, found {}",
-            function.planner_function().canonical_label(),
-            args.len()
-        ))
+        return Err(crate::db::QueryError::unsupported_sql_feature(
+            SqlFeatureCode::NumericScaleFunctionArguments,
+        )
         .into());
     }
 
     let input = lower_sql_expr(&args[0], phase)?;
     let scale = match args.get(1) {
         Some(SqlExpr::Literal(scale)) => Expr::Literal(Value::Nat64(u64::from(
-            validate_numeric_scale_function_scale(function, scale.clone())?,
+            validate_numeric_scale_function_scale(scale.clone())?,
         ))),
         Some(other) => lower_sql_expr(other, phase)?,
         None => Expr::Literal(Value::Nat64(0)),
@@ -340,27 +338,23 @@ fn lower_sql_numeric_scale_function_call(
     })
 }
 
-fn validate_numeric_scale_function_scale(
-    function: SqlScalarFunction,
-    scale: Value,
-) -> Result<u32, SqlLoweringError> {
-    let label = function.planner_function().canonical_label();
+fn validate_numeric_scale_function_scale(scale: Value) -> Result<u32, SqlLoweringError> {
     match scale {
         Value::Int64(value) => u32::try_from(value).map_err(|_| {
-            crate::db::QueryError::unsupported_query(format!(
-                "{label}(...) requires non-negative integer scale, found {value}",
-            ))
+            crate::db::QueryError::unsupported_sql_feature(
+                SqlFeatureCode::NumericScaleFunctionArguments,
+            )
             .into()
         }),
         Value::Nat64(value) => u32::try_from(value).map_err(|_| {
-            crate::db::QueryError::unsupported_query(format!(
-                "{label}(...) scale exceeds supported integer range, found {value}",
-            ))
+            crate::db::QueryError::unsupported_sql_feature(
+                SqlFeatureCode::NumericScaleFunctionArguments,
+            )
             .into()
         }),
-        other => Err(crate::db::QueryError::unsupported_query(format!(
-            "{label}(...) requires integer scale, found {other:?}",
-        ))
+        _ => Err(crate::db::QueryError::unsupported_sql_feature(
+            SqlFeatureCode::NumericScaleFunctionArguments,
+        )
         .into()),
     }
 }

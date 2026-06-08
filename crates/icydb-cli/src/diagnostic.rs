@@ -4,8 +4,9 @@
 //! Boundary: keeps rich diagnostic prose out of production canister crates.
 
 use icydb::diagnostic::{
-    DiagnosticCode, DiagnosticDetail, QueryErrorKind, RuntimeBoundaryCode, RuntimeErrorKind,
-    SchemaDdlAdmissionCode, SqlFeatureCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+    DiagnosticCode, DiagnosticDetail, QueryErrorKind, QueryProjectionCode, QueryResultShapeCode,
+    RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode,
+    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
 /// Render one compact public IcyDB error for CLI output.
@@ -39,6 +40,15 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
         DiagnosticDetail::SqlWriteBoundary { boundary } => {
             format!("SQL write rejected: {}", sql_write_boundary_text(boundary))
         }
+        DiagnosticDetail::QueryProjection { reason } => {
+            format!(
+                "query projection rejected: {}",
+                query_projection_text(reason)
+            )
+        }
+        DiagnosticDetail::QueryResultShape { reason } => {
+            query_result_shape_text(reason).to_string()
+        }
     }
 }
 
@@ -54,6 +64,11 @@ const fn code_label(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryNotUnique => "E_QUERY_NOT_UNIQUE",
         DiagnosticCode::QueryNumericOverflow => "E_QUERY_NUMERIC_OVERFLOW",
         DiagnosticCode::QueryNumericNotRepresentable => "E_QUERY_NUMERIC_NOT_REPRESENTABLE",
+        DiagnosticCode::QueryUnknownAggregateTargetField => {
+            "E_QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD"
+        }
+        DiagnosticCode::QueryUnsupportedProjection => "E_QUERY_UNSUPPORTED_PROJECTION",
+        DiagnosticCode::QueryResultShapeMismatch => "E_QUERY_RESULT_SHAPE_MISMATCH",
         DiagnosticCode::QueryUnsupportedSqlFeature => "E_QUERY_UNSUPPORTED_SQL_FEATURE",
         DiagnosticCode::QuerySqlSurfaceMismatch => "E_QUERY_SQL_SURFACE_MISMATCH",
         DiagnosticCode::QuerySqlWriteBoundary => "E_QUERY_SQL_WRITE_BOUNDARY",
@@ -85,6 +100,9 @@ const fn code_text(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryNotUnique => "query expected one row but found multiple rows",
         DiagnosticCode::QueryNumericOverflow => "numeric operation overflowed",
         DiagnosticCode::QueryNumericNotRepresentable => "numeric result is not representable",
+        DiagnosticCode::QueryUnknownAggregateTargetField => "unknown aggregate target field",
+        DiagnosticCode::QueryUnsupportedProjection => "query projection is not supported",
+        DiagnosticCode::QueryResultShapeMismatch => "query result shape mismatch",
         DiagnosticCode::QueryUnsupportedSqlFeature => "SQL feature is not supported",
         DiagnosticCode::QuerySqlSurfaceMismatch => "SQL statement used the wrong endpoint surface",
         DiagnosticCode::QuerySqlWriteBoundary => "SQL write boundary rejected",
@@ -114,6 +132,53 @@ const fn query_kind_text(kind: QueryErrorKind) -> &'static str {
         QueryErrorKind::InvalidContinuationCursor => "continuation cursor is invalid",
         QueryErrorKind::NotFound => "query expected one row but found none",
         QueryErrorKind::NotUnique => "query expected one row but found multiple rows",
+    }
+}
+
+const fn query_projection_text(reason: QueryProjectionCode) -> &'static str {
+    match reason {
+        QueryProjectionCode::NumericLiteralRequired => {
+            "scalar numeric projection requires a numeric literal"
+        }
+        QueryProjectionCode::NumericScaleArguments => {
+            "scale-taking numeric projections require a non-negative integer scale"
+        }
+        QueryProjectionCode::NestedFieldPathPreview => {
+            "nested field-path projection preview is not supported"
+        }
+        QueryProjectionCode::CaseConditionBooleanRequired => {
+            "CASE projection conditions must evaluate to boolean values"
+        }
+        QueryProjectionCode::NumericInputRequired => {
+            "numeric projection functions require numeric inputs"
+        }
+        QueryProjectionCode::TextOrBlobInputRequired => {
+            "this projection function requires text or blob input"
+        }
+        QueryProjectionCode::TextInputRequired => "text projection functions require text input",
+        QueryProjectionCode::TextOrNullArgumentRequired => {
+            "this projection function requires a text or NULL literal argument"
+        }
+        QueryProjectionCode::IntegerOrNullArgumentRequired => {
+            "this projection function requires an integer or NULL literal argument"
+        }
+        QueryProjectionCode::UnaryOperandIncompatible => {
+            "projection unary operator operand is incompatible"
+        }
+        QueryProjectionCode::BinaryOperandsIncompatible => {
+            "projection binary operator operands are incompatible"
+        }
+    }
+}
+
+const fn query_result_shape_text(reason: QueryResultShapeCode) -> &'static str {
+    match reason {
+        QueryResultShapeCode::ExpectedRows => {
+            "grouped query result cannot be consumed as entity rows"
+        }
+        QueryResultShapeCode::ExpectedGroupedRows => {
+            "scalar query result cannot be consumed as grouped rows"
+        }
     }
 }
 
@@ -346,6 +411,12 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::NestedProjectionFunctionInArithmetic => {
             "nested projection functions inside arithmetic expressions"
         }
+        SqlFeatureCode::NumericScaleFunctionArguments => {
+            "scale-taking numeric function arguments beyond supported literal integer scale"
+        }
+        SqlFeatureCode::OrderByFieldNotOrderable => {
+            "ORDER BY fields whose accepted catalog type is not orderable"
+        }
         SqlFeatureCode::OrderByUnsupportedForm => "unsupported ORDER BY expression form",
         SqlFeatureCode::Other => "unsupported SQL feature",
         SqlFeatureCode::ParameterBinding => "parameter binding",
@@ -510,6 +581,50 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_QUERY_SQL_WRITE_BOUNDARY: SQL write rejected: INSERT is missing required primary key fields",
+        );
+    }
+
+    #[test]
+    fn renders_query_projection_detail() {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+            icydb::diagnostic::DiagnosticCode::QueryUnsupportedProjection,
+            icydb::diagnostic::ErrorOrigin::Query,
+            Some(icydb::diagnostic::DiagnosticDetail::QueryProjection {
+                reason: icydb::diagnostic::QueryProjectionCode::NumericScaleArguments,
+            }),
+        ));
+
+        assert_eq!(
+            render_error(&err),
+            "E_QUERY_UNSUPPORTED_PROJECTION: query projection rejected: scale-taking numeric projections require a non-negative integer scale",
+        );
+    }
+
+    #[test]
+    fn renders_unknown_aggregate_target_field_code() {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::from_code(
+            icydb::diagnostic::DiagnosticCode::QueryUnknownAggregateTargetField,
+        ));
+
+        assert_eq!(
+            render_error(&err),
+            "E_QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD: unknown aggregate target field",
+        );
+    }
+
+    #[test]
+    fn renders_query_result_shape_detail() {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+            icydb::diagnostic::DiagnosticCode::QueryResultShapeMismatch,
+            icydb::diagnostic::ErrorOrigin::Query,
+            Some(icydb::diagnostic::DiagnosticDetail::QueryResultShape {
+                reason: icydb::diagnostic::QueryResultShapeCode::ExpectedRows,
+            }),
+        ));
+
+        assert_eq!(
+            render_error(&err),
+            "E_QUERY_RESULT_SHAPE_MISMATCH: grouped query result cannot be consumed as entity rows",
         );
     }
 

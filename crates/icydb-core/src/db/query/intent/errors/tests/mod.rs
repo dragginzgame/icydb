@@ -274,6 +274,66 @@ fn unsupported_sql_feature_query_error_exposes_compact_feature_code() {
     );
 }
 
+#[test]
+fn unsupported_projection_query_error_exposes_compact_projection_code() {
+    let query_err = QueryError::unsupported_projection(
+        icydb_diagnostic_code::QueryProjectionCode::NumericScaleArguments,
+    );
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnsupportedProjection
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::QueryProjection {
+            reason: icydb_diagnostic_code::QueryProjectionCode::NumericScaleArguments,
+        }),
+    );
+}
+
+#[test]
+fn result_shape_mismatch_query_error_exposes_compact_shape_code() {
+    let query_err = QueryError::result_shape_mismatch(
+        icydb_diagnostic_code::QueryResultShapeCode::ExpectedGroupedRows,
+    );
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryResultShapeMismatch
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::QueryResultShape {
+            reason: icydb_diagnostic_code::QueryResultShapeCode::ExpectedGroupedRows,
+        }),
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn sql_lowering_fallback_query_error_exposes_compact_other_feature_code() {
+    let query_err = QueryError::from_sql_lowering_error(
+        crate::db::sql::lowering::SqlLoweringError::UnsupportedWhereExpression,
+    );
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature {
+                feature: icydb_diagnostic_code::SqlFeatureCode::Other,
+            }
+        ),
+    );
+}
+
 #[cfg(feature = "sql")]
 #[test]
 fn sql_surface_mismatch_query_error_exposes_compact_mismatch_code() {
@@ -344,6 +404,13 @@ fn sql_ddl_publication_race_maps_to_query_admission_detail() {
 #[test]
 fn unknown_aggregate_target_field_preserves_query_unsupported_execution_boundary() {
     let query_err = QueryError::unknown_aggregate_target_field("missing");
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnknownAggregateTargetField
+    );
+    assert_eq!(diagnostic.detail(), None);
 
     std::assert_matches!(
         query_err,
@@ -356,7 +423,7 @@ fn unknown_aggregate_target_field_preserves_query_unsupported_execution_boundary
         panic!("unknown aggregate target field must map to query unsupported execution error");
     };
 
-    assert_eq!(inner.message, "unknown aggregate target field: missing");
+    assert_eq!(inner.message, "unknown aggregate target field");
 }
 
 #[test]

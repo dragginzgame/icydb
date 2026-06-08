@@ -220,6 +220,20 @@ impl QueryError {
         Self::execute(InternalError::query_unsupported_sql_feature(feature))
     }
 
+    /// Construct one query-origin unsupported projection error.
+    pub(in crate::db) fn unsupported_projection(
+        reason: diagnostic_code::QueryProjectionCode,
+    ) -> Self {
+        Self::execute(InternalError::query_unsupported_projection(reason))
+    }
+
+    /// Construct one query-origin result-shape mismatch error.
+    pub(in crate::db) fn result_shape_mismatch(
+        reason: diagnostic_code::QueryResultShapeCode,
+    ) -> Self {
+        Self::execute(InternalError::query_result_shape_mismatch(reason))
+    }
+
     /// Construct one query-origin unsupported SQL endpoint surface mismatch.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn sql_surface_mismatch(
@@ -242,9 +256,7 @@ impl QueryError {
             SqlLoweringError::UnknownField { field } => {
                 Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
             }
-            other => Self::unsupported_query(format!(
-                "SQL query is not executable in this release: {other}"
-            )),
+            _ => Self::unsupported_sql_feature(diagnostic_code::SqlFeatureCode::Other),
         }
     }
 
@@ -306,8 +318,8 @@ impl QueryError {
     }
 
     /// Construct one unsupported aggregate target-field query error.
-    pub(in crate::db) fn unknown_aggregate_target_field(field: &str) -> Self {
-        Self::unsupported_query(format!("unknown aggregate target field: {field}"))
+    pub(in crate::db) fn unknown_aggregate_target_field(_field: &str) -> Self {
+        Self::execute(InternalError::query_unknown_aggregate_target_field())
     }
 
     /// Construct one invariant violation for scalar pagination emitting the wrong cursor kind.

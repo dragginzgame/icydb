@@ -20,6 +20,7 @@ use crate::{
     traits::NumericValue,
     value::{InputValue, Value},
 };
+use icydb_diagnostic_code::QueryProjectionCode;
 
 ///
 /// NumericProjectionExpr
@@ -59,9 +60,9 @@ impl NumericProjectionExpr {
                 | Value::Timestamp(_)
                 | Value::Date(_)
         ) {
-            return Err(QueryError::unsupported_query(format!(
-                "scalar numeric projection requires a numeric literal, found {literal:?}",
-            )));
+            return Err(QueryError::unsupported_projection(
+                QueryProjectionCode::NumericLiteralRequired,
+            ));
         }
 
         let field = field.into();
@@ -224,15 +225,15 @@ impl RoundProjectionExpr {
     ) -> Result<Self, QueryError> {
         match scale {
             Value::Int64(value) if value < 0 => {
-                return Err(QueryError::unsupported_query(format!(
-                    "ROUND(...) requires non-negative integer scale, found {value}",
-                )));
+                return Err(QueryError::unsupported_projection(
+                    QueryProjectionCode::NumericScaleArguments,
+                ));
             }
             Value::Int64(_) | Value::Nat64(_) => {}
-            other => {
-                return Err(QueryError::unsupported_query(format!(
-                    "ROUND(...) requires integer scale, found {other:?}",
-                )));
+            _ => {
+                return Err(QueryError::unsupported_projection(
+                    QueryProjectionCode::NumericScaleArguments,
+                ));
             }
         }
 
@@ -329,4 +330,59 @@ pub fn round_expr(projection: &NumericProjectionExpr, scale: u32) -> RoundProjec
     projection
         .round_with_scale(scale)
         .expect("ROUND(expr, scale) helper should always produce a bounded projection")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NumericProjectionExpr, RoundProjectionExpr};
+    use crate::{
+        db::{
+            QueryError,
+            query::plan::expr::{BinaryOp, Expr, FieldId},
+        },
+        value::Value,
+    };
+    use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryProjectionCode};
+
+    fn assert_query_projection_error(err: QueryError, reason: QueryProjectionCode) {
+        let diagnostic = err.diagnostic();
+
+        assert_eq!(
+            diagnostic.code(),
+            DiagnosticCode::QueryUnsupportedProjection
+        );
+        assert_eq!(
+            diagnostic.detail(),
+            Some(&DiagnosticDetail::QueryProjection { reason }),
+        );
+    }
+
+    #[test]
+    fn numeric_projection_rejects_non_numeric_literal_with_compact_projection_code() {
+        let err = NumericProjectionExpr::arithmetic_value("age", BinaryOp::Add, Value::Bool(true))
+            .expect_err("non-numeric projection literal should fail closed");
+
+        assert_query_projection_error(err, QueryProjectionCode::NumericLiteralRequired);
+    }
+
+    #[test]
+    fn round_projection_rejects_negative_scale_with_compact_projection_code() {
+        let err =
+            RoundProjectionExpr::new("age", Expr::Field(FieldId::new("age")), Value::Int64(-1))
+                .expect_err("negative ROUND scale should fail closed");
+
+        assert_query_projection_error(err, QueryProjectionCode::NumericScaleArguments);
+    }
+
+    #[test]
+    fn round_projection_rejects_non_integer_scale_with_compact_projection_code() {
+        let err = RoundProjectionExpr::new(
+            "age",
+            Expr::Field(FieldId::new("age")),
+            Value::Text("invalid".to_string()),
+        )
+        .expect_err("non-integer ROUND scale should fail closed");
+
+        assert_query_projection_error(err, QueryProjectionCode::NumericScaleArguments);
+    }
 }

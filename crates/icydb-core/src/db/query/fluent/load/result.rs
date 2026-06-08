@@ -2,6 +2,7 @@ use crate::{
     db::{EntityResponse, PagedGroupedExecutionWithTrace, query::intent::QueryError},
     traits::EntityKind,
 };
+use icydb_diagnostic_code::QueryResultShapeCode;
 
 ///
 /// LoadQueryResult
@@ -36,8 +37,8 @@ impl<E: EntityKind> LoadQueryResult<E> {
     pub fn into_rows(self) -> Result<EntityResponse<E>, QueryError> {
         match self {
             Self::Rows(rows) => Ok(rows),
-            Self::Grouped(_) => Err(QueryError::unsupported_query(
-                "grouped queries return grouped rows; call execute() and inspect the grouped result",
+            Self::Grouped(_) => Err(QueryError::result_shape_mismatch(
+                QueryResultShapeCode::ExpectedRows,
             )),
         }
     }
@@ -46,8 +47,8 @@ impl<E: EntityKind> LoadQueryResult<E> {
     pub fn into_grouped(self) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
         match self {
             Self::Grouped(grouped) => Ok(grouped),
-            Self::Rows(_) => Err(QueryError::unsupported_query(
-                "scalar queries return entity rows; grouped results are not available",
+            Self::Rows(_) => Err(QueryError::result_shape_mismatch(
+                QueryResultShapeCode::ExpectedGroupedRows,
             )),
         }
     }

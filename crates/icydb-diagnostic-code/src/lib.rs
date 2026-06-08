@@ -22,6 +22,9 @@ pub enum DiagnosticCode {
     QueryNotUnique,
     QueryNumericOverflow,
     QueryNumericNotRepresentable,
+    QueryUnknownAggregateTargetField,
+    QueryUnsupportedProjection,
+    QueryResultShapeMismatch,
     QueryUnsupportedSqlFeature,
     QuerySqlSurfaceMismatch,
     QuerySqlWriteBoundary,
@@ -50,6 +53,9 @@ impl DiagnosticCode {
             }
             Self::RuntimeConflict => ErrorClass::Conflict,
             Self::QueryUnsupportedSqlFeature
+            | Self::QueryUnknownAggregateTargetField
+            | Self::QueryUnsupportedProjection
+            | Self::QueryResultShapeMismatch
             | Self::QuerySqlSurfaceMismatch
             | Self::QuerySqlWriteBoundary
             | Self::RuntimeUnsupported => ErrorClass::Unsupported,
@@ -94,6 +100,9 @@ impl DiagnosticCode {
             | Self::QueryNotUnique
             | Self::QueryNumericOverflow
             | Self::QueryNumericNotRepresentable
+            | Self::QueryUnknownAggregateTargetField
+            | Self::QueryUnsupportedProjection
+            | Self::QueryResultShapeMismatch
             | Self::QueryUnsupportedSqlFeature
             | Self::QuerySqlSurfaceMismatch
             | Self::QuerySqlWriteBoundary
@@ -115,6 +124,11 @@ impl DiagnosticCode {
             Self::QueryNotUnique => ErrorCode::QUERY_NOT_UNIQUE,
             Self::QueryNumericOverflow => ErrorCode::QUERY_NUMERIC_OVERFLOW,
             Self::QueryNumericNotRepresentable => ErrorCode::QUERY_NUMERIC_NOT_REPRESENTABLE,
+            Self::QueryUnknownAggregateTargetField => {
+                ErrorCode::QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD
+            }
+            Self::QueryUnsupportedProjection => ErrorCode::QUERY_UNSUPPORTED_PROJECTION,
+            Self::QueryResultShapeMismatch => ErrorCode::QUERY_RESULT_SHAPE_MISMATCH,
             Self::QueryUnsupportedSqlFeature => ErrorCode::QUERY_UNSUPPORTED_SQL_FEATURE,
             Self::QuerySqlSurfaceMismatch => ErrorCode::QUERY_SQL_SURFACE_MISMATCH,
             Self::QuerySqlWriteBoundary => ErrorCode::QUERY_SQL_WRITE_BOUNDARY,
@@ -160,99 +174,102 @@ impl ErrorCode {
     pub const QUERY_NOT_UNIQUE: Self = Self(8);
     pub const QUERY_NUMERIC_OVERFLOW: Self = Self(9);
     pub const QUERY_NUMERIC_NOT_REPRESENTABLE: Self = Self(10);
-    pub const QUERY_UNSUPPORTED_SQL_FEATURE: Self = Self(11);
-    pub const QUERY_SQL_SURFACE_MISMATCH: Self = Self(12);
-    pub const SCHEMA_DDL_ADMISSION: Self = Self(13);
-    pub const STORE_NOT_FOUND: Self = Self(14);
-    pub const STORE_CORRUPTION: Self = Self(15);
-    pub const STORE_INVARIANT_VIOLATION: Self = Self(16);
-    pub const RUNTIME_CORRUPTION: Self = Self(17);
-    pub const RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT: Self = Self(18);
-    pub const RUNTIME_INVARIANT_VIOLATION: Self = Self(19);
-    pub const RUNTIME_CONFLICT: Self = Self(20);
-    pub const RUNTIME_NOT_FOUND: Self = Self(21);
-    pub const RUNTIME_UNSUPPORTED: Self = Self(22);
-    pub const RUNTIME_INTERNAL: Self = Self(23);
+    pub const QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD: Self = Self(11);
+    pub const QUERY_UNSUPPORTED_SQL_FEATURE: Self = Self(12);
+    pub const QUERY_SQL_SURFACE_MISMATCH: Self = Self(13);
+    pub const SCHEMA_DDL_ADMISSION: Self = Self(14);
+    pub const STORE_NOT_FOUND: Self = Self(15);
+    pub const STORE_CORRUPTION: Self = Self(16);
+    pub const STORE_INVARIANT_VIOLATION: Self = Self(17);
+    pub const RUNTIME_CORRUPTION: Self = Self(18);
+    pub const RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT: Self = Self(19);
+    pub const RUNTIME_INVARIANT_VIOLATION: Self = Self(20);
+    pub const RUNTIME_CONFLICT: Self = Self(21);
+    pub const RUNTIME_NOT_FOUND: Self = Self(22);
+    pub const RUNTIME_UNSUPPORTED: Self = Self(23);
+    pub const RUNTIME_INTERNAL: Self = Self(24);
 
-    pub const RUNTIME_BOUNDARY_SQL_SURFACE_CONTROLLER_REQUIRED: Self = Self(24);
-    pub const RUNTIME_BOUNDARY_SCHEMA_SURFACE_CONTROLLER_REQUIRED: Self = Self(25);
-    pub const RUNTIME_BOUNDARY_SQL_QUERY_NO_CONFIGURED_ENTITIES: Self = Self(26);
-    pub const RUNTIME_BOUNDARY_SQL_QUERY_ENTITY_NOT_CONFIGURED: Self = Self(27);
-    pub const RUNTIME_BOUNDARY_SQL_DDL_TARGET_REQUIRED: Self = Self(28);
-    pub const RUNTIME_BOUNDARY_SQL_DDL_ENTITY_NOT_CONFIGURED: Self = Self(29);
-    pub const RUNTIME_BOUNDARY_QUERY_RESPONSE_ROWS_REQUIRED: Self = Self(30);
-    pub const RUNTIME_BOUNDARY_QUERY_RESPONSE_GROUPED_ROWS_REQUIRED: Self = Self(31);
-    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_ENTITY_REQUIRED: Self = Self(32);
-    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_ENTITIES_REQUIRED: Self = Self(33);
-    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_ID_REQUIRED: Self = Self(34);
-    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_IDS_REQUIRED: Self = Self(35);
-    pub const RUNTIME_BOUNDARY_ROW_PROJECTION_FIELD_NOT_CONFIGURED: Self = Self(36);
+    pub const RUNTIME_BOUNDARY_SQL_SURFACE_CONTROLLER_REQUIRED: Self = Self(25);
+    pub const RUNTIME_BOUNDARY_SCHEMA_SURFACE_CONTROLLER_REQUIRED: Self = Self(26);
+    pub const RUNTIME_BOUNDARY_SQL_QUERY_NO_CONFIGURED_ENTITIES: Self = Self(27);
+    pub const RUNTIME_BOUNDARY_SQL_QUERY_ENTITY_NOT_CONFIGURED: Self = Self(28);
+    pub const RUNTIME_BOUNDARY_SQL_DDL_TARGET_REQUIRED: Self = Self(29);
+    pub const RUNTIME_BOUNDARY_SQL_DDL_ENTITY_NOT_CONFIGURED: Self = Self(30);
+    pub const RUNTIME_BOUNDARY_QUERY_RESPONSE_ROWS_REQUIRED: Self = Self(31);
+    pub const RUNTIME_BOUNDARY_QUERY_RESPONSE_GROUPED_ROWS_REQUIRED: Self = Self(32);
+    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_ENTITY_REQUIRED: Self = Self(33);
+    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_ENTITIES_REQUIRED: Self = Self(34);
+    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_ID_REQUIRED: Self = Self(35);
+    pub const RUNTIME_BOUNDARY_MUTATION_RESULT_IDS_REQUIRED: Self = Self(36);
+    pub const RUNTIME_BOUNDARY_ROW_PROJECTION_FIELD_NOT_CONFIGURED: Self = Self(37);
 
-    pub const SQL_FEATURE_AGGREGATE_FILTER_CLAUSE: Self = Self(37);
-    pub const SQL_FEATURE_ALTER_STATEMENT_BEYOND_ALTER_TABLE: Self = Self(38);
-    pub const SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_DUPLICATE_DEFAULT: Self = Self(39);
-    pub const SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_MODIFIERS: Self = Self(40);
-    pub const SQL_FEATURE_ALTER_TABLE_ADD_STATEMENT_BEYOND_ADD_COLUMN: Self = Self(41);
-    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_DROP_UNSUPPORTED_ACTION: Self = Self(42);
-    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_MODIFIERS: Self = Self(43);
-    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_SET_UNSUPPORTED_ACTION: Self = Self(44);
-    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_UNSUPPORTED_ACTION: Self = Self(45);
-    pub const SQL_FEATURE_ALTER_TABLE_ALTER_STATEMENT_BEYOND_ALTER_COLUMN: Self = Self(46);
-    pub const SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_IF_EXISTS_SYNTAX: Self = Self(47);
-    pub const SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_MODIFIERS: Self = Self(48);
-    pub const SQL_FEATURE_ALTER_TABLE_DROP_STATEMENT_BEYOND_DROP_COLUMN: Self = Self(49);
-    pub const SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MISSING_TO: Self = Self(50);
-    pub const SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MODIFIERS: Self = Self(51);
-    pub const SQL_FEATURE_ALTER_TABLE_RENAME_STATEMENT_BEYOND_RENAME_COLUMN: Self = Self(52);
-    pub const SQL_FEATURE_ALTER_TABLE_UNSUPPORTED_OPERATION: Self = Self(53);
-    pub const SQL_FEATURE_COLUMN_ALIAS: Self = Self(54);
-    pub const SQL_FEATURE_CREATE_INDEX_IF_NOT_EXISTS_SYNTAX: Self = Self(55);
-    pub const SQL_FEATURE_CREATE_INDEX_KEY_ORDERING_MODIFIERS: Self = Self(56);
-    pub const SQL_FEATURE_CREATE_INDEX_MODIFIERS: Self = Self(57);
-    pub const SQL_FEATURE_CREATE_STATEMENT_BEYOND_CREATE_INDEX: Self = Self(58);
-    pub const SQL_FEATURE_DESCRIBE_MODIFIER: Self = Self(59);
-    pub const SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_EXPECTED_CLAUSE: Self = Self(60);
-    pub const SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_SET_CLAUSE: Self = Self(61);
-    pub const SQL_FEATURE_DROP_INDEX_MODIFIERS: Self = Self(62);
-    pub const SQL_FEATURE_DROP_INDEX_IF_EXISTS_SYNTAX: Self = Self(63);
-    pub const SQL_FEATURE_DROP_STATEMENT_BEYOND_DROP_INDEX: Self = Self(64);
-    pub const SQL_FEATURE_EXPRESSION_INDEX_UNSUPPORTED_FUNCTION: Self = Self(65);
-    pub const SQL_FEATURE_HAVING: Self = Self(66);
-    pub const SQL_FEATURE_INSERT: Self = Self(67);
-    pub const SQL_FEATURE_JOIN: Self = Self(68);
-    pub const SQL_FEATURE_LIKE_PATTERN_BEYOND_TRAILING_PREFIX: Self = Self(69);
-    pub const SQL_FEATURE_LOWER_FIELD_PREDICATE_UNSUPPORTED: Self = Self(70);
-    pub const SQL_FEATURE_MULTI_STATEMENT_SQL: Self = Self(71);
-    pub const SQL_FEATURE_NESTED_AGGREGATE_INPUT: Self = Self(72);
-    pub const SQL_FEATURE_NESTED_PROJECTION_FUNCTION_IN_ARITHMETIC: Self = Self(73);
-    pub const SQL_FEATURE_ORDER_BY_UNSUPPORTED_FORM: Self = Self(74);
-    pub const SQL_FEATURE_OTHER: Self = Self(75);
-    pub const SQL_FEATURE_PARAMETER_BINDING: Self = Self(76);
-    pub const SQL_FEATURE_PARAMETERIZED_SCHEMA_VERSION: Self = Self(77);
-    pub const SQL_FEATURE_PREDICATE_STARTS_WITH_FIRST_ARGUMENT: Self = Self(78);
-    pub const SQL_FEATURE_QUOTED_IDENTIFIERS: Self = Self(79);
-    pub const SQL_FEATURE_RETURNING_UNSUPPORTED_SHAPE: Self = Self(80);
-    pub const SQL_FEATURE_SCALAR_FUNCTION_EXPRESSION_POSITION: Self = Self(81);
-    pub const SQL_FEATURE_SCALE_TAKING_NUMERIC_FUNCTION_EXPRESSION_POSITION: Self = Self(82);
-    pub const SQL_FEATURE_SEARCHED_CASE_GROUPED_ORDER_BY: Self = Self(83);
-    pub const SQL_FEATURE_SHOW_COLUMNS_MODIFIERS: Self = Self(84);
-    pub const SQL_FEATURE_SHOW_ENTITIES_MODIFIERS: Self = Self(85);
-    pub const SQL_FEATURE_SHOW_INDEXES_MODIFIERS: Self = Self(86);
-    pub const SQL_FEATURE_SHOW_MEMORY_MODIFIERS: Self = Self(87);
-    pub const SQL_FEATURE_SHOW_STORES_MODIFIERS: Self = Self(88);
-    pub const SQL_FEATURE_SHOW_UNSUPPORTED_COMMAND: Self = Self(89);
-    pub const SQL_FEATURE_SIMPLE_CASE_EXPRESSION: Self = Self(90);
-    pub const SQL_FEATURE_STANDALONE_LITERAL_PROJECTION_ITEM: Self = Self(91);
-    pub const SQL_FEATURE_SUPPORTED_GROUPED_ORDER_BY_EXPRESSION_FAMILY: Self = Self(92);
-    pub const SQL_FEATURE_SUPPORTED_ORDER_BY_EXPRESSION_FAMILY: Self = Self(93);
-    pub const SQL_FEATURE_UNION_INTERSECT_EXCEPT: Self = Self(94);
-    pub const SQL_FEATURE_UNSUPPORTED_FUNCTION_NAMESPACE: Self = Self(95);
-    pub const SQL_FEATURE_UPDATE: Self = Self(96);
-    pub const SQL_FEATURE_UPPER_FIELD_PREDICATE_UNSUPPORTED: Self = Self(97);
-    pub const SQL_FEATURE_WINDOW_FUNCTION: Self = Self(98);
-    pub const SQL_FEATURE_WITH: Self = Self(99);
+    pub const SQL_FEATURE_AGGREGATE_FILTER_CLAUSE: Self = Self(38);
+    pub const SQL_FEATURE_ALTER_STATEMENT_BEYOND_ALTER_TABLE: Self = Self(39);
+    pub const SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_DUPLICATE_DEFAULT: Self = Self(40);
+    pub const SQL_FEATURE_ALTER_TABLE_ADD_COLUMN_MODIFIERS: Self = Self(41);
+    pub const SQL_FEATURE_ALTER_TABLE_ADD_STATEMENT_BEYOND_ADD_COLUMN: Self = Self(42);
+    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_DROP_UNSUPPORTED_ACTION: Self = Self(43);
+    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_MODIFIERS: Self = Self(44);
+    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_SET_UNSUPPORTED_ACTION: Self = Self(45);
+    pub const SQL_FEATURE_ALTER_TABLE_ALTER_COLUMN_UNSUPPORTED_ACTION: Self = Self(46);
+    pub const SQL_FEATURE_ALTER_TABLE_ALTER_STATEMENT_BEYOND_ALTER_COLUMN: Self = Self(47);
+    pub const SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_IF_EXISTS_SYNTAX: Self = Self(48);
+    pub const SQL_FEATURE_ALTER_TABLE_DROP_COLUMN_MODIFIERS: Self = Self(49);
+    pub const SQL_FEATURE_ALTER_TABLE_DROP_STATEMENT_BEYOND_DROP_COLUMN: Self = Self(50);
+    pub const SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MISSING_TO: Self = Self(51);
+    pub const SQL_FEATURE_ALTER_TABLE_RENAME_COLUMN_MODIFIERS: Self = Self(52);
+    pub const SQL_FEATURE_ALTER_TABLE_RENAME_STATEMENT_BEYOND_RENAME_COLUMN: Self = Self(53);
+    pub const SQL_FEATURE_ALTER_TABLE_UNSUPPORTED_OPERATION: Self = Self(54);
+    pub const SQL_FEATURE_COLUMN_ALIAS: Self = Self(55);
+    pub const SQL_FEATURE_CREATE_INDEX_IF_NOT_EXISTS_SYNTAX: Self = Self(56);
+    pub const SQL_FEATURE_CREATE_INDEX_KEY_ORDERING_MODIFIERS: Self = Self(57);
+    pub const SQL_FEATURE_CREATE_INDEX_MODIFIERS: Self = Self(58);
+    pub const SQL_FEATURE_CREATE_STATEMENT_BEYOND_CREATE_INDEX: Self = Self(59);
+    pub const SQL_FEATURE_DESCRIBE_MODIFIER: Self = Self(60);
+    pub const SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_EXPECTED_CLAUSE: Self = Self(61);
+    pub const SQL_FEATURE_DDL_SCHEMA_VERSION_DUPLICATE_SET_CLAUSE: Self = Self(62);
+    pub const SQL_FEATURE_DROP_INDEX_MODIFIERS: Self = Self(63);
+    pub const SQL_FEATURE_DROP_INDEX_IF_EXISTS_SYNTAX: Self = Self(64);
+    pub const SQL_FEATURE_DROP_STATEMENT_BEYOND_DROP_INDEX: Self = Self(65);
+    pub const SQL_FEATURE_EXPRESSION_INDEX_UNSUPPORTED_FUNCTION: Self = Self(66);
+    pub const SQL_FEATURE_HAVING: Self = Self(67);
+    pub const SQL_FEATURE_INSERT: Self = Self(68);
+    pub const SQL_FEATURE_JOIN: Self = Self(69);
+    pub const SQL_FEATURE_LIKE_PATTERN_BEYOND_TRAILING_PREFIX: Self = Self(70);
+    pub const SQL_FEATURE_LOWER_FIELD_PREDICATE_UNSUPPORTED: Self = Self(71);
+    pub const SQL_FEATURE_MULTI_STATEMENT_SQL: Self = Self(72);
+    pub const SQL_FEATURE_NESTED_AGGREGATE_INPUT: Self = Self(73);
+    pub const SQL_FEATURE_NESTED_PROJECTION_FUNCTION_IN_ARITHMETIC: Self = Self(74);
+    pub const SQL_FEATURE_ORDER_BY_UNSUPPORTED_FORM: Self = Self(75);
+    pub const SQL_FEATURE_OTHER: Self = Self(76);
+    pub const SQL_FEATURE_PARAMETER_BINDING: Self = Self(77);
+    pub const SQL_FEATURE_PARAMETERIZED_SCHEMA_VERSION: Self = Self(78);
+    pub const SQL_FEATURE_PREDICATE_STARTS_WITH_FIRST_ARGUMENT: Self = Self(79);
+    pub const SQL_FEATURE_QUOTED_IDENTIFIERS: Self = Self(80);
+    pub const SQL_FEATURE_RETURNING_UNSUPPORTED_SHAPE: Self = Self(81);
+    pub const SQL_FEATURE_SCALAR_FUNCTION_EXPRESSION_POSITION: Self = Self(82);
+    pub const SQL_FEATURE_SCALE_TAKING_NUMERIC_FUNCTION_EXPRESSION_POSITION: Self = Self(83);
+    pub const SQL_FEATURE_SEARCHED_CASE_GROUPED_ORDER_BY: Self = Self(84);
+    pub const SQL_FEATURE_SHOW_COLUMNS_MODIFIERS: Self = Self(85);
+    pub const SQL_FEATURE_SHOW_ENTITIES_MODIFIERS: Self = Self(86);
+    pub const SQL_FEATURE_SHOW_INDEXES_MODIFIERS: Self = Self(87);
+    pub const SQL_FEATURE_SHOW_MEMORY_MODIFIERS: Self = Self(88);
+    pub const SQL_FEATURE_SHOW_STORES_MODIFIERS: Self = Self(89);
+    pub const SQL_FEATURE_SHOW_UNSUPPORTED_COMMAND: Self = Self(90);
+    pub const SQL_FEATURE_SIMPLE_CASE_EXPRESSION: Self = Self(91);
+    pub const SQL_FEATURE_STANDALONE_LITERAL_PROJECTION_ITEM: Self = Self(92);
+    pub const SQL_FEATURE_SUPPORTED_GROUPED_ORDER_BY_EXPRESSION_FAMILY: Self = Self(93);
+    pub const SQL_FEATURE_SUPPORTED_ORDER_BY_EXPRESSION_FAMILY: Self = Self(94);
+    pub const SQL_FEATURE_UNION_INTERSECT_EXCEPT: Self = Self(95);
+    pub const SQL_FEATURE_UNSUPPORTED_FUNCTION_NAMESPACE: Self = Self(96);
+    pub const SQL_FEATURE_UPDATE: Self = Self(97);
+    pub const SQL_FEATURE_UPPER_FIELD_PREDICATE_UNSUPPORTED: Self = Self(98);
+    pub const SQL_FEATURE_WINDOW_FUNCTION: Self = Self(99);
+    pub const SQL_FEATURE_WITH: Self = Self(100);
+    pub const SQL_FEATURE_NUMERIC_SCALE_FUNCTION_ARGUMENTS: Self = Self(101);
+    pub const SQL_FEATURE_ORDER_BY_FIELD_NOT_ORDERABLE: Self = Self(102);
 
-    const SQL_FEATURE_DETAILS: [SqlFeatureCode; 63] = [
+    const SQL_FEATURE_DETAILS: [SqlFeatureCode; 65] = [
         SqlFeatureCode::AggregateFilterClause,
         SqlFeatureCode::AlterStatementBeyondAlterTable,
         SqlFeatureCode::AlterTableAddColumnDuplicateDefault,
@@ -316,57 +333,74 @@ impl ErrorCode {
         SqlFeatureCode::UpperFieldPredicateUnsupported,
         SqlFeatureCode::WindowFunction,
         SqlFeatureCode::With,
+        SqlFeatureCode::NumericScaleFunctionArguments,
+        SqlFeatureCode::OrderByFieldNotOrderable,
     ];
 
-    pub const SQL_SURFACE_QUERY_REJECTS_INSERT: Self = Self(100);
-    pub const SQL_SURFACE_QUERY_REJECTS_UPDATE: Self = Self(101);
-    pub const SQL_SURFACE_QUERY_REJECTS_DELETE: Self = Self(102);
-    pub const SQL_SURFACE_UPDATE_REJECTS_SELECT: Self = Self(103);
-    pub const SQL_SURFACE_UPDATE_REJECTS_EXPLAIN: Self = Self(104);
-    pub const SQL_SURFACE_UPDATE_REJECTS_DESCRIBE: Self = Self(105);
-    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_INDEXES: Self = Self(106);
-    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_COLUMNS: Self = Self(107);
-    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_ENTITIES: Self = Self(108);
-    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_STORES: Self = Self(109);
-    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_MEMORY: Self = Self(110);
+    pub const SQL_SURFACE_QUERY_REJECTS_INSERT: Self = Self(103);
+    pub const SQL_SURFACE_QUERY_REJECTS_UPDATE: Self = Self(104);
+    pub const SQL_SURFACE_QUERY_REJECTS_DELETE: Self = Self(105);
+    pub const SQL_SURFACE_UPDATE_REJECTS_SELECT: Self = Self(106);
+    pub const SQL_SURFACE_UPDATE_REJECTS_EXPLAIN: Self = Self(107);
+    pub const SQL_SURFACE_UPDATE_REJECTS_DESCRIBE: Self = Self(108);
+    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_INDEXES: Self = Self(109);
+    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_COLUMNS: Self = Self(110);
+    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_ENTITIES: Self = Self(111);
+    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_STORES: Self = Self(112);
+    pub const SQL_SURFACE_UPDATE_REJECTS_SHOW_MEMORY: Self = Self(113);
 
-    pub const SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION: Self = Self(111);
-    pub const SCHEMA_DDL_MISSING_NEXT_SCHEMA_VERSION: Self = Self(112);
-    pub const SCHEMA_DDL_STALE_EXPECTED_SCHEMA_VERSION: Self = Self(113);
-    pub const SCHEMA_DDL_INVALID_EXPECTED_SCHEMA_VERSION: Self = Self(114);
-    pub const SCHEMA_DDL_INVALID_NEXT_SCHEMA_VERSION: Self = Self(115);
-    pub const SCHEMA_DDL_ACCEPTED_SCHEMA_CHANGE_WITHOUT_VERSION_BUMP: Self = Self(116);
-    pub const SCHEMA_DDL_EMPTY_VERSION_BUMP: Self = Self(117);
-    pub const SCHEMA_DDL_VERSION_GAP: Self = Self(118);
-    pub const SCHEMA_DDL_VERSION_ROLLBACK: Self = Self(119);
-    pub const SCHEMA_DDL_FINGERPRINT_METHOD_MISMATCH: Self = Self(120);
-    pub const SCHEMA_DDL_UNSUPPORTED_TRANSITION_CLASS: Self = Self(121);
-    pub const SCHEMA_DDL_PHYSICAL_RUNNER_MISSING: Self = Self(122);
-    pub const SCHEMA_DDL_VALIDATION_FAILED: Self = Self(123);
-    pub const SCHEMA_DDL_PUBLICATION_RACE_LOST: Self = Self(124);
-    pub const SCHEMA_DDL_INVALID_ADD_COLUMN_DEFAULT: Self = Self(125);
-    pub const SCHEMA_DDL_INVALID_ALTER_COLUMN_DEFAULT: Self = Self(126);
-    pub const SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED: Self = Self(127);
-    pub const SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED: Self = Self(128);
-    pub const SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED: Self = Self(129);
-    pub const SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED: Self = Self(130);
-    pub const SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED: Self = Self(131);
-    pub const QUERY_SQL_WRITE_BOUNDARY: Self = Self(132);
-    pub const SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE: Self = Self(133);
-    pub const SQL_WRITE_PRIMARY_KEY_LITERAL_INCOMPATIBLE: Self = Self(134);
-    pub const SQL_WRITE_MISSING_PRIMARY_KEY: Self = Self(135);
-    pub const SQL_WRITE_MISSING_REQUIRED_FIELDS: Self = Self(136);
-    pub const SQL_WRITE_EXPLICIT_MANAGED_FIELD: Self = Self(137);
-    pub const SQL_WRITE_EXPLICIT_GENERATED_FIELD: Self = Self(138);
-    pub const SQL_WRITE_INSERT_SELECT_REQUIRES_SCALAR: Self = Self(139);
-    pub const SQL_WRITE_INSERT_SELECT_AGGREGATE_PROJECTION: Self = Self(140);
-    pub const SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH: Self = Self(141);
-    pub const SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION: Self = Self(142);
-    pub const SQL_WRITE_INVALID_FIELD_LITERAL: Self = Self(143);
-    pub const SQL_WRITE_UNKNOWN_RETURNING_FIELD: Self = Self(144);
-    pub const SQL_WRITE_DUPLICATE_RETURNING_FIELD: Self = Self(145);
-    pub const SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE: Self = Self(146);
-    pub const SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE: Self = Self(147);
+    pub const SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION: Self = Self(114);
+    pub const SCHEMA_DDL_MISSING_NEXT_SCHEMA_VERSION: Self = Self(115);
+    pub const SCHEMA_DDL_STALE_EXPECTED_SCHEMA_VERSION: Self = Self(116);
+    pub const SCHEMA_DDL_INVALID_EXPECTED_SCHEMA_VERSION: Self = Self(117);
+    pub const SCHEMA_DDL_INVALID_NEXT_SCHEMA_VERSION: Self = Self(118);
+    pub const SCHEMA_DDL_ACCEPTED_SCHEMA_CHANGE_WITHOUT_VERSION_BUMP: Self = Self(119);
+    pub const SCHEMA_DDL_EMPTY_VERSION_BUMP: Self = Self(120);
+    pub const SCHEMA_DDL_VERSION_GAP: Self = Self(121);
+    pub const SCHEMA_DDL_VERSION_ROLLBACK: Self = Self(122);
+    pub const SCHEMA_DDL_FINGERPRINT_METHOD_MISMATCH: Self = Self(123);
+    pub const SCHEMA_DDL_UNSUPPORTED_TRANSITION_CLASS: Self = Self(124);
+    pub const SCHEMA_DDL_PHYSICAL_RUNNER_MISSING: Self = Self(125);
+    pub const SCHEMA_DDL_VALIDATION_FAILED: Self = Self(126);
+    pub const SCHEMA_DDL_PUBLICATION_RACE_LOST: Self = Self(127);
+    pub const SCHEMA_DDL_INVALID_ADD_COLUMN_DEFAULT: Self = Self(128);
+    pub const SCHEMA_DDL_INVALID_ALTER_COLUMN_DEFAULT: Self = Self(129);
+    pub const SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED: Self = Self(130);
+    pub const SCHEMA_DDL_REQUIRED_DROP_DEFAULT_UNSUPPORTED: Self = Self(131);
+    pub const SCHEMA_DDL_GENERATED_FIELD_DEFAULT_CHANGE_REJECTED: Self = Self(132);
+    pub const SCHEMA_DDL_GENERATED_FIELD_NULLABILITY_CHANGE_REJECTED: Self = Self(133);
+    pub const SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED: Self = Self(134);
+    pub const QUERY_SQL_WRITE_BOUNDARY: Self = Self(135);
+    pub const SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE: Self = Self(136);
+    pub const SQL_WRITE_PRIMARY_KEY_LITERAL_INCOMPATIBLE: Self = Self(137);
+    pub const SQL_WRITE_MISSING_PRIMARY_KEY: Self = Self(138);
+    pub const SQL_WRITE_MISSING_REQUIRED_FIELDS: Self = Self(139);
+    pub const SQL_WRITE_EXPLICIT_MANAGED_FIELD: Self = Self(140);
+    pub const SQL_WRITE_EXPLICIT_GENERATED_FIELD: Self = Self(141);
+    pub const SQL_WRITE_INSERT_SELECT_REQUIRES_SCALAR: Self = Self(142);
+    pub const SQL_WRITE_INSERT_SELECT_AGGREGATE_PROJECTION: Self = Self(143);
+    pub const SQL_WRITE_INSERT_SELECT_WIDTH_MISMATCH: Self = Self(144);
+    pub const SQL_WRITE_UPDATE_PRIMARY_KEY_MUTATION: Self = Self(145);
+    pub const SQL_WRITE_INVALID_FIELD_LITERAL: Self = Self(146);
+    pub const SQL_WRITE_UNKNOWN_RETURNING_FIELD: Self = Self(147);
+    pub const SQL_WRITE_DUPLICATE_RETURNING_FIELD: Self = Self(148);
+    pub const SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE: Self = Self(149);
+    pub const SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE: Self = Self(150);
+    pub const QUERY_UNSUPPORTED_PROJECTION: Self = Self(151);
+    pub const QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED: Self = Self(152);
+    pub const QUERY_PROJECTION_NUMERIC_SCALE_ARGUMENTS: Self = Self(153);
+    pub const QUERY_PROJECTION_NESTED_FIELD_PATH_PREVIEW: Self = Self(154);
+    pub const QUERY_PROJECTION_CASE_CONDITION_BOOLEAN_REQUIRED: Self = Self(155);
+    pub const QUERY_PROJECTION_NUMERIC_INPUT_REQUIRED: Self = Self(156);
+    pub const QUERY_PROJECTION_TEXT_OR_BLOB_INPUT_REQUIRED: Self = Self(157);
+    pub const QUERY_PROJECTION_TEXT_INPUT_REQUIRED: Self = Self(158);
+    pub const QUERY_PROJECTION_TEXT_OR_NULL_ARGUMENT_REQUIRED: Self = Self(159);
+    pub const QUERY_PROJECTION_INTEGER_OR_NULL_ARGUMENT_REQUIRED: Self = Self(160);
+    pub const QUERY_PROJECTION_UNARY_OPERAND_INCOMPATIBLE: Self = Self(161);
+    pub const QUERY_PROJECTION_BINARY_OPERANDS_INCOMPATIBLE: Self = Self(162);
+    pub const QUERY_RESULT_SHAPE_MISMATCH: Self = Self(163);
+    pub const QUERY_RESULT_EXPECTED_ROWS: Self = Self(164);
+    pub const QUERY_RESULT_EXPECTED_GROUPED: Self = Self(165);
 
     /// Build an error code from its raw public wire value.
     #[must_use]
@@ -399,6 +433,12 @@ impl ErrorCode {
             Some(DiagnosticDetail::SqlWriteBoundary { boundary }) => {
                 Self::from_sql_write_boundary(boundary)
             }
+            Some(DiagnosticDetail::QueryProjection { reason }) => {
+                Self::from_query_projection(reason)
+            }
+            Some(DiagnosticDetail::QueryResultShape { reason }) => {
+                Self::from_query_result_shape(reason)
+            }
             None => code.error_code(),
         }
     }
@@ -417,19 +457,22 @@ impl ErrorCode {
             8 => DiagnosticCode::QueryNotUnique,
             9 => DiagnosticCode::QueryNumericOverflow,
             10 => DiagnosticCode::QueryNumericNotRepresentable,
-            11 | 37..=99 => DiagnosticCode::QueryUnsupportedSqlFeature,
-            12 | 100..=110 => DiagnosticCode::QuerySqlSurfaceMismatch,
-            13 | 111..=131 => DiagnosticCode::SchemaDdlAdmission,
-            132..=147 => DiagnosticCode::QuerySqlWriteBoundary,
-            14 => DiagnosticCode::StoreNotFound,
-            15 => DiagnosticCode::StoreCorruption,
-            16 => DiagnosticCode::StoreInvariantViolation,
-            17 => DiagnosticCode::RuntimeCorruption,
-            18 => DiagnosticCode::RuntimeIncompatiblePersistedFormat,
-            19 => DiagnosticCode::RuntimeInvariantViolation,
-            20 => DiagnosticCode::RuntimeConflict,
-            21 => DiagnosticCode::RuntimeNotFound,
-            22 | 24..=36 => DiagnosticCode::RuntimeUnsupported,
+            11 => DiagnosticCode::QueryUnknownAggregateTargetField,
+            151..=162 => DiagnosticCode::QueryUnsupportedProjection,
+            163..=165 => DiagnosticCode::QueryResultShapeMismatch,
+            12 | 38..=102 => DiagnosticCode::QueryUnsupportedSqlFeature,
+            13 | 103..=113 => DiagnosticCode::QuerySqlSurfaceMismatch,
+            14 | 114..=134 => DiagnosticCode::SchemaDdlAdmission,
+            135..=150 => DiagnosticCode::QuerySqlWriteBoundary,
+            15 => DiagnosticCode::StoreNotFound,
+            16 => DiagnosticCode::StoreCorruption,
+            17 => DiagnosticCode::StoreInvariantViolation,
+            18 => DiagnosticCode::RuntimeCorruption,
+            19 => DiagnosticCode::RuntimeIncompatiblePersistedFormat,
+            20 => DiagnosticCode::RuntimeInvariantViolation,
+            21 => DiagnosticCode::RuntimeConflict,
+            22 => DiagnosticCode::RuntimeNotFound,
+            23 | 25..=37 => DiagnosticCode::RuntimeUnsupported,
             _ => DiagnosticCode::RuntimeInternal,
         }
     }
@@ -445,12 +488,14 @@ impl ErrorCode {
     pub const fn diagnostic_detail(self) -> Option<DiagnosticDetail> {
         match self.raw() {
             1..=8 => Self::query_kind_detail(self.raw()),
-            17..=23 => Self::runtime_kind_detail(self.raw()),
-            24..=36 => Self::runtime_boundary_detail(self.raw()),
-            37..=99 => Self::sql_feature_detail(self.raw()),
-            100..=110 => Self::sql_surface_detail(self.raw()),
-            111..=131 => Self::schema_ddl_detail(self.raw()),
-            132..=147 => Self::sql_write_boundary_detail(self.raw()),
+            18..=24 => Self::runtime_kind_detail(self.raw()),
+            25..=37 => Self::runtime_boundary_detail(self.raw()),
+            38..=102 => Self::sql_feature_detail(self.raw()),
+            103..=113 => Self::sql_surface_detail(self.raw()),
+            114..=134 => Self::schema_ddl_detail(self.raw()),
+            136..=150 => Self::sql_write_boundary_detail(self.raw()),
+            152..=162 => Self::query_projection_detail(self.raw()),
+            164..=165 => Self::query_result_shape_detail(self.raw()),
             _ => None,
         }
     }
@@ -508,6 +553,14 @@ impl ErrorCode {
         Self(Self::SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE.raw() + boundary as u16)
     }
 
+    const fn from_query_projection(reason: QueryProjectionCode) -> Self {
+        Self(Self::QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED.raw() + reason as u16)
+    }
+
+    const fn from_query_result_shape(reason: QueryResultShapeCode) -> Self {
+        Self(Self::QUERY_RESULT_EXPECTED_ROWS.raw() + reason as u16)
+    }
+
     const fn query_kind_detail(raw: u16) -> Option<DiagnosticDetail> {
         match raw {
             1 => Some(DiagnosticDetail::QueryKind {
@@ -540,25 +593,25 @@ impl ErrorCode {
 
     const fn runtime_kind_detail(raw: u16) -> Option<DiagnosticDetail> {
         match raw {
-            17 => Some(DiagnosticDetail::RuntimeKind {
+            18 => Some(DiagnosticDetail::RuntimeKind {
                 kind: RuntimeErrorKind::Corruption,
             }),
-            18 => Some(DiagnosticDetail::RuntimeKind {
+            19 => Some(DiagnosticDetail::RuntimeKind {
                 kind: RuntimeErrorKind::IncompatiblePersistedFormat,
             }),
-            19 => Some(DiagnosticDetail::RuntimeKind {
+            20 => Some(DiagnosticDetail::RuntimeKind {
                 kind: RuntimeErrorKind::InvariantViolation,
             }),
-            20 => Some(DiagnosticDetail::RuntimeKind {
+            21 => Some(DiagnosticDetail::RuntimeKind {
                 kind: RuntimeErrorKind::Conflict,
             }),
-            21 => Some(DiagnosticDetail::RuntimeKind {
+            22 => Some(DiagnosticDetail::RuntimeKind {
                 kind: RuntimeErrorKind::NotFound,
             }),
-            22 => Some(DiagnosticDetail::RuntimeKind {
+            23 => Some(DiagnosticDetail::RuntimeKind {
                 kind: RuntimeErrorKind::Unsupported,
             }),
-            23 => Some(DiagnosticDetail::RuntimeKind {
+            24 => Some(DiagnosticDetail::RuntimeKind {
                 kind: RuntimeErrorKind::Internal,
             }),
             _ => None,
@@ -567,43 +620,43 @@ impl ErrorCode {
 
     const fn runtime_boundary_detail(raw: u16) -> Option<DiagnosticDetail> {
         match raw {
-            24 => Some(DiagnosticDetail::RuntimeBoundary {
+            25 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::SqlSurfaceControllerRequired,
             }),
-            25 => Some(DiagnosticDetail::RuntimeBoundary {
+            26 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::SchemaSurfaceControllerRequired,
             }),
-            26 => Some(DiagnosticDetail::RuntimeBoundary {
+            27 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
             }),
-            27 => Some(DiagnosticDetail::RuntimeBoundary {
+            28 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::SqlQueryEntityNotConfigured,
             }),
-            28 => Some(DiagnosticDetail::RuntimeBoundary {
+            29 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::SqlDdlTargetRequired,
             }),
-            29 => Some(DiagnosticDetail::RuntimeBoundary {
+            30 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::SqlDdlEntityNotConfigured,
             }),
-            30 => Some(DiagnosticDetail::RuntimeBoundary {
+            31 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::QueryResponseRowsRequired,
             }),
-            31 => Some(DiagnosticDetail::RuntimeBoundary {
+            32 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::QueryResponseGroupedRowsRequired,
             }),
-            32 => Some(DiagnosticDetail::RuntimeBoundary {
+            33 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::MutationResultEntityRequired,
             }),
-            33 => Some(DiagnosticDetail::RuntimeBoundary {
+            34 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::MutationResultEntitiesRequired,
             }),
-            34 => Some(DiagnosticDetail::RuntimeBoundary {
+            35 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::MutationResultIdRequired,
             }),
-            35 => Some(DiagnosticDetail::RuntimeBoundary {
+            36 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::MutationResultIdsRequired,
             }),
-            36 => Some(DiagnosticDetail::RuntimeBoundary {
+            37 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::RowProjectionFieldNotConfigured,
             }),
             _ => None,
@@ -628,37 +681,37 @@ impl ErrorCode {
 
     const fn sql_surface_detail(raw: u16) -> Option<DiagnosticDetail> {
         match raw {
-            100 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            103 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::QueryRejectsInsert,
             }),
-            101 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            104 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::QueryRejectsUpdate,
             }),
-            102 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            105 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::QueryRejectsDelete,
             }),
-            103 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            106 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsSelect,
             }),
-            104 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            107 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsExplain,
             }),
-            105 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            108 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsDescribe,
             }),
-            106 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            109 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowIndexes,
             }),
-            107 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            110 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowColumns,
             }),
-            108 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            111 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowEntities,
             }),
-            109 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            112 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowStores,
             }),
-            110 => Some(DiagnosticDetail::SqlSurfaceMismatch {
+            113 => Some(DiagnosticDetail::SqlSurfaceMismatch {
                 mismatch: SqlSurfaceMismatchCode::UpdateRejectsShowMemory,
             }),
             _ => None,
@@ -667,67 +720,67 @@ impl ErrorCode {
 
     const fn schema_ddl_detail(raw: u16) -> Option<DiagnosticDetail> {
         match raw {
-            111 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            114 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::MissingExpectedSchemaVersion,
             }),
-            112 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            115 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::MissingNextSchemaVersion,
             }),
-            113 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            116 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::StaleExpectedSchemaVersion,
             }),
-            114 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            117 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::InvalidExpectedSchemaVersion,
             }),
-            115 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            118 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::InvalidNextSchemaVersion,
             }),
-            116 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            119 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::AcceptedSchemaChangeWithoutVersionBump,
             }),
-            117 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            120 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::EmptyVersionBump,
             }),
-            118 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            121 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::VersionGap,
             }),
-            119 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            122 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::VersionRollback,
             }),
-            120 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            123 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::FingerprintMethodMismatch,
             }),
-            121 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            124 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::UnsupportedTransitionClass,
             }),
-            122 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            125 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::PhysicalRunnerMissing,
             }),
-            123 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            126 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::ValidationFailed,
             }),
-            124 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            127 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::PublicationRaceLost,
             }),
-            125 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            128 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::InvalidAddColumnDefault,
             }),
-            126 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            129 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::InvalidAlterColumnDefault,
             }),
-            127 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            130 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::GeneratedIndexDropRejected,
             }),
-            128 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            131 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::RequiredDropDefaultUnsupported,
             }),
-            129 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            132 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::GeneratedFieldDefaultChangeRejected,
             }),
-            130 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            133 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::GeneratedFieldNullabilityChangeRejected,
             }),
-            131 => Some(DiagnosticDetail::SchemaDdlAdmission {
+            134 => Some(DiagnosticDetail::SchemaDdlAdmission {
                 reason: SchemaDdlAdmissionCode::SetNotNullValidationFailed,
             }),
             _ => None,
@@ -736,50 +789,101 @@ impl ErrorCode {
 
     const fn sql_write_boundary_detail(raw: u16) -> Option<DiagnosticDetail> {
         match raw {
-            133 => Some(DiagnosticDetail::SqlWriteBoundary {
+            136 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::PrimaryKeyLiteralShape,
             }),
-            134 => Some(DiagnosticDetail::SqlWriteBoundary {
+            137 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible,
             }),
-            135 => Some(DiagnosticDetail::SqlWriteBoundary {
+            138 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::MissingPrimaryKey,
             }),
-            136 => Some(DiagnosticDetail::SqlWriteBoundary {
+            139 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::MissingRequiredFields,
             }),
-            137 => Some(DiagnosticDetail::SqlWriteBoundary {
+            140 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::ExplicitManagedField,
             }),
-            138 => Some(DiagnosticDetail::SqlWriteBoundary {
+            141 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::ExplicitGeneratedField,
             }),
-            139 => Some(DiagnosticDetail::SqlWriteBoundary {
+            142 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::InsertSelectRequiresScalar,
             }),
-            140 => Some(DiagnosticDetail::SqlWriteBoundary {
+            143 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::InsertSelectAggregateProjection,
             }),
-            141 => Some(DiagnosticDetail::SqlWriteBoundary {
+            144 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::InsertSelectWidthMismatch,
             }),
-            142 => Some(DiagnosticDetail::SqlWriteBoundary {
+            145 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::UpdatePrimaryKeyMutation,
             }),
-            143 => Some(DiagnosticDetail::SqlWriteBoundary {
+            146 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::InvalidFieldLiteral,
             }),
-            144 => Some(DiagnosticDetail::SqlWriteBoundary {
+            147 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::UnknownReturningField,
             }),
-            145 => Some(DiagnosticDetail::SqlWriteBoundary {
+            148 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::DuplicateReturningField,
             }),
-            146 => Some(DiagnosticDetail::SqlWriteBoundary {
+            149 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::UpdateMissingWherePredicate,
             }),
-            147 => Some(DiagnosticDetail::SqlWriteBoundary {
+            150 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::WriteOrderByUnsupportedShape,
+            }),
+            _ => None,
+        }
+    }
+
+    const fn query_projection_detail(raw: u16) -> Option<DiagnosticDetail> {
+        match raw {
+            152 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::NumericLiteralRequired,
+            }),
+            153 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::NumericScaleArguments,
+            }),
+            154 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::NestedFieldPathPreview,
+            }),
+            155 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::CaseConditionBooleanRequired,
+            }),
+            156 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::NumericInputRequired,
+            }),
+            157 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::TextOrBlobInputRequired,
+            }),
+            158 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::TextInputRequired,
+            }),
+            159 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::TextOrNullArgumentRequired,
+            }),
+            160 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::IntegerOrNullArgumentRequired,
+            }),
+            161 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::UnaryOperandIncompatible,
+            }),
+            162 => Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::BinaryOperandsIncompatible,
+            }),
+            _ => None,
+        }
+    }
+
+    const fn query_result_shape_detail(raw: u16) -> Option<DiagnosticDetail> {
+        match raw {
+            164 => Some(DiagnosticDetail::QueryResultShape {
+                reason: QueryResultShapeCode::ExpectedRows,
+            }),
+            165 => Some(DiagnosticDetail::QueryResultShape {
+                reason: QueryResultShapeCode::ExpectedGroupedRows,
             }),
             _ => None,
         }
@@ -849,6 +953,41 @@ pub enum QueryErrorKind {
     InvalidContinuationCursor,
     NotFound,
     NotUnique,
+}
+
+///
+/// QueryProjectionCode
+///
+/// Compact query projection admission/runtime identifier.
+///
+
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum QueryProjectionCode {
+    NumericLiteralRequired,
+    NumericScaleArguments,
+    NestedFieldPathPreview,
+    CaseConditionBooleanRequired,
+    NumericInputRequired,
+    TextOrBlobInputRequired,
+    TextInputRequired,
+    TextOrNullArgumentRequired,
+    IntegerOrNullArgumentRequired,
+    UnaryOperandIncompatible,
+    BinaryOperandsIncompatible,
+}
+
+///
+/// QueryResultShapeCode
+///
+/// Compact query-result shape mismatch identifier.
+///
+
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum QueryResultShapeCode {
+    ExpectedRows,
+    ExpectedGroupedRows,
 }
 
 ///
@@ -965,6 +1104,8 @@ pub enum SqlFeatureCode {
     UpperFieldPredicateUnsupported,
     WindowFunction,
     With,
+    NumericScaleFunctionArguments,
+    OrderByFieldNotOrderable,
 }
 
 ///
@@ -1062,6 +1203,8 @@ pub enum DiagnosticDetail {
     UnsupportedSqlFeature { feature: SqlFeatureCode },
     SqlSurfaceMismatch { mismatch: SqlSurfaceMismatchCode },
     SqlWriteBoundary { boundary: SqlWriteBoundaryCode },
+    QueryProjection { reason: QueryProjectionCode },
+    QueryResultShape { reason: QueryResultShapeCode },
 }
 
 ///
@@ -1131,9 +1274,12 @@ impl Diagnostic {
 
 #[cfg(test)]
 mod tests {
-    use super::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode, ErrorOrigin};
+    use super::{
+        Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
+        QueryProjectionCode, SqlFeatureCode,
+    };
 
-    const ORDERED_ERROR_CODES: [ErrorCode; 147] = [
+    const ORDERED_ERROR_CODES: [ErrorCode; 165] = [
         ErrorCode::QUERY_VALIDATE,
         ErrorCode::QUERY_INTENT,
         ErrorCode::QUERY_PLAN,
@@ -1144,6 +1290,7 @@ mod tests {
         ErrorCode::QUERY_NOT_UNIQUE,
         ErrorCode::QUERY_NUMERIC_OVERFLOW,
         ErrorCode::QUERY_NUMERIC_NOT_REPRESENTABLE,
+        ErrorCode::QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD,
         ErrorCode::QUERY_UNSUPPORTED_SQL_FEATURE,
         ErrorCode::QUERY_SQL_SURFACE_MISMATCH,
         ErrorCode::SCHEMA_DDL_ADMISSION,
@@ -1233,6 +1380,8 @@ mod tests {
         ErrorCode::SQL_FEATURE_UPPER_FIELD_PREDICATE_UNSUPPORTED,
         ErrorCode::SQL_FEATURE_WINDOW_FUNCTION,
         ErrorCode::SQL_FEATURE_WITH,
+        ErrorCode::SQL_FEATURE_NUMERIC_SCALE_FUNCTION_ARGUMENTS,
+        ErrorCode::SQL_FEATURE_ORDER_BY_FIELD_NOT_ORDERABLE,
         ErrorCode::SQL_SURFACE_QUERY_REJECTS_INSERT,
         ErrorCode::SQL_SURFACE_QUERY_REJECTS_UPDATE,
         ErrorCode::SQL_SURFACE_QUERY_REJECTS_DELETE,
@@ -1281,6 +1430,21 @@ mod tests {
         ErrorCode::SQL_WRITE_DUPLICATE_RETURNING_FIELD,
         ErrorCode::SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE,
         ErrorCode::SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE,
+        ErrorCode::QUERY_UNSUPPORTED_PROJECTION,
+        ErrorCode::QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED,
+        ErrorCode::QUERY_PROJECTION_NUMERIC_SCALE_ARGUMENTS,
+        ErrorCode::QUERY_PROJECTION_NESTED_FIELD_PATH_PREVIEW,
+        ErrorCode::QUERY_PROJECTION_CASE_CONDITION_BOOLEAN_REQUIRED,
+        ErrorCode::QUERY_PROJECTION_NUMERIC_INPUT_REQUIRED,
+        ErrorCode::QUERY_PROJECTION_TEXT_OR_BLOB_INPUT_REQUIRED,
+        ErrorCode::QUERY_PROJECTION_TEXT_INPUT_REQUIRED,
+        ErrorCode::QUERY_PROJECTION_TEXT_OR_NULL_ARGUMENT_REQUIRED,
+        ErrorCode::QUERY_PROJECTION_INTEGER_OR_NULL_ARGUMENT_REQUIRED,
+        ErrorCode::QUERY_PROJECTION_UNARY_OPERAND_INCOMPATIBLE,
+        ErrorCode::QUERY_PROJECTION_BINARY_OPERANDS_INCOMPATIBLE,
+        ErrorCode::QUERY_RESULT_SHAPE_MISMATCH,
+        ErrorCode::QUERY_RESULT_EXPECTED_ROWS,
+        ErrorCode::QUERY_RESULT_EXPECTED_GROUPED,
     ];
 
     #[test]
@@ -1314,5 +1478,25 @@ mod tests {
             let expected = u16::try_from(index + 1).expect("test error-code index fits u16");
             assert_eq!(code.raw(), expected);
         }
+    }
+
+    #[test]
+    fn public_error_codes_reconstruct_shifted_details() {
+        assert_eq!(
+            ErrorCode::QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD.diagnostic_code(),
+            DiagnosticCode::QueryUnknownAggregateTargetField
+        );
+        assert_eq!(
+            ErrorCode::SQL_FEATURE_JOIN.diagnostic_detail(),
+            Some(DiagnosticDetail::UnsupportedSqlFeature {
+                feature: SqlFeatureCode::Join,
+            })
+        );
+        assert_eq!(
+            ErrorCode::QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED.diagnostic_detail(),
+            Some(DiagnosticDetail::QueryProjection {
+                reason: QueryProjectionCode::NumericLiteralRequired,
+            })
+        );
     }
 }

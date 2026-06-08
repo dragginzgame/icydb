@@ -8,6 +8,13 @@
 //! semantics. Boolean-context truth admission is delegated to the shared
 //! `truth_value` policy after this module has materialized a condition value.
 
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         QueryError,
@@ -22,6 +29,7 @@ use crate::{
     },
     value::Value,
 };
+use icydb_diagnostic_code::QueryProjectionCode;
 use std::cmp::Ordering;
 
 ///
@@ -59,6 +67,10 @@ impl From<NumericEvalError> for ProjectionFunctionEvalError {
     fn from(err: NumericEvalError) -> Self {
         Self::Numeric(err)
     }
+}
+
+fn projection_unsupported(reason: QueryProjectionCode) -> ProjectionFunctionEvalError {
+    QueryError::unsupported_projection(reason).into()
 }
 
 /// Evaluate one bounded projection-function call over already-evaluated
@@ -119,8 +131,8 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
 
             Ok(value.clone())
         }
-        Expr::FieldPath(_) => Err(QueryError::unsupported_query(
-            "nested field-path projection preview is not supported yet",
+        Expr::FieldPath(_) => Err(QueryError::unsupported_projection(
+            QueryProjectionCode::NestedFieldPathPreview,
         )),
         Expr::Literal(value) => Ok(value.clone()),
         Expr::FunctionCall { function, args } => {
@@ -138,10 +150,10 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
             for arm in when_then_arms {
                 let condition =
                     eval_builder_expr_for_value_preview(arm.condition(), field_name, value)?;
-                if collapse_true_only_boolean_admission(condition, |found| {
-                    QueryError::unsupported_query(format!(
-                        "CASE condition did not evaluate to bool: {found:?}",
-                    ))
+                if collapse_true_only_boolean_admission(condition, |_| {
+                    QueryError::unsupported_projection(
+                        QueryProjectionCode::CaseConditionBooleanRequired,
+                    )
                 })? {
                     return eval_builder_expr_for_value_preview(arm.result(), field_name, value);
                 }
@@ -232,11 +244,9 @@ fn eval_unary_numeric_function_call(
         Value::Null => Ok(Value::Null),
         value => {
             let Some(decimal) = coerce_numeric_decimal(value) else {
-                return Err(QueryError::unsupported_query(format!(
-                    "{}(...) requires numeric input, found {value:?}",
-                    function.projection_eval_name(),
-                ))
-                .into());
+                return Err(projection_unsupported(
+                    QueryProjectionCode::NumericInputRequired,
+                ));
             };
 
             Ok(function
@@ -267,11 +277,9 @@ fn eval_octet_length_function_call(
         Value::Null => Ok(Value::Null),
         Value::Text(text) => Ok(Value::Nat64(u64::try_from(text.len()).unwrap_or(u64::MAX))),
         Value::Blob(bytes) => Ok(Value::Nat64(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
-        other => Err(QueryError::unsupported_query(format!(
-            "{}(...) requires text or blob input, found {other:?}",
-            function.projection_eval_name(),
-        ))
-        .into()),
+        _ => Err(projection_unsupported(
+            QueryProjectionCode::TextOrBlobInputRequired,
+        )),
     }
 }
 
@@ -295,18 +303,14 @@ fn eval_binary_numeric_function_call(
         (Value::Null, _) | (_, Value::Null) => Ok(Value::Null),
         (left, right) => {
             let Some(left) = coerce_numeric_decimal(left) else {
-                return Err(QueryError::unsupported_query(format!(
-                    "{}(...) requires numeric left input, found {left:?}",
-                    function.projection_eval_name(),
-                ))
-                .into());
+                return Err(projection_unsupported(
+                    QueryProjectionCode::NumericInputRequired,
+                ));
             };
             let Some(right) = coerce_numeric_decimal(right) else {
-                return Err(QueryError::unsupported_query(format!(
-                    "{}(...) requires numeric right input, found {right:?}",
-                    function.projection_eval_name(),
-                ))
-                .into());
+                return Err(projection_unsupported(
+                    QueryProjectionCode::NumericInputRequired,
+                ));
             };
             let value = function
                 .binary_numeric_function_kind()
@@ -449,18 +453,14 @@ fn eval_numeric_scale_function_call(
         (Value::Null, _) | (_, None) => Ok(Value::Null),
         (value, Some(scale)) => {
             let Some(scale) = u32::try_from(scale).ok() else {
-                return Err(QueryError::unsupported_query(format!(
-                    "{}(...) requires non-negative integer scale, found {scale}",
-                    function.canonical_label(),
-                ))
-                .into());
+                return Err(projection_unsupported(
+                    QueryProjectionCode::NumericScaleArguments,
+                ));
             };
             let Some(value) = function.eval_numeric_scale(value, scale) else {
-                return Err(QueryError::unsupported_query(format!(
-                    "{}(...) requires numeric input, found {value:?}",
-                    function.canonical_label(),
-                ))
-                .into());
+                return Err(projection_unsupported(
+                    QueryProjectionCode::NumericInputRequired,
+                ));
             };
 
             Ok(value)
@@ -476,10 +476,9 @@ fn eval_preview_unary_expr(op: UnaryOp, value: &Value) -> Result<Value, QueryErr
     match op {
         UnaryOp::Not => {
             let Value::Bool(v) = value else {
-                return Err(QueryError::unsupported_query(format!(
-                    "projection unary operator '{}' is incompatible with operand value {value:?}",
-                    unary_op_name(op),
-                )));
+                return Err(QueryError::unsupported_projection(
+                    QueryProjectionCode::UnaryOperandIncompatible,
+                ));
             };
 
             Ok(Value::Bool(!*v))
@@ -603,11 +602,8 @@ fn eval_order_comparison(
     Ok(predicate(ordering))
 }
 
-fn text_input_error(function: Function, other: &Value) -> QueryError {
-    QueryError::unsupported_query(format!(
-        "{}(...) requires text input, found {other:?}",
-        function.projection_eval_name(),
-    ))
+fn text_input_error(_function: Function, _other: &Value) -> QueryError {
+    QueryError::unsupported_projection(QueryProjectionCode::TextInputRequired)
 }
 
 fn text_literal_arg<'a>(
@@ -621,10 +617,9 @@ fn text_literal_arg<'a>(
     {
         Value::Null => Ok(None),
         Value::Text(text) => Ok(Some(text.as_str())),
-        other => Err(QueryError::unsupported_query(format!(
-            "{}(...) requires text or NULL {label}, found {other:?}",
-            function.projection_eval_name(),
-        ))),
+        _ => Err(QueryError::unsupported_projection(
+            QueryProjectionCode::TextOrNullArgumentRequired,
+        )),
     }
 }
 
@@ -640,10 +635,9 @@ fn integer_literal_arg(
         Value::Null => Ok(None),
         Value::Int64(value) => Ok(Some(*value)),
         Value::Nat64(value) => Ok(Some(i64::try_from(*value).unwrap_or(i64::MAX))),
-        other => Err(QueryError::unsupported_query(format!(
-            "{}(...) requires integer or NULL {label}, found {other:?}",
-            function.projection_eval_name(),
-        ))),
+        _ => Err(QueryError::unsupported_projection(
+            QueryProjectionCode::IntegerOrNullArgumentRequired,
+        )),
     }
 }
 
@@ -660,11 +654,8 @@ fn optional_integer_literal_arg(
     integer_literal_arg(function, args, index, label)
 }
 
-fn invalid_binary_operands(op: BinaryOp, left: &Value, right: &Value) -> QueryError {
-    QueryError::unsupported_query(format!(
-        "projection binary operator '{}' is incompatible with operand values ({left:?}, {right:?})",
-        op.canonical_label(),
-    ))
+fn invalid_binary_operands(_op: BinaryOp, _left: &Value, _right: &Value) -> QueryError {
+    QueryError::unsupported_projection(QueryProjectionCode::BinaryOperandsIncompatible)
 }
 
 const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
@@ -681,11 +672,5 @@ const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
         BinaryOp::Sub => NumericArithmeticOp::Sub,
         BinaryOp::Mul => NumericArithmeticOp::Mul,
         BinaryOp::Div => NumericArithmeticOp::Div,
-    }
-}
-
-const fn unary_op_name(op: UnaryOp) -> &'static str {
-    match op {
-        UnaryOp::Not => "not",
     }
 }

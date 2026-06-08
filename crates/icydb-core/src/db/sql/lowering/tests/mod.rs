@@ -41,7 +41,7 @@ use crate::{
     types::Ulid,
     value::Value,
 };
-use icydb_diagnostic_code::SqlFeatureCode;
+use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, SqlFeatureCode};
 use serde::Deserialize;
 use std::{
     fs,
@@ -166,6 +166,22 @@ fn first_lowered_order_field(sql: &str, context: &str) -> String {
         .unwrap_or_else(|| panic!("{context} ordering should be present"))
         .fields[0]
         .rendered_label()
+}
+
+fn assert_sql_lowering_query_unsupported_feature(err: SqlLoweringError, feature: SqlFeatureCode) {
+    let SqlLoweringError::Query(query_err) = err else {
+        panic!("expected query-backed unsupported SQL feature, found {err:?}");
+    };
+    let diagnostic = query_err.diagnostic();
+
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryUnsupportedSqlFeature
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(&DiagnosticDetail::UnsupportedSqlFeature { feature }),
+    );
 }
 
 // Build one expected planner field expression for SQL order-lowering parser
@@ -3446,7 +3462,10 @@ fn compile_sql_command_rejects_round_with_negative_scale() {
     )
     .expect_err("ROUND should reject negative scale in the bounded slice");
 
-    std::assert_matches!(err, SqlLoweringError::Query(_));
+    assert_sql_lowering_query_unsupported_feature(
+        err,
+        SqlFeatureCode::NumericScaleFunctionArguments,
+    );
 }
 
 #[test]
@@ -3643,7 +3662,7 @@ fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be orderable");
 
-    std::assert_matches!(err, SqlLoweringError::Query(_));
+    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
 }
 
 #[test]
@@ -3663,7 +3682,7 @@ fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct DELETE ORDER BY target");
 
-    std::assert_matches!(err, SqlLoweringError::Query(_));
+    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
 }
 
 #[test]
@@ -3685,7 +3704,7 @@ fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
     )
     .expect_err("accepted blob field should not be a direct UPDATE ORDER BY target");
 
-    std::assert_matches!(err, SqlLoweringError::Query(_));
+    assert_sql_lowering_query_unsupported_feature(err, SqlFeatureCode::OrderByFieldNotOrderable);
 }
 
 #[test]

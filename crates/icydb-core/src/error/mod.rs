@@ -1472,6 +1472,48 @@ impl InternalError {
         }
     }
 
+    /// Construct a query-origin unsupported projection error preserving one
+    /// compact projection reason in structured error detail.
+    pub(crate) fn query_unsupported_projection(
+        reason: diagnostic_code::QueryProjectionCode,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: "unsupported query projection".to_string(),
+            detail: Some(ErrorDetail::Query(
+                QueryErrorDetail::UnsupportedProjection { reason },
+            )),
+        }
+    }
+
+    /// Construct a query-origin unsupported aggregate target-field error.
+    pub(crate) fn query_unknown_aggregate_target_field() -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: "unknown aggregate target field".to_string(),
+            detail: Some(ErrorDetail::Query(
+                QueryErrorDetail::UnknownAggregateTargetField,
+            )),
+        }
+    }
+
+    /// Construct a query-origin result-shape mismatch error preserving one
+    /// compact result-shape reason in structured error detail.
+    pub(crate) fn query_result_shape_mismatch(
+        reason: diagnostic_code::QueryResultShapeCode,
+    ) -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: "query result shape mismatch".to_string(),
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::ResultShapeMismatch {
+                reason,
+            })),
+        }
+    }
+
     /// Construct a query-origin unsupported error preserving one SQL endpoint
     /// surface mismatch in structured error detail.
     #[cfg(feature = "sql")]
@@ -1669,6 +1711,19 @@ pub enum QueryErrorDetail {
         feature: diagnostic_code::SqlFeatureCode,
     },
 
+    #[error("unsupported query projection")]
+    UnsupportedProjection {
+        reason: diagnostic_code::QueryProjectionCode,
+    },
+
+    #[error("unknown aggregate target field")]
+    UnknownAggregateTargetField,
+
+    #[error("query result shape mismatch")]
+    ResultShapeMismatch {
+        reason: diagnostic_code::QueryResultShapeCode,
+    },
+
     #[error("SQL endpoint surface mismatch")]
     SqlSurfaceMismatch {
         mismatch: diagnostic_code::SqlSurfaceMismatchCode,
@@ -1825,6 +1880,15 @@ impl QueryErrorDetail {
             Self::UnsupportedSqlFeature { .. } => {
                 diagnostic_code::DiagnosticCode::QueryUnsupportedSqlFeature
             }
+            Self::UnsupportedProjection { .. } => {
+                diagnostic_code::DiagnosticCode::QueryUnsupportedProjection
+            }
+            Self::UnknownAggregateTargetField => {
+                diagnostic_code::DiagnosticCode::QueryUnknownAggregateTargetField
+            }
+            Self::ResultShapeMismatch { .. } => {
+                diagnostic_code::DiagnosticCode::QueryResultShapeMismatch
+            }
             Self::SqlSurfaceMismatch { .. } => {
                 diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch
             }
@@ -1839,6 +1903,12 @@ impl QueryErrorDetail {
         match self {
             Self::UnsupportedSqlFeature { feature } => {
                 Some(diagnostic_code::DiagnosticDetail::UnsupportedSqlFeature { feature: *feature })
+            }
+            Self::UnsupportedProjection { reason } => {
+                Some(diagnostic_code::DiagnosticDetail::QueryProjection { reason: *reason })
+            }
+            Self::ResultShapeMismatch { reason } => {
+                Some(diagnostic_code::DiagnosticDetail::QueryResultShape { reason: *reason })
             }
             Self::SqlSurfaceMismatch { mismatch } => {
                 Some(diagnostic_code::DiagnosticDetail::SqlSurfaceMismatch {
@@ -1855,7 +1925,9 @@ impl QueryErrorDetail {
                     reason: error.diagnostic_code(),
                 })
             }
-            Self::NumericOverflow | Self::NumericNotRepresentable => None,
+            Self::NumericOverflow
+            | Self::NumericNotRepresentable
+            | Self::UnknownAggregateTargetField => None,
         }
     }
 }
