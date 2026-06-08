@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_fluent_query` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `95088970b`
+- code snapshot identifier: `e2a9534b3`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,10 +24,10 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,564,390 | 2,547,468 | -16,922 |
-| icp-built deterministic `.wasm.gz` | 828,531 | 818,696 | -9,835 |
-| icp-shrunk `.wasm` | 2,389,137 | 2,373,004 | -16,133 |
-| icp-shrunk `.wasm.gz` | 786,522 | 777,738 | -8,784 |
+| icp-built `.wasm` | 2,564,390 | 2,547,500 | -16,890 |
+| icp-built deterministic `.wasm.gz` | 828,531 | 818,739 | -9,792 |
+| icp-shrunk `.wasm` | 2,389,137 | 2,373,036 | -16,101 |
+| icp-shrunk `.wasm.gz` | 786,522 | 777,993 | -8,529 |
 
 ## Structural Snapshot (ic-wasm)
 
@@ -36,14 +36,14 @@ PASS=5, PARTIAL=0, FAIL=0
 | Function count | 5,686 | 5,686 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 181,188 | 181,188 |
+| Data section bytes | 181,220 | 181,220 |
 | Exported methods | 2 | 2 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 180,922 | 7.62% |
+| 1 | data[0] | 180,954 | 7.63% |
 | 2 | code[0] | 33,635 | 1.42% |
 | 3 | code[1] | 32,386 | 1.36% |
 | 4 | code[2] | 27,593 | 1.16% |
@@ -66,7 +66,7 @@ PASS=5, PARTIAL=0, FAIL=0
 | 6 | code[391] | 213,550 | 9.00% |
 | 7 | code[26] | 212,407 | 8.95% |
 | 8 | code[25] | 192,058 | 8.09% |
-| 9 | data[0] | 180,922 | 7.62% |
+| 9 | data[0] | 180,954 | 7.63% |
 | 10 | code[74] | 170,674 | 7.19% |
 
 ## Artifacts

@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `minimal` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `95088970b`
+- code snapshot identifier: `e2a9534b3`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 

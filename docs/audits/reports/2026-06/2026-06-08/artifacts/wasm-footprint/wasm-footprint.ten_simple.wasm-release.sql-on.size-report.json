@@ -11,24 +11,24 @@
     "candid_export": "available",
     "icp_built_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.icp-built.wasm",
-      "bytes": 2597063,
-      "sha256": "dc41efc9d9474c296b7817c7a48bc041d7fa7570977fbba9921bed6db291ecff"
+      "bytes": 2597223,
+      "sha256": "59f37198a12d9ca920a47fcef97adf575299b2d90da4cffa7566d94d5eb450ad"
     },
     "icp_built_wasm_gz_deterministic": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.icp-built.wasm.gz",
-      "bytes": 829362,
-      "sha256": "0841f8d842857ca66e5c1b8687535d60f3215bbfa03c9a11cd7b6fa1e2be04bf"
+      "bytes": 829395,
+      "sha256": "a3e36b338324a5ac4c146330d2ce7093ce8b61cf9312280b021b9f1292114474"
     },
     "icp_built_wasm_gz_emitted": null,
     "icp_shrunk_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.icp-shrunk.wasm",
-      "bytes": 2418794,
-      "sha256": "1f184bb078cec6886ba73f03c7207c0c7f15f69fee0727323bb6a44d8fb465d3"
+      "bytes": 2418954,
+      "sha256": "97b79c4884cb1606dc58fcc574094182dcc3846507dde257c5af9f567011033a"
     },
     "icp_shrunk_wasm_gz": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.icp-shrunk.wasm.gz",
-      "bytes": 788240,
-      "sha256": "ce1c3bb0de20fbf4432c8af05e124ff7cf23731867063124acbd74fabd7124f4"
+      "bytes": 788273,
+      "sha256": "d4acae4f7bdd947d37422f1f3bf34a332ba645fa5d5184fb78bac01204a6bdf3"
     }
   },
   "analysis": {
@@ -36,7 +36,7 @@
       "function_count": 5777,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 183620,
+      "data_section_bytes": 183780,
       "exported_method_count": 3,
       "exported_methods": [
         "canister_query __icydb_metrics (func_5774)",
@@ -48,7 +48,7 @@
       "function_count": 5777,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 183620,
+      "data_section_bytes": 183780,
       "exported_method_count": 3,
       "exported_methods": [
         "canister_query __icydb_metrics (func_5766)",

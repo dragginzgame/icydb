@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `ten_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md`
-- code snapshot identifier: `95088970b`
+- code snapshot identifier: `e2a9534b3`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,10 +24,10 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,676,342 | 2,620,829 | -55,513 |
-| icp-built deterministic `.wasm.gz` | 854,714 | 837,423 | -17,291 |
-| icp-shrunk `.wasm` | 2,492,449 | 2,441,132 | -51,317 |
-| icp-shrunk `.wasm.gz` | 812,186 | 795,569 | -16,617 |
+| icp-built `.wasm` | 2,676,342 | 2,620,989 | -55,353 |
+| icp-built deterministic `.wasm.gz` | 854,714 | 837,033 | -17,681 |
+| icp-shrunk `.wasm` | 2,492,449 | 2,441,292 | -51,157 |
+| icp-shrunk `.wasm.gz` | 812,186 | 795,683 | -16,503 |
 
 ## Structural Snapshot (ic-wasm)
 
@@ -36,14 +36,14 @@ PASS=5, PARTIAL=0, FAIL=0
 | Function count | 5,816 | 5,816 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 185,924 | 185,924 |
+| Data section bytes | 186,084 | 186,084 |
 | Exported methods | 3 | 3 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 185,658 | 7.61% |
+| 1 | data[0] | 185,818 | 7.61% |
 | 2 | code[0] | 33,635 | 1.38% |
 | 3 | code[1] | 32,386 | 1.33% |
 | 4 | code[2] | 27,593 | 1.13% |
@@ -61,11 +61,11 @@ PASS=5, PARTIAL=0, FAIL=0
 | 1 | export "canister_query query_ten_complex_fluent" | 652,582 | 26.73% |
 | 2 | code[5794] | 652,539 | 26.73% |
 | 3 | code[13] | 652,530 | 26.73% |
-| 4 | code[10] | 368,003 | 15.08% |
+| 4 | code[10] | 368,003 | 15.07% |
 | 5 | code[411] | 213,550 | 8.75% |
 | 6 | code[26] | 212,407 | 8.70% |
 | 7 | code[25] | 192,058 | 7.87% |
-| 8 | data[0] | 185,658 | 7.61% |
+| 8 | data[0] | 185,818 | 7.61% |
 | 9 | code[32] | 180,118 | 7.38% |
 | 10 | table[0] | 172,441 | 7.06% |
 

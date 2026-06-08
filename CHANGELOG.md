@@ -7,15 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🔧 Changed
-
-- Preflights SQL write `RETURNING` field lists and update-selector policy
-  gates before mutation execution, reporting those failures through compact
-  SQL write boundary codes.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.9` preflights SQL write projection and update policy failures before
+  mutation execution, reports them through compact SQL write boundary codes,
+  and refreshes the comparable wasm-footprint audit.
 
 - `0.180.7` moves SQL write boundary failures onto compact diagnostic leaf
   codes, keeps detailed SQL write prose in the CLI renderer, and verifies
