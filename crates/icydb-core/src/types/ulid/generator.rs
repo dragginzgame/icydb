@@ -2,18 +2,26 @@
 //! Owns the process-local monotonic ULID generator used by runtime key
 //! generation.
 
-use crate::runtime::now_millis;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::types::random;
-use crate::types::{Ulid, UlidError};
+use crate::{runtime::now_millis, types::Ulid};
 use std::cell::RefCell;
 
 thread_local! {
     static GENERATOR: RefCell<Generator> = RefCell::new(Generator::default());
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum UlidGenerationError {
+    #[error("monotonic error - overflow")]
+    GeneratorOverflow,
+
+    #[error("randomness is not initialized")]
+    RandomnessUnavailable,
+}
+
 /// Generate a ULID using the global monotonic generator.
-pub(super) fn generate() -> Result<Ulid, UlidError> {
+pub(super) fn generate() -> Result<Ulid, UlidGenerationError> {
     GENERATOR.with(|g| g.borrow_mut().generate())
 }
 
@@ -43,7 +51,7 @@ impl Default for Generator {
 impl Generator {
     // generate
     /// Monotonic ULID generation; increments within the same millisecond.
-    fn generate(&mut self) -> Result<Ulid, UlidError> {
+    fn generate(&mut self) -> Result<Ulid, UlidGenerationError> {
         let last_ts = self.previous.timestamp_ms();
         let ts = now_millis();
 
@@ -57,7 +65,7 @@ impl Generator {
                 return Ok(self.previous);
             }
 
-            return Err(UlidError::GeneratorOverflow);
+            return Err(UlidGenerationError::GeneratorOverflow);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -72,18 +80,18 @@ impl Generator {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn next_component(_ts: u64) -> Result<u128, UlidError> {
-        random::next_u128().map_err(|_| UlidError::RandomnessUnavailable)
+    fn next_component(_ts: u64) -> Result<u128, UlidGenerationError> {
+        random::next_u128().map_err(|_| UlidGenerationError::RandomnessUnavailable)
     }
 
     // IC canisters cannot synchronously request fresh entropy while building generated keys.
     // Use the ULID timestamp plus a process-local sequence for deterministic uniqueness.
     #[cfg(target_arch = "wasm32")]
-    fn next_component(&mut self, ts: u64) -> Result<u128, UlidError> {
+    fn next_component(&mut self, ts: u64) -> Result<u128, UlidGenerationError> {
         self.sequence = self
             .sequence
             .checked_add(1)
-            .ok_or(UlidError::GeneratorOverflow)?;
+            .ok_or(UlidGenerationError::GeneratorOverflow)?;
 
         Ok((u128::from(ts & 0xFFFF) << 64) | u128::from(self.sequence))
     }

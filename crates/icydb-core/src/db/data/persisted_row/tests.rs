@@ -683,7 +683,7 @@ fn representative_value_storage_cases() -> Vec<Value> {
         nested,
         Value::Null,
         Value::Principal(Principal::from_slice(&[9])),
-        Value::Subaccount(Subaccount::new([7u8; 32])),
+        Value::Subaccount(Subaccount::from_array([7u8; 32])),
         Value::Text("example".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),
         Value::Nat64(7),
@@ -748,7 +748,7 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
         ),
         (
             Value::Text("subaccount".to_string()),
-            Value::Subaccount(Subaccount::new([7u8; 32])),
+            Value::Subaccount(Subaccount::from_array([7u8; 32])),
         ),
         (
             Value::Text("text".to_string()),
@@ -1152,7 +1152,7 @@ fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
     assert_direct_persisted_structured_roundtrip(Timestamp::from_millis(1_234_567));
     assert_direct_persisted_structured_roundtrip(Date::from_days_since_epoch(321));
     assert_direct_persisted_structured_roundtrip(Duration::from_millis(9_876));
-    assert_direct_persisted_structured_roundtrip(Ulid::from_timestamp_and_randomness(77, 3));
+    assert_direct_persisted_structured_roundtrip(Ulid::from_u128(77));
     assert_direct_persisted_structured_roundtrip(-123_i128);
     assert_direct_persisted_structured_roundtrip(456_u128);
     assert_direct_persisted_structured_roundtrip(IntBig::from(-789_i32));
@@ -1204,10 +1204,7 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
         Subaccount::from_array([9u8; 32]),
         FieldKind::Subaccount,
     );
-    assert_direct_persisted_by_kind_roundtrip(
-        Ulid::from_timestamp_and_randomness(77, 3),
-        FieldKind::Ulid,
-    );
+    assert_direct_persisted_by_kind_roundtrip(Ulid::from_u128(77), FieldKind::Ulid);
     assert_direct_persisted_by_kind_roundtrip(Unit, FieldKind::Unit);
 }
 
@@ -1376,10 +1373,7 @@ fn direct_persisted_by_kind_leaf_codecs_reject_truncated_payloads() {
         Subaccount::from_array([9u8; 32]),
         FieldKind::Subaccount,
     );
-    assert_direct_persisted_by_kind_rejects_truncated_payload(
-        Ulid::from_timestamp_and_randomness(77, 3),
-        FieldKind::Ulid,
-    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(Ulid::from_u128(77), FieldKind::Ulid);
     assert_direct_persisted_by_kind_rejects_truncated_payload(
         Float32::try_new(1.25).expect("finite float32"),
         FieldKind::Float32,

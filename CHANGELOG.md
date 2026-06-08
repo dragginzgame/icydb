@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Narrow ULID and Subaccount scalar helper surfaces out of the production
+  facade while keeping their storage/key byte paths unchanged.
+
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)

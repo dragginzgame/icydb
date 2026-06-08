@@ -238,10 +238,8 @@ fn query_sql_write_boundary_exposes_compact_diagnostic_detail() {
 #[cfg(feature = "sql")]
 #[test]
 fn query_schema_ddl_admission_exposes_compact_diagnostic_detail() {
-    let err = InternalError::query_schema_ddl_admission(
-        SchemaDdlAdmissionError::PublicationRaceLost,
-        "stale publication",
-    );
+    let err =
+        InternalError::query_schema_ddl_admission(SchemaDdlAdmissionError::PublicationRaceLost);
     let diagnostic = err.diagnostic();
 
     assert_eq!(

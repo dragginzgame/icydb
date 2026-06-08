@@ -416,7 +416,10 @@ fn session_aggregate_min_by_unknown_field_fails_before_scan_budget_consumption()
 
     std::assert_matches!(err, QueryError::Execute(_));
     assert_eq!(scanned_rows, 0);
-    assert!(err.to_string().contains("unknown aggregate target field"));
+    assert_eq!(
+        err.diagnostic().code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnknownAggregateTargetField,
+    );
 }
 
 #[test]

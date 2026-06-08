@@ -140,9 +140,10 @@ fn session_aggregate_values_by_unknown_field_fails_before_scan_budget_consumptio
         scanned_rows, 0,
         "session unknown-field projection should fail before scan-budget consumption",
     );
-    assert!(
-        err.to_string().contains("unknown aggregate target field"),
-        "session unknown-field projection should preserve explicit field taxonomy: {err:?}",
+    assert_eq!(
+        err.diagnostic().code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnknownAggregateTargetField,
+        "session unknown-field projection should preserve explicit field taxonomy",
     );
 }
 

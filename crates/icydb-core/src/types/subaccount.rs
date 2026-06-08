@@ -7,7 +7,7 @@ use crate::{
         EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    types::{Principal, Ulid},
+    types::Principal,
     value::Value,
 };
 use candid::CandidType;
@@ -41,11 +41,6 @@ impl Subaccount {
     pub const MAX: Self = Self::from_array([0xFF; 32]);
 
     #[must_use]
-    pub const fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    #[must_use]
     pub const fn to_array(&self) -> [u8; 32] {
         self.0
     }
@@ -55,17 +50,8 @@ impl Subaccount {
         Self(array)
     }
 
-    /// Recover a ULID from the lower 16 bytes of the subaccount.
     #[must_use]
-    pub fn to_ulid(&self) -> Ulid {
-        let bytes = self.to_array();
-        let ulid_bytes: [u8; 16] = bytes[16..].try_into().expect("slice has exactly 16 bytes");
-
-        Ulid::from_bytes(ulid_bytes)
-    }
-
-    #[must_use]
-    pub const fn as_slice(&self) -> &[u8] {
+    pub(crate) const fn as_slice(&self) -> &[u8] {
         &self.0
     }
 

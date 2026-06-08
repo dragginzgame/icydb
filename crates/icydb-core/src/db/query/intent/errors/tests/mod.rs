@@ -421,7 +421,12 @@ fn unknown_aggregate_target_field_preserves_query_unsupported_execution_boundary
         panic!("unknown aggregate target field must map to query unsupported execution error");
     };
 
-    assert_eq!(inner.message, "unknown aggregate target field");
+    assert!(matches!(
+        inner.detail(),
+        Some(ErrorDetail::Query(
+            QueryErrorDetail::UnknownAggregateTargetField
+        ))
+    ));
 }
 
 #[test]

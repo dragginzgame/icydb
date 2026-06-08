@@ -1008,12 +1008,12 @@ fn storage_report_accepts_composite_primary_key_data_keys() {
 
     let first_key = CompositePrimaryKeyValue::try_from_components(&[
         PrimaryKeyComponent::Nat64(1),
-        PrimaryKeyComponent::Ulid(Ulid::from_timestamp_and_randomness(1, 2)),
+        PrimaryKeyComponent::Ulid(Ulid::from_u128(2)),
     ])
     .expect("first composite diagnostics key should construct");
     let second_key = CompositePrimaryKeyValue::try_from_components(&[
         PrimaryKeyComponent::Nat64(1),
-        PrimaryKeyComponent::Ulid(Ulid::from_timestamp_and_randomness(1, 3)),
+        PrimaryKeyComponent::Ulid(Ulid::from_u128(3)),
     ])
     .expect("second composite diagnostics key should construct");
     insert_composite_data_row(STORE_A_PATH, SINGLE_ENTITY_NAME, &first_key, 1);

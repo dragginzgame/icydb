@@ -242,14 +242,14 @@ fn data_key_structural_constructor_matches_typed_constructor() {
     assert_constructor_equivalence(entity, 42_u64);
     assert_constructor_equivalence(entity, u128::MAX);
     assert_constructor_equivalence(entity, Principal::from_slice(&[1, 2, 3, 4]));
-    assert_constructor_equivalence(entity, Subaccount::new([7; 32]));
+    assert_constructor_equivalence(entity, Subaccount::from_array([7; 32]));
     assert_constructor_equivalence(entity, Timestamp::from_millis(1_710_013_530_123));
     assert_constructor_equivalence(entity, Ulid::from_u128(42));
     assert_constructor_equivalence(
         entity,
         Account::from_owner_and_subaccount(
             Principal::from_slice(&[9, 8, 7]),
-            Some(Subaccount::new([5; 32])),
+            Some(Subaccount::from_array([5; 32])),
         ),
     );
     assert_constructor_equivalence(entity, ());
@@ -302,12 +302,12 @@ fn primary_key_decode_roundtrips_supported_typed_keys() {
     assert_primary_key_roundtrip(45_u64);
     assert_primary_key_roundtrip(u128::MAX);
     assert_primary_key_roundtrip(Principal::from_slice(&[1, 2, 3, 4]));
-    assert_primary_key_roundtrip(Subaccount::new([7; 32]));
+    assert_primary_key_roundtrip(Subaccount::from_array([7; 32]));
     assert_primary_key_roundtrip(Timestamp::from_millis(1_710_013_530_123));
     assert_primary_key_roundtrip(Ulid::from_u128(42));
     assert_primary_key_roundtrip(Account::from_owner_and_subaccount(
         Principal::from_slice(&[9, 8, 7]),
-        Some(Subaccount::new([5; 32])),
+        Some(Subaccount::from_array([5; 32])),
     ));
     assert_primary_key_roundtrip(());
 }
@@ -350,11 +350,11 @@ fn data_key_raw_prefix_bounds_cover_supported_structural_key_domain() {
     let supported_values = [
         Value::Account(Account::from_owner_and_subaccount(
             Principal::from_slice(&[3, 1, 4]),
-            Some(Subaccount::new([1; 32])),
+            Some(Subaccount::from_array([1; 32])),
         )),
         Value::Int64(-17),
         Value::Principal(Principal::from_slice(&[1, 2, 3])),
-        Value::Subaccount(Subaccount::new([2; 32])),
+        Value::Subaccount(Subaccount::from_array([2; 32])),
         Value::Timestamp(Timestamp::from_secs(7)),
         Value::Nat64(42),
         Value::Ulid(Ulid::from_u128(99)),

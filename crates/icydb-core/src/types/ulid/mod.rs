@@ -23,20 +23,12 @@ use std::{fmt, str::FromStr};
 use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
 
-//
-// UlidError
-//
-
+/// Error returned when parsing a ULID from text fails.
 #[derive(Debug, ThisError)]
-pub enum UlidError {
+pub enum UlidParseError {
+    /// The input string is not a canonical ULID.
     #[error("invalid ulid string")]
     InvalidString,
-
-    #[error("monotonic error - overflow")]
-    GeneratorOverflow,
-
-    #[error("randomness is not initialized")]
-    RandomnessUnavailable,
 }
 
 //
@@ -69,7 +61,7 @@ impl Ulid {
     }
 
     #[must_use]
-    pub const fn from_timestamp_and_randomness(timestamp_ms: u64, randomness: u128) -> Self {
+    const fn from_timestamp_and_randomness(timestamp_ms: u64, randomness: u128) -> Self {
         Self(WrappedUlid::from_parts(timestamp_ms, randomness))
     }
 
@@ -92,7 +84,7 @@ impl Ulid {
 
     /// try_generate
     /// Fallible ULID generation preserving error type (e.g., overflow).
-    fn try_generate() -> Result<Self, UlidError> {
+    fn try_generate() -> Result<Self, generator::UlidGenerationError> {
         #[cfg(test)]
         random::seed_if_uninitialized_for_tests([0x55; 32]);
 
@@ -128,8 +120,9 @@ impl Ulid {
     }
 
     /// from_u128
+    #[cfg(test)]
     #[must_use]
-    pub const fn from_u128(n: u128) -> Self {
+    pub(crate) const fn from_u128(n: u128) -> Self {
         Self(WrappedUlid::from_bytes(n.to_be_bytes()))
     }
 }
@@ -147,12 +140,12 @@ impl fmt::Debug for Ulid {
 }
 
 impl FromStr for Ulid {
-    type Err = UlidError;
+    type Err = UlidParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         WrappedUlid::from_string(s)
             .map(Self)
-            .map_err(|_| UlidError::InvalidString)
+            .map_err(|_| UlidParseError::InvalidString)
     }
 }
 

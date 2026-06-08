@@ -122,9 +122,9 @@ mod tests {
             ),
             (
                 index_key_with_primary_key_value(&PrimaryKeyValue::from(
-                    PrimaryKeyComponent::Subaccount(Subaccount::new([7; 32])),
+                    PrimaryKeyComponent::Subaccount(Subaccount::from_array([7; 32])),
                 )),
-                Value::Subaccount(Subaccount::new([7; 32])),
+                Value::Subaccount(Subaccount::from_array([7; 32])),
             ),
             (
                 index_key_with_primary_key_value(&PrimaryKeyValue::from(

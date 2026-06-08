@@ -213,9 +213,10 @@ fn session_aggregate_bytes_by_unknown_field_fails_before_scan_budget_consumption
         scanned_rows, 0,
         "session unknown-field bytes_by should fail before scan-budget consumption",
     );
-    assert!(
-        err.to_string().contains("unknown aggregate target field"),
-        "session unknown-field bytes_by should preserve explicit field taxonomy: {err:?}",
+    assert_eq!(
+        err.diagnostic().code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnknownAggregateTargetField,
+        "session unknown-field bytes_by should preserve explicit field taxonomy",
     );
 }
 
@@ -389,9 +390,10 @@ fn session_aggregate_explain_bytes_by_unknown_field_fails_before_planning() {
         matches!(err, QueryError::Execute(_)),
         "session unknown-field bytes_by explain should remain an execute-domain failure: {err:?}"
     );
-    assert!(
-        err.to_string().contains("unknown aggregate target field"),
-        "session unknown-field bytes_by explain should preserve field taxonomy: {err:?}",
+    assert_eq!(
+        err.diagnostic().code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryUnknownAggregateTargetField,
+        "session unknown-field bytes_by explain should preserve field taxonomy",
     );
 }
 

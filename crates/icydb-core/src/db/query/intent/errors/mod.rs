@@ -278,10 +278,7 @@ impl QueryError {
     pub(in crate::db) fn from_sql_ddl_prepare_error(err: SqlDdlPrepareError) -> Self {
         let reason = err.admission_error();
 
-        Self::execute(InternalError::query_schema_ddl_admission(
-            reason,
-            "SQL DDL preparation failed before execution",
-        ))
+        Self::execute(InternalError::query_schema_ddl_admission(reason))
     }
 
     /// Construct one query error from one SQL DDL execution failure.
@@ -293,11 +290,8 @@ impl QueryError {
                 StoreError::SchemaDdlPublicationRaceLost { .. }
             ))
         ) {
-            let message = err.message().to_string();
-
             return Self::execute(InternalError::query_schema_ddl_admission(
                 SchemaDdlAdmissionError::PublicationRaceLost,
-                message,
             ));
         }
 
@@ -309,7 +303,6 @@ impl QueryError {
         ) {
             return Self::execute(InternalError::query_schema_ddl_admission(
                 SchemaDdlAdmissionError::SetNotNullValidationFailed,
-                "SQL DDL SET NOT NULL validation failed",
             ));
         }
 

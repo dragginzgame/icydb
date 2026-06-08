@@ -248,7 +248,7 @@ fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
         Value::Int128(123i128),
         Value::IntBig(crate::types::IntBig::from(99i32)),
         Value::Principal(crate::types::Principal::from_slice(&[1u8, 2u8, 3u8])),
-        Value::Subaccount(crate::types::Subaccount::new([1u8; 32])),
+        Value::Subaccount(crate::types::Subaccount::from_array([1u8; 32])),
         Value::Text("example".to_string()),
         Value::Timestamp(crate::types::Timestamp::from_secs(1)),
         Value::Nat64(7),

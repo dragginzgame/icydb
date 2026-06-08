@@ -79,7 +79,7 @@ macro_rules! sample_value_for_scalar {
         Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8]))
     };
     (Subaccount) => {
-        Value::Subaccount(Subaccount::new([1u8; 32]))
+        Value::Subaccount(Subaccount::from_array([1u8; 32]))
     };
     (Text) => {
         Value::Text("example".to_string())
@@ -186,7 +186,7 @@ fn canonical_tag_and_rank_are_stable() {
             Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
             16,
         ),
-        (Value::Subaccount(Subaccount::new([1u8; 32])), 17),
+        (Value::Subaccount(Subaccount::from_array([1u8; 32])), 17),
         (Value::Text("example".to_string()), 18),
         (Value::Timestamp(Timestamp::from_secs(1)), 19),
         (Value::Nat64(7), 20),

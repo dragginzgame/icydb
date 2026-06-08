@@ -169,7 +169,7 @@ fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants(
         )),
         PrimaryKeyComponent::Int64(-7),
         PrimaryKeyComponent::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
-        PrimaryKeyComponent::Subaccount(Subaccount::new([7u8; 32])),
+        PrimaryKeyComponent::Subaccount(Subaccount::from_array([7u8; 32])),
         PrimaryKeyComponent::Timestamp(Timestamp::from_secs(7)),
         PrimaryKeyComponent::Nat64(7),
         PrimaryKeyComponent::Ulid(Ulid::from_u128(7)),

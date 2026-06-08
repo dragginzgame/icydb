@@ -24,6 +24,15 @@ fn test_ulid_string_roundtrip() {
 }
 
 #[test]
+fn invalid_ulid_string_returns_parse_error() {
+    let err = "not-a-ulid"
+        .parse::<Ulid>()
+        .expect_err("invalid ULID text should fail parsing");
+
+    assert!(matches!(err, UlidParseError::InvalidString));
+}
+
+#[test]
 fn ulid_bytes_roundtrip() {
     let ulid = Ulid::generate();
     let bytes = ulid.to_bytes();

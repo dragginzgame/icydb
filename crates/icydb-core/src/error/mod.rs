@@ -12,6 +12,9 @@ use icydb_diagnostic_code as diagnostic_code;
 use std::fmt;
 use thiserror::Error as ThisError;
 
+const COMPACT_QUERY_DIAGNOSTIC_MESSAGE: &str = "query diagnostic";
+const COMPACT_SCHEMA_DDL_STORE_MESSAGE: &str = "schema DDL diagnostic";
+
 // ============================================================================
 // INTERNAL ERROR TAXONOMY — ARCHITECTURAL CONTRACT
 // ============================================================================
@@ -777,14 +780,11 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     #[cfg(feature = "sql")]
-    pub(crate) fn query_schema_ddl_admission(
-        error: SchemaDdlAdmissionError,
-        message: impl Into<String>,
-    ) -> Self {
+    pub(crate) fn query_schema_ddl_admission(error: SchemaDdlAdmissionError) -> Self {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: message.into(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SchemaDdlAdmission {
                 error,
             })),
@@ -798,7 +798,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "numeric overflow".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::NumericOverflow)),
         }
     }
@@ -811,7 +811,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "numeric result is not representable".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::NumericNotRepresentable,
             )),
@@ -1368,14 +1368,10 @@ impl InternalError {
 
     /// Construct the canonical schema DDL publication race error.
     pub(crate) fn schema_ddl_publication_race_lost(entity_path: &'static str) -> Self {
-        let message = format!(
-            "SQL DDL publication race lost for entity '{entity_path}': accepted schema changed after DDL binding",
-        );
-
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,
-            message,
+            message: COMPACT_SCHEMA_DDL_STORE_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Store(
                 StoreError::SchemaDdlPublicationRaceLost {
                     entity_path: entity_path.to_string(),
@@ -1393,7 +1389,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,
-            message: "SQL DDL SET NOT NULL validation failed".to_string(),
+            message: COMPACT_SCHEMA_DDL_STORE_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Store(
                 StoreError::SchemaDdlSetNotNullValidationFailed {
                     entity_path: entity_path.to_string(),
@@ -1465,7 +1461,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "unsupported SQL feature".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnsupportedSqlFeature { feature },
             )),
@@ -1479,7 +1475,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "unsupported SQL lowering".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlLowering { reason })),
         }
     }
@@ -1492,7 +1488,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "unsupported query projection".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnsupportedProjection { reason },
             )),
@@ -1504,7 +1500,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "unknown aggregate target field".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnknownAggregateTargetField,
             )),
@@ -1519,7 +1515,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "query result shape mismatch".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::ResultShapeMismatch {
                 reason,
             })),
@@ -1535,7 +1531,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "SQL endpoint surface mismatch".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlSurfaceMismatch {
                 mismatch,
             })),
@@ -1550,7 +1546,7 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: "SQL write boundary rejected".to_string(),
+            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlWriteBoundary {
                 boundary,
             })),
@@ -1694,10 +1690,10 @@ pub enum StoreError {
     #[error("store invariant violation: {message}")]
     InvariantViolation { message: String },
 
-    #[error("schema DDL publication race lost for entity: {entity_path}")]
+    #[error("schema DDL diagnostic")]
     SchemaDdlPublicationRaceLost { entity_path: String },
 
-    #[error("schema DDL SET NOT NULL validation failed")]
+    #[error("schema DDL diagnostic")]
     SchemaDdlSetNotNullValidationFailed {
         entity_path: String,
         column_name: String,
@@ -1710,50 +1706,50 @@ pub enum StoreError {
 /// Query-origin structured error detail payload.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum QueryErrorDetail {
-    #[error("numeric overflow")]
     NumericOverflow,
 
-    #[error("numeric result is not representable")]
     NumericNotRepresentable,
 
-    #[error("unsupported SQL feature")]
     UnsupportedSqlFeature {
         feature: diagnostic_code::SqlFeatureCode,
     },
 
-    #[error("unsupported SQL lowering")]
     SqlLowering {
         reason: diagnostic_code::SqlLoweringCode,
     },
 
-    #[error("unsupported query projection")]
     UnsupportedProjection {
         reason: diagnostic_code::QueryProjectionCode,
     },
 
-    #[error("unknown aggregate target field")]
     UnknownAggregateTargetField,
 
-    #[error("query result shape mismatch")]
     ResultShapeMismatch {
         reason: diagnostic_code::QueryResultShapeCode,
     },
 
-    #[error("SQL endpoint surface mismatch")]
     SqlSurfaceMismatch {
         mismatch: diagnostic_code::SqlSurfaceMismatchCode,
     },
 
-    #[error("SQL write boundary rejected")]
     SqlWriteBoundary {
         boundary: diagnostic_code::SqlWriteBoundaryCode,
     },
 
-    #[error("SQL DDL admission rejected")]
-    SchemaDdlAdmission { error: SchemaDdlAdmissionError },
+    SchemaDdlAdmission {
+        error: SchemaDdlAdmissionError,
+    },
 }
+
+impl fmt::Display for QueryErrorDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+    }
+}
+
+impl std::error::Error for QueryErrorDetail {}
 
 ///
 /// SchemaDdlAdmissionError
@@ -1763,71 +1759,58 @@ pub enum QueryErrorDetail {
 /// variant.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SchemaDdlAdmissionError {
-    #[error("missing expected schema version")]
     MissingExpectedSchemaVersion,
 
-    #[error("missing next schema version")]
     MissingNextSchemaVersion,
 
-    #[error("stale expected schema version")]
     StaleExpectedSchemaVersion,
 
-    #[error("invalid expected schema version")]
     InvalidExpectedSchemaVersion,
 
-    #[error("invalid next schema version")]
     InvalidNextSchemaVersion,
 
-    #[error("accepted schema changed without version bump")]
     AcceptedSchemaChangeWithoutVersionBump,
 
-    #[error("empty version bump")]
     EmptyVersionBump,
 
-    #[error("version gap")]
     VersionGap,
 
-    #[error("version rollback")]
     VersionRollback,
 
-    #[error("fingerprint method mismatch")]
     FingerprintMethodMismatch,
 
-    #[error("unsupported transition class")]
     UnsupportedTransitionClass,
 
-    #[error("physical runner missing")]
     PhysicalRunnerMissing,
 
-    #[error("validation failed")]
     ValidationFailed,
 
-    #[error("publication race lost")]
     PublicationRaceLost,
 
-    #[error("invalid ADD COLUMN default")]
     InvalidAddColumnDefault,
 
-    #[error("invalid ALTER COLUMN default")]
     InvalidAlterColumnDefault,
 
-    #[error("generated index drop rejected")]
     GeneratedIndexDropRejected,
 
-    #[error("required DROP DEFAULT unsupported")]
     RequiredDropDefaultUnsupported,
 
-    #[error("generated field default change rejected")]
     GeneratedFieldDefaultChangeRejected,
 
-    #[error("generated field nullability change rejected")]
     GeneratedFieldNullabilityChangeRejected,
 
-    #[error("SET NOT NULL validation failed")]
     SetNotNullValidationFailed,
 }
+
+impl fmt::Display for SchemaDdlAdmissionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("schema DDL admission")
+    }
+}
+
+impl std::error::Error for SchemaDdlAdmissionError {}
 
 impl ErrorDetail {
     /// Return the compact diagnostic code for this structured detail.
