@@ -309,7 +309,7 @@ fn assert_ddl_rejection_error(err: &Error, context: &str) {
     match err.diagnostic_code() {
         DiagnosticCode::SchemaDdlAdmission => assert!(
             err.code().raw() >= ErrorCode::SCHEMA_DDL_MISSING_EXPECTED_SCHEMA_VERSION.raw()
-                && err.code().raw() <= ErrorCode::SCHEMA_DDL_PUBLICATION_RACE_LOST.raw(),
+                && err.code().raw() <= ErrorCode::SCHEMA_DDL_SET_NOT_NULL_VALIDATION_FAILED.raw(),
             "{context} should preserve a numeric schema DDL admission leaf code",
         ),
         DiagnosticCode::QueryUnsupportedSqlFeature => assert!(
@@ -390,13 +390,13 @@ fn assert_ddl_rejects_with_index_visibility_unchanged(
     fixture: &StandaloneCanisterFixture,
     schema_version: DdlSchemaVersion,
     sql: &str,
-) {
+) -> Error {
     assert_ddl_rejects_with_entity_index_visibility_unchanged(
         fixture,
         schema_version,
         "SqlTestUser",
         sql,
-    );
+    )
 }
 
 fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
@@ -404,7 +404,7 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
     schema_version: DdlSchemaVersion,
     entity: &str,
     sql: &str,
-) {
+) -> Error {
     let before = expect_show_indexes(
         query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
             .expect("SHOW INDEXES FROM should read accepted indexes before rejected DDL"),
@@ -425,6 +425,8 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
         after, before,
         "rejected DDL must leave accepted index visibility unchanged",
     );
+
+    err
 }
 
 #[test]
@@ -899,10 +901,15 @@ fn sql_canister_ddl_endpoint_rejects_generated_index_drop_without_publication() 
     reset_sql_fixtures(&fixture);
     let schema_version = DdlSchemaVersion::initial();
 
-    assert_ddl_rejects_with_index_visibility_unchanged(
+    let err = assert_ddl_rejects_with_index_visibility_unchanged(
         &fixture,
         schema_version,
         "DROP INDEX idx_sql_test_user__name ON SqlTestUser",
+    );
+    assert_eq!(
+        err.code(),
+        ErrorCode::SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED,
+        "generated index drop should preserve the compact DDL leaf code",
     );
 }
 
@@ -1136,10 +1143,15 @@ fn sql_canister_ddl_endpoint_rejects_generated_index_drop_with_if_exists() {
     reset_sql_fixtures(&fixture);
     let schema_version = DdlSchemaVersion::initial();
 
-    assert_ddl_rejects_with_index_visibility_unchanged(
+    let err = assert_ddl_rejects_with_index_visibility_unchanged(
         &fixture,
         schema_version,
         "DROP INDEX IF EXISTS idx_sql_test_user__name ON SqlTestUser",
+    );
+    assert_eq!(
+        err.code(),
+        ErrorCode::SCHEMA_DDL_GENERATED_INDEX_DROP_REJECTED,
+        "generated index DROP IF EXISTS should preserve the compact DDL leaf code",
     );
 }
 
