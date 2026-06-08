@@ -14,4 +14,5 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 
+#[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();

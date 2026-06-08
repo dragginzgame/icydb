@@ -122,6 +122,39 @@ impl CanisterSqlMode {
     }
 }
 
+/// Candid metadata export mode for fixture canister builds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanisterCandidExportMode {
+    /// Export Candid metadata for local builds, but omit it from wasm-release.
+    Auto,
+    /// Always include Candid metadata.
+    Enabled,
+    /// Always omit Candid metadata.
+    Disabled,
+}
+
+impl CanisterCandidExportMode {
+    /// Parse a user-facing Candid export mode.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "on" | "enabled" => Ok(Self::Enabled),
+            "off" | "disabled" => Ok(Self::Disabled),
+            other => Err(format!(
+                "invalid canister Candid export mode '{other}', expected 'auto', 'on', or 'off'"
+            )),
+        }
+    }
+
+    const fn enabled_for_profile(self, profile: CanisterWasmProfile) -> bool {
+        match self {
+            Self::Auto => !matches!(profile, CanisterWasmProfile::WasmRelease),
+            Self::Enabled => true,
+            Self::Disabled => false,
+        }
+    }
+}
+
 /// Explicit build options for fixture canisters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CanisterBuildOptions {
@@ -129,6 +162,8 @@ pub struct CanisterBuildOptions {
     pub profile: CanisterWasmProfile,
     /// Whether package default features stay enabled.
     pub sql_mode: CanisterSqlMode,
+    /// Whether generated Candid metadata export stays in the canister wasm.
+    pub candid_export: CanisterCandidExportMode,
 }
 
 impl Default for CanisterBuildOptions {
@@ -136,6 +171,7 @@ impl Default for CanisterBuildOptions {
         Self {
             profile: CanisterWasmProfile::Debug,
             sql_mode: CanisterSqlMode::Enabled,
+            candid_export: CanisterCandidExportMode::Auto,
         }
     }
 }
@@ -277,6 +313,9 @@ fn build_canister_package(
     ]);
     if !options.sql_mode.enabled() {
         cargo.arg("--no-default-features");
+    }
+    if options.candid_export.enabled_for_profile(options.profile) {
+        cargo.args(["--features", "candid-export"]);
     }
     if profile == "release" {
         cargo.arg("--release");

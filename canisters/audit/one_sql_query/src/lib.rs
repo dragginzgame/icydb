@@ -15,4 +15,5 @@ fn query_one_sql() -> Result<SqlQueryResult, icydb::Error> {
     db().execute_sql_query::<OneSimpleEntity01>("SELECT COUNT(*) FROM OneSimpleEntity01")
 }
 
+#[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();

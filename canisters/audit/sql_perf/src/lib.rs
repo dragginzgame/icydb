@@ -1903,4 +1903,5 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
     ]
 }
 
+#[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();

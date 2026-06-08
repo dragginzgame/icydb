@@ -1,5 +1,6 @@
 use icydb_testing_integration::{
-    CanisterBuildOptions, CanisterSqlMode, CanisterWasmProfile, stage_canister_for_icp_with_options,
+    CanisterBuildOptions, CanisterCandidExportMode, CanisterSqlMode, CanisterWasmProfile,
+    stage_canister_for_icp_with_options,
 };
 
 fn main() {
@@ -8,7 +9,7 @@ fn main() {
         Err(err) => {
             eprintln!("{err}");
             eprintln!(
-                "usage: build_fixture_canister [canister] [--profile debug|release|wasm-release] [--sql-mode on|off]"
+                "usage: build_fixture_canister [canister] [--profile debug|release|wasm-release] [--sql-mode on|off] [--candid-export auto|on|off]"
             );
             std::process::exit(2);
         }
@@ -49,6 +50,12 @@ fn parse_args(
                     .next()
                     .ok_or_else(|| "--sql-mode requires a value".to_string())?;
                 options.sql_mode = CanisterSqlMode::parse(value.as_str())?;
+            }
+            "--candid-export" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--candid-export requires a value".to_string())?;
+                options.candid_export = CanisterCandidExportMode::parse(value.as_str())?;
             }
             "--help" | "-h" => {
                 return Err(

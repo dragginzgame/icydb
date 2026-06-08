@@ -2,13 +2,13 @@
 
 | Artifact | Bytes |
 | --- | ---: |
-| icp-built `.wasm` | 2597223 |
-| icp-built deterministic `.wasm.gz` | 829395 |
-| candid export | available |
-| icp-shrunk `.wasm` (canonical) | 2418954 |
-| icp-shrunk `.wasm.gz` (canonical) | 788273 |
-| Shrink delta `.wasm` | 178269 |
-| Shrink delta `.wasm.gz` | 41122 |
+| icp-built `.wasm` | 2576378 |
+| icp-built deterministic `.wasm.gz` | 820933 |
+| candid export | unavailable |
+| icp-shrunk `.wasm` (canonical) | 2399739 |
+| icp-shrunk `.wasm.gz` (canonical) | 781509 |
+| Shrink delta `.wasm` | 176639 |
+| Shrink delta `.wasm.gz` | 39424 |
 
 SQL variant: `sql-on`
 
@@ -26,6 +26,6 @@ Generated endpoint surface:
 
 Custom exports: `query_ten_simple_fluent`
 
-Exports (shrunk): 3
+Exports (shrunk): 2
 
 JSON report: `/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.report.json`

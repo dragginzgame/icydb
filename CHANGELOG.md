@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🔧 Changed
+
+- Gates audit, demo, and test canister Candid metadata export behind an
+  explicit local-build feature, keeping wasm-release audit builds free of
+  `export_candid!()` metadata by default.
+
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)

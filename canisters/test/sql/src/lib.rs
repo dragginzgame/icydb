@@ -87,4 +87,5 @@ fn sql_numeric_type_rows() -> Vec<SqlTestNumericTypes> {
     ]
 }
 
+#[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();

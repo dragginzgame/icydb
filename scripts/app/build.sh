@@ -17,7 +17,7 @@ WASM_SOURCE="$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/$PKG.wasm"
 ICP_DIR="$ROOT/.icp/local/canisters/$CAN"
 WASM_TARGET="$ICP_DIR/$CAN.wasm"
 
-cargo build --manifest-path "$ROOT/Cargo.toml" --target wasm32-unknown-unknown -p "$PKG"
+cargo build --manifest-path "$ROOT/Cargo.toml" --target wasm32-unknown-unknown -p "$PKG" --features candid-export
 mkdir -p "$ICP_DIR"
 cp -f "$WASM_SOURCE" "$WASM_TARGET"
 if [ -n "${ICP_WASM_OUTPUT_PATH:-}" ]; then

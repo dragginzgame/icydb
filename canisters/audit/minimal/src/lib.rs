@@ -4,4 +4,5 @@
 
 icydb::start!();
 
+#[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();

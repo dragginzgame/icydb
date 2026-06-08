@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = ["sql"]
+candid-export = []
 sql = ["icydb/sql"]
 
 [dependencies]

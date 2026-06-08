@@ -2,13 +2,13 @@
 
 | Artifact | Bytes |
 | --- | ---: |
-| icp-built `.wasm` | 2595849 |
-| icp-built deterministic `.wasm.gz` | 834753 |
-| candid export | available |
-| icp-shrunk `.wasm` (canonical) | 2417833 |
-| icp-shrunk `.wasm.gz` (canonical) | 793199 |
-| Shrink delta `.wasm` | 178016 |
-| Shrink delta `.wasm.gz` | 41554 |
+| icp-built `.wasm` | 2575004 |
+| icp-built deterministic `.wasm.gz` | 827089 |
+| candid export | unavailable |
+| icp-shrunk `.wasm` (canonical) | 2398618 |
+| icp-shrunk `.wasm.gz` (canonical) | 786145 |
+| Shrink delta `.wasm` | 176386 |
+| Shrink delta `.wasm.gz` | 40944 |
 
 SQL variant: `sql-on`
 
@@ -26,6 +26,6 @@ Generated endpoint surface:
 
 Custom exports: `query_one_complex_fluent`
 
-Exports (shrunk): 3
+Exports (shrunk): 2
 
 JSON report: `/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.report.json`

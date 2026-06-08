@@ -19,4 +19,5 @@ fn query_one_fluent() -> Result<u32, icydb::Error> {
     Ok(rows.count())
 }
 
+#[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();
