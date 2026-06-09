@@ -214,7 +214,7 @@ fn eval_null_test_function_call(
 
     Ok(function
         .boolean_null_test_kind()
-        .expect("null-test runtime dispatch must keep one null-test kind")
+        .expect("query expression invariant")
         .eval_value(value))
 }
 
@@ -228,7 +228,7 @@ fn eval_unary_text_function_call(
         Value::Null => Ok(Value::Null),
         Value::Text(text) => Ok(function
             .unary_text_function_kind()
-            .expect("unary-text runtime dispatch must keep one unary-text kind")
+            .expect("query expression invariant")
             .eval_text(text.as_str())),
         other => Err(text_input_error(function, other).into()),
     }
@@ -251,7 +251,7 @@ fn eval_unary_numeric_function_call(
 
             Ok(function
                 .unary_numeric_function_kind()
-                .expect("unary-numeric runtime dispatch must keep one unary-numeric kind")
+                .expect("query expression invariant")
                 .eval_decimal(decimal)
                 .map_err(ProjectionFunctionEvalError::from)?)
         }
@@ -314,7 +314,7 @@ fn eval_binary_numeric_function_call(
             };
             let value = function
                 .binary_numeric_function_kind()
-                .expect("binary-numeric runtime dispatch must keep one binary-numeric kind")
+                .expect("query expression invariant")
                 .eval_decimal(left, right)
                 .map_err(ProjectionFunctionEvalError::from)?;
 
@@ -371,7 +371,7 @@ fn eval_left_right_text_function_call(
         (Value::Null, _) | (_, None) => Ok(Value::Null),
         (Value::Text(text), Some(length)) => Ok(function
             .left_right_text_function_kind()
-            .expect("left/right runtime dispatch must keep one left/right kind")
+            .expect("query expression invariant")
             .eval_text(text.as_str(), length)),
         (other, _) => Err(text_input_error(function, other).into()),
     }
@@ -388,7 +388,7 @@ fn eval_text_predicate_function_call(
         (Value::Null, _) | (_, None) => Ok(Value::Null),
         (Value::Text(text), Some(needle)) => Ok(function
             .boolean_text_predicate_kind()
-            .expect("text-predicate runtime dispatch must keep one text-predicate kind")
+            .expect("query expression invariant")
             .eval_text(text, needle)),
         (other, _) => Err(text_input_error(function, other).into()),
     }
@@ -531,7 +531,7 @@ fn eval_preview_boolean_binary_expr(
             }
             _ => Err(invalid_binary_operands(op, left, right)),
         },
-        _ => unreachable!("boolean evaluator called with non-boolean operator"),
+        _ => unreachable!("query expression invariant"),
     }
 }
 
@@ -583,7 +583,7 @@ fn eval_preview_compare_binary_expr(
         BinaryOp::Lte => eval_order_comparison(op, left, right, Ordering::is_le)?,
         BinaryOp::Gt => eval_order_comparison(op, left, right, Ordering::is_gt)?,
         BinaryOp::Gte => eval_order_comparison(op, left, right, Ordering::is_ge)?,
-        _ => unreachable!("comparison evaluator called with non-comparison operator"),
+        _ => unreachable!("query expression invariant"),
     };
 
     Ok(Value::Bool(value))

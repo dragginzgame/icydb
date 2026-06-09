@@ -213,8 +213,7 @@ fn membership_compare_leaf(expr: &Expr, compare_op: BinaryOp) -> Option<(&str, V
             field.as_str(),
             value.clone(),
             compare_literal_coercion(
-                truth_condition_binary_compare_op(*op)
-                    .expect("compile-ready compare operands must resolve onto CompareOp"),
+                truth_condition_binary_compare_op(*op).expect("predicate compiler invariant"),
                 value,
             ),
         )),
@@ -253,12 +252,8 @@ fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
         Expr::Literal(Value::Bool(true)) => (Predicate::True, Predicate::False),
         Expr::Literal(Value::Bool(false)) => (Predicate::False, Predicate::True),
         Expr::Literal(Value::Null) => (Predicate::False, Predicate::False),
-        Expr::Literal(_) => {
-            unreachable!("boolean compilation expects only boolean-context literals")
-        }
-        Expr::FieldPath(_) => {
-            unreachable!("boolean compilation expects compile-ready field leaves")
-        }
+        Expr::Literal(_) => unreachable!("predicate compiler invariant"),
+        Expr::FieldPath(_) => unreachable!("predicate compiler invariant"),
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
@@ -300,13 +295,9 @@ fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
             when_then_arms,
             else_expr,
         } => compile_bool_case_truth_sets(when_then_arms.as_slice(), else_expr.as_ref()),
-        Expr::Aggregate(_) => {
-            unreachable!("boolean compilation expects boolean-only expression shapes")
-        }
+        Expr::Aggregate(_) => unreachable!("predicate compiler invariant"),
         #[cfg(test)]
-        Expr::Alias { .. } => {
-            unreachable!("boolean compilation should never receive alias wrappers")
-        }
+        Expr::Alias { .. } => unreachable!("predicate compiler invariant"),
     }
 }
 
@@ -413,9 +404,9 @@ fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Predica
                 Value::Text(value.clone()),
                 CoercionId::TextCasefold,
             )),
-            _ => unreachable!("boolean compilation expects LOWER(field) compare wrappers"),
+            _ => unreachable!("predicate compiler invariant"),
         },
-        _ => unreachable!("boolean compilation expects canonical compare operands"),
+        _ => unreachable!("predicate compiler invariant"),
     }
 }
 
@@ -426,7 +417,7 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
         Some(BooleanFunctionShape::NullTest) => compile_bool_null_test_function_truth_sets(
             function
                 .boolean_null_test_kind()
-                .expect("null-test boolean family must keep one null-test kind"),
+                .expect("predicate compiler invariant"),
             args,
         ),
         Some(BooleanFunctionShape::TextPredicate) => {
@@ -443,7 +434,7 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
         }
         Some(BooleanFunctionShape::FieldPredicate) => match function
             .boolean_field_predicate_kind()
-            .expect("field-predicate boolean family must keep one field-predicate kind")
+            .expect("predicate compiler invariant")
         {
             FieldPredicateFunctionKind::Missing => {
                 compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsMissing {
@@ -465,7 +456,7 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
             compile_bool_collection_contains_truth_sets(args)
         }
         Some(BooleanFunctionShape::TruthCoalesce) | None => {
-            unreachable!("boolean compilation expects only directly compilable boolean functions")
+            unreachable!("predicate compiler invariant")
         }
     }
 }
@@ -475,7 +466,7 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
 const fn boolean_text_predicate_kind(function: Function) -> TextPredicateFunctionKind {
     function
         .boolean_text_predicate_kind()
-        .expect("text-predicate boolean family must keep one text-predicate kind")
+        .expect("predicate compiler invariant")
 }
 
 // Compile one null-test function onto the corresponding runtime null predicate
@@ -485,7 +476,7 @@ fn compile_bool_null_test_function_truth_sets(
     args: &[Expr],
 ) -> (Predicate, Predicate) {
     let [arg] = args else {
-        unreachable!("boolean null tests keep one operand")
+        unreachable!("predicate compiler invariant")
     };
 
     match arg {
@@ -512,7 +503,7 @@ fn compile_bool_null_test_function_truth_sets(
                 (Predicate::False, Predicate::True)
             }
         }
-        _ => unreachable!("boolean null tests expect field/literal operands"),
+        _ => unreachable!("predicate compiler invariant"),
     }
 }
 
@@ -523,14 +514,14 @@ fn compile_bool_prefix_text_function_truth_sets(
     args: &[Expr],
 ) -> (Predicate, Predicate) {
     let [left, Expr::Literal(Value::Text(value))] = args else {
-        unreachable!("boolean prefix text predicates keep field/text operands")
+        unreachable!("predicate compiler invariant")
     };
     let (field, coercion) = compile_bool_text_target(left);
     let op = match kind {
         TextPredicateFunctionKind::StartsWith => CompareOp::StartsWith,
         TextPredicateFunctionKind::EndsWith => CompareOp::EndsWith,
         TextPredicateFunctionKind::Contains => {
-            unreachable!("prefix compiler called with non-prefix text-predicate kind")
+            unreachable!("predicate compiler invariant")
         }
     };
     let when_true = Predicate::Compare(ComparePredicate::with_coercion(
@@ -547,7 +538,7 @@ fn compile_bool_prefix_text_function_truth_sets(
 // while preserving strict versus casefold coercion.
 fn compile_bool_contains_function_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
     let [left, Expr::Literal(Value::Text(value))] = args else {
-        unreachable!("boolean contains predicates keep field/text operands")
+        unreachable!("predicate compiler invariant")
     };
     let (field, coercion) = compile_bool_text_target(left);
 
@@ -561,7 +552,7 @@ fn compile_bool_contains_function_truth_sets(args: &[Expr]) -> (Predicate, Predi
             value: Value::Text(value.clone()),
         },
         CoercionId::NumericWiden | CoercionId::CollectionElement => {
-            unreachable!("boolean contains predicates only compile text coercions");
+            unreachable!("predicate compiler invariant");
         }
     };
 
@@ -574,7 +565,7 @@ fn compile_bool_field_predicate_truth_sets(
     build: impl FnOnce(&str) -> Predicate,
 ) -> (Predicate, Predicate) {
     let [Expr::Field(field)] = args else {
-        unreachable!("field-only boolean function expects one field argument")
+        unreachable!("predicate compiler invariant")
     };
     let when_true = build(field.as_str());
 
@@ -585,7 +576,7 @@ fn compile_bool_field_predicate_truth_sets(
 // predicate shell.
 fn compile_bool_collection_contains_truth_sets(args: &[Expr]) -> (Predicate, Predicate) {
     let [Expr::Field(field), Expr::Literal(value)] = args else {
-        unreachable!("collection contains expects field/literal operands")
+        unreachable!("predicate compiler invariant")
     };
     let when_true = Predicate::Compare(ComparePredicate::with_coercion(
         field.as_str().to_string(),
@@ -607,9 +598,9 @@ fn compile_bool_text_target(expr: &Expr) -> (String, CoercionId) {
             args,
         } => match args.as_slice() {
             [Expr::Field(field)] => (field.as_str().to_string(), CoercionId::TextCasefold),
-            _ => unreachable!("boolean text targets only compile LOWER(field) wrappers"),
+            _ => unreachable!("predicate compiler invariant"),
         },
-        _ => unreachable!("boolean text targets only compile canonical field wrappers"),
+        _ => unreachable!("predicate compiler invariant"),
     }
 }
 

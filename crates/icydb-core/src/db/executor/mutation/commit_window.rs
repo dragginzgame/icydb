@@ -921,10 +921,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window<E: EntityKind +
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     if row_ops.len() == 1 {
-        let row_op = row_ops
-            .into_iter()
-            .next()
-            .expect("single-row delete fast path requires exactly one row op");
+        let row_op = row_ops.into_iter().next().expect("commit window invariant");
 
         return commit_single_delete_row_op_with_window::<E>(db, row_op, apply_phase);
     }
@@ -946,10 +943,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     if row_ops.len() == 1 {
-        let row_op = row_ops
-            .into_iter()
-            .next()
-            .expect("single-row structural delete fast path requires exactly one row op");
+        let row_op = row_ops.into_iter().next().expect("commit window invariant");
 
         return commit_single_delete_row_op_with_window_for_path(
             db,

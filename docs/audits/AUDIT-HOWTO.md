@@ -70,7 +70,8 @@ Baseline selection guidance:
 - same-day rerun:
   - compare against that day's canonical baseline file for the same scope
 
-For crosscutting structure/velocity runs, include the required Hub Import Pressure metric:
+For crosscutting structure/velocity runs, include hub import pressure evidence
+when it is relevant to the findings:
 - top imports for each hub module
 - unique sibling subsystem import count
 - cross-layer dependency count

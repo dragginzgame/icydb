@@ -11,6 +11,9 @@ skip_build=0
 batch_child=0
 REPORT_SCOPE="wasm-footprint"
 
+# shellcheck source=scripts/ci/wasm-report-common.sh
+source "$ROOT/scripts/ci/wasm-report-common.sh"
+
 usage() {
     cat <<'EOF'
 usage: wasm-audit-report.sh [--profile debug|release|wasm-release] [--sql-variant sql-on|sql-off] [--date YYYY-MM-DD] [--report-dir path] [--canister name] [--skip-build]
@@ -81,7 +84,7 @@ for canister_name in "${canister_names[@]}"; do
     fi
 done
 if [[ "${#canister_names[@]}" -eq 0 ]]; then
-    canister_names=(minimal one_simple one_sql_query one_fluent_query one_complex ten_simple ten_complex)
+    mapfile -t canister_names < <(wasm_report_default_canisters)
 fi
 
 audit_month="${audit_date:0:7}"
@@ -92,24 +95,19 @@ artifact_scope_dir="$report_dir/artifacts/$REPORT_SCOPE"
 
 # Resolve the audited SQL variant once so both the batch summary path and the
 # per-canister child runs agree on the same stable output naming.
-case "$sql_variant_mode" in
-    sql-on|on|enabled)
-        SQL_VARIANT="sql-on"
-        SIZE_REPORT_SUFFIX=""
-        ;;
-    sql-off|off|disabled)
-        SQL_VARIANT="sql-off"
-        SIZE_REPORT_SUFFIX=".sql-off"
-        ;;
-    both)
+if sql_variants_output="$(wasm_report_sql_variants "$sql_variant_mode" no)"; then
+    mapfile -t resolved_sql_variants <<<"$sql_variants_output"
+    SQL_VARIANT="${resolved_sql_variants[0]}"
+    SIZE_REPORT_SUFFIX="$(wasm_report_size_suffix "$SQL_VARIANT" 1)"
+else
+    sql_variant_status=$?
+    if [[ "$sql_variant_status" -eq 2 ]]; then
         echo "[wasm-audit] --sql-variant=both is not supported for audit reports; run one variant per audit pass" >&2
         exit 1
-        ;;
-    *)
-        echo "[wasm-audit] invalid --sql-variant value '$sql_variant_mode'; expected 'sql-on' or 'sql-off'" >&2
-        exit 1
-        ;;
-esac
+    fi
+    echo "[wasm-audit] invalid --sql-variant value '$sql_variant_mode'; expected 'sql-on' or 'sql-off'" >&2
+    exit 1
+fi
 
 write_summary_report() {
     local canisters=("$@")
@@ -161,21 +159,14 @@ def load_baseline_metrics(root: Path, baseline_path: str, artifact_scope: str, c
         return None, None
 
     baseline_report = root / baseline_path
-    candidates = [
-        baseline_report.parent / "artifacts" / artifact_scope / f"{artifact_scope}.{canister}.{profile}.{sql_variant}.size-report.json",
-        baseline_report.parent / "artifacts" / artifact_scope / f"{artifact_scope}.{canister}.{profile}.size-report.json",
-        baseline_report.parent / "helpers" / f"{artifact_scope}.{canister}.{profile}.{sql_variant}.size-report.json",
-        baseline_report.parent / "helpers" / f"{artifact_scope}.{canister}.{profile}.size-report.json",
-    ]
+    candidate = baseline_report.parent / "artifacts" / artifact_scope / f"{artifact_scope}.{canister}.{profile}.{sql_variant}.size-report.json"
+    if not candidate.exists():
+        return None, None
 
-    for candidate in candidates:
-        if candidate.exists():
-            report = json.loads(candidate.read_text(encoding="utf-8"))
-            if has_icp_size_metrics(report):
-                return report, candidate
-            return None, candidate
-
-    return None, None
+    report = json.loads(candidate.read_text(encoding="utf-8"))
+    if has_icp_size_metrics(report):
+        return report, candidate
+    return None, candidate
 
 
 def yes_no(value: bool) -> str:
@@ -237,24 +228,12 @@ for canister in canisters:
     )
     current_gz = current["artifacts"]["icp_shrunk_wasm_gz"]["bytes"]
 
-    if baseline_path == "N/A":
-        status = "PARTIAL"
-        baseline_note = "first tracked run for this summary layout"
-    elif baseline_metrics is None:
-        status = "PARTIAL"
-        if baseline_artifact_path is None:
-            baseline_note = "baseline size artifact missing"
-        else:
-            baseline_note = f"baseline size artifact lacks current ICP metrics at `{display_path(root, baseline_artifact_path)}`"
-    else:
-        status = "PASS"
-        baseline_note = "baseline size artifact loaded"
+    status = "PASS" if baseline_path != "N/A" and baseline_metrics is not None else "PARTIAL"
 
     per_canister.append(
         {
             "canister": canister,
             "status": status,
-            "baseline_note": baseline_note,
             "current_shrunk": current_shrunk,
             "current_gz": current_gz,
             "previous_shrunk": previous_shrunk,
@@ -270,10 +249,6 @@ elif all_baselines_available:
     comparability = "comparable"
 else:
     comparability = "non-comparable (one or more baseline size artifacts are missing or use an incompatible metric schema)"
-
-status_counts = {"PASS": 0, "PARTIAL": 0, "FAIL": 0}
-for item in per_canister:
-    status_counts[item["status"]] += 1
 
 lines = [
     f"# Recurring Audit - Wasm Footprint ({audit_date})",

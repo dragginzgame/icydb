@@ -207,11 +207,8 @@ impl EntityKeyBytes for Account {
 
     fn write_bytes(&self, out: &mut [u8]) {
         assert_eq!(out.len(), Self::BYTE_LEN);
-        let out: &mut [u8; Self::BYTE_LEN] = out
-            .try_into()
-            .expect("account primary key output must match stored width");
-        self.write_stored_bytes(out)
-            .expect("account primary key encoding must remain valid");
+        let out: &mut [u8; Self::BYTE_LEN] = out.try_into().expect("account key invariant");
+        self.write_stored_bytes(out).expect("account key invariant");
     }
 }
 

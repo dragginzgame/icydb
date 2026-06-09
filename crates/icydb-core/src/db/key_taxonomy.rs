@@ -248,8 +248,7 @@ impl CompositePrimaryKeyValue {
 
         let mut stored = [PrimaryKeyComponent::Unit; MAX_PRIMARY_KEY_FIELDS];
         stored[..components.len()].copy_from_slice(components);
-        let len = u8::try_from(components.len())
-            .expect("MAX_PRIMARY_KEY_FIELDS must fit in u8 for compact composite keys");
+        let len = u8::try_from(components.len()).expect("primary-key invariant");
 
         Ok(Self {
             len,
@@ -1198,12 +1197,7 @@ fn take_encoded_primary_key_component<'a>(
             TAG_SIZE + TAG_SIZE + len
         }
         PrimaryKeyKind::Composite => unreachable!("composite handled above"),
-        _ => {
-            TAG_SIZE
-                + kind
-                    .fixed_payload_len()
-                    .expect("scalar primary-key kind must have fixed payload len")
-        }
+        _ => TAG_SIZE + kind.fixed_payload_len().expect("primary-key invariant"),
     };
     if input.len() < total_len {
         return Err(CompactPrimaryKeyDecodeError::InvalidLength {

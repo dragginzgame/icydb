@@ -98,7 +98,7 @@ impl IndexKey {
             primary_key,
         )
         .to_raw()
-        .expect("validated index key should encode");
+        .expect("index key invariant");
 
         RawIndexStoreKey::from_persisted_bytes(raw.as_bytes().to_vec())
     }
@@ -203,7 +203,7 @@ impl IndexKey {
 
     pub(in crate::db) fn compact_primary_key_value_bytes(primary_key: &PrimaryKeyValue) -> Vec<u8> {
         EncodedPrimaryKey::encode(*primary_key)
-            .expect("primary-key values must compact-encode")
+            .expect("primary-key invariant")
             .as_bytes()
             .to_vec()
     }

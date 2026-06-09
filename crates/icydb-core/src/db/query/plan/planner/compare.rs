@@ -331,7 +331,7 @@ fn plan_ordered_compare(
             CompareOp::Gte => (Bound::Included(bound_value), Bound::Unbounded),
             CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(bound_value)),
             CompareOp::Lte => (Bound::Unbounded, Bound::Included(bound_value)),
-            _ => unreachable!("ordered compare helper must receive one of Gt/Gte/Lt/Lte"),
+            _ => unreachable!("query planner invariant"),
         };
         let score = access_candidate_score_from_index_contract(
             schema,

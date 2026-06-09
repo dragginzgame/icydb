@@ -36,9 +36,9 @@ impl FieldId {
     #[must_use]
     pub(in crate::db) fn from_initial_slot(slot: usize) -> Self {
         let next = u32::try_from(slot)
-            .expect("generated field slot should fit in u32")
+            .expect("schema identity invariant")
             .checked_add(1)
-            .expect("generated field slot should not exhaust u32 field IDs");
+            .expect("schema identity invariant");
 
         Self(next)
     }

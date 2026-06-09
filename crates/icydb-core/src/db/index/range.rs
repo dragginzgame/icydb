@@ -93,6 +93,12 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
 impl IndexRangeBoundEncodeError {
     #[must_use]
     pub(in crate::db) const fn validated_spec_not_indexable_reason(self) -> &'static str {
+        #[cfg(not(test))]
+        {
+            let _ = self;
+            "index-range lowering invariant"
+        }
+        #[cfg(test)]
         match self {
             Self::Prefix => "validated index-range prefix is not indexable",
             Self::Lower => "validated index-range lower bound is not indexable",

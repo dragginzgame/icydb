@@ -6,9 +6,9 @@
 | icp-built deterministic `.wasm.gz` | 116449 |
 | candid export | unavailable |
 | icp-shrunk `.wasm` (canonical) | 287347 |
-| icp-shrunk `.wasm.gz` (canonical) | 110604 |
+| icp-shrunk `.wasm.gz` (canonical) | 110603 |
 | Shrink delta `.wasm` | 25259 |
-| Shrink delta `.wasm.gz` | 5845 |
+| Shrink delta `.wasm.gz` | 5846 |
 
 SQL variant: `sql-on`
 

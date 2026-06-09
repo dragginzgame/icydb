@@ -1,5 +1,5 @@
 This audit must not reuse structural counts from other audits in the same run.
-All metrics must originate from STEP -1 enumeration or the metrics dataset.
+All metrics must originate from STEP -1 enumeration.
 
 # WEEKLY AUDIT — Complexity Accretion (icydb-core)
 
@@ -68,19 +68,20 @@ Requirements:
 
 Method manifest (include exactly in run metadata):
 
-* `method_version = CA-1.4`
-* `runtime_metrics_generator = scripts/audit/runtime_metrics.sh`
+* `method_version = CA-1.5`
 * `domain_taxonomy = D-2`
 * `flow_axis_model = F-1`
 * `switch_site_rule = S-1`
 * `risk_rubric = R-1`
 * `trend_filter_rule = T-1`
 
-CA-1.4 changes from CA-1.3:
+CA-1.5 changes from CA-1.4:
 
+* removes the committed runtime metrics generator requirement in favor of
+  explicit per-run evidence enumeration
 * introduces explicit completion status (`complete`, `partial`, `blocked`)
 * requires a status row for every step, including skipped classified sections
-* separates generator-backed mechanical risk from full overall complexity risk
+* separates mechanical enumeration risk from full overall complexity risk
 * adds a mandatory issue ledger for follow-up actions
 * adds explicit artifact naming for enum, concept, flow, invalidating-signal,
   and risk-bucket outputs
@@ -91,7 +92,6 @@ Comparability gate:
 * Mark run `non-comparable` if any of the following changed since baseline:
   * runtime scope definition
   * exclusion rules
-  * metric generator
   * branch-counting rules
   * concept taxonomy
   * flow axis set/model
@@ -104,7 +104,7 @@ Completion gate:
   `N/A` rows allowed by this method, and STEP 7 includes all risk buckets.
 * `partial` = STEP -1 completed, but one or more non-mechanical/classified
   steps are blocked or intentionally deferred.
-* `blocked` = STEP -1 failed or the runtime metrics dataset is missing.
+* `blocked` = STEP -1 evidence enumeration failed.
 * A `partial` run MUST NOT publish an unqualified "overall complexity risk
   index"; it must publish `mechanical-only risk index` or `partial risk index`
   and list missing sections in the report preamble.
@@ -112,17 +112,6 @@ Completion gate:
   non-comparable.
 * Silent omission is forbidden: every step from STEP -1 through STEP 9 must
   appear in the report with status `PASS`, `N/A`, or `BLOCKED`.
-
-Generator-governance note:
-
-* The preferred generator is the canonical method artifact. Codex may run its
-  embedded Python locally for audit extraction when that Python does not become
-  committed project scripts, CI, tests, build helpers, or repo tooling. If the
-  generator cannot run for environmental reasons, mark STEP -1 `BLOCKED` and
-  do not substitute ad-hoc extraction unless the report is explicitly marked
-  `non-comparable`.
-
----
 
 # Execution Integrity Requirements (Mandatory)
 
@@ -139,16 +128,11 @@ Run crosscutting audits sequentially in this order (do not run in parallel):
 6. `velocity-preservation`
 7. `wasm-footprint`
 
-Generate runtime metrics once per run and reuse that dataset in later
-crosscutting audits.
-
-Preferred generator: `scripts/audit/runtime_metrics.sh`
-
 Report preamble MUST include:
 
 | Field [M] | Value |
 | ---- | ---- |
-| `method_version` | `CA-1.4` |
+| `method_version` | `CA-1.5` |
 | `completion_status` | `complete` / `partial` / `blocked` |
 | `risk_index_kind` | `overall` / `partial` / `mechanical-only` / `N/A` |
 | `baseline_report` | path or `N/A` |
@@ -184,25 +168,10 @@ Allowed statuses:
 * `BLOCKED`: evidence could not be produced; reason and comparability impact
   are mandatory.
 
-Required dataset columns:
-
-* `module [M]`
-* `loc [M]`
-* `match_count [M]`
-* `match_arms_total [M]`
-* `avg_match_arms [D]`
-* `if_count [M]`
-* `if_chain_count [M]`
-* `max_branch_depth [M]`
-* `fanout [M]`
-* `branch_sites_total [D]`
-
 Required report artifacts:
 
 | Artifact [M] | Producer [M/C] | Required When [M] | Purpose [M] |
 | ---- | ---- | ---- | ---- |
-| `runtime-metrics.tsv` | `scripts/audit/runtime_metrics.sh` | every run | STEP -1 source dataset |
-| `module-branch-hotspots.tsv` | derived from `runtime-metrics.tsv` | every run | top branch/fanout review |
 | `enum-surface.tsv` | semi-mechanical extraction | complete run | STEP 1 variant and switch-site evidence |
 | `enum-switch-sites.tsv` | semi-mechanical extraction | complete run | STEP 1 site identities |
 | `function-branch-hotspots.tsv` | semi-mechanical extraction | complete run | STEP 2 function-level hotspots |
@@ -801,7 +770,7 @@ Summary bullet rule:
 Run metadata must include:
 
 * compared baseline report path (`baseline = most recent comparable run`)
-* full method manifest tags (`CA-1.4`, `D-2`, `F-1`, `S-1`, `R-1`, `T-1`)
+* full method manifest tags (`CA-1.5`, `D-2`, `F-1`, `S-1`, `R-1`, `T-1`)
 * comparability status (`comparable` or `non-comparable` with reason)
 * completion status and risk-index kind
 

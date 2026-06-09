@@ -168,8 +168,7 @@ impl<'a> ProjectedGroupingShape<'a> {
         let Some(grouped) = plan.grouped_plan() else {
             return Self::None;
         };
-        let strategy = grouped_plan_strategy(plan)
-            .expect("grouped grouping-shape hashing requires planner-owned grouped strategy");
+        let strategy = grouped_plan_strategy(plan).expect("query fingerprint invariant");
 
         Self::Grouped(GroupedFingerprintShape {
             ordered_group: strategy.is_ordered_group(),

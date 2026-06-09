@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `ten_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-08/wasm-footprint.md`
-- code snapshot identifier: `83dc6bcad`
+- code snapshot identifier: `a43cb9272`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,10 +24,10 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| icp-built `.wasm` | 2,600,068 | 2,549,527 | -50,541 |
-| icp-built deterministic `.wasm.gz` | 829,482 | 815,906 | -13,576 |
-| icp-shrunk `.wasm` | 2,422,108 | 2,374,433 | -47,675 |
-| icp-shrunk `.wasm.gz` | 788,861 | 774,663 | -14,198 |
+| icp-built `.wasm` | 2,600,068 | 2,548,185 | -51,883 |
+| icp-built deterministic `.wasm.gz` | 829,482 | 816,216 | -13,266 |
+| icp-shrunk `.wasm` | 2,422,108 | 2,373,095 | -49,013 |
+| icp-shrunk `.wasm.gz` | 788,861 | 774,236 | -14,625 |
 
 ## Structural Snapshot (ic-wasm)
 
@@ -36,19 +36,19 @@ PASS=5, PARTIAL=0, FAIL=0
 | Function count | 5,725 | 5,725 |
 | Callback count | 1 | 1 |
 | Data section count | 3 | 3 |
-| Data section bytes | 171,396 | 171,396 |
+| Data section bytes | 170,092 | 170,092 |
 | Exported methods | 2 | 2 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 171,130 | 7.21% |
+| 1 | data[0] | 169,826 | 7.16% |
 | 2 | code[0] | 33,635 | 1.42% |
 | 3 | code[1] | 32,386 | 1.36% |
 | 4 | code[2] | 27,593 | 1.16% |
 | 5 | code[3] | 20,378 | 0.86% |
-| 6 | code[4] | 17,787 | 0.75% |
+| 6 | code[4] | 17,772 | 0.75% |
 | 7 | code[5] | 15,294 | 0.64% |
 | 8 | code[7] | 14,256 | 0.60% |
 | 9 | code[6] | 14,213 | 0.60% |
@@ -58,14 +58,14 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query query_ten_complex_fluent" | 648,808 | 27.32% |
-| 2 | code[5704] | 648,765 | 27.32% |
-| 3 | code[13] | 648,756 | 27.32% |
-| 4 | code[9] | 368,003 | 15.50% |
-| 5 | code[403] | 213,550 | 8.99% |
+| 1 | export "canister_query query_ten_complex_fluent" | 648,774 | 27.34% |
+| 2 | code[5704] | 648,731 | 27.34% |
+| 3 | code[13] | 648,722 | 27.34% |
+| 4 | code[9] | 368,003 | 15.51% |
+| 5 | code[403] | 213,550 | 9.00% |
 | 6 | code[24] | 212,407 | 8.95% |
 | 7 | table[0] | 194,353 | 8.19% |
-| 8 | elem[0] | 194,347 | 8.18% |
+| 8 | elem[0] | 194,347 | 8.19% |
 | 9 | code[23] | 192,058 | 8.09% |
 | 10 | code[31] | 180,116 | 7.59% |
 

@@ -265,10 +265,7 @@ pub(in crate::db::executor) fn ordered_key_stream_from_materialized_keys(
 ) -> OrderedKeyStreamBox {
     match keys.len() {
         0 => OrderedKeyStreamBox::empty(),
-        1 => OrderedKeyStreamBox::single(
-            keys.pop()
-                .expect("single-element key stream must contain one key"),
-        ),
+        1 => OrderedKeyStreamBox::single(keys.pop().expect("key stream invariant")),
         _ => OrderedKeyStreamBox::materialized(keys),
     }
 }

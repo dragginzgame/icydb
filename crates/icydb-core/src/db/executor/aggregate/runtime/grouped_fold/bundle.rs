@@ -166,13 +166,10 @@ impl GroupedFinalizeGroup {
         let mut aggregate_states = self.aggregate_states.into_iter();
         let aggregate_value = aggregate_states
             .next()
-            .expect("single-aggregate grouped bundle must keep one aggregate state per group")
+            .expect("grouped aggregate invariant")
             .finalize()?;
         let has_trailing_aggregate_state = aggregate_states.next().is_some();
-        debug_assert!(
-            !has_trailing_aggregate_state,
-            "single-aggregate grouped bundle must not retain trailing aggregate states",
-        );
+        debug_assert!(!has_trailing_aggregate_state, "grouped aggregate invariant");
 
         Ok((self.group_key, aggregate_value))
     }

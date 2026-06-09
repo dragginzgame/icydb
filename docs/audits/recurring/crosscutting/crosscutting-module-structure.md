@@ -405,13 +405,7 @@ Produce:
 | Area | Pressure Type | Why This Is Pressure (Not Yet Violation) | Drift Sensitivity | Risk |
 | ---- | ---- | ---- | ---- | ---- |
 
-## 5A. Hub Import Pressure (Required Metric)
-
-Before reporting hub pressure, generate the current structural metrics artifact:
-
-```bash
-bash scripts/audit/runtime_metrics.sh docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/module-structure/runtime-metrics.tsv
-```
+## 5A. Hub Import Pressure
 
 For each high-coordination hub module present in the current tree, include:
 
@@ -436,13 +430,11 @@ Required for each hub:
 3. cross-layer dependency count
 4. delta vs previous report
 5. HIP calculation
-6. metric-artifact indicators: logical LOC, fanout, max branch depth, and
-   branch-sites total from the generated artifact
 
 Produce:
 
-| Hub Module | Top Imported Sibling Subsystems (by Symbol Count) | Unique Sibling Subsystems Imported | Cross-Layer Dependency Count | Delta vs Previous Report | HIP | LOC | Fanout | Max Branch Depth | Branch Sites | Pressure Band | Risk |
-| ---- | ---- | ----: | ----: | ---- | ----: | ----: | ----: | ----: | ----: | ---- | ---- |
+| Hub Module | Top Imported Sibling Subsystems (by Symbol Count) | Unique Sibling Subsystems Imported | Cross-Layer Dependency Count | Delta vs Previous Report | HIP | Pressure Band | Risk |
+| ---- | ---- | ----: | ----: | ---- | ----: | ---- | ---- |
 
 Formula:
 
@@ -574,8 +566,6 @@ Verification rules:
 * `PASS` = no high/critical structural violations; only low/moderate pressure
 * `FAIL` = any confirmed high/critical layering, exposure, or cycle violation
 * `BLOCKED` = insufficient evidence/repo visibility for comparable judgment
-* when Method V4 hub thresholds are in scope, include
-  `bash scripts/ci/check-module-structure-hub-thresholds.sh` in validation
 
 ---
 

@@ -150,7 +150,10 @@ pub(in crate::db) struct LoweredIndexPrefixSpec {
 }
 
 impl LoweredIndexPrefixSpec {
+    #[cfg(test)]
     const INVALID_REASON: &str = "validated index-prefix plan could not be lowered to raw bounds";
+    #[cfg(not(test))]
+    const INVALID_REASON: &str = "index-prefix lowering invariant";
 
     #[must_use]
     pub(in crate::db) fn new(
@@ -202,7 +205,10 @@ pub(in crate::db) struct LoweredIndexRangeSpec {
 }
 
 impl LoweredIndexRangeSpec {
+    #[cfg(test)]
     const INVALID_REASON: &str = "validated index-range plan could not be lowered to raw bounds";
+    #[cfg(not(test))]
+    const INVALID_REASON: &str = "index-range lowering invariant";
 
     #[must_use]
     pub(in crate::db) fn new(
@@ -372,9 +378,7 @@ fn lower_index_prefix_values_for_specs(
         index.key_arity(),
         IndexBoundsSpec::Prefix { values },
     )
-    .map_err(|_| {
-        InternalError::query_executor_invariant("validated index-prefix value is not indexable")
-    })?;
+    .map_err(|_| InternalError::query_executor_invariant("index-prefix lowering invariant"))?;
     specs.push(LoweredIndexPrefixSpec::new(index, lower, upper));
 
     Ok(())

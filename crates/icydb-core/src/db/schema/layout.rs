@@ -57,7 +57,7 @@ impl SchemaFieldSlot {
     /// Build one schema field slot from a generated field index.
     #[must_use]
     pub(in crate::db) fn from_generated_index(index: usize) -> Self {
-        let slot = u16::try_from(index).expect("generated field slot should fit in persisted u16");
+        let slot = u16::try_from(index).expect("schema layout invariant");
 
         Self(slot)
     }

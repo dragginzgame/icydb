@@ -600,30 +600,28 @@ fn eval_scalar_executable_predicate(
         ExecutablePredicate::Not(inner) => Ok(!eval_scalar_executable_predicate(inner, slots)?),
         ExecutablePredicate::Compare(cmp) => eval_scalar_executable_compare_predicate(cmp, slots),
         ExecutablePredicate::IsNull { field_slot } => eval_required_scalar_slot(
-            field_slot.expect("scalar fast path validated field slot"),
+            field_slot.expect("scalar predicate invariant"),
             slots,
             |actual| matches!(actual, ScalarSlotValueRef::Null),
         ),
         ExecutablePredicate::IsNotNull { field_slot } => eval_required_scalar_slot(
-            field_slot.expect("scalar fast path validated field slot"),
+            field_slot.expect("scalar predicate invariant"),
             slots,
             |actual| matches!(actual, ScalarSlotValueRef::Value(_)),
         ),
         ExecutablePredicate::IsMissing { field_slot } => Ok(field_slot.is_none()),
-        ExecutablePredicate::IsEmpty { field_slot } => eval_scalar_is_empty(
-            field_slot.expect("scalar fast path validated field slot"),
-            slots,
-        ),
-        ExecutablePredicate::IsNotEmpty { field_slot } => eval_scalar_is_not_empty(
-            field_slot.expect("scalar fast path validated field slot"),
-            slots,
-        ),
+        ExecutablePredicate::IsEmpty { field_slot } => {
+            eval_scalar_is_empty(field_slot.expect("scalar predicate invariant"), slots)
+        }
+        ExecutablePredicate::IsNotEmpty { field_slot } => {
+            eval_scalar_is_not_empty(field_slot.expect("scalar predicate invariant"), slots)
+        }
         ExecutablePredicate::TextContains { field_slot, value } => {
             let Value::Text(needle) = value else {
                 return Ok(false);
             };
             eval_scalar_text_contains(
-                field_slot.expect("scalar fast path validated field slot"),
+                field_slot.expect("scalar predicate invariant"),
                 needle,
                 TextMode::Cs,
                 slots,
@@ -634,7 +632,7 @@ fn eval_scalar_executable_predicate(
                 return Ok(false);
             };
             eval_scalar_text_contains(
-                field_slot.expect("scalar fast path validated field slot"),
+                field_slot.expect("scalar predicate invariant"),
                 needle,
                 TextMode::Ci,
                 slots,

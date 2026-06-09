@@ -9,6 +9,9 @@ canister_names=()
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 
+# shellcheck source=scripts/ci/wasm-report-common.sh
+source "$ROOT/scripts/ci/wasm-report-common.sh"
+
 usage() {
     cat <<'EOF'
 usage: wasm-size-report.sh [--profile debug|release|wasm-release] [--sql-variants sql-on|sql-off|both] [--canister name]
@@ -59,7 +62,7 @@ for canister_name in "${canister_names[@]}"; do
     fi
 done
 if [[ "${#canister_names[@]}" -eq 0 ]]; then
-    canister_names=(minimal one_simple one_sql_query one_fluent_query one_complex ten_simple ten_complex)
+    mapfile -t canister_names < <(wasm_report_default_canisters)
 fi
 
 mkdir -p "$out_dir"
@@ -70,37 +73,22 @@ mkdir -p "$out_dir"
 # Keep this script independent from the local ICP environment so CI can run
 # wasm-size measurements without provisioning replica tooling it never uses.
 
-case "$sql_variants_mode" in
-    both)
-        sql_variants=("sql-on" "sql-off")
-        ;;
-    sql-on|on|enabled)
-        sql_variants=("sql-on")
-        ;;
-    sql-off|off|disabled)
-        sql_variants=("sql-off")
-        ;;
-    *)
-        echo "[wasm-size] invalid --sql-variants value '$sql_variants_mode'; expected 'sql-on', 'sql-off', or 'both'" >&2
-        exit 1
-        ;;
-esac
+if sql_variants_output="$(wasm_report_sql_variants "$sql_variants_mode" yes)"; then
+    mapfile -t sql_variants <<<"$sql_variants_output"
+else
+    echo "[wasm-size] invalid --sql-variants value '$sql_variants_mode'; expected 'sql-on', 'sql-off', or 'both'" >&2
+    exit 1
+fi
 
 build_variant() {
     local canister_name="$1"
     local sql_variant="$2"
-    local sql_mode="on"
-    local artifact_suffix=""
+    local sql_mode
+    local artifact_suffix
     local stem=""
 
-    if [[ "$sql_variant" == "sql-off" ]]; then
-        sql_mode="off"
-    fi
-
-    if [[ "${#sql_variants[@]}" -gt 1 || "$sql_variant" == "sql-off" ]]; then
-        artifact_suffix=".$sql_variant"
-    fi
-
+    sql_mode="${sql_variant#sql-}"
+    artifact_suffix="$(wasm_report_size_suffix "$sql_variant" "${#sql_variants[@]}")"
     stem="${canister_name}.${profile}${artifact_suffix}"
 
     echo "[wasm-size] Building '$canister_name' using profile '$profile' ($sql_variant)"
@@ -150,216 +138,23 @@ build_variant() {
     ic-wasm "$RAW_COPY" info > "$RAW_INFO"
     ic-wasm "$SHRUNK_WASM" info > "$SHRUNK_INFO"
 
-    export CANISTER_NAME="$canister_name"
-    export PROFILE="$profile"
-    export RAW_COPY RAW_GZ_DETERMINISTIC RAW_GZ_EMITTED_COPY SHRUNK_WASM SHRUNK_GZ RAW_INFO SHRUNK_INFO DID_COPY REPORT_JSON SUMMARY_MD
-    export SQL_VARIANT="$sql_variant"
-    python3 - <<'PY'
-import hashlib
-import json
-import os
-import re
-from pathlib import Path
-
-
-def sha256(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def file_meta(path: Path) -> dict:
-    return {
-        "path": str(path),
-        "bytes": path.stat().st_size,
-        "sha256": sha256(path),
-    }
-
-
-def parse_info(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
-
-    def int_field(pattern: str):
-        match = re.search(pattern, text)
-        return int(match.group(1)) if match else None
-
-    exports = []
-    export_block = re.search(r"Exported methods:\s*\[(.*?)\]\s*", text, re.S)
-    if export_block:
-        for line in export_block.group(1).splitlines():
-            line = line.strip().rstrip(",")
-            if line.startswith('"') and line.endswith('"'):
-                exports.append(line.strip('"'))
-
-    return {
-        "function_count": int_field(r"Number of functions:\s*(\d+)"),
-        "callback_count": int_field(r"Number of callbacks:\s*(\d+)"),
-        "data_section_count": int_field(r"Number of data sections:\s*(\d+)"),
-        "data_section_bytes": int_field(r"Size of data sections:\s*(\d+) bytes"),
-        "exported_method_count": len(exports),
-        "exported_methods": exports,
-    }
-
-
-GENERATED_EXPORTS = {
-    "__icydb_query": "sql_readonly",
-    "__icydb_ddl": "sql_ddl",
-    "__icydb_fixtures_reset": "sql_fixtures",
-    "__icydb_fixtures_load": "sql_fixtures",
-    "__icydb_metrics": "metrics",
-    "__icydb_metrics_reset": "metrics_reset",
-    "__icydb_snapshot": "snapshot",
-    "__icydb_schema": "schema",
-    "__icydb_schema_check": "schema",
-}
-
-
-def export_name(export: str) -> str:
-    match = re.search(r"canister_(?:query|update)\s+([^\s]+)", export)
-    if match:
-        return match.group(1)
-    return export.split(" ", 1)[0]
-
-
-def has_export(exports: list[str], name: str) -> bool:
-    return any(export_name(export) == name for export in exports)
-
-
-def endpoint_surface(info: dict) -> dict:
-    exports = info["exported_methods"]
-    generated = {
-        "sql_readonly": has_export(exports, "__icydb_query"),
-        "sql_ddl": has_export(exports, "__icydb_ddl"),
-        "sql_fixtures": has_export(exports, "__icydb_fixtures_reset")
-        or has_export(exports, "__icydb_fixtures_load"),
-        "metrics": has_export(exports, "__icydb_metrics"),
-        "metrics_reset": has_export(exports, "__icydb_metrics_reset"),
-        "snapshot": has_export(exports, "__icydb_snapshot"),
-        "schema": has_export(exports, "__icydb_schema")
-        or has_export(exports, "__icydb_schema_check"),
-    }
-    generated_names = set(GENERATED_EXPORTS)
-    custom_exports = [
-        name
-        for name in (export_name(export) for export in exports)
-        if name not in generated_names and name != "get_candid_pointer"
-    ]
-
-    return {
-        "generated_endpoint_surface": generated,
-        "custom_exports": custom_exports,
-    }
-
-
-canister = os.environ["CANISTER_NAME"]
-profile = os.environ["PROFILE"]
-sql_variant = os.environ["SQL_VARIANT"]
-raw_wasm = Path(os.environ["RAW_COPY"])
-raw_gz = Path(os.environ["RAW_GZ_DETERMINISTIC"])
-raw_gz_emitted = Path(os.environ["RAW_GZ_EMITTED_COPY"])
-shrunk_wasm = Path(os.environ["SHRUNK_WASM"])
-shrunk_gz = Path(os.environ["SHRUNK_GZ"])
-raw_info = Path(os.environ["RAW_INFO"])
-shrunk_info = Path(os.environ["SHRUNK_INFO"])
-did_path = Path(os.environ["DID_COPY"])
-report_path = Path(os.environ["REPORT_JSON"])
-summary_path = Path(os.environ["SUMMARY_MD"])
-
-raw_wasm_meta = file_meta(raw_wasm)
-raw_gz_meta = file_meta(raw_gz)
-shrunk_wasm_meta = file_meta(shrunk_wasm)
-shrunk_gz_meta = file_meta(shrunk_gz)
-raw_info_meta = parse_info(raw_info)
-shrunk_info_meta = parse_info(shrunk_info)
-
-emitted_gz_meta = file_meta(raw_gz_emitted) if raw_gz_emitted.exists() else None
-
-report = {
-    "canister": canister,
-    "profile": profile,
-    "sql_variant": sql_variant,
-    "artifacts": {
-        "did": file_meta(did_path) if did_path.exists() else None,
-        "candid_export": "available" if did_path.exists() else "unavailable",
-        "icp_built_wasm": raw_wasm_meta,
-        "icp_built_wasm_gz_deterministic": raw_gz_meta,
-        "icp_built_wasm_gz_emitted": emitted_gz_meta,
-        "icp_shrunk_wasm": shrunk_wasm_meta,
-        "icp_shrunk_wasm_gz": shrunk_gz_meta,
-    },
-    "analysis": {
-        "icp_built": raw_info_meta,
-        "icp_shrunk": shrunk_info_meta,
-    },
-    "build": endpoint_surface(shrunk_info_meta),
-    "deltas": {
-        "shrink_wasm_bytes": raw_wasm_meta["bytes"] - shrunk_wasm_meta["bytes"],
-        "shrink_wasm_gz_bytes": raw_gz_meta["bytes"] - shrunk_gz_meta["bytes"],
-    },
-}
-
-report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-
-summary_lines = [
-    f"## Wasm Size Report: `{canister}` ({profile}, {sql_variant})",
-    "",
-    "| Artifact | Bytes |",
-    "| --- | ---: |",
-    f"| icp-built `.wasm` | {raw_wasm_meta['bytes']} |",
-    f"| icp-built deterministic `.wasm.gz` | {raw_gz_meta['bytes']} |",
-]
-
-if emitted_gz_meta is not None:
-    summary_lines.append(
-        f"| icp-emitted `.wasm.gz` | {emitted_gz_meta['bytes']} |"
+    (
+        cd "$ROOT"
+        cargo run -p icydb-testing-integration --bin write_wasm_size_report --locked -- \
+            --canister "$canister_name" \
+            --profile "$profile" \
+            --sql-variant "$sql_variant" \
+            --did "$DID_COPY" \
+            --raw-wasm "$RAW_COPY" \
+            --raw-gz "$RAW_GZ_DETERMINISTIC" \
+            --raw-gz-emitted "$RAW_GZ_EMITTED_COPY" \
+            --shrunk-wasm "$SHRUNK_WASM" \
+            --shrunk-gz "$SHRUNK_GZ" \
+            --raw-info "$RAW_INFO" \
+            --shrunk-info "$SHRUNK_INFO" \
+            --report-json "$REPORT_JSON" \
+            --summary-md "$SUMMARY_MD"
     )
-
-summary_lines.append(
-    f"| candid export | {report['artifacts']['candid_export']} |"
-)
-
-summary_lines.extend(
-    [
-        f"| icp-shrunk `.wasm` (canonical) | {shrunk_wasm_meta['bytes']} |",
-        f"| icp-shrunk `.wasm.gz` (canonical) | {shrunk_gz_meta['bytes']} |",
-        f"| Shrink delta `.wasm` | {report['deltas']['shrink_wasm_bytes']} |",
-        f"| Shrink delta `.wasm.gz` | {report['deltas']['shrink_wasm_gz_bytes']} |",
-        "",
-        f"SQL variant: `{sql_variant}`",
-        "",
-        "Generated endpoint surface:",
-        "",
-        "| Option | Enabled |",
-        "| --- | --- |",
-    ]
-)
-
-for option, enabled in report["build"]["generated_endpoint_surface"].items():
-    summary_lines.append(f"| `{option}` | {'yes' if enabled else 'no'} |")
-
-custom_exports = report["build"]["custom_exports"]
-summary_lines.extend(
-    [
-        "",
-        "Custom exports: "
-        + (", ".join(f"`{export}`" for export in custom_exports) if custom_exports else "none"),
-        "",
-        f"Exports (shrunk): {shrunk_info_meta['exported_method_count']}",
-        "",
-        f"JSON report: `{report_path}`",
-    ]
-)
-
-summary = "\n".join(summary_lines) + "\n"
-summary_path.write_text(summary, encoding="utf-8")
-
-step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
-if step_summary:
-    with open(step_summary, "a", encoding="utf-8") as handle:
-        handle.write(summary)
-PY
 
     echo "[wasm-size] Wrote report: $REPORT_JSON"
     echo "[wasm-size] Wrote summary: $SUMMARY_MD"

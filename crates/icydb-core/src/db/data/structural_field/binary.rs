@@ -79,7 +79,7 @@ pub(super) fn push_binary_text(out: &mut Vec<u8>, value: &str) {
     out.push(TAG_TEXT);
     out.extend_from_slice(
         &u32::try_from(value.len())
-            .expect("text length fits in Structural Binary v1 len")
+            .expect("structural binary invariant")
             .to_be_bytes(),
     );
     out.extend_from_slice(value.as_bytes());
@@ -90,7 +90,7 @@ pub(super) fn push_binary_bytes(out: &mut Vec<u8>, value: &[u8]) {
     out.push(TAG_BYTES);
     out.extend_from_slice(
         &u32::try_from(value.len())
-            .expect("byte payload length fits in Structural Binary v1 len")
+            .expect("structural binary invariant")
             .to_be_bytes(),
     );
     out.extend_from_slice(value);
@@ -101,7 +101,7 @@ pub(super) fn push_binary_list_len(out: &mut Vec<u8>, len: usize) {
     out.push(TAG_LIST);
     out.extend_from_slice(
         &u32::try_from(len)
-            .expect("list item count fits in Structural Binary v1 len")
+            .expect("structural binary invariant")
             .to_be_bytes(),
     );
 }
@@ -111,7 +111,7 @@ pub(super) fn push_binary_map_len(out: &mut Vec<u8>, len: usize) {
     out.push(TAG_MAP);
     out.extend_from_slice(
         &u32::try_from(len)
-            .expect("map entry count fits in Structural Binary v1 len")
+            .expect("structural binary invariant")
             .to_be_bytes(),
     );
 }
@@ -121,7 +121,7 @@ pub(super) fn push_binary_variant_unit(out: &mut Vec<u8>, label: &str) {
     out.push(TAG_VARIANT_UNIT);
     out.extend_from_slice(
         &u32::try_from(label.len())
-            .expect("variant label length fits in Structural Binary v1 len")
+            .expect("structural binary invariant")
             .to_be_bytes(),
     );
     out.extend_from_slice(label.as_bytes());
@@ -133,7 +133,7 @@ pub(super) fn push_binary_variant_payload(out: &mut Vec<u8>, label: &str, payloa
     out.push(TAG_VARIANT_PAYLOAD);
     out.extend_from_slice(
         &u32::try_from(label.len())
-            .expect("variant label length fits in Structural Binary v1 len")
+            .expect("structural binary invariant")
             .to_be_bytes(),
     );
     out.extend_from_slice(label.as_bytes());
@@ -174,10 +174,10 @@ pub(super) fn parse_binary_head(
 
     let len = match tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE => 0,
-        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => u32::try_from(WORD64_LEN)
-            .expect("fixed-width scalar length fits in structural binary len"),
-        TAG_FLOAT32 => u32::try_from(WORD32_LEN)
-            .expect("fixed-width scalar length fits in structural binary len"),
+        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => {
+            u32::try_from(WORD64_LEN).expect("structural binary invariant")
+        }
+        TAG_FLOAT32 => u32::try_from(WORD32_LEN).expect("structural binary invariant"),
         TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP | TAG_VARIANT_UNIT | TAG_VARIANT_PAYLOAD => {
             decode_u32(bytes, payload_offset)?
         }

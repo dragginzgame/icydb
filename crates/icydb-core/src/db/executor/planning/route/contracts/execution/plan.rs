@@ -142,12 +142,11 @@ impl ExecutionRoutePlan {
     ) -> Option<GroupedRouteObservability> {
         match self.route_shape_kind() {
             RouteShapeKind::AggregateGrouped => {
-                let grouped_plan_strategy = self
-                    .grouped_plan_strategy
-                    .expect("grouped route observability requires planner-owned grouped strategy");
-                let grouped_execution_mode = self.grouped_execution_mode.expect(
-                    "grouped route observability requires route-projected grouped execution mode",
-                );
+                let grouped_plan_strategy =
+                    self.grouped_plan_strategy.expect("grouped route invariant");
+                let grouped_execution_mode = self
+                    .grouped_execution_mode
+                    .expect("grouped route invariant");
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if eligible {
                     debug_assert!(

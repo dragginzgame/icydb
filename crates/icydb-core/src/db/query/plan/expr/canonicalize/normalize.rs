@@ -386,8 +386,7 @@ fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
             args: args.into_iter().map(normalize_bool_expr_impl).collect(),
         },
         Some(BooleanFunctionShape::TextPredicate) => {
-            let [left, right] = <[Expr; 2]>::try_from(args)
-                .expect("validated boolean text predicate should keep two arguments");
+            let [left, right] = <[Expr; 2]>::try_from(args).expect("query expression invariant");
 
             Expr::FunctionCall {
                 function,
