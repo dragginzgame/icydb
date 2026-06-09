@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🔧 Changed
+
+- CI now runs the Makefile-owned invariant gate, and versioning readiness keeps
+  a stable Make target without carrying a separate release/security script.
+
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.15` compacts diagnostic debug output plus schema
+  transition/reconcile/startup mutation details into production-safe buckets,
+  keeps rich test diagnostics, and verifies another comparable wasm-footprint
+  reduction.
 
 - `0.180.14` compacts structural field-decode corruption diagnostics to a
   single internal marker, removes decode-only string plumbing, and verifies the

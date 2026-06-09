@@ -1658,7 +1658,7 @@ impl InternalError {
 /// This enum is intentionally extensible.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(ThisError)]
 pub enum ErrorDetail {
     #[error("{0}")]
     Store(StoreError),
@@ -1679,7 +1679,7 @@ pub enum ErrorDetail {
 /// Never returned directly; always wrapped in [`ErrorDetail::Store`].
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(ThisError)]
 pub enum StoreError {
     #[error("key not found: {key}")]
     NotFound { key: String },
@@ -1706,7 +1706,6 @@ pub enum StoreError {
 /// Query-origin structured error detail payload.
 ///
 
-#[derive(Debug)]
 pub enum QueryErrorDetail {
     NumericOverflow,
 
@@ -1759,7 +1758,7 @@ impl std::error::Error for QueryErrorDetail {}
 /// variant.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum SchemaDdlAdmissionError {
     MissingExpectedSchemaVersion,
 
@@ -1811,6 +1810,48 @@ impl fmt::Display for SchemaDdlAdmissionError {
 }
 
 impl std::error::Error for SchemaDdlAdmissionError {}
+
+impl fmt::Debug for ErrorDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
+    }
+}
+
+impl fmt::Debug for StoreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
+    }
+}
+
+impl fmt::Debug for QueryErrorDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
+    }
+}
+
+impl fmt::Debug for SchemaDdlAdmissionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(
+            f,
+            diagnostic_code::DiagnosticCode::SchemaDdlAdmission,
+            Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                reason: self.diagnostic_code(),
+            }),
+        )
+    }
+}
+
+fn fmt_compact_diagnostic(
+    f: &mut fmt::Formatter<'_>,
+    code: diagnostic_code::DiagnosticCode,
+    detail: Option<diagnostic_code::DiagnosticDetail>,
+) -> fmt::Result {
+    write!(
+        f,
+        "{}",
+        diagnostic_code::ErrorCode::from_parts(code, detail).raw()
+    )
+}
 
 impl ErrorDetail {
     /// Return the compact diagnostic code for this structured detail.
@@ -2006,7 +2047,8 @@ impl SchemaDdlAdmissionError {
 /// Not a stable API; may change without notice.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ErrorClass {
     Corruption,
     IncompatiblePersistedFormat,
@@ -2059,13 +2101,20 @@ impl fmt::Display for ErrorClass {
     }
 }
 
+impl fmt::Debug for ErrorClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", *self as u16)
+    }
+}
+
 ///
 /// ErrorOrigin
 /// Internal origin taxonomy for runtime classification.
 /// Not a stable API; may change without notice.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ErrorOrigin {
     Serialize,
     Store,
@@ -2116,5 +2165,11 @@ impl fmt::Display for ErrorOrigin {
             Self::Interface => "interface",
         };
         write!(f, "{label}")
+    }
+}
+
+impl fmt::Debug for ErrorOrigin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", *self as u16)
     }
 }

@@ -2,7 +2,11 @@
 //!
 //! This crate intentionally contains no rich diagnostic prose or Candid wire
 //! types. Production canister builds collapse diagnostics to numeric wire
-//! codes before they cross the public canister boundary.
+//! codes before they cross the public canister boundary. `Debug` output is
+//! numeric for the same reason: host tooling can recover labels from the code
+//! table without making every wasm canister retain those labels.
+
+use std::fmt;
 
 ///
 /// DiagnosticCode
@@ -10,7 +14,7 @@
 /// Stable machine-readable diagnostic reason.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum DiagnosticCode {
     QueryValidate,
     QueryIntent,
@@ -970,9 +974,9 @@ impl ErrorCode {
     }
 }
 
-impl std::fmt::Debug for ErrorCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("ErrorCode").field(&self.0).finish()
+impl fmt::Debug for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, self.raw())
     }
 }
 
@@ -982,7 +986,8 @@ impl std::fmt::Debug for ErrorCode {
 /// Broad diagnostic class used for recovery decisions.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[repr(u16)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum ErrorClass {
     Query,
     Corruption,
@@ -1000,7 +1005,8 @@ pub enum ErrorClass {
 /// Subsystem that owns the diagnostic.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[repr(u16)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum ErrorOrigin {
     Cursor,
     Executor,
@@ -1023,7 +1029,7 @@ pub enum ErrorOrigin {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum QueryErrorKind {
     Validate,
     Intent,
@@ -1042,7 +1048,7 @@ pub enum QueryErrorKind {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum QueryProjectionCode {
     NumericLiteralRequired,
     NumericScaleArguments,
@@ -1064,7 +1070,7 @@ pub enum QueryProjectionCode {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum QueryResultShapeCode {
     ExpectedRows,
     ExpectedGroupedRows,
@@ -1077,7 +1083,7 @@ pub enum QueryResultShapeCode {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum RuntimeErrorKind {
     Corruption,
     IncompatiblePersistedFormat,
@@ -1095,7 +1101,7 @@ pub enum RuntimeErrorKind {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum RuntimeBoundaryCode {
     SqlSurfaceControllerRequired,
     SchemaSurfaceControllerRequired,
@@ -1119,7 +1125,7 @@ pub enum RuntimeBoundaryCode {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum SqlFeatureCode {
     AggregateFilterClause,
     AlterStatementBeyondAlterTable,
@@ -1196,7 +1202,7 @@ pub enum SqlFeatureCode {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum SqlLoweringCode {
     EntityMismatch,
     SelectProjectionShape,
@@ -1224,7 +1230,7 @@ pub enum SqlLoweringCode {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum SqlSurfaceMismatchCode {
     QueryRejectsInsert,
     QueryRejectsUpdate,
@@ -1246,7 +1252,7 @@ pub enum SqlSurfaceMismatchCode {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum SqlWriteBoundaryCode {
     PrimaryKeyLiteralShape,
     PrimaryKeyLiteralIncompatible,
@@ -1272,7 +1278,7 @@ pub enum SqlWriteBoundaryCode {
 ///
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum SchemaDdlAdmissionCode {
     MissingExpectedSchemaVersion,
     MissingNextSchemaVersion,
@@ -1303,7 +1309,7 @@ pub enum SchemaDdlAdmissionCode {
 /// Small structured diagnostic payload for callers and CLI rendering.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum DiagnosticDetail {
     QueryKind { kind: QueryErrorKind },
     RuntimeKind { kind: RuntimeErrorKind },
@@ -1323,7 +1329,7 @@ pub enum DiagnosticDetail {
 /// Compact public diagnostic payload.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Diagnostic {
     code: DiagnosticCode,
     origin: ErrorOrigin,
@@ -1380,6 +1386,103 @@ impl Diagnostic {
     pub const fn error_code(&self) -> ErrorCode {
         ErrorCode::from_parts(self.code, self.detail)
     }
+}
+
+impl fmt::Debug for DiagnosticCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, self.error_code().raw())
+    }
+}
+
+impl fmt::Debug for ErrorClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for ErrorOrigin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for QueryErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for QueryProjectionCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for QueryResultShapeCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for RuntimeErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for RuntimeBoundaryCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for SqlFeatureCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for SqlLoweringCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for SqlSurfaceMismatchCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for SqlWriteBoundaryCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for SchemaDdlAdmissionCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(f, *self as u16)
+    }
+}
+
+impl fmt::Debug for DiagnosticDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_code(
+            f,
+            ErrorCode::from_parts(DiagnosticCode::RuntimeInternal, Some(*self)).raw(),
+        )
+    }
+}
+
+impl fmt::Debug for Diagnostic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}@{}", self.error_code().raw(), self.origin as u16)
+    }
+}
+
+fn fmt_compact_code(f: &mut fmt::Formatter<'_>, raw: u16) -> fmt::Result {
+    write!(f, "{raw}")
 }
 
 #[cfg(test)]

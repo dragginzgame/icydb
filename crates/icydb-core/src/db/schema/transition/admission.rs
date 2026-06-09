@@ -1,8 +1,9 @@
 //! Schema transition admission identity and version/fingerprint gate.
 
+use std::fmt;
+
 use crate::{
     db::{
-        codec::hex::encode_hex_lower,
         commit::CommitSchemaFingerprint,
         schema::{
             PersistedSchemaSnapshot, SchemaVersion, accepted_schema_admission_fingerprint,
@@ -14,6 +15,9 @@ use crate::{
 
 use super::{SchemaTransitionRejection, SchemaTransitionRejectionKind};
 
+#[cfg(test)]
+use crate::db::codec::hex::encode_hex_lower;
+
 ///
 /// SchemaAdmissionIdentity
 ///
@@ -23,7 +27,8 @@ use super::{SchemaTransitionRejection, SchemaTransitionRejectionKind};
 /// and must not build this candidate tuple.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaAdmissionIdentity {
     pub(super) schema_version: SchemaVersion,
     pub(super) fingerprint_method_version: u8,
@@ -47,7 +52,8 @@ impl SchemaAdmissionIdentity {
 /// so 0.177 can land identity preparation before changing transition policy.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaAdmissionIdentityComparison {
     pub(super) stored: SchemaAdmissionIdentity,
     pub(super) candidate: SchemaAdmissionIdentity,
@@ -73,7 +79,7 @@ impl SchemaAdmissionIdentityComparison {
 /// lets policy tests prove the matrix without matching formatted errors.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaAdmissionRejectionReason {
     EmptyVersionBump,
     FingerprintMethodMismatch,
@@ -83,6 +89,17 @@ pub(in crate::db::schema) enum SchemaAdmissionRejectionReason {
 }
 
 impl SchemaAdmissionRejectionReason {
+    const fn code(self) -> u8 {
+        match self {
+            Self::EmptyVersionBump => 1,
+            Self::FingerprintMethodMismatch => 2,
+            Self::MissingVersionBump => 3,
+            Self::VersionGap => 4,
+            Self::VersionRollback => 5,
+        }
+    }
+
+    #[cfg(test)]
     const fn detail(self) -> &'static str {
         match self {
             Self::EmptyVersionBump => "schema_version bumped without schema shape change",
@@ -94,6 +111,13 @@ impl SchemaAdmissionRejectionReason {
     }
 }
 
+impl fmt::Debug for SchemaAdmissionRejectionReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let code = self.code();
+        write!(f, "{code}")
+    }
+}
+
 ///
 /// SchemaAdmissionRejectionClassification
 ///
@@ -101,7 +125,7 @@ impl SchemaAdmissionRejectionReason {
 /// decision used before final transition rejection formatting.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaAdmissionRejectionClassification {
     pub(super) reason: SchemaAdmissionRejectionReason,
     pub(super) expected_next: Option<u32>,
@@ -126,6 +150,14 @@ impl SchemaAdmissionRejectionClassification {
     }
 }
 
+impl fmt::Debug for SchemaAdmissionRejectionClassification {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let reason = self.reason.code();
+        let expected_next = self.expected_next.unwrap_or_default();
+        write!(f, "{reason}:{expected_next}")
+    }
+}
+
 // Apply the 0.177 version/method/fingerprint gate before mutation compatibility
 // classification. Passing this gate only admits a candidate to compatibility
 // checks; it does not publish the candidate snapshot by itself.
@@ -133,13 +165,10 @@ pub(in crate::db::schema) fn schema_admission_rejection(
     comparison: SchemaAdmissionIdentityComparison,
 ) -> Option<SchemaTransitionRejection> {
     let classification = classify_schema_admission_rejection(comparison)?;
-    let extra = classification
-        .expected_next
-        .map(|expected_next| format!("expected_next={expected_next}"));
 
     Some(SchemaTransitionRejection::new(
         SchemaTransitionRejectionKind::SchemaVersion,
-        schema_admission_rejection_detail(classification.reason.detail(), comparison, extra),
+        schema_admission_rejection_detail(classification, comparison),
         Some(classification),
     ))
 }
@@ -196,17 +225,30 @@ pub(super) fn classify_schema_admission_rejection(
 }
 
 fn schema_admission_rejection_detail(
-    reason: &'static str,
+    classification: SchemaAdmissionRejectionClassification,
     comparison: SchemaAdmissionIdentityComparison,
-    extra: Option<String>,
 ) -> String {
-    let facts = schema_admission_identity_facts(comparison);
-    match extra {
-        Some(extra) => format!("{reason}: {facts} {extra}"),
-        None => format!("{reason}: {facts}"),
+    #[cfg(test)]
+    {
+        let facts = schema_admission_identity_facts(comparison);
+        let extra = classification
+            .expected_next
+            .map(|expected_next| format!("expected_next={expected_next}"));
+
+        match extra {
+            Some(extra) => format!("{}: {facts} {extra}", classification.reason.detail()),
+            None => format!("{}: {facts}", classification.reason.detail()),
+        }
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (classification, comparison);
+        "schema admission".to_string()
     }
 }
 
+#[cfg(test)]
 fn schema_admission_identity_facts(comparison: SchemaAdmissionIdentityComparison) -> String {
     format!(
         "stored_version={} candidate_version={} stored_method={} candidate_method={} stored_fingerprint={} candidate_fingerprint={}",

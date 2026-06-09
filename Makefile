@@ -214,7 +214,10 @@ security-check:
 	@echo "This target is informational only; no local script runs."
 
 check-versioning: security-check
-	bash scripts/ci/security-check.sh
+	@$(CARGO_WORK_ENV) cargo set-version --help >/dev/null
+	@$(MAKE) --no-print-directory version >/dev/null
+	@$(MAKE) --no-print-directory help >/dev/null
+	@echo "Versioning tooling checks passed."
 
 check-invariants:
 	bash scripts/ci/check-dependency-graph-invariants.sh

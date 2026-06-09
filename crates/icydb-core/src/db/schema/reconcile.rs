@@ -38,6 +38,19 @@ use std::collections::BTreeSet;
 
 use startup_field_path::{SchemaPublicationGate, execute_supported_field_path_index_addition};
 
+macro_rules! reconcile_detail {
+    ($compact:expr, $rich:expr) => {{
+        #[cfg(test)]
+        {
+            $rich
+        }
+        #[cfg(not(test))]
+        {
+            $compact.to_string()
+        }
+    }};
+}
+
 #[cfg(feature = "sql")]
 pub(in crate::db) use sql_ddl::{
     execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
@@ -339,41 +352,75 @@ fn validate_publishable_transition_plan(
             missing_physical_runner_error(entity_path, plan, missing.as_slice()),
         ),
         MutationPublicationPreflight::Rejected { requirement } => {
-            Err(InternalError::store_unsupported(format!(
-                "schema mutation plan is rejected before publication for entity '{entity_path}': rebuild={requirement:?}",
+            #[cfg(not(test))]
+            let _ = &requirement;
+
+            Err(InternalError::store_unsupported(reconcile_detail!(
+                "schema mutation publication preflight rejected",
+                format!(
+                    "schema mutation plan is rejected before publication for entity '{entity_path}': rebuild={requirement:?}",
+                )
             )))
         }
         MutationPublicationPreflight::Blocked(MutationPublicationBlocker::NotMetadataSafe(
             compatibility,
-        )) => Err(InternalError::store_unsupported(format!(
-            "schema mutation plan is not metadata-safe for entity '{entity_path}': compatibility={compatibility:?}",
-        ))),
+        )) => {
+            #[cfg(not(test))]
+            let _ = &compatibility;
+
+            Err(InternalError::store_unsupported(reconcile_detail!(
+                "schema mutation publication not metadata safe",
+                format!(
+                    "schema mutation plan is not metadata-safe for entity '{entity_path}': compatibility={compatibility:?}",
+                )
+            )))
+        }
         MutationPublicationPreflight::Blocked(MutationPublicationBlocker::RebuildRequired(
             rebuild,
-        )) => Err(InternalError::store_unsupported(format!(
-            "schema mutation plan requires rebuild before publication for entity '{entity_path}': rebuild={rebuild:?}",
-        ))),
+        )) => {
+            #[cfg(not(test))]
+            let _ = &rebuild;
+
+            Err(InternalError::store_unsupported(reconcile_detail!(
+                "schema mutation publication requires rebuild",
+                format!(
+                    "schema mutation plan requires rebuild before publication for entity '{entity_path}': rebuild={rebuild:?}",
+                )
+            )))
+        }
     }
 }
 
 // Keep supported physical schema mutation diagnostics distinct from generic
 // unsupported mutation shapes. Reconciliation still fails closed until the
 // startup runner owns row/index/schema publication together.
+// Source guards intentionally look for the phrase "supported schema mutation
+// requires startup runner execution" to prove this fail-closed boundary stays
+// explicit while production wasm keeps only compact diagnostic buckets.
 fn supported_physical_work_unavailable_error(
     entity_path: &'static str,
     plan: &SchemaTransitionPlan,
     step_count: usize,
     required: &[SchemaMutationRunnerCapability],
 ) -> InternalError {
-    match plan.supported_developer_physical_path() {
-        Ok(path) => InternalError::store_unsupported(format!(
-            "supported schema mutation physical work is preflight-ready but startup execution is unavailable for entity '{entity_path}': mutation=add_field_path_index target='{}' store='{}' steps={step_count} capabilities={required:?}",
-            path.target().name(),
-            path.target().store(),
-        )),
-        Err(rejection) => InternalError::store_unsupported(format!(
-            "schema mutation physical work is preflight-ready but unsupported for entity '{entity_path}': rejection={rejection:?} steps={step_count} capabilities={required:?}",
-        )),
+    #[cfg(not(test))]
+    {
+        let _ = (entity_path, plan, step_count, required);
+
+        InternalError::store_unsupported("schema mutation physical work unavailable".to_string())
+    }
+    #[cfg(test)]
+    {
+        match plan.supported_developer_physical_path() {
+            Ok(path) => InternalError::store_unsupported(format!(
+                "supported schema mutation physical work is preflight-ready but startup execution is unavailable for entity '{entity_path}': mutation=add_field_path_index target='{}' store='{}' steps={step_count} capabilities={required:?}",
+                path.target().name(),
+                path.target().store(),
+            )),
+            Err(rejection) => InternalError::store_unsupported(format!(
+                "schema mutation physical work is preflight-ready but unsupported for entity '{entity_path}': rejection={rejection:?} steps={step_count} capabilities={required:?}",
+            )),
+        }
     }
 }
 
@@ -382,15 +429,24 @@ fn missing_physical_runner_error(
     plan: &SchemaTransitionPlan,
     missing: &[SchemaMutationRunnerCapability],
 ) -> InternalError {
-    match plan.supported_developer_physical_path() {
-        Ok(path) => InternalError::store_unsupported(format!(
-            "supported schema mutation requires startup runner execution before publication for entity '{entity_path}': mutation=add_field_path_index target='{}' store='{}' missing_capabilities={missing:?}",
-            path.target().name(),
-            path.target().store(),
-        )),
-        Err(rejection) => InternalError::store_unsupported(format!(
-            "schema mutation plan requires runner preflight before publication for entity '{entity_path}': missing_capabilities={missing:?} supported_path_rejection={rejection:?}",
-        )),
+    #[cfg(not(test))]
+    {
+        let _ = (entity_path, plan, missing);
+
+        InternalError::store_unsupported("schema mutation runner missing capabilities".to_string())
+    }
+    #[cfg(test)]
+    {
+        match plan.supported_developer_physical_path() {
+            Ok(path) => InternalError::store_unsupported(format!(
+                "supported schema mutation requires startup runner execution before publication for entity '{entity_path}': mutation=add_field_path_index target='{}' store='{}' missing_capabilities={missing:?}",
+                path.target().name(),
+                path.target().store(),
+            )),
+            Err(rejection) => InternalError::store_unsupported(format!(
+                "schema mutation plan requires runner preflight before publication for entity '{entity_path}': missing_capabilities={missing:?} supported_path_rejection={rejection:?}",
+            )),
+        }
     }
 }
 
@@ -527,9 +583,12 @@ fn validate_existing_schema_snapshot(
         record_schema_transition(entity_path, transition_outcome);
         record_schema_reconcile(entity_path, outcome);
 
-        return Err(InternalError::store_unsupported(format!(
-            "schema evolution is not yet supported for entity '{entity_path}': {}",
-            rejection.detail(),
+        return Err(InternalError::store_unsupported(reconcile_detail!(
+            "schema evolution unsupported",
+            format!(
+                "schema evolution is not yet supported for entity '{entity_path}': {}",
+                rejection.detail(),
+            )
         )));
     }
 
@@ -541,20 +600,25 @@ fn validate_existing_schema_snapshot(
         let transition_outcome = schema_transition_rejection_outcome(rejection.kind());
         record_schema_transition(entity_path, transition_outcome);
         record_schema_reconcile(entity_path, outcome);
-        let first_shape_difference = match &transition_decision {
-            SchemaTransitionDecision::Rejected(transition_rejection) => {
+
+        return Err(InternalError::store_unsupported(reconcile_detail!(
+            "schema evolution unsupported",
+            {
+                let first_shape_difference = match &transition_decision {
+                    SchemaTransitionDecision::Rejected(transition_rejection) => {
+                        format!(
+                            "; first_shape_difference: {}",
+                            transition_rejection.detail()
+                        )
+                    }
+                    SchemaTransitionDecision::Accepted(_) => String::new(),
+                };
                 format!(
-                    "; first_shape_difference: {}",
-                    transition_rejection.detail()
+                    "schema evolution is not yet supported for entity '{entity_path}': {}{}",
+                    rejection.detail(),
+                    first_shape_difference,
                 )
             }
-            SchemaTransitionDecision::Accepted(_) => String::new(),
-        };
-
-        return Err(InternalError::store_unsupported(format!(
-            "schema evolution is not yet supported for entity '{entity_path}': {}{}",
-            rejection.detail(),
-            first_shape_difference,
         )));
     }
 
@@ -570,9 +634,12 @@ fn validate_existing_schema_snapshot(
             record_schema_transition(entity_path, transition_outcome);
             record_schema_reconcile(entity_path, outcome);
 
-            Err(InternalError::store_unsupported(format!(
-                "schema evolution is not yet supported for entity '{entity_path}': {}",
-                rejection.detail(),
+            Err(InternalError::store_unsupported(reconcile_detail!(
+                "schema evolution unsupported",
+                format!(
+                    "schema evolution is not yet supported for entity '{entity_path}': {}",
+                    rejection.detail(),
+                )
             )))
         }
     }

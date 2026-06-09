@@ -30,6 +30,19 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 
+macro_rules! startup_field_path_detail {
+    ($compact:expr, $rich:expr) => {{
+        #[cfg(test)]
+        {
+            $rich
+        }
+        #[cfg(not(test))]
+        {
+            $compact.to_string()
+        }
+    }};
+}
+
 pub(super) fn execute_supported_field_path_index_addition(
     store: StoreHandle,
     publication_gate: SchemaPublicationGate,
@@ -42,8 +55,14 @@ pub(super) fn execute_supported_field_path_index_addition(
     let supported = plan
         .supported_developer_physical_path()
         .map_err(|rejection| {
-            InternalError::store_unsupported(format!(
-                "schema mutation physical startup execution rejected for entity '{entity_path}': supported_path_rejection={rejection:?}",
+            #[cfg(not(test))]
+            let _ = &rejection;
+
+            InternalError::store_unsupported(startup_field_path_detail!(
+                "schema mutation physical startup execution rejected",
+                format!(
+                    "schema mutation physical startup execution rejected for entity '{entity_path}': supported_path_rejection={rejection:?}",
+                )
             ))
         })?;
     let input = field_path_runner_input(entity_path, accepted_before, accepted_after, plan)?;
@@ -203,9 +222,15 @@ fn field_path_rebuild_predicate_program(
         return Ok(None);
     };
     let predicate = parse_sql_predicate(predicate_sql).map_err(|error| {
-        InternalError::store_unsupported(format!(
-            "schema mutation field-path rebuild predicate failed to parse for target '{}': {error}",
-            target.name(),
+        #[cfg(not(test))]
+        let _ = (&error, target);
+
+        InternalError::store_unsupported(startup_field_path_detail!(
+            "schema mutation field-path predicate parse failed",
+            format!(
+                "schema mutation field-path rebuild predicate failed to parse for target '{}': {error}",
+                target.name(),
+            )
         ))
     })?;
 
@@ -307,43 +332,54 @@ impl StartupFieldPathRebuildGate {
         rows_scanned: usize,
         boundary: &'static str,
     ) -> Result<(), InternalError> {
+        #[cfg(not(test))]
+        let _ = (target, rows_scanned, boundary);
+
         let current =
             field_path_rebuild_row_fingerprint_for_store(store, self.entity_tag, self.entity_path)?;
         if current != self.row_fingerprint {
-            let diagnostic = SchemaMutationDeveloperReport::field_path_index_addition(
-                SchemaMutationRunnerPhase::Preflight,
-                self.entity_path,
-                target,
-                rows_scanned,
-                0,
-                SchemaMutationValidationStatus::Failed,
-                SchemaMutationPublishStatus::NotStarted,
-            );
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation startup rebuild lost exclusive row gate {boundary}: {} expected_rows={} actual_rows={}",
-                diagnostic.summary(),
-                self.row_fingerprint.rows(),
-                current.rows(),
-            )));
+            return Err(InternalError::store_unsupported(
+                startup_field_path_detail!("schema mutation rebuild row gate lost", {
+                    let diagnostic = SchemaMutationDeveloperReport::field_path_index_addition(
+                        SchemaMutationRunnerPhase::Preflight,
+                        self.entity_path,
+                        target,
+                        rows_scanned,
+                        0,
+                        SchemaMutationValidationStatus::Failed,
+                        SchemaMutationPublishStatus::NotStarted,
+                    );
+                    format!(
+                        "schema mutation startup rebuild lost exclusive row gate {boundary}: {} expected_rows={} actual_rows={}",
+                        diagnostic.summary(),
+                        self.row_fingerprint.rows(),
+                        current.rows(),
+                    )
+                }),
+            ));
         }
 
         let latest = store.with_schema_mut(|schema_store| {
             schema_store.latest_persisted_snapshot(self.entity_tag)
         })?;
         if latest.as_ref() != Some(&self.accepted_before) {
-            let diagnostic = SchemaMutationDeveloperReport::field_path_index_addition(
-                SchemaMutationRunnerPhase::Preflight,
-                self.entity_path,
-                target,
-                rows_scanned,
-                0,
-                SchemaMutationValidationStatus::Failed,
-                SchemaMutationPublishStatus::NotStarted,
-            );
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation startup rebuild lost exclusive schema gate {boundary}: {}",
-                diagnostic.summary(),
-            )));
+            return Err(InternalError::store_unsupported(
+                startup_field_path_detail!("schema mutation rebuild schema gate lost", {
+                    let diagnostic = SchemaMutationDeveloperReport::field_path_index_addition(
+                        SchemaMutationRunnerPhase::Preflight,
+                        self.entity_path,
+                        target,
+                        rows_scanned,
+                        0,
+                        SchemaMutationValidationStatus::Failed,
+                        SchemaMutationPublishStatus::NotStarted,
+                    );
+                    format!(
+                        "schema mutation startup rebuild lost exclusive schema gate {boundary}: {}",
+                        diagnostic.summary(),
+                    )
+                }),
+            ));
         }
 
         Ok(())
@@ -367,16 +403,24 @@ impl StartupFieldPathPublicationDecision {
     ) -> Result<Self, InternalError> {
         let diagnostic = report.developer_report(rebuild_gate.entity_path, target);
         if !report.runner_report().physical_work_allows_publication() {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation field-path index runner did not produce publishable physical work: {}",
-                diagnostic.summary(),
-            )));
+            return Err(InternalError::store_unsupported(
+                startup_field_path_detail!(
+                    "schema mutation field-path runner not publishable",
+                    format!(
+                        "schema mutation field-path index runner did not produce publishable physical work: {}",
+                        diagnostic.summary(),
+                    )
+                ),
+            ));
         }
         let target_entries =
             u64::try_from(report.runner_report().index_keys_written()).map_err(|_| {
-                InternalError::store_unsupported(format!(
-                    "schema mutation field-path index runner produced an unpublishable target-entry count: {}",
-                    diagnostic.summary(),
+                InternalError::store_unsupported(startup_field_path_detail!(
+                    "schema mutation field-path runner count invalid",
+                    format!(
+                        "schema mutation field-path index runner produced an unpublishable target-entry count: {}",
+                        diagnostic.summary(),
+                    )
                 ))
             })?;
 
@@ -416,11 +460,16 @@ impl StartupFieldPathPublicationDecision {
     ) -> Result<(), InternalError> {
         let preflight = store.with_index(|index_store| {
             if index_store.state() != IndexState::Ready {
-                return Err(InternalError::store_unsupported(format!(
-                    "schema mutation field-path index physical store was not ready before schema publication: {} index_state={}",
-                    self.diagnostic.summary(),
-                    index_store.state().as_str(),
-                )));
+                return Err(InternalError::store_unsupported(
+                    startup_field_path_detail!(
+                        "schema mutation field-path physical store not ready",
+                        format!(
+                            "schema mutation field-path index physical store was not ready before schema publication: {} index_state={}",
+                            self.diagnostic.summary(),
+                            index_store.state().as_str(),
+                        )
+                    ),
+                ));
             }
             field_path_startup_index_store_preflight(
                 index_store,
@@ -430,20 +479,30 @@ impl StartupFieldPathPublicationDecision {
             )
         })?;
         if preflight.target_index_entries() != self.target_entries {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation field-path index physical store changed before schema publication: {} expected_target_entries={} actual_target_entries={} other_index_entries={} total_entries={}",
-                self.diagnostic.summary(),
-                self.target_entries,
-                preflight.target_index_entries(),
-                preflight.other_index_entries(),
-                preflight.total_entries(),
-            )));
+            return Err(InternalError::store_unsupported(
+                startup_field_path_detail!(
+                    "schema mutation field-path physical store changed",
+                    format!(
+                        "schema mutation field-path index physical store changed before schema publication: {} expected_target_entries={} actual_target_entries={} other_index_entries={} total_entries={}",
+                        self.diagnostic.summary(),
+                        self.target_entries,
+                        preflight.target_index_entries(),
+                        preflight.other_index_entries(),
+                        preflight.total_entries(),
+                    )
+                ),
+            ));
         }
         if preflight.target_index_id() != self.target_index_id {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation field-path index physical store target changed before schema publication: {}",
-                self.diagnostic.summary(),
-            )));
+            return Err(InternalError::store_unsupported(
+                startup_field_path_detail!(
+                    "schema mutation field-path physical target changed",
+                    format!(
+                        "schema mutation field-path index physical store target changed before schema publication: {}",
+                        self.diagnostic.summary(),
+                    )
+                ),
+            ));
         }
 
         Ok(())
@@ -461,6 +520,7 @@ impl StartupFieldPathRebuildRowFingerprint {
         Self { rows, digest }
     }
 
+    #[cfg(test)]
     const fn rows(&self) -> usize {
         self.rows
     }
@@ -494,8 +554,14 @@ fn field_path_rebuild_row_fingerprint_for_store(
         let mut hasher = Sha256::new();
         data_store.visit_entries(|raw_key, raw_row| {
             let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
-                InternalError::store_corruption(format!(
-                    "schema mutation field-path rebuild data key decode failed for entity '{entity_path}' while validating startup rebuild gate: {error}",
+                #[cfg(not(test))]
+                let _ = (&error, entity_path);
+
+                InternalError::store_corruption(startup_field_path_detail!(
+                    "schema mutation field-path data key decode failed",
+                    format!(
+                        "schema mutation field-path rebuild data key decode failed for entity '{entity_path}' while validating startup rebuild gate: {error}",
+                    )
                 ))
             })?;
             if data_key.entity_tag() != entity_tag {
@@ -530,9 +596,15 @@ pub(super) fn field_path_startup_index_store_preflight(
 
     let result: Result<(), InternalError> = index_store.visit_entries(|raw_key, _| {
         let index_key = IndexKey::try_from_raw(raw_key).map_err(|error| {
-            InternalError::store_corruption(format!(
-                "schema mutation field-path startup index key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
-                target.name(),
+            #[cfg(not(test))]
+            let _ = (&error, entity_path, target);
+
+            InternalError::store_corruption(startup_field_path_detail!(
+                "schema mutation field-path index key decode failed",
+                format!(
+                    "schema mutation field-path startup index key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
+                    target.name(),
+                )
             ))
         })?;
         preflight.record(index_key.index_id());
@@ -562,8 +634,14 @@ pub(super) fn field_path_rebuild_raw_rows_for_entity(
         let mut rows = Vec::new();
         data_store.visit_entries(|raw_key, raw_row| {
             let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
-                InternalError::store_corruption(format!(
-                    "schema mutation field-path rebuild data key decode failed for entity '{entity_path}': {error}",
+                #[cfg(not(test))]
+                let _ = (&error, entity_path);
+
+                InternalError::store_corruption(startup_field_path_detail!(
+                    "schema mutation field-path data key decode failed",
+                    format!(
+                        "schema mutation field-path rebuild data key decode failed for entity '{entity_path}': {error}",
+                    )
                 ))
             })?;
             if data_key.entity_tag() != entity_tag {
@@ -611,11 +689,17 @@ fn field_path_runner_failure_error(
     failure: SchemaFieldPathIndexRunnerFailure,
 ) -> InternalError {
     let diagnostic = failure.developer_report(entity_path, target, rows_scanned);
-    InternalError::store_unsupported(format!(
-        "schema mutation field-path index startup runner failed: {} error={:?} rollback={}",
-        diagnostic.summary(),
-        failure.error(),
-        failure.rollback_report().is_some(),
+    #[cfg(not(test))]
+    let _ = (&diagnostic, &failure);
+
+    InternalError::store_unsupported(startup_field_path_detail!(
+        "schema mutation field-path startup runner failed",
+        format!(
+            "schema mutation field-path index startup runner failed: {} error={:?} rollback={}",
+            diagnostic.summary(),
+            failure.error(),
+            failure.rollback_report().is_some(),
+        )
     ))
 }
 
