@@ -110,7 +110,6 @@ fn derive_where_predicate_subset_recovers_folded_constant_compare_shapes() {
 }
 
 #[test]
-#[should_panic]
 fn compile_where_bool_expr_requires_normalized_shape() {
     let expr = Expr::Binary {
         op: crate::db::query::plan::expr::BinaryOp::Eq,
@@ -118,7 +117,13 @@ fn compile_where_bool_expr_requires_normalized_shape() {
         right: Box::new(Expr::Field(FieldId::new("age"))),
     };
 
-    let _ = compile_normalized_bool_expr_to_predicate(&expr);
+    assert!(
+        std::panic::catch_unwind(|| {
+            let _ = compile_normalized_bool_expr_to_predicate(&expr);
+        })
+        .is_err(),
+        "non-normalized predicate shape should panic",
+    );
 }
 
 #[test]

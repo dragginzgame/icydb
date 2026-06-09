@@ -4395,20 +4395,20 @@ fn assert_query_plan_predicate_invalid_field(err: QueryError, expected_field: &s
     let PlanUserError::PredicateInvalid(validate) = *user else {
         panic!("{context}: expected predicate validation plan error");
     };
-    let field = match *validate {
-        ValidateError::UnknownField { field }
-        | ValidateError::NonQueryableFieldType { field }
-        | ValidateError::DuplicateField { field }
-        | ValidateError::InvalidPrimaryKey { field }
-        | ValidateError::InvalidPrimaryKeyType { field }
-        | ValidateError::IndexFieldUnknown { field, .. }
-        | ValidateError::IndexFieldNotQueryable { field, .. }
-        | ValidateError::IndexFieldMapNotQueryable { field, .. }
-        | ValidateError::IndexFieldDuplicate { field, .. }
-        | ValidateError::InvalidOperator { field, .. }
-        | ValidateError::InvalidCoercion { field, .. }
-        | ValidateError::InvalidLiteral { field, .. } => field,
-        _ => panic!("{context}: predicate validation error did not carry a field identity"),
+    let (ValidateError::UnknownField { field }
+    | ValidateError::NonQueryableFieldType { field }
+    | ValidateError::DuplicateField { field }
+    | ValidateError::InvalidPrimaryKey { field }
+    | ValidateError::InvalidPrimaryKeyType { field }
+    | ValidateError::IndexFieldUnknown { field, .. }
+    | ValidateError::IndexFieldNotQueryable { field, .. }
+    | ValidateError::IndexFieldMapNotQueryable { field, .. }
+    | ValidateError::IndexFieldDuplicate { field, .. }
+    | ValidateError::InvalidOperator { field, .. }
+    | ValidateError::InvalidCoercion { field, .. }
+    | ValidateError::InvalidLiteral { field, .. }) = *validate
+    else {
+        panic!("{context}: predicate validation error did not carry a field identity");
     };
 
     assert_eq!(

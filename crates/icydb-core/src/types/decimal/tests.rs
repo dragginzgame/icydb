@@ -69,9 +69,14 @@ fn decimal_try_new_rejects_scale_over_max() {
 }
 
 #[test]
-#[should_panic]
 fn decimal_new_panics_on_scale_over_max() {
-    let _ = Decimal::new(1, MAX_SUPPORTED_SCALE + 1);
+    assert!(
+        std::panic::catch_unwind(|| {
+            let _ = Decimal::new(1, MAX_SUPPORTED_SCALE + 1);
+        })
+        .is_err(),
+        "scale over max should panic",
+    );
 }
 
 #[test]
@@ -89,9 +94,14 @@ fn decimal_try_from_i128_with_scale_rejects_unrepresentable_scale() {
 }
 
 #[test]
-#[should_panic]
 fn decimal_from_i128_with_scale_panics_on_unrepresentable_scale() {
-    let _ = Decimal::from_i128_with_scale(1, MAX_SUPPORTED_SCALE + 1);
+    assert!(
+        std::panic::catch_unwind(|| {
+            let _ = Decimal::from_i128_with_scale(1, MAX_SUPPORTED_SCALE + 1);
+        })
+        .is_err(),
+        "unrepresentable scale should panic",
+    );
 }
 
 #[test]
