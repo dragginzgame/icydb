@@ -979,9 +979,9 @@ fn aggregate_execution_field_target_non_extrema_is_executor_invariant_only_when_
         scanned, 0,
         "bypassed field-target COUNT should fail before any scan-budget consumption",
     );
-    assert!(
-        err.message
-            .contains("field-target aggregate requires MIN/MAX terminal after planning"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
         "bypassed field-target non-extrema shape should preserve executor invariant taxonomy: {err:?}",
     );
 }
@@ -1989,9 +1989,9 @@ fn aggregate_execution_grouped_having_non_boolean_expr_fails_closed_when_planner
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
-    assert!(
-        err.message
-            .contains("grouped HAVING expression produced non-boolean value"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
         "bypassed grouped HAVING expression should fail with invalid logical plan taxonomy: {err:?}",
     );
 }
@@ -2025,9 +2025,9 @@ fn aggregate_execution_grouped_global_distinct_unsupported_kind_fails_without_sc
         scanned, 0,
         "unsupported global DISTINCT grouped aggregate kind should fail before scan-budget consumption",
     );
-    assert!(
-        err.message
-            .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM/AVG only"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
         "unsupported global DISTINCT grouped aggregate kind should fail with planner-policy invariant text: {err:?}",
     );
 }
@@ -2072,9 +2072,9 @@ fn aggregate_execution_grouped_scalar_distinct_policy_violation_fails_without_sc
         scanned, 0,
         "bypassed grouped scalar DISTINCT policy violation should fail before scan-budget consumption",
     );
-    assert!(
-        err.message
-            .contains("grouped DISTINCT requires ordered-group adjacency proof"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
         "bypassed grouped scalar DISTINCT policy violation should fail with planner-policy invariant text: {err:?}",
     );
 }
@@ -2119,9 +2119,9 @@ fn aggregate_execution_grouped_field_target_aggregate_fails_without_scan() {
         scanned, 0,
         "bypassed grouped field-target aggregate should fail before scan-budget consumption",
     );
-    assert!(
-        err.message
-            .contains("grouped field-target aggregate reached executor after planning"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
         "bypassed grouped field-target aggregate should fail with executor invariant taxonomy: {err:?}",
     );
 }

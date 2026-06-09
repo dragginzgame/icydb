@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{MutationMode, StructuralPatch},
-    error::{ErrorClass, InternalError},
+    error::InternalError,
     metrics::sink::SqlWriteKind,
 };
 
@@ -24,26 +24,6 @@ fn assert_statement_count<E>(
     assert_eq!(
         row_count, expected_row_count,
         "{context} should follow traditional SQL count semantics without RETURNING",
-    );
-}
-
-// Execute one write statement that must stay fail-closed and assert the
-// surfaced error text keeps one actionable boundary message.
-fn assert_statement_error_contains<E>(
-    session: &DbSession<SessionSqlCanister>,
-    sql: &str,
-    expected_message: &str,
-    context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-{
-    let err = execute_sql_statement_for_tests::<E>(session, sql)
-        .expect_err("write statement should stay fail-closed");
-    let err_text = err.to_string();
-
-    assert!(
-        err_text.contains(expected_message),
-        "{context} should keep an actionable boundary message: {err_text}",
     );
 }
 
@@ -1813,10 +1793,9 @@ fn execute_sql_statement_insert_rejects_tuple_length_mismatch() {
     )
     .expect_err("SQL INSERT with tuple length mismatch should stay fail-closed");
 
-    assert!(
-        err.to_string()
-            .contains("INSERT column list and VALUES tuple length must match"),
-        "INSERT tuple length mismatch should keep an actionable parser boundary message",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "INSERT tuple length mismatch should keep the compact unsupported diagnostic",
     );
 }
 
@@ -2207,23 +2186,16 @@ fn execute_sql_statement_update_rejects_invalid_window_clause_order() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let cases = [
-        (
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 LIMIT 1 ORDER BY id",
-            "ORDER BY must appear before LIMIT/OFFSET in UPDATE",
-        ),
-        (
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 OFFSET 1 LIMIT 1",
-            "LIMIT must appear before OFFSET in UPDATE",
-        ),
-    ];
+    for sql in [
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 LIMIT 1 ORDER BY id",
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 OFFSET 1 LIMIT 1",
+    ] {
+        let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
+            .expect_err("invalid UPDATE window clause ordering should stay fail-closed");
 
-    for (sql, message) in cases {
-        assert_statement_error_contains::<SessionSqlWriteEntity>(
-            &session,
-            sql,
-            message,
-            "invalid UPDATE window clause ordering",
+        assert_runtime_unsupported_query_execution_diagnostic(
+            err,
+            "invalid UPDATE window clause ordering should keep the compact unsupported diagnostic",
         );
     }
 }

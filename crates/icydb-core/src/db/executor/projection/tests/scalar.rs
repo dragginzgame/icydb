@@ -362,9 +362,9 @@ fn eval_expr_rejects_numeric_and_non_numeric_equality_mix() {
         .expect_err("mixed numeric/non-numeric equality should fail invariant checks");
     assert_eq!(err.class(), ErrorClass::InvariantViolation);
     assert_eq!(err.origin(), ErrorOrigin::Planner);
-    assert!(
-        err.message
-            .contains("projection binary operator 'eq' is incompatible"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
         "unexpected error: {err:?}"
     );
 }

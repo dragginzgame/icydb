@@ -2039,9 +2039,9 @@ fn route_plan_mutation_rejects_non_delete_mode() {
     };
 
     assert_eq!(err.class, crate::error::ErrorClass::InvariantViolation);
-    assert!(
-        err.message
-            .contains("mutation route planning requires delete plans"),
-        "mutation route rejection should return clear invariant message"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "mutation route rejection should return the invariant diagnostic code"
     );
 }

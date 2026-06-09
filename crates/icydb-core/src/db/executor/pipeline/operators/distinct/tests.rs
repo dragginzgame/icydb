@@ -171,9 +171,10 @@ fn distinct_stream_rejects_non_monotonic_keys_for_both_directions() {
             ErrorClass::InvariantViolation,
             "distinct monotonicity failures must classify as invariant violations"
         );
-        assert!(
-            err.message.contains("non-monotonic key order"),
-            "distinct monotonicity failure should expose a clear invariant reason"
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+            "distinct monotonicity failure should expose the invariant diagnostic code"
         );
     }
 }

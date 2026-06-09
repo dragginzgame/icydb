@@ -144,10 +144,10 @@ mod tests {
             ErrorClass::InvariantViolation,
             "arity violation must classify as invariant violation"
         );
-        assert!(
-            err.message
-                .contains("secondary aggregate fast-path expects at most one index-prefix spec"),
-            "arity violation must return a clear invariant message"
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+            "arity violation must return the invariant diagnostic code"
         );
     }
 
@@ -171,10 +171,10 @@ mod tests {
             ErrorClass::InvariantViolation,
             "prefix-spec violation must classify as invariant violation"
         );
-        assert!(
-            err.message
-                .contains("index-range aggregate fast-path must not consume index-prefix specs"),
-            "prefix-spec violation must return a clear invariant message"
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+            "prefix-spec violation must return the invariant diagnostic code"
         );
     }
 
@@ -188,10 +188,10 @@ mod tests {
             ErrorClass::InvariantViolation,
             "range-arity violation must classify as invariant violation"
         );
-        assert!(
-            err.message
-                .contains("index-range aggregate fast-path expects exactly one index-range spec"),
-            "range-arity violation must return a clear invariant message"
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+            "range-arity violation must return the invariant diagnostic code"
         );
     }
 }

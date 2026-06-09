@@ -537,10 +537,21 @@ fn global_aggregate_filter_rejection_matrix_stays_fail_closed() {
     )
     .expect_err("alias inside FILTER shape should stay rejected");
 
-    assert!(
-        err.to_string()
-            .contains("unknown expression field 'total_rows'"),
-        "alias inside FILTER should preserve planner-owned unknown-field detail",
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::RuntimeInvariantViolation,
+        "alias inside FILTER should preserve the compact invariant diagnostic",
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        "alias inside FILTER should stay query-owned",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        None,
+        "alias inside FILTER should not retain rich runtime detail",
     );
 }
 

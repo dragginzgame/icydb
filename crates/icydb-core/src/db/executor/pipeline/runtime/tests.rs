@@ -17,10 +17,10 @@ fn fast_path_spec_arity_rejects_multiple_prefix_specs_for_secondary() {
         ErrorClass::InvariantViolation,
         "prefix-spec arity violation must classify as invariant violation"
     );
-    assert!(
-        err.message
-            .contains("secondary fast-path resolution expects at most one index-prefix spec"),
-        "prefix-spec arity violation must return a clear invariant message"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "prefix-spec arity violation must return the invariant diagnostic code"
     );
 }
 
@@ -34,9 +34,9 @@ fn fast_path_spec_arity_rejects_multiple_range_specs_for_index_range() {
         ErrorClass::InvariantViolation,
         "range-spec arity violation must classify as invariant violation"
     );
-    assert!(
-        err.message
-            .contains("index-range fast-path resolution expects at most one index-range spec"),
-        "range-spec arity violation must return a clear invariant message"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "range-spec arity violation must return the invariant diagnostic code"
     );
 }

@@ -3994,9 +3994,10 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
             crate::error::ErrorOrigin::Query,
             "inverted manual key-range should stay query-owned for case={case_name}",
         );
-        assert!(
-            err.message.contains("key range start is greater than end"),
-            "inverted manual key-range should report the start/end invariant for case={case_name}: {err:?}",
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+            "inverted manual key-range should report the invariant diagnostic code for case={case_name}: {err:?}",
         );
     }
 }

@@ -394,21 +394,15 @@ fn assert_optional_field_null_parity(terminal: OptionalFieldNullTerminal, label:
         crate::error::ErrorClass::InvariantViolation,
         "{label} should classify null-value mismatch as invariant violation",
     );
-    assert!(
-        baseline_err
-            .message
-            .contains("aggregate target field value type mismatch"),
-        "{label} baseline projection should expose type-mismatch reason for null values",
+    assert_eq!(
+        baseline_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "{label} baseline projection should report the invariant diagnostic code",
     );
-    assert!(
-        terminal_err
-            .message
-            .contains("aggregate target field value type mismatch"),
-        "{label} should expose type-mismatch reason for null values",
-    );
-    assert!(
-        baseline_err.message.contains("value=Null") && terminal_err.message.contains("value=Null"),
-        "{label} should report null payload mismatch consistently with baseline projection",
+    assert_eq!(
+        terminal_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "{label} should report the invariant diagnostic code",
     );
 }
 
@@ -1421,21 +1415,15 @@ fn aggregate_projection_count_distinct_optional_field_null_values_are_rejected_c
         crate::error::ErrorClass::InvariantViolation,
         "descending count_distinct_by(opt_rank) should classify null-value mismatch as invariant violation",
     );
-    assert!(
-        asc_err
-            .message
-            .contains("aggregate target field value type mismatch"),
-        "count_distinct_by(opt_rank) should expose type-mismatch reason for null values",
+    assert_eq!(
+        asc_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "count_distinct_by(opt_rank) should report the invariant diagnostic code",
     );
-    assert!(
-        desc_err
-            .message
-            .contains("aggregate target field value type mismatch"),
-        "descending count_distinct_by(opt_rank) should expose type-mismatch reason for null values",
-    );
-    assert!(
-        asc_err.message.contains("value=Null") && desc_err.message.contains("value=Null"),
-        "count_distinct_by(opt_rank) should report null payload mismatch consistently across directions",
+    assert_eq!(
+        desc_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "descending count_distinct_by(opt_rank) should report the invariant diagnostic code",
     );
 }
 
