@@ -6,9 +6,8 @@ use std::{
 pub(crate) const DEFAULT_SQL_READONLY_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_DDL_ENABLED: bool = false;
 pub(crate) const DEFAULT_SQL_FIXTURES_ENABLED: bool = false;
-pub(crate) const DEFAULT_METRICS_ENABLED: bool = true;
+pub(crate) const DEFAULT_METRICS_ENABLED: bool = false;
 pub(crate) const DEFAULT_METRICS_EXTENDED_ENABLED: bool = false;
-pub(crate) const DEFAULT_METRICS_RESET_ENABLED: bool = false;
 pub(crate) const DEFAULT_SNAPSHOT_ENABLED: bool = false;
 pub(crate) const DEFAULT_SCHEMA_ENABLED: bool = false;
 
@@ -103,16 +102,6 @@ impl GeneratedIcydbConfig {
         )
     }
 
-    /// Return whether metrics reset endpoints should be generated for one canister.
-    #[must_use]
-    pub fn canister_metrics_reset_enabled(&self, canister_name: &str) -> bool {
-        self.canister_enabled(
-            canister_name,
-            DEFAULT_METRICS_RESET_ENABLED,
-            GeneratedCanisterConfig::metrics_reset,
-        )
-    }
-
     /// Return whether storage snapshot endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_snapshot_enabled(&self, canister_name: &str) -> bool {
@@ -203,12 +192,6 @@ impl GeneratedCanisterConfig {
         self.metrics.extended
     }
 
-    /// Return whether generated actor glue should export metrics reset endpoints.
-    #[must_use]
-    pub const fn metrics_reset(&self) -> bool {
-        self.metrics.reset
-    }
-
     /// Return whether generated actor glue should export storage snapshot endpoints.
     #[must_use]
     pub const fn snapshot(&self) -> bool {
@@ -245,15 +228,10 @@ impl GeneratedCanisterSqlConfig {
 pub(crate) struct GeneratedCanisterMetricsConfig {
     enabled: bool,
     extended: bool,
-    reset: bool,
 }
 
 impl GeneratedCanisterMetricsConfig {
-    pub(crate) const fn new(enabled: bool, extended: bool, reset: bool) -> Self {
-        Self {
-            enabled,
-            extended,
-            reset,
-        }
+    pub(crate) const fn new(enabled: bool, extended: bool) -> Self {
+        Self { enabled, extended }
     }
 }

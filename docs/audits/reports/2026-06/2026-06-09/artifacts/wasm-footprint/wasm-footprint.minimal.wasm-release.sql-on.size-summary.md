@@ -2,13 +2,13 @@
 
 | Artifact | Bytes |
 | --- | ---: |
-| icp-built `.wasm` | 312606 |
-| icp-built deterministic `.wasm.gz` | 116451 |
+| icp-built `.wasm` | 37369 |
+| icp-built deterministic `.wasm.gz` | 16360 |
 | candid export | unavailable |
-| icp-shrunk `.wasm` (canonical) | 287347 |
-| icp-shrunk `.wasm.gz` (canonical) | 110606 |
-| Shrink delta `.wasm` | 25259 |
-| Shrink delta `.wasm.gz` | 5845 |
+| icp-shrunk `.wasm` (canonical) | 6516 |
+| icp-shrunk `.wasm.gz` (canonical) | 4095 |
+| Shrink delta `.wasm` | 30853 |
+| Shrink delta `.wasm.gz` | 12265 |
 
 SQL variant: `sql-on`
 
@@ -19,13 +19,13 @@ Generated endpoint surface:
 | `sql_readonly` | no |
 | `sql_ddl` | no |
 | `sql_fixtures` | no |
-| `metrics` | yes |
-| `metrics_reset` | no |
+| `metrics` | no |
+| `metrics_extended` | no |
 | `snapshot` | no |
 | `schema` | no |
 
 Custom exports: none
 
-Exports (shrunk): 1
+Exports (shrunk): 0
 
 JSON report: `/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.report.json`

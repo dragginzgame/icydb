@@ -221,14 +221,11 @@ check-versioning: security-check
 
 check-invariants:
 	bash scripts/ci/check-dependency-graph-invariants.sh
-	bash scripts/ci/check-route-planner-import-boundary.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
-	bash scripts/ci/check-architecture-text-scan-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-sql-branch-ownership-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
-	bash scripts/ci/check-field-projection-invariants.sh
 
 lint-workflows:
 	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \

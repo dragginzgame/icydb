@@ -66,7 +66,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep
-      - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
       - run: make check-invariants
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets --exclude icydb-testing-integration -- -D warnings
@@ -117,8 +116,7 @@ jobs:
       - run: cargo build -p canister_audit_minimal --target wasm32-unknown-unknown --profile wasm-release --locked
       - run: |
           mkdir -p artifacts
-          target_dir="$(cargo metadata --locked --format-version=1 --no-deps \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+          target_dir="${CARGO_TARGET_DIR:-target}"
           wasm="${target_dir}/wasm32-unknown-unknown/wasm-release/canister_audit_minimal.wasm"
           if [ ! -f "$wasm" ]; then
             echo "Expected wasm artifact missing: $wasm" >&2

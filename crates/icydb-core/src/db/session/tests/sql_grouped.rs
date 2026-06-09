@@ -96,25 +96,12 @@ fn grouped_result_rows(execution: &PagedGroupedExecutionWithTrace) -> Vec<(Value
         .collect()
 }
 
-// Assert that one grouped/session boundary error stays in the Unsupported lane
-// and optionally preserves one actionable message fragment from that boundary.
-fn assert_unsupported_query_error(err: QueryError, expected_message: Option<&str>, context: &str) {
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "{context} should stay on the Unsupported query boundary",
+// Assert that one grouped/session boundary error stays in the Unsupported lane.
+fn assert_unsupported_query_error(err: QueryError, context: &str) {
+    assert_unsupported_query_execution_diagnostic(
+        err,
+        &format!("{context} should stay on the Unsupported query boundary"),
     );
-
-    if let Some(expected_message) = expected_message {
-        assert!(
-            err.to_string().contains(expected_message),
-            "{context} should preserve explicit boundary guidance",
-        );
-    }
 }
 
 // Execute one grouped SQL statement execution case and assert the grouped payload surface
@@ -315,38 +302,33 @@ fn assert_indexed_grouped_ordered_public_case(
 }
 
 #[test]
-fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_messages() {
+fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_diagnostics() {
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, expected_message, context, expect_unsupported_variant) in [
+    for (sql, context, expect_unsupported_variant) in [
         (
             "SELECT TRIM(name) FROM SessionSqlEntity",
-            "grouped SELECT helper rejects scalar text-specific computed projection",
             "text-specific computed projection",
             false,
         ),
         (
             "SELECT COUNT(*) FROM SessionSqlEntity",
-            "grouped SELECT helper rejects global aggregate SELECT",
             "global aggregate execution",
             false,
         ),
         (
             "SELECT TRIM(name), COUNT(*) FROM SessionSqlEntity GROUP BY name",
-            "grouped SELECT helper rejects grouped text-specific computed projection",
             "grouped text-specific computed projection",
             false,
         ),
         (
             "DELETE FROM SessionSqlEntity ORDER BY id LIMIT 1",
-            "grouped SELECT helper rejects DELETE",
             "delete execution",
             false,
         ),
         (
             "SELECT name FROM SessionSqlEntity",
-            "",
             "non-grouped scalar SQL",
             true,
         ),
@@ -354,22 +336,12 @@ fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_messages() {
         let err = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
             .expect_err("grouped lane rejection matrix should stay fail-closed");
 
-        if expect_unsupported_variant {
-            assert!(
-                matches!(
-                    err,
-                    QueryError::Execute(
-                        crate::db::query::intent::QueryExecutionError::Unsupported(_)
-                    )
-                ),
-                "{context} should fail closed for unsupported grouped-lane shapes",
-            );
+        let context = if expect_unsupported_variant {
+            format!("{context} should fail closed for unsupported grouped-lane shapes")
         } else {
-            assert!(
-                err.to_string().contains(expected_message),
-                "{context} should preserve the actionable grouped-lane boundary message",
-            );
-        }
+            format!("{context} should preserve the grouped-lane boundary diagnostic")
+        };
+        assert_unsupported_query_execution_diagnostic(err, &context);
     }
 }
 
@@ -2713,27 +2685,24 @@ fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts(
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, expected_message, context) in [
+    for (sql, context) in [
         (
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-            Some("scalar SELECT helper rejects grouped SELECT"),
             "grouped SELECT on scalar API",
         ),
         (
             "SELECT COUNT(*) FROM SessionSqlEntity GROUP BY age",
-            None,
             "group-by projection mismatch on scalar API",
         ),
         (
             "SELECT age, TRIM(name), COUNT(*) FROM SessionSqlEntity GROUP BY age",
-            None,
             "grouped computed projection widening on scalar API",
         ),
     ] {
         let err = execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
             .expect_err("scalar API grouped-shape matrix should stay fail-closed");
 
-        assert_unsupported_query_error(err, expected_message, context);
+        assert_unsupported_query_error(err, context);
     }
 }
 
@@ -2906,9 +2875,10 @@ fn execute_sql_statement_grouped_projection_unknown_field_stays_specific() {
     )
     .expect_err("grouped projection typo should fail field resolution");
 
-    assert!(
-        err.to_string().contains("unknown field 'agge'"),
-        "grouped projection typo should stay a field-resolution error: {err}",
+    assert_query_plan_expr_unknown_field(
+        err,
+        "agge",
+        "grouped projection typo should stay a field-resolution error",
     );
 }
 
@@ -2927,9 +2897,10 @@ fn execute_sql_statement_grouped_filter_alias_unknown_field_stays_specific() {
     )
     .expect_err("grouped FILTER alias leakage should fail field resolution before execution");
 
-    assert!(
-        err.to_string().contains("unknown field 'total_count'"),
-        "grouped FILTER alias leakage should stay a field-resolution error instead of tripping executor invariants: {err}",
+    assert_query_plan_expr_unknown_field(
+        err,
+        "total_count",
+        "grouped FILTER alias leakage should stay a field-resolution error instead of tripping executor invariants",
     );
 }
 
@@ -2955,9 +2926,10 @@ fn execute_sql_statement_grouped_filter_alias_unknown_field_inside_case_stays_sp
         "grouped FILTER alias leakage inside CASE should fail field resolution before execution",
     );
 
-    assert!(
-        err.to_string().contains("unknown field 'total_count'"),
-        "grouped FILTER alias leakage inside CASE should stay a field-resolution error instead of tripping executor invariants: {err}",
+    assert_query_plan_expr_unknown_field(
+        err,
+        "total_count",
+        "grouped FILTER alias leakage inside CASE should stay a field-resolution error instead of tripping executor invariants",
     );
 }
 

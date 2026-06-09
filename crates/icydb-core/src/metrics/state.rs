@@ -1307,44 +1307,36 @@ pub mod compact_metric_code {
 
 #[cfg_attr(doc, doc = "CompactMetric\n\nCompact metrics counter.")]
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct CompactMetric {
-    code: u16,
-    value: u64,
-}
+pub struct CompactMetric(u16, u64);
 
 impl CompactMetric {
     #[must_use]
     pub(crate) const fn new(code: u16, value: u64) -> Self {
-        Self { code, value }
+        Self(code, value)
     }
 
     /// Return the numeric metric code.
     #[must_use]
     pub const fn code(&self) -> u16 {
-        self.code
+        self.0
     }
 
     /// Return the metric value.
     #[must_use]
     pub const fn value(&self) -> u64 {
-        self.value
+        self.1
     }
 
     /// Return the metric as a numeric code/value pair.
     #[must_use]
     pub const fn into_code_and_value(self) -> (u16, u64) {
-        (self.code, self.value)
+        (self.0, self.1)
     }
 }
 
 #[cfg_attr(doc, doc = "CompactEventCounters\n\nCompact global metrics counters.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct CompactEventCounters {
-    metrics: Vec<CompactMetric>,
-    window_start_ms: u64,
-    window_end_ms: u64,
-    window_duration_ms: u64,
-}
+pub struct CompactEventCounters(Vec<CompactMetric>, u64, u64);
 
 impl CompactEventCounters {
     #[must_use]
@@ -1353,36 +1345,31 @@ impl CompactEventCounters {
         window_start_ms: u64,
         window_end_ms: u64,
     ) -> Self {
-        Self {
-            metrics,
-            window_start_ms,
-            window_end_ms,
-            window_duration_ms: window_end_ms.saturating_sub(window_start_ms),
-        }
+        Self(metrics, window_start_ms, window_end_ms)
     }
 
     /// Borrow the sparse global metrics vector.
     #[must_use]
     pub fn metrics(&self) -> &[CompactMetric] {
-        &self.metrics
+        &self.0
     }
 
     /// Return the active window start timestamp in milliseconds.
     #[must_use]
     pub const fn window_start_ms(&self) -> u64 {
-        self.window_start_ms
+        self.1
     }
 
     /// Return the report window end timestamp in milliseconds.
     #[must_use]
     pub const fn window_end_ms(&self) -> u64 {
-        self.window_end_ms
+        self.2
     }
 
     /// Return the report window duration in milliseconds.
     #[must_use]
     pub const fn window_duration_ms(&self) -> u64 {
-        self.window_duration_ms
+        self.2.saturating_sub(self.1)
     }
 }
 
@@ -1391,86 +1378,80 @@ impl CompactEventCounters {
     doc = "CompactEntityMetrics\n\nCompact per-entity metrics counters."
 )]
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct CompactEntityMetrics {
-    path: String,
-    metrics: Vec<CompactMetric>,
-}
+pub struct CompactEntityMetrics(String, Vec<CompactMetric>);
 
 impl CompactEntityMetrics {
     #[must_use]
     pub(crate) const fn new(path: String, metrics: Vec<CompactMetric>) -> Self {
-        Self { path, metrics }
+        Self(path, metrics)
     }
 
     /// Return the entity schema path.
     #[must_use]
     pub const fn path(&self) -> &str {
-        self.path.as_str()
+        self.0.as_str()
     }
 
     /// Borrow the sparse entity metrics vector.
     #[must_use]
     pub fn metrics(&self) -> &[CompactMetric] {
-        &self.metrics
+        &self.1
     }
 }
 
 #[cfg_attr(doc, doc = "CompactMetricsReport\n\nCompact metrics query payload.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct CompactMetricsReport {
-    counters: Option<CompactEventCounters>,
-    entity_counters: Vec<CompactEntityMetrics>,
-    window_filter_matched: bool,
-    requested_window_start_ms: Option<u64>,
-    active_window_start_ms: u64,
-}
+pub struct CompactMetricsReport(
+    Option<CompactEventCounters>,
+    Vec<CompactEntityMetrics>,
+    Option<u64>,
+    u64,
+);
 
 impl CompactMetricsReport {
     #[must_use]
     pub(crate) const fn new(
         counters: Option<CompactEventCounters>,
         entity_counters: Vec<CompactEntityMetrics>,
-        window_filter_matched: bool,
         requested_window_start_ms: Option<u64>,
         active_window_start_ms: u64,
     ) -> Self {
-        Self {
+        Self(
             counters,
             entity_counters,
-            window_filter_matched,
             requested_window_start_ms,
             active_window_start_ms,
-        }
+        )
     }
 
     /// Borrow the compact global counters when the requested window matched.
     #[must_use]
     pub const fn counters(&self) -> Option<&CompactEventCounters> {
-        self.counters.as_ref()
+        self.0.as_ref()
     }
 
     /// Borrow compact per-entity counters.
     #[must_use]
     pub fn entity_counters(&self) -> &[CompactEntityMetrics] {
-        &self.entity_counters
+        &self.1
     }
 
     /// Return whether the requested window matched the active window.
     #[must_use]
     pub const fn window_filter_matched(&self) -> bool {
-        self.window_filter_matched
+        self.0.is_some()
     }
 
     /// Return the requested window start timestamp, if supplied.
     #[must_use]
     pub const fn requested_window_start_ms(&self) -> Option<u64> {
-        self.requested_window_start_ms
+        self.2
     }
 
     /// Return the active metrics window start timestamp.
     #[must_use]
     pub const fn active_window_start_ms(&self) -> u64 {
-        self.active_window_start_ms
+        self.3
     }
 }
 
@@ -2915,13 +2896,7 @@ pub(super) fn compact_report_window_start(window_start_ms: Option<u64>) -> Compa
     if let Some(requested_window_start_ms) = window_start_ms
         && requested_window_start_ms > snap.window_start_ms
     {
-        return CompactMetricsReport::new(
-            None,
-            Vec::new(),
-            false,
-            window_start_ms,
-            snap.window_start_ms,
-        );
+        return CompactMetricsReport::new(None, Vec::new(), window_start_ms, snap.window_start_ms);
     }
 
     let mut entity_counters: Vec<CompactEntityMetrics> = Vec::new();
@@ -2947,7 +2922,6 @@ pub(super) fn compact_report_window_start(window_start_ms: Option<u64>) -> Compa
             now_millis(),
         )),
         entity_counters,
-        true,
         window_start_ms,
         snap.window_start_ms,
     )

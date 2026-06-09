@@ -8,7 +8,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_sql_ddl_enabled(false)
         .with_sql_fixtures_enabled(false)
         .with_metrics_enabled(false)
-        .with_metrics_reset_enabled(false)
         .with_snapshot_enabled(false)
         .with_schema_enabled(false);
     icydb::build_with_options!(

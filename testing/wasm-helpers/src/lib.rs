@@ -18,7 +18,6 @@ macro_rules! build_configured_canister {
             .with_sql_fixtures_enabled(config.canister_sql_fixtures_enabled($canister_name))
             .with_metrics_enabled(config.canister_metrics_enabled($canister_name))
             .with_metrics_extended_enabled(config.canister_metrics_extended_enabled($canister_name))
-            .with_metrics_reset_enabled(config.canister_metrics_reset_enabled($canister_name))
             .with_snapshot_enabled(config.canister_snapshot_enabled($canister_name))
             .with_schema_enabled(config.canister_schema_enabled($canister_name));
         icydb::build_with_options!($canister_path, options);

@@ -8,7 +8,6 @@ audit_date="$(date +%F)"
 report_dir=""
 canister_names=()
 skip_build=0
-batch_child=0
 REPORT_SCOPE="wasm-footprint"
 
 # shellcheck source=scripts/ci/wasm-report-common.sh
@@ -47,10 +46,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-build)
             skip_build=1
-            shift
-            ;;
-        --batch-child)
-            batch_child=1
             shift
             ;;
         --help|-h)
@@ -246,20 +241,6 @@ write_summary_report() {
     echo "[wasm-audit] Wrote summary: $report_dir/$REPORT_SCOPE.md"
 }
 
-if [[ "${#canister_names[@]}" -gt 1 ]]; then
-    child_args=(--profile "$profile" --sql-variant "$sql_variant_mode" --date "$audit_date" --report-dir "$report_dir" --batch-child)
-    if [[ "$skip_build" == "1" ]]; then
-        child_args+=(--skip-build)
-    fi
-    for canister_name in "${canister_names[@]}"; do
-        bash "$0" "${child_args[@]}" --canister "$canister_name"
-    done
-    write_summary_report "${canister_names[@]}"
-    exit 0
-fi
-
-CANISTER_NAME="${canister_names[0]}"
-
 if ! command -v twiggy >/dev/null 2>&1; then
     echo "[wasm-audit] missing required tool: twiggy" >&2
     echo "[wasm-audit] install with: cargo install twiggy --locked" >&2
@@ -268,47 +249,75 @@ fi
 
 mkdir -p "$artifact_scope_dir"
 
-if [[ "$skip_build" != "1" ]]; then
-    bash "$ROOT/scripts/ci/wasm-size-report.sh" \
-        --profile "$profile" \
-        --sql-variants "$SQL_VARIANT" \
-        --canister "$CANISTER_NAME"
-else
-    echo "[wasm-audit] skipping wasm build and size capture (--skip-build)"
-fi
+write_twiggy_artifact() {
+    local output="$1"
+    shift
+    local stderr="${output}.stderr"
 
-ARTIFACT_DIR="$ROOT/artifacts/wasm-size"
-SIZE_REPORT_JSON="$ARTIFACT_DIR/${CANISTER_NAME}.${profile}${SIZE_REPORT_SUFFIX}.report.json"
-SIZE_SUMMARY_MD="$ARTIFACT_DIR/${CANISTER_NAME}.${profile}${SIZE_REPORT_SUFFIX}.summary.md"
-SHRUNK_WASM="$ARTIFACT_DIR/${CANISTER_NAME}.${profile}${SIZE_REPORT_SUFFIX}.icp-shrunk.wasm"
-
-for required in "$SIZE_REPORT_JSON" "$SIZE_SUMMARY_MD" "$SHRUNK_WASM"; do
-    if [[ ! -f "$required" ]]; then
-        echo "[wasm-audit] expected artifact missing: $required" >&2
-        exit 1
+    if "$@" > "$output" 2> "$stderr"; then
+        rm -f "$stderr"
+        return
     fi
+
+    if grep -q "function or code section is missing" "$stderr"; then
+        {
+            printf 'twiggy skipped: wasm has no function/code section\n'
+            cat "$stderr"
+        } > "$output"
+        rm -f "$stderr"
+        return
+    fi
+
+    cat "$stderr" >&2
+    rm -f "$stderr"
+    exit 1
+}
+
+write_canister_artifacts() {
+    local canister_name="$1"
+    local artifact_dir="$ROOT/artifacts/wasm-size"
+    local size_report_json="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.report.json"
+    local size_summary_md="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.summary.md"
+    local shrunk_wasm="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.icp-shrunk.wasm"
+    local report_stem="$REPORT_SCOPE"
+    local size_report_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-report.json"
+    local size_summary_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-summary.md"
+    local twiggy_top_txt="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-top.txt"
+    local twiggy_top_csv="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-top.csv"
+    local twiggy_dominators_txt="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-dominators.txt"
+    local twiggy_retained_csv="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-retained.csv"
+    local twiggy_monos_txt="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.twiggy-monos.txt"
+
+    if [[ "$skip_build" != "1" ]]; then
+        bash "$ROOT/scripts/ci/wasm-size-report.sh" \
+            --profile "$profile" \
+            --sql-variants "$SQL_VARIANT" \
+            --canister "$canister_name"
+    else
+        echo "[wasm-audit] skipping wasm build and size capture (--skip-build)"
+    fi
+
+    for required in "$size_report_json" "$size_summary_md" "$shrunk_wasm"; do
+        if [[ ! -f "$required" ]]; then
+            echo "[wasm-audit] expected artifact missing: $required" >&2
+            exit 1
+        fi
+    done
+
+    cp "$size_report_json" "$size_report_copy"
+    cp "$size_summary_md" "$size_summary_copy"
+
+    write_twiggy_artifact "$twiggy_top_txt" twiggy top -n 40 "$shrunk_wasm"
+    write_twiggy_artifact "$twiggy_top_csv" twiggy top -n 40 -f csv "$shrunk_wasm"
+    write_twiggy_artifact "$twiggy_dominators_txt" twiggy dominators -r 160 "$shrunk_wasm"
+    write_twiggy_artifact "$twiggy_retained_csv" twiggy top --retained -n 40 -f csv "$shrunk_wasm"
+    write_twiggy_artifact "$twiggy_monos_txt" twiggy monos "$shrunk_wasm"
+
+    echo "[wasm-audit] Wrote artifacts for $canister_name"
+}
+
+for canister_name in "${canister_names[@]}"; do
+    write_canister_artifacts "$canister_name"
 done
 
-REPORT_STEM="$REPORT_SCOPE"
-SIZE_REPORT_COPY="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.size-report.json"
-SIZE_SUMMARY_COPY="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.size-summary.md"
-TWIGGY_TOP_TXT="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-top.txt"
-TWIGGY_TOP_CSV="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-top.csv"
-TWIGGY_DOMINATORS_TXT="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-dominators.txt"
-TWIGGY_RETAINED_CSV="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-retained.csv"
-TWIGGY_MONOS_TXT="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-monos.txt"
-
-cp "$SIZE_REPORT_JSON" "$SIZE_REPORT_COPY"
-cp "$SIZE_SUMMARY_MD" "$SIZE_SUMMARY_COPY"
-
-twiggy top -n 40 "$SHRUNK_WASM" > "$TWIGGY_TOP_TXT"
-twiggy top -n 40 -f csv "$SHRUNK_WASM" > "$TWIGGY_TOP_CSV"
-twiggy dominators -r 160 "$SHRUNK_WASM" > "$TWIGGY_DOMINATORS_TXT"
-twiggy top --retained -n 40 -f csv "$SHRUNK_WASM" > "$TWIGGY_RETAINED_CSV"
-twiggy monos "$SHRUNK_WASM" > "$TWIGGY_MONOS_TXT"
-
-echo "[wasm-audit] Wrote artifacts for $CANISTER_NAME"
-
-if [[ "$batch_child" != "1" ]]; then
-    write_summary_report "$CANISTER_NAME"
-fi
+write_summary_report "${canister_names[@]}"

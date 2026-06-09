@@ -23,11 +23,6 @@ pub(in crate::types::decimal) const MAX_SUPPORTED_SCALE: u32 = 28;
 pub(in crate::types::decimal) const DEFAULT_DIVISION_SCALE: u32 = 18;
 pub(in crate::types::decimal) const DECIMAL_DIGIT_BUFFER_LEN: usize = 39;
 
-#[cfg(test)]
-const DECIMAL_SCALE_INVARIANT: &str = "decimal mantissa and scale exceed supported invariant";
-#[cfg(not(test))]
-const DECIMAL_SCALE_INVARIANT: &str = "decimal invariant";
-
 ///
 /// DecimalParts
 ///
@@ -327,7 +322,7 @@ impl Decimal {
     /// violating the decimal scale invariant.
     #[must_use]
     pub const fn from_i128_with_scale(num: i128, scale: u32) -> Self {
-        Self::try_from_i128_with_scale(num, scale).expect(DECIMAL_SCALE_INVARIANT)
+        Self::try_from_i128_with_scale(num, scale).expect("decimal invariant")
     }
 
     /// Normalize trailing zeros.

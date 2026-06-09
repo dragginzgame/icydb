@@ -4,12 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
-COMMON_GLOBS=(
-  --glob '!**/tests/**'
-  --glob '!**/tests.rs'
-  --glob '!**/*_tests.rs'
-  --glob '!**/test_*.rs'
-)
+# shellcheck source=scripts/ci/invariant-common.sh
+source "$ROOT/scripts/ci/invariant-common.sh"
 
 GUARDED_ROOTS=(
   "crates/icydb-core/src/db/commit"
@@ -22,17 +18,6 @@ GUARDED_ROOTS=(
 )
 
 INTERLEAVING_PATTERN="\\basync\\s+fn\\b|\\basync\\s+move\\b|\\.await\\b|\\bic_cdk::(call|spawn)\\b|\\bcall_raw\\b|\\bnotify_raw\\b|\\bic_cdk_timers\\b|\\bset_timer(_interval)?\\b"
-
-strip_comment_only() {
-  awk -F: '{
-    code=$0
-    sub(/^[^:]+:[0-9]+:/, "", code)
-    if (code ~ /^[[:space:]]*\/\//) {
-      next
-    }
-    print $0
-  }'
-}
 
 interleaving_points="$(
   rg -n --no-heading --color=never "$INTERLEAVING_PATTERN" \

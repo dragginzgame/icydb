@@ -1,5 +1,5 @@
 wasm_report_default_canisters() {
-    printf '%s\n' minimal one_simple one_sql_query one_fluent_query one_complex ten_simple ten_complex
+    printf '%s\n' minimal minimal_metrics one_simple one_sql_query one_fluent_query one_complex ten_simple ten_complex
 }
 
 wasm_report_sql_variants() {

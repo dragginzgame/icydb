@@ -30,6 +30,26 @@ fn expect_record_fields(ty: Type) -> Vec<String> {
     }
 }
 
+fn expect_positional_record_fields(type_name: &str, ty: Type, expected_len: usize) {
+    match ty.as_ref() {
+        TypeInner::Record(fields) => {
+            assert_eq!(
+                fields.len(),
+                expected_len,
+                "{type_name} compact Candid payload must keep positional field arity",
+            );
+
+            for field in fields {
+                assert!(
+                    !matches!(field.id.as_ref(), Label::Named(_)),
+                    "{type_name} compact Candid payload must not retain named field labels",
+                );
+            }
+        }
+        other => panic!("expected candid record for {type_name}, got {other:?}"),
+    }
+}
+
 #[test]
 fn reset_all_clears_state() {
     with_state_mut(|m| {
@@ -229,49 +249,23 @@ fn event_report_candid_shape_is_stable() {
 }
 
 #[test]
-fn compact_metrics_report_candid_shape_is_stable() {
-    let report_fields = expect_record_fields(CompactMetricsReport::ty());
-    for field in [
-        "counters",
-        "entity_counters",
-        "window_filter_matched",
-        "requested_window_start_ms",
-        "active_window_start_ms",
-    ] {
-        assert!(
-            report_fields.iter().any(|candidate| candidate == field),
-            "CompactMetricsReport must keep `{field}` as Candid field key",
-        );
-    }
-
-    let counters_fields = expect_record_fields(crate::metrics::state::CompactEventCounters::ty());
-    for field in [
-        "metrics",
-        "window_start_ms",
-        "window_end_ms",
-        "window_duration_ms",
-    ] {
-        assert!(
-            counters_fields.iter().any(|candidate| candidate == field),
-            "CompactEventCounters must keep `{field}` as Candid field key",
-        );
-    }
-
-    let entity_fields = expect_record_fields(crate::metrics::state::CompactEntityMetrics::ty());
-    for field in ["path", "metrics"] {
-        assert!(
-            entity_fields.iter().any(|candidate| candidate == field),
-            "CompactEntityMetrics must keep `{field}` as Candid field key",
-        );
-    }
-
-    let metric_fields = expect_record_fields(CompactMetric::ty());
-    for field in ["code", "value"] {
-        assert!(
-            metric_fields.iter().any(|candidate| candidate == field),
-            "CompactMetric must keep `{field}` as Candid field key",
-        );
-    }
+fn compact_metrics_report_candid_shape_is_positional() {
+    expect_positional_record_fields(
+        "CompactMetricsReport",
+        <CompactMetricsReport as CandidType>::ty(),
+        4,
+    );
+    expect_positional_record_fields(
+        "CompactEventCounters",
+        <crate::metrics::state::CompactEventCounters as CandidType>::ty(),
+        3,
+    );
+    expect_positional_record_fields(
+        "CompactEntityMetrics",
+        <crate::metrics::state::CompactEntityMetrics as CandidType>::ty(),
+        2,
+    );
+    expect_positional_record_fields("CompactMetric", <CompactMetric as CandidType>::ty(), 2);
 }
 
 // The stable Candid shape test intentionally keeps the public field inventory

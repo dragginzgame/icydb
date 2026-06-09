@@ -980,19 +980,9 @@ fn scalar_select_helper_rejects_aggregate_projection_in_current_slice() {
     )
     .expect_err("global aggregate SQL projection should remain lowering-gated");
 
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "global aggregate SQL projection should fail at reduced lowering boundary",
-    );
-    assert!(
-        err.to_string()
-            .contains("scalar SELECT helper rejects global aggregate SELECT"),
-        "scalar SELECT helper should preserve the dedicated aggregate-lane boundary message",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "scalar SELECT helper should preserve the dedicated aggregate-lane boundary diagnostic",
     );
 }
 
@@ -1454,8 +1444,9 @@ fn execute_sql_scalar_literal_leading_mixed_type_compare_still_rejects_semantica
         "literal-leading mixed-type compare should fail schema validation after normalization",
     );
 
-    assert!(
-        err.to_string().contains("field 'age'"),
+    assert_query_plan_predicate_invalid_field(
+        err,
+        "age",
         "literal-leading normalization should not hide the existing invalid field-vs-literal type error",
     );
 }
@@ -1598,8 +1589,9 @@ fn execute_sql_scalar_field_to_field_unknown_field_rejects_at_field_resolution()
     )
     .expect_err("unknown right-hand field should fail field resolution");
 
-    assert!(
-        err.to_string().contains("unknown field 'unknown_field'"),
+    assert_query_plan_expr_unknown_field(
+        err,
+        "unknown_field",
         "missing compare field should stay a field-resolution error instead of a parser error",
     );
 }

@@ -165,10 +165,9 @@ fn scalar_select_helper_rejects_delete_lane_on_typed_entity_surface() {
         let err = execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
             .expect_err("scalar SELECT helper DELETE should stay off the entity-response surface");
 
-        assert!(
-            err.to_string()
-                .contains("scalar SELECT helper rejects DELETE; use execute_sql_update::<E>()"),
-            "scalar SELECT helper DELETE should preserve explicit fluent guidance",
+        assert_runtime_unsupported_query_execution_diagnostic(
+            err,
+            "scalar SELECT helper DELETE should preserve the unsupported-lane diagnostic",
         );
     }
 }

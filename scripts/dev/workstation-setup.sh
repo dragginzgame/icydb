@@ -27,7 +27,6 @@ DEV_SYSTEM_PACKAGES=(
   libssl-dev
   pkg-config
   ripgrep
-  python3
   nodejs
   npm
   bubblewrap

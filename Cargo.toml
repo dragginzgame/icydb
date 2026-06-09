@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "canisters/audit/minimal",
+    "canisters/audit/minimal_metrics",
     "canisters/audit/one_complex",
     "canisters/audit/one_fluent_query",
     "canisters/audit/one_simple",

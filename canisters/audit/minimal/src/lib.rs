@@ -1,5 +1,5 @@
 //!
-//! Minimal SQL canister used for wasm-footprint auditing.
+//! Minimal no-endpoint canister used for wasm-footprint baseline auditing.
 //!
 
 icydb::start!();

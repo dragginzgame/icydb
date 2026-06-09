@@ -390,7 +390,16 @@ fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
-    assert!(err.message.contains("invalid continuation cursor"));
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Cursor,
+    );
+    assert_eq!(diagnostic.detail(), None);
 }
 
 #[test]
@@ -415,11 +424,16 @@ fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
-    assert!(
-        err.message.starts_with("executor invariant violated:"),
-        "cursor invariant mapping must add the canonical executor prefix once",
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
-    assert!(err.message.contains("runtime cursor contract violated"));
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Cursor,
+    );
+    assert_eq!(diagnostic.detail(), None);
 }
 
 #[test]

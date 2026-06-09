@@ -12,7 +12,6 @@ pub(crate) enum ConfigSurface {
     SqlFixtures,
     Metrics,
     MetricsExtended,
-    MetricsReset,
     Snapshot,
     Schema,
 }
@@ -25,7 +24,6 @@ impl ConfigSurface {
             Self::SqlFixtures => "SQL fixtures",
             Self::Metrics => "metrics",
             Self::MetricsExtended => "extended metrics",
-            Self::MetricsReset => "metrics reset",
             Self::Snapshot => "snapshot",
             Self::Schema => "schema",
         }
@@ -38,7 +36,6 @@ impl ConfigSurface {
             Self::SqlFixtures => "canisters.<name>.sql.fixtures",
             Self::Metrics => "canisters.<name>.metrics.enabled",
             Self::MetricsExtended => "canisters.<name>.metrics.extended",
-            Self::MetricsReset => "canisters.<name>.metrics.reset",
             Self::Snapshot => "canisters.<name>.snapshot.enabled",
             Self::Schema => "canisters.<name>.schema.enabled",
         }
@@ -87,7 +84,7 @@ pub(crate) const METRICS_EXTENDED_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpo
 };
 pub(crate) const METRICS_RESET_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
     method: "__icydb_metrics_reset",
-    surface: ConfigSurface::MetricsReset,
+    surface: ConfigSurface::Metrics,
 };
 pub(crate) const SCHEMA_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
     method: "__icydb_schema",
@@ -127,7 +124,6 @@ pub(super) fn config_surface_enabled_for_resolved(
         ConfigSurface::SqlFixtures => config.canister_sql_fixtures_enabled(canister),
         ConfigSurface::Metrics => config.canister_metrics_enabled(canister),
         ConfigSurface::MetricsExtended => config.canister_metrics_extended_enabled(canister),
-        ConfigSurface::MetricsReset => config.canister_metrics_reset_enabled(canister),
         ConfigSurface::Snapshot => config.canister_snapshot_enabled(canister),
         ConfigSurface::Schema => config.canister_schema_enabled(canister),
     }

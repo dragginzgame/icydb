@@ -147,12 +147,7 @@ fn canister_config_row(
             canister.sql_fixtures(),
         )
         .to_string(),
-        metrics_surface_status(
-            canister.metrics(),
-            canister.metrics_extended(),
-            canister.metrics_reset(),
-        )
-        .to_string(),
+        metrics_surface_status(canister.metrics(), canister.metrics_extended()).to_string(),
         enabled_status(canister.snapshot()).to_string(),
         enabled_status(canister.schema()).to_string(),
     ]
@@ -206,16 +201,12 @@ const fn sql_surface_status(readonly: bool, ddl: bool, fixtures: bool) -> &'stat
     }
 }
 
-const fn metrics_surface_status(metrics: bool, extended: bool, reset: bool) -> &'static str {
-    match (metrics, extended, reset) {
-        (true, true, true) => "enabled, extended, reset",
-        (true, true, false) => "enabled, extended",
-        (true, false, true) => "enabled, reset",
-        (true, false, false) => "enabled",
-        (false, true, true) => "extended, reset",
-        (false, true, false) => "extended",
-        (false, false, true) => "reset",
-        (false, false, false) => "off",
+const fn metrics_surface_status(metrics: bool, extended: bool) -> &'static str {
+    match (metrics, extended) {
+        (true, true) => "enabled, extended",
+        (true, false) => "enabled",
+        (false, true) => "extended",
+        (false, false) => "off",
     }
 }
 

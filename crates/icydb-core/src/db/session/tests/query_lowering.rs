@@ -45,10 +45,9 @@ fn sql_query_lowering_rejects_global_aggregate_execution_in_current_lane() {
         "SQL query lowering should keep global aggregate execution on the dedicated aggregate lane",
     );
 
-    assert!(
-        err.to_string()
-            .contains("SQL query lowering rejects global aggregate SELECT"),
-        "SQL query lowering should reject global aggregate execution with an aggregate-lane boundary message",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "SQL query lowering should reject global aggregate execution with the aggregate-lane boundary diagnostic",
     );
 }
 

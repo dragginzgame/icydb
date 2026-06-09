@@ -129,6 +129,13 @@ fn validate_canisters(
 fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCanisterConfig {
     let sql = raw_config.sql.as_ref();
     let metrics = raw_config.metrics.as_ref();
+    let metrics_enabled = metrics
+        .and_then(|metrics| metrics.enabled)
+        .unwrap_or(DEFAULT_METRICS_ENABLED);
+    let metrics_extended_enabled = metrics_enabled
+        && metrics
+            .and_then(|metrics| metrics.extended)
+            .unwrap_or(DEFAULT_METRICS_EXTENDED_ENABLED);
 
     GeneratedCanisterConfig::new(
         GeneratedCanisterSqlConfig::new(
@@ -137,15 +144,7 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
             sql.and_then(|sql| sql.ddl).unwrap_or(false),
             sql.and_then(|sql| sql.fixtures).unwrap_or(false),
         ),
-        GeneratedCanisterMetricsConfig::new(
-            metrics
-                .and_then(|metrics| metrics.enabled)
-                .unwrap_or(DEFAULT_METRICS_ENABLED),
-            metrics
-                .and_then(|metrics| metrics.extended)
-                .unwrap_or(DEFAULT_METRICS_EXTENDED_ENABLED),
-            metrics.and_then(|metrics| metrics.reset).unwrap_or(false),
-        ),
+        GeneratedCanisterMetricsConfig::new(metrics_enabled, metrics_extended_enabled),
         raw_config
             .snapshot
             .as_ref()
@@ -218,7 +217,6 @@ struct RawCanisterSqlConfig {
 struct RawCanisterMetricsConfig {
     enabled: Option<bool>,
     extended: Option<bool>,
-    reset: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

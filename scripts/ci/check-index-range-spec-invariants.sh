@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
+# shellcheck source=scripts/ci/invariant-common.sh
+source "$ROOT/scripts/ci/invariant-common.sh"
+
 # Index-path executor files must not rebuild semantic index-order encoding at
 # execution time. Primary-key access paths may still carry planner `Value`
 # literals until they are converted into decoded data-store keys at the
@@ -59,11 +62,7 @@ REQUIRED_MATCHES=(
 
 status=0
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "[ERROR] ripgrep (rg) is required for index-range spec invariant checks." >&2
-  echo "[ERROR] Install it with your system package manager, then run 'make update-dev' to verify local prerequisites." >&2
-  exit 1
-fi
+require_rg "index-range spec invariant checks"
 
 for file in "${INDEX_EXECUTOR_FILES[@]}"; do
   if [[ ! -f "$file" ]]; then

@@ -104,10 +104,6 @@ struct ConfigInitSurfaceArgs {
     #[arg(long = "metrics-extended")]
     metrics_extended: bool,
 
-    /// Also generate the metrics reset endpoint.
-    #[arg(long = "metrics-reset")]
-    metrics_reset: bool,
-
     /// Also generate storage snapshot endpoint.
     #[arg(long)]
     snapshot: bool,
@@ -154,10 +150,6 @@ impl ConfigInitArgs {
         self.surfaces.metrics_extended()
     }
 
-    pub(crate) const fn metrics_reset(&self) -> bool {
-        self.surfaces.metrics_reset()
-    }
-
     pub(crate) const fn snapshot(&self) -> bool {
         self.surfaces.snapshot()
     }
@@ -181,15 +173,11 @@ impl ConfigInitSurfaceArgs {
     }
 
     const fn metrics(&self) -> bool {
-        self.surface_enabled(self.metrics)
+        self.surface_enabled(self.metrics) || self.metrics_extended
     }
 
     const fn metrics_extended(&self) -> bool {
         self.surface_enabled(self.metrics_extended)
-    }
-
-    const fn metrics_reset(&self) -> bool {
-        self.surface_enabled(self.metrics_reset)
     }
 
     const fn snapshot(&self) -> bool {

@@ -74,13 +74,14 @@ use crate::{
             plan::{
                 AggregateKind, FieldSlot,
                 expr::{Expr, ProjectionField},
+                validate::{ExprPlanError, PlanUserError},
             },
         },
         registry::StoreRegistry,
         response::EntityResponse,
         schema::{
             FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore,
-            compiled_schema_proposal_for_model,
+            ValidateError, compiled_schema_proposal_for_model,
         },
         sql::{
             lowering::{
@@ -4256,20 +4257,172 @@ fn assert_sql_write_boundary_detail(err: QueryError, expected_boundary: SqlWrite
     );
 }
 
+// Assert one query error is reported through the unsupported execution boundary
+// with stable compact diagnostic identity instead of message text.
+fn assert_unsupported_query_execution_diagnostic(err: QueryError, context: &str) {
+    let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
+        err
+    else {
+        panic!("{context}: expected unsupported query execution error");
+    };
+
+    assert_eq!(
+        internal.class(),
+        ErrorClass::Unsupported,
+        "{context}: unsupported execution class drifted",
+    );
+    assert_eq!(
+        internal.origin(),
+        ErrorOrigin::Query,
+        "{context}: unsupported execution origin drifted",
+    );
+
+    let diagnostic = internal.diagnostic();
+    assert_eq!(
+        diagnostic.code().class(),
+        icydb_diagnostic_code::ErrorClass::Unsupported,
+        "{context}: compact diagnostic class drifted",
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        "{context}: compact diagnostic origin drifted",
+    );
+}
+
+// Assert one query error is the generic unsupported-query boundary, used by
+// test-only helper lanes that do not yet have a narrower structured code.
+fn assert_runtime_unsupported_query_execution_diagnostic(err: QueryError, context: &str) {
+    let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(internal)) =
+        err
+    else {
+        panic!("{context}: expected unsupported query execution error");
+    };
+
+    assert_eq!(
+        internal.class(),
+        ErrorClass::Unsupported,
+        "{context}: unsupported execution class drifted",
+    );
+    assert_eq!(
+        internal.origin(),
+        ErrorOrigin::Query,
+        "{context}: unsupported execution origin drifted",
+    );
+
+    let diagnostic = internal.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::RuntimeUnsupported,
+        "{context}: generic unsupported diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        "{context}: generic unsupported diagnostic origin drifted",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        None,
+        "{context}: generic unsupported boundary should not invent detail",
+    );
+}
+
+// Assert one SQL lowering/planning failure stays a structured unknown-field
+// planner error instead of relying on rendered text.
+fn assert_query_plan_expr_unknown_field(err: QueryError, expected_field: &str, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryPlan,
+        "{context}: unknown-field diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        "{context}: unknown-field diagnostic origin drifted",
+    );
+
+    let QueryError::Plan(plan) = err else {
+        panic!("{context}: expected query plan error");
+    };
+    let PlanError::User(user) = *plan else {
+        panic!("{context}: expected user-facing plan error");
+    };
+    let field = match *user {
+        PlanUserError::Expr(expr) => {
+            let ExprPlanError::UnknownField { field } = *expr else {
+                panic!("{context}: expected expression unknown-field error");
+            };
+            field
+        }
+        PlanUserError::PredicateInvalid(validate) => {
+            let ValidateError::UnknownField { field } = *validate else {
+                panic!("{context}: expected predicate unknown-field error");
+            };
+            field
+        }
+        _ => panic!("{context}: expected expression or predicate unknown-field plan error"),
+    };
+
+    assert_eq!(
+        field, expected_field,
+        "{context}: unknown-field identity drifted",
+    );
+}
+
+// Assert one SQL predicate/schema validation failure stays attached to a
+// structured field identity instead of relying on rendered text.
+fn assert_query_plan_predicate_invalid_field(err: QueryError, expected_field: &str, context: &str) {
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::QueryPlan,
+        "{context}: predicate validation diagnostic code drifted",
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        "{context}: predicate validation diagnostic origin drifted",
+    );
+
+    let QueryError::Plan(plan) = err else {
+        panic!("{context}: expected query plan error");
+    };
+    let PlanError::User(user) = *plan else {
+        panic!("{context}: expected user-facing plan error");
+    };
+    let PlanUserError::PredicateInvalid(validate) = *user else {
+        panic!("{context}: expected predicate validation plan error");
+    };
+    let field = match *validate {
+        ValidateError::UnknownField { field }
+        | ValidateError::NonQueryableFieldType { field }
+        | ValidateError::DuplicateField { field }
+        | ValidateError::InvalidPrimaryKey { field }
+        | ValidateError::InvalidPrimaryKeyType { field }
+        | ValidateError::IndexFieldUnknown { field, .. }
+        | ValidateError::IndexFieldNotQueryable { field, .. }
+        | ValidateError::IndexFieldMapNotQueryable { field, .. }
+        | ValidateError::IndexFieldDuplicate { field, .. }
+        | ValidateError::InvalidOperator { field, .. }
+        | ValidateError::InvalidCoercion { field, .. }
+        | ValidateError::InvalidLiteral { field, .. } => field,
+        _ => panic!("{context}: predicate validation error did not carry a field identity"),
+    };
+
+    assert_eq!(
+        field, expected_field,
+        "{context}: predicate validation field identity drifted",
+    );
+}
+
 // Assert one SQL surface result fails with the unsupported execution boundary.
 fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, context: &str) {
     let Err(err) = result else {
         panic!("{context}");
     };
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "unsupported SQL surface case should map to unsupported execution class: {context}",
-    );
+    assert_unsupported_query_execution_diagnostic(err, context);
 }
 
 const fn unsupported_sql_feature_cases() -> [(&'static str, SqlFeatureCode); 5] {

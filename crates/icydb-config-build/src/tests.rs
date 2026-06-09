@@ -6,15 +6,14 @@ use crate::{
 };
 
 #[test]
-fn absent_config_defaults_metrics_on_and_heavy_or_mutating_surfaces_off() {
+fn absent_config_defaults_all_generated_surfaces_off() {
     let config = parse_icydb_toml("", &[]).expect("empty config should parse");
 
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
-    assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
-    assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
 }
@@ -45,13 +44,12 @@ fn explicit_false_disables_metrics_default_surface() {
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
-    assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
 }
 
 #[test]
-fn partial_config_entries_inherit_metrics_default_only() {
+fn partial_config_entries_do_not_enable_metrics_without_explicit_flag() {
     let config = parse_icydb_toml(
         r"
             [canisters.demo_rpg.sql]
@@ -59,7 +57,6 @@ fn partial_config_entries_inherit_metrics_default_only() {
 
             [canisters.demo_rpg.metrics]
             extended = true
-            reset = true
         ",
         &["demo_rpg"],
     )
@@ -68,9 +65,8 @@ fn partial_config_entries_inherit_metrics_default_only() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
-    assert!(config.canister_metrics_enabled("demo_rpg"));
-    assert!(config.canister_metrics_extended_enabled("demo_rpg"));
-    assert!(config.canister_metrics_reset_enabled("demo_rpg"));
+    assert!(!config.canister_metrics_enabled("demo_rpg"));
+    assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
 }
@@ -87,7 +83,6 @@ fn readonly_ddl_fixtures_metrics_snapshot_and_schema_config_validate() {
             [canisters.demo_rpg.metrics]
             enabled = true
             extended = true
-            reset = true
 
             [canisters.demo_rpg.snapshot]
             enabled = true
@@ -104,9 +99,23 @@ fn readonly_ddl_fixtures_metrics_snapshot_and_schema_config_validate() {
     assert!(config.canister_sql_fixtures_enabled("demo_rpg"));
     assert!(config.canister_metrics_enabled("demo_rpg"));
     assert!(config.canister_metrics_extended_enabled("demo_rpg"));
-    assert!(config.canister_metrics_reset_enabled("demo_rpg"));
     assert!(config.canister_snapshot_enabled("demo_rpg"));
     assert!(config.canister_schema_enabled("demo_rpg"));
+}
+
+#[test]
+fn metrics_reset_config_field_fails_parse() {
+    let err = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.metrics]
+            enabled = true
+            reset = true
+        ",
+        &["demo_rpg"],
+    )
+    .expect_err("metrics reset is bundled with metrics.enabled and no longer configurable");
+
+    std::assert_matches!(err, ConfigBuildError::Parse { .. });
 }
 
 #[test]

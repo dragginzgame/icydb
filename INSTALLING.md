@@ -52,7 +52,7 @@ fixtures = true
 
 [canisters.demo_rpg.metrics]
 enabled = true
-reset = true
+extended = true
 
 [canisters.demo_rpg.snapshot]
 enabled = true
@@ -68,7 +68,7 @@ Current generated surfaces:
 - `__icydb_fixtures_reset` and `__icydb_fixtures_load` for local fixture flows
 - `__icydb_snapshot` for storage inventory and stable allocation metadata
 - `__icydb_schema` and `__icydb_schema_check` for accepted schema diagnostics
-- `__icydb_metrics` and `__icydb_metrics_reset` for runtime metrics
+- `__icydb_metrics` and `__icydb_metrics_reset` for explicitly enabled runtime metrics
 
 Fixture loading calls a plain non-exported user hook when present:
 
@@ -111,7 +111,7 @@ checks.
 On Ubuntu, `make install-dev` installs the normal build and script dependencies:
 
 ```bash
-build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep python3 nodejs npm
+build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep nodejs npm
 ```
 
 Canister development and wasm inspection also need:

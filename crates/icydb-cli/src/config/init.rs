@@ -60,7 +60,6 @@ fixtures = {fixtures}
 [canisters.{canister}.metrics]
 enabled = {metrics}
 extended = {metrics_extended}
-reset = {metrics_reset}
 
 [canisters.{canister}.snapshot]
 enabled = {snapshot}
@@ -74,7 +73,6 @@ enabled = {schema}
         fixtures = args.fixtures(),
         metrics = args.metrics(),
         metrics_extended = args.metrics_extended(),
-        metrics_reset = args.metrics_reset(),
         snapshot = args.snapshot(),
         schema = args.schema(),
     )

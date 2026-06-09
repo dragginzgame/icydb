@@ -319,7 +319,7 @@ Every run must include source inspection plus current live verification.
 Required commands:
 
 * `bash scripts/ci/check-memory-id-invariants.sh`
-* `bash scripts/ci/check-field-projection-invariants.sh`
+* `bash scripts/ci/check-layer-authority-invariants.sh`
 * `bash scripts/ci/check-index-range-spec-invariants.sh`
 * `cargo test -p icydb-core recovery_replay_is_idempotent --features sql -- --nocapture`
 * `cargo test -p icydb-core recovery_reconciles_schema_before_rebuilding_indexes_from_rows --features sql -- --nocapture`

@@ -44,21 +44,10 @@ struct BuildSqlOptions {
     fixtures_enabled: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct BuildMetricsOptions {
     enabled: bool,
     extended_enabled: bool,
-    reset_enabled: bool,
-}
-
-impl Default for BuildMetricsOptions {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            extended_enabled: false,
-            reset_enabled: false,
-        }
-    }
 }
 
 impl BuildOptions {
@@ -98,14 +87,6 @@ impl BuildOptions {
     #[must_use]
     pub const fn with_metrics_extended_enabled(mut self, enabled: bool) -> Self {
         self.metrics.extended_enabled = enabled;
-
-        self
-    }
-
-    /// Build options with generated metrics reset endpoint emission configured.
-    #[must_use]
-    pub const fn with_metrics_reset_enabled(mut self, enabled: bool) -> Self {
-        self.metrics.reset_enabled = enabled;
 
         self
     }
@@ -153,13 +134,7 @@ impl BuildOptions {
     /// Return whether generated actor glue should export extended metrics report endpoints.
     #[must_use]
     pub const fn metrics_extended_enabled(self) -> bool {
-        self.metrics.extended_enabled
-    }
-
-    /// Return whether generated actor glue should export metrics reset endpoints.
-    #[must_use]
-    pub const fn metrics_reset_enabled(self) -> bool {
-        self.metrics.reset_enabled
+        self.metrics.enabled && self.metrics.extended_enabled
     }
 
     /// Return whether generated actor glue should export storage snapshot endpoints.
@@ -313,7 +288,7 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
         }
     });
 
-    let metrics_reset_endpoint = builder.options.metrics_reset_enabled().then(|| {
+    let metrics_reset_endpoint = builder.options.metrics_enabled().then(|| {
         quote! {
         #[::icydb::__reexports::ic_cdk::update]
         pub fn __icydb_metrics_reset() -> Result<(), ::icydb::Error> {
@@ -336,16 +311,28 @@ mod tests {
     use super::BuildOptions;
 
     #[test]
-    fn default_build_options_enable_metrics_only() {
+    fn default_build_options_disable_generated_endpoints() {
         let options = BuildOptions::default();
 
         assert!(!options.sql_readonly_enabled());
         assert!(!options.sql_ddl_enabled());
         assert!(!options.sql_fixtures_enabled());
-        assert!(options.metrics_enabled());
+        assert!(!options.metrics_enabled());
         assert!(!options.metrics_extended_enabled());
-        assert!(!options.metrics_reset_enabled());
         assert!(!options.snapshot_enabled());
         assert!(!options.schema_enabled());
+    }
+
+    #[test]
+    fn extended_metrics_requires_metrics_surface() {
+        let options = BuildOptions::default().with_metrics_extended_enabled(true);
+
+        assert!(!options.metrics_enabled());
+        assert!(!options.metrics_extended_enabled());
+
+        let options = options.with_metrics_enabled(true);
+
+        assert!(options.metrics_enabled());
+        assert!(options.metrics_extended_enabled());
     }
 }

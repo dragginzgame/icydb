@@ -4,29 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
-COMMON_GLOBS=(
-  --glob '!**/tests/**'
-  --glob '!**/tests.rs'
-  --glob '!**/*_tests.rs'
-  --glob '!**/test_*.rs'
-)
-
-run_rg() {
-  local pattern=$1
-  shift
-  rg -n --no-heading --color=never "$pattern" "$@" "${COMMON_GLOBS[@]}" || true
-}
-
-strip_comment_only() {
-  awk -F: '{
-    code=$0
-    sub(/^[^:]+:[0-9]+:/, "", code)
-    if (code ~ /^[[:space:]]*\/\//) {
-      next
-    }
-    print $0
-  }'
-}
+# shellcheck source=scripts/ci/invariant-common.sh
+source "$ROOT/scripts/ci/invariant-common.sh"
 
 filter_out_allowed_files() {
   local file

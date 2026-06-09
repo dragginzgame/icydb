@@ -594,7 +594,7 @@ fn sql_query_lowering_projection_matrix_normalizes_to_scalar_fields() {
 }
 
 #[test]
-fn sql_surface_text_specific_computed_projection_rejection_matrix_preserves_lane_messages() {
+fn sql_surface_text_specific_computed_projection_rejection_matrix_preserves_lane_diagnostics() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -602,11 +602,9 @@ fn sql_surface_text_specific_computed_projection_rejection_matrix_preserves_lane
         .expect_err(
             "SQL query lowering should stay on the structural lowered-query lane and reject text-specific computed projection forms",
         );
-    assert!(
-        query_err
-            .to_string()
-            .contains("SQL query lowering does not accept text-specific computed projection"),
-        "SQL query lowering should reject text-specific computed projection with an actionable boundary message",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        query_err,
+        "SQL query lowering should reject text-specific computed projection with the lane boundary diagnostic",
     );
 
     let execute_err = execute_scalar_select_for_tests::<SessionSqlEntity>(
@@ -616,11 +614,9 @@ fn sql_surface_text_specific_computed_projection_rejection_matrix_preserves_lane
     .expect_err(
         "scalar SELECT helper should keep text-specific computed projection on the statement-owned lane",
     );
-    assert!(
-        execute_err
-            .to_string()
-            .contains("scalar SELECT helper rejects text-specific computed projection"),
-        "scalar SELECT helper should reject text-specific computed projection with an actionable boundary message",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        execute_err,
+        "scalar SELECT helper should reject text-specific computed projection with the lane boundary diagnostic",
     );
 }
 
@@ -1172,33 +1168,27 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         lower_select_query_for_tests::<SessionSqlEntity>(&session, delete_returning_sql)
             .map(|_| ())
             .expect_err("SQL query lowering should reject DELETE RETURNING");
-    assert!(
-        query_from_err
-            .to_string()
-            .contains("DELETE RETURNING; use execute_sql_update::<E>()"),
-        "SQL query lowering should preserve explicit DELETE RETURNING guidance",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        query_from_err,
+        "SQL query lowering should reject DELETE RETURNING with the lane boundary diagnostic",
     );
 
     let execute_sql_err =
         execute_scalar_select_for_tests::<SessionSqlEntity>(&session, delete_returning_sql)
             .map(|_| ())
             .expect_err("scalar SELECT helper should reject DELETE entirely");
-    assert!(
-        execute_sql_err
-            .to_string()
-            .contains("scalar SELECT helper rejects DELETE; use execute_sql_update::<E>()"),
-        "scalar SELECT helper should preserve explicit fluent delete guidance",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        execute_sql_err,
+        "scalar SELECT helper should reject DELETE with the lane boundary diagnostic",
     );
 
     let grouped_err =
         execute_grouped_select_for_tests::<SessionSqlEntity>(&session, delete_returning_sql, None)
             .map(|_| ())
             .expect_err("grouped SELECT helper should still reject DELETE at the grouped surface");
-    assert!(
-        grouped_err
-            .to_string()
-            .contains("grouped SELECT helper rejects DELETE"),
-        "grouped SQL surface should preserve its own lane boundary before RETURNING guidance",
+    assert_runtime_unsupported_query_execution_diagnostic(
+        grouped_err,
+        "grouped SQL surface should reject DELETE with the lane boundary diagnostic",
     );
 }
 

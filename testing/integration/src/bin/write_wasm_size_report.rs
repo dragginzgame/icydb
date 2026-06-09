@@ -13,6 +13,7 @@ const GENERATED_EXPORTS: &[&str] = &[
     "__icydb_fixtures_reset",
     "__icydb_fixtures_load",
     "__icydb_metrics",
+    "__icydb_metrics_extended",
     "__icydb_metrics_reset",
     "__icydb_snapshot",
     "__icydb_schema",
@@ -97,7 +98,7 @@ struct GeneratedEndpointSurface {
     sql_ddl: bool,
     sql_fixtures: bool,
     metrics: bool,
-    metrics_reset: bool,
+    metrics_extended: bool,
     snapshot: bool,
     schema: bool,
 }
@@ -380,7 +381,7 @@ fn endpoint_surface(info: &WasmInfo) -> Build {
         sql_fixtures: names.contains(&"__icydb_fixtures_reset")
             || names.contains(&"__icydb_fixtures_load"),
         metrics: names.contains(&"__icydb_metrics"),
-        metrics_reset: names.contains(&"__icydb_metrics_reset"),
+        metrics_extended: names.contains(&"__icydb_metrics_extended"),
         snapshot: names.contains(&"__icydb_snapshot"),
         schema: names.contains(&"__icydb_schema") || names.contains(&"__icydb_schema_check"),
     };
@@ -468,7 +469,7 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
         ("sql_ddl", surface.sql_ddl),
         ("sql_fixtures", surface.sql_fixtures),
         ("metrics", surface.metrics),
-        ("metrics_reset", surface.metrics_reset),
+        ("metrics_extended", surface.metrics_extended),
         ("snapshot", surface.snapshot),
         ("schema", surface.schema),
     ];

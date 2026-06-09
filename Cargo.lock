@@ -198,9 +198,17 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
  "icydb-testing-audit-minimal-fixtures",
- "icydb-testing-wasm-helpers",
+]
+
+[[package]]
+name = "canister_audit_minimal_metrics"
+version = "0.180.17"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-minimal-fixtures",
 ]
 
 [[package]]

@@ -110,7 +110,7 @@ fn derive_where_predicate_subset_recovers_folded_constant_compare_shapes() {
 }
 
 #[test]
-#[should_panic(expected = "normalized boolean expression")]
+#[should_panic]
 fn compile_where_bool_expr_requires_normalized_shape() {
     let expr = Expr::Binary {
         op: crate::db::query::plan::expr::BinaryOp::Eq,

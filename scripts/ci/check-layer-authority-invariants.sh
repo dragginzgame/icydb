@@ -4,42 +4,85 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
+# shellcheck source=scripts/ci/invariant-common.sh
+source "$ROOT/scripts/ci/invariant-common.sh"
+
+CORE_ROOT="crates/icydb-core/src"
 DB_ROOT="crates/icydb-core/src/db"
-COMMON_GLOBS=(
-  --glob '!**/tests/**'
-  --glob '!**/tests.rs'
-  --glob '!**/*_tests.rs'
-  --glob '!**/test_*.rs'
-)
+ROUTE_PLANNER_ROOT="crates/icydb-core/src/db/executor/planning/route/planner/mod.rs"
+ALLOWED_TOP_LEVEL_DB_FAMILIES=3
 ORDERING_AUDIT_DIRS=(
   "crates/icydb-core/src/db/executor"
   "crates/icydb-core/src/db/query"
   "crates/icydb-core/src/db/access"
   "crates/icydb-core/src/db/cursor"
 )
-
-run_rg() {
-  local pattern=$1
-  shift
-  rg -n --no-heading --color=never "$pattern" "$@" "${COMMON_GLOBS[@]}" || true
-}
-
-strip_comment_only() {
-  awk -F: '{
-    code=$0
-    sub(/^[^:]+:[0-9]+:/, "", code)
-    if (code ~ /^[[:space:]]*\/\//) {
-      next
-    }
-    print $0
-  }'
-}
+FIELD_PROJECTION_RUNTIME_FILES=(
+  "crates/icydb-core/src/db/executor/aggregate/projection/mod.rs"
+  "crates/icydb-core/src/db/executor/mutation/save_validation.rs"
+  "crates/icydb-core/src/db/index/key/build.rs"
+  "crates/icydb-core/src/db/index/plan/unique.rs"
+  "crates/icydb-core/src/db/executor/pipeline/operators/post_access/order_cursor.rs"
+  "crates/icydb-core/src/db/predicate/runtime/mod.rs"
+  "crates/icydb-core/src/db/relation/reverse_index.rs"
+  "crates/icydb-core/src/model/entity.rs"
+  "crates/icydb-core/src/traits/mod.rs"
+)
 
 status=0
 
 # -----------------------------------------------------------------------------
 # Strict semantic authority checks (fail on violation).
 # -----------------------------------------------------------------------------
+
+literal_source_scans="$(
+  rg -n --no-heading --color=never 'include_str!\s*\(\s*".*\.rs"' "$CORE_ROOT" || true
+)"
+concat_source_scans="$(
+  rg -n --no-heading --color=never 'include_str!\s*\(\s*concat!\([^)]*\.rs' "$CORE_ROOT" || true
+)"
+if [[ -n "$literal_source_scans" || -n "$concat_source_scans" ]]; then
+  echo "[ERROR] include_str!-based source text scans are prohibited in $CORE_ROOT." >&2
+  echo "[ERROR] Use structural/type/signature/invariant tests instead." >&2
+  printf '%s\n%s\n' "$literal_source_scans" "$concat_source_scans" | sed '/^$/d' >&2
+  status=1
+fi
+
+if [[ ! -f "$ROUTE_PLANNER_ROOT" ]]; then
+  echo "[ERROR] Missing route planner root: $ROUTE_PLANNER_ROOT" >&2
+  status=1
+else
+  sql_imports="$(run_rg 'db::sql::|sql::' "$ROUTE_PLANNER_ROOT" | strip_comment_only)"
+  session_imports="$(run_rg 'db::session::|session::' "$ROUTE_PLANNER_ROOT" | strip_comment_only)"
+
+  if [[ -n "$sql_imports" ]]; then
+    echo "[ERROR] route planner root must not import sql-layer contracts directly." >&2
+    echo "$sql_imports" >&2
+    status=1
+  fi
+
+  if [[ -n "$session_imports" ]]; then
+    echo "[ERROR] route planner root must not import session-layer contracts directly." >&2
+    echo "$session_imports" >&2
+    status=1
+  fi
+
+  route_families="$(
+    { rg -o --no-heading --color=never '(access|direction|executor|query|sql|session|cursor|data|commit|index)::' \
+      "$ROUTE_PLANNER_ROOT" || true; } \
+      | sed 's/::$//' \
+      | sort -u
+  )"
+  route_family_count="$(printf '%s\n' "$route_families" | awk 'NF { count += 1 } END { print count + 0 }')"
+
+  if (( route_family_count > ALLOWED_TOP_LEVEL_DB_FAMILIES )); then
+    echo "[ERROR] route planner root exceeded the allowed top-level db family ceiling." >&2
+    echo "[ERROR] allowed: $ALLOWED_TOP_LEVEL_DB_FAMILIES" >&2
+    echo "[ERROR] observed: $route_family_count" >&2
+    printf '%s\n' "$route_families" | sed '/^$/d' | sed 's/^/[ERROR]   - /' >&2
+    status=1
+  fi
+fi
 
 GROUPED_POLICY_PATTERN="GroupPlanError::OrderRequiresLimit|GroupPlanError::OrderPrefixNotAlignedWithGroupKeys|validate_group_cursor_constraints\\(|validate_grouped_distinct_policy\\(|validate_grouped_having_policy\\("
 grouped_policy_leaks="$(
@@ -60,6 +103,28 @@ if [[ -n "$key_comparator_leaks" ]]; then
   echo "[ERROR] Index-key comparator logic must stay index-owned." >&2
   echo "$key_comparator_leaks" >&2
   status=1
+fi
+
+field_projection_files=()
+for file in "${FIELD_PROJECTION_RUNTIME_FILES[@]}"; do
+  if [[ ! -f "$file" ]]; then
+    echo "[ERROR] Missing expected field-projection runtime file: $file" >&2
+    status=1
+    continue
+  fi
+  field_projection_files+=("$file")
+done
+
+FIELD_PROJECTION_PATTERN="\\.get_value\\(|\\bfn\\s+get_value\\s*\\("
+if [[ ${#field_projection_files[@]} -gt 0 ]]; then
+  field_projection_leaks="$(
+    run_rg "$FIELD_PROJECTION_PATTERN" "${field_projection_files[@]}" | strip_comment_only
+  )"
+  if [[ -n "$field_projection_leaks" ]]; then
+    echo "[ERROR] Runtime field projection must stay slot/index based." >&2
+    echo "$field_projection_leaks" >&2
+    status=1
+  fi
 fi
 
 envelope_authority_leaks="$(

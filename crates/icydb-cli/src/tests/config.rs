@@ -41,7 +41,6 @@ fn config_init_writes_default_config_at_workspace_root() {
         "--fixtures",
         "--metrics",
         "--metrics-extended",
-        "--metrics-reset",
         "--snapshot",
         "--schema",
     ])
@@ -56,7 +55,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\nreset = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -82,7 +81,6 @@ fn config_report_marks_canister_settings_against_icp_environment() {
             [canisters.demo_rpg.metrics]
             enabled = true
             extended = true
-            reset = true
 
             [canisters.demo_rpg.snapshot]
             enabled = true
@@ -118,7 +116,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
     assert!(report.lines().any(|line| {
         line.contains("demo_rpg")
             && line.contains("readonly, ddl, fixtures")
-            && line.contains("enabled, extended, reset")
+            && line.contains("enabled, extended")
             && line.contains("ok")
     }));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -173,7 +171,6 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
             [canisters.demo_rpg.metrics]
             enabled = true
             extended = false
-            reset = false
 
             [canisters.demo_rpg.snapshot]
             enabled = true
@@ -210,11 +207,6 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
         &resolved,
         "demo_rpg",
         ConfigSurface::MetricsExtended,
-    ));
-    assert!(!config_surface_enabled_for_resolved(
-        &resolved,
-        "demo_rpg",
-        ConfigSurface::MetricsReset,
     ));
     assert!(config_surface_enabled_for_resolved(
         &resolved,
@@ -253,7 +245,6 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
             [canisters.demo_rpg.metrics]
             enabled = true
             extended = true
-            reset = false
 
             [canisters.demo_rpg.snapshot]
             enabled = true
@@ -291,7 +282,7 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
         "demo_rpg",
         METRICS_EXTENDED_ENDPOINT,
     ));
-    assert!(!configured_endpoint_enabled_for_resolved(
+    assert!(configured_endpoint_enabled_for_resolved(
         &resolved,
         "demo_rpg",
         METRICS_RESET_ENDPOINT,
@@ -329,11 +320,10 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
     let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
         .expect("config should resolve");
 
-    let message =
-        disabled_config_surface_message(&resolved, "demo_rpg", ConfigSurface::MetricsReset);
+    let message = disabled_config_surface_message(&resolved, "demo_rpg", ConfigSurface::Metrics);
 
-    assert!(message.contains("metrics reset"));
-    assert!(message.contains("canisters.<name>.metrics.reset"));
+    assert!(message.contains("metrics"));
+    assert!(message.contains("canisters.<name>.metrics.enabled"));
     assert!(message.contains(config_path.to_string_lossy().as_ref()));
     assert!(message.contains("rebuild and deploy"));
     std::fs::remove_dir_all(root).expect("test directory should be removed");

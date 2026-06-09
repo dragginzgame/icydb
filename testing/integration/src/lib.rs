@@ -34,6 +34,10 @@ const FIXTURE_CANISTERS: &[FixtureCanister] = &[
         package: "canister_audit_minimal",
     },
     FixtureCanister {
+        name: "minimal_metrics",
+        package: "canister_audit_minimal_metrics",
+    },
+    FixtureCanister {
         name: "one_simple",
         package: "canister_audit_one_simple",
     },

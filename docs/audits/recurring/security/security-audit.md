@@ -488,9 +488,7 @@ Start with the checks IcyDB already uses as security-adjacent evidence:
 
 * `bash scripts/ci/check-index-range-spec-invariants.sh`
 * `bash scripts/ci/check-memory-id-invariants.sh`
-* `bash scripts/ci/check-field-projection-invariants.sh`
 * `bash scripts/ci/check-layer-authority-invariants.sh`
-* `bash scripts/ci/check-architecture-text-scan-invariants.sh`
 * `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture`
 * `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture`
 * `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`

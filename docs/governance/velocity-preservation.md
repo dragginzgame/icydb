@@ -230,7 +230,8 @@ switch-site edits across the tree.
 
 # 9. CI Enforcement
 
-CI should enforce the route-planner import boundary guard.
+CI should enforce the route-planner import boundary guard through the
+layer-authority invariant gate.
 
 The route-planner guard should:
 

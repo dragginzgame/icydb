@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.18` makes generated metrics fully opt-in, bundles reset under the
+  compact metrics surface, records a true no-endpoint wasm floor, and continues
+  invariant/audit cleanup while preserving metrics behavior when enabled.
+
 - `0.180.17` removes obsolete audit/slice helper scripts and per-canister wasm
   markdown rendering, keeps concrete boundary checks, and compacts another
   pass of production-only invariant labels to reduce comparable wasm fixtures.
