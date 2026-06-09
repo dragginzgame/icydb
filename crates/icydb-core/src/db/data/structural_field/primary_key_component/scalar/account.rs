@@ -24,14 +24,10 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_accou
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated account payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_LIST || len != 2 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected two-item account payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let owner_start = payload_start;
@@ -39,9 +35,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_accou
     let sub_start = owner_end;
     let sub_end = skip_structural_binary_value(raw_bytes, sub_start)?;
     if sub_end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after account payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let PrimaryKeyComponent::Principal(owner) =
@@ -63,9 +57,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_accou
             }
         }
     } else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated subaccount payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
 
     Ok(PrimaryKeyComponent::Account(

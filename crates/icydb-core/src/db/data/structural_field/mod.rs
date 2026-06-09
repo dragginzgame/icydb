@@ -101,17 +101,14 @@ pub(in crate::db) use value_storage::{
 ///
 
 #[derive(Clone, Debug, ThisError)]
-#[error("{message}")]
-pub(in crate::db) struct FieldDecodeError {
-    message: String,
-}
+#[error("field decode error")]
+pub(in crate::db) struct FieldDecodeError;
 
 impl FieldDecodeError {
-    // Build one structural field-decode failure message.
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+    // Build one compact structural field-decode failure marker. Detailed
+    // corruption taxonomy is added by row/store boundaries.
+    const fn new() -> Self {
+        Self
     }
 }
 
@@ -132,9 +129,7 @@ fn push_owned_by_kind_list_item(
     context: *mut (),
 ) -> Result<(), FieldDecodeError> {
     let state = unsafe { &mut *context.cast::<OwnedByKindListItems>() };
-    state
-        .try_reserve(1)
-        .map_err(|_| FieldDecodeError::new("structural binary: list item allocation overflow"))?;
+    state.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
     state.push(item_bytes.to_vec());
 
     Ok(())
@@ -150,9 +145,7 @@ fn push_owned_by_kind_map_entry(
     context: *mut (),
 ) -> Result<(), FieldDecodeError> {
     let state = unsafe { &mut *context.cast::<OwnedByKindMapEntries>() };
-    state
-        .try_reserve(1)
-        .map_err(|_| FieldDecodeError::new("structural binary: map entry allocation overflow"))?;
+    state.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
     state.push((key_bytes.to_vec(), value_bytes.to_vec()));
 
     Ok(())
@@ -337,16 +330,12 @@ pub(in crate::db) fn decode_list_field_items(
     kind: FieldKind,
 ) -> Result<Vec<Vec<u8>>, FieldDecodeError> {
     if !matches!(kind, FieldKind::List(_) | FieldKind::Set(_)) {
-        return Err(FieldDecodeError::new(
-            "field kind is not owned by the by-kind list/set framing lane",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let mut state = Vec::new();
     walk_binary_list_items(
         raw_bytes,
-        "expected Structural Binary list for list/set field",
-        "structural binary: trailing bytes after list/set field",
         (&raw mut state).cast(),
         push_owned_by_kind_list_item,
     )?;
@@ -409,16 +398,12 @@ pub(in crate::db) fn decode_map_field_entries(
     kind: FieldKind,
 ) -> Result<OwnedByKindMapEntries, FieldDecodeError> {
     if !matches!(kind, FieldKind::Map { .. }) {
-        return Err(FieldDecodeError::new(
-            "field kind is not owned by the by-kind map framing lane",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let mut state = Vec::new();
     walk_binary_map_entries(
         raw_bytes,
-        "expected Structural Binary map for map field",
-        "structural binary: trailing bytes after map field",
         (&raw mut state).cast(),
         push_owned_by_kind_map_entry,
     )?;

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.14` compacts structural field-decode corruption diagnostics to a
+  single internal marker, removes decode-only string plumbing, and verifies the
+  comparable wasm-footprint reduction.
+
 - `0.180.13` narrows ULID/Subaccount scalar helper surfaces, compacts
   structured query and DDL diagnostic strings, and keeps storage/key byte paths
   unchanged while refreshing the comparable wasm-footprint audit.

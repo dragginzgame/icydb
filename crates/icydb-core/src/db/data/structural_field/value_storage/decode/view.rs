@@ -90,13 +90,11 @@ impl<'a> ValueStorageView<'a> {
     }
 
     /// Decode one bool directly from the bounded value-storage slice.
-    pub(in crate::db) fn as_bool(&self) -> Result<bool, FieldDecodeError> {
+    pub(in crate::db) const fn as_bool(&self) -> Result<bool, FieldDecodeError> {
         match self.tag() {
             TAG_FALSE => Ok(false),
             TAG_TRUE => Ok(true),
-            _ => Err(FieldDecodeError::new(
-                "structural binary: expected bool payload",
-            )),
+            _ => Err(FieldDecodeError::new()),
         }
     }
 
@@ -127,14 +125,10 @@ impl<'a> ValueStorageView<'a> {
         // while preserving map-entry boundary validation.
         let raw_bytes = self.as_bytes();
         let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-            return Err(FieldDecodeError::new(
-                "structural binary: truncated value map payload",
-            ));
+            return Err(FieldDecodeError::new());
         };
         if tag != TAG_MAP {
-            return Err(FieldDecodeError::new(
-                "structural binary: expected value map payload",
-            ));
+            return Err(FieldDecodeError::new());
         }
 
         let mut cursor = payload_start;
@@ -154,9 +148,7 @@ impl<'a> ValueStorageView<'a> {
             }
         }
         if cursor != raw_bytes.len() {
-            return Err(FieldDecodeError::new(
-                "structural binary: trailing bytes after value map payload",
-            ));
+            return Err(FieldDecodeError::new());
         }
 
         Ok(found)

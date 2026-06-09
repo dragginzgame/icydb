@@ -1,0 +1,68 @@
+{
+  "canister": "minimal",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": null,
+    "candid_export": "unavailable",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm",
+      "bytes": 312605,
+      "sha256": "4575515215a131ecf5a04f5eb57e8a7ecbc53a0903cfd41a6afb3ad77db1d423"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm.gz",
+      "bytes": 116519,
+      "sha256": "6639d991faf3f40008627b24753e665376434a87e6fc6eb6d17874f18c49e930"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm",
+      "bytes": 287347,
+      "sha256": "5db556bcf06fc9cb8f5e83cdcd7919054da4a0b80c4eacca8e8e3f258ba2be29"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 110600,
+      "sha256": "78e3bbf6ccd274892c82a4f411a4c4d71c47cbe2ed96390f5fcb76c6c1a1cdcd"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 967,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 35600,
+      "exported_method_count": 1,
+      "exported_methods": [
+        "canister_query __icydb_metrics (func_966)"
+      ]
+    },
+    "icp_shrunk": {
+      "function_count": 967,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 35600,
+      "exported_method_count": 1,
+      "exported_methods": [
+        "canister_query __icydb_metrics (func_961)"
+      ]
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": true,
+      "metrics_reset": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": []
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 25258,
+    "shrink_wasm_gz_bytes": 5919
+  }
+}

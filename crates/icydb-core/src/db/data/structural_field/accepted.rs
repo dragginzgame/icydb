@@ -374,13 +374,7 @@ fn decode_accepted_list_bytes(
         inner,
         items: Vec::new(),
     };
-    walk_binary_list_items(
-        raw_bytes,
-        "expected Structural Binary list for list/set field",
-        "structural binary: trailing bytes after list/set field",
-        (&raw mut state).cast(),
-        push_accepted_list_item,
-    )?;
+    walk_binary_list_items(raw_bytes, (&raw mut state).cast(), push_accepted_list_item)?;
 
     Ok(Value::List(state.items))
 }
@@ -429,8 +423,6 @@ fn validate_accepted_list_bytes(
     let mut state = AcceptedListValidateState { inner };
     walk_binary_list_items(
         raw_bytes,
-        "expected Structural Binary list for list/set field",
-        "structural binary: trailing bytes after list/set field",
         (&raw mut state).cast(),
         validate_accepted_list_item,
     )
@@ -471,13 +463,7 @@ fn decode_accepted_map_bytes(
         value_kind,
         entries: Vec::new(),
     };
-    walk_binary_map_entries(
-        raw_bytes,
-        "expected Structural Binary map for map field",
-        "structural binary: trailing bytes after map field",
-        (&raw mut state).cast(),
-        push_accepted_map_entry,
-    )?;
+    walk_binary_map_entries(raw_bytes, (&raw mut state).cast(), push_accepted_map_entry)?;
 
     Ok(Value::Map(state.entries))
 }
@@ -495,8 +481,6 @@ fn validate_accepted_map_bytes(
     };
     walk_binary_map_entries(
         raw_bytes,
-        "expected Structural Binary map for map field",
-        "structural binary: trailing bytes after map field",
         (&raw mut state).cast(),
         validate_accepted_map_entry,
     )
@@ -567,27 +551,17 @@ fn decode_accepted_enum_bytes(
     path: &str,
     variants: &[PersistedEnumVariant],
 ) -> Result<Value, FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(
-        raw_bytes,
-        "structural binary: truncated enum field",
-        "expected Structural Binary variant for enum field",
-        "structural binary: trailing bytes after enum field",
-    )?;
-    let variant = str::from_utf8(variant_bytes)
-        .map_err(|_| FieldDecodeError::new("structural binary: enum label must be UTF-8"))?;
+    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
+    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
 
     let Some(payload_bytes) = payload_bytes else {
         return Ok(Value::Enum(ValueEnum::new(variant, Some(path))));
     };
     let Some(variant_model) = variants.iter().find(|item| item.ident() == variant) else {
-        return Err(FieldDecodeError::new(
-            "structural binary untyped enum payload is unsupported",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let Some(payload_kind) = variant_model.payload_kind() else {
-        return Err(FieldDecodeError::new(
-            "structural binary untyped enum payload is unsupported",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let payload = match variant_model.payload_storage_decode() {
         FieldStorageDecode::ByKind => {
@@ -607,14 +581,8 @@ fn validate_accepted_enum_bytes(
     raw_bytes: &[u8],
     variants: &[PersistedEnumVariant],
 ) -> Result<(), FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(
-        raw_bytes,
-        "structural binary: truncated enum field",
-        "expected Structural Binary variant for enum field",
-        "structural binary: trailing bytes after enum field",
-    )?;
-    let variant = str::from_utf8(variant_bytes)
-        .map_err(|_| FieldDecodeError::new("structural binary: enum label must be UTF-8"))?;
+    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
+    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
     let Some(payload_bytes) = payload_bytes else {
         return Ok(());
     };
@@ -629,9 +597,7 @@ fn validate_accepted_enum_bytes(
         };
     }
 
-    Err(FieldDecodeError::new(
-        "structural binary untyped enum payload is unsupported",
-    ))
+    Err(FieldDecodeError::new())
 }
 
 ///

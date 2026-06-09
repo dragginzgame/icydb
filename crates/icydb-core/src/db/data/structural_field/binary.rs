@@ -170,9 +170,7 @@ pub(super) fn parse_binary_head(
     let Some(&tag) = bytes.get(offset) else {
         return Ok(None);
     };
-    let payload_offset = offset
-        .checked_add(1)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: head offset overflow"))?;
+    let payload_offset = offset.checked_add(1).ok_or_else(FieldDecodeError::new)?;
 
     let len = match tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE => 0,
@@ -181,16 +179,10 @@ pub(super) fn parse_binary_head(
         TAG_FLOAT32 => u32::try_from(WORD32_LEN)
             .expect("fixed-width scalar length fits in structural binary len"),
         TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP | TAG_VARIANT_UNIT | TAG_VARIANT_PAYLOAD => {
-            decode_u32(
-                bytes,
-                payload_offset,
-                "structural binary: truncated length prefix",
-            )?
+            decode_u32(bytes, payload_offset)?
         }
-        other => {
-            return Err(FieldDecodeError::new(format!(
-                "structural binary: unknown tag 0x{other:02X}"
-            )));
+        _ => {
+            return Err(FieldDecodeError::new());
         }
     };
 
@@ -198,9 +190,9 @@ pub(super) fn parse_binary_head(
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE | TAG_NAT64 | TAG_INT64 | TAG_FLOAT32
         | TAG_FLOAT64 => payload_offset,
         TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP | TAG_VARIANT_UNIT | TAG_VARIANT_PAYLOAD => {
-            payload_offset.checked_add(WORD32_LEN).ok_or_else(|| {
-                FieldDecodeError::new("structural binary: payload offset overflow")
-            })?
+            payload_offset
+                .checked_add(WORD32_LEN)
+                .ok_or_else(FieldDecodeError::new)?
         }
         _ => unreachable!("unknown tags are rejected above"),
     };
@@ -211,9 +203,7 @@ pub(super) fn parse_binary_head(
 // Skip one self-contained Structural Binary v1 value without decoding it.
 pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, FieldDecodeError> {
     let Some((tag, len, payload_offset)) = parse_binary_head(bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let head = BinaryHead {
         payload_offset,
@@ -223,24 +213,14 @@ pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, Fi
 
     match head.tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE => Ok(head.payload_offset),
-        TAG_FLOAT32 => checked_advance(
-            bytes,
-            head.payload_offset,
-            WORD32_LEN,
-            "structural binary: truncated fixed-width scalar payload",
-        ),
-        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => checked_advance(
-            bytes,
-            head.payload_offset,
-            WORD64_LEN,
-            "structural binary: truncated fixed-width scalar payload",
-        ),
+        TAG_FLOAT32 => checked_advance(bytes, head.payload_offset, WORD32_LEN),
+        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => {
+            checked_advance(bytes, head.payload_offset, WORD64_LEN)
+        }
         TAG_TEXT | TAG_BYTES => checked_advance(
             bytes,
             head.payload_offset,
-            usize::try_from(head.len)
-                .map_err(|_| FieldDecodeError::new("structural binary: scalar length too large"))?,
-            "structural binary: truncated scalar payload",
+            usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?,
         ),
         TAG_LIST => skip_list_payload(bytes, head),
         TAG_MAP => skip_map_payload(bytes, head),
@@ -257,18 +237,14 @@ pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, Fi
 // duration of this call.
 pub(super) fn walk_binary_list_items(
     raw_bytes: &[u8],
-    shape_label: &'static str,
-    trailing_label: &'static str,
     context: *mut (),
     on_item: ListItemDecodeFn,
 ) -> Result<(), FieldDecodeError> {
     let Some((tag, len, payload_offset)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(shape_label));
+        return Err(FieldDecodeError::new());
     }
     let head = BinaryHead {
         payload_offset,
@@ -285,7 +261,7 @@ pub(super) fn walk_binary_list_items(
         unsafe { on_item(&raw_bytes[item_start..cursor], context)? };
     }
     if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(trailing_label));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(())
@@ -298,18 +274,14 @@ pub(super) fn walk_binary_list_items(
 // duration of this call.
 pub(super) fn walk_binary_map_entries(
     raw_bytes: &[u8],
-    shape_label: &'static str,
-    trailing_label: &'static str,
     context: *mut (),
     on_entry: MapEntryDecodeFn,
 ) -> Result<(), FieldDecodeError> {
     let Some((tag, len, payload_offset)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_MAP {
-        return Err(FieldDecodeError::new(shape_label));
+        return Err(FieldDecodeError::new());
     }
     let head = BinaryHead {
         payload_offset,
@@ -334,21 +306,18 @@ pub(super) fn walk_binary_map_entries(
         }
     }
     if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(trailing_label));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(())
 }
 
 // Split one tagged variant envelope into its ASCII variant label and optional payload slice.
-pub(super) fn split_binary_variant_payload<'a>(
-    raw_bytes: &'a [u8],
-    truncated_label: &'static str,
-    variant_label: &'static str,
-    trailing_label: &'static str,
-) -> Result<(&'a [u8], Option<&'a [u8]>), FieldDecodeError> {
+pub(super) fn split_binary_variant_payload(
+    raw_bytes: &[u8],
+) -> Result<(&[u8], Option<&[u8]>), FieldDecodeError> {
     let Some((tag, len, payload_offset)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(truncated_label));
+        return Err(FieldDecodeError::new());
     };
     let head = BinaryHead {
         payload_offset,
@@ -360,7 +329,7 @@ pub(super) fn split_binary_variant_payload<'a>(
         TAG_VARIANT_UNIT => {
             let label = decode_variant_label_bytes(raw_bytes, head)?;
             if variant_payload_end(head, label.len())? != raw_bytes.len() {
-                return Err(FieldDecodeError::new(trailing_label));
+                return Err(FieldDecodeError::new());
             }
 
             Ok((label, None))
@@ -370,41 +339,30 @@ pub(super) fn split_binary_variant_payload<'a>(
             let payload_start = variant_payload_end(head, label.len())?;
             let payload_end = skip_binary_value(raw_bytes, payload_start)?;
             if payload_end != raw_bytes.len() {
-                return Err(FieldDecodeError::new(trailing_label));
+                return Err(FieldDecodeError::new());
             }
 
             Ok((label, Some(&raw_bytes[payload_start..payload_end])))
         }
-        _ => Err(FieldDecodeError::new(variant_label)),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
 // Decode one big-endian u32 from the requested byte offset.
-fn decode_u32(
-    bytes: &[u8],
-    offset: usize,
-    truncated_label: &'static str,
-) -> Result<u32, FieldDecodeError> {
+fn decode_u32(bytes: &[u8], offset: usize) -> Result<u32, FieldDecodeError> {
     let slice = bytes
         .get(offset..offset + WORD32_LEN)
-        .ok_or_else(|| FieldDecodeError::new(truncated_label))?;
+        .ok_or_else(FieldDecodeError::new)?;
 
     Ok(u32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
 // Advance one cursor by the requested number of bytes and prove the resulting
 // slice still fits inside the provided buffer.
-fn checked_advance(
-    bytes: &[u8],
-    offset: usize,
-    len: usize,
-    truncated_label: &'static str,
-) -> Result<usize, FieldDecodeError> {
-    let end = offset
-        .checked_add(len)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: length overflow"))?;
+fn checked_advance(bytes: &[u8], offset: usize, len: usize) -> Result<usize, FieldDecodeError> {
+    let end = offset.checked_add(len).ok_or_else(FieldDecodeError::new)?;
     if end > bytes.len() {
-        return Err(FieldDecodeError::new(truncated_label));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(end)
@@ -433,52 +391,34 @@ fn skip_map_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, FieldDecode
 
 // Skip one unit-variant payload containing only its label bytes.
 fn skip_variant_unit_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, FieldDecodeError> {
-    let label_len = usize::try_from(head.len)
-        .map_err(|_| FieldDecodeError::new("structural binary: variant label too large"))?;
+    let label_len = usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?;
 
-    checked_advance(
-        bytes,
-        head.payload_offset,
-        label_len,
-        "structural binary: truncated variant label",
-    )
+    checked_advance(bytes, head.payload_offset, label_len)
 }
 
 // Skip one payload-bearing variant by advancing over the label bytes and then one nested payload.
 fn skip_variant_payload(bytes: &[u8], head: BinaryHead) -> Result<usize, FieldDecodeError> {
-    let label_len = usize::try_from(head.len)
-        .map_err(|_| FieldDecodeError::new("structural binary: variant label too large"))?;
-    let payload_start = checked_advance(
-        bytes,
-        head.payload_offset,
-        label_len,
-        "structural binary: truncated variant label",
-    )?;
+    let label_len = usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?;
+    let payload_start = checked_advance(bytes, head.payload_offset, label_len)?;
 
     skip_binary_value(bytes, payload_start)
 }
 
 // Decode one raw variant label slice from a previously parsed variant head.
 fn decode_variant_label_bytes(bytes: &[u8], head: BinaryHead) -> Result<&[u8], FieldDecodeError> {
-    let label_len = usize::try_from(head.len)
-        .map_err(|_| FieldDecodeError::new("structural binary: variant label too large"))?;
-    let label_end = checked_advance(
-        bytes,
-        head.payload_offset,
-        label_len,
-        "structural binary: truncated variant label",
-    )?;
+    let label_len = usize::try_from(head.len).map_err(|_| FieldDecodeError::new())?;
+    let label_end = checked_advance(bytes, head.payload_offset, label_len)?;
 
     bytes
         .get(head.payload_offset..label_end)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: truncated variant label"))
+        .ok_or_else(FieldDecodeError::new)
 }
 
 // Compute the payload start immediately after the previously decoded variant label.
 fn variant_payload_end(head: BinaryHead, label_len: usize) -> Result<usize, FieldDecodeError> {
     head.payload_offset
         .checked_add(label_len)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: variant label overflow"))
+        .ok_or_else(FieldDecodeError::new)
 }
 
 // Decode one definite-length Structural Binary text payload from the enclosing field bytes.
@@ -487,35 +427,31 @@ pub(super) fn decode_text_scalar_bytes(
     len: u32,
     payload_start: usize,
 ) -> Result<&str, FieldDecodeError> {
-    let text_len = usize::try_from(len)
-        .map_err(|_| FieldDecodeError::new("structural binary: text too large"))?;
+    let text_len = usize::try_from(len).map_err(|_| FieldDecodeError::new())?;
     let payload_end = payload_start
         .checked_add(text_len)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: text length overflow"))?;
+        .ok_or_else(FieldDecodeError::new)?;
     let payload = bytes
         .get(payload_start..payload_end)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: truncated text payload"))?;
+        .ok_or_else(FieldDecodeError::new)?;
 
-    std::str::from_utf8(payload)
-        .map_err(|_| FieldDecodeError::new("structural binary: non-utf8 text string"))
+    std::str::from_utf8(payload).map_err(|_| FieldDecodeError::new())
 }
 
 // Decode one raw payload slice from a definite-length Structural Binary byte payload.
-pub(super) fn payload_bytes<'a>(
-    raw_bytes: &'a [u8],
+pub(super) fn payload_bytes(
+    raw_bytes: &[u8],
     len: u32,
     payload_start: usize,
-    expected: &'static str,
-) -> Result<&'a [u8], FieldDecodeError> {
-    let payload_len = usize::try_from(len)
-        .map_err(|_| FieldDecodeError::new(format!("structural binary: {expected} too large")))?;
-    let payload_end = payload_start.checked_add(payload_len).ok_or_else(|| {
-        FieldDecodeError::new(format!("structural binary: {expected} length overflow"))
-    })?;
+) -> Result<&[u8], FieldDecodeError> {
+    let payload_len = usize::try_from(len).map_err(|_| FieldDecodeError::new())?;
+    let payload_end = payload_start
+        .checked_add(payload_len)
+        .ok_or_else(FieldDecodeError::new)?;
 
-    raw_bytes.get(payload_start..payload_end).ok_or_else(|| {
-        FieldDecodeError::new(format!("structural binary: truncated {expected} payload"))
-    })
+    raw_bytes
+        .get(payload_start..payload_end)
+        .ok_or_else(FieldDecodeError::new)
 }
 
 ///

@@ -940,8 +940,15 @@ fn accepted_row_layout_direct_projection_rejects_malformed_value_storage_scalar(
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Serialize);
-    assert!(
-        err.message.contains("structural binary") || err.message.contains("field kind"),
-        "unexpected malformed value-storage scalar error: {err:?}",
+    assert!(err.detail().is_none());
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption
     );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Serialize
+    );
+    assert_eq!(diagnostic.detail(), None);
 }

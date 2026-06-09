@@ -33,8 +33,7 @@ pub(in crate::db::data::structural_field) fn encode_account_payload_bytes(
 pub(in crate::db::data::structural_field) fn decode_account_payload_bytes(
     bytes: &[u8],
 ) -> Result<Account, FieldDecodeError> {
-    Account::try_from_bytes(bytes)
-        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+    Account::try_from_bytes(bytes).map_err(|_| FieldDecodeError::new())
 }
 
 // Encode one principal payload into its canonical raw byte form.
@@ -51,8 +50,7 @@ pub(in crate::db::data::structural_field) fn encode_principal_payload_bytes(
 pub(in crate::db::data::structural_field) fn decode_principal_payload_bytes(
     bytes: &[u8],
 ) -> Result<Principal, FieldDecodeError> {
-    Principal::try_from_bytes(bytes)
-        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+    Principal::try_from_bytes(bytes).map_err(|_| FieldDecodeError::new())
 }
 
 // Encode one subaccount payload into its canonical fixed-width byte form.
@@ -66,9 +64,7 @@ pub(in crate::db::data::structural_field) const fn encode_subaccount_payload_byt
 pub(in crate::db::data::structural_field) fn decode_subaccount_payload_bytes(
     bytes: &[u8],
 ) -> Result<Subaccount, FieldDecodeError> {
-    let bytes: [u8; 32] = bytes
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid subaccount payload"))?;
+    let bytes: [u8; 32] = bytes.try_into().map_err(|_| FieldDecodeError::new())?;
 
     Ok(Subaccount::from_array(bytes))
 }
@@ -98,9 +94,7 @@ pub(in crate::db::data::structural_field) const fn encode_ulid_payload_bytes(
 pub(in crate::db::data::structural_field) fn decode_ulid_payload_bytes(
     bytes: &[u8],
 ) -> Result<Ulid, FieldDecodeError> {
-    let bytes: [u8; 16] = bytes
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid length"))?;
+    let bytes: [u8; 16] = bytes.try_into().map_err(|_| FieldDecodeError::new())?;
 
     Ok(Ulid::from_bytes(bytes))
 }
@@ -116,8 +110,7 @@ pub(in crate::db::data::structural_field) const fn encode_float32_payload_bytes(
 pub(in crate::db::data::structural_field) fn decode_float32_payload_bytes(
     bytes: &[u8],
 ) -> Result<Float32, FieldDecodeError> {
-    Float32::try_from_bytes(bytes)
-        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+    Float32::try_from_bytes(bytes).map_err(|_| FieldDecodeError::new())
 }
 
 // Encode one float64 payload into its canonical byte form.
@@ -131,8 +124,7 @@ pub(in crate::db::data::structural_field) const fn encode_float64_payload_bytes(
 pub(in crate::db::data::structural_field) fn decode_float64_payload_bytes(
     bytes: &[u8],
 ) -> Result<Float64, FieldDecodeError> {
-    Float64::try_from_bytes(bytes)
-        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+    Float64::try_from_bytes(bytes).map_err(|_| FieldDecodeError::new())
 }
 
 // Encode one int128 payload into its canonical fixed-width byte form.
@@ -146,9 +138,7 @@ pub(in crate::db::data::structural_field) const fn encode_int128_payload_bytes(
 pub(in crate::db::data::structural_field) fn decode_int128_payload_bytes(
     bytes: &[u8],
 ) -> Result<i128, FieldDecodeError> {
-    let bytes: [u8; 16] = bytes
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid int128 length"))?;
+    let bytes: [u8; 16] = bytes.try_into().map_err(|_| FieldDecodeError::new())?;
 
     Ok(i128::from_be_bytes(bytes))
 }
@@ -164,9 +154,7 @@ pub(in crate::db::data::structural_field) const fn encode_nat128_payload_bytes(
 pub(in crate::db::data::structural_field) fn decode_nat128_payload_bytes(
     bytes: &[u8],
 ) -> Result<u128, FieldDecodeError> {
-    let bytes: [u8; 16] = bytes
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid nat128 length"))?;
+    let bytes: [u8; 16] = bytes.try_into().map_err(|_| FieldDecodeError::new())?;
 
     Ok(u128::from_be_bytes(bytes))
 }
@@ -180,8 +168,7 @@ pub(in crate::db::data::structural_field) fn encode_date_payload_days(value: Dat
 pub(in crate::db::data::structural_field) fn decode_date_payload_days(
     days: i64,
 ) -> Result<Date, FieldDecodeError> {
-    Date::try_from_i64(days)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: date day count out of range"))
+    Date::try_from_i64(days).ok_or_else(FieldDecodeError::new)
 }
 
 // Encode one duration payload into canonical millis.
@@ -215,7 +202,7 @@ pub(in crate::db::data::structural_field) fn decode_decimal_payload_mantissa_and
 ) -> Result<Decimal, FieldDecodeError> {
     if scale <= Decimal::max_supported_scale() {
         return Decimal::try_from_i128_with_scale(mantissa, scale)
-            .ok_or_else(|| FieldDecodeError::new("structural binary: invalid decimal payload"));
+            .ok_or_else(FieldDecodeError::new);
     }
 
     let mut value = mantissa;
@@ -223,19 +210,14 @@ pub(in crate::db::data::structural_field) fn decode_decimal_payload_mantissa_and
     while normalized_scale > Decimal::max_supported_scale() {
         if value == 0 {
             return Decimal::try_from_i128_with_scale(0, Decimal::max_supported_scale())
-                .ok_or_else(|| {
-                    FieldDecodeError::new("structural binary: invalid decimal payload")
-                });
+                .ok_or_else(FieldDecodeError::new);
         }
         if value % 10 != 0 {
-            return Err(FieldDecodeError::new(
-                "structural binary: invalid decimal payload",
-            ));
+            return Err(FieldDecodeError::new());
         }
         value /= 10;
         normalized_scale -= 1;
     }
 
-    Decimal::try_from_i128_with_scale(value, normalized_scale)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: invalid decimal payload"))
+    Decimal::try_from_i128_with_scale(value, normalized_scale).ok_or_else(FieldDecodeError::new)
 }

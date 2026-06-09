@@ -11,9 +11,7 @@ use crate::{
             decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
         },
         primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
-        value_storage::decode::cursor::{
-            enforce_optional_trailing_label, parsed_value_payload_end,
-        },
+        value_storage::decode::cursor::{enforce_optional_trailing, parsed_value_payload_end},
     },
     value::Value,
 };
@@ -24,11 +22,9 @@ pub(super) fn decode_binary_i64_value_at(
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
-    let (value, cursor) = decode_binary_i64_from_parsed(raw_bytes, tag, len, payload_start, None)?;
+    let (value, cursor) = decode_binary_i64_from_parsed(raw_bytes, tag, len, payload_start, false)?;
 
     Ok((Value::Int64(value), cursor))
 }
@@ -39,11 +35,9 @@ pub(super) fn decode_binary_u64_value_at(
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
-    let (value, cursor) = decode_binary_u64_from_parsed(raw_bytes, tag, len, payload_start, None)?;
+    let (value, cursor) = decode_binary_u64_from_parsed(raw_bytes, tag, len, payload_start, false)?;
 
     Ok((Value::Nat64(value), cursor))
 }
@@ -54,11 +48,10 @@ pub(super) fn decode_binary_text_value_at(
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated text payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
-    let (value, cursor) = decode_binary_text_from_parsed(raw_bytes, tag, len, payload_start, None)?;
+    let (value, cursor) =
+        decode_binary_text_from_parsed(raw_bytes, tag, len, payload_start, false)?;
 
     Ok((Value::Text(value.to_owned()), cursor))
 }
@@ -69,11 +62,10 @@ pub(super) fn decode_binary_blob_value_at(
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated byte payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
-    let (value, cursor) = decode_binary_blob_from_parsed(raw_bytes, tag, len, payload_start, None)?;
+    let (value, cursor) =
+        decode_binary_blob_from_parsed(raw_bytes, tag, len, payload_start, false)?;
 
     Ok((Value::Blob(value.to_vec()), cursor))
 }
@@ -81,17 +73,9 @@ pub(super) fn decode_binary_blob_value_at(
 // Decode one top-level i64 scalar without wrapping it in a runtime `Value`.
 pub(super) fn decode_binary_i64_scalar(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
-    let (value, _) = decode_binary_i64_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        Some("structural binary: trailing bytes after integer payload"),
-    )?;
+    let (value, _) = decode_binary_i64_from_parsed(raw_bytes, tag, len, payload_start, true)?;
 
     Ok(value)
 }
@@ -99,17 +83,9 @@ pub(super) fn decode_binary_i64_scalar(raw_bytes: &[u8]) -> Result<i64, FieldDec
 // Decode one top-level u64 scalar without wrapping it in a runtime `Value`.
 pub(super) fn decode_binary_u64_scalar(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
-    let (value, _) = decode_binary_u64_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        Some("structural binary: trailing bytes after integer payload"),
-    )?;
+    let (value, _) = decode_binary_u64_from_parsed(raw_bytes, tag, len, payload_start, true)?;
 
     Ok(value)
 }
@@ -117,17 +93,9 @@ pub(super) fn decode_binary_u64_scalar(raw_bytes: &[u8]) -> Result<u64, FieldDec
 // Decode one top-level text scalar without allocating an owned `String`.
 pub(super) fn decode_binary_text_scalar(raw_bytes: &[u8]) -> Result<&str, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated text payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
-    let (value, _) = decode_binary_text_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        Some("structural binary: trailing bytes after text payload"),
-    )?;
+    let (value, _) = decode_binary_text_from_parsed(raw_bytes, tag, len, payload_start, true)?;
 
     Ok(value)
 }
@@ -139,81 +107,56 @@ pub(super) fn decode_binary_text_payload_bytes_if_text(
     raw_bytes: &[u8],
 ) -> Result<Option<&[u8]>, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated text payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_TEXT {
         return Ok(None);
     }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated scalar payload",
-    )?;
-    enforce_optional_trailing_label(
-        cursor,
-        raw_bytes.len(),
-        Some("structural binary: trailing bytes after text payload"),
-    )?;
+    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
+    enforce_optional_trailing(cursor, raw_bytes.len(), true)?;
     let payload = raw_bytes
         .get(payload_start..cursor)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: truncated text payload"))?;
+        .ok_or_else(FieldDecodeError::new)?;
 
     Ok(Some(payload))
 }
 
 // Decode one parsed i64 scalar after the caller has already read the structural
-// head. Top-level callers pass a trailing label, while nested callers use the
+// head. Top-level callers enforce trailing bytes, while nested callers use the
 // returned cursor to continue walking the enclosing payload.
 fn decode_binary_i64_from_parsed(
     raw_bytes: &[u8],
     tag: u8,
     len: u32,
     payload_start: usize,
-    trailing_label: Option<&'static str>,
+    enforce_trailing: bool,
 ) -> Result<(i64, usize), FieldDecodeError> {
     if tag != TAG_INT64 || len != 8 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected i64 integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated fixed-width scalar payload",
-    )?;
-    enforce_optional_trailing_label(cursor, raw_bytes.len(), trailing_label)?;
-    let value = decode_i64_payload_bytes(&raw_bytes[payload_start..cursor], "i64")?;
+    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
+    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
+    let value = decode_i64_payload_bytes(&raw_bytes[payload_start..cursor])?;
 
     Ok((value, cursor))
 }
 
 // Decode one parsed u64 scalar after the caller has already read the structural
-// head. The optional trailing label lets the same core serve both root and
+// head. The optional trailing check lets the same core serve both root and
 // nested scalar decode without weakening either boundary rule.
 fn decode_binary_u64_from_parsed(
     raw_bytes: &[u8],
     tag: u8,
     len: u32,
     payload_start: usize,
-    trailing_label: Option<&'static str>,
+    enforce_trailing: bool,
 ) -> Result<(u64, usize), FieldDecodeError> {
     if tag != TAG_NAT64 || len != 8 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected u64 integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated fixed-width scalar payload",
-    )?;
-    enforce_optional_trailing_label(cursor, raw_bytes.len(), trailing_label)?;
-    let value = decode_u64_payload_bytes(&raw_bytes[payload_start..cursor], "u64")?;
+    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
+    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
+    let value = decode_u64_payload_bytes(&raw_bytes[payload_start..cursor])?;
 
     Ok((value, cursor))
 }
@@ -221,25 +164,18 @@ fn decode_binary_u64_from_parsed(
 // Decode one parsed text scalar after the caller has already read the
 // structural head. Trailing enforcement intentionally happens before UTF-8
 // decoding for root values to preserve the previous error ordering.
-fn decode_binary_text_from_parsed<'a>(
-    raw_bytes: &'a [u8],
+fn decode_binary_text_from_parsed(
+    raw_bytes: &[u8],
     tag: u8,
     len: u32,
     payload_start: usize,
-    trailing_label: Option<&'static str>,
-) -> Result<(&'a str, usize), FieldDecodeError> {
+    enforce_trailing: bool,
+) -> Result<(&str, usize), FieldDecodeError> {
     if tag != TAG_TEXT {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected text payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated scalar payload",
-    )?;
-    enforce_optional_trailing_label(cursor, raw_bytes.len(), trailing_label)?;
+    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
+    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
     let value = decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?;
 
     Ok((value, cursor))
@@ -248,28 +184,21 @@ fn decode_binary_text_from_parsed<'a>(
 // Decode one parsed byte scalar after the caller has already read the
 // structural head. The borrowed slice stays bounded by the parsed payload
 // cursor, so nested callers can continue from the exact following byte.
-fn decode_binary_blob_from_parsed<'a>(
-    raw_bytes: &'a [u8],
+fn decode_binary_blob_from_parsed(
+    raw_bytes: &[u8],
     tag: u8,
     len: u32,
     payload_start: usize,
-    trailing_label: Option<&'static str>,
-) -> Result<(&'a [u8], usize), FieldDecodeError> {
+    enforce_trailing: bool,
+) -> Result<(&[u8], usize), FieldDecodeError> {
     if tag != TAG_BYTES {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected byte payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated scalar payload",
-    )?;
-    enforce_optional_trailing_label(cursor, raw_bytes.len(), trailing_label)?;
+    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
+    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
     let value = raw_bytes
         .get(payload_start..cursor)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: truncated scalar payload"))?;
+        .ok_or_else(FieldDecodeError::new)?;
 
     Ok((value, cursor))
 }

@@ -45,9 +45,7 @@ impl<'a> ValueStorageSlice<'a> {
     fn from_raw(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
         let end = skip_value_storage_binary_value(raw, 0)?;
         if end != raw.len() {
-            return Err(FieldDecodeError::new(
-                "structural binary: trailing bytes after value payload",
-            ));
+            return Err(FieldDecodeError::new());
         }
 
         Ok(Self { bytes: raw })

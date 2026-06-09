@@ -1,0 +1,72 @@
+{
+  "canister": "one_complex",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": null,
+    "candid_export": "unavailable",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.icp-built.wasm",
+      "bytes": 2545920,
+      "sha256": "cfb4e22c64145b809de7c6263d769b72b0f89e336117d479775457c8ccb0cc5a"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.icp-built.wasm.gz",
+      "bytes": 820673,
+      "sha256": "44c0e06ceabb9537425ffdcd2bdf89bf9f4a54f2b4d0b9af278bd6ac859caf38"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.icp-shrunk.wasm",
+      "bytes": 2371151,
+      "sha256": "da5fd6c669cb92b5fe1710f9117bf085b7d36791871a08dd5cffbba85592d995"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 778220,
+      "sha256": "e2f34555d2ddad5b0fb22d41528d1fd673a7d16c74b78b744780194039b1eb89"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 5725,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 178268,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query __icydb_metrics (func_5723)",
+        "canister_query query_one_complex_fluent (func_5724)"
+      ]
+    },
+    "icp_shrunk": {
+      "function_count": 5725,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 178268,
+      "exported_method_count": 2,
+      "exported_methods": [
+        "canister_query __icydb_metrics (func_5715)",
+        "canister_query query_one_complex_fluent (func_5716)"
+      ]
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": true,
+      "metrics_reset": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": [
+      "query_one_complex_fluent"
+    ]
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 174769,
+    "shrink_wasm_gz_bytes": 42453
+  }
+}

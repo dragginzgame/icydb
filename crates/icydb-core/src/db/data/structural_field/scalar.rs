@@ -71,15 +71,11 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
     }
 
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after scalar payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag == crate::db::data::structural_field::binary::TAG_NULL {
         return Ok(Some(Value::Null));
@@ -218,12 +214,7 @@ pub(super) fn decode_bool_fast_path_binary_bytes(
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Bool(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
-        Some(_) => Err(FieldDecodeError::new(
-            "scalar field unexpectedly decoded as non-bool value",
-        )),
-        None => Err(FieldDecodeError::new(
-            "field kind is not owned by the scalar bool fast path",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -253,12 +244,7 @@ pub(super) fn decode_text_fast_path_binary_bytes(
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Text(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
-        Some(_) => Err(FieldDecodeError::new(
-            "scalar field unexpectedly decoded as non-text value",
-        )),
-        None => Err(FieldDecodeError::new(
-            "field kind is not owned by the scalar text fast path",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -288,12 +274,7 @@ pub(super) fn decode_blob_fast_path_binary_bytes(
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Blob(value)) => Ok(Some(Blob::from(value))),
         Some(Value::Null) => Ok(None),
-        Some(_) => Err(FieldDecodeError::new(
-            "scalar field unexpectedly decoded as non-blob value",
-        )),
-        None => Err(FieldDecodeError::new(
-            "field kind is not owned by the scalar blob fast path",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -323,12 +304,7 @@ pub(super) fn decode_float32_fast_path_binary_bytes(
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Float32(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
-        Some(_) => Err(FieldDecodeError::new(
-            "scalar field unexpectedly decoded as non-float32 value",
-        )),
-        None => Err(FieldDecodeError::new(
-            "field kind is not owned by the scalar float32 fast path",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -358,12 +334,7 @@ pub(super) fn decode_float64_fast_path_binary_bytes(
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Float64(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
-        Some(_) => Err(FieldDecodeError::new(
-            "scalar field unexpectedly decoded as non-float64 value",
-        )),
-        None => Err(FieldDecodeError::new(
-            "field kind is not owned by the scalar float64 fast path",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -393,12 +364,7 @@ pub(super) fn decode_int128_fast_path_binary_bytes(
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Int128(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
-        Some(_) => Err(FieldDecodeError::new(
-            "scalar field unexpectedly decoded as non-int128 value",
-        )),
-        None => Err(FieldDecodeError::new(
-            "field kind is not owned by the scalar int128 fast path",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -428,12 +394,7 @@ pub(super) fn decode_nat128_fast_path_binary_bytes(
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Nat128(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
-        Some(_) => Err(FieldDecodeError::new(
-            "scalar field unexpectedly decoded as non-nat128 value",
-        )),
-        None => Err(FieldDecodeError::new(
-            "field kind is not owned by the scalar nat128 fast path",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -446,27 +407,23 @@ fn decode_scalar_fast_path_binary_bytes_kind(
     payload_start: usize,
 ) -> Result<Value, FieldDecodeError> {
     if tag != TAG_BYTES {
-        return Err(FieldDecodeError::new(
-            "structural binary: invalid type, expected bytes",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     match kind {
         FieldKind::Blob { .. } => Ok(Value::Blob(
-            binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?.to_vec(),
+            binary_payload_bytes(raw_bytes, len, payload_start)?.to_vec(),
         )),
         FieldKind::Int128 => Ok(Value::Int128(decode_int128_payload_bytes(
-            binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
+            binary_payload_bytes(raw_bytes, len, payload_start)?,
         )?)),
         FieldKind::Nat128 => Ok(Value::Nat128(decode_nat128_payload_bytes(
-            binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
+            binary_payload_bytes(raw_bytes, len, payload_start)?,
         )?)),
         FieldKind::Ulid => Ok(Value::Ulid(decode_ulid_payload_bytes(
-            binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
+            binary_payload_bytes(raw_bytes, len, payload_start)?,
         )?)),
-        _ => Err(FieldDecodeError::new(
-            "scalar field unexpectedly routed to binary byte fast-path helper",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -499,17 +456,13 @@ fn decode_scalar_fast_path_binary_text_kind(
     payload_start: usize,
 ) -> Result<Value, FieldDecodeError> {
     if tag != TAG_TEXT {
-        return Err(FieldDecodeError::new(
-            "structural binary: invalid type, expected text",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let text = decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?;
     match kind {
         FieldKind::Text { .. } => Ok(Value::Text(text.to_string())),
-        _ => Err(FieldDecodeError::new(
-            "scalar field unexpectedly routed to binary text fast-path helper",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -526,82 +479,54 @@ fn decode_scalar_fast_path_binary_numeric_kind(
         FieldKind::Bool => match tag {
             TAG_FALSE => Ok(Value::Bool(false)),
             TAG_TRUE => Ok(Value::Bool(true)),
-            _ => Err(FieldDecodeError::new(
-                "structural binary: invalid type, expected bool",
-            )),
+            _ => Err(FieldDecodeError::new()),
         },
         FieldKind::Float32 => {
             if tag != TAG_FLOAT32 || len != 4 {
-                return Err(FieldDecodeError::new(
-                    "structural binary: expected f32 float payload",
-                ));
+                return Err(FieldDecodeError::new());
             }
 
-            let value = decode_float32_payload_bytes(binary_payload_bytes(
-                raw_bytes,
-                len,
-                payload_start,
-                "float32",
-            )?)?;
+            let value =
+                decode_float32_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
 
             Ok(Value::Float32(value))
         }
         FieldKind::Float64 => {
             if tag != TAG_FLOAT64 || len != 8 {
-                return Err(FieldDecodeError::new(
-                    "structural binary: expected f64 float payload",
-                ));
+                return Err(FieldDecodeError::new());
             }
 
-            let value = decode_float64_payload_bytes(binary_payload_bytes(
-                raw_bytes,
-                len,
-                payload_start,
-                "float64",
-            )?)?;
+            let value =
+                decode_float64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
 
             Ok(Value::Float64(value))
         }
         FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
             if tag != TAG_INT64 || len != 8 {
-                return Err(FieldDecodeError::new(
-                    "structural binary: expected i64 integer payload",
-                ));
+                return Err(FieldDecodeError::new());
             }
 
-            let value = decode_i64_payload_bytes(
-                binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
-                "i64",
-            )?;
+            let value =
+                decode_i64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
             if !fixed_int_kind_accepts_value(kind, value) {
-                return Err(FieldDecodeError::new(
-                    "structural binary: integer payload outside fixed-width field range",
-                ));
+                return Err(FieldDecodeError::new());
             }
 
             Ok(Value::Int64(value))
         }
         FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
             if tag != TAG_NAT64 || len != 8 {
-                return Err(FieldDecodeError::new(
-                    "structural binary: expected u64 integer payload",
-                ));
+                return Err(FieldDecodeError::new());
             }
 
-            let value = decode_u64_payload_bytes(
-                binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
-                "u64",
-            )?;
+            let value =
+                decode_u64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
             if !fixed_nat_kind_accepts_value(kind, value) {
-                return Err(FieldDecodeError::new(
-                    "structural binary: unsigned integer payload outside fixed-width field range",
-                ));
+                return Err(FieldDecodeError::new());
             }
 
             Ok(Value::Nat64(value))
         }
-        _ => Err(FieldDecodeError::new(
-            "scalar field unexpectedly routed to binary numeric fast-path helper",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }

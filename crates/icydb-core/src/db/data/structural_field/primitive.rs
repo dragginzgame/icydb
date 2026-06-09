@@ -10,13 +10,8 @@ use crate::db::data::structural_field::FieldDecodeError;
 // outer framing contracts.
 
 // Decode one fixed-width primitive payload into its exact byte array.
-fn decode_fixed_width_bytes<const N: usize>(
-    bytes: &[u8],
-    label: &'static str,
-) -> Result<[u8; N], FieldDecodeError> {
-    bytes
-        .try_into()
-        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label} payload")))
+fn decode_fixed_width_bytes<const N: usize>(bytes: &[u8]) -> Result<[u8; N], FieldDecodeError> {
+    bytes.try_into().map_err(|_| FieldDecodeError::new())
 }
 
 // Encode one fixed-width signed integer payload into canonical big-endian
@@ -29,9 +24,8 @@ pub(in crate::db::data::structural_field) const fn encode_i64_payload_bytes(valu
 // bytes shared by structural sibling lanes.
 pub(in crate::db::data::structural_field) fn decode_i64_payload_bytes(
     bytes: &[u8],
-    label: &'static str,
 ) -> Result<i64, FieldDecodeError> {
-    Ok(i64::from_be_bytes(decode_fixed_width_bytes(bytes, label)?))
+    Ok(i64::from_be_bytes(decode_fixed_width_bytes(bytes)?))
 }
 
 // Encode one fixed-width unsigned integer payload into canonical big-endian
@@ -44,9 +38,8 @@ pub(in crate::db::data::structural_field) const fn encode_u64_payload_bytes(valu
 // bytes shared by structural sibling lanes.
 pub(in crate::db::data::structural_field) fn decode_u64_payload_bytes(
     bytes: &[u8],
-    label: &'static str,
 ) -> Result<u64, FieldDecodeError> {
-    Ok(u64::from_be_bytes(decode_fixed_width_bytes(bytes, label)?))
+    Ok(u64::from_be_bytes(decode_fixed_width_bytes(bytes)?))
 }
 
 // Encode one fixed-width float32 payload into canonical IEEE-754 big-endian

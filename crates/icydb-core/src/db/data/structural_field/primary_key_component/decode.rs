@@ -49,9 +49,7 @@ pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
         | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
             decode_relation_primary_key_component_binary_list_bytes(raw_bytes, **key_kind)
         }
-        other => Err(FieldDecodeError::new(format!(
-            "invalid strong relation field kind during structural binary key decode: {other:?}"
-        ))),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -76,9 +74,7 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bina
 
             decode_accepted_relation_primary_key_component_binary_list_bytes(raw_bytes, key_kind)
         }
-        other => Err(FieldDecodeError::new(format!(
-            "invalid accepted strong relation field kind during structural binary key decode: {other:?}"
-        ))),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -110,9 +106,7 @@ pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
         }
         FieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
         FieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
-        other => Err(FieldDecodeError::new(format!(
-            "unsupported primary-key component field kind during structural binary key decode: {other:?}"
-        ))),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -176,15 +170,11 @@ pub(in crate::db) fn validate_primary_key_component_binary_value_bytes(
 // Return whether one Structural Binary v1 payload is the explicit null form.
 fn binary_payload_is_null(raw_bytes: &[u8]) -> Result<bool, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after field payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(tag == TAG_NULL)
@@ -197,15 +187,11 @@ fn decode_optional_relation_primary_key_component_binary_bytes(
     key_kind: FieldKind,
 ) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag == TAG_NULL {
         return Ok(None);
@@ -221,15 +207,11 @@ pub(in crate::db) fn decode_optional_accepted_primary_key_component_field_binary
     key_kind: &PersistedFieldKind,
 ) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag == TAG_NULL {
         return Ok(None);
@@ -245,24 +227,18 @@ fn decode_relation_primary_key_component_binary_list_bytes(
     key_kind: FieldKind,
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag == TAG_NULL {
         return Ok(Vec::new());
     }
     if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(
-            "expected Structural Binary list for relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let mut state = (Vec::new(), key_kind);
     walk_structural_binary_list_items(
         raw_bytes,
-        "expected Structural Binary list for relation field",
-        "structural binary: trailing bytes after relation field",
         (&raw mut state).cast(),
         push_relation_primary_key_component_binary_item,
     )?;
@@ -277,24 +253,18 @@ fn decode_accepted_relation_primary_key_component_binary_list_bytes(
     key_kind: &PersistedFieldKind,
 ) -> Result<Vec<PrimaryKeyComponent>, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag == TAG_NULL {
         return Ok(Vec::new());
     }
     if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(
-            "expected Structural Binary list for relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let mut state = (Vec::new(), key_kind);
     walk_structural_binary_list_items(
         raw_bytes,
-        "expected Structural Binary list for relation field",
-        "structural binary: trailing bytes after relation field",
         (&raw mut state).cast(),
         push_accepted_relation_primary_key_component_binary_item,
     )?;
@@ -347,9 +317,7 @@ fn decode_accepted_primary_key_component_field_binary_bytes(
         }
         PersistedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
         PersistedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
-        other => Err(FieldDecodeError::new(format!(
-            "unsupported accepted primary-key-component field kind during structural binary key decode: {other:?}"
-        ))),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 

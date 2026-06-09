@@ -19,9 +19,7 @@ pub(super) fn skip_value_storage_binary_value(
     offset: usize,
 ) -> Result<usize, FieldDecodeError> {
     let Some(&tag) = raw_bytes.get(offset) else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
 
     match tag {
@@ -32,9 +30,7 @@ pub(super) fn skip_value_storage_binary_value(
         other if is_local_value_storage_tag(other) => {
             skip_value_storage_binary_value(raw_bytes, offset + 1)
         }
-        other => Err(FieldDecodeError::new(format!(
-            "structural binary: unsupported value tag 0x{other:02X}"
-        ))),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -44,14 +40,10 @@ fn skip_value_storage_binary_list(
     offset: usize,
 ) -> Result<usize, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value list payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected value list payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let mut cursor = payload_start;
@@ -69,14 +61,10 @@ fn skip_value_storage_binary_map(
     offset: usize,
 ) -> Result<usize, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value map payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_MAP {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected value map payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let mut cursor = payload_start;

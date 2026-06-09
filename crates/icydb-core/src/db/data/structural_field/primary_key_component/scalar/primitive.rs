@@ -26,26 +26,21 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_times
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated timestamp payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after timestamp payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_INT64 || len != 8 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected i64 timestamp payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Timestamp(
-        decode_timestamp_payload_millis(decode_i64_payload_bytes(
-            binary_payload_bytes(raw_bytes, len, payload_start, "timestamp")?,
-            "timestamp",
-        )?),
+        decode_timestamp_payload_millis(decode_i64_payload_bytes(binary_payload_bytes(
+            raw_bytes,
+            len,
+            payload_start,
+        )?)?),
     ))
 }
 
@@ -54,20 +49,14 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_unit_
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated unit payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after unit payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_UNIT {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected unit payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(PrimaryKeyComponent::Unit)
@@ -79,24 +68,17 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_int_p
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_INT64 || len != 8 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected i64 integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Int64(decode_i64_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
-        "i64",
+        binary_payload_bytes(raw_bytes, len, payload_start)?,
     )?))
 }
 
@@ -106,23 +88,17 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_int12
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated int128 payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_BYTES || len != 16 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected 16-byte int128 payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Int128(decode_int128_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start, "int128")?,
+        binary_payload_bytes(raw_bytes, len, payload_start)?,
     )?))
 }
 
@@ -132,24 +108,17 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat_p
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_NAT64 || len != 8 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected u64 integer payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Nat64(decode_u64_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
-        "u64",
+        binary_payload_bytes(raw_bytes, len, payload_start)?,
     )?))
 }
 
@@ -159,22 +128,16 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat12
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated nat128 payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after relation field",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_BYTES || len != 16 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected 16-byte nat128 payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Nat128(decode_nat128_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start, "nat128")?,
+        binary_payload_bytes(raw_bytes, len, payload_start)?,
     )?))
 }

@@ -160,14 +160,8 @@ fn walk_binary_list_items_yields_raw_item_slices() {
     let bytes = encode_list(&[left.clone(), right.clone()]);
     let mut state: ListState = Vec::new();
 
-    walk_binary_list_items(
-        &bytes,
-        "expected Structural Binary list",
-        "structural binary: trailing bytes after list",
-        (&raw mut state).cast(),
-        push_list_item,
-    )
-    .expect("list walk should succeed");
+    walk_binary_list_items(&bytes, (&raw mut state).cast(), push_list_item)
+        .expect("list walk should succeed");
 
     assert_eq!(state, vec![left, right]);
 }
@@ -184,14 +178,8 @@ fn walk_binary_map_entries_yields_raw_entry_slices() {
     ]);
     let mut state: MapState = Vec::new();
 
-    walk_binary_map_entries(
-        &bytes,
-        "expected Structural Binary map",
-        "structural binary: trailing bytes after map",
-        (&raw mut state).cast(),
-        push_map_entry,
-    )
-    .expect("map walk should succeed");
+    walk_binary_map_entries(&bytes, (&raw mut state).cast(), push_map_entry)
+        .expect("map walk should succeed");
 
     assert_eq!(
         state,
@@ -205,20 +193,10 @@ fn split_binary_variant_payload_handles_unit_and_payload_variants() {
     let payload_value = encode_nat64(7);
     let payload = encode_variant_payload("Loaded", &payload_value);
 
-    let (unit_label, unit_payload) = split_binary_variant_payload(
-        &unit,
-        "structural binary: truncated variant",
-        "expected Structural Binary variant",
-        "structural binary: trailing bytes after variant",
-    )
-    .expect("unit variant split should succeed");
-    let (payload_label, payload_payload) = split_binary_variant_payload(
-        &payload,
-        "structural binary: truncated variant",
-        "expected Structural Binary variant",
-        "structural binary: trailing bytes after variant",
-    )
-    .expect("payload variant split should succeed");
+    let (unit_label, unit_payload) =
+        split_binary_variant_payload(&unit).expect("unit variant split should succeed");
+    let (payload_label, payload_payload) =
+        split_binary_variant_payload(&payload).expect("payload variant split should succeed");
 
     assert_eq!(unit_label, b"Loaded");
     assert!(unit_payload.is_none());
@@ -231,13 +209,5 @@ fn split_binary_variant_payload_rejects_trailing_bytes() {
     let mut bytes = encode_variant_unit("Loaded");
     bytes.extend_from_slice(&encode_null());
 
-    assert!(
-        split_binary_variant_payload(
-            &bytes,
-            "structural binary: truncated variant",
-            "expected Structural Binary variant",
-            "structural binary: trailing bytes after variant",
-        )
-        .is_err()
-    );
+    assert!(split_binary_variant_payload(&bytes).is_err());
 }

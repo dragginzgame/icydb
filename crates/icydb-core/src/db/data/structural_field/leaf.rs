@@ -64,9 +64,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | FieldKind::Nat64
         | FieldKind::Nat128
         | FieldKind::Ulid => {
-            return Err(FieldDecodeError::new(
-                "scalar field unexpectedly bypassed byte-level fast path",
-            ));
+            return Err(FieldDecodeError::new());
         }
         FieldKind::Enum { .. }
         | FieldKind::List(_)
@@ -131,7 +129,7 @@ pub(super) fn encode_leaf_field_binary_bytes(
 
 // Decode the only supported structured leaf `ByKind` case: explicit null.
 fn decode_structured_leaf_null_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_required_null_payload(raw_bytes, "structured")?;
+    decode_required_null_payload(raw_bytes)?;
 
     Ok(Value::Null)
 }
@@ -156,21 +154,17 @@ fn encode_structured_leaf_null_bytes(
 
 // Decode one date payload from its canonical signed day-count form.
 fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_date_payload_days(decode_required_i64_payload(raw_bytes, "date days")?).map(Value::Date)
+    decode_date_payload_days(decode_required_i64_payload(raw_bytes)?).map(Value::Date)
 }
 
 // Decode one decimal payload from the canonical `(mantissa_bytes, scale)`
 // tuple.
 fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let items = split_binary_tuple_items(raw_bytes, 2, "decimal")?;
-    let mantissa_bytes: [u8; 16] = decode_required_bytes_payload(items[0], "decimal mantissa")?
+    let items = split_binary_tuple_items(raw_bytes, 2)?;
+    let mantissa_bytes: [u8; 16] = decode_required_bytes_payload(items[0])?
         .try_into()
-        .map_err(|_| {
-            FieldDecodeError::new(
-                "structural binary: invalid decimal mantissa length: 16 bytes expected",
-            )
-        })?;
-    let scale = decode_required_u32_payload(items[1], "decimal scale")?;
+        .map_err(|_| FieldDecodeError::new())?;
+    let scale = decode_required_u32_payload(items[1])?;
 
     Ok(Value::Decimal(decode_decimal_payload_mantissa_and_scale(
         i128::from_be_bytes(mantissa_bytes),
@@ -181,14 +175,14 @@ fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErro
 // Decode one duration payload from its canonical millis form.
 fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     Ok(Value::Duration(decode_duration_payload_millis(
-        decode_required_u64_payload(raw_bytes, "duration millis")?,
+        decode_required_u64_payload(raw_bytes)?,
     )))
 }
 
 // Decode one bounded signed big-integer payload from the canonical `(sign,
 // limbs)` tuple used by `int_big`.
 fn decode_int_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value, FieldDecodeError> {
-    let items = split_binary_tuple_items(raw_bytes, 2, "int_big")?;
+    let items = split_binary_tuple_items(raw_bytes, 2)?;
     let sign = decode_big_integer_sign_payload(items[0])?;
     let magnitude = decode_big_integer_magnitude_payload(items[1])?;
     let value = IntBig::from_bigint(BigInt::from_biguint(sign, magnitude));
@@ -311,9 +305,7 @@ fn encode_nat_big_value_bytes(
 fn ensure_int_big_max_bytes(value: &IntBig, max_bytes: u32) -> Result<(), FieldDecodeError> {
     let len = value.to_leb128().len();
     if len > max_bytes as usize {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: int_big payload exceeds max_bytes: expected at most {max_bytes}, found {len}"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(())
@@ -322,9 +314,7 @@ fn ensure_int_big_max_bytes(value: &IntBig, max_bytes: u32) -> Result<(), FieldD
 fn ensure_nat_big_max_bytes(value: &NatBig, max_bytes: u32) -> Result<(), FieldDecodeError> {
     let len = value.to_leb128().len();
     if len > max_bytes as usize {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: nat_big payload exceeds max_bytes: expected at most {max_bytes}, found {len}"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(())
@@ -340,13 +330,11 @@ fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
 
 // Decode one `int_big` sign payload serialized as -1, 0, or 1.
 fn decode_big_integer_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecodeError> {
-    match decode_required_i64_payload(raw_bytes, "int_big sign")? {
+    match decode_required_i64_payload(raw_bytes)? {
         -1 => Ok(BigIntSign::Minus),
         0 => Ok(BigIntSign::NoSign),
         1 => Ok(BigIntSign::Plus),
-        other => Err(FieldDecodeError::new(format!(
-            "structural binary: invalid int_big sign {other}"
-        ))),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -354,14 +342,10 @@ fn decode_big_integer_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, Field
 // of base-2^32 limbs.
 fn decode_big_integer_magnitude_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated big-integer magnitude payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected big-integer magnitude limb sequence",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     let mut cursor = payload_start;
@@ -369,15 +353,10 @@ fn decode_big_integer_magnitude_payload(raw_bytes: &[u8]) -> Result<BigUint, Fie
     for _ in 0..len {
         let limb_start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
-        limbs.push(decode_required_u32_payload(
-            &raw_bytes[limb_start..cursor],
-            "big-integer magnitude limb",
-        )?);
+        limbs.push(decode_required_u32_payload(&raw_bytes[limb_start..cursor])?);
     }
     if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after big-integer magnitude payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(BigUint::new(limbs))
@@ -385,20 +364,13 @@ fn decode_big_integer_magnitude_payload(raw_bytes: &[u8]) -> Result<BigUint, Fie
 
 // Decode one required top-level `null` payload and enforce full-byte
 // consumption.
-fn decode_required_null_payload(
-    raw_bytes: &[u8],
-    label: &'static str,
-) -> Result<(), FieldDecodeError> {
+fn decode_required_null_payload(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
     let Some((tag, _, _)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label} payload"
-        )));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() || tag != TAG_NULL {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected null for {label}"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(())
@@ -406,98 +378,62 @@ fn decode_required_null_payload(
 
 // Decode one required top-level byte-string payload and enforce full-byte
 // consumption.
-fn decode_required_bytes_payload<'a>(
-    raw_bytes: &'a [u8],
-    label: &'static str,
-) -> Result<&'a [u8], FieldDecodeError> {
+fn decode_required_bytes_payload(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label} payload"
-        )));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() || tag != TAG_BYTES {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected bytes for {label}"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
-    binary_payload_bytes(raw_bytes, len, payload_start, label)
+    binary_payload_bytes(raw_bytes, len, payload_start)
 }
 
 // Decode one required top-level `u32` payload and enforce full-byte
 // consumption.
-fn decode_required_u32_payload(
-    raw_bytes: &[u8],
-    label: &'static str,
-) -> Result<u32, FieldDecodeError> {
-    u32::try_from(decode_required_u64_payload(raw_bytes, label)?)
-        .map_err(|_| FieldDecodeError::new(format!("structural binary: {label} out of u32 range")))
+fn decode_required_u32_payload(raw_bytes: &[u8]) -> Result<u32, FieldDecodeError> {
+    u32::try_from(decode_required_u64_payload(raw_bytes)?).map_err(|_| FieldDecodeError::new())
 }
 
 // Decode one required top-level `u64` payload and enforce full-byte
 // consumption.
-fn decode_required_u64_payload(
-    raw_bytes: &[u8],
-    label: &'static str,
-) -> Result<u64, FieldDecodeError> {
+fn decode_required_u64_payload(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label} payload"
-        )));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() || tag != TAG_NAT64 || len != 8 {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected u64 for {label}"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
-    decode_u64_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start, label)?,
-        label,
-    )
+    decode_u64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
 }
 
 // Decode one required top-level `i64` payload and enforce full-byte
 // consumption.
-fn decode_required_i64_payload(
-    raw_bytes: &[u8],
-    label: &'static str,
-) -> Result<i64, FieldDecodeError> {
+fn decode_required_i64_payload(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label} payload"
-        )));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() || tag != TAG_INT64 || len != 8 {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected i64 for {label}"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
-    decode_i64_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start, label)?,
-        label,
-    )
+    decode_i64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
 }
 
 // Split one fixed-length binary tuple into self-contained item slices.
-fn split_binary_tuple_items<'a>(
-    raw_bytes: &'a [u8],
+fn split_binary_tuple_items(
+    raw_bytes: &[u8],
     expected_len: u32,
-    label: &'static str,
-) -> Result<Vec<&'a [u8]>, FieldDecodeError> {
+) -> Result<Vec<&[u8]>, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label} payload"
-        )));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_LIST || len != expected_len {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected {label} tuple of length {expected_len}"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
     let mut items = Vec::with_capacity(expected_len as usize);
@@ -508,9 +444,7 @@ fn split_binary_tuple_items<'a>(
         items.push(&raw_bytes[item_start..cursor]);
     }
     if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: trailing bytes after {label} payload"
-        )));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(items)
@@ -538,16 +472,12 @@ pub(super) fn decode_date_field_by_kind_bytes(
     kind: FieldKind,
 ) -> Result<Option<Date>, FieldDecodeError> {
     if !matches!(kind, FieldKind::Date) {
-        return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural date leaf lane",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     match decode_date_value_bytes(raw_bytes)? {
         Value::Date(value) => Ok(Some(value)),
-        _ => Err(FieldDecodeError::new(
-            "structural date leaf unexpectedly decoded as non-date value",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -573,16 +503,12 @@ pub(super) fn decode_decimal_field_by_kind_bytes(
     kind: FieldKind,
 ) -> Result<Option<Decimal>, FieldDecodeError> {
     if !matches!(kind, FieldKind::Decimal { .. }) {
-        return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural decimal leaf lane",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     match decode_decimal_value_bytes(raw_bytes)? {
         Value::Decimal(value) => Ok(Some(value)),
-        _ => Err(FieldDecodeError::new(
-            "structural decimal leaf unexpectedly decoded as non-decimal value",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -608,16 +534,12 @@ pub(super) fn decode_duration_field_by_kind_bytes(
     kind: FieldKind,
 ) -> Result<Option<Duration>, FieldDecodeError> {
     if !matches!(kind, FieldKind::Duration) {
-        return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural duration leaf lane",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
     match decode_duration_value_bytes(raw_bytes)? {
         Value::Duration(value) => Ok(Some(value)),
-        _ => Err(FieldDecodeError::new(
-            "structural duration leaf unexpectedly decoded as non-duration value",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -643,16 +565,12 @@ pub(super) fn decode_int_big_field_by_kind_bytes(
     kind: FieldKind,
 ) -> Result<Option<IntBig>, FieldDecodeError> {
     let FieldKind::IntBig { max_bytes } = kind else {
-        return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural int_big leaf lane",
-        ));
+        return Err(FieldDecodeError::new());
     };
 
     match decode_int_big_value_bytes(raw_bytes, max_bytes)? {
         Value::IntBig(value) => Ok(Some(value)),
-        _ => Err(FieldDecodeError::new(
-            "structural int_big leaf unexpectedly decoded as non-int_big value",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -678,16 +596,12 @@ pub(super) fn decode_nat_big_field_by_kind_bytes(
     kind: FieldKind,
 ) -> Result<Option<NatBig>, FieldDecodeError> {
     let FieldKind::NatBig { max_bytes } = kind else {
-        return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural nat_big leaf lane",
-        ));
+        return Err(FieldDecodeError::new());
     };
 
     match decode_nat_big_value_bytes(raw_bytes, max_bytes)? {
         Value::NatBig(value) => Ok(Some(value)),
-        _ => Err(FieldDecodeError::new(
-            "structural nat_big leaf unexpectedly decoded as non-nat_big value",
-        )),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 

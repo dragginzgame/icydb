@@ -24,29 +24,18 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_princ
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated principal payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after principal payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_BYTES {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected bytes principal payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
-    decode_principal_payload_bytes(binary_payload_bytes(
-        raw_bytes,
-        len,
-        payload_start,
-        "principal",
-    )?)
-    .map(PrimaryKeyComponent::Principal)
+    decode_principal_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
+        .map(PrimaryKeyComponent::Principal)
 }
 
 // Decode one subaccount relation-key payload from Structural Binary v1.
@@ -54,28 +43,17 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_subac
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated subaccount payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after subaccount payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_BYTES {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected bytes subaccount payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
-    decode_subaccount_payload_bytes(binary_payload_bytes(
-        raw_bytes,
-        len,
-        payload_start,
-        "subaccount",
-    )?)
-    .map(PrimaryKeyComponent::Subaccount)
+    decode_subaccount_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
+        .map(PrimaryKeyComponent::Subaccount)
 }
 
 // Decode one ULID relation-key payload directly from its fixed-width Structural
@@ -84,22 +62,16 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_ulid_
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated ulid payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     let end = skip_structural_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after ulid payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
     if tag != TAG_BYTES {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected bytes ulid payload",
-        ));
+        return Err(FieldDecodeError::new());
     }
 
-    decode_ulid_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start, "ulid")?)
+    decode_ulid_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
         .map(PrimaryKeyComponent::Ulid)
 }

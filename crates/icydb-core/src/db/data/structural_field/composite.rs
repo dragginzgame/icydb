@@ -123,8 +123,6 @@ fn decode_binary_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<Value,
     let mut state = (Vec::new(), inner);
     walk_binary_list_items(
         raw_bytes,
-        "expected Structural Binary list for list/set field",
-        "structural binary: trailing bytes after list/set field",
         (&raw mut state).cast(),
         push_kind_binary_array_item,
     )?;
@@ -141,8 +139,6 @@ fn decode_binary_map_bytes(
     let mut state = (Vec::new(), key_kind, value_kind);
     walk_binary_map_entries(
         raw_bytes,
-        "expected Structural Binary map for map field",
-        "structural binary: trailing bytes after map field",
         (&raw mut state).cast(),
         push_kind_binary_map_entry,
     )?;
@@ -155,8 +151,6 @@ fn validate_binary_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<(), 
     let mut state = inner;
     walk_binary_list_items(
         raw_bytes,
-        "expected Structural Binary list for list/set field",
-        "structural binary: trailing bytes after list/set field",
         (&raw mut state).cast(),
         validate_kind_binary_array_item,
     )
@@ -171,8 +165,6 @@ fn validate_binary_map_bytes(
     let mut state = (key_kind, value_kind);
     walk_binary_map_entries(
         raw_bytes,
-        "expected Structural Binary map for map field",
-        "structural binary: trailing bytes after map field",
         (&raw mut state).cast(),
         validate_kind_binary_map_entry,
     )
@@ -185,14 +177,8 @@ fn decode_binary_enum_bytes(
     path: &'static str,
     variants: &'static [EnumVariantModel],
 ) -> Result<Value, FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(
-        raw_bytes,
-        "structural binary: truncated enum field",
-        "expected Structural Binary variant for enum field",
-        "structural binary: trailing bytes after enum field",
-    )?;
-    let variant = str::from_utf8(variant_bytes)
-        .map_err(|_| FieldDecodeError::new("structural binary: enum label must be UTF-8"))?;
+    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
+    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
 
     if let Some(payload_bytes) = payload_bytes {
         let payload = if let Some(variant_model) =
@@ -208,14 +194,10 @@ fn decode_binary_enum_bytes(
                     }
                 }
             } else {
-                return Err(FieldDecodeError::new(
-                    "structural binary untyped enum payload is unsupported",
-                ));
+                return Err(FieldDecodeError::new());
             }
         } else {
-            return Err(FieldDecodeError::new(
-                "structural binary untyped enum payload is unsupported",
-            ));
+            return Err(FieldDecodeError::new());
         };
 
         Ok(Value::Enum(
@@ -231,14 +213,8 @@ fn validate_binary_enum_bytes(
     raw_bytes: &[u8],
     variants: &'static [EnumVariantModel],
 ) -> Result<(), FieldDecodeError> {
-    let (variant_bytes, payload_bytes) = split_binary_variant_payload(
-        raw_bytes,
-        "structural binary: truncated enum field",
-        "expected Structural Binary variant for enum field",
-        "structural binary: trailing bytes after enum field",
-    )?;
-    let variant = str::from_utf8(variant_bytes)
-        .map_err(|_| FieldDecodeError::new("structural binary: enum label must be UTF-8"))?;
+    let (variant_bytes, payload_bytes) = split_binary_variant_payload(raw_bytes)?;
+    let variant = str::from_utf8(variant_bytes).map_err(|_| FieldDecodeError::new())?;
     let Some(payload_bytes) = payload_bytes else {
         return Ok(());
     };
@@ -254,9 +230,7 @@ fn validate_binary_enum_bytes(
         };
     }
 
-    Err(FieldDecodeError::new(
-        "structural binary untyped enum payload is unsupported",
-    ))
+    Err(FieldDecodeError::new())
 }
 
 // Encode one recursive `ByKind` field payload into Structural Binary v1 bytes.
@@ -312,9 +286,7 @@ pub(super) fn decode_composite_field_binary_bytes(
         | FieldKind::Nat128
         | FieldKind::NatBig { .. }
         | FieldKind::Ulid
-        | FieldKind::Unit => Err(FieldDecodeError::new(
-            "leaf field unexpectedly routed through binary composite decode",
-        )),
+        | FieldKind::Unit => Err(FieldDecodeError::new()),
     }
 }
 
@@ -359,9 +331,7 @@ pub(super) fn validate_composite_field_binary_bytes(
         | FieldKind::Nat128
         | FieldKind::NatBig { .. }
         | FieldKind::Ulid
-        | FieldKind::Unit => Err(FieldDecodeError::new(
-            "leaf field unexpectedly routed through binary composite validate",
-        )),
+        | FieldKind::Unit => Err(FieldDecodeError::new()),
     }
 }
 

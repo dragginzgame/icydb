@@ -45,9 +45,7 @@ pub(super) fn decode_value_storage_binary_value_at(
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
     let Some(&tag) = raw_bytes.get(offset) else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
 
     match tag {
@@ -63,8 +61,7 @@ pub(super) fn decode_value_storage_binary_value_at(
             let (items, cursor) = decode_value_storage_binary_list_items_single_pass(
                 raw_bytes,
                 offset,
-                "expected structural binary list for value list payload",
-                None,
+                false,
                 decode_value_storage_binary_value_at,
             )?;
 
@@ -74,12 +71,10 @@ pub(super) fn decode_value_storage_binary_value_at(
             let (entries, cursor) = decode_value_storage_binary_map_entries_single_pass(
                 raw_bytes,
                 offset,
-                "expected structural binary map for value map payload",
-                None,
+                false,
                 decode_value_storage_binary_value_at,
             )?;
-            let value = Value::from_map(entries)
-                .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))?;
+            let value = Value::from_map(entries).map_err(|_| FieldDecodeError::new())?;
 
             Ok((value, cursor))
         }
@@ -104,9 +99,7 @@ pub(super) fn decode_value_storage_binary_value_at(
 
             Ok((value, cursor))
         }
-        other => Err(FieldDecodeError::new(format!(
-            "structural binary: unsupported value tag 0x{other:02X}"
-        ))),
+        _ => Err(FieldDecodeError::new()),
     }
 }
 
@@ -115,9 +108,7 @@ fn decode_value_storage_tag_only_at(
     offset: usize,
     value: Value,
 ) -> Result<(Value, usize), FieldDecodeError> {
-    let cursor = offset
-        .checked_add(1)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: head offset overflow"))?;
+    let cursor = offset.checked_add(1).ok_or_else(FieldDecodeError::new)?;
 
     Ok((value, cursor))
 }
@@ -129,15 +120,13 @@ pub(super) fn parsed_value_payload_end(
     raw_bytes: &[u8],
     len: u32,
     payload_start: usize,
-    truncated_label: &'static str,
 ) -> Result<usize, FieldDecodeError> {
-    let payload_len = usize::try_from(len)
-        .map_err(|_| FieldDecodeError::new("structural binary: scalar length too large"))?;
+    let payload_len = usize::try_from(len).map_err(|_| FieldDecodeError::new())?;
     let cursor = payload_start
         .checked_add(payload_len)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: length overflow"))?;
+        .ok_or_else(FieldDecodeError::new)?;
     if cursor > raw_bytes.len() {
-        return Err(FieldDecodeError::new(truncated_label));
+        return Err(FieldDecodeError::new());
     }
 
     Ok(cursor)
@@ -145,16 +134,14 @@ pub(super) fn parsed_value_payload_end(
 
 // Enforce root-scalar trailing-byte checks only when the caller is decoding a
 // top-level value. Nested collection decode leaves following bytes to the
-// owning walker and therefore passes no trailing label.
-pub(super) fn enforce_optional_trailing_label(
+// owning walker.
+pub(super) const fn enforce_optional_trailing(
     cursor: usize,
     raw_len: usize,
-    trailing_label: Option<&'static str>,
+    enforce_trailing: bool,
 ) -> Result<(), FieldDecodeError> {
-    if let Some(trailing_label) = trailing_label
-        && cursor != raw_len
-    {
-        return Err(FieldDecodeError::new(trailing_label));
+    if enforce_trailing && cursor != raw_len {
+        return Err(FieldDecodeError::new());
     }
 
     Ok(())

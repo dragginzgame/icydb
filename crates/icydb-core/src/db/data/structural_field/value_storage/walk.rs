@@ -18,17 +18,14 @@ type ValueBinaryDecodeFn = fn(&[u8], usize) -> Result<(Value, usize), FieldDecod
 pub(super) fn decode_value_storage_binary_list_items_single_pass(
     raw_bytes: &[u8],
     offset: usize,
-    shape_label: &'static str,
-    trailing_label: Option<&'static str>,
+    enforce_trailing: bool,
     decode_value: ValueBinaryDecodeFn,
 ) -> Result<(Vec<Value>, usize), FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value list payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(shape_label));
+        return Err(FieldDecodeError::new());
     }
 
     let mut cursor = payload_start;
@@ -38,10 +35,8 @@ pub(super) fn decode_value_storage_binary_list_items_single_pass(
         cursor = next_cursor;
         items.push(item);
     }
-    if let Some(trailing_label) = trailing_label
-        && cursor != raw_bytes.len()
-    {
-        return Err(FieldDecodeError::new(trailing_label));
+    if enforce_trailing && cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new());
     }
 
     Ok((items, cursor))
@@ -52,17 +47,14 @@ pub(super) fn decode_value_storage_binary_list_items_single_pass(
 pub(super) fn decode_value_storage_binary_map_entries_single_pass(
     raw_bytes: &[u8],
     offset: usize,
-    shape_label: &'static str,
-    trailing_label: Option<&'static str>,
+    enforce_trailing: bool,
     decode_value: ValueBinaryDecodeFn,
 ) -> Result<(Vec<(Value, Value)>, usize), FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value map payload",
-        ));
+        return Err(FieldDecodeError::new());
     };
     if tag != TAG_MAP {
-        return Err(FieldDecodeError::new(shape_label));
+        return Err(FieldDecodeError::new());
     }
 
     let mut cursor = payload_start;
@@ -73,10 +65,8 @@ pub(super) fn decode_value_storage_binary_map_entries_single_pass(
         cursor = next_cursor;
         entries.push((key, value));
     }
-    if let Some(trailing_label) = trailing_label
-        && cursor != raw_bytes.len()
-    {
-        return Err(FieldDecodeError::new(trailing_label));
+    if enforce_trailing && cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new());
     }
 
     Ok((entries, cursor))
