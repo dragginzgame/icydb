@@ -282,7 +282,7 @@ where
         &right.1,
         direction,
     )
-    .expect("ranked candidates must be prevalidated before bounded selection and sort")
+    .expect("ranking invariant")
 }
 
 // Validate that every ranked value belongs to one comparable domain before

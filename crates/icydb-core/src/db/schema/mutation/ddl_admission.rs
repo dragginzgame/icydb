@@ -57,7 +57,7 @@ impl SchemaDdlMutationAdmission {
     #[must_use]
     pub(in crate::db) fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
         let SchemaDdlMutationTarget::FieldPathAddition(target) = &self.target else {
-            panic!("SQL DDL admission does not carry a field-path index rebuild target");
+            panic!("ddl admission invariant");
         };
 
         target
@@ -248,9 +248,7 @@ impl SchemaDdlAcceptedSnapshotDerivation {
         if let Some(rejection) = schema_admission_rejection(comparison) {
             return Err(SchemaDdlMutationAdmissionError::SchemaVersionAdmission(
                 SchemaDdlSchemaVersionAdmissionError::from_schema_admission(
-                    rejection
-                        .admission()
-                        .expect("schema-version rejection must carry admission classification"),
+                    rejection.admission().expect("ddl admission invariant"),
                 ),
                 rejection.detail().to_string(),
             ));
@@ -372,7 +370,7 @@ impl SchemaDdlSchemaVersionAdmissionError {
             SchemaAdmissionRejectionReason::VersionGap => Self::VersionGap {
                 expected_next: classification
                     .expected_next()
-                    .expect("version-gap admission must carry expected_next"),
+                    .expect("ddl admission invariant"),
             },
             SchemaAdmissionRejectionReason::VersionRollback => Self::VersionRollback,
         }

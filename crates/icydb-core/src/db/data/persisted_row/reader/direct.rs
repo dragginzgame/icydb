@@ -260,7 +260,7 @@ fn decode_sparse_required_slot(
     }
 
     let PrimaryKeyValue::Scalar(expected_key) = *expected_key else {
-        unreachable!("composite keys return before sparse scalar direct decode");
+        unreachable!("persisted row invariant");
     };
 
     // Phase 1: scan and key-validate the row through the compact two-span

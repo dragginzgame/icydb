@@ -763,9 +763,7 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
         // row op remains.
         if prepared_row_ops.len() == 1 {
             let mut prepared_iter = prepared_row_ops.into_iter();
-            let row_op = prepared_iter
-                .next()
-                .expect("single-row prepared path requires exactly one row op");
+            let row_op = prepared_iter.next().expect("commit window invariant");
             apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
 
             row_op.apply();

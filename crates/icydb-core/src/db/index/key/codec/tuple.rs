@@ -14,12 +14,8 @@ use std::cmp::Ordering;
 #[expect(clippy::checked_conversions)]
 pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) {
     // Segment length is persisted as u16 by codec contract.
-    assert!(
-        segment.len() <= u16::MAX as usize,
-        "segment length overflowed u16 despite bounded invariants",
-    );
-    let len_u16 =
-        u16::try_from(segment.len()).expect("segment length should fit in a u16 after assert");
+    assert!(segment.len() <= u16::MAX as usize, "index tuple invariant");
+    let len_u16 = u16::try_from(segment.len()).expect("index tuple invariant");
 
     bytes.extend_from_slice(&len_u16.to_be_bytes());
     bytes.extend_from_slice(segment);

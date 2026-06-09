@@ -318,7 +318,7 @@ fn hash_group_having_value_expr_explain(
             let field_slot = group_fields
                 .iter()
                 .find(|field| field.field() == field_id.as_str())
-                .expect("grouped HAVING explain fingerprint requires grouped field identity");
+                .expect("query fingerprint invariant");
             write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
             write_u32(hasher, field_slot.slot_index() as u32);
             write_str(hasher, field_slot.field());
@@ -352,7 +352,7 @@ fn hash_group_having_value_expr_explain(
                         && filter_matches
                         && aggregate.distinct() == semantic_distinct
                 })
-                .expect("grouped HAVING explain fingerprint requires grouped aggregate identity");
+                .expect("query fingerprint invariant");
             write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
             write_u32(hasher, index as u32);
         }

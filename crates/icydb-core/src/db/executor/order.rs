@@ -267,7 +267,7 @@ where
         let boundary_slot = boundary
             .slots
             .get(slot_index)
-            .expect("cursor boundary must align with resolved order");
+            .expect("executor order invariant");
 
         apply_order_direction(
             compare_order_value_with_boundary(row_slot, boundary_slot),

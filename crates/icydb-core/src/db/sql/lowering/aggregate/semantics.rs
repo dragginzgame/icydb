@@ -169,7 +169,7 @@ impl PreparedAggregateSemantics {
             AggregateKind::Min => Self::Min { target },
             AggregateKind::Max => Self::Max { target },
             AggregateKind::Exists | AggregateKind::First | AggregateKind::Last => {
-                unreachable!("unsupported SQL aggregate kind reached prepared aggregate semantics")
+                unreachable!("sql aggregate invariant")
             }
         }
     }

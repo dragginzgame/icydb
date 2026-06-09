@@ -233,7 +233,7 @@ fn normalize_compare_value_for_kind(
             let Value::List(mut normalized) =
                 normalize_list_value_for_kind(field, values.as_slice(), field_kind, coercion, op)?
             else {
-                unreachable!("normalized compare-list kind should always return list value");
+                unreachable!("predicate normalize invariant");
             };
 
             // Membership predicates are set-shaped: duplicates and input order
@@ -282,7 +282,7 @@ fn normalize_value_for_kind(
             let Value::List(mut normalized) =
                 normalize_list_value_for_kind(field, values.as_slice(), inner, coercion, op)?
             else {
-                unreachable!("normalized list kind should always return list value");
+                unreachable!("predicate normalize invariant");
             };
 
             // Canonical set literal normalization must match the same

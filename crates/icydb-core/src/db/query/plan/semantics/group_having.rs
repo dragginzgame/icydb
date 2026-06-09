@@ -100,8 +100,7 @@ pub(in crate::db) fn grouped_having_compare_expr(left: Expr, op: CompareOp, valu
     }
 
     Expr::Binary {
-        op: truth_condition_compare_binary_op(op)
-            .expect("grouped HAVING compare expressions only lower binary compare operators"),
+        op: truth_condition_compare_binary_op(op).expect("grouped HAVING invariant"),
         left: Box::new(left),
         right: Box::new(Expr::Literal(value)),
     }

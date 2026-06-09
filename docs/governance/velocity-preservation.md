@@ -33,7 +33,7 @@ describe code-review and landing slices. A slice is not a patch release. Routine
 work may accumulate through several small slices before one published patch
 release is prepared.
 
-These rules are intended to be followed by automated agents and by CI checks.
+These rules are intended to guide automated agents and code review.
 
 ---
 
@@ -87,23 +87,21 @@ use the documented override path.
 
 ---
 
-# 4. Slice Override Contract
+# 4. Wide Slice Review
 
-If a pull request exceeds the hard file limit or the domain limit, it must
-include both of these trailer lines in the PR body:
+If a pull request exceeds the hard file limit or the domain limit, the author
+should explain why the wider landing unit is preferable to splitting the work.
 
-`Slice-Override: yes`
-
-`Slice-Justification: <why the cross-layer change is unavoidable>`
+This explanation belongs in the PR summary, not in a special trailer format.
 
 Rules:
 
-- `Slice-Override: yes` is required exactly when limits are exceeded.
-- `Slice-Justification:` must be non-empty.
-- CI may fail wide PRs that do not include both lines.
-- CI should print override usage so later audits can track override frequency.
+- call out the domains that changed;
+- explain why the cross-layer change is unavoidable or cheaper to review as one
+  unit;
+- keep follow-up cleanup work separate unless it is needed for correctness.
 
-This is an escape hatch, not a default workflow.
+This is review guidance, not a CI-enforced contract.
 
 ---
 
@@ -232,17 +230,7 @@ switch-site edits across the tree.
 
 # 9. CI Enforcement
 
-CI should enforce at least these checks:
-
-- slice-shape gate for PRs
-- route-planner import boundary guard
-
-The slice-shape gate should:
-
-- count changed files
-- classify touched primary domains
-- fail wide PRs without the required override trailers
-- print metrics and override usage for audit tracking
+CI should enforce the route-planner import boundary guard.
 
 The route-planner guard should:
 

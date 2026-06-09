@@ -354,7 +354,7 @@ fn derive_grouped_execution_mode_for_intent(
             "route invariant: grouped feasibility derivation requires planner-projected grouped aggregate eligibility",
         );
         let planner_grouped_strategy = grouped_plan_strategy
-            .expect("grouped feasibility derivation requires planner-projected grouped strategy");
+            .expect("route feasibility invariant");
 
         GroupedExecutionMode::from_planner_strategy(
             planner_grouped_strategy,

@@ -17,25 +17,6 @@ Describe the problem and the approach taken. Keep it brief and specific.
 - Outline test coverage added/updated
 - How to reproduce locally
 
-## Slice Shape
-
-Primary domains touched:
-
-- [ ] Parser
-- [ ] Lowering / Session
-- [ ] Executor / Planner
-- [ ] Build / Canister
-- [ ] CI / Setup
-- [ ] Docs / Release
-- [ ] Integration Tests
-
-If this PR exceeds the slice-shape limits, include these exact trailer lines in
-the PR body:
-
-`Slice-Override: yes`
-
-`Slice-Justification: <why the cross-layer change is unavoidable>`
-
 ## Screenshots / Logs (optional)
 
 Attach outputs that help reviewers verify behavior.

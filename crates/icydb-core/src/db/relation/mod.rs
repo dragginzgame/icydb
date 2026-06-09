@@ -316,7 +316,7 @@ fn accepted_relation_target_metadata_from_kind(
             let cardinality = match kind {
                 PersistedFieldKind::List(_) => AcceptedRelationCardinality::List,
                 PersistedFieldKind::Set(_) => AcceptedRelationCardinality::Set,
-                _ => unreachable!("outer relation collection shape was already matched"),
+                _ => unreachable!("relation invariant"),
             };
 
             relation_target(inner.as_ref(), cardinality)

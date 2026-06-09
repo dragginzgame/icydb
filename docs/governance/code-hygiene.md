@@ -256,15 +256,14 @@ match path.kind() {
 Routine feature work should preserve delivery velocity by keeping slices narrow.
 
 See [velocity-preservation.md](/home/adam/projects/icydb/docs/governance/velocity-preservation.md)
-for the current enforced rules, including:
+for the current review guidance, including:
 
-- slice-shape file-count limits
-- cross-domain touch limits
-- `Slice-Override` / `Slice-Justification` escape hatch requirements
-- guarded root-module growth checks for parser and session SQL roots
+- keeping routine feature slices narrow
+- keeping cross-domain changes explicit
+- avoiding large parser and session SQL root-module growth
 
 When a change spans parser, lowering/session, build/canister, or integration
-surfaces together, treat that as an exception that must be justified explicitly.
+surfaces together, call that out explicitly in the PR summary.
 
 ## 13. Test Placement
 

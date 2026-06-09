@@ -633,7 +633,7 @@ impl MutationPlan {
                     reason: "index rebuild mutation lacks an index target",
                 },
                 RebuildRequirement::NoRebuildRequired => {
-                    unreachable!("no-rebuild plans returned before rebuild action derivation",)
+                    unreachable!("schema mutation invariant",)
                 }
             });
         }

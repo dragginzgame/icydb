@@ -363,8 +363,7 @@ fn compile_bool_compare_truth_sets(
 // Compile one compare-ready boolean expression leaf onto the corresponding
 // runtime compare predicate.
 fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Predicate {
-    let op = truth_condition_binary_compare_op(op)
-        .expect("compile-ready binary compare operators must lower onto CompareOp");
+    let op = truth_condition_binary_compare_op(op).expect("predicate compiler invariant");
 
     match (left, right) {
         (Expr::Field(field), Expr::Literal(value)) => {
@@ -737,7 +736,7 @@ const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
 
 fn compare_field_coercion(op: CompareOp) -> CoercionId {
     if !op.supports_field_compare() {
-        unreachable!("non-field compare operator cannot lower to CompareFieldsPredicate");
+        unreachable!("predicate compiler invariant");
     }
 
     if op.is_ordering_family() {

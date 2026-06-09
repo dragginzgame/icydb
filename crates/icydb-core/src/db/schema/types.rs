@@ -306,7 +306,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
     match semantics.category() {
         PersistedFieldKindCategory::Relation(_) => {
             let PersistedFieldKind::Relation { key_kind, .. } = kind else {
-                unreachable!("relation semantics should come from relation persisted kind")
+                unreachable!("persisted kind invariant")
             };
 
             canonicalize_strict_sql_literal_for_persisted_kind(key_kind, value)
@@ -321,7 +321,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
                 _ => None,
             },
             PersistedFieldKind::Map { .. } => None,
-            _ => unreachable!("collection semantics should come from collection persisted kind"),
+            _ => unreachable!("persisted kind invariant"),
         },
         PersistedFieldKindCategory::Structured { .. }
         | PersistedFieldKindCategory::Scalar(
@@ -351,7 +351,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         }
         PersistedFieldKindCategory::Scalar(PersistedScalarClass::SignedBig) => {
             let PersistedFieldKind::IntBig { max_bytes } = kind else {
-                unreachable!("signed-big semantics should come from IntBig persisted kind")
+                unreachable!("persisted kind invariant")
             };
 
             canonicalize_int_big_persisted_literal(value, *max_bytes)
@@ -361,7 +361,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         }
         PersistedFieldKindCategory::Scalar(PersistedScalarClass::UnsignedBig) => {
             let PersistedFieldKind::NatBig { max_bytes } = kind else {
-                unreachable!("unsigned-big semantics should come from NatBig persisted kind")
+                unreachable!("persisted kind invariant")
             };
 
             canonicalize_nat_big_persisted_literal(value, *max_bytes)
@@ -389,7 +389,7 @@ fn canonicalize_signed64_persisted_literal(
         PersistedFieldKind::Int32 => {
             canonicalize_int_persisted_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
         }
-        _ => unreachable!("signed64 semantics should come from fixed signed persisted kind"),
+        _ => unreachable!("persisted kind invariant"),
     }
 }
 
@@ -403,7 +403,7 @@ fn canonicalize_unsigned64_persisted_literal(
         PersistedFieldKind::Nat8 => canonicalize_nat_persisted_literal(value, u64::from(u8::MAX)),
         PersistedFieldKind::Nat16 => canonicalize_nat_persisted_literal(value, u64::from(u16::MAX)),
         PersistedFieldKind::Nat32 => canonicalize_nat_persisted_literal(value, u64::from(u32::MAX)),
-        _ => unreachable!("unsigned64 semantics should come from fixed unsigned persisted kind"),
+        _ => unreachable!("persisted kind invariant"),
     }
 }
 
@@ -430,7 +430,7 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
         }
         PersistedFieldKindCategory::Relation(None) => {
             let PersistedFieldKind::Relation { key_kind, .. } = kind else {
-                unreachable!("relation semantics should come from relation persisted kind")
+                unreachable!("persisted kind invariant")
             };
 
             return field_type_from_persisted_kind(key_kind);
@@ -485,7 +485,7 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit
         | PersistedFieldKind::Relation { .. } => {
-            unreachable!("scalar and relation persisted kinds should be classified first")
+            unreachable!("persisted kind invariant")
         }
     }
 }

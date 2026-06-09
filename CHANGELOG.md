@@ -7,24 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🔧 Changed
-
-- CI now runs the Makefile-owned invariant gate, and versioning readiness keeps
-  a stable Make target without carrying a separate release/security script.
-
-- Wasm size reports now assemble JSON and markdown through a Rust helper, while
-  wasm reporting scripts share canonical defaults and current audit baselines.
-
-- Removed the generated module-structure metrics gate so structural audits stay
-  evidence-based instead of carrying a committed Python metrics analyzer.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
-- `0.180.16` compacts production-only internal invariant labels across query,
-  schema, key, predicate, executor, index, and structural binary paths, while
-  preserving behavior and reducing comparable wasm fixtures.
+- `0.180.17` removes obsolete audit/slice helper scripts and per-canister wasm
+  markdown rendering, keeps concrete boundary checks, and compacts another
+  pass of production-only invariant labels to reduce comparable wasm fixtures.
+
+- `0.180.16` compacts production-only invariant labels, folds wasm reporting
+  and invariant-gate cleanup into the audit slice, removes the generated
+  module-structure metrics gate, and reduces comparable wasm fixtures.
 
 - `0.180.15` compacts diagnostic debug output plus schema
   transition/reconcile/startup mutation details into production-safe buckets,

@@ -117,8 +117,8 @@ fn decode_hex_blob_literal(hex: &[u8]) -> Result<Vec<u8>, crate::db::sql_shared:
 
     let mut bytes = Vec::with_capacity(hex.len() / 2);
     for pair in hex.chunks_exact(2) {
-        let high = hex_nibble(pair[0]).expect("blob literal hex digits are validated while lexing");
-        let low = hex_nibble(pair[1]).expect("blob literal hex digits are validated while lexing");
+        let high = hex_nibble(pair[0]).expect("sql lexer invariant");
+        let low = hex_nibble(pair[1]).expect("sql lexer invariant");
         bytes.push((high << 4) | low);
     }
 

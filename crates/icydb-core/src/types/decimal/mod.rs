@@ -322,8 +322,7 @@ impl Decimal {
     /// violating the decimal scale invariant.
     #[must_use]
     pub const fn from_i128_with_scale(num: i128, scale: u32) -> Self {
-        Self::try_from_i128_with_scale(num, scale)
-            .expect("decimal mantissa and scale exceed supported invariant")
+        Self::try_from_i128_with_scale(num, scale).expect("decimal invariant")
     }
 
     /// Normalize trailing zeros.

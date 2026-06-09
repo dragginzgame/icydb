@@ -1023,7 +1023,7 @@ fn collect_grouped_projection_aggregate_scan(
 
         Ok::<(), InternalError>(())
     })
-    .expect("grouped projection aggregate collection cannot fail");
+    .expect("query group invariant");
 
     if expr.contains_aggregate() {
         GroupedProjectionAggregateScan::found_aggregate(introduced_aggregate_count)

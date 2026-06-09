@@ -968,7 +968,7 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         | FieldKind::Nat64
         | FieldKind::Nat128
         | FieldKind::Ulid
-        | FieldKind::Unit => unreachable!("plain field kind labels return before recursive render"),
+        | FieldKind::Unit => unreachable!("schema describe invariant"),
         FieldKind::NatBig { max_bytes } => {
             write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }
@@ -1176,9 +1176,7 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKin
         | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
         | PersistedFieldKind::Ulid
-        | PersistedFieldKind::Unit => {
-            unreachable!("plain persisted field kind labels return before recursive render")
-        }
+        | PersistedFieldKind::Unit => unreachable!("schema describe invariant"),
         PersistedFieldKind::NatBig { max_bytes } => {
             write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }

@@ -123,7 +123,7 @@ pub(in crate::db) fn sql_capabilities(kind: &PersistedFieldKind) -> SqlCapabilit
             sql_capabilities_for_scalar_semantics(semantics)
         }
         PersistedFieldKindCategory::Relation(None) => {
-            unreachable!("relation persisted field kind should have a scalar key kind")
+            unreachable!("schema capability invariant")
         }
         PersistedFieldKindCategory::Collection => SqlCapabilities::new(
             SQL_CAPABILITY_SELECTABLE,

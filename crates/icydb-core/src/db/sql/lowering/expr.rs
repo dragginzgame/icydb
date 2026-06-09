@@ -106,7 +106,7 @@ fn lower_sql_membership_expr(
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
     let Some((first, rest)) = values.split_first() else {
-        unreachable!("parsed membership expression must keep at least one literal");
+        unreachable!("sql lowering invariant");
     };
 
     let compare_op = if negated {
@@ -265,7 +265,7 @@ fn phase_aggregate_error(phase: SqlExprPhase) -> SqlLoweringError {
             SqlLoweringError::unsupported_aggregate_input_expressions()
         }
         SqlExprPhase::PostAggregate => {
-            unreachable!("post-aggregate lowering allows aggregate leaves")
+            unreachable!("sql lowering invariant")
         }
     }
 }

@@ -86,8 +86,7 @@ impl NumericProjectionExpr {
     ) -> Self {
         let literal = Value::from(literal.into());
 
-        Self::arithmetic_value(field, op, literal)
-            .expect("typed numeric projection helpers should always produce numeric literals")
+        Self::arithmetic_value(field, op, literal).expect("numeric projection invariant")
     }
 
     // Build one field-plus-literal numeric projection.
@@ -321,7 +320,7 @@ pub fn div(
 /// Build `ROUND(field, scale)`.
 pub fn round(field: impl AsRef<str>, scale: u32) -> RoundProjectionExpr {
     RoundProjectionExpr::field(field.as_ref().to_string(), scale)
-        .expect("ROUND(field, scale) helper should always produce a bounded projection")
+        .expect("numeric projection invariant")
 }
 
 /// Build `ROUND(expr, scale)` for one existing bounded numeric projection.
@@ -329,7 +328,7 @@ pub fn round(field: impl AsRef<str>, scale: u32) -> RoundProjectionExpr {
 pub fn round_expr(projection: &NumericProjectionExpr, scale: u32) -> RoundProjectionExpr {
     projection
         .round_with_scale(scale)
-        .expect("ROUND(expr, scale) helper should always produce a bounded projection")
+        .expect("numeric projection invariant")
 }
 
 #[cfg(test)]

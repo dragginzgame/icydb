@@ -117,7 +117,7 @@ fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
         | CompareOp::Gt
         | CompareOp::Gte => Expr::Binary {
             op: truth_condition_compare_binary_op(compare.op())
-                .expect("binary compare predicates must map onto planner binary operators"),
+                .expect("predicate bridge invariant"),
             left: Box::new(casefold_field_expr(
                 compare.field(),
                 compare.coercion().id(),
@@ -149,8 +149,7 @@ fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
 // expression shape consumed by shared normalization and recompilation.
 fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Expr {
     Expr::Binary {
-        op: truth_condition_compare_binary_op(compare.op())
-            .expect("field compare predicates must map onto planner binary operators"),
+        op: truth_condition_compare_binary_op(compare.op()).expect("predicate bridge invariant"),
         left: Box::new(casefold_field_expr(
             compare.left_field.as_str(),
             compare.coercion.id(),
@@ -229,7 +228,7 @@ fn membership_bool_chain_shape(op: CompareOp) -> MembershipBoolChainShape {
             join_op: BinaryOp::And,
             empty_result: true,
         },
-        _ => unreachable!("membership converter called with non-membership compare"),
+        _ => unreachable!("predicate bridge invariant"),
     }
 }
 

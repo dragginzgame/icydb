@@ -177,7 +177,7 @@ impl AcceptedStrongRelationLocalComponents {
             index: field_index,
             field,
         }])
-        .expect("scalar relation metadata must carry one local component")
+        .expect("relation invariant")
     }
 
     fn try_from_component_specs(

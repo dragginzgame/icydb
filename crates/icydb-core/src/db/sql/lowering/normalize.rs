@@ -139,7 +139,7 @@ pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
                 expr: Box::new(SqlExpr::Field(field)),
                 negated: true,
             },
-            _ => unreachable!("null-test identifier rewrite should stay on the null-test boundary"),
+            _ => unreachable!("sql lowering invariant"),
         };
     }
 
@@ -738,7 +738,7 @@ fn sql_field_expr_from_segments(path_segments: &[String]) -> SqlExpr {
             root: root.clone(),
             segments: segments.to_vec(),
         },
-        [] => unreachable!("field path normalization always keeps at least one segment"),
+        [] => unreachable!("sql lowering invariant"),
     }
 }
 

@@ -53,7 +53,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_accou
                 &raw_bytes[sub_start..sub_end],
             )? {
                 PrimaryKeyComponent::Subaccount(value) => Some(value),
-                _ => unreachable!("subaccount key decode must return a subaccount"),
+                _ => unreachable!("account key invariant"),
             }
         }
     } else {

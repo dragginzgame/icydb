@@ -134,7 +134,7 @@ impl ExecutionKernel {
                 execution_preparation: &prepared.execution_preparation,
             },
         )
-        .expect("aggregate route planning should not fail for prepared aggregate requests");
+        .expect("aggregate invariant");
         let direction = route_plan.direction();
 
         PreparedAggregateExecutionState {

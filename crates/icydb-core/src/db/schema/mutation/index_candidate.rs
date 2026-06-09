@@ -199,7 +199,7 @@ fn sql_ddl_secondary_index_key_snapshot(
             .iter()
             .map(|key_item| {
                 let SchemaDdlSecondaryIndexKeyIntent::FieldPath(field_path) = key_item else {
-                    unreachable!("field-path-only index checked before field-path lowering");
+                    unreachable!("schema mutation invariant");
                 };
                 sql_ddl_index_field_path_snapshot(accepted_before, field_path)
             })

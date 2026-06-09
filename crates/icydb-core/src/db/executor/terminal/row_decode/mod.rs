@@ -180,7 +180,7 @@ impl RowLayout {
                 let field = self
                     .contract
                     .field_name(slot)
-                    .expect("dense structural decode only returns declared slots");
+                    .expect("row decode invariant");
 
                 InternalError::persisted_row_declared_field_missing(field)
             })?;

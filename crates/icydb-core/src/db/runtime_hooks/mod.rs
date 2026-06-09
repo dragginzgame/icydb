@@ -110,7 +110,7 @@ pub(in crate::db) const fn debug_assert_unique_runtime_hook_tags<C: CanisterKind
             if entity_runtime_hooks[i].entity_tag.value()
                 == entity_runtime_hooks[j].entity_tag.value()
             {
-                panic!("duplicate EntityTag detected in runtime hooks");
+                panic!("runtime hook invariant");
             }
             j += 1;
         }

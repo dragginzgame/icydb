@@ -548,8 +548,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Return one stable list of runtime-registered entity catalog entries.
     #[must_use]
     pub fn show_entities(&self) -> Vec<crate::db::EntityCatalogDescription> {
-        self.try_show_entities()
-            .expect("SHOW ENTITIES metadata requires accepted schema authority")
+        self.try_show_entities().expect("session invariant")
     }
 
     /// Return one stable list of runtime-registered entity catalog entries.

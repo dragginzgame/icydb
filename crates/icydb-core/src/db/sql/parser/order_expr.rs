@@ -271,7 +271,7 @@ trait SupportedOrderFunctionParser {
                 Ok(args)
             }
             SupportedOrderFunctionShape::NumericScale => {
-                unreachable!("scale-taking numeric functions are handled separately")
+                unreachable!("sql parser invariant")
             }
         }
     }

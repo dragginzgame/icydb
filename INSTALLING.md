@@ -190,7 +190,8 @@ The repository includes a demo RPG canister with SQL-visible `character` and
 `(x, y)` primary key.
 
 ```bash
-scripts/dev/sql-start-demo
+icydb canister refresh -e demo demo_rpg
+icydb sql -e demo -c demo_rpg --sql "SHOW TABLES"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT x, y, terrain FROM grid ORDER BY danger_level DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"

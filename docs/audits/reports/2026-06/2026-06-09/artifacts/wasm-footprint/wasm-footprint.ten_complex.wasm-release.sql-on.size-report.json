@@ -7,24 +7,24 @@
     "candid_export": "unavailable",
     "icp_built_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-built.wasm",
-      "bytes": 2548185,
-      "sha256": "b3998ff09570994a63334e9ab434841fe77add1082af73d6e65d2c8b272e70d9"
+      "bytes": 2546756,
+      "sha256": "60a5a718213e0c893d3f6cb3cf36bddc99df8e2f04d43ee9d71dae7d645725de"
     },
     "icp_built_wasm_gz_deterministic": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-built.wasm.gz",
-      "bytes": 816216,
-      "sha256": "62cbc25953fc85cd8bd51e550aa777d865f6ac5b96e73703fa8dea137267063f"
+      "bytes": 816045,
+      "sha256": "d0e4d6f4185ded114e1ebcd03f90c47281bcd2063cd3e9e2444aaf0e2b0fd5bc"
     },
     "icp_built_wasm_gz_emitted": null,
     "icp_shrunk_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-shrunk.wasm",
-      "bytes": 2373095,
-      "sha256": "60f073b1ecad6e816f1f75d166af9cf2bd383a09ac0d70ef81acd668568a1f66"
+      "bytes": 2371667,
+      "sha256": "7a13c0b0baf7e91fc18f29214818eaffe21fe4e1d6739f4d1440604aa835498a"
     },
     "icp_shrunk_wasm_gz": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-shrunk.wasm.gz",
-      "bytes": 774236,
-      "sha256": "ede56184bd3bf65493bddf561871833b4f25d2bb71385393852418f79b594fcf"
+      "bytes": 774102,
+      "sha256": "5578fd3f0cb8dde0ffe13f6f0f02b4909121d1d2afa683d2ff84fc12a907e9fe"
     }
   },
   "analysis": {
@@ -32,7 +32,7 @@
       "function_count": 5725,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 170092,
+      "data_section_bytes": 168684,
       "exported_method_count": 2,
       "exported_methods": [
         "canister_query __icydb_metrics (func_5723)",
@@ -43,7 +43,7 @@
       "function_count": 5725,
       "callback_count": 1,
       "data_section_count": 3,
-      "data_section_bytes": 170092,
+      "data_section_bytes": 168684,
       "exported_method_count": 2,
       "exported_methods": [
         "canister_query __icydb_metrics (func_5715)",
@@ -66,7 +66,7 @@
     ]
   },
   "deltas": {
-    "shrink_wasm_bytes": 175090,
-    "shrink_wasm_gz_bytes": 41980
+    "shrink_wasm_bytes": 175089,
+    "shrink_wasm_gz_bytes": 41943
   }
 }

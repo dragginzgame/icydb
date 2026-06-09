@@ -24,8 +24,9 @@ that boundary and should be run only on hosts where that is acceptable.
   pinned GitHub release download.
 - Crate publishing is manual maintainer work using `cargo publish`; there is no
   repo Make target or script that reads crates.io credentials.
-- `scripts/dev/delete-tags.sh` deletes matching local tags and remote `origin`
-  tags after an exact typed confirmation.
+- Tag deletion is manual maintainer work using explicit `git tag` and
+  `git push --delete` commands; there is no repo wrapper for deleting remote
+  tags.
 
 ## Local Canister State
 

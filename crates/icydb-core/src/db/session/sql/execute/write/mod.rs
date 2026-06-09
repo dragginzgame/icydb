@@ -87,10 +87,7 @@ where
     }
 
     let key_value = if normalized.len() == 1 {
-        normalized
-            .into_iter()
-            .next()
-            .expect("primary key normalization preserves one scalar value")
+        normalized.into_iter().next().expect("sql write invariant")
     } else {
         Value::List(normalized)
     };

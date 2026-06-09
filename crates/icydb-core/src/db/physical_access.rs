@@ -45,7 +45,7 @@ pub(in crate::db) fn with_physical_access_attribution<T>(run: impl FnOnce() -> T
         stack
             .borrow_mut()
             .pop()
-            .unwrap_or_else(|| unreachable!("physical-access attribution stack must be balanced"))
+            .unwrap_or_else(|| unreachable!("physical access invariant"))
     });
 
     PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| {

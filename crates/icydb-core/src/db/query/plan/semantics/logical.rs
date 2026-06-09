@@ -463,7 +463,7 @@ impl AccessPlannedQuery {
     const fn static_execution_planning_contract(&self) -> &StaticExecutionPlanningContract {
         self.static_execution_planning_contract
             .as_ref()
-            .expect("access-planned queries must freeze static execution planning contract before execution")
+            .expect("query semantics invariant")
     }
 }
 
@@ -893,9 +893,7 @@ fn resolved_order_value_source_for_term(
         )));
     }
 
-    let field = term
-        .direct_field()
-        .expect("direct-field order branch should only execute for field-backed terms");
+    let field = term.direct_field().expect("query semantics invariant");
     let slot = resolve_required_schema_slot(schema_info, field, || {
         InternalError::query_invalid_logical_plan(format!(
             "order expression references unknown field '{field}'",

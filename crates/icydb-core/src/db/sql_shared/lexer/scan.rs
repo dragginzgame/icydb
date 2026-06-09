@@ -101,7 +101,7 @@ impl<'a> Lexer<'a> {
             } else {
                 TokenKind::Gt
             }),
-            _ => unreachable!("comparison operator entry is guarded by the caller"),
+            _ => unreachable!("sql lexer invariant"),
         }
     }
 

@@ -241,8 +241,7 @@ pub(super) fn apply_load_cursor_and_pagination_window(
         return rows_after_cursor;
     }
 
-    let (resolved_order, boundary) =
-        cursor.expect("cursor branch should only run with a resolved cursor boundary");
+    let (resolved_order, boundary) = cursor.expect("post-access invariant");
     let mut kept_after_cursor = 0usize;
     let mut kept_after_page = 0usize;
     let mut limit_remaining = limit.map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));

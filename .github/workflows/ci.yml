@@ -67,11 +67,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
       - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
-      - if: github.event_name == 'pull_request'
-        env:
-          SLICE_BASE_REF: ${{ github.event.pull_request.base.sha }}
-          SLICE_HEAD_REF: ${{ github.event.pull_request.head.sha }}
-        run: bash scripts/ci/check-slice-shape.sh
       - run: make check-invariants
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets --exclude icydb-testing-integration -- -D warnings

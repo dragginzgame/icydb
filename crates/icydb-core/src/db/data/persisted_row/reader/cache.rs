@@ -73,7 +73,7 @@ pub(super) fn build_initial_slot_cache(contract: &StructuralRowContract) -> Vec<
 
             match contract
                 .field_leaf_codec(slot)
-                .expect("cache initialization only visits declared structural slots")
+                .expect("persisted row cache invariant")
             {
                 LeafCodec::Scalar(_) => CachedSlotValue::Scalar {
                     validated: OnceCell::new(),

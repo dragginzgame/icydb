@@ -41,7 +41,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | FieldKind::Subaccount
         | FieldKind::Timestamp
         | FieldKind::Unit => decode_primary_key_component_binary_value_bytes(raw_bytes, kind)?
-            .expect("primary-key-component leaf kinds must return a value"),
+            .expect("structural leaf invariant"),
         FieldKind::Date => decode_date_value_bytes(raw_bytes)?,
         FieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes)?,
         FieldKind::Duration => decode_duration_value_bytes(raw_bytes)?,

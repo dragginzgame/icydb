@@ -445,7 +445,7 @@ impl<K> QueryIntent<K> {
 
     pub(in crate::db::query::intent) fn ensure_grouped_mut(&mut self) -> &mut GroupedIntent<K> {
         let Self::Load(load) = self else {
-            panic!("grouped shape cannot be materialized in delete mode");
+            panic!("query intent invariant");
         };
 
         if matches!(load.shape, QueryShape::Scalar(_)) {

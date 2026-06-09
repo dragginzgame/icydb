@@ -76,7 +76,7 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
         }
         _ => Ok(()),
     })
-    .expect("field-only lowered-expression analysis visitor cannot fail");
+    .expect("sql lowering invariant");
 
     analysis
 }

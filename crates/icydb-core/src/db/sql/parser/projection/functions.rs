@@ -73,7 +73,7 @@ impl Parser {
             }
             SqlScalarFunctionCallShape::SharedScalarCall
             | SqlScalarFunctionCallShape::WherePredicateExprPair => {
-                unreachable!("non-WHERE scalar parser should not request WHERE-only call shapes")
+                unreachable!("sql parser invariant")
             }
         };
 
@@ -274,7 +274,7 @@ impl Parser {
             | SqlScalarFunctionCallShape::Position
             | SqlScalarFunctionCallShape::Replace
             | SqlScalarFunctionCallShape::Substring => {
-                unreachable!("WHERE scalar parser should only request WHERE call shapes")
+                unreachable!("sql parser invariant")
             }
         }
     }

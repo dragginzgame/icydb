@@ -242,12 +242,12 @@ impl EntityAuthority {
         let schema_info = self
             .accepted_schema_info
             .as_ref()
-            .expect("executor static contract finalization requires accepted schema info");
+            .expect("executor authority invariant");
         plan.finalize_static_execution_planning_contract_for_model_with_schema(
             self.model,
             schema_info,
         )
-        .expect("executable plan core requires accepted-schema static execution contract");
+        .expect("executor authority invariant");
     }
 
     /// Finalize planner-owned route profiling through canonical entity authority.
@@ -258,7 +258,7 @@ impl EntityAuthority {
         let schema_info = self
             .accepted_schema_info
             .as_ref()
-            .expect("planner route profile finalization requires accepted schema info");
+            .expect("executor authority invariant");
         plan.finalize_planner_route_profile_for_model_with_schema(schema_info);
     }
 

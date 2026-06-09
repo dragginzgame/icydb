@@ -65,7 +65,7 @@ impl SqlTokenCursor {
         };
         let TokenKind::BlobLiteral(bytes) = std::mem::replace(&mut token.kind, TokenKind::Comma)
         else {
-            unreachable!("blob literal guard should make the replacement shape exact");
+            unreachable!("sql cursor invariant");
         };
         self.pos += 1;
 
@@ -182,7 +182,7 @@ impl SqlTokenCursor {
         // placeholder is enough to move the owned identifier out safely.
         let TokenKind::Identifier(name) = std::mem::replace(&mut token.kind, TokenKind::Comma)
         else {
-            unreachable!("identifier guard should make the replacement shape exact");
+            unreachable!("sql cursor invariant");
         };
         self.pos += 1;
 

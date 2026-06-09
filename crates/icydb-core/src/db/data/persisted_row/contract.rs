@@ -839,9 +839,7 @@ fn decode_non_scalar_slot_value(
             {
                 match decode_primary_key_component_binary_value_bytes(raw_value, field.kind()) {
                     Ok(Some(value)) => Ok(value),
-                    Ok(None) => {
-                        unreachable!("storage-key binary lane must decode supported field kinds")
-                    }
+                    Ok(None) => unreachable!("persisted row invariant"),
                     Err(err) => Err(InternalError::persisted_row_field_kind_decode_failed(
                         field.name(),
                         field.kind(),
@@ -921,9 +919,7 @@ pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
             {
                 match validate_primary_key_component_binary_value_bytes(raw_value, field.kind()) {
                     Ok(true) => Ok(()),
-                    Ok(false) => {
-                        unreachable!("storage-key binary lane must validate supported field kinds")
-                    }
+                    Ok(false) => unreachable!("persisted row invariant"),
                     Err(err) => Err(InternalError::persisted_row_field_kind_decode_failed(
                         field.name(),
                         field.kind(),
