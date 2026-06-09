@@ -410,22 +410,12 @@ fn session_structural_patch_resolves_fields_through_accepted_schema_descriptor()
 
 // Assert one structural generated-field rejection keeps the Unsupported class
 // and names the ownership-protected generated field.
-fn assert_structural_generated_field_rejection(
-    err: &InternalError,
-    field_name: &str,
-    context: &str,
-) {
+fn assert_structural_generated_field_rejection(err: &InternalError, context: &str) {
     assert_eq!(err.class(), ErrorClass::Unsupported);
-    assert!(
-        err.message
-            .contains("generated field may not be explicitly written"),
-        "{context} should preserve the generated-field ownership message: {}",
-        err.message,
-    );
-    assert!(
-        err.message.contains(field_name),
-        "{context} should name the rejected generated field: {}",
-        err.message,
+    assert_eq!(
+        err.diagnostic_code(),
+        DiagnosticCode::RuntimeUnsupported,
+        "{context} should preserve compact generated-field ownership diagnostics",
     );
 }
 
@@ -1165,7 +1155,6 @@ fn structural_create_rejects_explicit_generated_insert_fields_matrix() {
             1_u64,
             "Ada",
             7_i64,
-            "created_on_insert",
             "structural insert explicit generated timestamp",
         ),
         (
@@ -1173,12 +1162,11 @@ fn structural_create_rejects_explicit_generated_insert_fields_matrix() {
             2_u64,
             "Bea",
             9_i64,
-            "created_on_insert",
             "structural replace-on-missing explicit generated timestamp",
         ),
     ];
 
-    for (mode, key, name, created_on_insert_nanos, field_name, context) in cases {
+    for (mode, key, name, created_on_insert_nanos, context) in cases {
         reset_session_sql_store();
         let session = sql_session();
         let patch = generated_timestamp_insert_patch(
@@ -1193,7 +1181,7 @@ fn structural_create_rejects_explicit_generated_insert_fields_matrix() {
             .mutate_structural::<SessionSqlGeneratedTimestampEntity>(key, patch, mode)
             .expect_err("structural create lanes should reject explicit insert-generated fields");
 
-        assert_structural_generated_field_rejection(&err, field_name, context);
+        assert_structural_generated_field_rejection(&err, context);
     }
 }
 
@@ -1239,7 +1227,7 @@ fn structural_rewrite_rejects_explicit_generated_insert_fields_matrix() {
             .mutate_structural::<SessionSqlGeneratedTimestampEntity>(1, patch, mode)
             .expect_err("structural rewrites should reject explicit insert-generated fields");
 
-        assert_structural_generated_field_rejection(&err, "created_on_insert", context);
+        assert_structural_generated_field_rejection(&err, context);
     }
 }
 

@@ -125,8 +125,9 @@ fn load_secondary_index_strict_missing_row_surfaces_corruption() {
         crate::error::ErrorClass::Corruption,
         "strict stale-secondary load must classify missing primary rows as corruption",
     );
-    assert!(
-        err.message.contains("missing row"),
-        "strict stale-secondary failure should report missing-row corruption",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "strict stale-secondary failure should report missing-row corruption diagnostics",
     );
 }

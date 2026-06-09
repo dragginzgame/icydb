@@ -1005,9 +1005,10 @@ fn aggregate_execution_unknown_field_target_fails_without_scan_when_planner_is_b
         scanned, 0,
         "field-target unknown-field MIN should fail before any scan-budget consumption",
     );
-    assert!(
-        err.message.contains("unknown aggregate target field"),
-        "unknown field taxonomy should remain explicit: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "unknown field taxonomy should remain compact and unsupported: {err:?}",
     );
 }
 
@@ -1030,9 +1031,10 @@ fn aggregate_execution_non_orderable_field_target_fails_without_scan_when_planne
         scanned, 0,
         "field-target non-orderable MIN should fail before any scan-budget consumption",
     );
-    assert!(
-        err.message.contains("does not support ordering"),
-        "non-orderable field taxonomy should remain explicit: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "non-orderable field taxonomy should remain compact and unsupported: {err:?}",
     );
 }
 
@@ -1158,16 +1160,18 @@ fn aggregate_execution_non_orderable_rank_targets_fail_without_scan() {
     assert_eq!(top_err.class, ErrorClass::Unsupported);
     assert_eq!(top_err.origin, ErrorOrigin::Executor);
     assert_eq!(top_scanned, 0);
-    assert!(
-        top_err.message.contains("does not support ordering"),
-        "top_k_by(tags, 2) should preserve non-orderable field taxonomy: {top_err:?}",
+    assert_eq!(
+        top_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "top_k_by(tags, 2) should preserve compact unsupported taxonomy: {top_err:?}",
     );
     assert_eq!(bottom_err.class, ErrorClass::Unsupported);
     assert_eq!(bottom_err.origin, ErrorOrigin::Executor);
     assert_eq!(bottom_scanned, 0);
-    assert!(
-        bottom_err.message.contains("does not support ordering"),
-        "bottom_k_by(tags, 2) should preserve non-orderable field taxonomy: {bottom_err:?}",
+    assert_eq!(
+        bottom_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "bottom_k_by(tags, 2) should preserve compact unsupported taxonomy: {bottom_err:?}",
     );
 }
 

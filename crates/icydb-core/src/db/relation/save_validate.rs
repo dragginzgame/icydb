@@ -565,9 +565,10 @@ mod tests {
         .expect_err("save relation guard must reject composite target PK authority");
 
         assert_eq!(err.class, ErrorClass::Internal);
-        assert!(
-            err.message.contains("component count"),
-            "diagnostic should explain target PK arity rejection: {err:?}"
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+            "target PK arity rejection diagnostic drifted: {err:?}"
         );
     }
 
@@ -585,9 +586,10 @@ mod tests {
         .expect_err("save relation guard must reject relation/target key-kind drift");
 
         assert_eq!(err.class, ErrorClass::Internal);
-        assert!(
-            err.message.contains("does not match relation key kind"),
-            "diagnostic should explain key-kind drift: {err:?}"
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+            "relation/target key-kind drift diagnostic drifted: {err:?}"
         );
     }
 

@@ -28,6 +28,14 @@ use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::cell::RefCell;
 
+fn assert_runtime_unsupported_diagnostic(err: &crate::error::InternalError, context: &str) {
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "{context}: compact unsupported diagnostic drifted: {err:?}",
+    );
+}
+
 crate::test_canister! {
     ident = SchemaReconcileTestCanister,
     commit_memory_id = crate::testing::test_commit_memory_id(),
@@ -528,16 +536,9 @@ fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
     )
     .expect_err("valid version bump must not publish unsupported additive fields");
 
-    assert!(
-        err.message
-            .contains("unsupported additive field transition"),
-        "unsupported additive field should reach compatibility diagnostics after the version gate, got '{}'",
-        err.message,
-    );
-    assert!(
-        !err.message
-            .contains("schema changed without schema_version bump"),
-        "valid N+1 schema_version bump should pass admission before compatibility rejection",
+    assert_runtime_unsupported_diagnostic(
+        &err,
+        "valid N+1 schema version bump should reach compatibility rejection",
     );
 
     let report = metrics_report(None);
@@ -1381,15 +1382,9 @@ fn reconcile_runtime_schemas_rejects_changed_initial_snapshot() {
         .expect_err("schema reconciliation should reject changed persisted snapshot");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert!(
-        err.message
-            .contains("schema evolution is not yet supported"),
-        "schema mismatch should fail at the explicit evolution boundary"
-    );
-    assert!(
-        err.message
-            .contains("entity name changed: stored='ChangedSchemaReconcileEntity' generated='SchemaReconcileEntity'"),
-        "schema mismatch should include the first rejected difference"
+    assert_runtime_unsupported_diagnostic(
+        &err,
+        "changed persisted snapshot should fail at evolution boundary",
     );
 
     let report = metrics_report(None);
@@ -1433,11 +1428,7 @@ fn reconcile_runtime_schemas_rejects_generated_additive_field_as_field_contract(
         .expect_err("additive generated schema drift should still be rejected");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert!(
-        err.message
-            .contains("unsupported additive field transition"),
-        "additive schema drift should name the future transition shape"
-    );
+    assert_runtime_unsupported_diagnostic(&err, "additive generated schema drift");
 
     let report = metrics_report(None);
     let counters = report
@@ -1514,10 +1505,7 @@ fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract()
         .expect_err("generated field removal should still be rejected");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert!(
-        err.message.contains("unsupported removed field transition"),
-        "removed field drift should name the future transition shape"
-    );
+    assert_runtime_unsupported_diagnostic(&err, "generated removed-field drift");
 
     let report = metrics_report(None);
     let counters = report
@@ -1575,13 +1563,8 @@ fn reconcile_runtime_schemas_rejects_newer_schema_snapshot() {
         .expect_err("schema reconciliation must not ignore newer persisted versions");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert!(
-        err.message.contains("schema_version moved backwards"),
-        "schema reconciliation should reject newer accepted snapshots through the admission gate"
-    );
-    assert!(
-        err.message.contains("stored_version=2") && err.message.contains("candidate_version=1"),
-        "admission diagnostics should compare against the latest persisted version, got '{}'",
-        err.message,
+    assert_runtime_unsupported_diagnostic(
+        &err,
+        "newer accepted snapshot should reject through admission gate",
     );
 }

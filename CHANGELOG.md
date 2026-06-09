@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.20` compacts persisted-row scalar decode corruption diagnostics and
+  brittle runtime tests onto stable diagnostic identity, removing more internal
+  prose while preserving field ownership and verifying the wasm reduction.
+
 - `0.180.19` compacts key/index and runtime/query invariant diagnostics onto
   the existing structured diagnostic-code contract, removing more internal
   prose from shared wasm fixtures while preserving behavior and taxonomy.

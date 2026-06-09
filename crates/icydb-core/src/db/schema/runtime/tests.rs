@@ -13,6 +13,7 @@ use crate::{
             },
         },
     },
+    error::{ErrorClass, ErrorOrigin},
     model::{
         entity::EntityModel,
         field::{
@@ -532,11 +533,12 @@ fn accepted_row_layout_runtime_contract_rejects_primary_key_shape_drift() {
         .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
         .expect_err("generated-compatible bridge should reject composite/scalar drift");
 
-    assert!(
-        err.message
-            .contains("accepted row layout primary key is not generated-compatible"),
-        "unexpected generated-compatible proof error: {}",
-        err.message,
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "generated-compatible proof diagnostic drifted: {err:?}",
     );
 }
 
@@ -771,8 +773,11 @@ fn accepted_row_layout_runtime_contract_rejects_missing_layout_slot() {
 
     let err = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect_err("missing row-layout slot should fail closed");
-    assert!(
-        err.to_string().contains("missing slot for field_id=2"),
-        "unexpected descriptor error: {err}",
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "missing row-layout slot diagnostic drifted: {err:?}",
     );
 }

@@ -1027,93 +1027,53 @@ impl InternalError {
     /// Construct the canonical persisted-row field decode corruption error.
     pub(crate) fn persisted_row_field_decode_failed(
         field_name: &str,
-        detail: impl fmt::Display,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::serialize_corruption(format!(
-            "row decode failed for field '{field_name}': {detail}",
-        ))
+        Self::persisted_row_field_decode_corruption(field_name)
+    }
+
+    /// Construct the compact persisted-row field decode corruption error.
+    pub(crate) fn persisted_row_field_decode_corruption(field_name: &str) -> Self {
+        Self::serialize_corruption(format!("row decode failed for field '{field_name}'"))
     }
 
     /// Construct the canonical persisted-row field-kind decode corruption error.
     pub(crate) fn persisted_row_field_kind_decode_failed(
         field_name: &str,
-        field_kind: impl fmt::Debug,
-        detail: impl fmt::Display,
+        _field_kind: impl fmt::Debug,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::persisted_row_field_decode_failed(
-            field_name,
-            format!("kind={field_kind:?}: {detail}"),
-        )
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical persisted-row scalar-payload length corruption error.
-    pub(crate) fn persisted_row_field_payload_exact_len_required(
-        field_name: &str,
-        payload_kind: &str,
-        expected_len: usize,
-    ) -> Self {
-        let unit = if expected_len == 1 { "byte" } else { "bytes" };
-
-        Self::persisted_row_field_decode_failed(
-            field_name,
-            format!("{payload_kind} payload must be exactly {expected_len} {unit}"),
-        )
+    pub(crate) fn persisted_row_field_payload_exact_len_required(field_name: &str) -> Self {
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical persisted-row scalar-payload empty-body corruption error.
-    pub(crate) fn persisted_row_field_payload_must_be_empty(
-        field_name: &str,
-        payload_kind: &str,
-    ) -> Self {
-        Self::persisted_row_field_decode_failed(
-            field_name,
-            format!("{payload_kind} payload must be empty"),
-        )
+    pub(crate) fn persisted_row_field_payload_must_be_empty(field_name: &str) -> Self {
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical persisted-row scalar-payload invalid-byte corruption error.
-    pub(crate) fn persisted_row_field_payload_invalid_byte(
-        field_name: &str,
-        payload_kind: &str,
-        value: u8,
-    ) -> Self {
-        Self::persisted_row_field_decode_failed(
-            field_name,
-            format!("invalid {payload_kind} payload byte {value}"),
-        )
+    pub(crate) fn persisted_row_field_payload_invalid_byte(field_name: &str) -> Self {
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical persisted-row scalar-payload non-finite corruption error.
-    pub(crate) fn persisted_row_field_payload_non_finite(
-        field_name: &str,
-        payload_kind: &str,
-    ) -> Self {
-        Self::persisted_row_field_decode_failed(
-            field_name,
-            format!("{payload_kind} payload is non-finite"),
-        )
+    pub(crate) fn persisted_row_field_payload_non_finite(field_name: &str) -> Self {
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical persisted-row scalar-payload out-of-range corruption error.
-    pub(crate) fn persisted_row_field_payload_out_of_range(
-        field_name: &str,
-        payload_kind: &str,
-    ) -> Self {
-        Self::persisted_row_field_decode_failed(
-            field_name,
-            format!("{payload_kind} payload out of range for target type"),
-        )
+    pub(crate) fn persisted_row_field_payload_out_of_range(field_name: &str) -> Self {
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical persisted-row invalid text payload corruption error.
-    pub(crate) fn persisted_row_field_text_payload_invalid_utf8(
-        field_name: &str,
-        detail: impl fmt::Display,
-    ) -> Self {
-        Self::persisted_row_field_decode_failed(
-            field_name,
-            format!("invalid UTF-8 text payload ({detail})"),
-        )
+    pub(crate) fn persisted_row_field_text_payload_invalid_utf8(field_name: &str) -> Self {
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical persisted-row structural slot-lookup invariant.

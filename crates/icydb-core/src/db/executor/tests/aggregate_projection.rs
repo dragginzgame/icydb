@@ -505,11 +505,10 @@ fn assert_missing_field_terminal_parity(terminal: MissingFieldTerminal, label: &
         terminal_err.origin, baseline_err.origin,
         "{label} should preserve unknown-field origin parity with baseline projection",
     );
-    assert!(
-        terminal_err
-            .message
-            .contains("unknown aggregate target field"),
-        "{label} should surface the same unknown-field reason",
+    assert_eq!(
+        terminal_err.diagnostic_code(),
+        baseline_err.diagnostic_code(),
+        "{label} should surface the same compact unknown-field diagnostic",
     );
 }
 
@@ -1235,9 +1234,10 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
         crate::error::ErrorClass::Corruption,
         "strict covering-index projection must preserve missing-row corruption classification",
     );
-    assert!(
-        err.message.contains("missing row"),
-        "strict covering-index projection must preserve missing-row error context",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "strict covering-index projection must preserve missing-row corruption diagnostics",
     );
 
     let with_ids_err = execute_projection_values_with_ids_boundary(
@@ -1257,9 +1257,10 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
         crate::error::ErrorClass::Corruption,
         "strict covering-index projection with ids must preserve missing-row corruption classification",
     );
-    assert!(
-        with_ids_err.message.contains("missing row"),
-        "strict covering-index projection with ids must preserve missing-row error context",
+    assert_eq!(
+        with_ids_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "strict covering-index projection with ids must preserve missing-row corruption diagnostics",
     );
 }
 
@@ -1501,9 +1502,10 @@ fn aggregate_projection_missing_field_projection_terminals_fail_without_scan() {
             err.origin, values_err.origin,
             "{label} should keep the baseline unknown-field error origin",
         );
-        assert!(
-            err.message.contains("unknown aggregate target field"),
-            "{label} should preserve explicit unknown-field taxonomy: {err:?}",
+        assert_eq!(
+            err.diagnostic_code(),
+            values_err.diagnostic_code(),
+            "{label} should preserve compact unknown-field taxonomy: {err:?}",
         );
     }
 }
@@ -1544,9 +1546,10 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
         crate::error::ErrorClass::Corruption,
         "strict covering projection must preserve missing-row corruption classification",
     );
-    assert!(
-        err.message.contains("missing row"),
-        "strict covering projection must preserve missing-row error context",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "strict covering projection must preserve missing-row corruption diagnostics",
     );
 
     let with_ids_err = execute_projection_values_with_ids_boundary(
@@ -1566,9 +1569,10 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
         crate::error::ErrorClass::Corruption,
         "strict covering projection with ids must preserve missing-row corruption classification",
     );
-    assert!(
-        with_ids_err.message.contains("missing row"),
-        "strict covering projection with ids must preserve missing-row error context",
+    assert_eq!(
+        with_ids_err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "strict covering projection with ids must preserve missing-row corruption diagnostics",
     );
 }
 

@@ -460,9 +460,10 @@ fn accepted_row_layout_decoder_rejects_malformed_raw_row() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Serialize);
-    assert!(
-        err.message.contains("row decode"),
-        "unexpected malformed-row decode error: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption,
+        "malformed-row decode diagnostic drifted: {err:?}",
     );
 }
 

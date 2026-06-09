@@ -58,6 +58,18 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
+fn assert_error_diagnostic(
+    err: &crate::error::InternalError,
+    expected: icydb_diagnostic_code::DiagnosticCode,
+    context: &str,
+) {
+    assert_eq!(
+        err.diagnostic_code(),
+        expected,
+        "{context}: compact diagnostic code drifted: {err:?}",
+    );
+}
+
 // TestCanister
 
 crate::test_canister! {
@@ -1426,9 +1438,10 @@ fn strong_relation_missing_fails_preflight() {
         ErrorOrigin::Executor,
         "missing strong relation should originate from executor validation",
     );
-    assert!(
-        err.message.contains("strong relation missing"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "missing strong relation",
     );
 }
 
@@ -1453,9 +1466,10 @@ fn strong_relation_invalid_metadata_fails_internal() {
         ErrorOrigin::Executor,
         "invalid relation metadata should originate from executor boundary",
     );
-    assert!(
-        err.message.contains("strong relation target name invalid"),
-        "unexpected error: {err:?}",
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+        "invalid relation metadata",
     );
 }
 
@@ -1480,14 +1494,10 @@ fn strong_relation_wrong_target_tag_fails_internal() {
         ErrorOrigin::Executor,
         "wrong relation target tag should originate from executor boundary",
     );
-    assert!(
-        err.message
-            .contains("strong relation target identity mismatch"),
-        "unexpected error: {err:?}",
-    );
-    assert!(
-        err.message.contains("target_entity_tag"),
-        "diagnostic should identify the drifting tag: {err:?}",
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+        "wrong relation target tag",
     );
 }
 
@@ -1512,14 +1522,10 @@ fn strong_relation_wrong_target_store_path_fails_internal() {
         ErrorOrigin::Executor,
         "wrong relation target store should originate from executor boundary",
     );
-    assert!(
-        err.message
-            .contains("strong relation target identity mismatch"),
-        "unexpected error: {err:?}",
-    );
-    assert!(
-        err.message.contains("target_store_path"),
-        "diagnostic should identify the drifting store path: {err:?}",
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+        "wrong relation target store path",
     );
 }
 
@@ -1548,9 +1554,10 @@ fn strong_set_relation_missing_key_fails_save() {
         ErrorOrigin::Executor,
         "missing set relation should originate from executor validation",
     );
-    assert!(
-        err.message.contains("strong relation missing"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "missing set relation",
     );
 
     let source_empty = with_data_store(SourceStore::PATH, DataStore::is_empty);
@@ -1723,9 +1730,10 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
         ErrorOrigin::Executor,
         "missing strong relation in set should originate from executor validation",
     );
-    assert!(
-        err.message.contains("strong relation missing"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "mixed valid/invalid set relation",
     );
 
     let source_empty = with_data_store(SourceStore::PATH, DataStore::is_empty);
@@ -1790,9 +1798,10 @@ fn insert_many_atomic_rejects_duplicate_keys_in_request() {
         ErrorOrigin::Executor,
         "duplicate key request should fail at executor boundary",
     );
-    assert!(
-        err.message.contains("duplicate key"),
-        "unexpected error: {err:?}",
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "duplicate key request",
     );
 
     let rows = with_data_store(TargetStore::PATH, DataStore::len);
@@ -2302,9 +2311,10 @@ fn insert_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically
         ErrorOrigin::Executor,
         "missing strong relation should originate from executor validation",
     );
-    assert!(
-        err.message.contains("strong relation missing"),
-        "unexpected error: {err:?}",
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "atomic relation batch missing strong relation",
     );
 
     let source_rows = with_data_store(SourceStore::PATH, DataStore::len);
@@ -2344,9 +2354,10 @@ fn insert_many_atomic_strong_relation_does_not_see_earlier_batch_insert() {
         ErrorOrigin::Executor,
         "missing strong relation should originate from save preflight",
     );
-    assert!(
-        err.message.contains("strong relation missing"),
-        "unexpected error: {err:?}",
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "same-batch strong relation target",
     );
     assert!(
         !commit_marker_present().expect("commit marker probe should succeed"),
@@ -2656,9 +2667,10 @@ fn save_rejects_primary_key_field_and_identity_mismatch() {
     let err = executor
         .insert(entity)
         .expect_err("mismatched primary key identity should fail save");
-    assert!(
-        err.message.contains("entity primary key mismatch"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "primary-key identity mismatch",
     );
 
     let source_empty = with_data_store(SourceStore::PATH, DataStore::is_empty);
@@ -2696,9 +2708,10 @@ fn unique_index_violation_rejected_on_insert() {
         ErrorOrigin::Index,
         "expected index error origin"
     );
-    assert!(
-        err.message.contains("index constraint violation"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
+        "unique index insert violation",
     );
 
     let rows = with_data_store(SourceStore::PATH, DataStore::len);
@@ -2741,14 +2754,10 @@ fn unique_index_row_key_mismatch_surfaces_store_invariant_violation() {
         .expect_err("row-key mismatch should fail unique validation");
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Serialize);
-    assert!(
-        err.message
-            .contains("failed to decode structural primary-key slot"),
-        "row-key mismatch should fail through the canonical unique-validation structural decode lane: {err:?}"
-    );
-    assert!(
-        err.message.contains("row key mismatch"),
-        "row-key mismatch details should remain visible in the wrapped corruption: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption,
+        "unique-validation structural row-key mismatch",
     );
 }
 
@@ -2854,9 +2863,10 @@ fn save_rejects_text_over_declared_max_len() {
         .expect_err("text over unicode scalar limit must be rejected");
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert!(
-        err.message.contains("text length exceeds max_len"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "typed bounded-text save",
     );
 
     let rows = with_data_store(SourceStore::PATH, DataStore::len);
@@ -2882,9 +2892,10 @@ fn structural_insert_rejects_text_over_declared_max_len() {
         .expect_err("structural text over unicode scalar limit must be rejected");
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert!(
-        err.message.contains("text length exceeds max_len"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "structural bounded-text insert",
     );
 
     let rows = with_data_store(SourceStore::PATH, DataStore::len);
@@ -2942,13 +2953,10 @@ fn save_update_rejects_persisted_row_with_decimal_scale_drift() {
         .expect_err("decode path must reject persisted decimal scale drift");
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("persisted row invariant violation"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message.contains("decimal field scale mismatch"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "persisted decimal scale drift",
     );
 }
 
@@ -2985,9 +2993,10 @@ fn unique_index_violation_rejected_on_update() {
         ErrorOrigin::Index,
         "expected index error origin"
     );
-    assert!(
-        err.message.contains("index constraint violation"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
+        "unique index update violation",
     );
 
     let rows = with_data_store(SourceStore::PATH, DataStore::len);
@@ -3047,9 +3056,10 @@ fn structural_update_rejects_primary_key_mismatch() {
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert!(
-        err.message.contains("entity primary key mismatch"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "structural primary-key mismatch",
     );
 }
 
@@ -3068,9 +3078,10 @@ fn structural_patch_rejects_unknown_accepted_schema_field_names() {
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert!(
-        err.message.contains("mutation field not found") && err.message.contains("missing_email"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "unknown structural field",
     );
 }
 
@@ -3100,11 +3111,10 @@ fn structural_insert_rejects_missing_required_rust_default_fields() {
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert!(
-        err.message
-            .contains("structural patch missing required field")
-            && err.message.contains("field=email"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "missing required structural insert field",
     );
 }
 
@@ -3299,9 +3309,10 @@ fn structural_update_reuses_typed_unique_index_conflicts() {
 
     assert_eq!(err.class, ErrorClass::Conflict);
     assert_eq!(err.origin, ErrorOrigin::Index);
-    assert!(
-        err.message.contains("index constraint violation"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
+        "structural unique index violation",
     );
 }
 
@@ -3327,11 +3338,10 @@ fn structural_replace_rejects_missing_required_fields_after_sparse_materializati
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert!(
-        err.message
-            .contains("structural patch missing required field")
-            && err.message.contains("field=email"),
-        "unexpected error: {err:?}"
+    assert_error_diagnostic(
+        &err,
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "missing required structural replace field",
     );
 }
 

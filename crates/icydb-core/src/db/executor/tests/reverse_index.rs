@@ -38,6 +38,14 @@ fn relation_source_accepted_commit_schema_fingerprint() -> CommitSchemaFingerpri
         .expect("relation source accepted commit fingerprint should derive")
 }
 
+fn assert_relation_delete_blocked_diagnostic(err: &crate::error::InternalError, context: &str) {
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "{context}: compact blocked-relation diagnostic drifted: {err:?}",
+    );
+}
+
 #[test]
 fn delete_blocks_when_target_has_strong_referrer() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -80,29 +88,7 @@ fn delete_blocks_when_target_has_strong_referrer() {
         "blocked strong-relation delete should originate from executor validation",
     );
 
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains(&format!("source_entity={}", RelationSourceEntity::PATH)),
-        "diagnostic should include source entity path: {err:?}",
-    );
-    assert!(
-        err.message.contains("source_field=target"),
-        "diagnostic should include relation field name: {err:?}",
-    );
-    assert!(
-        err.message
-            .contains(&format!("target_entity={}", RelationTargetEntity::PATH)),
-        "diagnostic should include target entity path: {err:?}",
-    );
-    assert!(
-        err.message
-            .contains("action=delete source rows or retarget relation before deleting target"),
-        "diagnostic should include operator action hint: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "delete protected target");
 
     let target_rows = REL_DB
         .with_store_registry(|reg| {
@@ -832,10 +818,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected error: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "retargeted relation delete");
 }
 
 #[test]
@@ -917,10 +900,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected error: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "replayed reverse index delete");
 }
 
 /// Tests the startup rebuild path with direct store tampering, so the setup stays deliberately verbose.
@@ -1040,10 +1020,7 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected error: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "startup rebuild surviving relation delete");
 }
 
 #[test]
@@ -1121,10 +1098,7 @@ fn recovery_startup_rebuild_restores_missing_reverse_relation_entry() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected error: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "startup rebuild restored relation delete");
 }
 
 /// Exercises a multi-marker replay sequence, so the setup is intentionally linear and explicit.
@@ -1247,10 +1221,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected error: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "mixed replay surviving source delete");
 
     let source_delete_plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
@@ -1361,10 +1332,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected error: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "retarget replay protected target");
 }
 
 /// Covers the rollback path after a later malformed row op invalidates the marker replay.
@@ -1500,10 +1468,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        err.message.contains("delete blocked by strong relation"),
-        "unexpected target A error after rollback: {err:?}",
-    );
+    assert_relation_delete_blocked_diagnostic(&err, "rollback restored target A protection");
 
     let delete_target_b = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
@@ -1648,11 +1613,9 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        blocked_delete_err
-            .message
-            .contains("delete blocked by strong relation"),
-        "unexpected target A error: {blocked_delete_err:?}",
+    assert_relation_delete_blocked_diagnostic(
+        &blocked_delete_err,
+        "multi-source target A protection",
     );
 
     let delete_target_b = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
@@ -1674,11 +1637,9 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         crate::error::ErrorOrigin::Executor,
         "blocked strong-relation delete should originate from executor validation",
     );
-    assert!(
-        blocked_delete_err
-            .message
-            .contains("delete blocked by strong relation"),
-        "unexpected target B error: {blocked_delete_err:?}",
+    assert_relation_delete_blocked_diagnostic(
+        &blocked_delete_err,
+        "multi-source target B protection",
     );
 
     // Phase 4: remove remaining refs and ensure no orphan reverse entries remain.

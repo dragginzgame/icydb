@@ -99,9 +99,10 @@ fn aggregate_optimizations_bytes_by_strict_mode_surfaces_missing_row_corruption(
         ErrorClass::Corruption,
         "strict bytes_by must preserve missing-row corruption classification",
     );
-    assert!(
-        err.message.contains("missing row"),
-        "strict bytes_by must preserve missing-row error context",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "strict bytes_by must preserve missing-row corruption diagnostics",
     );
 }
 

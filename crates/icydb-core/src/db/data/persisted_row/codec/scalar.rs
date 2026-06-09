@@ -14,8 +14,6 @@ const SCALAR_SLOT_PREFIX: u8 = 0xFF;
 const SCALAR_SLOT_TAG_NULL: u8 = 0;
 const SCALAR_SLOT_TAG_VALUE: u8 = 1;
 
-const SCALAR_BOOL_PAYLOAD_LEN: usize = 1;
-
 const SCALAR_BOOL_FALSE_TAG: u8 = 0;
 const SCALAR_BOOL_TRUE_TAG: u8 = 1;
 
@@ -202,14 +200,10 @@ where
 
 // Copy a fixed-width scalar payload into an array while preserving the exact
 // field/codec-specific length error used by each scalar owner.
-fn decode_fixed<const N: usize>(
-    bytes: &[u8],
-    field_name: &str,
-    label: &'static str,
-) -> Result<[u8; N], InternalError> {
-    bytes.try_into().map_err(|_| {
-        InternalError::persisted_row_field_payload_exact_len_required(field_name, label, N)
-    })
+fn decode_fixed<const N: usize>(bytes: &[u8], field_name: &str) -> Result<[u8; N], InternalError> {
+    bytes
+        .try_into()
+        .map_err(|_| InternalError::persisted_row_field_payload_exact_len_required(field_name))
 }
 
 // Encode fixed-width scalar primitives into owned payload bytes. This is only a
@@ -222,20 +216,14 @@ fn encode_fixed<const N: usize>(bytes: [u8; N]) -> Vec<u8> {
 // generated scalar-field owners.
 fn decode_bool_scalar_payload(bytes: &[u8], field_name: &str) -> Result<bool, InternalError> {
     let [value] = bytes else {
-        return Err(
-            InternalError::persisted_row_field_payload_exact_len_required(
-                field_name,
-                "bool",
-                SCALAR_BOOL_PAYLOAD_LEN,
-            ),
-        );
+        return Err(InternalError::persisted_row_field_payload_exact_len_required(field_name));
     };
 
     match *value {
         SCALAR_BOOL_FALSE_TAG => Ok(false),
         SCALAR_BOOL_TRUE_TAG => Ok(true),
         _ => Err(InternalError::persisted_row_field_payload_invalid_byte(
-            field_name, "bool", *value,
+            field_name,
         )),
     }
 }
@@ -245,7 +233,7 @@ fn decode_bool_scalar_payload(bytes: &[u8], field_name: &str) -> Result<bool, In
 fn decode_unit_scalar_payload(bytes: &[u8], field_name: &str) -> Result<(), InternalError> {
     if !bytes.is_empty() {
         return Err(InternalError::persisted_row_field_payload_must_be_empty(
-            field_name, "unit",
+            field_name,
         ));
     }
 
@@ -253,39 +241,23 @@ fn decode_unit_scalar_payload(bytes: &[u8], field_name: &str) -> Result<(), Inte
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_i32_payload(
-    bytes: &[u8],
-    field_name: &str,
-    label: &'static str,
-) -> Result<i32, InternalError> {
-    Ok(i32::from_le_bytes(decode_fixed(bytes, field_name, label)?))
+fn decode_i32_payload(bytes: &[u8], field_name: &str) -> Result<i32, InternalError> {
+    Ok(i32::from_le_bytes(decode_fixed(bytes, field_name)?))
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_i64_payload(
-    bytes: &[u8],
-    field_name: &str,
-    label: &'static str,
-) -> Result<i64, InternalError> {
-    Ok(i64::from_le_bytes(decode_fixed(bytes, field_name, label)?))
+fn decode_i64_payload(bytes: &[u8], field_name: &str) -> Result<i64, InternalError> {
+    Ok(i64::from_le_bytes(decode_fixed(bytes, field_name)?))
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_u32_payload(
-    bytes: &[u8],
-    field_name: &str,
-    label: &'static str,
-) -> Result<u32, InternalError> {
-    Ok(u32::from_le_bytes(decode_fixed(bytes, field_name, label)?))
+fn decode_u32_payload(bytes: &[u8], field_name: &str) -> Result<u32, InternalError> {
+    Ok(u32::from_le_bytes(decode_fixed(bytes, field_name)?))
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_u64_payload(
-    bytes: &[u8],
-    field_name: &str,
-    label: &'static str,
-) -> Result<u64, InternalError> {
-    Ok(u64::from_le_bytes(decode_fixed(bytes, field_name, label)?))
+fn decode_u64_payload(bytes: &[u8], field_name: &str) -> Result<u64, InternalError> {
+    Ok(u64::from_le_bytes(decode_fixed(bytes, field_name)?))
 }
 
 // Write the two-byte scalar slot envelope prefix shared by generic scalar
@@ -396,41 +368,34 @@ fn decode_scalar_slot_payload_body<'a>(
     field_name: &str,
 ) -> Result<Option<&'a [u8]>, InternalError> {
     let Some((&prefix, rest)) = bytes.split_first() else {
-        return Err(InternalError::persisted_row_field_decode_failed(
+        return Err(InternalError::persisted_row_field_decode_corruption(
             field_name,
-            "empty scalar payload",
         ));
     };
     if prefix != SCALAR_SLOT_PREFIX {
-        return Err(InternalError::persisted_row_field_decode_failed(
+        return Err(InternalError::persisted_row_field_decode_corruption(
             field_name,
-            format!(
-                "scalar payload prefix mismatch: expected slot envelope prefix byte 0x{SCALAR_SLOT_PREFIX:02X}, found 0x{prefix:02X}",
-            ),
         ));
     }
     let Some((&tag, payload)) = rest.split_first() else {
-        return Err(InternalError::persisted_row_field_decode_failed(
+        return Err(InternalError::persisted_row_field_decode_corruption(
             field_name,
-            "truncated scalar payload tag",
         ));
     };
 
     match tag {
         SCALAR_SLOT_TAG_NULL => {
             if !payload.is_empty() {
-                return Err(InternalError::persisted_row_field_decode_failed(
+                return Err(InternalError::persisted_row_field_decode_corruption(
                     field_name,
-                    "null scalar payload has trailing bytes",
                 ));
             }
 
             Ok(None)
         }
         SCALAR_SLOT_TAG_VALUE => Ok(Some(payload)),
-        _ => Err(InternalError::persisted_row_field_decode_failed(
+        _ => Err(InternalError::persisted_row_field_decode_corruption(
             field_name,
-            format!("invalid scalar payload tag {tag}"),
         )),
     }
 }
@@ -449,53 +414,47 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
         ScalarCodec::Blob => ScalarValueRef::Blob(payload),
         ScalarCodec::Bool => ScalarValueRef::Bool(decode_bool_scalar_payload(payload, field_name)?),
         ScalarCodec::Date => {
-            let days = decode_i32_payload(payload, field_name, "date")?;
+            let days = decode_i32_payload(payload, field_name)?;
             ScalarValueRef::Date(Date::from_days_since_epoch(days))
         }
         ScalarCodec::Duration => {
-            let millis = decode_u64_payload(payload, field_name, "duration")?;
+            let millis = decode_u64_payload(payload, field_name)?;
             ScalarValueRef::Duration(Duration::from_millis(millis))
         }
         ScalarCodec::Float32 => {
-            let value = f32::from_bits(decode_u32_payload(payload, field_name, "float32")?);
-            let value = Float32::try_new(value).ok_or_else(|| {
-                InternalError::persisted_row_field_payload_non_finite(field_name, "float32")
-            })?;
+            let value = f32::from_bits(decode_u32_payload(payload, field_name)?);
+            let value = Float32::try_new(value)
+                .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))?;
             ScalarValueRef::Float32(value)
         }
         ScalarCodec::Float64 => {
-            let value = f64::from_bits(decode_u64_payload(payload, field_name, "float64")?);
-            let value = Float64::try_new(value).ok_or_else(|| {
-                InternalError::persisted_row_field_payload_non_finite(field_name, "float64")
-            })?;
+            let value = f64::from_bits(decode_u64_payload(payload, field_name)?);
+            let value = Float64::try_new(value)
+                .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))?;
             ScalarValueRef::Float64(value)
         }
-        ScalarCodec::Int64 => {
-            ScalarValueRef::Int(decode_i64_payload(payload, field_name, "int64")?)
-        }
+        ScalarCodec::Int64 => ScalarValueRef::Int(decode_i64_payload(payload, field_name)?),
         ScalarCodec::Principal => ScalarValueRef::Principal(
             Principal::try_from_bytes(payload)
                 .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?,
         ),
         ScalarCodec::Subaccount => {
-            let bytes = decode_fixed(payload, field_name, "subaccount")?;
+            let bytes = decode_fixed(payload, field_name)?;
             ScalarValueRef::Subaccount(Subaccount::from_array(bytes))
         }
         ScalarCodec::Text => {
-            let value = str::from_utf8(payload).map_err(|err| {
-                InternalError::persisted_row_field_text_payload_invalid_utf8(field_name, err)
+            let value = str::from_utf8(payload).map_err(|_| {
+                InternalError::persisted_row_field_text_payload_invalid_utf8(field_name)
             })?;
             ScalarValueRef::Text(value)
         }
         ScalarCodec::Timestamp => {
-            let millis = decode_i64_payload(payload, field_name, "timestamp")?;
+            let millis = decode_i64_payload(payload, field_name)?;
             ScalarValueRef::Timestamp(Timestamp::from_millis(millis))
         }
-        ScalarCodec::Nat64 => {
-            ScalarValueRef::Nat(decode_u64_payload(payload, field_name, "nat64")?)
-        }
+        ScalarCodec::Nat64 => ScalarValueRef::Nat(decode_u64_payload(payload, field_name)?),
         ScalarCodec::Ulid => {
-            let bytes = decode_fixed(payload, field_name, "ulid")?;
+            let bytes = decode_fixed(payload, field_name)?;
             ScalarValueRef::Ulid(Ulid::from_bytes(bytes))
         }
         ScalarCodec::Unit => {
@@ -521,11 +480,8 @@ macro_rules! impl_persisted_scalar_signed {
                     bytes: &[u8],
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
-                    <$ty>::try_from(decode_i64_payload(bytes, field_name, "int64")?).map_err(|_| {
-                        InternalError::persisted_row_field_payload_out_of_range(
-                            field_name,
-                            "integer",
-                        )
+                    <$ty>::try_from(decode_i64_payload(bytes, field_name)?).map_err(|_| {
+                        InternalError::persisted_row_field_payload_out_of_range(field_name)
                     })
                 }
             }
@@ -547,11 +503,8 @@ macro_rules! impl_persisted_scalar_unsigned {
                     bytes: &[u8],
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
-                    <$ty>::try_from(decode_u64_payload(bytes, field_name, "nat64")?).map_err(|_| {
-                        InternalError::persisted_row_field_payload_out_of_range(
-                            field_name,
-                            "unsigned",
-                        )
+                    <$ty>::try_from(decode_u64_payload(bytes, field_name)?).map_err(|_| {
+                        InternalError::persisted_row_field_payload_out_of_range(field_name)
                     })
                 }
             }
@@ -588,9 +541,9 @@ impl PersistedScalar for String {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        str::from_utf8(bytes).map(str::to_owned).map_err(|err| {
-            InternalError::persisted_row_field_text_payload_invalid_utf8(field_name, err)
-        })
+        str::from_utf8(bytes)
+            .map(str::to_owned)
+            .map_err(|_| InternalError::persisted_row_field_text_payload_invalid_utf8(field_name))
     }
 }
 
@@ -651,11 +604,7 @@ impl PersistedScalar for Timestamp {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        Ok(Self::from_millis(decode_i64_payload(
-            bytes,
-            field_name,
-            "timestamp",
-        )?))
+        Ok(Self::from_millis(decode_i64_payload(bytes, field_name)?))
     }
 }
 
@@ -671,7 +620,7 @@ impl PersistedScalar for Date {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         Ok(Self::from_days_since_epoch(decode_i32_payload(
-            bytes, field_name, "date",
+            bytes, field_name,
         )?))
     }
 }
@@ -687,9 +636,7 @@ impl PersistedScalar for Duration {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        Ok(Self::from_millis(decode_u64_payload(
-            bytes, field_name, "duration",
-        )?))
+        Ok(Self::from_millis(decode_u64_payload(bytes, field_name)?))
     }
 }
 
@@ -704,11 +651,10 @@ impl PersistedScalar for Float32 {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let value = f32::from_bits(decode_u32_payload(bytes, field_name, "float32")?);
+        let value = f32::from_bits(decode_u32_payload(bytes, field_name)?);
 
-        Self::try_new(value).ok_or_else(|| {
-            InternalError::persisted_row_field_payload_non_finite(field_name, "float32")
-        })
+        Self::try_new(value)
+            .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))
     }
 }
 
@@ -723,11 +669,10 @@ impl PersistedScalar for Float64 {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let value = f64::from_bits(decode_u64_payload(bytes, field_name, "float64")?);
+        let value = f64::from_bits(decode_u64_payload(bytes, field_name)?);
 
-        Self::try_new(value).ok_or_else(|| {
-            InternalError::persisted_row_field_payload_non_finite(field_name, "float64")
-        })
+        Self::try_new(value)
+            .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))
     }
 }
 
@@ -759,11 +704,7 @@ impl PersistedScalar for Subaccount {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        Ok(Self::from_array(decode_fixed(
-            bytes,
-            field_name,
-            "subaccount",
-        )?))
+        Ok(Self::from_array(decode_fixed(bytes, field_name)?))
     }
 }
 

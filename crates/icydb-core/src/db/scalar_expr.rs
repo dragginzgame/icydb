@@ -516,7 +516,7 @@ mod tests {
             index::derive_index_expression_value,
             scalar_expr::ScalarValueProgram::{Date, Field, Lower},
         },
-        error::InternalError,
+        error::{ErrorClass, ErrorOrigin, InternalError},
         model::{
             entity::EntityModel,
             field::{FieldKind, FieldModel},
@@ -697,9 +697,12 @@ mod tests {
         let err = eval_canonical_scalar_value_program(&date, &slots)
             .expect_err("canonical scalar lane must fail closed on missing slots");
 
-        assert!(
-            err.message.contains("missing declared field `created_at`"),
-            "unexpected error: {err:?}"
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Serialize);
+        assert_eq!(
+            err.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption,
+            "missing declared scalar slot diagnostic drifted: {err:?}",
         );
     }
 

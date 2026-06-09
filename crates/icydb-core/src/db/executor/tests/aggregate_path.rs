@@ -1677,9 +1677,10 @@ fn aggregate_path_secondary_count_strict_missing_surfaces_corruption_error() {
         ErrorClass::Corruption,
         "strict secondary-index COUNT missing row should classify as corruption",
     );
-    assert!(
-        err.message.contains("missing row"),
-        "strict secondary-index COUNT should preserve missing-row error context",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "strict secondary-index COUNT should preserve missing-row corruption diagnostics",
     );
 }
 
