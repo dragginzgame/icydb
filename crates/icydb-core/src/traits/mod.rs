@@ -19,7 +19,6 @@ use crate::{
     visitor::VisitorContext,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use thiserror::Error as ThisError;
 
 pub use numeric_value::*;
 pub use visitor::*;
@@ -231,20 +230,24 @@ pub trait KeyValueCodec {
 /// compatibility lanes.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PrimaryKeyEncodeError {
-    #[error("primary-key component kind '{kind}' is not admitted")]
     UnsupportedComponentKind { kind: &'static str },
 
-    #[error("composite primary key has too few components: {count} (minimum {min})")]
     TooFewComponents { count: usize, min: usize },
 
-    #[error("composite primary key has too many components: {count} (limit {max})")]
     TooManyComponents { count: usize, max: usize },
 
-    #[error("unit is not admitted as composite primary-key component {index}")]
     UnitComponent { index: usize },
 }
+
+impl std::fmt::Display for PrimaryKeyEncodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("primary key encode error")
+    }
+}
+
+impl std::error::Error for PrimaryKeyEncodeError {}
 
 impl From<CompositePrimaryKeyValueError> for PrimaryKeyEncodeError {
     fn from(err: CompositePrimaryKeyValueError) -> Self {
@@ -261,8 +264,8 @@ impl From<CompositePrimaryKeyValueError> for PrimaryKeyEncodeError {
 }
 
 impl From<PrimaryKeyEncodeError> for InternalError {
-    fn from(err: PrimaryKeyEncodeError) -> Self {
-        Self::serialize_unsupported(err.to_string())
+    fn from(_err: PrimaryKeyEncodeError) -> Self {
+        Self::serialize_unsupported("primary key encode error")
     }
 }
 

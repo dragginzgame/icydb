@@ -157,9 +157,7 @@ fn encode_component_payload(
     match value {
         Value::Account(v) => segments::push_account_payload(out, v),
         Value::Blob(_) | Value::List(_) | Value::Map(_) => {
-            Err(OrderedValueEncodeError::UnsupportedValueKind {
-                kind: value.canonical_tag().label(),
-            })
+            Err(OrderedValueEncodeError::UnsupportedValueKind)
         }
         Value::Bool(v) => {
             out.push(u8::from(*v));

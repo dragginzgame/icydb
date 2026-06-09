@@ -13,6 +13,7 @@ use std::fmt;
 use thiserror::Error as ThisError;
 
 const COMPACT_QUERY_DIAGNOSTIC_MESSAGE: &str = "query diagnostic";
+const COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE: &str = "runtime diagnostic";
 const COMPACT_SCHEMA_DDL_STORE_MESSAGE: &str = "schema DDL diagnostic";
 
 // ============================================================================
@@ -284,39 +285,39 @@ impl InternalError {
         ))
     }
 
-    /// Construct a planner-origin invariant violation with the canonical
-    /// executor-boundary invariant prefix preserved in the message payload.
+    /// Construct a planner-origin invariant violation for executor-boundary
+    /// contract drift.
     #[cold]
     #[inline(never)]
-    pub(crate) fn planner_executor_invariant(reason: impl Into<String>) -> Self {
+    pub(crate) fn planner_executor_invariant(_reason: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Planner,
-            Self::executor_invariant_message(reason),
+            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
         )
     }
 
-    /// Construct a query-origin invariant violation with the canonical
-    /// executor-boundary invariant prefix preserved in the message payload.
+    /// Construct a query-origin invariant violation for executor-boundary
+    /// contract drift.
     #[cold]
     #[inline(never)]
-    pub(crate) fn query_executor_invariant(reason: impl Into<String>) -> Self {
+    pub(crate) fn query_executor_invariant(_reason: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Query,
-            Self::executor_invariant_message(reason),
+            COMPACT_QUERY_DIAGNOSTIC_MESSAGE,
         )
     }
 
-    /// Construct a cursor-origin invariant violation with the canonical
-    /// executor-boundary invariant prefix preserved in the message payload.
+    /// Construct a cursor-origin invariant violation for executor-boundary
+    /// contract drift.
     #[cold]
     #[inline(never)]
-    pub(crate) fn cursor_executor_invariant(reason: impl Into<String>) -> Self {
+    pub(crate) fn cursor_executor_invariant(_reason: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Cursor,
-            Self::executor_invariant_message(reason),
+            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
         )
     }
 
@@ -529,88 +530,82 @@ impl InternalError {
 
     /// Construct a query-origin scalar page invariant for ordering before filtering.
     pub(crate) fn scalar_page_ordering_after_filtering_required() -> Self {
-        Self::query_executor_invariant("ordering must run after filtering")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin scalar page invariant for missing order at the cursor boundary.
     pub(crate) fn scalar_page_cursor_boundary_order_required() -> Self {
-        Self::query_executor_invariant("cursor boundary requires ordering")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin scalar page invariant for cursor-before-ordering drift.
     pub(crate) fn scalar_page_cursor_boundary_after_ordering_required() -> Self {
-        Self::query_executor_invariant("cursor boundary must run after ordering")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin scalar page invariant for pagination-before-ordering drift.
     pub(crate) fn scalar_page_pagination_after_ordering_required() -> Self {
-        Self::query_executor_invariant("pagination must run after ordering")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin scalar page invariant for delete-limit-before-ordering drift.
     pub(crate) fn scalar_page_delete_limit_after_ordering_required() -> Self {
-        Self::query_executor_invariant("delete limit must run after ordering")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin load-runtime invariant for scalar-mode payload mismatch.
     pub(crate) fn load_runtime_scalar_payload_required() -> Self {
-        Self::query_executor_invariant("scalar load mode must carry scalar runtime payload")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin load-runtime invariant for grouped-mode payload mismatch.
     pub(crate) fn load_runtime_grouped_payload_required() -> Self {
-        Self::query_executor_invariant("grouped load mode must carry grouped runtime payload")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin load-surface invariant for scalar-page payload mismatch.
     pub(crate) fn load_runtime_scalar_surface_payload_required() -> Self {
-        Self::query_executor_invariant("scalar page load mode must carry scalar runtime payload")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin load-surface invariant for grouped-page payload mismatch.
     pub(crate) fn load_runtime_grouped_surface_payload_required() -> Self {
-        Self::query_executor_invariant("grouped page load mode must carry grouped runtime payload")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin load-entrypoint invariant for non-load plans.
     pub(crate) fn load_executor_load_plan_required() -> Self {
-        Self::query_executor_invariant("load executor requires load plans")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin delete-entrypoint unsupported grouped-mode error.
     pub(crate) fn delete_executor_grouped_unsupported() -> Self {
-        Self::executor_unsupported("grouped query execution is not yet enabled in this release")
+        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin delete-entrypoint invariant for non-delete plans.
     pub(crate) fn delete_executor_delete_plan_required() -> Self {
-        Self::query_executor_invariant("delete executor requires delete plans")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin aggregate kernel invariant for fold-mode contract drift.
     pub(crate) fn aggregate_fold_mode_terminal_contract_required() -> Self {
-        Self::query_executor_invariant(
-            "aggregate fold mode must match route fold-mode contract for aggregate terminal",
-        )
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin fast-stream invariant for route kind/request mismatch.
     pub(crate) fn fast_stream_route_kind_request_match_required() -> Self {
-        Self::query_executor_invariant("fast-stream route kind/request mismatch")
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin scan invariant for missing index-prefix executable specs.
     pub(crate) fn secondary_index_prefix_spec_required() -> Self {
-        Self::query_executor_invariant(
-            "index-prefix executable spec must be materialized for index-prefix plans",
-        )
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin scan invariant for missing index-range executable specs.
     pub(crate) fn index_range_limit_spec_required() -> Self {
-        Self::query_executor_invariant(
-            "index-range executable spec must be materialized for index-range plans",
-        )
+        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin mutation unsupported error for duplicate atomic save keys.
@@ -633,34 +628,20 @@ impl InternalError {
         ))
     }
 
-    /// Build the canonical executor-invariant message prefix.
-    #[must_use]
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn executor_invariant_message(reason: impl Into<String>) -> String {
-        format!("executor invariant violated: {}", reason.into())
-    }
-
     /// Construct a planner-origin invariant violation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn planner_invariant(message: impl Into<String>) -> Self {
+    pub(crate) fn planner_invariant(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Planner,
-            message.into(),
+            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
         )
     }
 
-    /// Build the canonical invalid-logical-plan message prefix.
-    #[must_use]
-    pub(crate) fn invalid_logical_plan_message(reason: impl Into<String>) -> String {
-        format!("invalid logical plan: {}", reason.into())
-    }
-
-    /// Construct a planner-origin invariant with the canonical invalid-plan prefix.
-    pub(crate) fn query_invalid_logical_plan(reason: impl Into<String>) -> Self {
-        Self::planner_invariant(Self::invalid_logical_plan_message(reason))
+    /// Construct a planner-origin invalid-logical-plan invariant.
+    pub(crate) fn query_invalid_logical_plan(_reason: impl Into<String>) -> Self {
+        Self::planner_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a store-origin invariant violation.
@@ -772,8 +753,12 @@ impl InternalError {
     /// Construct a query-origin unsupported error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn query_unsupported(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, message.into())
+    pub(crate) fn query_unsupported(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            COMPACT_QUERY_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct a query-origin SQL DDL admission error with structured detail.

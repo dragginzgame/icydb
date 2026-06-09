@@ -217,7 +217,7 @@ fn query_serialize_internal_constructor_preserves_serialize_internal_boundary() 
 }
 
 #[test]
-fn continuation_kind_mismatch_helpers_preserve_invariant_messages() {
+fn continuation_kind_mismatch_helpers_preserve_invariant_diagnostics() {
     let scalar = QueryError::scalar_paged_emitted_grouped_continuation();
     let grouped = QueryError::grouped_paged_emitted_scalar_continuation();
 
@@ -230,12 +230,12 @@ fn continuation_kind_mismatch_helpers_preserve_invariant_messages() {
     };
 
     assert_eq!(
-        scalar_inner.message,
-        "executor invariant violated: scalar load pagination emitted grouped continuation token",
+        scalar_inner.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
     assert_eq!(
-        grouped_inner.message,
-        "executor invariant violated: grouped pagination emitted scalar continuation token",
+        grouped_inner.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
 }
 

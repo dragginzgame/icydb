@@ -4,7 +4,6 @@
 //! Boundary: consumed by index-key build/predicate compile paths.
 
 use crate::error::InternalError;
-use thiserror::Error as ThisError;
 
 ///
 /// OrderedValueEncodeError
@@ -12,28 +11,29 @@ use thiserror::Error as ThisError;
 /// Canonical index-encoding failures for one `Value` component.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(crate) enum OrderedValueEncodeError {
-    #[error("null values are not indexable")]
     NullNotIndexable,
 
-    #[error("value kind '{kind}' is not canonically index-orderable")]
-    UnsupportedValueKind { kind: &'static str },
+    UnsupportedValueKind,
 
-    #[error("ordered segment exceeds max length: {len} bytes (limit {max})")]
-    SegmentTooLarge { len: usize, max: usize },
+    SegmentTooLarge,
 
-    #[error("account owner principal exceeds max length: {len} bytes (limit {max})")]
-    AccountOwnerTooLarge { len: usize, max: usize },
+    AccountOwnerTooLarge,
 
-    #[error("decimal exponent overflow during canonical encoding")]
     DecimalExponentOverflow,
 }
 
+impl std::fmt::Display for OrderedValueEncodeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("index ordered value encode error")
+    }
+}
+
+impl std::error::Error for OrderedValueEncodeError {}
+
 impl From<OrderedValueEncodeError> for InternalError {
-    fn from(err: OrderedValueEncodeError) -> Self {
-        Self::index_unsupported(format!(
-            "index value is not canonically order-encodable: {err}"
-        ))
+    fn from(_err: OrderedValueEncodeError) -> Self {
+        Self::index_unsupported("index ordered value encode error")
     }
 }

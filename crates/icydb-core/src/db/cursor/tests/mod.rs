@@ -279,9 +279,10 @@ fn pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants() {
             ErrorOrigin::Cursor,
             "pk cursor decode mapping must remain cursor-origin",
         );
-        assert!(
-            mapped.message.starts_with("executor invariant violated:"),
-            "pk cursor decode mapping must preserve canonical executor-invariant prefix: {mapped:?}",
+        assert_eq!(
+            mapped.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+            "pk cursor decode mapping must preserve runtime invariant diagnostics",
         );
     }
 }

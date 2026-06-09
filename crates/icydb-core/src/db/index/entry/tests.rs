@@ -179,7 +179,7 @@ fn index_entry_value_rejects_oversized_payload() {
     let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
     std::assert_matches!(
         raw.decode_row_witness(&raw_key),
-        Err(IndexEntryCorruption::TooLarge { .. })
+        Err(IndexEntryCorruption::TooLarge)
     );
 }
 

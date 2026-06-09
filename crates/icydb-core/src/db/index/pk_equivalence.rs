@@ -11,7 +11,6 @@ use crate::db::{
 use crate::{
     db::data::primary_key_value_from_structural_value, error::InternalError, value::Value,
 };
-use thiserror::Error as ThisError;
 
 ///
 /// PrimaryKeyEquivalenceError
@@ -20,20 +19,30 @@ use thiserror::Error as ThisError;
 /// anchor against a semantic boundary value.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum PrimaryKeyEquivalenceError {
-    #[error("index anchor primary key decode failed: {source}")]
     AnchorDecode {
-        #[source]
         source: CompactPrimaryKeyDecodeError,
     },
 
     #[cfg(test)]
-    #[error("boundary primary key is not admitted: {source}")]
-    BoundaryDecode {
-        #[source]
-        source: InternalError,
-    },
+    BoundaryDecode { source: InternalError },
+}
+
+impl std::fmt::Display for PrimaryKeyEquivalenceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("primary key equivalence error")
+    }
+}
+
+impl std::error::Error for PrimaryKeyEquivalenceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::AnchorDecode { source } => Some(source),
+            #[cfg(test)]
+            Self::BoundaryDecode { source } => Some(source),
+        }
+    }
 }
 
 /// Compare an index-key primary-key payload with a semantic boundary key value.

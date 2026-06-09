@@ -1261,7 +1261,7 @@ fn encode_value_index_component_ref(value: &Value) -> Result<Option<Vec<u8>>, In
         Ok(encoded) => encoded,
         Err(
             OrderedValueEncodeError::NullNotIndexable
-            | OrderedValueEncodeError::UnsupportedValueKind { .. },
+            | OrderedValueEncodeError::UnsupportedValueKind,
         ) => {
             return Ok(None);
         }

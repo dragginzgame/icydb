@@ -410,12 +410,7 @@ fn compact_primary_key_rejects_invalid_principal_length() {
     ];
     let err = EncodedPrimaryKey::try_from(&too_long[..])
         .expect_err("oversized principal length should reject");
-    std::assert_matches!(
-        err,
-        CompactPrimaryKeyDecodeError::InvalidPrincipalLength { len, max }
-            if len == Principal::MAX_LENGTH_IN_BYTES as usize + 1
-                && max == Principal::MAX_LENGTH_IN_BYTES as usize
-    );
+    std::assert_matches!(err, CompactPrimaryKeyDecodeError::InvalidPrincipalLength);
 
     let truncated = [PrimaryKeyKind::Principal.tag(), 3, 1, 2];
     let err = EncodedPrimaryKey::try_from(&truncated[..])
@@ -476,7 +471,7 @@ fn compact_primary_key_validates_account_payload() {
 
     let err = EncodedPrimaryKey::try_from(&invalid[..])
         .expect_err("invalid account payload should reject");
-    std::assert_matches!(err, CompactPrimaryKeyDecodeError::InvalidAccount { .. });
+    std::assert_matches!(err, CompactPrimaryKeyDecodeError::InvalidAccount);
 }
 
 #[test]
@@ -895,7 +890,7 @@ fn raw_data_store_key_rejects_malformed_live_shape() {
     let short = [0u8; size_of::<u64>()];
     let err = RawDataStoreKey::from_bytes(&short[..])
         .expect_err("raw data key without primary suffix should reject");
-    std::assert_matches!(err, CompactStoreKeyDecodeError::DataStoreKeyTooShort { .. });
+    std::assert_matches!(err, CompactStoreKeyDecodeError::DataStoreKeyTooShort);
 
     let mut invalid_primary = vec![0u8; size_of::<u64>()];
     invalid_primary.push(0xFF);
@@ -1025,17 +1020,12 @@ fn raw_index_store_key_accepts_composite_primary_key_suffix() {
 fn raw_index_store_key_rejects_malformed_live_shape() {
     let err = RawIndexStoreKey::from_bytes(&[])
         .expect_err("empty raw index key should reject before handle open");
-    std::assert_matches!(
-        err,
-        CompactStoreKeyDecodeError::TruncatedIndexSegment {
-            segment: "key kind"
-        }
-    );
+    std::assert_matches!(err, CompactStoreKeyDecodeError::TruncatedIndexSegment);
 
     let wrong_kind = [0xFF];
     let err = RawIndexStoreKey::from_bytes(&wrong_kind[..])
         .expect_err("unknown raw index key kind should reject");
-    std::assert_matches!(err, CompactStoreKeyDecodeError::UnknownIndexKeyKind { .. });
+    std::assert_matches!(err, CompactStoreKeyDecodeError::UnknownIndexKeyKind);
 
     let entity = EntityTag::new(0x1592);
     let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat64(1))
@@ -1048,12 +1038,7 @@ fn raw_index_store_key_rejects_malformed_live_shape() {
     let _ = truncated.pop();
     let err = RawIndexStoreKey::from_bytes(&truncated[..])
         .expect_err("truncated primary-key suffix should reject");
-    std::assert_matches!(
-        err,
-        CompactStoreKeyDecodeError::TruncatedIndexSegment {
-            segment: "primary key suffix"
-        }
-    );
+    std::assert_matches!(err, CompactStoreKeyDecodeError::TruncatedIndexSegment);
 }
 
 #[test]
@@ -1068,12 +1053,7 @@ fn raw_index_store_key_rejects_empty_component_and_primary_segments() {
     empty_component.extend_from_slice(&0u16.to_be_bytes());
     let err = RawIndexStoreKey::from_bytes(&empty_component)
         .expect_err("empty component segment should reject");
-    std::assert_matches!(
-        err,
-        CompactStoreKeyDecodeError::EmptyIndexSegment {
-            segment: "index component"
-        }
-    );
+    std::assert_matches!(err, CompactStoreKeyDecodeError::EmptyIndexSegment);
 
     let mut empty_primary = Vec::new();
     empty_primary.push(IndexStoreKeyKind::User.tag());
@@ -1082,12 +1062,7 @@ fn raw_index_store_key_rejects_empty_component_and_primary_segments() {
     empty_primary.extend_from_slice(&0u16.to_be_bytes());
     let err = RawIndexStoreKey::from_bytes(&empty_primary)
         .expect_err("empty primary-key suffix should reject");
-    std::assert_matches!(
-        err,
-        CompactStoreKeyDecodeError::EmptyIndexSegment {
-            segment: "primary key suffix"
-        }
-    );
+    std::assert_matches!(err, CompactStoreKeyDecodeError::EmptyIndexSegment);
 }
 
 #[test]

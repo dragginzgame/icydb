@@ -20,8 +20,7 @@ use crate::{
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
-use std::cmp::Ordering;
-use thiserror::Error as ThisError;
+use std::{cmp::Ordering, fmt};
 
 const TAG_SIZE: usize = 1;
 const NAT64_SIZE: usize = 8;
@@ -100,18 +99,6 @@ impl PrimaryKeyKind {
             Self::Subaccount => Some(SUBACCOUNT_SIZE),
             Self::Account => Some(ACCOUNT_SIZE),
             Self::Unit => Some(0),
-        }
-    }
-
-    const fn fixed_length_expectation(self) -> &'static str {
-        match self {
-            Self::Nat64 | Self::Int64 | Self::Timestamp => "tag + 8-byte payload",
-            Self::Nat128 | Self::Int128 | Self::Ulid => "tag + 16-byte payload",
-            Self::Principal => "tag + one-byte length + principal bytes",
-            Self::Subaccount => "tag + 32-byte payload",
-            Self::Account => "tag + 62-byte account payload",
-            Self::Unit => "tag only",
-            Self::Composite => "tag + component count + encoded scalar components",
         }
     }
 }
@@ -373,109 +360,115 @@ impl PartialOrd for PrimaryKeyValue {
 // Errors
 //
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum CompositePrimaryKeyValueError {
-    #[error("composite primary key has too few components: {count} (minimum {min})")]
     TooFewComponents { count: usize, min: usize },
 
-    #[error("composite primary key has too many components: {count} (limit {max})")]
     TooManyComponents { count: usize, max: usize },
 
-    #[error("unit is not admitted as composite primary-key component {index}")]
     UnitComponent { index: usize },
 }
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum CompactPrimaryKeyEncodeError {
-    #[error("account primary key encoding failed: {reason}")]
-    InvalidAccount { reason: &'static str },
+    InvalidAccount,
 
-    #[error("principal primary key exceeds max length: {len} bytes (limit {max})")]
-    PrincipalTooLarge { len: usize, max: usize },
+    PrincipalTooLarge,
 }
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum CompactPrimaryKeyDecodeError {
-    #[error("encoded primary key is empty")]
     Empty,
 
-    #[error("encoded primary key has unknown kind tag: {tag}")]
     UnknownKind { tag: u8 },
 
-    #[error(
-        "encoded primary key has invalid length for {kind:?}: {len} bytes (expected {expected})"
-    )]
-    InvalidLength {
-        kind: PrimaryKeyKind,
-        len: usize,
-        expected: &'static str,
-    },
+    InvalidLength { kind: PrimaryKeyKind },
 
-    #[error("encoded principal primary key has invalid length: {len} bytes (limit {max})")]
-    InvalidPrincipalLength { len: usize, max: usize },
+    InvalidPrincipalLength,
 
-    #[error("encoded account primary key is invalid: {reason}")]
-    InvalidAccount { reason: &'static str },
+    InvalidAccount,
 
-    #[error(
-        "encoded composite primary key has invalid component count: {count} (expected {expected})"
-    )]
-    InvalidCompositeCount {
-        count: usize,
-        expected: &'static str,
-    },
+    InvalidCompositeCount { count: usize },
 
-    #[error("unit is not admitted as encoded composite primary-key component {index}")]
     UnitCompositeComponent { index: usize },
 
-    #[error("nested composite primary-key component is not admitted")]
     NestedComposite,
 
-    #[error("encoded composite primary key is not a scalar component")]
     CompositeNotScalar,
 
-    #[error("encoded composite primary key has trailing bytes: {len}")]
-    TrailingCompositeBytes { len: usize },
+    TrailingCompositeBytes,
 }
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum CompactStoreKeyEncodeError {
-    #[error("index store key has too many components: {count} (limit {max})")]
-    TooManyIndexComponents { count: usize, max: usize },
+    TooManyIndexComponents,
 }
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum CompactStoreKeyDecodeError {
-    #[error("raw data store key is too short: {len} bytes (minimum {min})")]
-    DataStoreKeyTooShort { len: usize, min: usize },
+    DataStoreKeyTooShort,
 
-    #[error("raw index store key is truncated while reading {segment}")]
-    TruncatedIndexSegment { segment: &'static str },
+    TruncatedIndexSegment,
 
-    #[error("raw index store key has unknown key kind: {kind}")]
-    UnknownIndexKeyKind { kind: u8 },
+    UnknownIndexKeyKind,
 
-    #[error("raw index store key has empty {segment}")]
-    EmptyIndexSegment { segment: &'static str },
+    EmptyIndexSegment,
 
-    #[error("raw index store key has invalid index id bytes")]
     InvalidIndexId,
 
-    #[error("raw index store key has trailing bytes: {len}")]
-    TrailingIndexBytes { len: usize },
+    TrailingIndexBytes,
 
-    #[error("raw index store key has too many components: {count} (limit {max})")]
-    TooManyIndexComponents { count: usize, max: usize },
+    TooManyIndexComponents,
 
-    #[error("raw index store key {segment} is too large: {len} bytes (limit {max})")]
-    IndexSegmentTooLarge {
-        segment: &'static str,
-        len: usize,
-        max: usize,
-    },
+    IndexSegmentTooLarge,
 
-    #[error("raw store key contains invalid primary key: {0}")]
-    InvalidPrimaryKey(#[from] CompactPrimaryKeyDecodeError),
+    InvalidPrimaryKey(CompactPrimaryKeyDecodeError),
+}
+
+impl fmt::Display for CompositePrimaryKeyValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("composite primary key error")
+    }
+}
+
+impl std::error::Error for CompositePrimaryKeyValueError {}
+
+impl fmt::Display for CompactPrimaryKeyEncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("primary key encode error")
+    }
+}
+
+impl std::error::Error for CompactPrimaryKeyEncodeError {}
+
+impl fmt::Display for CompactPrimaryKeyDecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("primary key decode error")
+    }
+}
+
+impl std::error::Error for CompactPrimaryKeyDecodeError {}
+
+impl fmt::Display for CompactStoreKeyEncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("store key encode error")
+    }
+}
+
+impl std::error::Error for CompactStoreKeyEncodeError {}
+
+impl fmt::Display for CompactStoreKeyDecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("store key decode error")
+    }
+}
+
+impl std::error::Error for CompactStoreKeyDecodeError {}
+
+impl From<CompactPrimaryKeyDecodeError> for CompactStoreKeyDecodeError {
+    fn from(err: CompactPrimaryKeyDecodeError) -> Self {
+        Self::InvalidPrimaryKey(err)
+    }
 }
 
 //
@@ -660,10 +653,7 @@ impl DataStoreKey {
         const MIN_RAW_DATA_STORE_KEY_SIZE: usize = ENTITY_TAG_SIZE + TAG_SIZE;
 
         if bytes.len() < MIN_RAW_DATA_STORE_KEY_SIZE {
-            return Err(CompactStoreKeyDecodeError::DataStoreKeyTooShort {
-                len: bytes.len(),
-                min: MIN_RAW_DATA_STORE_KEY_SIZE,
-            });
+            return Err(CompactStoreKeyDecodeError::DataStoreKeyTooShort);
         }
 
         let mut entity_bytes = [0u8; ENTITY_TAG_SIZE];
@@ -826,12 +816,8 @@ impl IndexStoreKey {
     }
 
     pub(in crate::db) fn to_raw(&self) -> Result<RawIndexStoreKey, CompactStoreKeyEncodeError> {
-        let component_count = u8::try_from(self.components.len()).map_err(|_| {
-            CompactStoreKeyEncodeError::TooManyIndexComponents {
-                count: self.components.len(),
-                max: u8::MAX as usize,
-            }
-        })?;
+        let component_count = u8::try_from(self.components.len())
+            .map_err(|_| CompactStoreKeyEncodeError::TooManyIndexComponents)?;
         let primary_len = self.primary_key.as_bytes().len();
         let component_len: usize = self
             .components
@@ -863,28 +849,23 @@ impl IndexStoreKey {
     ) -> Result<Self, CompactStoreKeyDecodeError> {
         let mut input = bytes;
 
-        let key_kind = take_exact(&mut input, TAG_SIZE, "key kind")?[0];
+        let key_kind = take_exact(&mut input, TAG_SIZE)?[0];
         let key_kind = IndexStoreKeyKind::from_tag(key_kind)
-            .ok_or(CompactStoreKeyDecodeError::UnknownIndexKeyKind { kind: key_kind })?;
+            .ok_or(CompactStoreKeyDecodeError::UnknownIndexKeyKind)?;
 
-        let index_id = IndexId::from_bytes(take_exact(
-            &mut input,
-            IndexId::STORED_SIZE_USIZE,
-            "index id",
-        )?)
-        .ok_or(CompactStoreKeyDecodeError::InvalidIndexId)?;
+        let index_id = IndexId::from_bytes(take_exact(&mut input, IndexId::STORED_SIZE_USIZE)?)
+            .ok_or(CompactStoreKeyDecodeError::InvalidIndexId)?;
 
-        let component_count = usize::from(take_exact(&mut input, TAG_SIZE, "component count")?[0]);
+        let component_count = usize::from(take_exact(&mut input, TAG_SIZE)?[0]);
         let mut components = Vec::with_capacity(component_count);
         for _ in 0..component_count {
-            let component_bytes = take_len_prefixed(&mut input, "index component")?;
+            let component_bytes = take_len_prefixed(&mut input)?;
             components.push(EncodedIndexComponent::try_from(component_bytes)?);
         }
 
-        let primary_key =
-            EncodedPrimaryKey::try_from(take_len_prefixed(&mut input, "primary key suffix")?)?;
+        let primary_key = EncodedPrimaryKey::try_from(take_len_prefixed(&mut input)?)?;
         if !input.is_empty() {
-            return Err(CompactStoreKeyDecodeError::TrailingIndexBytes { len: input.len() });
+            return Err(CompactStoreKeyDecodeError::TrailingIndexBytes);
         }
 
         Ok(Self::new_with_kind(
@@ -1028,11 +1009,9 @@ fn encode_primary_key_payload(
         PrimaryKeyComponent::Principal(value) => encode_principal(value, out)?,
         PrimaryKeyComponent::Subaccount(value) => out.extend_from_slice(value.as_slice()),
         PrimaryKeyComponent::Account(value) => {
-            let bytes = value.to_stored_bytes().map_err(|_| {
-                CompactPrimaryKeyEncodeError::InvalidAccount {
-                    reason: "account payload failed fixed stored encoding",
-                }
-            })?;
+            let bytes = value
+                .to_stored_bytes()
+                .map_err(|_| CompactPrimaryKeyEncodeError::InvalidAccount)?;
             out.extend_from_slice(&bytes);
         }
         PrimaryKeyComponent::Unit => {}
@@ -1053,11 +1032,7 @@ fn decode_primary_key_component(
     if let Some(expected) = kind.fixed_payload_len()
         && payload.len() != expected
     {
-        return Err(CompactPrimaryKeyDecodeError::InvalidLength {
-            kind,
-            len: bytes.len(),
-            expected: kind.fixed_length_expectation(),
-        });
+        return Err(CompactPrimaryKeyDecodeError::InvalidLength { kind });
     }
 
     match kind {
@@ -1101,7 +1076,7 @@ fn decode_primary_key_component(
         }
         PrimaryKeyKind::Account => Ok(PrimaryKeyComponent::Account(
             Account::try_from_bytes(payload)
-                .map_err(|reason| CompactPrimaryKeyDecodeError::InvalidAccount { reason })?,
+                .map_err(|_| CompactPrimaryKeyDecodeError::InvalidAccount)?,
         )),
         PrimaryKeyKind::Unit => Ok(PrimaryKeyComponent::Unit),
         PrimaryKeyKind::Composite => Err(CompactPrimaryKeyDecodeError::CompositeNotScalar),
@@ -1117,25 +1092,15 @@ fn decode_composite_primary_key_value(
     let kind =
         PrimaryKeyKind::from_tag(tag).ok_or(CompactPrimaryKeyDecodeError::UnknownKind { tag })?;
     if kind != PrimaryKeyKind::Composite {
-        return Err(CompactPrimaryKeyDecodeError::InvalidCompositeCount {
-            count: 0,
-            expected: "composite primary-key tag",
-        });
+        return Err(CompactPrimaryKeyDecodeError::InvalidCompositeCount { count: 0 });
     }
 
     let Some((&count, rest)) = payload.split_first() else {
-        return Err(CompactPrimaryKeyDecodeError::InvalidLength {
-            kind,
-            len: bytes.len(),
-            expected: kind.fixed_length_expectation(),
-        });
+        return Err(CompactPrimaryKeyDecodeError::InvalidLength { kind });
     };
     let count = usize::from(count);
     if !(2..=MAX_PRIMARY_KEY_FIELDS).contains(&count) {
-        return Err(CompactPrimaryKeyDecodeError::InvalidCompositeCount {
-            count,
-            expected: "2..=MAX_PRIMARY_KEY_FIELDS",
-        });
+        return Err(CompactPrimaryKeyDecodeError::InvalidCompositeCount { count });
     }
 
     let mut input = rest;
@@ -1149,16 +1114,13 @@ fn decode_composite_primary_key_value(
         *component = value;
     }
     if !input.is_empty() {
-        return Err(CompactPrimaryKeyDecodeError::TrailingCompositeBytes { len: input.len() });
+        return Err(CompactPrimaryKeyDecodeError::TrailingCompositeBytes);
     }
 
     CompositePrimaryKeyValue::try_from_components(&components[..count]).map_err(|err| match err {
         CompositePrimaryKeyValueError::TooFewComponents { count, .. }
         | CompositePrimaryKeyValueError::TooManyComponents { count, .. } => {
-            CompactPrimaryKeyDecodeError::InvalidCompositeCount {
-                count,
-                expected: "2..=MAX_PRIMARY_KEY_FIELDS",
-            }
+            CompactPrimaryKeyDecodeError::InvalidCompositeCount { count }
         }
         CompositePrimaryKeyValueError::UnitComponent { index } => {
             CompactPrimaryKeyDecodeError::UnitCompositeComponent { index }
@@ -1181,18 +1143,11 @@ fn take_encoded_primary_key_component<'a>(
     let total_len = match kind {
         PrimaryKeyKind::Principal => {
             let Some(&len) = input.get(TAG_SIZE) else {
-                return Err(CompactPrimaryKeyDecodeError::InvalidLength {
-                    kind,
-                    len: input.len(),
-                    expected: kind.fixed_length_expectation(),
-                });
+                return Err(CompactPrimaryKeyDecodeError::InvalidLength { kind });
             };
             let len = usize::from(len);
             if len > Principal::MAX_LENGTH_IN_BYTES as usize {
-                return Err(CompactPrimaryKeyDecodeError::InvalidPrincipalLength {
-                    len,
-                    max: Principal::MAX_LENGTH_IN_BYTES as usize,
-                });
+                return Err(CompactPrimaryKeyDecodeError::InvalidPrincipalLength);
             }
             TAG_SIZE + TAG_SIZE + len
         }
@@ -1200,11 +1155,7 @@ fn take_encoded_primary_key_component<'a>(
         _ => TAG_SIZE + kind.fixed_payload_len().expect("primary-key invariant"),
     };
     if input.len() < total_len {
-        return Err(CompactPrimaryKeyDecodeError::InvalidLength {
-            kind,
-            len: input.len(),
-            expected: kind.fixed_length_expectation(),
-        });
+        return Err(CompactPrimaryKeyDecodeError::InvalidLength { kind });
     }
 
     let (component, rest) = input.split_at(total_len);
@@ -1217,18 +1168,11 @@ fn encode_principal(
     value: Principal,
     out: &mut Vec<u8>,
 ) -> Result<(), CompactPrimaryKeyEncodeError> {
-    let bytes =
-        value
-            .stored_bytes()
-            .map_err(|_| CompactPrimaryKeyEncodeError::PrincipalTooLarge {
-                len: value.as_slice().len(),
-                max: Principal::MAX_LENGTH_IN_BYTES as usize,
-            })?;
+    let bytes = value
+        .stored_bytes()
+        .map_err(|_| CompactPrimaryKeyEncodeError::PrincipalTooLarge)?;
     let len =
-        u8::try_from(bytes.len()).map_err(|_| CompactPrimaryKeyEncodeError::PrincipalTooLarge {
-            len: bytes.len(),
-            max: Principal::MAX_LENGTH_IN_BYTES as usize,
-        })?;
+        u8::try_from(bytes.len()).map_err(|_| CompactPrimaryKeyEncodeError::PrincipalTooLarge)?;
 
     out.push(len);
     out.extend_from_slice(bytes);
@@ -1240,24 +1184,17 @@ fn decode_principal(payload: &[u8]) -> Result<PrimaryKeyComponent, CompactPrimar
     let Some((&len, bytes)) = payload.split_first() else {
         return Err(CompactPrimaryKeyDecodeError::InvalidLength {
             kind: PrimaryKeyKind::Principal,
-            len: TAG_SIZE,
-            expected: PrimaryKeyKind::Principal.fixed_length_expectation(),
         });
     };
 
     let len = usize::from(len);
     if len > Principal::MAX_LENGTH_IN_BYTES as usize {
-        return Err(CompactPrimaryKeyDecodeError::InvalidPrincipalLength {
-            len,
-            max: Principal::MAX_LENGTH_IN_BYTES as usize,
-        });
+        return Err(CompactPrimaryKeyDecodeError::InvalidPrincipalLength);
     }
 
     if bytes.len() != len {
         return Err(CompactPrimaryKeyDecodeError::InvalidLength {
             kind: PrimaryKeyKind::Principal,
-            len: TAG_SIZE + payload.len(),
-            expected: PrimaryKeyKind::Principal.fixed_length_expectation(),
         });
     }
 
@@ -1293,10 +1230,9 @@ fn push_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) {
 const fn take_exact<'a>(
     input: &mut &'a [u8],
     len: usize,
-    segment: &'static str,
 ) -> Result<&'a [u8], CompactStoreKeyDecodeError> {
     if input.len() < len {
-        return Err(CompactStoreKeyDecodeError::TruncatedIndexSegment { segment });
+        return Err(CompactStoreKeyDecodeError::TruncatedIndexSegment);
     }
 
     let (head, tail) = input.split_at(len);
@@ -1304,18 +1240,15 @@ const fn take_exact<'a>(
     Ok(head)
 }
 
-fn take_len_prefixed<'a>(
-    input: &mut &'a [u8],
-    segment: &'static str,
-) -> Result<&'a [u8], CompactStoreKeyDecodeError> {
-    let len_bytes = take_exact(input, LENGTH_PREFIX_SIZE, segment)?;
+fn take_len_prefixed<'a>(input: &mut &'a [u8]) -> Result<&'a [u8], CompactStoreKeyDecodeError> {
+    let len_bytes = take_exact(input, LENGTH_PREFIX_SIZE)?;
     let mut len = [0u8; LENGTH_PREFIX_SIZE];
     len.copy_from_slice(len_bytes);
     let len = usize::from(u16::from_be_bytes(len));
     if len == 0 {
-        return Err(CompactStoreKeyDecodeError::EmptyIndexSegment { segment });
+        return Err(CompactStoreKeyDecodeError::EmptyIndexSegment);
     }
-    take_exact(input, len, segment)
+    take_exact(input, len)
 }
 
 fn compare_raw_index_store_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
@@ -1343,48 +1276,33 @@ fn decode_raw_index_store_key_segments(
 ) -> Result<BorrowedIndexStoreKeySegments<'_>, CompactStoreKeyDecodeError> {
     let mut input = bytes;
 
-    let key_kind = take_exact(&mut input, TAG_SIZE, "key kind")?[0];
+    let key_kind = take_exact(&mut input, TAG_SIZE)?[0];
     let key_kind = IndexStoreKeyKind::from_tag(key_kind)
-        .ok_or(CompactStoreKeyDecodeError::UnknownIndexKeyKind { kind: key_kind })?;
+        .ok_or(CompactStoreKeyDecodeError::UnknownIndexKeyKind)?;
 
-    let index_id = IndexId::from_bytes(take_exact(
-        &mut input,
-        IndexId::STORED_SIZE_USIZE,
-        "index id",
-    )?)
-    .ok_or(CompactStoreKeyDecodeError::InvalidIndexId)?;
+    let index_id = IndexId::from_bytes(take_exact(&mut input, IndexId::STORED_SIZE_USIZE)?)
+        .ok_or(CompactStoreKeyDecodeError::InvalidIndexId)?;
 
-    let component_count = usize::from(take_exact(&mut input, TAG_SIZE, "component count")?[0]);
+    let component_count = usize::from(take_exact(&mut input, TAG_SIZE)?[0]);
     if component_count > MAX_INDEX_FIELDS {
-        return Err(CompactStoreKeyDecodeError::TooManyIndexComponents {
-            count: component_count,
-            max: MAX_INDEX_FIELDS,
-        });
+        return Err(CompactStoreKeyDecodeError::TooManyIndexComponents);
     }
 
     let mut components = Vec::with_capacity(component_count);
     for _ in 0..component_count {
-        let component = take_len_prefixed(&mut input, "index component")?;
+        let component = take_len_prefixed(&mut input)?;
         if component.len() > INDEX_COMPONENT_MAX_SIZE {
-            return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge {
-                segment: "index component",
-                len: component.len(),
-                max: INDEX_COMPONENT_MAX_SIZE,
-            });
+            return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge);
         }
         components.push(component);
     }
 
-    let primary_key = take_len_prefixed(&mut input, "primary key suffix")?;
+    let primary_key = take_len_prefixed(&mut input)?;
     if primary_key.len() > INDEX_PRIMARY_KEY_MAX_SIZE {
-        return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge {
-            segment: "primary key suffix",
-            len: primary_key.len(),
-            max: INDEX_PRIMARY_KEY_MAX_SIZE,
-        });
+        return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge);
     }
     if !input.is_empty() {
-        return Err(CompactStoreKeyDecodeError::TrailingIndexBytes { len: input.len() });
+        return Err(CompactStoreKeyDecodeError::TrailingIndexBytes);
     }
 
     Ok((key_kind, index_id, components, primary_key))

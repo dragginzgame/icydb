@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `minimal, minimal_metrics, one_simple, one_sql_query, one_fluent_query, one_complex, ten_simple, ten_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-06/2026-06-08/wasm-footprint.md`
-- code snapshot identifier: `d8ab2fcd1`
+- code snapshot identifier: `77484507e`
 - method tag/version: `WASM-1.0`
 - comparability status: `non-comparable (one or more baseline size artifacts are missing or use an incompatible metric schema)`
 
@@ -24,14 +24,14 @@ PASS=4, PARTIAL=1, FAIL=0
 
 | Canister | Baseline Status | Previous shrunk `.wasm` | Current shrunk `.wasm` | Previous shrunk `.wasm.gz` | Current shrunk `.wasm.gz` | Size Summary |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| `minimal` | PASS | 287347 | 6516 | 110600 | 4095 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.minimal.wasm-release.sql-on.size-summary.md` |
-| `minimal_metrics` | PARTIAL | N/A | 288647 | N/A | 111773 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.minimal_metrics.wasm-release.sql-on.size-summary.md` |
-| `one_simple` | PASS | 2376231 | 2307941 | 779048 | 756596 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_simple.wasm-release.sql-on.size-summary.md` |
-| `one_sql_query` | PASS | 2916794 | 2863391 | 1006633 | 988584 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_sql_query.wasm-release.sql-on.size-summary.md` |
-| `one_fluent_query` | PASS | 2358229 | 2307934 | 772595 | 756696 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_fluent_query.wasm-release.sql-on.size-summary.md` |
-| `one_complex` | PASS | 2398649 | 2330236 | 786254 | 764616 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_complex.wasm-release.sql-on.size-summary.md` |
-| `ten_simple` | PASS | 2399770 | 2331462 | 781843 | 760152 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.ten_simple.wasm-release.sql-on.size-summary.md` |
-| `ten_complex` | PASS | 2422108 | 2353677 | 788861 | 767449 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.ten_complex.wasm-release.sql-on.size-summary.md` |
+| `minimal` | PASS | 287347 | 6516 | 110600 | 4096 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.minimal.wasm-release.sql-on.size-summary.md` |
+| `minimal_metrics` | PARTIAL | N/A | 288647 | N/A | 111772 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.minimal_metrics.wasm-release.sql-on.size-summary.md` |
+| `one_simple` | PASS | 2376231 | 2294926 | 779048 | 753022 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_simple.wasm-release.sql-on.size-summary.md` |
+| `one_sql_query` | PASS | 2916794 | 2845811 | 1006633 | 983704 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_sql_query.wasm-release.sql-on.size-summary.md` |
+| `one_fluent_query` | PASS | 2358229 | 2294919 | 772595 | 752785 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_fluent_query.wasm-release.sql-on.size-summary.md` |
+| `one_complex` | PASS | 2398649 | 2317221 | 786254 | 760516 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.one_complex.wasm-release.sql-on.size-summary.md` |
+| `ten_simple` | PASS | 2399770 | 2318447 | 781843 | 755336 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.ten_simple.wasm-release.sql-on.size-summary.md` |
+| `ten_complex` | PASS | 2422108 | 2340662 | 788861 | 762343 | `docs/audits/reports/2026-06/2026-06-09/artifacts/wasm-footprint/wasm-footprint.ten_complex.wasm-release.sql-on.size-summary.md` |
 
 ## Follow-Up Actions
 

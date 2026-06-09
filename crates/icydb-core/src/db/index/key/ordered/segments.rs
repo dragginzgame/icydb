@@ -10,7 +10,6 @@ use crate::{
 };
 
 const LENGTH_BYTES: usize = 2;
-const MAX_SEGMENT_LEN: usize = u16::MAX as usize;
 const ACCOUNT_OWNER_MAX_LEN: usize = Principal::MAX_LENGTH_IN_BYTES as usize;
 const ACCOUNT_SUBACCOUNT_LEN: usize = 32;
 const ACCOUNT_SUBACCOUNT_TAG: u8 = 0x80;
@@ -24,10 +23,7 @@ pub(super) fn push_account_payload(
     let owner = owner_principal.as_slice();
     let owner_len = owner.len();
     if owner_len > ACCOUNT_OWNER_MAX_LEN {
-        return Err(OrderedValueEncodeError::AccountOwnerTooLarge {
-            len: owner_len,
-            max: ACCOUNT_OWNER_MAX_LEN,
-        });
+        return Err(OrderedValueEncodeError::AccountOwnerTooLarge);
     }
 
     let mut ordering_tag =
@@ -108,10 +104,7 @@ pub(super) fn push_inverted(out: &mut Vec<u8>, bytes: &[u8]) {
 pub(super) fn encode_segment_len(
     len: usize,
 ) -> Result<[u8; LENGTH_BYTES], OrderedValueEncodeError> {
-    let len_u16 = u16::try_from(len).map_err(|_| OrderedValueEncodeError::SegmentTooLarge {
-        len,
-        max: MAX_SEGMENT_LEN,
-    })?;
+    let len_u16 = u16::try_from(len).map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
 
     Ok(len_u16.to_be_bytes())
 }

@@ -108,6 +108,12 @@ impl IndexRangeBoundEncodeError {
 
     #[must_use]
     pub(in crate::db) const fn cursor_anchor_not_indexable_reason(self) -> &'static str {
+        #[cfg(not(test))]
+        {
+            let _ = self;
+            "index-range cursor anchor invariant"
+        }
+        #[cfg(test)]
         match self {
             Self::Prefix => "index-range continuation anchor prefix is not indexable",
             Self::Lower => "index-range cursor lower continuation bound is not indexable",

@@ -12,7 +12,6 @@ use crate::{
 };
 use ic_memory::stable_structures::storable::Bound;
 use std::borrow::Cow;
-use thiserror::Error as ThisError;
 
 ///
 /// Constants
@@ -27,37 +26,33 @@ pub(crate) const MAX_INDEX_ENTRY_BYTES: u32 = 1;
 /// IndexEntryCorruption
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(crate) enum IndexEntryCorruption {
-    #[error("index entry exceeds max size")]
-    TooLarge { len: usize },
+    TooLarge,
 
-    #[error("index entry value length does not match presence witness shape")]
     LengthMismatch,
 
-    #[error("index entry contains invalid key bytes")]
     InvalidKey,
 
-    #[error("index entry contains invalid existence witness")]
     InvalidWitness,
 
-    #[error("index entry contains zero keys")]
     EmptyEntry,
 
-    #[error("index entry missing expected entity key: {entity_key} (index {index_key:?})")]
-    MissingKey {
-        index_key: Box<RawIndexStoreKey>,
-        entity_key: String,
-    },
+    MissingKey,
 }
+
+impl std::fmt::Display for IndexEntryCorruption {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("index entry corruption")
+    }
+}
+
+impl std::error::Error for IndexEntryCorruption {}
 
 impl IndexEntryCorruption {
     #[must_use]
-    pub(crate) fn missing_key(index_key: RawIndexStoreKey, entity_key: &PrimaryKeyValue) -> Self {
-        Self::MissingKey {
-            index_key: Box::new(index_key),
-            entity_key: format!("{entity_key:?}"),
-        }
+    pub(crate) fn missing_key(_index_key: RawIndexStoreKey, _entity_key: &PrimaryKeyValue) -> Self {
+        Self::MissingKey
     }
 }
 
@@ -215,7 +210,7 @@ impl IndexEntryValue {
     fn validate_witness(&self) -> Result<IndexEntryExistenceWitness, IndexEntryCorruption> {
         let bytes = self.as_bytes();
         if bytes.len() > MAX_INDEX_ENTRY_BYTES as usize {
-            return Err(IndexEntryCorruption::TooLarge { len: bytes.len() });
+            return Err(IndexEntryCorruption::TooLarge);
         }
         if bytes.is_empty() {
             return Err(IndexEntryCorruption::EmptyEntry);

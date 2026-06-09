@@ -13,29 +13,23 @@ use crate::db::{
 };
 
 fn from_group_plan_error(err: PlanError) -> InternalError {
-    let message = match err {
+    match err {
         PlanError::User(inner) => match *inner {
             PlanUserError::Group(inner) => {
-                InternalError::invalid_logical_plan_message(inner.to_string())
+                InternalError::query_invalid_logical_plan(inner.to_string())
             }
-            other => {
-                format!("group-plan error conversion received non-group user variant: {other}")
-            }
+            other => InternalError::planner_executor_invariant(other.to_string()),
         },
         PlanError::Policy(inner) => match *inner {
             PlanPolicyError::Group(inner) => {
-                InternalError::invalid_logical_plan_message(inner.to_string())
+                InternalError::query_invalid_logical_plan(inner.to_string())
             }
             PlanPolicyError::Policy(inner) => {
-                format!("group-plan error conversion received non-group policy variant: {inner}")
+                InternalError::planner_executor_invariant(inner.to_string())
             }
         },
-        PlanError::Cursor(inner) => {
-            format!("group-plan error conversion received cursor variant: {inner}")
-        }
-    };
-
-    InternalError::planner_invariant(message)
+        PlanError::Cursor(inner) => InternalError::planner_executor_invariant(inner.to_string()),
+    }
 }
 
 fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
@@ -55,7 +49,20 @@ fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
         }
     };
 
-    InternalError::planner_invariant(InternalError::executor_invariant_message(reason))
+    InternalError::planner_executor_invariant(reason)
+}
+
+fn assert_runtime_invariant(err: &InternalError, origin: ErrorOrigin) {
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, origin);
+
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
+    );
+    assert_eq!(diagnostic.origin(), origin.diagnostic_origin());
+    assert_eq!(diagnostic.detail(), None);
 }
 
 #[test]
@@ -110,15 +117,13 @@ fn index_plan_store_invariant_uses_store_origin() {
 #[test]
 fn query_executor_invariant_uses_invariant_violation_class() {
     let err = InternalError::query_executor_invariant("route contract mismatch");
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert_runtime_invariant(&err, ErrorOrigin::Query);
 }
 
 #[test]
 fn cursor_executor_invariant_uses_cursor_origin() {
     let err = InternalError::cursor_executor_invariant("cursor contract mismatch");
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Cursor);
+    assert_runtime_invariant(&err, ErrorOrigin::Cursor);
 }
 
 #[test]
@@ -127,7 +132,10 @@ fn query_unsupported_uses_query_origin() {
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Query);
-    assert_eq!(err.message, "unsupported query shape");
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported
+    );
 }
 
 #[cfg(feature = "sql")]
@@ -307,28 +315,18 @@ fn executor_access_plan_error_mapping_stays_invariant_violation() {
 }
 
 #[test]
-fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
+fn plan_policy_error_mapping_uses_runtime_invariant_code() {
     let err = plan_invariant_violation(PolicyPlanError::DeleteWindowRequiresOrder);
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Planner);
-    assert_eq!(
-        err.message,
-        "executor invariant violated: delete limit or offset requires explicit ordering",
-    );
+    assert_runtime_invariant(&err, ErrorOrigin::Planner);
 }
 
 #[test]
-fn group_plan_error_mapping_uses_invalid_logical_plan_prefix() {
+fn group_plan_error_mapping_uses_runtime_invariant_code() {
     let err = from_group_plan_error(PlanError::from(GroupPlanError::UnknownGroupField {
         field: "tenant".to_string(),
     }));
 
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Planner);
-    assert_eq!(
-        err.message,
-        "invalid logical plan: unknown group field 'tenant'",
-    );
+    assert_runtime_invariant(&err, ErrorOrigin::Planner);
 }
 
 #[test]
@@ -339,13 +337,7 @@ fn group_plan_error_mapping_rejects_non_group_user_variant() {
         },
     ))));
 
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Planner);
-    assert!(
-        err.message
-            .contains("group-plan error conversion received non-group user variant"),
-        "non-group user variant mapping should fail closed with explicit domain message: {err:?}",
-    );
+    assert_runtime_invariant(&err, ErrorOrigin::Planner);
 }
 
 #[test]
@@ -354,13 +346,7 @@ fn group_plan_error_mapping_rejects_non_group_policy_variant() {
         PolicyPlanError::UnorderedPagination,
     ))));
 
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Planner);
-    assert!(
-        err.message
-            .contains("group-plan error conversion received non-group policy variant"),
-        "non-group policy variant mapping should fail closed with explicit domain message: {err:?}",
-    );
+    assert_runtime_invariant(&err, ErrorOrigin::Planner);
 }
 
 #[test]
@@ -372,13 +358,7 @@ fn group_plan_error_mapping_rejects_cursor_variant() {
         },
     ));
 
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Planner);
-    assert!(
-        err.message
-            .contains("group-plan error conversion received cursor variant"),
-        "cursor variant mapping should fail closed with explicit domain message: {err:?}",
-    );
+    assert_runtime_invariant(&err, ErrorOrigin::Planner);
 }
 
 #[test]
