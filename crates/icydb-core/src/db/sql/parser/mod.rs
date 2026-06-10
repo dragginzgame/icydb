@@ -16,7 +16,10 @@ mod tests;
 use crate::{
     db::{
         diagnostics::measure_local_instruction_delta as measure_parse_stage,
-        sql_shared::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
+        sql_shared::{
+            Keyword, SqlExpectedToken, SqlIntegerLiteralClause, SqlSyntaxErrorKind, SqlTokenCursor,
+            TokenKind, tokenize_sql,
+        },
     },
     value::Value,
 };
@@ -147,23 +150,23 @@ impl Parser {
         self.cursor.parse_literal()
     }
 
-    fn parse_u32_literal(&mut self, clause: &str) -> Result<u32, SqlParseError> {
+    fn parse_u32_literal(&mut self, clause: SqlIntegerLiteralClause) -> Result<u32, SqlParseError> {
         let Some(TokenKind::Number(value)) = self.peek_kind() else {
             return Err(SqlParseError::expected(
-                &format!("integer literal after {clause}"),
+                SqlExpectedToken::IntegerLiteral { clause },
                 self.peek_kind(),
             ));
         };
         let value = value.as_str();
 
         if value.contains('.') || value.starts_with('-') {
-            return Err(SqlParseError::invalid_syntax(format!(
-                "{clause} requires a non-negative integer literal"
-            )));
+            return Err(SqlParseError::invalid_syntax(
+                SqlSyntaxErrorKind::IntegerLiteralRequiresNonNegative { clause },
+            ));
         }
 
         let parsed = value.parse::<u32>().map_err(|_| {
-            SqlParseError::invalid_syntax(format!("{clause} value exceeds supported u32 bound"))
+            SqlParseError::invalid_syntax(SqlSyntaxErrorKind::IntegerLiteralU32Overflow { clause })
         })?;
         self.cursor.advance();
 
@@ -250,7 +253,10 @@ impl Parser {
             return Ok(());
         }
 
-        Err(SqlParseError::expected(keyword, self.peek_kind()))
+        Err(SqlParseError::expected(
+            SqlExpectedToken::identifier_keyword(keyword),
+            self.peek_kind(),
+        ))
     }
 
     const fn is_eof(&self) -> bool {

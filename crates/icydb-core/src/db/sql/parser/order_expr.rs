@@ -9,7 +9,10 @@ use crate::{
             SqlAggregateCall, SqlAggregateKind, SqlCaseArm, SqlExpr, SqlExprBinaryOp,
             SqlExprUnaryOp, SqlScalarFunction,
         },
-        sql_shared::{Keyword, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
+        sql_shared::{
+            Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, SqlTokenCursor,
+            TokenKind, tokenize_sql,
+        },
     },
     value::Value,
 };
@@ -223,7 +226,7 @@ trait SupportedOrderFunctionParser {
 
                 if args.len() < 2 {
                     return Err(SqlParseError::invalid_syntax(
-                        "COALESCE requires at least two arguments",
+                        SqlSyntaxErrorKind::CoalesceRequiresTwoArguments,
                     ));
                 }
 
@@ -305,7 +308,10 @@ trait SupportedOrderFunctionParser {
             return Ok(());
         }
 
-        Err(SqlParseError::expected(",", self.cursor().peek_kind()))
+        Err(SqlParseError::expected(
+            SqlExpectedToken::Comma,
+            self.cursor().peek_kind(),
+        ))
     }
 }
 
@@ -609,7 +615,10 @@ impl SupportedGroupedOrderExprParser {
         while self.cursor.eat_keyword(Keyword::When) {
             let condition = self.parse_expr()?;
             if !self.cursor.eat_keyword(Keyword::Then) {
-                return Err(SqlParseError::expected("THEN", self.cursor.peek_kind()));
+                return Err(SqlParseError::expected(
+                    SqlExpectedToken::Then,
+                    self.cursor.peek_kind(),
+                ));
             }
             let result = self.parse_expr()?;
             when_then_arms.push(SqlCaseArm { condition, result });
@@ -628,7 +637,10 @@ impl SupportedGroupedOrderExprParser {
         };
 
         if !self.cursor.eat_keyword(Keyword::End) {
-            return Err(SqlParseError::expected("END", self.cursor.peek_kind()));
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::End,
+                self.cursor.peek_kind(),
+            ));
         }
 
         Ok(SqlExpr::Case {
@@ -695,7 +707,10 @@ impl SupportedGroupedOrderExprParser {
         }
         self.cursor.expect_lparen()?;
         if !self.cursor.eat_keyword(Keyword::Where) {
-            return Err(SqlParseError::expected("WHERE", self.cursor.peek_kind()));
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::Where,
+                self.cursor.peek_kind(),
+            ));
         }
         let filter_expr = self.parse_expr()?;
         self.cursor.expect_rparen()?;

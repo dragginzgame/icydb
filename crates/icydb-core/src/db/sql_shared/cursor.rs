@@ -2,7 +2,7 @@
 use crate::db::sql_shared::types::token_kind_sql_fragment;
 use crate::{
     db::sql_shared::{
-        Keyword, SqlParseError, TokenKind,
+        Keyword, SqlExpectedToken, SqlParseError, TokenKind,
         types::{Token, parse_number_literal},
     },
     value::Value,
@@ -29,7 +29,7 @@ impl SqlTokenCursor {
 
             let Some(TokenKind::Number(value)) = self.peek_kind() else {
                 return Err(SqlParseError::expected(
-                    "numeric literal after '-'",
+                    SqlExpectedToken::NumericLiteralAfterMinus,
                     self.peek_kind(),
                 ));
             };
@@ -48,7 +48,12 @@ impl SqlTokenCursor {
             Some(TokenKind::Keyword(Keyword::Null)) => Value::Null,
             Some(TokenKind::Keyword(Keyword::True)) => Value::Bool(true),
             Some(TokenKind::Keyword(Keyword::False)) => Value::Bool(false),
-            _ => return Err(SqlParseError::expected("literal", self.peek_kind())),
+            _ => {
+                return Err(SqlParseError::expected(
+                    SqlExpectedToken::Literal,
+                    self.peek_kind(),
+                ));
+            }
         };
 
         self.advance();
@@ -61,7 +66,10 @@ impl SqlTokenCursor {
     // so replacing the slot with punctuation preserves cursor invariants.
     fn take_blob_literal(&mut self) -> Result<Value, SqlParseError> {
         let Some(token) = self.tokens.get_mut(self.pos) else {
-            return Err(SqlParseError::expected("literal", self.peek_kind()));
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::Literal,
+                self.peek_kind(),
+            ));
         };
         let TokenKind::BlobLiteral(bytes) = std::mem::replace(&mut token.kind, TokenKind::Comma)
         else {
@@ -77,16 +85,19 @@ impl SqlTokenCursor {
             return Ok(());
         }
 
-        Err(SqlParseError::expected(keyword.as_str(), self.peek_kind()))
+        Err(SqlParseError::expected(
+            SqlExpectedToken::Keyword(keyword),
+            self.peek_kind(),
+        ))
     }
 
     pub(crate) fn expect_identifier(&mut self) -> Result<String, SqlParseError> {
         let mut name = self.take_identifier_segment()?;
 
         while self.eat_dot() {
-            let part = self
-                .take_identifier_segment()
-                .map_err(|_| SqlParseError::expected("identifier after '.'", self.peek_kind()))?;
+            let part = self.take_identifier_segment().map_err(|_| {
+                SqlParseError::expected(SqlExpectedToken::IdentifierAfterDot, self.peek_kind())
+            })?;
             name.push('.');
             name.push_str(part.as_str());
         }
@@ -99,7 +110,10 @@ impl SqlTokenCursor {
             return Ok(());
         }
 
-        Err(SqlParseError::expected("(", self.peek_kind()))
+        Err(SqlParseError::expected(
+            SqlExpectedToken::LParen,
+            self.peek_kind(),
+        ))
     }
 
     pub(in crate::db) fn expect_rparen(&mut self) -> Result<(), SqlParseError> {
@@ -107,7 +121,10 @@ impl SqlTokenCursor {
             return Ok(());
         }
 
-        Err(SqlParseError::expected(")", self.peek_kind()))
+        Err(SqlParseError::expected(
+            SqlExpectedToken::RParen,
+            self.peek_kind(),
+        ))
     }
 
     pub(in crate::db) fn eat_keyword(&mut self, keyword: Keyword) -> bool {
@@ -172,10 +189,16 @@ impl SqlTokenCursor {
     // hot paths do not clone field and entity names on every successful read.
     fn take_identifier_segment(&mut self) -> Result<String, SqlParseError> {
         let Some(token) = self.tokens.get_mut(self.pos) else {
-            return Err(SqlParseError::expected("identifier", self.peek_kind()));
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::Identifier,
+                self.peek_kind(),
+            ));
         };
         if !matches!(token.kind, TokenKind::Identifier(_)) {
-            return Err(SqlParseError::expected("identifier", self.peek_kind()));
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::Identifier,
+                self.peek_kind(),
+            ));
         }
 
         // The parser never revisits consumed tokens, so a cheap punctuation

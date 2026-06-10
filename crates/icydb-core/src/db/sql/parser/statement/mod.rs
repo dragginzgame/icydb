@@ -16,7 +16,9 @@ use crate::db::{
         SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowStoresStatement, SqlStatement,
         SqlUpdateStatement,
     },
-    sql_shared::{Keyword, SqlParseError, TokenKind},
+    sql_shared::{
+        Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind,
+    },
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
@@ -58,7 +60,7 @@ impl Parser {
         }
 
         Err(SqlParseError::expected(
-            "one of SELECT, DELETE, INSERT, UPDATE, CREATE, DROP, ALTER, EXPLAIN, DESCRIBE, SHOW",
+            SqlExpectedToken::StatementStart,
             self.peek_kind(),
         ))
     }
@@ -150,7 +152,7 @@ impl Parser {
             return Err(SqlParseError::unsupported_feature(feature));
         } else {
             return Err(SqlParseError::expected(
-                "one of SELECT, DELETE",
+                SqlExpectedToken::SelectOrDelete,
                 self.peek_kind(),
             ));
         };
@@ -167,7 +169,9 @@ impl Parser {
             && (statement.limit.is_some() || statement.offset.is_some())
         {
             return Some(SqlParseError::invalid_syntax(
-                "ORDER BY must appear before LIMIT/OFFSET",
+                SqlSyntaxErrorKind::ClauseOrder {
+                    rule: SqlClauseOrderRule::SelectOrderBeforeLimitOffset,
+                },
             ));
         }
 
@@ -177,7 +181,9 @@ impl Parser {
     fn delete_clause_order_error(&self, statement: &SqlDeleteStatement) -> Option<SqlParseError> {
         if self.peek_keyword(Keyword::Order) && statement.limit.is_some() {
             return Some(SqlParseError::invalid_syntax(
-                "ORDER BY must appear before LIMIT in DELETE",
+                SqlSyntaxErrorKind::ClauseOrder {
+                    rule: SqlClauseOrderRule::DeleteOrderBeforeLimit,
+                },
             ));
         }
 
@@ -189,12 +195,16 @@ impl Parser {
             && (statement.limit.is_some() || statement.offset.is_some())
         {
             return Some(SqlParseError::invalid_syntax(
-                "ORDER BY must appear before LIMIT/OFFSET in UPDATE",
+                SqlSyntaxErrorKind::ClauseOrder {
+                    rule: SqlClauseOrderRule::UpdateOrderBeforeLimitOffset,
+                },
             ));
         }
         if self.peek_keyword(Keyword::Limit) && statement.offset.is_some() {
             return Some(SqlParseError::invalid_syntax(
-                "LIMIT must appear before OFFSET in UPDATE",
+                SqlSyntaxErrorKind::ClauseOrder {
+                    rule: SqlClauseOrderRule::UpdateLimitBeforeOffset,
+                },
             ));
         }
 
@@ -231,7 +241,10 @@ impl Parser {
 
     fn parse_show_indexes_statement(&mut self) -> Result<SqlShowIndexesStatement, SqlParseError> {
         if !self.eat_keyword(Keyword::From) && !self.eat_keyword(Keyword::In) {
-            return Err(SqlParseError::expected("FROM or IN", self.peek_kind()));
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::ShowIndexesSource,
+                self.peek_kind(),
+            ));
         }
         let entity = self.expect_identifier()?;
 

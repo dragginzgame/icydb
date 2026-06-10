@@ -7,7 +7,7 @@ use crate::db::{
         SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract, SqlDdlStatement,
         SqlDropIndexStatement,
     },
-    sql_shared::{Keyword, SqlParseError, TokenKind},
+    sql_shared::{Keyword, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError, TokenKind},
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
@@ -293,10 +293,13 @@ impl Parser {
         self.expect_lparen()?;
         self.expect_identifier_keyword("max_bytes")?;
         if !matches!(self.peek_kind(), Some(TokenKind::Eq)) {
-            return Err(SqlParseError::expected("=", self.peek_kind()));
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::Eq,
+                self.peek_kind(),
+            ));
         }
         self.cursor.advance();
-        let max_bytes = self.parse_u32_literal("max_bytes")?;
+        let max_bytes = self.parse_u32_literal(SqlIntegerLiteralClause::MaxBytes)?;
         self.expect_rparen()?;
 
         Ok(format!("{head}(max_bytes={max_bytes})"))
@@ -422,7 +425,7 @@ impl Parser {
                 self.expect_identifier_keyword("SCHEMA")?;
                 self.expect_identifier_keyword("VERSION")?;
                 contract.expected_schema_version =
-                    Some(self.parse_u32_literal("EXPECT SCHEMA VERSION")?);
+                    Some(self.parse_u32_literal(SqlIntegerLiteralClause::ExpectSchemaVersion)?);
             } else if self.eat_identifier_keyword("SET") {
                 if contract.next_schema_version.is_some() {
                     return Err(SqlParseError::unsupported_feature(
@@ -431,7 +434,8 @@ impl Parser {
                 }
                 self.expect_identifier_keyword("SCHEMA")?;
                 self.expect_identifier_keyword("VERSION")?;
-                contract.next_schema_version = Some(self.parse_u32_literal("SET SCHEMA VERSION")?);
+                contract.next_schema_version =
+                    Some(self.parse_u32_literal(SqlIntegerLiteralClause::SetSchemaVersion)?);
             } else {
                 break;
             }

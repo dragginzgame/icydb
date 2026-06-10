@@ -12,7 +12,9 @@ mod tests;
 
 use crate::db::{
     predicate::{CompareOp, Predicate},
-    sql_shared::{Keyword, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
+    sql_shared::{
+        Keyword, SqlExpectedToken, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql,
+    },
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
@@ -58,7 +60,7 @@ pub(in crate::db::predicate::parser) fn parse_compare_operator(
         Some(TokenKind::Gte) => CompareOp::Gte,
         _ => {
             return Err(SqlParseError::expected(
-                "one of =, !=, <>, <, <=, >, >=",
+                SqlExpectedToken::CompareOperator,
                 cursor.peek_kind(),
             ));
         }

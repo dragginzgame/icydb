@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Compacts grouped aggregate budget and executor corruption diagnostics by
-  replacing remaining internal message/resource strings with bounded code and
-  origin payloads.
+- Compacts reduced SQL parser syntax diagnostics by replacing invalid-syntax
+  message strings with bounded syntax reason and token-context payloads.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.31` compacts grouped aggregate budget, executor corruption, and SQL
+  parameter-placement diagnostics onto bounded code, origin, index, and reason
+  payloads while preserving actionable context without runtime message strings.
 
 - `0.180.30` restores compact diagnostic context across cursor validation,
   expression planning, compiled projection evaluation, aggregate field reads,

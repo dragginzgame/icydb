@@ -1,5 +1,5 @@
 use crate::db::sql_shared::{
-    TokenKind,
+    SqlSyntaxErrorKind, TokenKind,
     lexer::{
         Lexer,
         keywords::{is_identifier_continue, keyword_from_ident_bytes},
@@ -24,13 +24,13 @@ impl Lexer<'_> {
             }
             if !byte.is_ascii_hexdigit() {
                 return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-                    "blob literal must contain only hexadecimal digits",
+                    SqlSyntaxErrorKind::BlobLiteralNonHexDigit,
                 ));
             }
         }
 
         Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-            "unterminated blob literal",
+            SqlSyntaxErrorKind::BlobLiteralUnterminated,
         ))
     }
 
@@ -54,7 +54,7 @@ impl Lexer<'_> {
         }
 
         Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-            "unterminated string literal",
+            SqlSyntaxErrorKind::StringLiteralUnterminated,
         ))
     }
 
@@ -106,12 +106,14 @@ impl Lexer<'_> {
 fn decode_hex_blob_literal(hex: &[u8]) -> Result<Vec<u8>, crate::db::sql_shared::SqlParseError> {
     if !hex.len().is_multiple_of(2) {
         return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-            "blob literal must contain an even number of hex digits",
+            SqlSyntaxErrorKind::BlobLiteralOddHexLength,
         ));
     }
     if hex.len() / 2 > MAX_SQL_BLOB_LITERAL_BYTES {
         return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-            "blob literal exceeds maximum decoded byte length of 1048576",
+            SqlSyntaxErrorKind::BlobLiteralTooLarge {
+                max_decoded_bytes: MAX_SQL_BLOB_LITERAL_BYTES,
+            },
         ));
     }
 

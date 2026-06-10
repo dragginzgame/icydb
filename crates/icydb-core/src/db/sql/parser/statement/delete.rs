@@ -1,6 +1,6 @@
 use crate::db::{
     sql::parser::{Parser, SqlDeleteStatement},
-    sql_shared::{Keyword, SqlParseError},
+    sql_shared::{Keyword, SqlIntegerLiteralClause, SqlParseError},
 };
 
 impl Parser {
@@ -23,13 +23,13 @@ impl Parser {
         };
 
         let limit = if self.eat_keyword(Keyword::Limit) {
-            Some(self.parse_u32_literal("LIMIT")?)
+            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Limit)?)
         } else {
             None
         };
 
         let offset = if self.eat_keyword(Keyword::Offset) {
-            Some(self.parse_u32_literal("OFFSET")?)
+            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Offset)?)
         } else {
             None
         };

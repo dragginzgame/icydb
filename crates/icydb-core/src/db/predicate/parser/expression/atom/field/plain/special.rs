@@ -4,7 +4,7 @@ use crate::{
     },
     db::{
         predicate::{CompareOp, Predicate},
-        sql_shared::{Keyword, SqlParseError, SqlTokenCursor},
+        sql_shared::{Keyword, SqlExpectedToken, SqlParseError, SqlTokenCursor},
     },
     value::Value,
 };
@@ -32,7 +32,7 @@ pub(in crate::db::predicate::parser::expression::atom::field::plain) fn parse_pl
     }
 
     Err(SqlParseError::expected(
-        "IS, NOT, IN, or BETWEEN after field",
+        SqlExpectedToken::FieldSpecialOperator,
         cursor.peek_kind(),
     ))
 }
@@ -59,7 +59,7 @@ fn parse_plain_not_predicate(
     }
 
     Err(SqlParseError::expected(
-        "IN or BETWEEN after NOT",
+        SqlExpectedToken::NotSpecialOperator,
         cursor.peek_kind(),
     ))
 }
@@ -88,11 +88,7 @@ fn parse_plain_is_terminal_predicate(
     }
 
     Err(SqlParseError::expected(
-        if negated {
-            "NULL, TRUE, or FALSE after IS NOT"
-        } else {
-            "NULL, TRUE, or FALSE after IS"
-        },
+        SqlExpectedToken::BooleanOrNullLiteral,
         cursor.peek_kind(),
     ))
 }

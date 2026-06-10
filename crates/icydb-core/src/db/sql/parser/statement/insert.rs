@@ -1,6 +1,6 @@
 use crate::db::{
     sql::parser::{Parser, SqlInsertSource, SqlInsertStatement, SqlReturningProjection},
-    sql_shared::{Keyword, SqlParseError},
+    sql_shared::{Keyword, SqlParseError, SqlSyntaxErrorKind},
 };
 use crate::value::Value;
 use icydb_diagnostic_code::SqlFeatureCode;
@@ -67,7 +67,7 @@ impl Parser {
                 && expected_columns != tuple.len()
             {
                 return Err(SqlParseError::invalid_syntax(
-                    "INSERT column list and VALUES tuple length must match",
+                    SqlSyntaxErrorKind::InsertValuesTupleLengthMismatch,
                 ));
             }
             tuples.push(tuple);

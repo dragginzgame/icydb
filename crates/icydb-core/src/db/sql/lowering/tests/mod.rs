@@ -23,7 +23,7 @@ use crate::{
         sql::{
             lowering::{
                 PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
-                SqlCommand, SqlLoweringError, compile_sql_command,
+                SqlCommand, SqlLoweringError, SqlParameterPlacementReason, compile_sql_command,
                 compile_sql_global_aggregate_command_for_model_only,
                 lower_grouped_post_aggregate_order_expr_text,
                 lower_sql_command_from_prepared_statement_for_model_only,
@@ -1611,7 +1611,13 @@ fn prepare_sql_statement_rejects_parameters_before_lowering() {
         };
 
         assert!(
-            matches!(err, SqlLoweringError::UnsupportedParameterPlacement { .. }),
+            matches!(
+                err,
+                SqlLoweringError::UnsupportedParameterPlacement {
+                    index: Some(0),
+                    reason: SqlParameterPlacementReason::BindingUnsupported
+                }
+            ),
             "{context} should be rejected by the prepared parameter contract: {err:?}",
         );
     }

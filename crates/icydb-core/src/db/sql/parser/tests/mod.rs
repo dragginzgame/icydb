@@ -18,6 +18,7 @@ use super::{
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
+    db::sql_shared::{SqlClauseOrderRule, SqlSyntaxErrorKind},
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
@@ -3609,7 +3610,9 @@ fn parse_sql_rejects_select_limit_before_order_with_actionable_message() {
     assert_eq!(
         err,
         super::SqlParseError::InvalidSyntax {
-            message: "ORDER BY must appear before LIMIT/OFFSET".to_string()
+            kind: SqlSyntaxErrorKind::ClauseOrder {
+                rule: SqlClauseOrderRule::SelectOrderBeforeLimitOffset
+            }
         }
     );
 }
@@ -3622,7 +3625,9 @@ fn parse_sql_rejects_select_offset_before_order_with_actionable_message() {
     assert_eq!(
         err,
         super::SqlParseError::InvalidSyntax {
-            message: "ORDER BY must appear before LIMIT/OFFSET".to_string()
+            kind: SqlSyntaxErrorKind::ClauseOrder {
+                rule: SqlClauseOrderRule::SelectOrderBeforeLimitOffset
+            }
         }
     );
 }
@@ -3635,7 +3640,9 @@ fn parse_sql_rejects_delete_limit_before_order_with_actionable_message() {
     assert_eq!(
         err,
         super::SqlParseError::InvalidSyntax {
-            message: "ORDER BY must appear before LIMIT in DELETE".to_string()
+            kind: SqlSyntaxErrorKind::ClauseOrder {
+                rule: SqlClauseOrderRule::DeleteOrderBeforeLimit
+            }
         }
     );
 }
@@ -3819,22 +3826,22 @@ fn parse_update_statement_rejects_invalid_window_clause_order() {
     let cases = [
         (
             "UPDATE users SET age = 22 WHERE id = 7 LIMIT 1 ORDER BY id",
-            "ORDER BY must appear before LIMIT/OFFSET in UPDATE",
+            SqlClauseOrderRule::UpdateOrderBeforeLimitOffset,
         ),
         (
             "UPDATE users SET age = 22 WHERE id = 7 OFFSET 1 LIMIT 1",
-            "LIMIT must appear before OFFSET in UPDATE",
+            SqlClauseOrderRule::UpdateLimitBeforeOffset,
         ),
     ];
 
-    for (sql, message) in cases {
+    for (sql, rule) in cases {
         let err = parse_sql(sql).expect_err("invalid UPDATE window clause order should fail");
         assert_eq!(
             err,
             SqlParseError::InvalidSyntax {
-                message: message.to_string(),
+                kind: SqlSyntaxErrorKind::ClauseOrder { rule },
             },
-            "invalid UPDATE window clause order should preserve an actionable parser message",
+            "invalid UPDATE window clause order should preserve a stable parser reason",
         );
     }
 }
@@ -4069,7 +4076,7 @@ fn parse_insert_statement_rejects_tuple_length_mismatch_in_any_values_tuple() {
     assert_eq!(
         err,
         super::SqlParseError::InvalidSyntax {
-            message: "INSERT column list and VALUES tuple length must match".to_string(),
+            kind: SqlSyntaxErrorKind::InsertValuesTupleLengthMismatch,
         }
     );
 }

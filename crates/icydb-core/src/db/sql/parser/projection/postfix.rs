@@ -3,7 +3,7 @@ use crate::{
         sql::parser::{
             Parser, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, projection::SqlExprParseSurface,
         },
-        sql_shared::{Keyword, SqlParseError, TokenKind},
+        sql_shared::{Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind},
     },
     value::Value,
 };
@@ -50,7 +50,7 @@ impl Parser {
             }
 
             return Err(SqlParseError::expected(
-                "NULL/TRUE/FALSE after IS/IS NOT",
+                SqlExpectedToken::BooleanOrNullLiteral,
                 self.peek_kind(),
             ));
         }
@@ -108,7 +108,11 @@ impl Parser {
     ) -> Result<SqlExpr, SqlParseError> {
         let Value::Text(pattern) = self.parse_literal()? else {
             return Err(SqlParseError::expected(
-                "string literal pattern after LIKE",
+                if casefold {
+                    SqlExpectedToken::IlikeStringPattern
+                } else {
+                    SqlExpectedToken::LikeStringPattern
+                },
                 self.peek_kind(),
             ));
         };
@@ -141,7 +145,7 @@ impl Parser {
 
         if values.is_empty() {
             return Err(SqlParseError::invalid_syntax(
-                "IN requires at least one literal",
+                SqlSyntaxErrorKind::InRequiresLiteral,
             ));
         }
 

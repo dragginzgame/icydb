@@ -1,4 +1,4 @@
-use crate::db::sql_shared::{Keyword, TokenKind, tokenize_sql};
+use crate::db::sql_shared::{Keyword, SqlSyntaxErrorKind, TokenKind, tokenize_sql};
 
 #[test]
 fn tokenize_sql_classifies_mixed_case_keywords_without_normalization_changes() {
@@ -101,7 +101,7 @@ fn tokenize_sql_rejects_malformed_hex_blob_literals() {
     assert_eq!(
         err,
         crate::db::sql_shared::SqlParseError::InvalidSyntax {
-            message: "blob literal must contain an even number of hex digits".to_string()
+            kind: SqlSyntaxErrorKind::BlobLiteralOddHexLength
         }
     );
 
@@ -110,7 +110,7 @@ fn tokenize_sql_rejects_malformed_hex_blob_literals() {
     assert_eq!(
         err,
         crate::db::sql_shared::SqlParseError::InvalidSyntax {
-            message: "blob literal must contain only hexadecimal digits".to_string()
+            kind: SqlSyntaxErrorKind::BlobLiteralNonHexDigit
         }
     );
 }
@@ -125,7 +125,9 @@ fn tokenize_sql_rejects_oversized_hex_blob_literals() {
     assert_eq!(
         err,
         crate::db::sql_shared::SqlParseError::InvalidSyntax {
-            message: "blob literal exceeds maximum decoded byte length of 1048576".to_string()
+            kind: SqlSyntaxErrorKind::BlobLiteralTooLarge {
+                max_decoded_bytes: 1_048_576
+            }
         }
     );
 }

@@ -14,7 +14,7 @@ use crate::db::{
         Parser, SqlCaseArm, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlProjection,
         SqlScalarFunction, SqlSelectItem,
     },
-    sql_shared::{Keyword, SqlParseError, TokenKind},
+    sql_shared::{Keyword, SqlExpectedToken, SqlParseError, TokenKind},
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
@@ -118,7 +118,7 @@ impl Parser {
 
         if items.is_empty() {
             return Err(SqlParseError::expected(
-                "one projection item",
+                SqlExpectedToken::ProjectionItem,
                 self.peek_kind(),
             ));
         }

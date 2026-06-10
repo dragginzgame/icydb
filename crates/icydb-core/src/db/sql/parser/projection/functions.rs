@@ -4,7 +4,7 @@ use crate::{
             Parser, SqlExpr, SqlScalarFunction, SqlScalarFunctionCallShape,
             projection::SqlExprParseSurface,
         },
-        sql_shared::{Keyword, SqlParseError, TokenKind},
+        sql_shared::{Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind},
     },
     value::Value,
 };
@@ -188,7 +188,7 @@ impl Parser {
 
         if args.len() < 2 {
             return Err(SqlParseError::invalid_syntax(
-                "COALESCE requires at least two arguments",
+                SqlSyntaxErrorKind::CoalesceRequiresTwoArguments,
             ));
         }
 
@@ -222,7 +222,7 @@ impl Parser {
         }
 
         Err(SqlParseError::expected(
-            "',' between scalar function arguments",
+            SqlExpectedToken::ScalarFunctionArgumentComma,
             self.peek_kind(),
         ))
     }
@@ -245,7 +245,7 @@ impl Parser {
 
                 if args.len() < 2 {
                     return Err(SqlParseError::invalid_syntax(
-                        "COALESCE requires at least two arguments",
+                        SqlSyntaxErrorKind::CoalesceRequiresTwoArguments,
                     ));
                 }
 
@@ -256,7 +256,10 @@ impl Parser {
                 self.expect_lparen()?;
                 let left = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
                 if !self.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.peek_kind()));
+                    return Err(SqlParseError::expected(
+                        SqlExpectedToken::Comma,
+                        self.peek_kind(),
+                    ));
                 }
                 let right = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
                 self.expect_rparen()?;
@@ -305,7 +308,7 @@ impl Parser {
             let scale = SqlExpr::Literal(self.parse_literal()?);
             let SqlExpr::Literal(Value::Int64(_) | Value::Nat64(_)) = scale else {
                 return Err(SqlParseError::invalid_syntax(
-                    "ROUND scale must be an integer literal",
+                    SqlSyntaxErrorKind::RoundScaleRequiresIntegerLiteral,
                 ));
             };
             args.push(scale);

@@ -32,6 +32,18 @@ use crate::{
 use icydb_diagnostic_code::SqlLoweringCode;
 use thiserror::Error as ThisError;
 
+///
+/// SqlParameterPlacementReason
+///
+/// Compact reason for unsupported SQL parameter placement diagnostics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlParameterPlacementReason {
+    BindingUnsupported,
+    UnboundExpressionLowering,
+}
+
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
 pub(in crate::db) use aggregate::compile_structural_sql_global_aggregate_command_from_prepared_with_schema;
 pub(crate) use aggregate::{
@@ -279,8 +291,11 @@ pub(crate) enum SqlLoweringError {
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 
-    #[error("{message}")]
-    UnsupportedParameterPlacement { message: String },
+    #[error("unsupported SQL parameter placement")]
+    UnsupportedParameterPlacement {
+        index: Option<usize>,
+        reason: SqlParameterPlacementReason,
+    },
 
     #[error("SQL DDL execution is not supported in this release")]
     UnsupportedSqlDdl,
@@ -381,16 +396,11 @@ impl SqlLoweringError {
     }
 
     /// Construct one unsupported parameter placement SQL lowering error.
-    pub(crate) fn unsupported_parameter_placement(
+    pub(crate) const fn unsupported_parameter_placement(
         index: Option<usize>,
-        message: impl Into<String>,
+        reason: SqlParameterPlacementReason,
     ) -> Self {
-        let message = match index {
-            Some(index) => format!("parameter slot ${index}: {}", message.into()),
-            None => message.into(),
-        };
-
-        Self::UnsupportedParameterPlacement { message }
+        Self::UnsupportedParameterPlacement { index, reason }
     }
 
     /// Construct one unsupported SQL DDL lowering error.

@@ -1,5 +1,5 @@
 use crate::db::sql_shared::{
-    SqlParseError, TokenKind,
+    SqlParseError, SqlSyntaxErrorKind, TokenKind,
     lexer::{Lexer, keywords::is_identifier_start},
     types::Token,
 };
@@ -44,10 +44,9 @@ impl<'a> Lexer<'a> {
                 next if next.is_ascii_digit() => TokenKind::Number(self.lex_number()),
                 next if is_identifier_start(next) => self.lex_identifier_or_keyword(),
                 other => {
-                    return Err(SqlParseError::invalid_syntax(format!(
-                        "unexpected character '{}'; reduced SQL supports bare identifiers, strings, numbers, and simple operators",
-                        other as char
-                    )));
+                    return Err(SqlParseError::invalid_syntax(
+                        SqlSyntaxErrorKind::UnexpectedCharacter { byte: other },
+                    ));
                 }
             }
         };
@@ -86,7 +85,9 @@ impl<'a> Lexer<'a> {
                 if self.consume_if(b'=') {
                     Ok(TokenKind::Ne)
                 } else {
-                    Err(SqlParseError::invalid_syntax("unexpected '!'"))
+                    Err(SqlParseError::invalid_syntax(
+                        SqlSyntaxErrorKind::UnexpectedBang,
+                    ))
                 }
             }
             b'<' => Ok(if self.consume_if(b'=') {
@@ -135,14 +136,18 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
                 Ok(())
             }
-            Some(found) => Err(SqlParseError::invalid_syntax(format!(
-                "expected '{}', found '{}'",
-                expected as char, found as char
-            ))),
-            None => Err(SqlParseError::invalid_syntax(format!(
-                "expected '{}', found end of input",
-                expected as char
-            ))),
+            Some(found) => Err(SqlParseError::invalid_syntax(
+                SqlSyntaxErrorKind::ExpectedByte {
+                    expected,
+                    found: Some(found),
+                },
+            )),
+            None => Err(SqlParseError::invalid_syntax(
+                SqlSyntaxErrorKind::ExpectedByte {
+                    expected,
+                    found: None,
+                },
+            )),
         }
     }
 }

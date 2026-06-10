@@ -16,8 +16,8 @@ pub(crate) enum SqlParseError {
     #[error("unsupported SQL feature")]
     UnsupportedFeature { feature: SqlFeatureCode },
 
-    #[error("invalid SQL syntax: {message}")]
-    InvalidSyntax { message: String },
+    #[error("invalid SQL syntax")]
+    InvalidSyntax { kind: SqlSyntaxErrorKind },
 }
 
 impl SqlParseError {
@@ -25,27 +25,211 @@ impl SqlParseError {
         Self::UnsupportedFeature { feature }
     }
 
-    pub(in crate::db) fn invalid_syntax(message: impl Into<String>) -> Self {
-        Self::InvalidSyntax {
-            message: message.into(),
+    pub(in crate::db) const fn invalid_syntax(kind: SqlSyntaxErrorKind) -> Self {
+        Self::InvalidSyntax { kind }
+    }
+
+    pub(crate) const fn expected(expected: SqlExpectedToken, found: Option<&TokenKind>) -> Self {
+        Self::invalid_syntax(SqlSyntaxErrorKind::ExpectedToken {
+            expected,
+            found: SqlFoundToken::from_token_kind(found),
+        })
+    }
+
+    pub(in crate::db) const fn expected_end_of_input(found: Option<&TokenKind>) -> Self {
+        Self::expected(SqlExpectedToken::EndOfInput, found)
+    }
+
+    pub(in crate::db) const fn invalid_numeric_literal() -> Self {
+        Self::invalid_syntax(SqlSyntaxErrorKind::InvalidNumericLiteral)
+    }
+}
+
+#[cfg_attr(
+    doc,
+    doc = "SqlSyntaxErrorKind\n\nCompact syntax-error taxonomy for reduced SQL parsing."
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlSyntaxErrorKind {
+    ExpectedToken {
+        expected: SqlExpectedToken,
+        found: SqlFoundToken,
+    },
+    InvalidNumericLiteral,
+    UnexpectedCharacter {
+        byte: u8,
+    },
+    UnexpectedBang,
+    ExpectedByte {
+        expected: u8,
+        found: Option<u8>,
+    },
+    BlobLiteralNonHexDigit,
+    BlobLiteralUnterminated,
+    StringLiteralUnterminated,
+    BlobLiteralOddHexLength,
+    BlobLiteralTooLarge {
+        max_decoded_bytes: usize,
+    },
+    IntegerLiteralRequiresNonNegative {
+        clause: SqlIntegerLiteralClause,
+    },
+    IntegerLiteralU32Overflow {
+        clause: SqlIntegerLiteralClause,
+    },
+    ClauseOrder {
+        rule: SqlClauseOrderRule,
+    },
+    InsertValuesTupleLengthMismatch,
+    CoalesceRequiresTwoArguments,
+    RoundScaleRequiresIntegerLiteral,
+    InRequiresLiteral,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlExpectedToken {
+    Literal,
+    LikeStringPattern,
+    IlikeStringPattern,
+    StartsWithSecondArgument,
+    BooleanOrNullLiteral,
+    NumericLiteralAfterMinus,
+    Identifier,
+    IdentifierAfterDot,
+    IdentifierKeyword {
+        keyword: SqlIdentifierKeyword,
+    },
+    LParen,
+    RParen,
+    Eq,
+    UpdateAssignmentEq,
+    UpdateAssignment,
+    SelectOrDelete,
+    CompareOperator,
+    FieldSpecialOperator,
+    NotSpecialOperator,
+    ProjectionItem,
+    Comma,
+    PredicateArgumentComma,
+    ScalarFunctionArgumentComma,
+    #[cfg(test)]
+    Then,
+    #[cfg(test)]
+    End,
+    #[cfg(test)]
+    Where,
+    EndOfInput,
+    StatementStart,
+    ShowIndexesSource,
+    Keyword(Keyword),
+    IntegerLiteral {
+        clause: SqlIntegerLiteralClause,
+    },
+}
+
+impl SqlExpectedToken {
+    pub(crate) fn identifier_keyword(keyword: &str) -> Self {
+        Self::IdentifierKeyword {
+            keyword: SqlIdentifierKeyword::from_str(keyword),
         }
     }
+}
 
-    pub(crate) fn expected(expected: &str, found: Option<&TokenKind>) -> Self {
-        let found = found.map_or_else(|| "end of input".to_string(), token_kind_label);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlIdentifierKeyword {
+    Into,
+    Values,
+    Set,
+    MaxBytes,
+    Schema,
+    Version,
+    Other,
+}
 
-        Self::invalid_syntax(format!("expected {expected}, found {found}"))
+impl SqlIdentifierKeyword {
+    fn from_str(keyword: &str) -> Self {
+        match keyword {
+            "INTO" => Self::Into,
+            "VALUES" => Self::Values,
+            "SET" => Self::Set,
+            "max_bytes" => Self::MaxBytes,
+            "SCHEMA" => Self::Schema,
+            "VERSION" => Self::Version,
+            _ => Self::Other,
+        }
     }
+}
 
-    pub(in crate::db) fn expected_end_of_input(found: Option<&TokenKind>) -> Self {
-        let found = found.map_or_else(|| "end of input".to_string(), token_kind_label);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlFoundToken {
+    EndOfInput,
+    Identifier,
+    Number,
+    StringLiteral,
+    BlobLiteral,
+    Keyword(Keyword),
+    Question,
+    Comma,
+    Dot,
+    Plus,
+    Minus,
+    Slash,
+    LParen,
+    RParen,
+    Semicolon,
+    Star,
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
 
-        Self::invalid_syntax(format!("expected end of input, found {found}"))
+impl SqlFoundToken {
+    const fn from_token_kind(kind: Option<&TokenKind>) -> Self {
+        match kind {
+            None => Self::EndOfInput,
+            Some(TokenKind::Identifier(_)) => Self::Identifier,
+            Some(TokenKind::Number(_)) => Self::Number,
+            Some(TokenKind::StringLiteral(_)) => Self::StringLiteral,
+            Some(TokenKind::BlobLiteral(_)) => Self::BlobLiteral,
+            Some(TokenKind::Keyword(keyword)) => Self::Keyword(*keyword),
+            Some(TokenKind::Question) => Self::Question,
+            Some(TokenKind::Comma) => Self::Comma,
+            Some(TokenKind::Dot) => Self::Dot,
+            Some(TokenKind::Plus) => Self::Plus,
+            Some(TokenKind::Minus) => Self::Minus,
+            Some(TokenKind::Slash) => Self::Slash,
+            Some(TokenKind::LParen) => Self::LParen,
+            Some(TokenKind::RParen) => Self::RParen,
+            Some(TokenKind::Semicolon) => Self::Semicolon,
+            Some(TokenKind::Star) => Self::Star,
+            Some(TokenKind::Eq) => Self::Eq,
+            Some(TokenKind::Ne) => Self::Ne,
+            Some(TokenKind::Lt) => Self::Lt,
+            Some(TokenKind::Lte) => Self::Lte,
+            Some(TokenKind::Gt) => Self::Gt,
+            Some(TokenKind::Gte) => Self::Gte,
+        }
     }
+}
 
-    pub(in crate::db) fn invalid_numeric_literal(raw: &str) -> Self {
-        Self::invalid_syntax(format!("invalid numeric literal: {raw}"))
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlIntegerLiteralClause {
+    Limit,
+    Offset,
+    MaxBytes,
+    ExpectSchemaVersion,
+    SetSchemaVersion,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlClauseOrderRule {
+    SelectOrderBeforeLimitOffset,
+    DeleteOrderBeforeLimit,
+    UpdateOrderBeforeLimitOffset,
+    UpdateLimitBeforeOffset,
 }
 
 #[cfg_attr(
@@ -212,32 +396,6 @@ pub(crate) struct Token {
     pub(crate) kind: TokenKind,
 }
 
-pub(crate) fn token_kind_label(kind: &TokenKind) -> String {
-    match kind {
-        TokenKind::Identifier(name) => format!("identifier({name})"),
-        TokenKind::Number(number) => format!("number({number})"),
-        TokenKind::StringLiteral(_) => "string literal".to_string(),
-        TokenKind::BlobLiteral(_) => "blob literal".to_string(),
-        TokenKind::Keyword(keyword) => keyword.as_str().to_string(),
-        TokenKind::Question => "?".to_string(),
-        TokenKind::Comma => ",".to_string(),
-        TokenKind::Dot => ".".to_string(),
-        TokenKind::Plus => "+".to_string(),
-        TokenKind::Minus => "-".to_string(),
-        TokenKind::Slash => "/".to_string(),
-        TokenKind::LParen => "(".to_string(),
-        TokenKind::RParen => ")".to_string(),
-        TokenKind::Semicolon => ";".to_string(),
-        TokenKind::Star => "*".to_string(),
-        TokenKind::Eq => "=".to_string(),
-        TokenKind::Ne => "!=".to_string(),
-        TokenKind::Lt => "<".to_string(),
-        TokenKind::Lte => "<=".to_string(),
-        TokenKind::Gt => ">".to_string(),
-        TokenKind::Gte => ">=".to_string(),
-    }
-}
-
 #[cfg(feature = "sql")]
 pub(crate) fn token_kind_sql_fragment(kind: &TokenKind) -> String {
     match kind {
@@ -285,7 +443,7 @@ const fn hex_digit(nibble: u8) -> char {
 pub(in crate::db::sql_shared) fn parse_number_literal(raw: &str) -> Result<Value, SqlParseError> {
     if raw.contains('.') {
         let decimal =
-            Decimal::from_str(raw).map_err(|_| SqlParseError::invalid_numeric_literal(raw))?;
+            Decimal::from_str(raw).map_err(|_| SqlParseError::invalid_numeric_literal())?;
         return Ok(Value::Decimal(decimal));
     }
 
@@ -299,5 +457,5 @@ pub(in crate::db::sql_shared) fn parse_number_literal(raw: &str) -> Result<Value
         return Ok(Value::Decimal(value));
     }
 
-    Err(SqlParseError::invalid_numeric_literal(raw))
+    Err(SqlParseError::invalid_numeric_literal())
 }

@@ -1,6 +1,6 @@
 use crate::db::{
     sql::parser::{Parser, SqlAssignment, SqlUpdateStatement},
-    sql_shared::{Keyword, SqlParseError, TokenKind},
+    sql_shared::{Keyword, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError, TokenKind},
 };
 
 impl Parser {
@@ -27,13 +27,13 @@ impl Parser {
         };
 
         let limit = if self.eat_keyword(Keyword::Limit) {
-            Some(self.parse_u32_literal("LIMIT")?)
+            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Limit)?)
         } else {
             None
         };
 
         let offset = if self.eat_keyword(Keyword::Offset) {
-            Some(self.parse_u32_literal("OFFSET")?)
+            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Offset)?)
         } else {
             None
         };
@@ -63,7 +63,7 @@ impl Parser {
                 let _ = self.cursor.advance();
             } else {
                 return Err(SqlParseError::expected(
-                    "'=' in UPDATE assignment",
+                    SqlExpectedToken::UpdateAssignmentEq,
                     self.peek_kind(),
                 ));
             }
@@ -79,7 +79,7 @@ impl Parser {
 
         if assignments.is_empty() {
             return Err(SqlParseError::expected(
-                "one UPDATE assignment",
+                SqlExpectedToken::UpdateAssignment,
                 self.peek_kind(),
             ));
         }

@@ -29,6 +29,7 @@ use crate::{
                 SqlProjection, SqlSelectStatement, SqlStatement,
             },
         },
+        sql_shared::SqlSyntaxErrorKind,
     },
     metrics::sink::SqlWriteKind,
     model::field::FieldInsertGeneration,
@@ -371,7 +372,7 @@ impl<C: CanisterKind> DbSession<C> {
                     if tuple.len() != columns.len() {
                         return Err(QueryError::from_sql_parse_error(
                             crate::db::sql::parser::SqlParseError::invalid_syntax(
-                                "INSERT column list and VALUES tuple length must match",
+                                SqlSyntaxErrorKind::InsertValuesTupleLengthMismatch,
                             ),
                         ));
                     }

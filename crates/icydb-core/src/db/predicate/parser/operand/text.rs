@@ -4,7 +4,7 @@ use crate::{
             CoercionId, CompareOp, ComparePredicate, Predicate,
             parser::operand::field::{PredicateFieldOperand, parse_predicate_field_operand},
         },
-        sql_shared::{Keyword, SqlParseError, SqlTokenCursor, TokenKind},
+        sql_shared::{Keyword, SqlExpectedToken, SqlParseError, SqlTokenCursor, TokenKind},
     },
     value::Value,
 };
@@ -27,10 +27,10 @@ pub(in crate::db::predicate::parser) enum PrefixTextPredicateOperator {
 }
 
 impl PrefixTextPredicateOperator {
-    const fn literal_context(self) -> &'static str {
+    const fn literal_context(self) -> SqlExpectedToken {
         match self {
-            Self::Like => "string literal pattern after LIKE",
-            Self::Ilike => "string literal pattern after ILIKE",
+            Self::Like => SqlExpectedToken::LikeStringPattern,
+            Self::Ilike => SqlExpectedToken::IlikeStringPattern,
         }
     }
 
@@ -106,11 +106,11 @@ pub(in crate::db::predicate::parser) fn parse_starts_with_predicate(
             DIRECT_STARTS_WITH_NON_FIELD_FEATURE,
         ));
     }
-    expect_predicate_argument_comma(cursor, "',' between STARTS_WITH arguments")?;
+    expect_predicate_argument_comma(cursor)?;
 
     let Some(TokenKind::StringLiteral(prefix)) = cursor.peek_kind() else {
         return Err(SqlParseError::expected(
-            "string literal second argument to STARTS_WITH",
+            SqlExpectedToken::StartsWithSecondArgument,
             cursor.peek_kind(),
         ));
     };
@@ -127,15 +127,15 @@ pub(in crate::db::predicate::parser) fn parse_starts_with_predicate(
     )))
 }
 
-fn expect_predicate_argument_comma(
-    cursor: &mut SqlTokenCursor,
-    context: &'static str,
-) -> Result<(), SqlParseError> {
+fn expect_predicate_argument_comma(cursor: &mut SqlTokenCursor) -> Result<(), SqlParseError> {
     if cursor.eat_comma() {
         return Ok(());
     }
 
-    Err(SqlParseError::expected(context, cursor.peek_kind()))
+    Err(SqlParseError::expected(
+        SqlExpectedToken::PredicateArgumentComma,
+        cursor.peek_kind(),
+    ))
 }
 
 // Detect and consume the bounded prefix-text operators without stealing the

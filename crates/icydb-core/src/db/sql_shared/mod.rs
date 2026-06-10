@@ -12,4 +12,7 @@ pub(in crate::db::sql_shared) mod types;
 
 pub(crate) use cursor::SqlTokenCursor;
 pub(crate) use lexer::tokenize_sql;
-pub(crate) use types::{Keyword, SqlParseError, TokenKind};
+pub(crate) use types::{
+    Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError,
+    SqlSyntaxErrorKind, TokenKind,
+};

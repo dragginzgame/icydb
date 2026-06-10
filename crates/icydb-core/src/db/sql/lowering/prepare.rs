@@ -56,7 +56,7 @@ fn validate_prepared_statement_parameters(
 
     Err(SqlLoweringError::unsupported_parameter_placement(
         Some(index),
-        "SQL parameter binding is not supported in this release",
+        super::SqlParameterPlacementReason::BindingUnsupported,
     ))
 }
 

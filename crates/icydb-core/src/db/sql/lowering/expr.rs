@@ -49,7 +49,7 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
         SqlExpr::Literal(literal) => Ok(Expr::Literal(literal.clone())),
         SqlExpr::Param { index } => Err(SqlLoweringError::unsupported_parameter_placement(
             Some(*index),
-            "unbound SQL parameter reached expression lowering without prepare-time binding",
+            super::SqlParameterPlacementReason::UnboundExpressionLowering,
         )),
         SqlExpr::Membership {
             expr,
