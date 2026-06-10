@@ -312,9 +312,7 @@ fn group_plan_error_mapping_uses_runtime_invariant_code() {
 #[test]
 fn group_plan_error_mapping_rejects_non_group_user_variant() {
     let err = from_group_plan_error(PlanError::from(PlanUserError::Order(Box::new(
-        OrderPlanError::UnknownField {
-            field: "tenant".to_string(),
-        },
+        OrderPlanError::UnknownField { term_index: 0 },
     ))));
 
     assert_runtime_invariant(&err, ErrorOrigin::Planner);

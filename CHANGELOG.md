@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Compacts aggregate field, grouped key, and planner expression diagnostics
-  to code-only variants, removing discarded field/value/hash/type prose while
-  preserving executor and planner diagnostic taxonomy.
+- Compacts order-planner diagnostics with term/component indexes, replacing
+  discarded field-name prose while preserving actionable order context.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.28` compacts aggregate field, grouped key, and planner expression
+  diagnostics to code-only variants, removing discarded field/value/hash/type
+  prose while preserving executor and planner diagnostic taxonomy.
 
 - `0.180.27` compacts cursor and compiled-projection diagnostics to code-only
   variants, removing discarded cursor/expression payload prose while preserving

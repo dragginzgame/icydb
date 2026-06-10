@@ -424,7 +424,10 @@ fn plan_rejects_unorderable_field() {
     std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Order(inner)
-            if matches!(inner.as_ref(), OrderPlanError::UnorderableField { .. })
+            if matches!(
+                inner.as_ref(),
+                OrderPlanError::UnorderableField { term_index: 0 }
+            )
     ));
 }
 
@@ -552,7 +555,10 @@ fn plan_rejects_duplicate_non_primary_order_field() {
         PlanUserError::Order(inner)
             if matches!(
                 inner.as_ref(),
-                OrderPlanError::DuplicateOrderField { field } if field == "rank"
+                OrderPlanError::DuplicateOrderField {
+                    first_term_index: 0,
+                    duplicate_term_index: 1,
+                }
             )
     ));
 }
@@ -1291,7 +1297,12 @@ fn plan_rejects_order_without_primary_key_tie_break() {
     std::assert_matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
         PlanUserError::Order(inner)
-            if matches!(inner.as_ref(), OrderPlanError::MissingPrimaryKeyTieBreak { .. })
+            if matches!(
+                inner.as_ref(),
+                OrderPlanError::MissingPrimaryKeyTieBreak {
+                    primary_key_index: 0,
+                }
+            )
     ));
 }
 

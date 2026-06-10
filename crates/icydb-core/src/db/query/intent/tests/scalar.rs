@@ -127,8 +127,10 @@ fn load_rejects_duplicate_non_primary_order_field() {
     assert!(query_error_is_order_plan_error(&err, |inner| {
         matches!(
             inner,
-            crate::db::query::plan::validate::OrderPlanError::DuplicateOrderField { field }
-                if field == "name"
+            crate::db::query::plan::validate::OrderPlanError::DuplicateOrderField {
+                first_term_index: 0,
+                duplicate_term_index: 1,
+            }
         )
     }));
 }

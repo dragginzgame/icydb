@@ -18,8 +18,8 @@ pub(in crate::db::query::plan::validate) fn validate_order(
     schema: &SchemaInfo,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
-    for term in &order.fields {
-        validate_order_term(schema, term)?;
+    for (term_index, term) in order.fields.iter().enumerate() {
+        validate_order_term(schema, term_index, term)?;
     }
 
     Ok(())
@@ -27,31 +27,37 @@ pub(in crate::db::query::plan::validate) fn validate_order(
 
 // Canonical ORDER BY validation first prefers direct schema fields and only
 // falls back to the supported expression subset when no field matches.
-fn validate_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
+fn validate_order_term(
+    schema: &SchemaInfo,
+    term_index: usize,
+    term: &OrderTerm,
+) -> Result<(), PlanError> {
     if let Some(field) = term.direct_field() {
         let Some(field_type) = schema.field(field) else {
-            return Err(PlanError::from(OrderPlanError::UnknownField {
-                field: field.to_owned(),
-            }));
+            return Err(PlanError::from(OrderPlanError::unknown_field(term_index)));
         };
 
         return field_type
             .is_orderable()
             .then_some(())
-            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)));
+            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(term_index)));
     }
 
     if matches!(
         term.expr(),
         crate::db::query::plan::expr::Expr::FieldPath(_)
     ) {
-        return validate_field_path_order_term(schema, term);
+        return validate_field_path_order_term(schema, term_index, term);
     }
 
-    validate_expression_order_term(schema, term)
+    validate_expression_order_term(schema, term_index, term)
 }
 
-fn validate_field_path_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
+fn validate_field_path_order_term(
+    schema: &SchemaInfo,
+    term_index: usize,
+    term: &OrderTerm,
+) -> Result<(), PlanError> {
     let inferred = infer_expr_type(term.expr(), schema)?;
 
     if matches!(
@@ -62,11 +68,15 @@ fn validate_field_path_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Resu
     }
 
     Err(PlanError::from(OrderPlanError::unorderable_field(
-        term.rendered_label(),
+        term_index,
     )))
 }
 
-fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
+fn validate_expression_order_term(
+    schema: &SchemaInfo,
+    term_index: usize,
+    term: &OrderTerm,
+) -> Result<(), PlanError> {
     let inferred = infer_expr_type(term.expr(), schema)?;
 
     if !matches!(
@@ -74,7 +84,7 @@ fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Resu
         ExprType::Bool | ExprType::Text | ExprType::Numeric(_)
     ) {
         return Err(PlanError::from(OrderPlanError::unorderable_field(
-            term.rendered_label(),
+            term_index,
         )));
     }
 
@@ -89,7 +99,7 @@ pub(in crate::db::query::plan::validate) fn validate_no_duplicate_non_pk_order_f
     let mut seen = Vec::with_capacity(order.fields.len());
     let primary_key_names = schema.primary_key_names();
 
-    for term in &order.fields {
+    for (term_index, term) in order.fields.iter().enumerate() {
         let field = term
             .direct_field()
             .map_or_else(|| term.rendered_label(), str::to_owned);
@@ -97,12 +107,15 @@ pub(in crate::db::query::plan::validate) fn validate_no_duplicate_non_pk_order_f
         if !non_pk_field {
             continue;
         }
-        if seen.iter().any(|seen_field| seen_field == &field) {
+        if let Some((first_term_index, _)) =
+            seen.iter().find(|(_, seen_field)| seen_field == &field)
+        {
             return Err(PlanError::from(OrderPlanError::duplicate_order_field(
-                field,
+                *first_term_index,
+                term_index,
             )));
         }
-        seen.push(field);
+        seen.push((term_index, field));
     }
 
     Ok(())
@@ -121,19 +134,20 @@ pub(in crate::db::query::plan::validate) fn validate_primary_key_tie_break(
             let primary_key_names = schema.primary_key_names();
             let primary_key_name_refs: Vec<&str> =
                 primary_key_names.iter().map(String::as_str).collect();
-            if let Some(missing_primary_key_name) =
-                primary_key_name_refs
-                    .iter()
-                    .copied()
-                    .find(|primary_key_name| {
-                        !order
+            if let Some(primary_key_index) =
+                primary_key_name_refs.iter().copied().enumerate().find_map(
+                    |(primary_key_index, primary_key_name)| {
+                        let primary_key_present = order
                             .fields
                             .iter()
-                            .any(|term| term.direct_field() == Some(*primary_key_name))
-                    })
+                            .any(|term| term.direct_field() == Some(primary_key_name));
+
+                        (!primary_key_present).then_some(primary_key_index)
+                    },
+                )
             {
                 return Err(PlanError::from(
-                    OrderPlanError::missing_primary_key_tie_break(missing_primary_key_name),
+                    OrderPlanError::missing_primary_key_tie_break(primary_key_index),
                 ));
             }
 
@@ -211,7 +225,10 @@ mod tests {
                     crate::db::query::plan::validate::PlanUserError::Order(order)
                         if matches!(
                             order.as_ref(),
-                            OrderPlanError::DuplicateOrderField { field } if field == "rank"
+                            OrderPlanError::DuplicateOrderField {
+                                first_term_index: 1,
+                                duplicate_term_index: 2,
+                            }
                         )
                 )
         );

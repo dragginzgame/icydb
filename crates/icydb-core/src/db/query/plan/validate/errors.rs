@@ -96,42 +96,56 @@ pub enum PlanPolicyError {
 #[derive(Debug, ThisError)]
 pub enum OrderPlanError {
     /// ORDER BY references an unknown field.
-    #[error("unknown order field '{field}'")]
-    UnknownField { field: String },
+    #[error("unknown order field at term index={term_index}")]
+    UnknownField { term_index: usize },
 
     /// ORDER BY references a field that cannot be ordered.
-    #[error("order field '{field}' is not orderable")]
-    UnorderableField { field: String },
+    #[error("order field at term index={term_index} is not orderable")]
+    UnorderableField { term_index: usize },
 
     /// ORDER BY references the same non-primary-key field multiple times.
-    #[error("order field '{field}' appears multiple times")]
-    DuplicateOrderField { field: String },
+    #[error(
+        "order field appears multiple times at term indexes {first_term_index} and {duplicate_term_index}"
+    )]
+    DuplicateOrderField {
+        first_term_index: usize,
+        duplicate_term_index: usize,
+    },
 
     /// Ordered plans must include every primary-key tie-break component.
-    #[error("order specification must include primary key '{field}' as deterministic tie-break")]
-    MissingPrimaryKeyTieBreak { field: String },
+    #[error(
+        "order specification must include primary key component index={primary_key_index} as deterministic tie-break"
+    )]
+    MissingPrimaryKeyTieBreak { primary_key_index: usize },
 }
 
 impl OrderPlanError {
+    /// Construct one unknown-field validation error.
+    pub(in crate::db::query) const fn unknown_field(term_index: usize) -> Self {
+        Self::UnknownField { term_index }
+    }
+
     /// Construct one unorderable-field validation error.
-    pub(in crate::db::query) fn unorderable_field(field: impl Into<String>) -> Self {
-        Self::UnorderableField {
-            field: field.into(),
-        }
+    pub(in crate::db::query) const fn unorderable_field(term_index: usize) -> Self {
+        Self::UnorderableField { term_index }
     }
 
     /// Construct one duplicate non-primary-key ORDER BY field validation error.
-    pub(in crate::db::query) fn duplicate_order_field(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) const fn duplicate_order_field(
+        first_term_index: usize,
+        duplicate_term_index: usize,
+    ) -> Self {
         Self::DuplicateOrderField {
-            field: field.into(),
+            first_term_index,
+            duplicate_term_index,
         }
     }
 
     /// Construct one missing primary-key tie-break validation error.
-    pub(in crate::db::query) fn missing_primary_key_tie_break(field: impl Into<String>) -> Self {
-        Self::MissingPrimaryKeyTieBreak {
-            field: field.into(),
-        }
+    pub(in crate::db::query) const fn missing_primary_key_tie_break(
+        primary_key_index: usize,
+    ) -> Self {
+        Self::MissingPrimaryKeyTieBreak { primary_key_index }
     }
 }
 

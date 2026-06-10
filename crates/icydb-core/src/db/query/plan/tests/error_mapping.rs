@@ -13,9 +13,7 @@ use crate::db::{
 
 #[test]
 fn plan_error_from_order_maps_to_order_domain_variant() {
-    let err = PlanError::from(OrderPlanError::UnorderableField {
-        field: "rank".to_string(),
-    });
+    let err = PlanError::from(OrderPlanError::unorderable_field(2));
 
     std::assert_matches!(
         err,
@@ -25,7 +23,7 @@ fn plan_error_from_order_maps_to_order_domain_variant() {
                 PlanUserError::Order(inner)
                     if matches!(
                         inner.as_ref(),
-                        OrderPlanError::UnorderableField { field } if field == "rank"
+                        OrderPlanError::UnorderableField { term_index: 2 }
                     )
             )
     );
@@ -89,16 +87,14 @@ fn plan_error_from_group_maps_to_group_domain_variant() {
 
 #[test]
 fn user_plan_error_from_order_maps_to_order_user_variant() {
-    let err = PlanUserError::from(OrderPlanError::UnorderableField {
-        field: "rank".to_string(),
-    });
+    let err = PlanUserError::from(OrderPlanError::unorderable_field(2));
 
     std::assert_matches!(
         err,
         PlanUserError::Order(inner)
             if matches!(
                 inner.as_ref(),
-                OrderPlanError::UnorderableField { field } if field == "rank"
+                OrderPlanError::UnorderableField { term_index: 2 }
             )
     );
 }
