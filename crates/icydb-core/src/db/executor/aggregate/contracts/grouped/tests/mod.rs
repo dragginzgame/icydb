@@ -15,7 +15,10 @@ use crate::{
         direction::Direction,
         executor::aggregate::{
             FoldControl,
-            contracts::{AggregateKind, ExecutionConfig, ExecutionContext, GroupError},
+            contracts::{
+                AggregateKind, ExecutionConfig, ExecutionContext, GroupBudgetResourceCode,
+                GroupError,
+            },
         },
         executor::group::CanonicalKey,
         executor::pipeline::runtime::RowView,

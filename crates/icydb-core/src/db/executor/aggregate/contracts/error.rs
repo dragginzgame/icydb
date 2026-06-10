@@ -7,6 +7,20 @@ use crate::error::InternalError;
 use thiserror::Error as ThisError;
 
 ///
+/// GroupBudgetResourceCode
+///
+/// Compact grouped-resource bucket for budget-limit diagnostics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum GroupBudgetResourceCode {
+    DistinctValuesPerGroup,
+    DistinctValuesTotal,
+    EstimatedBytes,
+    Groups,
+}
+
+///
 /// GroupError
 ///
 /// GroupError is the typed grouped-execution error surface.
@@ -16,18 +30,16 @@ use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub(in crate::db::executor) enum GroupError {
-    #[error(
-        "grouped execution memory limit exceeded ({resource}): attempted={attempted}, limit={limit}"
-    )]
+    #[error("grouped execution memory limit exceeded")]
     MemoryLimitExceeded {
-        resource: &'static str,
+        resource: GroupBudgetResourceCode,
         attempted: u64,
         limit: u64,
     },
 
-    #[error("grouped DISTINCT budget exceeded ({resource}): attempted={attempted}, limit={limit}")]
+    #[error("grouped DISTINCT budget exceeded")]
     DistinctBudgetExceeded {
-        resource: &'static str,
+        resource: GroupBudgetResourceCode,
         attempted: u64,
         limit: u64,
     },
@@ -40,7 +52,7 @@ impl GroupError {
     /// Construct one grouped execution memory-limit failure.
     #[must_use]
     pub(in crate::db::executor) const fn memory_limit_exceeded(
-        resource: &'static str,
+        resource: GroupBudgetResourceCode,
         attempted: u64,
         limit: u64,
     ) -> Self {
@@ -54,7 +66,7 @@ impl GroupError {
     /// Construct one grouped DISTINCT budget failure.
     #[must_use]
     pub(in crate::db::executor) const fn distinct_budget_exceeded(
-        resource: &'static str,
+        resource: GroupBudgetResourceCode,
         attempted: u64,
         limit: u64,
     ) -> Self {

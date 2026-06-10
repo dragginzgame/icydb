@@ -297,11 +297,8 @@ impl From<CursorPlanError> for ExecutorPlanError {
 
 #[derive(Debug, ThisError)]
 pub(in crate::db::executor) enum ExecutorError {
-    #[error("corruption detected ({origin}): {message}")]
-    Corruption {
-        origin: ErrorOrigin,
-        message: String,
-    },
+    #[error("corruption detected")]
+    Corruption { origin: ErrorOrigin },
 
     #[error("data key exists: {0}")]
     KeyExists(Box<DecodedDataStoreKey>),
@@ -318,7 +315,7 @@ impl ExecutorError {
     pub(in crate::db::executor) const fn origin(&self) -> ErrorOrigin {
         match self {
             Self::KeyExists(_) => ErrorOrigin::Store,
-            Self::Corruption { origin, .. } => *origin,
+            Self::Corruption { origin } => *origin,
         }
     }
 
@@ -326,10 +323,7 @@ impl ExecutorError {
         origin: ErrorOrigin,
         _message: impl Into<String>,
     ) -> Self {
-        Self::Corruption {
-            origin,
-            message: "executor corruption".to_string(),
-        }
+        Self::Corruption { origin }
     }
 
     // Construct a store-origin corruption error with canonical taxonomy.

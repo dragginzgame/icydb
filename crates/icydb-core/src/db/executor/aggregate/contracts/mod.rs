@@ -10,7 +10,7 @@ mod plan;
 mod spec;
 mod state;
 
-pub(in crate::db::executor) use error::GroupError;
+pub(in crate::db::executor) use error::{GroupBudgetResourceCode, GroupError};
 pub(in crate::db::executor) use grouped::{
     ExecutionConfig, ExecutionContext, ScalarAggregateEngine, execute_scalar_aggregate,
 };

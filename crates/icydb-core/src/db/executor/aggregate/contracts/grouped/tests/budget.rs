@@ -91,7 +91,7 @@ fn grouped_aggregate_state_enforces_distinct_values_per_group_limit() {
     std::assert_matches!(
         err,
         GroupError::DistinctBudgetExceeded {
-            resource: "distinct_values_per_group",
+            resource: GroupBudgetResourceCode::DistinctValuesPerGroup,
             attempted: 2,
             limit: 1,
         }
@@ -134,7 +134,7 @@ fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
     std::assert_matches!(
         err,
         GroupError::DistinctBudgetExceeded {
-            resource: "distinct_values_total",
+            resource: GroupBudgetResourceCode::DistinctValuesTotal,
             attempted: 2,
             limit: 1,
         }
@@ -218,7 +218,7 @@ fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
     std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
-            resource: "groups",
+            resource: GroupBudgetResourceCode::Groups,
             attempted: 3,
             limit: 2,
         }
@@ -243,7 +243,7 @@ fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
     std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
-            resource: "estimated_bytes",
+            resource: GroupBudgetResourceCode::EstimatedBytes,
             attempted: _,
             limit: 1,
         }
@@ -283,7 +283,7 @@ fn grouped_aggregate_state_counts_max_groups_once_per_canonical_group_across_sta
     std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
-            resource: "groups",
+            resource: GroupBudgetResourceCode::Groups,
             attempted: 2,
             limit: 1,
         }
@@ -307,7 +307,7 @@ fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact()
     std::assert_matches!(
         err,
         GroupError::MemoryLimitExceeded {
-            resource: "groups",
+            resource: GroupBudgetResourceCode::Groups,
             attempted: 2,
             limit: 1,
         }

@@ -5,7 +5,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::executor::{
-    aggregate::contracts::error::GroupError,
+    aggregate::contracts::{GroupBudgetResourceCode, error::GroupError},
     group::{GroupKey, GroupKeySet},
 };
 use std::mem::size_of;
@@ -84,7 +84,7 @@ impl ExecutionBudget {
         };
         if next_groups > config.max_groups() {
             return Err(GroupError::memory_limit_exceeded(
-                "groups",
+                GroupBudgetResourceCode::Groups,
                 next_groups,
                 config.max_groups(),
             ));
@@ -95,7 +95,7 @@ impl ExecutionBudget {
         let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
         if next_bytes > config.max_group_bytes() {
             return Err(GroupError::memory_limit_exceeded(
-                "estimated_bytes",
+                GroupBudgetResourceCode::EstimatedBytes,
                 next_bytes,
                 config.max_group_bytes(),
             ));
@@ -112,7 +112,7 @@ impl ExecutionBudget {
         let attempted = self.distinct_values.saturating_add(1);
         if attempted > config.max_distinct_values_total() {
             return Err(GroupError::distinct_budget_exceeded(
-                "distinct_values_total",
+                GroupBudgetResourceCode::DistinctValuesTotal,
                 attempted,
                 config.max_distinct_values_total(),
             ));
@@ -388,7 +388,7 @@ impl ExecutionContext {
         let attempted_total = self.budget.distinct_values().saturating_add(1);
         if attempted_total > self.config.max_distinct_values_total() {
             return Err(GroupError::distinct_budget_exceeded(
-                "distinct_values_total",
+                GroupBudgetResourceCode::DistinctValuesTotal,
                 attempted_total,
                 self.config.max_distinct_values_total(),
             ));
@@ -399,7 +399,7 @@ impl ExecutionContext {
             .saturating_add(1);
         if attempted_per_group > max_distinct_values_per_group {
             return Err(GroupError::distinct_budget_exceeded(
-                "distinct_values_per_group",
+                GroupBudgetResourceCode::DistinctValuesPerGroup,
                 attempted_per_group,
                 max_distinct_values_per_group,
             ));
