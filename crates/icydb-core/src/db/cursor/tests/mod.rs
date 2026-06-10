@@ -5,8 +5,9 @@
 use crate::{
     db::{
         cursor::{
-            ContinuationSignature, CursorDecodeError, CursorPlanError, GroupedContinuationToken,
-            prepare_grouped_cursor, revalidate_grouped_cursor, validate_grouped_cursor_order_plan,
+            ContinuationSignature, CursorDecodeError, CursorPayloadErrorCode, CursorPlanError,
+            GroupedContinuationToken, prepare_grouped_cursor, revalidate_grouped_cursor,
+            validate_grouped_cursor_order_plan,
         },
         direction::Direction,
         query::plan::{OrderDirection, OrderSpec},
@@ -44,7 +45,10 @@ fn prepare_grouped_cursor_rejects_direction_mismatch() {
     )
     .expect_err("grouped cursor direction must match grouped execution direction");
 
-    std::assert_matches!(err, CursorPlanError::InvalidContinuationCursorPayload);
+    std::assert_matches!(
+        err,
+        CursorPlanError::InvalidContinuationCursorPayload { .. }
+    );
 }
 
 #[test]
@@ -84,7 +88,10 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
     )
     .expect_err("grouped cursor signature mismatch must fail");
 
-    std::assert_matches!(err, CursorPlanError::ContinuationCursorSignatureMismatch);
+    std::assert_matches!(
+        err,
+        CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+    );
 }
 
 #[test]
@@ -103,7 +110,10 @@ fn prepare_grouped_cursor_rejects_offset_mismatch() {
     )
     .expect_err("grouped cursor initial offset mismatch must fail");
 
-    std::assert_matches!(err, CursorPlanError::ContinuationCursorWindowMismatch);
+    std::assert_matches!(
+        err,
+        CursorPlanError::ContinuationCursorWindowMismatch { .. }
+    );
 }
 
 #[test]
@@ -190,7 +200,10 @@ fn revalidate_grouped_cursor_rejects_offset_mismatch() {
     let err = revalidate_grouped_cursor(token.initial_offset() + 1, prepared)
         .expect_err("grouped cursor revalidate must enforce offset compatibility");
 
-    std::assert_matches!(err, CursorPlanError::ContinuationCursorWindowMismatch);
+    std::assert_matches!(
+        err,
+        CursorPlanError::ContinuationCursorWindowMismatch { .. }
+    );
 }
 
 #[test]
@@ -199,12 +212,16 @@ fn pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants() {
         CursorPlanError::InvalidContinuationCursor {
             reason: CursorDecodeError::OddLength,
         },
-        CursorPlanError::InvalidContinuationCursorPayload,
-        CursorPlanError::ContinuationCursorSignatureMismatch,
-        CursorPlanError::ContinuationCursorBoundaryArityMismatch,
-        CursorPlanError::ContinuationCursorWindowMismatch,
-        CursorPlanError::ContinuationCursorBoundaryTypeMismatch,
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch,
+        CursorPlanError::invalid_continuation_cursor_payload(CursorPayloadErrorCode::UNKNOWN),
+        CursorPlanError::continuation_cursor_signature_mismatch(
+            "cursor::tests",
+            &ContinuationSignature::from_bytes([0x10; 32]),
+            &ContinuationSignature::from_bytes([0x11; 32]),
+        ),
+        CursorPlanError::continuation_cursor_boundary_arity_mismatch(2, 1),
+        CursorPlanError::continuation_cursor_window_mismatch(8, 3),
+        CursorPlanError::continuation_cursor_boundary_type_mismatch_at(0),
+        CursorPlanError::continuation_cursor_primary_key_type_mismatch_at(1),
         CursorPlanError::ContinuationCursorInvariantViolation,
     ];
 

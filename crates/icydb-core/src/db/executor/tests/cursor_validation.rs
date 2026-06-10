@@ -9,7 +9,7 @@ use crate::{
     db::{
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot,
-            CursorPlanError, GroupedContinuationToken,
+            CursorPayloadErrorCode, CursorPlanError, GroupedContinuationToken,
         },
         direction::Direction,
         executor::{ExecutorPlanError, PreparedExecutionPlan},
@@ -88,7 +88,10 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
             .expect_err("boundary field type mismatch should be rejected during planning"),
     );
 
-    std::assert_matches!(err, CursorPlanError::ContinuationCursorBoundaryTypeMismatch);
+    std::assert_matches!(
+        err,
+        CursorPlanError::ContinuationCursorBoundaryTypeMismatch { index: 0 }
+    );
 }
 
 #[test]
@@ -112,7 +115,7 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
 
     std::assert_matches!(
         err,
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch
+        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { index: Some(1) }
     );
 }
 
@@ -135,7 +138,10 @@ fn load_cursor_rejects_boundary_arity_mismatch_at_plan_time() {
 
     std::assert_matches!(
         err,
-        CursorPlanError::ContinuationCursorBoundaryArityMismatch
+        CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+            expected: 2,
+            found: 1
+        }
     );
 }
 
@@ -179,7 +185,10 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
             .expect_err("cursor from a different entity path should be rejected during planning"),
     );
 
-    std::assert_matches!(err, CursorPlanError::ContinuationCursorSignatureMismatch);
+    std::assert_matches!(
+        err,
+        CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+    );
 }
 
 #[test]
@@ -211,7 +220,13 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
             .expect_err("offset mismatch should be rejected during planning"),
     );
 
-    std::assert_matches!(err, CursorPlanError::ContinuationCursorWindowMismatch);
+    std::assert_matches!(
+        err,
+        CursorPlanError::ContinuationCursorWindowMismatch {
+            expected_offset: 2,
+            actual_offset: 0
+        }
+    );
 }
 
 #[test]
@@ -252,7 +267,10 @@ fn grouped_cursor_rejects_cross_shape_resume_token_at_plan_time() {
             .expect_err("cross-shape grouped token must be rejected"),
     );
 
-    std::assert_matches!(err, CursorPlanError::ContinuationCursorSignatureMismatch);
+    std::assert_matches!(
+        err,
+        CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+    );
 }
 
 #[test]
@@ -272,5 +290,11 @@ fn grouped_cursor_rejects_descending_direction_at_plan_time() {
             .expect_err("grouped cursor with descending direction must be rejected"),
     );
 
-    std::assert_matches!(err, CursorPlanError::InvalidContinuationCursorPayload);
+    std::assert_matches!(
+        err,
+        CursorPlanError::InvalidContinuationCursorPayload {
+            reason: CursorPayloadErrorCode::GROUPED_DIRECTION_MISMATCH,
+            index: None
+        }
+    );
 }

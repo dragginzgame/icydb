@@ -378,9 +378,8 @@ fn eval_direct_scalar_octet_length(
 ) -> Result<Option<Value>, InternalError> {
     let leaf_codec = slots.field_leaf_codec(slot).map_err(|_| {
         let _ = field;
-        let _ = slot;
 
-        ProjectionEvalError::MissingFieldValue.into_invalid_logical_plan_internal_error()
+        ProjectionEvalError::missing_slot_value(slot).into_invalid_logical_plan_internal_error()
     })?;
     if !matches!(
         leaf_codec,
@@ -417,7 +416,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_required_slot_reader(
     };
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
-        Err(ProjectionEvalError::MissingFieldPathValue) => return Ok(false),
+        Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
         Err(err) => return Err(err.into_invalid_logical_plan_internal_error()),
     };
 
@@ -438,10 +437,10 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_ref_reader<'a>(
     };
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
-        Err(ProjectionEvalError::MissingFieldPathValue) => return Ok(false),
+        Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
         Err(err) => {
             return Err(match err {
-                ProjectionEvalError::MissingFieldValue => {
+                ProjectionEvalError::MissingFieldValue { .. } => {
                     InternalError::query_invalid_logical_plan()
                 }
                 err => err.into_invalid_logical_plan_internal_error(),
@@ -466,10 +465,10 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
     };
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
-        Err(ProjectionEvalError::MissingFieldPathValue) => return Ok(false),
+        Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
         Err(err) => {
             return Err(match err {
-                ProjectionEvalError::MissingFieldValue => {
+                ProjectionEvalError::MissingFieldValue { .. } => {
                     InternalError::query_invalid_logical_plan()
                 }
                 err => err.into_invalid_logical_plan_internal_error(),

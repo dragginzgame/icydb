@@ -229,9 +229,11 @@ impl CompiledExpr {
         offset: usize,
         field: &str,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        reader
-            .read_group_key_checked(offset)?
-            .ok_or_else(|| missing_field_value(field, offset))
+        reader.read_group_key_checked(offset)?.ok_or_else(|| {
+            let _ = field;
+
+            ProjectionEvalError::missing_group_key_value(offset)
+        })
     }
 
     // Resolve one finalized aggregate leaf by compiled aggregate index.
@@ -243,7 +245,7 @@ impl CompiledExpr {
     ) -> Result<Cow<'_, Value>, ProjectionEvalError> {
         reader
             .read_aggregate_checked(index)?
-            .ok_or(ProjectionEvalError::MissingGroupedAggregateValue)
+            .ok_or_else(|| ProjectionEvalError::missing_grouped_aggregate_value(index))
     }
 
     // Resolve one nested field-path leaf through the reader-owned decoding
@@ -259,7 +261,7 @@ impl CompiledExpr {
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         match reader.read_field_path(root_slot, field, segments, segment_bytes)? {
             Some(value) => Ok(value),
-            None => Err(ProjectionEvalError::MissingFieldPathValue),
+            None => Err(ProjectionEvalError::missing_field_path_value(root_slot)),
         }
     }
 
@@ -364,7 +366,10 @@ impl CompiledExpr {
             Value::Bool(value) => *value,
             Value::Null => false,
             _ => {
-                return Err(ProjectionEvalError::InvalidCaseCondition);
+                return Err(ProjectionEvalError::invalid_case_condition(
+                    Some(0),
+                    condition.as_ref(),
+                ));
             }
         };
 
@@ -406,10 +411,10 @@ impl CompiledExpr {
         when_then_arms: &'row [CompiledExprCaseArm],
         else_expr: &'row Self,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        for arm in when_then_arms {
+        for (arm_index, arm) in when_then_arms.iter().enumerate() {
             let condition = arm.condition.evaluate(reader)?;
-            if admit_true_only_boolean_value(condition.as_ref(), |_| {
-                ProjectionEvalError::InvalidCaseCondition
+            if admit_true_only_boolean_value(condition.as_ref(), |found| {
+                ProjectionEvalError::invalid_case_condition(Some(arm_index), found)
             })? {
                 return arm.result.evaluate(reader);
             }
@@ -468,8 +473,8 @@ pub(in crate::db) fn evaluate_grouped_having_expr(
     expr: &CompiledExpr,
     grouped_row: &dyn CompiledExprValueReader,
 ) -> Result<bool, ProjectionEvalError> {
-    collapse_true_only_boolean_admission(expr.evaluate(grouped_row)?.into_owned(), |_| {
-        ProjectionEvalError::InvalidGroupedHavingResult
+    collapse_true_only_boolean_admission(expr.evaluate(grouped_row)?.into_owned(), |found| {
+        ProjectionEvalError::invalid_grouped_having_result(found.as_ref())
     })
 }
 
@@ -479,7 +484,9 @@ fn eval_grouped_function_call(
 ) -> Result<Value, ProjectionEvalError> {
     eval_projection_function_call_checked(function, args).map_err(|err| match err {
         ProjectionFunctionEvalError::Numeric(err) => ProjectionEvalError::Numeric(err),
-        ProjectionFunctionEvalError::Query(_) => ProjectionEvalError::InvalidFunctionCall,
+        ProjectionFunctionEvalError::Query(_) => {
+            ProjectionEvalError::invalid_function_call(function, args.len())
+        }
     })
 }
 
@@ -491,7 +498,7 @@ const fn evaluate_unary_expr(op: UnaryOp, value: &Value) -> Result<Value, Projec
     match op {
         UnaryOp::Not => {
             let Value::Bool(value) = value else {
-                return Err(ProjectionEvalError::InvalidUnaryOperand);
+                return Err(ProjectionEvalError::invalid_unary_operand(op, value));
             };
 
             Ok(Value::Bool(!*value))
@@ -653,10 +660,6 @@ fn map_numeric_arithmetic_error(err: value_numeric::NumericArithmeticError) -> P
     .into()
 }
 
-const fn invalid_binary_operands(
-    _op: BinaryOp,
-    _left: &Value,
-    _right: &Value,
-) -> ProjectionEvalError {
-    ProjectionEvalError::InvalidBinaryOperands
+const fn invalid_binary_operands(op: BinaryOp, left: &Value, right: &Value) -> ProjectionEvalError {
+    ProjectionEvalError::invalid_binary_operands(op, left, right)
 }

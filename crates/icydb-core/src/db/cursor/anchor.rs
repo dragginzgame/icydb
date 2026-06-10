@@ -3,6 +3,7 @@
 //! Does not own: cursor token wire encoding or planner continuation policy semantics.
 //! Boundary: proves anchor identity/key-namespace/component invariants before resume use.
 
+use super::error::CursorPayloadErrorCode;
 use crate::{
     db::{
         access::ExecutionPathPayload,
@@ -168,9 +169,12 @@ fn validate_anchor_in_envelope(
     upper: &std::ops::Bound<crate::value::Value>,
     _direction: Direction,
 ) -> Result<ValidatedInEnvelopeIndexRangeCursorAnchor, CursorPlanError> {
-    let (range_start, range_end) =
-        lower_cursor_anchor_index_range_bounds(entity_tag, index, prefix, lower, upper)
-            .map_err(|_| CursorPlanError::invalid_continuation_cursor_payload())?;
+    let (range_start, range_end) = lower_cursor_anchor_index_range_bounds(
+        entity_tag, index, prefix, lower, upper,
+    )
+    .map_err(|_| {
+        CursorPlanError::invalid_continuation_cursor_payload(CursorPayloadErrorCode::UNKNOWN)
+    })?;
 
     if !KeyEnvelope::new(range_start, range_end).contains(anchor.lowered_key()) {
         return Err(CursorPlanError::index_range_anchor_outside_envelope());

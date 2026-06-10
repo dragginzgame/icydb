@@ -4,7 +4,15 @@
 //! Does not own: the validation logic that decides which error applies.
 //! Boundary: keeps query-plan validation failures under one planner-owned error surface.
 
-use crate::db::{access::AccessPlanError, cursor::CursorPlanError, schema::ValidateError};
+use crate::db::{
+    access::AccessPlanError,
+    cursor::CursorPlanError,
+    query::plan::{
+        AggregateKind,
+        expr::{BinaryOp, ExprType, Function, UnaryOp},
+    },
+    schema::ValidateError,
+};
 use thiserror::Error as ThisError;
 
 ///
@@ -528,6 +536,172 @@ impl GroupPlanError {
 /// Expression-spine inference failures owned by planner semantics.
 ///
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExprPlanTypeClass {
+    Blob,
+    Bool,
+    Collection,
+    #[cfg(test)]
+    Null,
+    Numeric,
+    Opaque,
+    Structured,
+    Text,
+    Unknown,
+}
+
+impl ExprPlanTypeClass {
+    pub(in crate::db) const fn from_expr_type(expr_type: &ExprType) -> Self {
+        match expr_type {
+            ExprType::Blob => Self::Blob,
+            ExprType::Bool => Self::Bool,
+            ExprType::Collection => Self::Collection,
+            #[cfg(test)]
+            ExprType::Null => Self::Null,
+            ExprType::Numeric(_) => Self::Numeric,
+            ExprType::Opaque => Self::Opaque,
+            ExprType::Structured => Self::Structured,
+            ExprType::Text => Self::Text,
+            ExprType::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExprPlanUnaryOpCode(u8);
+
+impl ExprPlanUnaryOpCode {
+    pub const NOT: Self = Self(0);
+
+    pub(in crate::db) const fn from_unary_op(op: UnaryOp) -> Self {
+        match op {
+            UnaryOp::Not => Self::NOT,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExprPlanBinaryOpCode(u8);
+
+impl ExprPlanBinaryOpCode {
+    pub const ADD: Self = Self(0);
+    pub const AND: Self = Self(1);
+    pub const DIV: Self = Self(2);
+    pub const EQ: Self = Self(3);
+    pub const GT: Self = Self(4);
+    pub const GTE: Self = Self(5);
+    pub const LT: Self = Self(6);
+    pub const LTE: Self = Self(7);
+    pub const MUL: Self = Self(8);
+    pub const NE: Self = Self(9);
+    pub const OR: Self = Self(10);
+    pub const SUB: Self = Self(11);
+
+    pub(in crate::db) const fn from_binary_op(op: BinaryOp) -> Self {
+        match op {
+            BinaryOp::Add => Self::ADD,
+            BinaryOp::And => Self::AND,
+            BinaryOp::Div => Self::DIV,
+            BinaryOp::Eq => Self::EQ,
+            BinaryOp::Gt => Self::GT,
+            BinaryOp::Gte => Self::GTE,
+            BinaryOp::Lt => Self::LT,
+            BinaryOp::Lte => Self::LTE,
+            BinaryOp::Mul => Self::MUL,
+            BinaryOp::Ne => Self::NE,
+            BinaryOp::Or => Self::OR,
+            BinaryOp::Sub => Self::SUB,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ExprPlanFunctionCode(u8);
+
+impl ExprPlanFunctionCode {
+    pub const ABS: Self = Self(0);
+    pub const CBRT: Self = Self(1);
+    pub const CEILING: Self = Self(2);
+    pub const COALESCE: Self = Self(3);
+    pub const COLLECTION_CONTAINS: Self = Self(4);
+    pub const CONTAINS: Self = Self(5);
+    pub const ENDS_WITH: Self = Self(6);
+    pub const EXP: Self = Self(7);
+    pub const FLOOR: Self = Self(8);
+    pub const IS_EMPTY: Self = Self(9);
+    pub const IS_MISSING: Self = Self(10);
+    pub const IS_NOT_EMPTY: Self = Self(11);
+    pub const IS_NOT_NULL: Self = Self(12);
+    pub const IS_NULL: Self = Self(13);
+    pub const LEFT: Self = Self(14);
+    pub const LENGTH: Self = Self(15);
+    pub const LN: Self = Self(16);
+    pub const LOG: Self = Self(17);
+    pub const LOG2: Self = Self(18);
+    pub const LOG10: Self = Self(19);
+    pub const LOWER: Self = Self(20);
+    pub const LTRIM: Self = Self(21);
+    pub const MOD: Self = Self(22);
+    pub const NULLIF: Self = Self(23);
+    pub const OCTET_LENGTH: Self = Self(24);
+    pub const POSITION: Self = Self(25);
+    pub const POWER: Self = Self(26);
+    pub const REPLACE: Self = Self(27);
+    pub const RIGHT: Self = Self(28);
+    pub const ROUND: Self = Self(29);
+    pub const RTRIM: Self = Self(30);
+    pub const SIGN: Self = Self(31);
+    pub const SQRT: Self = Self(32);
+    pub const STARTS_WITH: Self = Self(33);
+    pub const SUBSTRING: Self = Self(34);
+    pub const TRIM: Self = Self(35);
+    pub const TRUNC: Self = Self(36);
+    pub const UPPER: Self = Self(37);
+
+    pub(in crate::db) const fn from_function(function: Function) -> Self {
+        match function {
+            Function::Abs => Self::ABS,
+            Function::Cbrt => Self::CBRT,
+            Function::Ceiling => Self::CEILING,
+            Function::Coalesce => Self::COALESCE,
+            Function::CollectionContains => Self::COLLECTION_CONTAINS,
+            Function::Contains => Self::CONTAINS,
+            Function::EndsWith => Self::ENDS_WITH,
+            Function::Exp => Self::EXP,
+            Function::Floor => Self::FLOOR,
+            Function::IsEmpty => Self::IS_EMPTY,
+            Function::IsMissing => Self::IS_MISSING,
+            Function::IsNotEmpty => Self::IS_NOT_EMPTY,
+            Function::IsNotNull => Self::IS_NOT_NULL,
+            Function::IsNull => Self::IS_NULL,
+            Function::Left => Self::LEFT,
+            Function::Length => Self::LENGTH,
+            Function::Ln => Self::LN,
+            Function::Log => Self::LOG,
+            Function::Log2 => Self::LOG2,
+            Function::Log10 => Self::LOG10,
+            Function::Lower => Self::LOWER,
+            Function::Ltrim => Self::LTRIM,
+            Function::Mod => Self::MOD,
+            Function::NullIf => Self::NULLIF,
+            Function::OctetLength => Self::OCTET_LENGTH,
+            Function::Position => Self::POSITION,
+            Function::Power => Self::POWER,
+            Function::Replace => Self::REPLACE,
+            Function::Right => Self::RIGHT,
+            Function::Round => Self::ROUND,
+            Function::Rtrim => Self::RTRIM,
+            Function::Sign => Self::SIGN,
+            Function::Sqrt => Self::SQRT,
+            Function::StartsWith => Self::STARTS_WITH,
+            Function::Substring => Self::SUBSTRING,
+            Function::Trim => Self::TRIM,
+            Function::Trunc => Self::TRUNC,
+            Function::Upper => Self::UPPER,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum ExprPlanError {
     /// SQL lowering references a field that does not exist in schema.
@@ -540,31 +714,71 @@ pub enum ExprPlanError {
 
     /// Aggregate terminal requires a numeric target field.
     #[error("aggregate target field is not numeric")]
-    NonNumericAggregateTarget,
+    NonNumericAggregateTarget {
+        kind: AggregateKind,
+        found: ExprPlanTypeClass,
+    },
 
     /// Aggregate expression requires an explicit target field.
     #[error("aggregate target field is required")]
-    AggregateTargetRequired,
+    AggregateTargetRequired { kind: AggregateKind },
+
+    /// Function call received an unsupported argument count.
+    #[error("function argument count is incompatible")]
+    InvalidFunctionArity {
+        function: ExprPlanFunctionCode,
+        expected: usize,
+        actual: usize,
+    },
 
     /// Function call received one incompatible argument type.
     #[error("function argument is incompatible")]
-    InvalidFunctionArgument,
+    InvalidFunctionArgument {
+        function: ExprPlanFunctionCode,
+        argument_index: usize,
+        found: ExprPlanTypeClass,
+    },
+
+    /// Function call received incompatible dynamic argument types.
+    #[error("function arguments are incompatible")]
+    IncompatibleFunctionArguments {
+        function: ExprPlanFunctionCode,
+        left_argument_index: usize,
+        right_argument_index: usize,
+        left: ExprPlanTypeClass,
+        right: ExprPlanTypeClass,
+    },
 
     /// Unary operation is incompatible with inferred operand type.
     #[error("unary operand is incompatible")]
-    InvalidUnaryOperand,
+    InvalidUnaryOperand {
+        op: ExprPlanUnaryOpCode,
+        found: ExprPlanTypeClass,
+    },
 
     /// CASE branch condition is not boolean-typed.
     #[error("CASE branch condition is incompatible")]
-    InvalidCaseConditionType,
+    InvalidCaseConditionType {
+        arm_index: usize,
+        found: ExprPlanTypeClass,
+    },
 
     /// CASE result branches cannot agree on one shared scalar type.
     #[error("CASE result branches are incompatible")]
-    IncompatibleCaseBranchTypes,
+    IncompatibleCaseBranchTypes {
+        left_branch_index: Option<usize>,
+        right_branch_index: Option<usize>,
+        left: ExprPlanTypeClass,
+        right: ExprPlanTypeClass,
+    },
 
     /// Binary operation is incompatible with inferred operand types.
     #[error("binary operands are incompatible")]
-    InvalidBinaryOperands,
+    InvalidBinaryOperands {
+        op: ExprPlanBinaryOpCode,
+        left: ExprPlanTypeClass,
+        right: ExprPlanTypeClass,
+    },
 
     /// GROUP BY projections must not reference fields outside grouped keys.
     #[error(
@@ -590,38 +804,106 @@ impl ExprPlanError {
     }
 
     /// Construct one aggregate-target-required planner error.
-    pub(in crate::db::query) const fn aggregate_target_required() -> Self {
-        Self::AggregateTargetRequired
+    pub(in crate::db::query) const fn aggregate_target_required(kind: AggregateKind) -> Self {
+        Self::AggregateTargetRequired { kind }
     }
 
     /// Construct one non-numeric aggregate-target planner error.
-    pub(in crate::db::query) const fn non_numeric_aggregate_target() -> Self {
-        Self::NonNumericAggregateTarget
+    pub(in crate::db::query) const fn non_numeric_aggregate_target(
+        kind: AggregateKind,
+        found: ExprPlanTypeClass,
+    ) -> Self {
+        Self::NonNumericAggregateTarget { kind, found }
+    }
+
+    /// Construct one invalid function-arity planner error.
+    pub(in crate::db::query) const fn invalid_function_arity(
+        function: Function,
+        expected: usize,
+        actual: usize,
+    ) -> Self {
+        Self::InvalidFunctionArity {
+            function: ExprPlanFunctionCode::from_function(function),
+            expected,
+            actual,
+        }
     }
 
     /// Construct one invalid function-argument planner error.
-    pub(in crate::db::query) const fn invalid_function_argument() -> Self {
-        Self::InvalidFunctionArgument
+    pub(in crate::db::query) const fn invalid_function_argument(
+        function: Function,
+        argument_index: usize,
+        found: ExprPlanTypeClass,
+    ) -> Self {
+        Self::InvalidFunctionArgument {
+            function: ExprPlanFunctionCode::from_function(function),
+            argument_index,
+            found,
+        }
+    }
+
+    /// Construct one incompatible dynamic-function-arguments planner error.
+    pub(in crate::db::query) const fn incompatible_function_arguments(
+        function: Function,
+        left_argument_index: usize,
+        right_argument_index: usize,
+        left: ExprPlanTypeClass,
+        right: ExprPlanTypeClass,
+    ) -> Self {
+        Self::IncompatibleFunctionArguments {
+            function: ExprPlanFunctionCode::from_function(function),
+            left_argument_index,
+            right_argument_index,
+            left,
+            right,
+        }
     }
 
     /// Construct one invalid unary-operand planner error.
-    pub(in crate::db::query) const fn invalid_unary_operand() -> Self {
-        Self::InvalidUnaryOperand
+    pub(in crate::db::query) const fn invalid_unary_operand(
+        op: UnaryOp,
+        found: ExprPlanTypeClass,
+    ) -> Self {
+        Self::InvalidUnaryOperand {
+            op: ExprPlanUnaryOpCode::from_unary_op(op),
+            found,
+        }
     }
 
     /// Construct one invalid CASE-condition planner error.
-    pub(in crate::db::query) const fn invalid_case_condition_type() -> Self {
-        Self::InvalidCaseConditionType
+    pub(in crate::db::query) const fn invalid_case_condition_type(
+        arm_index: usize,
+        found: ExprPlanTypeClass,
+    ) -> Self {
+        Self::InvalidCaseConditionType { arm_index, found }
     }
 
     /// Construct one incompatible CASE-branch-types planner error.
-    pub(in crate::db::query) const fn incompatible_case_branch_types() -> Self {
-        Self::IncompatibleCaseBranchTypes
+    pub(in crate::db::query) const fn incompatible_case_branch_types(
+        left_branch_index: Option<usize>,
+        right_branch_index: Option<usize>,
+        left: ExprPlanTypeClass,
+        right: ExprPlanTypeClass,
+    ) -> Self {
+        Self::IncompatibleCaseBranchTypes {
+            left_branch_index,
+            right_branch_index,
+            left,
+            right,
+        }
     }
 
     /// Construct one invalid binary-operands planner error.
-    pub(in crate::db::query) const fn invalid_binary_operands() -> Self {
-        Self::InvalidBinaryOperands
+    pub(in crate::db::query) const fn invalid_binary_operands(
+        op: BinaryOp,
+        left: ExprPlanTypeClass,
+        right: ExprPlanTypeClass,
+    ) -> Self {
+        Self::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::from_binary_op(op),
+            left,
+            right,
+        }
     }
 
     /// Construct one grouped projection non-group-field reference planner error.

@@ -24,10 +24,85 @@ use std::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum KeyCanonicalError {
     InvalidMapValue(MapValueError),
-    HashingFailed,
+    HashingFailed {
+        value: KeyCanonicalValueCode,
+    },
+    ProjectedRowHashingFailed {
+        value_index: usize,
+        value: KeyCanonicalValueCode,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct KeyCanonicalValueCode(u8);
+
+impl KeyCanonicalValueCode {
+    const ACCOUNT: Self = Self(0);
+    const BLOB: Self = Self(1);
+    const BOOL: Self = Self(2);
+    const DATE: Self = Self(3);
+    const DECIMAL: Self = Self(4);
+    const DURATION: Self = Self(5);
+    const ENUM: Self = Self(6);
+    const FLOAT32: Self = Self(7);
+    const FLOAT64: Self = Self(8);
+    const INT64: Self = Self(9);
+    const INT128: Self = Self(10);
+    const INT_BIG: Self = Self(11);
+    const LIST: Self = Self(12);
+    const MAP: Self = Self(13);
+    const NULL: Self = Self(14);
+    const PRINCIPAL: Self = Self(15);
+    const SUBACCOUNT: Self = Self(16);
+    const TEXT: Self = Self(17);
+    const TIMESTAMP: Self = Self(18);
+    const NAT64: Self = Self(19);
+    const NAT128: Self = Self(20);
+    const NAT_BIG: Self = Self(21);
+    const ULID: Self = Self(22);
+    const UNIT: Self = Self(23);
+
+    const fn from_value(value: &Value) -> Self {
+        match value {
+            Value::Account(_) => Self::ACCOUNT,
+            Value::Blob(_) => Self::BLOB,
+            Value::Bool(_) => Self::BOOL,
+            Value::Date(_) => Self::DATE,
+            Value::Decimal(_) => Self::DECIMAL,
+            Value::Duration(_) => Self::DURATION,
+            Value::Enum(_) => Self::ENUM,
+            Value::Float32(_) => Self::FLOAT32,
+            Value::Float64(_) => Self::FLOAT64,
+            Value::Int64(_) => Self::INT64,
+            Value::Int128(_) => Self::INT128,
+            Value::IntBig(_) => Self::INT_BIG,
+            Value::List(_) => Self::LIST,
+            Value::Map(_) => Self::MAP,
+            Value::Null => Self::NULL,
+            Value::Principal(_) => Self::PRINCIPAL,
+            Value::Subaccount(_) => Self::SUBACCOUNT,
+            Value::Text(_) => Self::TEXT,
+            Value::Timestamp(_) => Self::TIMESTAMP,
+            Value::Nat64(_) => Self::NAT64,
+            Value::Nat128(_) => Self::NAT128,
+            Value::NatBig(_) => Self::NAT_BIG,
+            Value::Ulid(_) => Self::ULID,
+            Value::Unit => Self::UNIT,
+        }
+    }
 }
 
 impl KeyCanonicalError {
+    pub(in crate::db::executor) const fn projected_row_hashing_failed(
+        value_index: usize,
+        value: &Value,
+    ) -> Self {
+        Self::ProjectedRowHashingFailed {
+            value_index,
+            value: KeyCanonicalValueCode::from_value(value),
+        }
+    }
+
     // Build the canonical grouped-key invariant for invalid map payloads.
     fn invalid_map_value(_err: &MapValueError) -> InternalError {
         InternalError::executor_invariant()
@@ -37,7 +112,9 @@ impl KeyCanonicalError {
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
-            Self::HashingFailed => InternalError::executor_internal(),
+            Self::HashingFailed { .. } | Self::ProjectedRowHashingFailed { .. } => {
+                InternalError::executor_internal()
+            }
         }
     }
 }
@@ -46,7 +123,9 @@ impl fmt::Display for KeyCanonicalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidMapValue(err) => write!(f, "{err}"),
-            Self::HashingFailed => f.write_str("grouped key hashing failed"),
+            Self::HashingFailed { .. } | Self::ProjectedRowHashingFailed { .. } => {
+                f.write_str("grouped key hashing failed")
+            }
         }
     }
 }
@@ -93,7 +172,9 @@ fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
 
 impl GroupKey {
     fn from_raw(raw: Value) -> Result<Self, KeyCanonicalError> {
-        let hash = stable_hash_value(&raw).map_err(|_| KeyCanonicalError::HashingFailed)?;
+        let hash = stable_hash_value(&raw).map_err(|_| KeyCanonicalError::HashingFailed {
+            value: KeyCanonicalValueCode::from_value(&raw),
+        })?;
 
         Ok(Self::from_raw_with_hash(raw, hash))
     }

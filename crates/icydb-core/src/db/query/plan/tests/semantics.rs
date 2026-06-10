@@ -510,7 +510,7 @@ fn plan_rejects_nested_path_inside_order_expression() {
         PlanUserError::Expr(inner)
             if matches!(
                 inner.as_ref(),
-                ExprPlanError::InvalidFunctionArgument
+                ExprPlanError::InvalidFunctionArgument { .. }
             )
         )),
         "{err:?}"

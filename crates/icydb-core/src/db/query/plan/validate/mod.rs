@@ -30,8 +30,11 @@ pub(in crate::db::query) use cursor_policy::validate_cursor_paging_requirements;
 pub(in crate::db) use errors::CursorOrderPlanShapeError;
 pub use errors::PlanError;
 pub(crate) use errors::{
-    CursorPagingPolicyError, ExprPlanError, GroupPlanError, OrderPlanError, PolicyPlanError,
+    CursorPagingPolicyError, ExprPlanError, ExprPlanTypeClass, GroupPlanError, OrderPlanError,
+    PolicyPlanError,
 };
+#[cfg(test)]
+pub(crate) use errors::{ExprPlanBinaryOpCode, ExprPlanFunctionCode, ExprPlanUnaryOpCode};
 pub(in crate::db::query) use errors::{
     FluentLoadPolicyViolation, IntentKeyAccessKind, IntentKeyAccessPolicyViolation,
 };

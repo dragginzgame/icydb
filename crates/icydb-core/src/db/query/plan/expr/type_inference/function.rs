@@ -5,7 +5,7 @@ use crate::db::{
             Expr, ExprCoarseTypeFamily, Function, FunctionTypeInferenceShape, NumericSubtype,
             type_inference::{ExprType, infer_expr_type, unify::unify_coalesce_expr_types},
         },
-        validate::ExprPlanError,
+        validate::{ExprPlanError, ExprPlanTypeClass},
     },
     schema::SchemaInfo,
 };
@@ -74,45 +74,49 @@ impl FunctionTypeInferenceShape {
         }
     }
 
-    fn infer_function_result_type(self, args: &[ExprType]) -> Result<ExprType, PlanError> {
+    fn infer_function_result_type(
+        self,
+        function: Function,
+        args: &[ExprType],
+    ) -> Result<ExprType, PlanError> {
         match self {
             Self::ByteLengthResult => {
-                validate_byte_length_function_args(args)?;
+                validate_byte_length_function_args(function, args)?;
 
                 Ok(ExprType::Numeric(NumericSubtype::Integer))
             }
             Self::UnaryBoolPredicate => {
-                validate_exact_function_arg_count(args.len(), 1)?;
+                validate_exact_function_arg_count(function, args.len(), 1)?;
 
                 Ok(ExprType::Bool)
             }
             Self::CollectionContains => {
-                validate_exact_function_arg_count(args.len(), 2)?;
+                validate_exact_function_arg_count(function, args.len(), 2)?;
 
                 Ok(ExprType::Bool)
             }
             Self::TextResult { .. } => {
-                validate_function_arg_families(args, self)?;
+                validate_function_arg_families(function, args, self)?;
 
                 Ok(ExprType::Text)
             }
             Self::NumericResult { subtype, .. } => {
-                validate_function_arg_families(args, self)?;
+                validate_function_arg_families(function, args, self)?;
 
                 Ok(ExprType::Numeric(subtype))
             }
             Self::BoolResult { .. } => {
-                validate_function_arg_families(args, self)?;
+                validate_function_arg_families(function, args, self)?;
 
                 Ok(ExprType::Bool)
             }
             Self::NumericScaleResult => {
-                validate_numeric_scale_function_args(args)?;
+                validate_numeric_scale_function_args(function, args)?;
 
                 Ok(ExprType::Numeric(NumericSubtype::Decimal))
             }
-            Self::DynamicCoalesce => infer_coalesce_function_type(args),
-            Self::DynamicNullIf => infer_nullif_function_type(args),
+            Self::DynamicCoalesce => infer_coalesce_function_type(function, args),
+            Self::DynamicNullIf => infer_nullif_function_type(function, args),
         }
     }
 }
@@ -138,19 +142,28 @@ pub(super) fn infer_function_expr_type(
 
     function
         .type_inference_shape()
-        .infer_function_result_type(arg_types.as_slice())
+        .infer_function_result_type(function, arg_types.as_slice())
 }
 
-fn validate_exact_function_arg_count(actual: usize, expected: usize) -> Result<(), PlanError> {
+fn validate_exact_function_arg_count(
+    function: Function,
+    actual: usize,
+    expected: usize,
+) -> Result<(), PlanError> {
     if actual != expected {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+        return Err(PlanError::from(ExprPlanError::invalid_function_arity(
+            function, expected, actual,
+        )));
     }
 
     Ok(())
 }
 
-fn validate_byte_length_function_args(args: &[ExprType]) -> Result<(), PlanError> {
-    validate_exact_function_arg_count(args.len(), 1)?;
+fn validate_byte_length_function_args(
+    function: Function,
+    args: &[ExprType],
+) -> Result<(), PlanError> {
+    validate_exact_function_arg_count(function, args.len(), 1)?;
 
     let input_compatible = matches!(args[0], ExprType::Text | ExprType::Blob) || {
         #[cfg(test)]
@@ -164,7 +177,7 @@ fn validate_byte_length_function_args(args: &[ExprType]) -> Result<(), PlanError
     };
 
     if !input_compatible {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+        return Err(invalid_function_argument(function, 0, &args[0]));
     }
 
     Ok(())
@@ -192,6 +205,7 @@ const fn expr_type_accepts_required_coarse_family(
 }
 
 fn validate_function_arg_families(
+    function: Function,
     args: &[ExprType],
     shape: FunctionTypeInferenceShape,
 ) -> Result<(), PlanError> {
@@ -201,20 +215,27 @@ fn validate_function_arg_families(
         };
 
         if !expr_type_accepts_required_coarse_family(arg, family) {
-            return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+            return Err(invalid_function_argument(function, index, arg));
         }
     }
 
     Ok(())
 }
 
-fn validate_numeric_scale_function_args(args: &[ExprType]) -> Result<(), PlanError> {
+fn validate_numeric_scale_function_args(
+    function: Function,
+    args: &[ExprType],
+) -> Result<(), PlanError> {
     if args.len() != 2 {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+        return Err(PlanError::from(ExprPlanError::invalid_function_arity(
+            function,
+            2,
+            args.len(),
+        )));
     }
 
     if !matches!(args[0], ExprType::Numeric(_)) {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+        return Err(invalid_function_argument(function, 0, &args[0]));
     }
 
     let scale_compatible = matches!(args[1], ExprType::Numeric(NumericSubtype::Integer)) || {
@@ -229,36 +250,61 @@ fn validate_numeric_scale_function_args(args: &[ExprType]) -> Result<(), PlanErr
     };
 
     if !scale_compatible {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+        return Err(invalid_function_argument(function, 1, &args[1]));
     }
 
     Ok(())
 }
 
-fn infer_coalesce_function_type(args: &[ExprType]) -> Result<ExprType, PlanError> {
+fn infer_coalesce_function_type(
+    function: Function,
+    args: &[ExprType],
+) -> Result<ExprType, PlanError> {
     if args.len() < 2 {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+        return Err(PlanError::from(ExprPlanError::invalid_function_arity(
+            function,
+            2,
+            args.len(),
+        )));
     }
 
     let mut common = None;
-    for arg in args {
+    for (index, arg) in args.iter().enumerate() {
         #[cfg(test)]
         if matches!(arg, ExprType::Null) {
             continue;
         }
 
         common = Some(match common {
-            None => arg.clone(),
-            Some(current) => unify_coalesce_expr_types(current, arg.clone())?,
+            None => (index, arg.clone()),
+            Some((current_index, current)) => (
+                current_index,
+                unify_coalesce_expr_types(current, arg.clone(), |left, right| {
+                    PlanError::from(ExprPlanError::incompatible_function_arguments(
+                        function,
+                        current_index,
+                        index,
+                        left,
+                        right,
+                    ))
+                })?,
+            ),
         });
     }
 
-    Ok(common.unwrap_or(ExprType::Unknown))
+    Ok(common.map_or(ExprType::Unknown, |(_, expr_type)| expr_type))
 }
 
-fn infer_nullif_function_type(args: &[ExprType]) -> Result<ExprType, PlanError> {
+fn infer_nullif_function_type(
+    function: Function,
+    args: &[ExprType],
+) -> Result<ExprType, PlanError> {
     if args.len() != 2 {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
+        return Err(PlanError::from(ExprPlanError::invalid_function_arity(
+            function,
+            2,
+            args.len(),
+        )));
     }
 
     #[cfg(test)]
@@ -266,7 +312,23 @@ fn infer_nullif_function_type(args: &[ExprType]) -> Result<ExprType, PlanError> 
         return Ok(args[0].clone());
     }
 
-    let _ = unify_coalesce_expr_types(args[0].clone(), args[1].clone())?;
+    let _ = unify_coalesce_expr_types(args[0].clone(), args[1].clone(), |left, right| {
+        PlanError::from(ExprPlanError::incompatible_function_arguments(
+            function, 0, 1, left, right,
+        ))
+    })?;
 
     Ok(args[0].clone())
+}
+
+fn invalid_function_argument(
+    function: Function,
+    argument_index: usize,
+    found: &ExprType,
+) -> PlanError {
+    PlanError::from(ExprPlanError::invalid_function_argument(
+        function,
+        argument_index,
+        ExprPlanTypeClass::from_expr_type(found),
+    ))
 }

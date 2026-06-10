@@ -8,7 +8,7 @@ use crate::db::{
                 unify::{unify_case_branch_types, unify_coalesce_expr_types},
             },
         },
-        validate::ExprPlanError,
+        validate::{ExprPlanError, ExprPlanTypeClass},
     },
     schema::SchemaInfo,
 };
@@ -29,9 +29,16 @@ pub(in crate::db::query::plan::expr) fn infer_case_result_exprs_coarse_family<'a
     result_exprs: impl IntoIterator<Item = &'a Expr>,
     schema: &SchemaInfo,
 ) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
-    infer_folded_exprs_coarse_family(result_exprs, schema, |current, current_expr, next, expr| {
-        unify_case_branch_types((&next, expr), (&current, current_expr))
-    })
+    infer_folded_exprs_coarse_family(
+        result_exprs,
+        schema,
+        |current_index, current, current_expr, next_index, next, expr| {
+            unify_case_branch_types(
+                (Some(next_index), &next, expr),
+                (Some(current_index), &current, current_expr),
+            )
+        },
+    )
 }
 
 /// Infer one planner-owned coarse family from the lowerable arguments of a
@@ -44,11 +51,27 @@ pub(in crate::db::query::plan::expr) fn infer_dynamic_function_result_exprs_coar
 ) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
     match function.type_inference_shape() {
         FunctionTypeInferenceShape::DynamicCoalesce | FunctionTypeInferenceShape::DynamicNullIf => {
-            infer_folded_exprs_coarse_family(args.iter(), schema, |current, _, next, _| {
-                unify_coalesce_expr_types(current, next)
-            })
+            infer_folded_exprs_coarse_family(
+                args.iter(),
+                schema,
+                |current_index, current, _, next_index, next, _| {
+                    unify_coalesce_expr_types(current, next, |left, right| {
+                        PlanError::from(ExprPlanError::incompatible_function_arguments(
+                            function,
+                            current_index,
+                            next_index,
+                            left,
+                            right,
+                        ))
+                    })
+                },
+            )
         }
-        _ => Err(PlanError::from(ExprPlanError::invalid_function_argument())),
+        _ => Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            function,
+            0,
+            ExprPlanTypeClass::Unknown,
+        ))),
     }
 }
 
@@ -61,21 +84,25 @@ fn infer_folded_exprs_coarse_family<'a, F>(
     mut fold: F,
 ) -> Result<Option<ExprCoarseTypeFamily>, PlanError>
 where
-    F: FnMut(ExprType, &'a Expr, ExprType, &'a Expr) -> Result<ExprType, PlanError>,
+    F: FnMut(usize, ExprType, &'a Expr, usize, ExprType, &'a Expr) -> Result<ExprType, PlanError>,
 {
-    let mut resolved: Option<(ExprType, &'a Expr)> = None;
+    let mut resolved: Option<(usize, ExprType, &'a Expr)> = None;
 
-    for expr in exprs {
+    for (index, expr) in exprs.into_iter().enumerate() {
         let next = infer_expr_type(expr, schema)?;
         resolved = Some(match resolved {
-            None => (next, expr),
-            Some((current, current_expr)) => (fold(current, current_expr, next, expr)?, expr),
+            None => (index, next, expr),
+            Some((current_index, current, current_expr)) => (
+                index,
+                fold(current_index, current, current_expr, index, next, expr)?,
+                expr,
+            ),
         });
     }
 
     Ok(resolved
         .as_ref()
-        .and_then(|(expr_type, _)| coarse_family_for_expr_type(expr_type)))
+        .and_then(|(_, expr_type, _)| coarse_family_for_expr_type(expr_type)))
 }
 
 /// Return the shared expected coarse family for one fixed-arity scalar

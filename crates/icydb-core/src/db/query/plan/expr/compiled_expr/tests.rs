@@ -7,6 +7,8 @@ use crate::{
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
+use super::ProjectionAccessCode;
+
 struct TestRowView {
     slots: Vec<Option<Value>>,
 }
@@ -196,7 +198,13 @@ fn grouped_compiled_expr_missing_slot_keeps_compact_diagnostic() {
         .evaluate(&row_view())
         .expect_err("missing grouped slot should stay a projection error");
 
-    assert_eq!(err, ProjectionEvalError::MissingFieldValue);
+    assert_eq!(
+        err,
+        ProjectionEvalError::MissingFieldValue {
+            access: ProjectionAccessCode::SLOT,
+            index: 99,
+        }
+    );
 }
 
 #[test]
@@ -206,7 +214,10 @@ fn compiled_expr_aggregate_in_row_context_errors_not_null() {
         .evaluate(&row_view())
         .expect_err("row readers must not silently NULL aggregate leaves");
 
-    assert_eq!(err, ProjectionEvalError::MissingGroupedAggregateValue);
+    assert_eq!(
+        err,
+        ProjectionEvalError::MissingGroupedAggregateValue { index: 0 }
+    );
 }
 
 #[test]
@@ -219,7 +230,13 @@ fn compiled_expr_group_key_in_row_context_errors_not_null() {
         .evaluate(&row_view())
         .expect_err("row readers must not silently NULL grouped-key leaves");
 
-    assert_eq!(err, ProjectionEvalError::MissingFieldValue);
+    assert_eq!(
+        err,
+        ProjectionEvalError::MissingFieldValue {
+            access: ProjectionAccessCode::GROUP_KEY,
+            index: 0,
+        }
+    );
 }
 
 #[test]
@@ -232,7 +249,13 @@ fn compiled_expr_slot_in_grouped_context_errors_not_null() {
         .evaluate(&grouped_view())
         .expect_err("grouped-output readers must not silently NULL slot leaves");
 
-    assert_eq!(err, ProjectionEvalError::MissingFieldValue);
+    assert_eq!(
+        err,
+        ProjectionEvalError::MissingFieldValue {
+            access: ProjectionAccessCode::SLOT,
+            index: 0,
+        }
+    );
 }
 
 #[test]
@@ -246,11 +269,14 @@ fn compiled_expr_out_of_bounds_grouped_reads_error_not_null() {
 
     std::assert_matches!(
         group_key.evaluate(&grouped_view),
-        Err(ProjectionEvalError::MissingFieldValue)
+        Err(ProjectionEvalError::MissingFieldValue {
+            access: ProjectionAccessCode::GROUP_KEY,
+            index: 9,
+        })
     );
     std::assert_matches!(
         aggregate.evaluate(&grouped_view),
-        Err(ProjectionEvalError::MissingGroupedAggregateValue)
+        Err(ProjectionEvalError::MissingGroupedAggregateValue { index: 9 })
     );
 }
 
@@ -268,7 +294,10 @@ fn compiled_expr_case_missing_condition_read_errors_before_else() {
         .evaluate(&row_view())
         .expect_err("missing CASE condition reads must not fall through as NULL");
 
-    assert_eq!(err, ProjectionEvalError::MissingGroupedAggregateValue);
+    assert_eq!(
+        err,
+        ProjectionEvalError::MissingGroupedAggregateValue { index: 0 }
+    );
 }
 
 #[test]

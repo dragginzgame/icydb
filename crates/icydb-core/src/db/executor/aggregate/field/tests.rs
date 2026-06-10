@@ -4,7 +4,8 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    AggregateFieldValueError, FieldSlot, apply_aggregate_direction, compare_orderable_field_values,
+    AggregateFieldKindCode, AggregateFieldValueError, AggregateValueKindCode, FieldSlot,
+    apply_aggregate_direction, compare_orderable_field_values,
     extract_numeric_field_decimal_with_slot_reader, extract_orderable_field_value_with_slot_reader,
     resolve_any_aggregate_target_slot_from_fields,
     resolve_numeric_aggregate_target_slot_from_fields,
@@ -150,7 +151,13 @@ fn resolve_orderable_target_slot_rejects_non_orderable_field_kind() {
     )
     .expect_err("list field should be rejected for field aggregates");
 
-    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind);
+    std::assert_matches!(
+        err,
+        AggregateFieldValueError::UnsupportedFieldKind {
+            slot_index: 3,
+            kind: AggregateFieldKindCode::LIST,
+        }
+    );
 }
 
 #[test]
@@ -158,7 +165,13 @@ fn compare_orderable_field_values_rejects_mismatched_variants() {
     let err = compare_orderable_field_values("rank", &Value::Nat64(7), &Value::Text("x".into()))
         .expect_err("mismatched value variants must be rejected");
 
-    std::assert_matches!(err, AggregateFieldValueError::IncomparableFieldValues);
+    std::assert_matches!(
+        err,
+        AggregateFieldValueError::IncomparableFieldValues {
+            left: AggregateValueKindCode::NAT64,
+            right: AggregateValueKindCode::TEXT,
+        }
+    );
 }
 
 #[test]
@@ -245,7 +258,14 @@ fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
     )
     .expect_err("runtime type mismatch must be rejected");
 
-    std::assert_matches!(err, AggregateFieldValueError::FieldValueTypeMismatch);
+    std::assert_matches!(
+        err,
+        AggregateFieldValueError::FieldValueTypeMismatch {
+            slot_index: 1,
+            expected: AggregateFieldKindCode::TEXT,
+            found: AggregateValueKindCode::NAT64,
+        }
+    );
 }
 
 #[test]
@@ -327,7 +347,13 @@ fn resolve_numeric_target_slot_rejects_non_numeric_field() {
     )
     .expect_err("text field should be rejected for numeric aggregates");
 
-    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind);
+    std::assert_matches!(
+        err,
+        AggregateFieldValueError::UnsupportedFieldKind {
+            slot_index: 2,
+            kind: AggregateFieldKindCode::TEXT,
+        }
+    );
 }
 
 #[test]

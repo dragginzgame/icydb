@@ -10,7 +10,10 @@ use crate::{
             plan::{
                 AggregateKind, PlanError, PlanUserError,
                 expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function},
-                validate::ExprPlanError,
+                validate::{
+                    ExprPlanBinaryOpCode, ExprPlanError, ExprPlanFunctionCode, ExprPlanTypeClass,
+                    ExprPlanUnaryOpCode,
+                },
             },
         },
         schema::{
@@ -326,7 +329,11 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_schema_operand() {
         .expect_err("numeric operators must reject schema-known non-numeric fields");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::ADD,
+            left: ExprPlanTypeClass::Numeric,
+            right: ExprPlanTypeClass::Text,
+        }
     )));
 }
 
@@ -343,7 +350,11 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_bool_field_operand() 
         .expect_err("numeric operators must reject schema-known bool fields");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::ADD,
+            left: ExprPlanTypeClass::Numeric,
+            right: ExprPlanTypeClass::Bool,
+        }
     )));
 }
 
@@ -360,7 +371,11 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_date_field_operand() 
         .expect_err("numeric operators must reject schema-known date fields");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::ADD,
+            left: ExprPlanTypeClass::Numeric,
+            right: ExprPlanTypeClass::Opaque,
+        }
     )));
 }
 
@@ -377,7 +392,11 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_literal_operand() {
         .expect_err("numeric operators must reject non-numeric literal operands");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::ADD,
+            left: ExprPlanTypeClass::Bool,
+            right: ExprPlanTypeClass::Numeric,
+        }
     )));
 }
 
@@ -488,7 +507,10 @@ fn infer_searched_case_rejects_non_boolean_conditions() {
         .expect_err("searched CASE must reject non-boolean branch conditions");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidCaseConditionType
+        ExprPlanError::InvalidCaseConditionType {
+            arm_index: 0,
+            found: ExprPlanTypeClass::Numeric,
+        }
     )));
 }
 
@@ -507,7 +529,12 @@ fn infer_searched_case_rejects_incompatible_branch_types() {
         .expect_err("searched CASE must reject incompatible result branches");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::IncompatibleCaseBranchTypes
+        ExprPlanError::IncompatibleCaseBranchTypes {
+            left_branch_index: Some(0),
+            right_branch_index: None,
+            left: ExprPlanTypeClass::Text,
+            right: ExprPlanTypeClass::Numeric,
+        }
     )));
 }
 
@@ -524,7 +551,11 @@ fn infer_binary_numeric_expr_rejects_unknown_non_eligible_operands() {
         .expect_err("unknown type does not imply numeric eligibility");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::ADD,
+            left: ExprPlanTypeClass::Unknown,
+            right: ExprPlanTypeClass::Numeric,
+        }
     )));
 }
 
@@ -558,7 +589,11 @@ fn infer_round_function_expr_rejects_non_numeric_input() {
     let err = infer_expr_type(&expr, schema).expect_err("ROUND(text, 2) should fail closed");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidFunctionArgument
+        ExprPlanError::InvalidFunctionArgument {
+            function: ExprPlanFunctionCode::ROUND,
+            argument_index: 0,
+            found: ExprPlanTypeClass::Text,
+        }
     )));
 }
 
@@ -570,7 +605,10 @@ fn infer_sum_aggregate_rejects_decidable_non_numeric_bool_target() {
     let err = infer_expr_type(&expr, schema).expect_err("sum over bool should fail");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::NonNumericAggregateTarget
+        ExprPlanError::NonNumericAggregateTarget {
+            kind: AggregateKind::Sum,
+            found: ExprPlanTypeClass::Bool,
+        }
     )));
 }
 
@@ -592,7 +630,10 @@ fn infer_sum_aggregate_requires_numeric_target() {
     let err = infer_expr_type(&expr, schema).expect_err("sum over text should fail");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::NonNumericAggregateTarget
+        ExprPlanError::NonNumericAggregateTarget {
+            kind: AggregateKind::Sum,
+            found: ExprPlanTypeClass::Text,
+        }
     )));
 }
 
@@ -608,7 +649,9 @@ fn infer_sum_aggregate_without_target_rejects_missing_target() {
     let err = infer_expr_type(&expr, schema).expect_err("sum without target should fail");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::AggregateTargetRequired
+        ExprPlanError::AggregateTargetRequired {
+            kind: AggregateKind::Sum,
+        }
     )));
 }
 
@@ -646,7 +689,11 @@ fn infer_sum_aggregate_rejects_non_numeric_expression_target() {
         .expect_err("sum over non-numeric input expression should fail");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::ADD,
+            left: ExprPlanTypeClass::Numeric,
+            right: ExprPlanTypeClass::Text,
+        }
     )));
 }
 
@@ -661,7 +708,10 @@ fn infer_unary_bool_not_rejects_non_bool_operands() {
     let err = infer_expr_type(&expr, schema).expect_err("not over numeric field should fail");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidUnaryOperand
+        ExprPlanError::InvalidUnaryOperand {
+            op: ExprPlanUnaryOpCode::NOT,
+            found: ExprPlanTypeClass::Numeric,
+        }
     )));
 }
 
@@ -678,7 +728,11 @@ fn infer_binary_compare_rejects_incompatible_operand_types() {
         .expect_err("numeric/text comparison should fail deterministic type inference");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::EQ,
+            left: ExprPlanTypeClass::Numeric,
+            right: ExprPlanTypeClass::Text,
+        }
     )));
 }
 
@@ -703,6 +757,10 @@ fn infer_binary_compare_rejects_unknown_operands_fail_closed() {
         .expect_err("unknown aggregate operand comparison should fail closed");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
-        ExprPlanError::InvalidBinaryOperands
+        ExprPlanError::InvalidBinaryOperands {
+            op: ExprPlanBinaryOpCode::EQ,
+            left: ExprPlanTypeClass::Unknown,
+            right: ExprPlanTypeClass::Unknown,
+        }
     )));
 }

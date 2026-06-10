@@ -9,14 +9,17 @@ fn session_cursor_error_mapping_parity_matrix_preserves_cursor_variants() {
             Box::new(|inner: &CursorPlanError| {
                 matches!(
                     inner,
-                    CursorPlanError::ContinuationCursorBoundaryArityMismatch
+                    CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
                 )
             }) as Box<dyn Fn(&CursorPlanError) -> bool>,
         ),
         (
             Box::new(|| CursorPlanError::continuation_cursor_window_mismatch(8, 3)),
             Box::new(|inner: &CursorPlanError| {
-                matches!(inner, CursorPlanError::ContinuationCursorWindowMismatch)
+                matches!(
+                    inner,
+                    CursorPlanError::ContinuationCursorWindowMismatch { .. }
+                )
             }),
         ),
         (
@@ -39,7 +42,7 @@ fn session_cursor_error_mapping_parity_matrix_preserves_cursor_variants() {
             Box::new(|inner: &CursorPlanError| {
                 matches!(
                     inner,
-                    CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch
+                    CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. }
                 )
             }),
         ),

@@ -2,15 +2,19 @@ use crate::{
     db::query::plan::{
         PlanError,
         expr::{BinaryOp, Expr, NumericSubtype, type_inference::ExprType},
-        validate::ExprPlanError,
+        validate::{ExprPlanError, ExprPlanTypeClass},
     },
     value::Value,
 };
 
-pub(super) fn unify_coalesce_expr_types(
+pub(super) fn unify_coalesce_expr_types<F>(
     current: ExprType,
     next: ExprType,
-) -> Result<ExprType, PlanError> {
+    mismatch: F,
+) -> Result<ExprType, PlanError>
+where
+    F: FnOnce(ExprPlanTypeClass, ExprPlanTypeClass) -> PlanError,
+{
     match (current, next) {
         (ExprType::Numeric(left), ExprType::Numeric(right)) => {
             Ok(ExprType::Numeric(match (left, right) {
@@ -34,16 +38,19 @@ pub(super) fn unify_coalesce_expr_types(
         (ExprType::Unknown, other) | (other, ExprType::Unknown) => Ok(other),
         #[cfg(test)]
         (ExprType::Null, other) | (other, ExprType::Null) => Ok(other),
-        (_left, _right) => Err(PlanError::from(ExprPlanError::invalid_function_argument())),
+        (left, right) => Err(mismatch(
+            ExprPlanTypeClass::from_expr_type(&left),
+            ExprPlanTypeClass::from_expr_type(&right),
+        )),
     }
 }
 
 pub(super) fn unify_case_branch_types(
-    left: (&ExprType, &Expr),
-    right: (&ExprType, &Expr),
+    left: (Option<usize>, &ExprType, &Expr),
+    right: (Option<usize>, &ExprType, &Expr),
 ) -> Result<ExprType, PlanError> {
-    let (left_type, left_expr) = left;
-    let (right_type, right_expr) = right;
+    let (left_index, left_type, left_expr) = left;
+    let (right_index, right_type, right_expr) = right;
 
     if left_type == right_type {
         return Ok(left_type.clone());
@@ -69,7 +76,12 @@ pub(super) fn unify_case_branch_types(
     }
 
     Err(PlanError::from(
-        ExprPlanError::incompatible_case_branch_types(),
+        ExprPlanError::incompatible_case_branch_types(
+            left_index,
+            right_index,
+            ExprPlanTypeClass::from_expr_type(left_type),
+            ExprPlanTypeClass::from_expr_type(right_type),
+        ),
     ))
 }
 

@@ -42,6 +42,8 @@ pub(in crate::db) use continuation::{
     effective_page_offset_for_window, next_cursor_for_materialized_rows,
 };
 pub(crate) use error::CursorPlanError;
+#[cfg(test)]
+pub(crate) use error::{CursorPayloadErrorCode, CursorSignaturePrefix};
 pub(in crate::db) use runtime::window_cursor_contract_for_plan;
 pub(in crate::db) use runtime::{
     ContinuationKeyRef, ContinuationRuntime, LoopAction, WindowCursorContract,

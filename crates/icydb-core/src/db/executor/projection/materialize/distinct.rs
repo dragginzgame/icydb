@@ -167,10 +167,10 @@ impl DistinctProjectionRowSet {
 fn stable_hash_projected_row(row: &RowView<'_>) -> Result<StableHash, KeyCanonicalError> {
     let mut hash_writer = ValueHashWriter::new();
     hash_writer.write_list_prefix(row.values().len());
-    for value in row.values() {
+    for (index, value) in row.values().iter().enumerate() {
         hash_writer
             .write_list_value(value)
-            .map_err(|_| KeyCanonicalError::HashingFailed)?;
+            .map_err(|_| KeyCanonicalError::projected_row_hashing_failed(index, value))?;
     }
 
     Ok(stable_hash_from_digest(hash_writer.finish()))

@@ -7,7 +7,7 @@ use crate::{
                 Expr, NumericSubtype,
                 type_inference::{ExprType, infer_expr_type},
             },
-            validate::ExprPlanError,
+            validate::{ExprPlanError, ExprPlanTypeClass},
         },
     },
     db::schema::SchemaInfo,
@@ -23,7 +23,9 @@ pub(super) fn infer_aggregate_expr_type(
     match kind {
         AggregateKind::Count => Ok(ExprType::Numeric(NumericSubtype::Integer)),
         AggregateKind::Exists => Ok(ExprType::Bool),
-        AggregateKind::Sum | AggregateKind::Avg => infer_sum_aggregate_type(input_expr, schema),
+        AggregateKind::Sum | AggregateKind::Avg => {
+            infer_sum_aggregate_type(kind, input_expr, schema)
+        }
         AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last => {
             infer_target_field_aggregate_type(input_expr, schema)
         }
@@ -31,11 +33,14 @@ pub(super) fn infer_aggregate_expr_type(
 }
 
 fn infer_sum_aggregate_type(
+    kind: AggregateKind,
     input_expr: Option<&Expr>,
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
     let Some(input_expr) = input_expr else {
-        return Err(PlanError::from(ExprPlanError::aggregate_target_required()));
+        return Err(PlanError::from(ExprPlanError::aggregate_target_required(
+            kind,
+        )));
     };
 
     let inferred = infer_expr_type(input_expr, schema)?;
@@ -44,13 +49,19 @@ fn infer_sum_aggregate_type(
         (Expr::Field(_), ExprType::Numeric(_)) => {}
         (Expr::Field(_), _) => {
             return Err(PlanError::from(
-                ExprPlanError::non_numeric_aggregate_target(),
+                ExprPlanError::non_numeric_aggregate_target(
+                    kind,
+                    ExprPlanTypeClass::from_expr_type(&inferred),
+                ),
             ));
         }
         (_, ExprType::Numeric(_)) => {}
         _ => {
             return Err(PlanError::from(
-                ExprPlanError::non_numeric_aggregate_target(),
+                ExprPlanError::non_numeric_aggregate_target(
+                    kind,
+                    ExprPlanTypeClass::from_expr_type(&inferred),
+                ),
             ));
         }
     }

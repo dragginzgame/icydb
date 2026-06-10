@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Compacts order-planner diagnostics with term/component indexes, replacing
-  discarded field-name prose while preserving actionable order context.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.30` restores compact diagnostic context across cursor validation,
+  expression planning, compiled projection evaluation, aggregate field reads,
+  and grouped-key hashing using bounded code/index payloads instead of message
+  strings.
+
+- `0.180.29` restores compact order-planner context by carrying
+  term/component indexes instead of rendered field names, preserving
+  actionable `ORDER BY` diagnostics without reintroducing string payloads.
 
 - `0.180.28` compacts aggregate field, grouped key, and planner expression
   diagnostics to code-only variants, removing discarded field/value/hash/type

@@ -291,7 +291,7 @@ pub(in crate::db) fn compile_grouped_projection_expr(
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
             let Some(offset) = resolve_group_field_offset(group_fields, field_name) else {
-                return Err(ProjectionEvalError::UnknownField);
+                return Err(ProjectionEvalError::unknown_group_field());
             };
 
             Ok(CompiledExpr::GroupKey {
@@ -299,12 +299,14 @@ pub(in crate::db) fn compile_grouped_projection_expr(
                 field: field_name.to_string(),
             })
         }
-        Expr::FieldPath(_) => Err(ProjectionEvalError::UnknownField),
+        Expr::FieldPath(_) => Err(ProjectionEvalError::unknown_field_path()),
         Expr::Aggregate(aggregate_expr) => {
             let Some(index) =
                 resolve_grouped_aggregate_index(aggregate_execution_specs, aggregate_expr)
             else {
-                return Err(ProjectionEvalError::UnknownGroupedAggregateExpression);
+                return Err(ProjectionEvalError::unknown_grouped_aggregate_expression(
+                    aggregate_expr.kind(),
+                ));
             };
 
             Ok(CompiledExpr::Aggregate { index })

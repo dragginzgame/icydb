@@ -327,7 +327,7 @@ fn compile_grouped_top_k_order(
             route.grouped_aggregate_execution_specs(),
         ) {
             Ok(compiled) => compiled,
-            Err(ProjectionEvalError::UnknownField) => continue,
+            Err(ProjectionEvalError::UnknownField { .. }) => continue,
             Err(err) => {
                 return Err(ProjectionEvalError::into_grouped_projection_internal_error(
                     err,

@@ -7589,7 +7589,10 @@ fn execute_sql_ddl_publication_rejects_pre_ddl_continuation_cursor() {
         .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
         .expect_err("post-DDL execution should reject a pre-DDL cursor");
     assert_query_error_is_cursor_plan(err, |inner| {
-        matches!(inner, CursorPlanError::ContinuationCursorSignatureMismatch)
+        matches!(
+            inner,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        )
     });
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -7725,7 +7728,10 @@ fn execute_sql_field_ddl_publication_rejects_pre_ddl_continuation_cursor() {
         .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
         .expect_err("post-field-DDL execution should reject a pre-DDL cursor");
     assert_query_error_is_cursor_plan(err, |inner| {
-        matches!(inner, CursorPlanError::ContinuationCursorSignatureMismatch)
+        matches!(
+            inner,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        )
     });
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

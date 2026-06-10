@@ -5,7 +5,7 @@
 use super::*;
 use crate::db::{
     access::AccessPlanError,
-    cursor::CursorPlanError,
+    cursor::{CursorPayloadErrorCode, CursorPlanError, CursorSignaturePrefix},
     query::plan::{
         PlanError, PolicyPlanError,
         validate::{GroupPlanError, OrderPlanError, PlanPolicyError, PlanUserError},
@@ -56,6 +56,42 @@ fn assert_runtime_corruption(err: &InternalError, origin: ErrorOrigin) {
     };
     assert_eq!(diagnostic.code(), expected_code);
     assert_eq!(diagnostic.origin(), origin.diagnostic_origin());
+}
+
+const fn cursor_payload_error() -> CursorPlanError {
+    CursorPlanError::InvalidContinuationCursorPayload {
+        reason: CursorPayloadErrorCode::UNKNOWN,
+        index: None,
+    }
+}
+
+const fn cursor_signature_mismatch_error() -> CursorPlanError {
+    CursorPlanError::ContinuationCursorSignatureMismatch {
+        expected: CursorSignaturePrefix::UNKNOWN,
+        actual: CursorSignaturePrefix::UNKNOWN,
+    }
+}
+
+const fn cursor_boundary_arity_error() -> CursorPlanError {
+    CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+        expected: 2,
+        found: 1,
+    }
+}
+
+const fn cursor_window_error() -> CursorPlanError {
+    CursorPlanError::ContinuationCursorWindowMismatch {
+        expected_offset: 4,
+        actual_offset: 2,
+    }
+}
+
+const fn cursor_boundary_type_error() -> CursorPlanError {
+    CursorPlanError::ContinuationCursorBoundaryTypeMismatch { index: 0 }
+}
+
+const fn cursor_primary_key_type_error() -> CursorPlanError {
+    CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { index: Some(1) }
 }
 
 #[test]
@@ -329,16 +365,14 @@ fn group_plan_error_mapping_rejects_non_group_policy_variant() {
 
 #[test]
 fn group_plan_error_mapping_rejects_cursor_variant() {
-    let err = from_group_plan_error(PlanError::from(
-        CursorPlanError::ContinuationCursorWindowMismatch,
-    ));
+    let err = from_group_plan_error(PlanError::from(cursor_window_error()));
 
     assert_runtime_invariant(&err, ErrorOrigin::Planner);
 }
 
 #[test]
 fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
-    let err = CursorPlanError::InvalidContinuationCursorPayload.into_internal_error();
+    let err = cursor_payload_error().into_internal_error();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -356,7 +390,7 @@ fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
 
 #[test]
 fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
-    let err = CursorPlanError::ContinuationCursorSignatureMismatch.into_internal_error();
+    let err = cursor_signature_mismatch_error().into_internal_error();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -407,24 +441,26 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
     fn expected_class_from_cursor_variant(err: &CursorPlanError) -> ErrorClass {
         match err {
             CursorPlanError::InvalidContinuationCursor { .. }
-            | CursorPlanError::InvalidContinuationCursorPayload
-            | CursorPlanError::ContinuationCursorSignatureMismatch
-            | CursorPlanError::ContinuationCursorBoundaryArityMismatch
-            | CursorPlanError::ContinuationCursorWindowMismatch
-            | CursorPlanError::ContinuationCursorBoundaryTypeMismatch
-            | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch => ErrorClass::Unsupported,
+            | CursorPlanError::InvalidContinuationCursorPayload { .. }
+            | CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+            | CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
+            | CursorPlanError::ContinuationCursorWindowMismatch { .. }
+            | CursorPlanError::ContinuationCursorBoundaryTypeMismatch { .. }
+            | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
+                ErrorClass::Unsupported
+            }
             CursorPlanError::ContinuationCursorInvariantViolation => ErrorClass::InvariantViolation,
         }
     }
 
     let cases = vec![
-        CursorPlanError::InvalidContinuationCursorPayload,
+        cursor_payload_error(),
         CursorPlanError::ContinuationCursorInvariantViolation,
-        CursorPlanError::ContinuationCursorSignatureMismatch,
-        CursorPlanError::ContinuationCursorBoundaryArityMismatch,
-        CursorPlanError::ContinuationCursorWindowMismatch,
-        CursorPlanError::ContinuationCursorBoundaryTypeMismatch,
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch,
+        cursor_signature_mismatch_error(),
+        cursor_boundary_arity_error(),
+        cursor_window_error(),
+        cursor_boundary_type_error(),
+        cursor_primary_key_type_error(),
     ];
 
     for cursor_err in cases {

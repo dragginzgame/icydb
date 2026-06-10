@@ -311,11 +311,11 @@ fn project_slot_row_direct_octet_lengths_into(
         };
 
         let (_slot, _field) = compiled.direct_octet_length_slot().ok_or_else(|| {
-            ProjectionEvalError::MissingFieldValue.into_invalid_logical_plan_internal_error()
+            ProjectionEvalError::missing_unknown_value().into_invalid_logical_plan_internal_error()
         })?;
         let value = row
             .slot_ref(*slot)
-            .ok_or(ProjectionEvalError::MissingFieldValue)
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(*slot))
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
         shaped.push(retained_slot_octet_length_value(value)?);
     }
@@ -379,7 +379,7 @@ fn project_slot_row_from_direct_field_slots_into(
     for (_field_name, slot) in field_slots {
         let value = row
             .take_slot(*slot)
-            .ok_or(ProjectionEvalError::MissingFieldValue)
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(*slot))
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
         shaped.push(value);
     }
