@@ -129,7 +129,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         Value::Account(account) => {
             let bytes = account
                 .to_stored_bytes()
-                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
+                .map_err(|_| InternalError::serialize_unsupported())?;
             feed_bytes(&mut hasher, &bytes);
         }
         Value::Blob(bytes) => {
@@ -152,7 +152,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         Value::Principal(value) => {
             let raw = value
                 .stored_bytes()
-                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
+                .map_err(|_| InternalError::serialize_unsupported())?;
             feed_len_u32(&mut hasher, raw.len())?;
             feed_bytes(&mut hasher, raw);
         }
@@ -233,7 +233,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Account(a) => {
             let bytes = a
                 .to_stored_bytes()
-                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
+                .map_err(|_| InternalError::serialize_unsupported())?;
             feed_bytes(h, &bytes);
         }
         Value::Blob(v) => {
@@ -309,7 +309,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Principal(p) => {
             let raw = p
                 .stored_bytes()
-                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
+                .map_err(|_| InternalError::serialize_unsupported())?;
             feed_u32(h, raw.len() as u32);
             feed_bytes(h, raw);
         }

@@ -48,13 +48,13 @@ const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 1;
 const COMMIT_MARKER_HEADER_BYTES: usize = 5;
 
 // Build the canonical max-size corruption error for raw commit control bytes.
-fn control_slot_exceeds_max_size(size: usize) -> InternalError {
-    InternalError::commit_marker_exceeds_max_size(size, MAX_COMMIT_BYTES)
+fn control_slot_exceeds_max_size() -> InternalError {
+    InternalError::commit_marker_exceeds_max_size()
 }
 
 // Build the canonical control-slot canonical-envelope corruption error.
 fn control_slot_canonical_envelope_required() -> InternalError {
-    InternalError::commit_corruption("commit control-slot decode: expected envelope")
+    InternalError::commit_corruption()
 }
 
 // Decode commit control-slot bytes into marker payload bytes.
@@ -77,7 +77,7 @@ pub(super) fn inspect_commit_control_slot(
     }
 
     if bytes.len() > MAX_COMMIT_BYTES as usize {
-        return Err(control_slot_exceeds_max_size(bytes.len()));
+        return Err(control_slot_exceeds_max_size());
     }
     if bytes.len() < COMMIT_CONTROL_HEADER_BYTES {
         return Err(control_slot_canonical_envelope_required());
@@ -89,20 +89,14 @@ pub(super) fn inspect_commit_control_slot(
         .try_into()
         .map_err(|_| control_slot_canonical_envelope_required())?;
     if magic != COMMIT_CONTROL_MAGIC {
-        return Err(InternalError::serialize_incompatible_persisted_format(
-            "commit control-slot magic mismatch".to_string(),
-        ));
+        return Err(InternalError::serialize_incompatible_persisted_format());
     }
 
     let control_version = *bytes
         .get(COMMIT_CONTROL_MAGIC.len())
         .ok_or_else(control_slot_canonical_envelope_required)?;
     if control_version != COMMIT_CONTROL_STATE_VERSION_CURRENT {
-        return Err(InternalError::serialize_incompatible_persisted_format(
-            format!(
-                "commit control-slot version {control_version} is incompatible with runtime version {COMMIT_CONTROL_STATE_VERSION_CURRENT}",
-            ),
-        ));
+        return Err(InternalError::serialize_incompatible_persisted_format());
     }
 
     let mut cursor = COMMIT_CONTROL_MAGIC.len() + 1;
@@ -126,10 +120,7 @@ pub(super) fn encode_commit_control_slot(marker_bytes: &[u8]) -> Result<Vec<u8>,
     let encoded = encode_commit_control_slot_bytes(marker_bytes)?;
 
     if encoded.len() > MAX_COMMIT_BYTES as usize {
-        return Err(InternalError::commit_control_slot_exceeds_max_size(
-            encoded.len(),
-            MAX_COMMIT_BYTES,
-        ));
+        return Err(InternalError::commit_control_slot_exceeds_max_size());
     }
 
     Ok(encoded)
@@ -178,15 +169,11 @@ fn checked_control_slot_lengths(
     marker_payload_len: usize,
 ) -> Result<ControlSlotLengths, InternalError> {
     let marker_bytes_len = COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload_len);
-    let marker_len = u32::try_from(marker_bytes_len).map_err(|_| {
-        InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit(marker_bytes_len)
-    })?;
+    let marker_len = u32::try_from(marker_bytes_len)
+        .map_err(|_| InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit())?;
     let total_len = COMMIT_CONTROL_HEADER_BYTES.saturating_add(marker_bytes_len);
     if total_len > MAX_COMMIT_BYTES as usize {
-        return Err(InternalError::commit_control_slot_exceeds_max_size(
-            total_len,
-            MAX_COMMIT_BYTES,
-        ));
+        return Err(InternalError::commit_control_slot_exceeds_max_size());
     }
 
     Ok(ControlSlotLengths {
@@ -202,9 +189,8 @@ fn checked_control_slot_lengths(
 fn encode_commit_control_slot_bytes(marker_bytes: &[u8]) -> Result<Vec<u8>, InternalError> {
     let mut encoded =
         Vec::with_capacity(COMMIT_CONTROL_HEADER_BYTES.saturating_add(marker_bytes.len()));
-    let marker_len = u32::try_from(marker_bytes.len()).map_err(|_| {
-        InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit(marker_bytes.len())
-    })?;
+    let marker_len = u32::try_from(marker_bytes.len())
+        .map_err(|_| InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit())?;
     write_commit_control_slot_header(&mut encoded, marker_len);
     encoded.extend_from_slice(marker_bytes);
 

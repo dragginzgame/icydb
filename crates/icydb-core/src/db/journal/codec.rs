@@ -543,11 +543,9 @@ fn validate_journal_batch_format_version(format_version: u8) -> Result<(), Inter
         return Ok(());
     }
 
-    Err(InternalError::serialize_incompatible_persisted_format(
-        format!(
-            "journal batch format version {format_version} is unsupported by runtime version {JOURNAL_BATCH_FORMAT_VERSION_CURRENT}",
-        ),
-    ))
+    let _ = format_version;
+
+    Err(InternalError::serialize_incompatible_persisted_format())
 }
 
 fn write_len_u32(out: &mut Vec<u8>, len: usize, _label: &'static str) -> Result<(), InternalError> {

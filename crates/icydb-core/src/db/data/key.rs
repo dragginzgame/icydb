@@ -42,8 +42,8 @@ enum DecodedDataStoreKeyEncodeError {
 }
 
 impl From<DecodedDataStoreKeyEncodeError> for InternalError {
-    fn from(err: DecodedDataStoreKeyEncodeError) -> Self {
-        Self::serialize_unsupported(err.to_string())
+    fn from(_err: DecodedDataStoreKeyEncodeError) -> Self {
+        Self::serialize_unsupported()
     }
 }
 

@@ -144,9 +144,8 @@ fn rebuild_secondary_indexes_in_place(
         });
 
         for (raw_key, raw_row) in rows {
-            let data_key = DecodedDataStoreKey::try_from_raw(&raw_key).map_err(|err| {
-                InternalError::startup_index_rebuild_invalid_data_key(store_path, err)
-            })?;
+            let data_key = DecodedDataStoreKey::try_from_raw(&raw_key)
+                .map_err(|_| InternalError::startup_index_rebuild_invalid_data_key())?;
             let hooks = db.runtime_hook_for_entity_tag(data_key.entity_tag())?;
             let accepted_schema = handle.with_schema_mut(|schema_store| {
                 ensure_accepted_schema_snapshot(

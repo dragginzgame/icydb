@@ -51,8 +51,7 @@ impl PrimaryScan {
     pub(in crate::db::executor) fn decode_data_key(
         raw: &RawDataStoreKey,
     ) -> Result<DecodedDataStoreKey, InternalError> {
-        DecodedDataStoreKey::try_from_raw(raw)
-            .map_err(|_err| InternalError::identity_corruption(""))
+        DecodedDataStoreKey::try_from_raw(raw).map_err(|_err| InternalError::identity_corruption())
     }
 }
 
@@ -349,7 +348,7 @@ impl IndexScan {
         // row identity; the raw entry value carries only the existence witness.
         let row_witness = value
             .decode_row_witness(raw_key)
-            .map_err(InternalError::index_entry_decode_failed)?;
+            .map_err(|_| InternalError::index_entry_decode_failed())?;
         record_row_check_index_key_owned_entry();
         record_row_check_index_row_identity_decoded();
         out.push(Self::data_key_from_row_witness(entity, &row_witness));
@@ -403,7 +402,7 @@ impl IndexScan {
         // row identity; the raw entry value carries only the existence witness.
         let row_witness = value
             .decode_row_witness(raw_key)
-            .map_err(InternalError::index_entry_decode_failed)?;
+            .map_err(|_| InternalError::index_entry_decode_failed())?;
         record_row_check_index_key_owned_entry();
         record_row_check_index_row_identity_decoded();
         out.push((

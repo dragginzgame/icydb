@@ -77,10 +77,7 @@ impl RawCommitMarker {
 
         // Phase 2: enforce byte-size upper bound before decode.
         if self.0.len() > MAX_COMMIT_BYTES as usize {
-            return Err(InternalError::commit_marker_exceeds_max_size(
-                self.0.len(),
-                MAX_COMMIT_BYTES,
-            ));
+            return Err(InternalError::commit_marker_exceeds_max_size());
         }
 
         // Phase 3: decode + semantic shape validation.

@@ -805,32 +805,6 @@ fn accepted_field_path_term(field_name: &str, path: &[String]) -> String {
     }
 }
 
-fn accepted_expression_key_item_label(key_item: &SchemaExpressionIndexKeyItemInfo) -> String {
-    match key_item {
-        SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
-            accepted_field_path_term(field.field_name(), field.path())
-        }
-        SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
-            expression.canonical_text().to_string()
-        }
-    }
-}
-
-#[allow(
-    dead_code,
-    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
-)]
-fn expression_rebuild_key_item_label(key_item: &SchemaExpressionIndexRebuildKey) -> String {
-    match key_item {
-        SchemaExpressionIndexRebuildKey::FieldPath(field) => {
-            accepted_field_path_term(field.field_name(), field.path())
-        }
-        SchemaExpressionIndexRebuildKey::Expression(expression) => {
-            expression.canonical_text().to_string()
-        }
-    }
-}
-
 fn build_accepted_field_path_index_key_from_slots(
     entity_tag: EntityTag,
     primary_key: &PrimaryKeyValue,
@@ -889,11 +863,7 @@ fn build_field_path_rebuild_target_key(
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size(
-                accepted_field_path_term(field.field_name(), field.path()),
-                component.len(),
-                IndexKey::MAX_COMPONENT_SIZE,
-            ));
+            return Err(InternalError::index_component_exceeds_max_size());
         }
         components.push(component);
     }
@@ -932,11 +902,7 @@ fn build_expression_rebuild_target_key(
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size(
-                expression_rebuild_key_item_label(key_item),
-                component.len(),
-                IndexKey::MAX_COMPONENT_SIZE,
-            ));
+            return Err(InternalError::index_component_exceeds_max_size());
         }
         components.push(component);
     }
@@ -987,11 +953,7 @@ fn build_accepted_expression_index_key_from_components(
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size(
-                accepted_expression_key_item_label(key_item),
-                component.len(),
-                IndexKey::MAX_COMPONENT_SIZE,
-            ));
+            return Err(InternalError::index_component_exceeds_max_size());
         }
         components.push(component);
     }
@@ -1026,11 +988,7 @@ fn build_accepted_field_path_index_key_from_components(
         };
 
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size(
-                field.path().join("."),
-                component.len(),
-                IndexKey::MAX_COMPONENT_SIZE,
-            ));
+            return Err(InternalError::index_component_exceeds_max_size());
         }
         components.push(component);
     }
@@ -1075,7 +1033,7 @@ fn build_generated_model_index_key(
                     return Ok(None);
                 };
 
-                push_index_key_component(&mut components, key_item, component)?;
+                push_index_key_component(&mut components, component)?;
             }
         }
         IndexKeyItemsRef::Items(items) => {
@@ -1084,7 +1042,7 @@ fn build_generated_model_index_key(
                     return Ok(None);
                 };
 
-                push_index_key_component(&mut components, key_item, component)?;
+                push_index_key_component(&mut components, component)?;
             }
         }
     }
@@ -1133,11 +1091,7 @@ fn build_index_key_from_access_contract<'a>(
                     return Ok(None);
                 };
 
-                push_index_key_component_label(
-                    &mut components,
-                    key_item.canonical_text(),
-                    component,
-                )?;
+                push_index_key_component(&mut components, component)?;
             }
         }
         SemanticIndexKeyItemsRef::Accepted(items) => {
@@ -1154,11 +1108,7 @@ fn build_index_key_from_access_contract<'a>(
                     return Ok(None);
                 };
 
-                push_index_key_component_label(
-                    &mut components,
-                    semantic_key_item.canonical_text(),
-                    component,
-                )?;
+                push_index_key_component(&mut components, component)?;
             }
         }
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
@@ -1175,11 +1125,7 @@ fn build_index_key_from_access_contract<'a>(
                     return Ok(None);
                 };
 
-                push_index_key_component_label(
-                    &mut components,
-                    key_item.canonical_text(),
-                    component,
-                )?;
+                push_index_key_component(&mut components, component)?;
             }
         }
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
@@ -1201,7 +1147,7 @@ fn build_index_key_from_access_contract<'a>(
                     return Ok(None);
                 };
 
-                push_index_key_component(&mut components, key_item, component)?;
+                push_index_key_component(&mut components, component)?;
             }
         }
     }
@@ -1217,32 +1163,10 @@ fn build_index_key_from_access_contract<'a>(
 // Push one canonical component after enforcing the shared size contract.
 fn push_index_key_component(
     components: &mut Vec<Vec<u8>>,
-    key_item: IndexKeyItem,
     component: Vec<u8>,
 ) -> Result<(), InternalError> {
     if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-        return Err(InternalError::index_component_exceeds_max_size(
-            key_item.canonical_text(),
-            component.len(),
-            IndexKey::MAX_COMPONENT_SIZE,
-        ));
-    }
-
-    components.push(component);
-    Ok(())
-}
-
-fn push_index_key_component_label(
-    components: &mut Vec<Vec<u8>>,
-    key_item_label: String,
-    component: Vec<u8>,
-) -> Result<(), InternalError> {
-    if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-        return Err(InternalError::index_component_exceeds_max_size(
-            key_item_label,
-            component.len(),
-            IndexKey::MAX_COMPONENT_SIZE,
-        ));
+        return Err(InternalError::index_component_exceeds_max_size());
     }
 
     components.push(component);

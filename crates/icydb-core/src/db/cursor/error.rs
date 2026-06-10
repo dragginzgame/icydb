@@ -352,7 +352,7 @@ impl CursorPlanError {
             | Self::ContinuationCursorWindowMismatch { .. }
             | Self::ContinuationCursorBoundaryTypeMismatch { .. }
             | Self::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
-                InternalError::cursor_unsupported(self.to_string())
+                InternalError::cursor_unsupported()
             }
         }
     }

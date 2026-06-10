@@ -347,7 +347,7 @@ fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> 
         return Err(InternalError::bytes_covering_bool_payload_truncated());
     };
     if payload.len() != COVERING_BOOL_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length("bool"));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length());
     }
 
     match *value {
@@ -359,7 +359,7 @@ fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> 
 
 fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length("int64"));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length());
     }
 
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
@@ -373,7 +373,7 @@ fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length("nat64"));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length());
     }
 
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
@@ -436,7 +436,7 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
 
 fn decode_covering_ulid(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_ULID_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length("ulid"));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length());
     }
 
     let mut bytes = [0u8; COVERING_ULID_PAYLOAD_LEN];

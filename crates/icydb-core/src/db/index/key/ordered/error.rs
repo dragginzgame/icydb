@@ -34,6 +34,6 @@ impl std::error::Error for OrderedValueEncodeError {}
 
 impl From<OrderedValueEncodeError> for InternalError {
     fn from(_err: OrderedValueEncodeError) -> Self {
-        Self::index_unsupported("index ordered value encode error")
+        Self::index_unsupported()
     }
 }

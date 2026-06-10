@@ -409,9 +409,9 @@ fn decode_commit_marker_structural_slots<'a>(
     let slots = StructuralSlotReader::from_raw_row_with_validated_contract(row, row_contract)
         .map_err(|err| {
             if err.class() == ErrorClass::IncompatiblePersistedFormat {
-                InternalError::serialize_incompatible_persisted_format("commit marker row")
+                InternalError::serialize_incompatible_persisted_format()
             } else {
-                InternalError::serialize_corruption("commit marker row")
+                InternalError::serialize_corruption()
             }
         })?;
     slots

@@ -97,11 +97,9 @@ fn validate_row_format_version(format_version: u8) -> Result<(), InternalError> 
         return Ok(());
     }
 
-    Err(InternalError::serialize_incompatible_persisted_format(
-        format!(
-            "row format version {format_version} is unsupported by runtime version {ROW_FORMAT_VERSION_CURRENT}",
-        ),
-    ))
+    let _ = format_version;
+
+    Err(InternalError::serialize_incompatible_persisted_format())
 }
 
 // Encode one persisted row envelope at an explicit format version.

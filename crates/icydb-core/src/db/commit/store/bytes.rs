@@ -14,7 +14,7 @@ pub(super) fn read_u32_le(
     let next = cursor.saturating_add(4);
     let payload = bytes
         .get(*cursor..next)
-        .ok_or_else(|| InternalError::commit_corruption(""))?;
+        .ok_or_else(InternalError::commit_corruption)?;
     *cursor = next;
 
     Ok(u32::from_le_bytes([

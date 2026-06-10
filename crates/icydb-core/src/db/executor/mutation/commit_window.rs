@@ -528,7 +528,7 @@ fn push_index_entry_primary_key_values(
     _entity_path: &'static str,
 ) -> Result<bool, InternalError> {
     raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |_err| {
-        InternalError::index_plan_index_corruption("")
+        InternalError::index_plan_index_corruption()
     })
 }
 

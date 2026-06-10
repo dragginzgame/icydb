@@ -218,27 +218,27 @@ impl CommitMarker {
 
     // Build the canonical payload corruption for truncated variable-length fields.
     fn payload_truncated_length(_label: &'static str) -> InternalError {
-        InternalError::commit_corruption("")
+        InternalError::commit_corruption()
     }
 
     // Build the canonical payload corruption for truncated byte payloads.
     fn payload_truncated_bytes(_label: &'static str) -> InternalError {
-        InternalError::commit_corruption("")
+        InternalError::commit_corruption()
     }
 
     // Build the canonical payload corruption for invalid fixed-size payloads.
     fn payload_invalid_fixed_size(_label: &'static str) -> InternalError {
-        InternalError::commit_corruption("")
+        InternalError::commit_corruption()
     }
 
     // Build the canonical row-op corruption for oversized row payloads.
     fn row_op_payload_too_large(_label: &str, _len: usize) -> InternalError {
-        InternalError::commit_corruption("")
+        InternalError::commit_corruption()
     }
 
     // Build the canonical row-op corruption for key decode failures.
     fn row_op_key_decode_failed(_err: impl std::fmt::Display) -> InternalError {
-        InternalError::commit_corruption("")
+        InternalError::commit_corruption()
     }
 }
 
@@ -259,7 +259,7 @@ pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], Inter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
             current.checked_add(1)
         })
-        .map_err(|_| InternalError::commit_id_generation_failed("commit id sequence exhausted"))?;
+        .map_err(|_| InternalError::commit_id_generation_failed())?;
 
     let mut id = [0u8; COMMIT_ID_BYTES];
     id[..8].copy_from_slice(&now_millis().to_be_bytes());
@@ -276,12 +276,7 @@ pub(in crate::db) fn encode_commit_marker_payload(
     // Phase 1: size the output once so commit persistence writes one compact frame.
     let capacity = commit_marker_payload_capacity(marker);
     if capacity > u32::MAX as usize {
-        return Err(
-            InternalError::commit_marker_payload_exceeds_u32_length_limit(
-                "commit marker payload",
-                capacity,
-            ),
-        );
+        return Err(InternalError::commit_marker_payload_exceeds_u32_length_limit());
     }
 
     // Phase 2: emit one length-delimited frame for deterministic recovery replay.
@@ -300,12 +295,7 @@ pub(in crate::db) fn encode_single_row_commit_marker_payload(
     // Phase 1: compute the exact one-row frame capacity up front.
     let capacity = single_row_commit_marker_payload_capacity(row_op);
     if capacity > u32::MAX as usize {
-        return Err(
-            InternalError::commit_marker_payload_exceeds_u32_length_limit(
-                "commit marker payload",
-                capacity,
-            ),
-        );
+        return Err(InternalError::commit_marker_payload_exceeds_u32_length_limit());
     }
 
     // Phase 2: encode the single row op directly without the outer row-op loop.
@@ -427,9 +417,7 @@ pub(in crate::db) fn decode_commit_marker_payload(
 ) -> Result<CommitMarker, InternalError> {
     // Phase 1: parse the fixed marker header before touching any row-op bytes.
     if bytes.len() < COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES {
-        return Err(InternalError::commit_corruption(
-            "commit marker payload decode: truncated header",
-        ));
+        return Err(InternalError::commit_corruption());
     }
 
     let mut cursor = 0;
@@ -441,18 +429,15 @@ pub(in crate::db) fn decode_commit_marker_payload(
     for _ in 0..row_op_count {
         let entity_path_bytes =
             read_len_prefixed_bytes(bytes, &mut cursor, "commit marker entity_path")?;
-        let entity_path = std::str::from_utf8(entity_path_bytes).map_err(|_| {
-            InternalError::commit_corruption("commit marker payload decode: entity_path not utf-8")
-        })?;
+        let entity_path = std::str::from_utf8(entity_path_bytes)
+            .map_err(|_| InternalError::commit_corruption())?;
         let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?;
-        let flags = *bytes.get(cursor).ok_or_else(|| {
-            InternalError::commit_corruption("commit marker payload decode: truncated row-op flags")
-        })?;
+        let flags = *bytes
+            .get(cursor)
+            .ok_or_else(InternalError::commit_corruption)?;
         cursor = cursor.saturating_add(1);
         if flags & !COMMIT_MARKER_FLAG_MASK != 0 {
-            return Err(InternalError::commit_corruption(
-                "commit marker payload decode: invalid row-op flags",
-            ));
+            return Err(InternalError::commit_corruption());
         }
 
         let before = if flags & COMMIT_MARKER_FLAG_BEFORE != 0 {
@@ -496,9 +481,7 @@ pub(in crate::db) fn decode_commit_marker_payload(
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
-        return Err(InternalError::commit_corruption(
-            "commit marker payload decode: trailing bytes after payload",
-        ));
+        return Err(InternalError::commit_corruption());
     }
 
     Ok(CommitMarker {
@@ -509,9 +492,9 @@ pub(in crate::db) fn decode_commit_marker_payload(
 }
 
 // Write one bounded little-endian u32 length field.
-fn write_len_u32(out: &mut Vec<u8>, len: usize, label: &'static str) -> Result<(), InternalError> {
+fn write_len_u32(out: &mut Vec<u8>, len: usize, _label: &'static str) -> Result<(), InternalError> {
     let len = u32::try_from(len)
-        .map_err(|_| InternalError::commit_marker_payload_exceeds_u32_length_limit(label, len))?;
+        .map_err(|_| InternalError::commit_marker_payload_exceeds_u32_length_limit())?;
     out.extend_from_slice(&len.to_le_bytes());
 
     Ok(())
@@ -586,14 +569,12 @@ pub(in crate::db) fn decode_data_key(
     let len = bytes.len();
     let max = RawDataStoreKey::MAX_STORED_SIZE_USIZE;
     if len > max {
-        return Err(InternalError::commit_component_length_invalid(
-            "data key", len, max,
-        ));
+        return Err(InternalError::commit_component_length_invalid());
     }
 
     let raw = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(bytes));
     let data_key = DecodedDataStoreKey::try_from_raw(&raw)
-        .map_err(|err| InternalError::commit_component_corruption("data key", err))?;
+        .map_err(|_| InternalError::commit_component_corruption())?;
 
     Ok((raw, data_key))
 }
@@ -618,19 +599,13 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     let mut sequences = BTreeSet::new();
     for batch in &marker.journal_batches {
         if batch.commit_marker_id() != marker.id {
-            return Err(InternalError::commit_corruption(
-                "journal batch commit marker id does not match marker id",
-            ));
+            return Err(InternalError::commit_corruption());
         }
         if !batch_ids.insert(batch.batch_id()) {
-            return Err(InternalError::commit_corruption(
-                "duplicate journal batch id in commit marker",
-            ));
+            return Err(InternalError::commit_corruption());
         }
         if !sequences.insert(batch.journal_sequence()) {
-            return Err(InternalError::commit_corruption(
-                "duplicate journal batch sequence in commit marker",
-            ));
+            return Err(InternalError::commit_corruption());
         }
     }
 
@@ -645,14 +620,10 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
 pub(crate) fn validate_commit_row_op_shape(row_op: &CommitRowOp) -> Result<(), InternalError> {
     // Phase 1: reject row ops that cannot encode any mutation semantics.
     if row_op.entity_path.is_empty() {
-        return Err(InternalError::commit_corruption(
-            "row op has empty entity_path",
-        ));
+        return Err(InternalError::commit_corruption());
     }
     if row_op.before.is_none() && row_op.after.is_none() {
-        return Err(InternalError::commit_corruption(
-            "row op has neither before nor after payload",
-        ));
+        return Err(InternalError::commit_corruption());
     }
 
     // Phase 2: guard row payload size before durable persistence/recovery

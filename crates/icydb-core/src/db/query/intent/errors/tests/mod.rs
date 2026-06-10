@@ -149,12 +149,12 @@ fn planner_internal_mapping_preserves_boundary_origins_for_telemetry_matrix() {
 #[test]
 fn query_execute_storage_and_index_errors_stay_in_execution_boundary() {
     let cases = [
-        InternalError::store_internal("store internal"),
-        InternalError::index_internal("index internal"),
+        InternalError::store_internal(),
+        InternalError::index_internal(),
         InternalError::store_corruption(),
-        InternalError::index_corruption("index corruption"),
+        InternalError::index_corruption(),
         InternalError::store_unsupported(),
-        InternalError::index_unsupported("index unsupported"),
+        InternalError::index_unsupported(),
     ];
 
     for internal in cases {

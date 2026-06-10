@@ -81,7 +81,7 @@ fn assert_runtime_corruption(err: &InternalError, origin: ErrorOrigin) {
 
 #[test]
 fn index_plan_index_corruption_uses_index_origin() {
-    let err = InternalError::index_plan_index_corruption("broken key payload");
+    let err = InternalError::index_plan_index_corruption();
     assert_runtime_corruption(&err, ErrorOrigin::Index);
 }
 
@@ -93,13 +93,13 @@ fn index_plan_store_corruption_uses_store_origin() {
 
 #[test]
 fn index_plan_serialize_corruption_uses_serialize_origin() {
-    let err = InternalError::index_plan_serialize_corruption("decode failed");
+    let err = InternalError::index_plan_serialize_corruption();
     assert_runtime_corruption(&err, ErrorOrigin::Serialize);
 }
 
 #[test]
 fn serialize_incompatible_persisted_format_uses_serialize_origin() {
-    let err = InternalError::serialize_incompatible_persisted_format("row format version 7");
+    let err = InternalError::serialize_incompatible_persisted_format();
     assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(err.origin, ErrorOrigin::Serialize);
     assert_eq!(
@@ -518,12 +518,12 @@ fn classification_integrity_access_plan_conversion_stays_invariant() {
 fn classification_integrity_corruption_constructors_never_downgrade() {
     let corruption_cases = [
         InternalError::store_corruption(),
-        InternalError::index_corruption("index"),
-        InternalError::serialize_corruption("serialize"),
-        InternalError::identity_corruption("identity"),
-        InternalError::index_plan_index_corruption("index-plan-index"),
+        InternalError::index_corruption(),
+        InternalError::serialize_corruption(),
+        InternalError::identity_corruption(),
+        InternalError::index_plan_index_corruption(),
         InternalError::index_plan_store_corruption(),
-        InternalError::index_plan_serialize_corruption("index-plan-serialize"),
+        InternalError::index_plan_serialize_corruption(),
     ];
 
     for err in corruption_cases {

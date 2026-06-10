@@ -205,8 +205,8 @@ impl QueryError {
     }
 
     /// Construct one serialize-origin internal execution error.
-    pub(in crate::db) fn serialize_internal(message: impl Into<String>) -> Self {
-        Self::execute(InternalError::serialize_internal(message))
+    pub(in crate::db) fn serialize_internal(_message: impl Into<String>) -> Self {
+        Self::execute(InternalError::serialize_internal())
     }
 
     /// Construct one query error from one cursor plan-surface failure.

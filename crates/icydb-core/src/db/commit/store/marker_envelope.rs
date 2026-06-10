@@ -17,19 +17,19 @@ use crate::{
 const COMMIT_MARKER_HEADER_BYTES: usize = 5;
 
 // Build the canonical max-size corruption error for raw commit marker bytes.
-fn marker_exceeds_max_size(size: usize) -> InternalError {
-    InternalError::commit_marker_exceeds_max_size(size, MAX_COMMIT_BYTES)
+fn marker_exceeds_max_size() -> InternalError {
+    InternalError::commit_marker_exceeds_max_size()
 }
 
 // Build the canonical marker-envelope canonical-envelope corruption error.
 fn marker_canonical_envelope_required() -> InternalError {
-    InternalError::commit_corruption("commit marker decode: expected envelope")
+    InternalError::commit_corruption()
 }
 
 // Decode one commit marker with strict envelope semantics.
 pub(super) fn decode_commit_marker(bytes: &[u8]) -> Result<CommitMarker, InternalError> {
     if bytes.len() > MAX_COMMIT_BYTES as usize {
-        return Err(marker_exceeds_max_size(bytes.len()));
+        return Err(marker_exceeds_max_size());
     }
 
     let (format_version, marker_payload) = decode_commit_marker_bytes(bytes)?;
@@ -44,11 +44,9 @@ fn validate_commit_marker_format_version(format_version: u8) -> Result<(), Inter
         return Ok(());
     }
 
-    Err(InternalError::serialize_incompatible_persisted_format(
-        format!(
-            "commit marker format version {format_version} is unsupported by runtime version {COMMIT_MARKER_FORMAT_VERSION_CURRENT}",
-        ),
-    ))
+    let _ = format_version;
+
+    Err(InternalError::serialize_incompatible_persisted_format())
 }
 
 // Write the shared versioned marker-envelope header.
@@ -58,12 +56,8 @@ pub(super) fn write_commit_marker_envelope_header(
 ) -> Result<(), InternalError> {
     out.push(COMMIT_MARKER_FORMAT_VERSION_CURRENT);
     out.extend_from_slice(
-        &(u32::try_from(marker_payload_len).map_err(|_| {
-            InternalError::commit_marker_payload_exceeds_u32_length_limit(
-                "commit marker payload",
-                marker_payload_len,
-            )
-        })?)
+        &(u32::try_from(marker_payload_len)
+            .map_err(|_| InternalError::commit_marker_payload_exceeds_u32_length_limit())?)
         .to_le_bytes(),
     );
 
@@ -78,20 +72,11 @@ pub(super) fn encode_commit_marker_bytes(
     marker_payload: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
     if marker_payload.len() > u32::MAX as usize {
-        return Err(
-            InternalError::commit_marker_payload_exceeds_u32_length_limit(
-                "commit marker payload",
-                marker_payload.len(),
-            ),
-        );
+        return Err(InternalError::commit_marker_payload_exceeds_u32_length_limit());
     }
 
-    let payload_len = u32::try_from(marker_payload.len()).map_err(|_| {
-        InternalError::commit_marker_payload_exceeds_u32_length_limit(
-            "commit marker payload",
-            marker_payload.len(),
-        )
-    })?;
+    let payload_len = u32::try_from(marker_payload.len())
+        .map_err(|_| InternalError::commit_marker_payload_exceeds_u32_length_limit())?;
     let mut encoded =
         Vec::with_capacity(COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload.len()));
     // Tests intentionally vary the format version, so this helper cannot reuse

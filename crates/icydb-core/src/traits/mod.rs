@@ -265,7 +265,7 @@ impl From<CompositePrimaryKeyValueError> for PrimaryKeyEncodeError {
 
 impl From<PrimaryKeyEncodeError> for InternalError {
     fn from(_err: PrimaryKeyEncodeError) -> Self {
-        Self::serialize_unsupported("primary key encode error")
+        Self::serialize_unsupported()
     }
 }
 
