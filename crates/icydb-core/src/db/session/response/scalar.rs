@@ -23,11 +23,9 @@ fn encode_scalar_page_cursor(cursor: Option<PageCursor>) -> Result<Option<Vec<u8
                 return Err(QueryError::scalar_paged_emitted_grouped_continuation());
             };
 
-            token.encode().map_err(|err| {
-                QueryError::serialize_internal(format!(
-                    "failed to serialize continuation cursor: {err}"
-                ))
-            })
+            token
+                .encode()
+                .map_err(|_err| QueryError::serialize_internal())
         })
         .transpose()
 }

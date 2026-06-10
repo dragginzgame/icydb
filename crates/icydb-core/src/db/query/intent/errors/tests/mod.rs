@@ -206,7 +206,7 @@ fn query_invariant_constructor_preserves_query_invariant_boundary() {
 
 #[test]
 fn query_serialize_internal_constructor_preserves_serialize_internal_boundary() {
-    let query_err = QueryError::serialize_internal("cursor token encode failed");
+    let query_err = QueryError::serialize_internal();
 
     std::assert_matches!(
         query_err,

@@ -130,17 +130,7 @@ impl<C: CanisterKind> DbSession<C> {
             LoweredSqlLaneKind::ShowMemory => ExplainSqlLane::ShowMemory,
         };
         if lane != ExplainSqlLane::Explain {
-            let message = match lane {
-                ExplainSqlLane::Describe => "explain_sql rejects DESCRIBE",
-                ExplainSqlLane::ShowIndexes => "explain_sql rejects SHOW INDEXES",
-                ExplainSqlLane::ShowColumns => "explain_sql rejects SHOW COLUMNS",
-                ExplainSqlLane::ShowEntities => "explain_sql rejects SHOW ENTITIES",
-                ExplainSqlLane::ShowStores => "explain_sql rejects SHOW STORES",
-                ExplainSqlLane::ShowMemory => "explain_sql rejects SHOW MEMORY",
-                ExplainSqlLane::Query | ExplainSqlLane::Explain => "explain_sql requires EXPLAIN",
-            };
-
-            return Err(QueryError::unsupported_query(message));
+            return Err(QueryError::unsupported_query());
         }
 
         if let Some(rendered) = self.render_lowered_sql_explain_plan_or_json_for_authority(
@@ -170,9 +160,7 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        Err(QueryError::unsupported_query(
-            "shared EXPLAIN execution could not classify lowered SQL shape",
-        ))
+        Err(QueryError::unsupported_query())
     }
 
     // Render one lowered SQL EXPLAIN PLAN / JSON payload through the session-

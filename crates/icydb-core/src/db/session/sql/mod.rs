@@ -557,9 +557,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let Some(derivation) = prepared.derivation() else {
-            return Err(QueryError::unsupported_query(
-                "SQL DDL execution could not find a prepared schema derivation".to_string(),
-            ));
+            return Err(QueryError::unsupported_query());
         };
         let store = self
             .db

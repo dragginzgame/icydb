@@ -142,9 +142,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: fail closed if the caller routes a non-delete query here.
         if !query.mode().is_delete() {
-            return Err(QueryError::unsupported_query(
-                "delete count execution requires delete query mode",
-            ));
+            return Err(QueryError::unsupported_query());
         }
 
         // Phase 2: resolve one cached prepared execution-plan contract directly

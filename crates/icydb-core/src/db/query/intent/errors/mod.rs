@@ -176,7 +176,7 @@ impl QueryError {
     }
 
     /// Construct one query-origin unsupported execution error.
-    pub(in crate::db) fn unsupported_query(_message: impl Into<String>) -> Self {
+    pub(in crate::db) fn unsupported_query() -> Self {
         Self::execute(InternalError::query_unsupported())
     }
 
@@ -203,7 +203,7 @@ impl QueryError {
     }
 
     /// Construct one serialize-origin internal execution error.
-    pub(in crate::db) fn serialize_internal(_message: impl Into<String>) -> Self {
+    pub(in crate::db) fn serialize_internal() -> Self {
         Self::execute(InternalError::serialize_internal())
     }
 
@@ -261,7 +261,7 @@ impl QueryError {
                 Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
             }
             err if let Some(reason) = err.compact_diagnostic_code() => Self::sql_lowering(reason),
-            _ => Self::unsupported_query(err.to_string()),
+            _ => Self::unsupported_query(),
         }
     }
 
@@ -310,9 +310,7 @@ impl QueryError {
     /// Construct one unsupported query-lane SQL statement error.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn unsupported_query_lane_sql_statement() -> Self {
-        Self::unsupported_query(
-            "query-lane SQL execution only accepts SELECT, DELETE, and EXPLAIN statements",
-        )
+        Self::unsupported_query()
     }
 
     /// Construct one unsupported aggregate target-field query error.

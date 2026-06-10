@@ -403,46 +403,16 @@ enum SelectTestSurface {
 }
 
 impl SelectTestSurface {
-    // Return the stable helper label prefix used by each test surface.
-    const fn helper_label(self) -> &'static str {
-        match self {
-            Self::Lowering => "SQL query lowering",
-            Self::Scalar => "scalar SELECT helper",
-            Self::Grouped => "grouped SELECT helper",
-        }
-    }
-
     // Build one helper-specific statement-family rejection error while
-    // preserving each current surface's message text exactly.
+    // preserving the unsupported-query taxonomy.
     fn reject_statement(self, statement_kind: &'static str) -> QueryError {
-        match (self, statement_kind) {
-            (Self::Lowering, "INSERT" | "UPDATE") => QueryError::unsupported_query(format!(
-                "{} rejects {statement_kind}; use execute_sql_update::<E>() or typed writes",
-                self.helper_label(),
-            )),
-            (
-                Self::Lowering,
-                "EXPLAIN" | "DESCRIBE" | "SHOW INDEXES" | "SHOW COLUMNS" | "SHOW ENTITIES"
-                | "SHOW STORES" | "SHOW MEMORY",
-            ) => QueryError::unsupported_query(format!(
-                "{} rejects {statement_kind}; use execute_sql_query::<E>()",
-                self.helper_label(),
-            )),
-            (Self::Scalar | Self::Grouped, "DELETE" | "INSERT" | "UPDATE") => {
-                QueryError::unsupported_query(format!(
-                    "{} rejects {statement_kind}; use execute_sql_update::<E>()",
-                    self.helper_label(),
-                ))
-            }
-            (Self::Scalar | Self::Grouped, other) => {
-                QueryError::unsupported_query(format!("{} rejects {other}", self.helper_label()))
-            }
-            _ => unreachable!("test helper statement rejection must stay explicitly mapped"),
-        }
+        let _ = (self, statement_kind);
+
+        QueryError::unsupported_query()
     }
 
     // Return the helper-specific unsupported-query error for one parsed SQL
-    // statement shape so each test surface keeps its exact label.
+    // statement shape so each test surface keeps its rejection taxonomy.
     fn statement_rejection(self, statement: &SqlStatement) -> Option<QueryError> {
         match statement {
             SqlStatement::Insert(_) => Some(self.reject_statement("INSERT")),
@@ -450,9 +420,7 @@ impl SelectTestSurface {
             SqlStatement::Delete(delete)
                 if self == Self::Lowering && delete.returning.is_some() =>
             {
-                Some(QueryError::unsupported_query(
-                    "SQL query lowering rejects DELETE RETURNING; use execute_sql_update::<E>()",
-                ))
+                Some(QueryError::unsupported_query())
             }
             SqlStatement::Delete(_) if self != Self::Lowering => {
                 Some(self.reject_statement("DELETE"))
@@ -468,35 +436,25 @@ impl SelectTestSurface {
                 if sql_select_has_text_specific_computed_projection(statement)
                     && self == Self::Lowering =>
             {
-                statement.group_by.is_empty().then(|| {
-                    QueryError::unsupported_query(
-                        "SQL query lowering does not accept text-specific computed projection",
-                    )
-                })
+                statement
+                    .group_by
+                    .is_empty()
+                    .then(QueryError::unsupported_query)
             }
             SqlStatement::Select(statement)
                 if sql_select_has_text_specific_computed_projection(statement)
                     && self == Self::Scalar =>
             {
-                statement.group_by.is_empty().then(|| {
-                    QueryError::unsupported_query(
-                        "scalar SELECT helper rejects text-specific computed projection",
-                    )
-                })
+                statement
+                    .group_by
+                    .is_empty()
+                    .then(QueryError::unsupported_query)
             }
             SqlStatement::Select(statement)
                 if sql_select_has_grouped_helper_rejected_computed_projection(statement)
                     && self == Self::Grouped =>
             {
-                if statement.group_by.is_empty() {
-                    Some(QueryError::unsupported_query(
-                        "grouped SELECT helper rejects scalar text-specific computed projection",
-                    ))
-                } else {
-                    Some(QueryError::unsupported_query(
-                        "grouped SELECT helper rejects grouped text-specific computed projection",
-                    ))
-                }
+                Some(QueryError::unsupported_query())
             }
             _ => None,
         }
@@ -505,10 +463,8 @@ impl SelectTestSurface {
     // Return the helper-specific global aggregate boundary error when the
     // parsed statement stays on the aggregate-only execution lane.
     fn global_aggregate_rejection(self) -> QueryError {
-        QueryError::unsupported_query(format!(
-            "{} rejects global aggregate SELECT",
-            self.helper_label(),
-        ))
+        let _ = self;
+        QueryError::unsupported_query()
     }
 }
 
@@ -547,9 +503,7 @@ where
     )
     .map_err(QueryError::from_sql_lowering_error)?;
     let Some(query) = lowered.query().cloned() else {
-        return Err(QueryError::unsupported_query(
-            "SQL query lowering accepts SELECT or DELETE only",
-        ));
+        return Err(QueryError::unsupported_query());
     };
 
     bind_lowered_sql_query_for_model_only::<E>(query, MissingRowPolicy::Ignore)
@@ -584,9 +538,7 @@ where
     let query = lower_select_statement_for_tests::<E>(statement)?;
 
     if query.has_grouping() {
-        return Err(QueryError::unsupported_query(
-            "scalar SELECT helper rejects grouped SELECT",
-        ));
+        return Err(QueryError::unsupported_query());
     }
 
     session.execute_query(&query)
@@ -606,9 +558,7 @@ where
     let statement = parse_select_test_statement(&session, sql, SelectTestSurface::Grouped)?;
     let query = lower_select_statement_for_tests::<E>(statement)?;
     if !query.has_grouping() {
-        return Err(QueryError::unsupported_query(
-            "grouped SELECT helper requires grouped SELECT",
-        ));
+        return Err(QueryError::unsupported_query());
     }
 
     session.execute_grouped(&query, cursor_token)

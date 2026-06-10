@@ -11,10 +11,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
-- `0.180.23` hard-cuts the broad query-executor invariant and generic runtime
-  diagnostic surfaces to code-only forms, removing discarded prose from
+- `0.180.25` hard-cuts query unsupported and serialize-internal helper
+  constructors to code-only forms, removing discarded SQL/query helper and
+  cursor serialization prose while preserving compact diagnostic taxonomy.
+
+- `0.180.24` hard-cuts the broad query-executor invariant surface to
+  code-only diagnostics, removing discarded prose from
   aggregate, projection, traversal, pagination, covering, authority, grouped
   execution, and SQL write/query guard paths.
+
+- `0.180.23` hard-cuts generic runtime, planner, cursor, index, relation, and
+  aggregate compact diagnostic constructors to code-only forms, removing
+  discarded invariant, unsupported, and internal prose before the broader
+  query-executor cleanup slice.
 
 - `0.180.22` hard-cuts another store/index/cursor/serialize diagnostic
   constructor layer to code-only forms, removing discarded runtime prose from
