@@ -386,11 +386,7 @@ impl EntityAuthority {
             .field_path_indexes()
             .iter()
             .find(|accepted| accepted.name() == index.name())
-            .ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "field-path index cursor anchor derivation requires accepted index contract",
-                )
-            })?;
+            .ok_or_else(|| InternalError::query_executor_invariant(""))?;
 
         IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(
             self.entity_tag,

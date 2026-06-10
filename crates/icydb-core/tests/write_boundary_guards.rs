@@ -896,8 +896,7 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && mutation.contains("pub(in crate::db::schema) struct SchemaMutationRunnerContract")
             && mutation.contains("pub(in crate::db::schema) fn publication_preflight(")
             && mutation.contains("SchemaMutationRunnerPreflight::Ready")
-            && mutation.contains("MutationPublicationPreflight::PhysicalWorkReady")
-            && mutation.contains("`PhysicalWorkReady` is still not publishable in 0.152"),
+            && mutation.contains("MutationPublicationPreflight::PhysicalWorkReady"),
         "schema mutation publication must expose a runner-preflight decision before any physical-work mutation can publish",
     );
     assert!(
@@ -947,7 +946,9 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && reconcile.contains("MutationPublicationPreflight::MissingRunnerCapabilities")
             && reconcile.contains("MutationPublicationPreflight::Rejected")
             && reconcile.contains("plan.supported_developer_physical_path()")
-            && reconcile.contains("supported schema mutation requires startup runner execution")
+            && reconcile.contains("supported_physical_work_unavailable_error(")
+            && reconcile.contains("missing_physical_runner_error(")
+            && reconcile.contains("InternalError::store_unsupported()")
             && reconcile_compact
                 .contains("MutationPublicationPreflight::PhysicalWorkReady{step_count,required,}")
             && !reconcile.contains("match plan.publication_status()"),
@@ -1325,10 +1326,10 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     );
     assert!(
         entity_authority.contains("index_range_anchor_key_from_slot_ref_reader")
-            && entity_authority.contains(
-                "field-path index cursor anchor derivation requires accepted index contract"
-            )
             && entity_authority.contains(".field_path_indexes()")
+            && entity_authority.contains(".find(|accepted| accepted.name() == index.name())")
+            && entity_authority
+                .contains(".ok_or_else(|| InternalError::query_executor_invariant(\"\"))")
             && entity_authority
                 .contains("IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(")
             && entity_authority
@@ -1359,10 +1360,9 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && index_plan.contains(
                 "IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value("
             )
-            && index_plan.contains("fn accepted_index_fields_csv(")
-            && index_plan.contains("fn accepted_expression_index_fields_csv(")
             && index_plan.contains("let index_store = accepted_index.store();")
             && index_plan.contains("let index_is_unique = accepted_index.unique();")
+            && index_plan.contains("IndexReadContract::new(index_store, index_is_unique)")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
             && index_plan.contains("row_contract,")
             && !index_plan.contains("struct GeneratedExpressionIndex")
@@ -1382,8 +1382,8 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         index_plan_read.contains("index: IndexReadContract<'_>")
             && !index_plan_read.contains("index: &IndexModel")
             && index_readers.contains("pub(in crate::db) struct IndexReadContract")
+            && index_readers.contains("store_path: &'a str")
             && index_readers.contains("unique: bool")
-            && index_readers.contains("fields: &'a str")
             && !index_readers.contains("model::index::IndexModel"),
         "preflight index readers must consume reduced accepted index contract facts instead of generated IndexModel definitions",
     );
@@ -1784,12 +1784,12 @@ fn schema_version_hard_cut_rejects_obsolete_and_non_positive_internal_formats() 
     assert!(
         codec.contains("const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 =")
             && codec_compact.contains("ifself.codec_version!=SCHEMA_SNAPSHOT_CODEC_VERSION")
-            && codec.contains("unsupported persisted schema snapshot codec version"),
+            && codec_compact.contains("returnErr(InternalError::store_corruption());"),
         "schema snapshot codec must hard-cut obsolete internal snapshot formats",
     );
     assert!(
         integrity.contains("version.get() == 0")
-            && integrity.contains("schema_version must be positive")
+            && integrity.contains("return Some(());")
             && entity_model.contains("schema_version > 0")
             && entity_model.contains("generated schema_version must be positive")
             && macro_zero.contains("version must be a positive integer"),
@@ -2306,7 +2306,7 @@ fn executor_plan_validation_uses_accepted_schema_info() {
     assert!(
         entity_authority.contains("if !plan.has_static_execution_planning_contract()")
             && entity_authority
-                .contains("executor plan validation requires planner-frozen static execution planning contract",)
+                .contains("return Err(InternalError::query_executor_invariant(\"\"));")
             && entity_authority.contains("executor plan validation requires accepted schema info")
             && entity_authority.contains("validate_access_runtime_invariants_with_schema(")
             && !entity_authority.contains("fn schema_info(")
@@ -2457,14 +2457,13 @@ fn generated_row_contract_runtime_fallbacks_are_test_only() {
             )
             && persisted_row_contract
                 .contains("#[cfg(not(test))]\nfn generated_row_contract_reached_runtime_boundary(")
-            && persisted_row_contract.contains("requires accepted row contract for entity",),
+            && persisted_row_contract.contains("InternalError::store_invariant()"),
         "row-contract runtime decode/validation must fail closed in production instead of falling back to generated field metadata",
     );
     assert!(
         persisted_row_patch.contains(
             "#[cfg(test)]\nfn canonical_row_from_structural_slot_reader_with_generated_contract(",
-        ) && persisted_row_patch
-            .contains("raw row canonicalization requires accepted row contract for entity",),
+        ) && persisted_row_patch.contains("Err(InternalError::store_invariant())"),
         "raw-row canonicalization must not retain a production generated-contract fallback",
     );
 }
@@ -3407,7 +3406,6 @@ fn commit_recovery_boundary_keeps_journal_replay_marker_bound_and_folds_via_wate
             && journal_store.contains(
                 "Values above sequence `0` are complete encoded `JournalBatch` envelopes"
             )
-            && journal_store.contains("so real")
             && journal_store.contains("journal batches start at sequence `1`"),
         "0.174.5 journal tail storage should own the fold-watermark replay boundary without a fifth memory id",
     );
@@ -3419,9 +3417,8 @@ fn commit_recovery_boundary_keeps_journal_replay_marker_bound_and_folds_via_wate
         "0.174.5 should fold row/schema records and derived index materializations through store-wrapper APIs",
     );
     assert!(
-        commit_replay.contains(
-            "journaled row-op recovery is unsupported; journaled recovery must use marker-bound journal batches",
-        ),
+        commit_replay.contains("StoreRecoveryCapability::StableBasePlusJournalReplay")
+            && commit_replay.contains("return Err(InternalError::store_unsupported());"),
         "journaled recovery must stay on marker-bound journal batches instead of treating journaled rows as stable marker row ops",
     );
     assert!(
@@ -3833,8 +3830,11 @@ fn journaled_runtime_store_and_codec_slice_is_bounded_and_marker_bound() {
             "StableBTreeMap<JournalSequence, RawJournalBatch, VirtualMemory<DefaultMemoryImpl>>",
         ) && journal_store.contains("pub(in crate::db) fn append_batch")
             && journal_store.contains("pub(in crate::db) fn visit_batches_after")
-            && journal_store.contains("sequence gap")
-            && journal_store.contains("duplicate batch id"),
+            && journal_store
+                .contains("let expected_sequence = expected.ok_or_else(journal_tail_corruption)?;")
+            && journal_store.contains("if *key != expected_sequence")
+            && journal_store.contains("let mut seen_batch_ids = BTreeSet::new();")
+            && journal_store.contains("if !seen_batch_ids.insert(batch.batch_id())"),
         "0.174.2 should add ordered append/read journal-tail storage",
     );
     assert!(

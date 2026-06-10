@@ -363,9 +363,6 @@ fn validate_publishable_transition_plan(
 // Keep supported physical schema mutation diagnostics distinct from generic
 // unsupported mutation shapes. Reconciliation still fails closed until the
 // startup runner owns row/index/schema publication together.
-// Source guards intentionally look for the phrase "supported schema mutation
-// requires startup runner execution" to prove this fail-closed boundary stays
-// explicit while production wasm keeps only compact diagnostic buckets.
 fn supported_physical_work_unavailable_error(
     entity_path: &'static str,
     plan: &SchemaTransitionPlan,
