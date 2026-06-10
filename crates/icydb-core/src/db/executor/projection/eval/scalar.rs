@@ -425,10 +425,8 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_required_slot_reader(
         Err(err) => return Err(err.into_invalid_logical_plan_internal_error()),
     };
 
-    collapse_true_only_boolean_admission(value, |found| {
-        InternalError::query_invalid_logical_plan(format!(
-            "compiled filter expression produced non-boolean value: {found:?}",
-        ))
+    collapse_true_only_boolean_admission(value, |_found| {
+        InternalError::query_invalid_logical_plan("")
     })
 }
 
@@ -436,7 +434,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_required_slot_reader(
 pub(in crate::db) fn eval_compiled_filter_expr_with_value_ref_reader<'a>(
     expr: &CompiledExpr,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
-    missing_slot_context: &str,
+    _missing_slot_context: &str,
 ) -> Result<bool, InternalError> {
     let reader = ValueRefSlotReader {
         read_slot: RefCell::new(read_slot),
@@ -447,20 +445,16 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_ref_reader<'a>(
         Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
         Err(err) => {
             return Err(match err {
-                ProjectionEvalError::MissingFieldValue { index, .. } => {
-                    InternalError::query_invalid_logical_plan(format!(
-                        "{missing_slot_context} {index}"
-                    ))
+                ProjectionEvalError::MissingFieldValue { index: _, .. } => {
+                    InternalError::query_invalid_logical_plan("")
                 }
                 err => err.into_invalid_logical_plan_internal_error(),
             });
         }
     };
 
-    collapse_true_only_boolean_admission(value, |found| {
-        InternalError::query_invalid_logical_plan(format!(
-            "compiled filter expression produced non-boolean value: {found:?}",
-        ))
+    collapse_true_only_boolean_admission(value, |_found| {
+        InternalError::query_invalid_logical_plan("")
     })
 }
 
@@ -468,7 +462,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_ref_reader<'a>(
 pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
     expr: &CompiledExpr,
     read_slot: &mut dyn FnMut(usize) -> Option<Cow<'a, Value>>,
-    missing_slot_context: &str,
+    _missing_slot_context: &str,
 ) -> Result<bool, InternalError> {
     let reader = ValueCowSlotReader {
         read_slot: RefCell::new(read_slot),
@@ -479,19 +473,15 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
         Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
         Err(err) => {
             return Err(match err {
-                ProjectionEvalError::MissingFieldValue { index, .. } => {
-                    InternalError::query_invalid_logical_plan(format!(
-                        "{missing_slot_context} {index}"
-                    ))
+                ProjectionEvalError::MissingFieldValue { index: _, .. } => {
+                    InternalError::query_invalid_logical_plan("")
                 }
                 err => err.into_invalid_logical_plan_internal_error(),
             });
         }
     };
 
-    collapse_true_only_boolean_admission(value, |found| {
-        InternalError::query_invalid_logical_plan(format!(
-            "compiled filter expression produced non-boolean value: {found:?}",
-        ))
+    collapse_true_only_boolean_admission(value, |_found| {
+        InternalError::query_invalid_logical_plan("")
     })
 }

@@ -331,46 +331,8 @@ impl CursorPlanError {
     /// internal invariant taxonomy used by storage-key boundary adapters.
     #[cfg(test)]
     pub(in crate::db) fn into_pk_cursor_decode_internal_error(self) -> InternalError {
-        match self {
-            Self::InvalidContinuationCursor { reason } => InternalError::cursor_executor_invariant(
-                format!("pk cursor decode rejected invalid continuation cursor: {reason}"),
-            ),
-            Self::InvalidContinuationCursorPayload { reason } => {
-                InternalError::cursor_executor_invariant(format!(
-                    "pk cursor decode rejected invalid continuation payload: {reason}"
-                ))
-            }
-            Self::ContinuationCursorSignatureMismatch { .. } => {
-                InternalError::cursor_executor_invariant(
-                    "pk cursor decode encountered continuation signature mismatch",
-                )
-            }
-            Self::ContinuationCursorBoundaryArityMismatch { expected, found } => {
-                InternalError::cursor_executor_invariant(format!(
-                    "pk cursor boundary arity mismatch: expected {expected}, found {found}"
-                ))
-            }
-            Self::ContinuationCursorWindowMismatch {
-                expected_offset,
-                actual_offset,
-            } => InternalError::cursor_executor_invariant(format!(
-                "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
-            )),
-            Self::ContinuationCursorBoundaryTypeMismatch { field, .. } => {
-                InternalError::cursor_executor_invariant(format!(
-                    "pk cursor boundary type mismatch on field '{field}'"
-                ))
-            }
-            Self::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-                InternalError::cursor_executor_invariant("pk cursor slot must be present")
-            }
-            Self::ContinuationCursorPrimaryKeyTypeMismatch { value: Some(_), .. } => {
-                InternalError::cursor_executor_invariant("pk cursor slot type mismatch")
-            }
-            Self::ContinuationCursorInvariantViolation { reason } => {
-                InternalError::cursor_executor_invariant(reason)
-            }
-        }
+        let _ = self;
+        InternalError::cursor_executor_invariant("")
     }
 
     /// Map cursor-plan failures into runtime taxonomy classes.

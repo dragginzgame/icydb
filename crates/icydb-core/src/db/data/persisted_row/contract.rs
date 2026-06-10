@@ -202,14 +202,12 @@ fn decode_scalar_slot_value_from_accepted_row_contract<'raw>(
     contract: &StructuralRowContract,
     slot: usize,
     raw_value: &'raw [u8],
-    non_scalar_context: &str,
+    _non_scalar_context: &str,
 ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
     let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
     let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
-        return Err(InternalError::persisted_row_decode_failed(format!(
-            "{non_scalar_context}: slot={slot}",
-        )));
+        return Err(InternalError::persisted_row_decode_corruption());
     };
 
     decode_scalar_slot_value(raw_value, codec, accepted_field.field_name())
@@ -221,13 +219,11 @@ fn decode_scalar_slot_value_from_generated_row_contract<'raw>(
     contract: &StructuralRowContract,
     slot: usize,
     raw_value: &'raw [u8],
-    non_scalar_context: &str,
+    _non_scalar_context: &str,
 ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
     let field = contract.field_decode_contract(slot)?;
     let LeafCodec::Scalar(codec) = field.leaf_codec() else {
-        return Err(InternalError::persisted_row_decode_failed(format!(
-            "{non_scalar_context}: slot={slot}",
-        )));
+        return Err(InternalError::persisted_row_decode_corruption());
     };
 
     decode_scalar_slot_value(raw_value, codec, field.name())
@@ -276,13 +272,7 @@ pub(in crate::db::data::persisted_row) fn encode_runtime_value_for_field_model(
             LeafCodec::Scalar(codec) => {
                 let scalar =
                     scalar_slot_value_ref_from_runtime_value(value, codec).ok_or_else(|| {
-                        InternalError::persisted_row_field_encode_failed(
-                            field.name(),
-                            format!(
-                                "field kind {:?} requires a scalar runtime value, found {value:?}",
-                                field.kind()
-                            ),
-                        )
+                        InternalError::persisted_row_field_encode_internal(field.name())
                     })?;
 
                 Ok(encode_scalar_slot_value(scalar))
@@ -294,12 +284,7 @@ pub(in crate::db::data::persisted_row) fn encode_runtime_value_for_field_model(
                         value,
                         field.name(),
                     )?
-                    .ok_or_else(|| {
-                        InternalError::persisted_row_field_encode_failed(
-                            field.name(),
-                            "storage-key binary lane rejected a supported field kind",
-                        )
-                    })
+                    .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field.name()))
                 } else {
                     encode_structural_field_by_kind_bytes(field.kind(), value, field.name())
                 }
@@ -334,13 +319,7 @@ pub(in crate::db) fn encode_runtime_value_for_accepted_field_contract(
             LeafCodec::Scalar(codec) => {
                 let scalar =
                     scalar_slot_value_ref_from_runtime_value(value, codec).ok_or_else(|| {
-                        InternalError::persisted_row_field_encode_failed(
-                            field.field_name(),
-                            format!(
-                                "accepted field kind {:?} requires a scalar runtime value, found {value:?}",
-                                field.kind()
-                            ),
-                        )
+                        InternalError::persisted_row_field_encode_internal(field.field_name())
                     })?;
 
                 Ok(encode_scalar_slot_value(scalar))
@@ -370,12 +349,7 @@ fn encode_null_slot_value_for_field(field: &FieldModel) -> Result<Vec<u8>, Inter
                     &Value::Null,
                     field.name(),
                 )?
-                .ok_or_else(|| {
-                    InternalError::persisted_row_field_encode_failed(
-                        field.name(),
-                        "storage-key binary lane rejected a supported field kind",
-                    )
-                })
+                .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field.name()))
             }
             LeafCodec::StructuralFallback => Ok(encode_structural_value_storage_null_bytes()),
         },
@@ -388,9 +362,8 @@ fn encode_null_slot_value_for_accepted_field(
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<Vec<u8>, InternalError> {
     if !field.nullable() {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field.field_name(),
-            "required field cannot store null",
         ));
     }
 
@@ -648,11 +621,8 @@ pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_table_and_byt
     slot_table: &[(u32, u32)],
     payload_bytes: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
-    let field_count = u16::try_from(slot_count).map_err(|_| {
-        InternalError::persisted_row_encode_failed(format!(
-            "field count {slot_count} exceeds u16 slot table capacity",
-        ))
-    })?;
+    let field_count =
+        u16::try_from(slot_count).map_err(|_| InternalError::persisted_row_encode_internal())?;
     let mut encoded = Vec::with_capacity(
         usize::from(field_count) * (u32::BITS as usize / 4) + 2 + payload_bytes.len(),
     );
@@ -680,11 +650,7 @@ where
     let payload_capacity = slot_payloads
         .iter()
         .try_fold(0usize, |len, payload| len.checked_add(payload.len()))
-        .ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(
-                "canonical slot image payload length overflow",
-            )
-        })?;
+        .ok_or_else(InternalError::persisted_row_encode_internal)?;
     let mut payload_bytes = Vec::with_capacity(payload_capacity);
     let mut slot_table = Vec::with_capacity(slot_payloads.len());
 
@@ -717,7 +683,7 @@ where
     let slot_payloads =
         dense_canonical_slot_image_from_payload_source(model, slot_count, payload_for_slot)?;
 
-    emit_raw_row_from_slot_payloads(slot_count, model.path(), slot_payloads.as_slice())
+    emit_raw_row_from_slot_payloads(slot_count, slot_payloads.as_slice())
 }
 
 // Build and emit one canonical row from runtime values through generated field
@@ -740,11 +706,7 @@ where
             value_for_slot,
         )?;
 
-    emit_raw_row_from_slot_payloads(
-        contract.field_count(),
-        contract.entity_path(),
-        slot_payloads.as_slice(),
-    )
+    emit_raw_row_from_slot_payloads(contract.field_count(), slot_payloads.as_slice())
 }
 
 // Build and emit one canonical row from runtime values through accepted field
@@ -766,11 +728,7 @@ where
             value_for_slot,
         )?;
 
-    emit_raw_row_from_slot_payloads(
-        contract.field_count(),
-        contract.entity_path(),
-        slot_payloads.as_slice(),
-    )
+    emit_raw_row_from_slot_payloads(contract.field_count(), slot_payloads.as_slice())
 }
 
 // Wrap one already-encoded canonical slot payload container in the shared row
@@ -788,16 +746,10 @@ fn canonical_row_from_slot_payload_bytes(
 // Emit one raw row from a dense canonical slot image.
 fn emit_raw_row_from_slot_payloads(
     expected_slot_count: usize,
-    entity_path: &str,
     slot_payloads: &[Vec<u8>],
 ) -> Result<CanonicalRow, InternalError> {
     if slot_payloads.len() != expected_slot_count {
-        return Err(InternalError::persisted_row_encode_failed(format!(
-            "canonical slot image expected {} slots for entity '{}', found {}",
-            expected_slot_count,
-            entity_path,
-            slot_payloads.len()
-        )));
+        return Err(InternalError::persisted_row_encode_internal());
     }
 
     // Phase 1: flatten the already canonicalized dense slot image directly so
@@ -805,16 +757,8 @@ fn emit_raw_row_from_slot_payloads(
     // mutable slot-writer staging buffer first.
     let row_payload = encode_slot_payload_from_dense_slot_image(
         slot_payloads,
-        |slot| {
-            InternalError::persisted_row_encode_failed(format!(
-                "canonical slot payload start exceeds u32 range: slot={slot}",
-            ))
-        },
-        |slot| {
-            InternalError::persisted_row_encode_failed(format!(
-                "canonical slot payload length exceeds u32 range: slot={slot}",
-            ))
-        },
+        |_| InternalError::persisted_row_encode_internal(),
+        |_| InternalError::persisted_row_encode_internal(),
     )?;
 
     // Phase 2: wrap the canonical slot container in the shared row envelope.
@@ -1041,13 +985,10 @@ fn validate_non_scalar_slot_value_with_generated_row_contract(
 
 #[cfg(not(test))]
 fn generated_row_contract_reached_runtime_boundary(
-    contract: &StructuralRowContract,
-    context: &str,
+    _contract: &StructuralRowContract,
+    _context: &str,
 ) -> InternalError {
-    InternalError::store_invariant(format!(
-        "{context} requires accepted row contract for entity '{}'",
-        contract.entity_path(),
-    ))
+    InternalError::store_invariant()
 }
 
 // Nullable non-storage-key by-kind leaves share the structural null sentinel,

@@ -52,10 +52,8 @@ impl GroupedAggregateBundleSpec {
     // Build the canonical grouped bundle invariant for unsupported field-target
     // aggregate kinds that should already have been removed before grouped
     // bundle construction.
-    fn unsupported_field_target_aggregate(kind: AggregateKind) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped field-target aggregate reached executor after planning: {kind:?}",
-        ))
+    fn unsupported_field_target_aggregate(_kind: AggregateKind) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     /// Build one bundle aggregate-slot blueprint.
@@ -242,11 +240,7 @@ impl GroupedAggregateBundle {
             |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
             |group_key| group_key_matches_row_view(group_key, row_view, group_fields),
             || {},
-            |group_index, group_count| {
-                InternalError::query_executor_invariant(format!(
-                    "grouped aggregate bucket index out of bounds: index={group_index} len={group_count}",
-                ))
-            },
+            |_group_index, _group_count| InternalError::query_executor_invariant(""),
         )
         .map_err(GroupError::from)
     }
@@ -360,11 +354,7 @@ impl GroupedAggregateBundle {
             .groups
             .get_mut(group_index)
             .map(|entry| &mut entry.group_state)
-            .ok_or_else(|| {
-                GroupError::from(InternalError::query_executor_invariant(format!(
-                    "grouped bundle missing resolved group state for index: {group_index}",
-                )))
-            })?;
+            .ok_or_else(|| GroupError::from(InternalError::query_executor_invariant("")))?;
 
         Self::apply_row_to_group(group_state, data_key, row_view, execution_context)
     }

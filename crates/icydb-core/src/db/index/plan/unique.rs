@@ -90,7 +90,6 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaIndexInfo,
     read_contract: IndexReadContract<'_>,
-    index_fields: &str,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
@@ -101,7 +100,6 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
         row_contract,
         UniqueKeyAuthority::AcceptedFieldPath(accepted_index),
         read_contract,
-        index_fields,
         new_primary_key,
         new_index_key,
     )
@@ -116,7 +114,6 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaExpressionIndexInfo,
     read_contract: IndexReadContract<'_>,
-    index_fields: &str,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
@@ -127,7 +124,6 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
         row_contract,
         UniqueKeyAuthority::AcceptedExpression(accepted_index),
         read_contract,
-        index_fields,
         new_primary_key,
         new_index_key,
     )
@@ -141,7 +137,6 @@ fn validate_unique_constraint_structural_impl(
     row_contract: &StructuralRowContract,
     key_authority: UniqueKeyAuthority<'_>,
     read_contract: IndexReadContract<'_>,
-    index_fields: &str,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
@@ -161,12 +156,7 @@ fn validate_unique_constraint_structural_impl(
 
     let index_id = key_authority.index_id(entity_tag);
     if new_index_key.index_id() != &index_id {
-        return Err(InternalError::index_unique_validation_corruption(
-            entity_path,
-            index_fields,
-            "mismatched unique key index id",
-        )
-        .into());
+        return Err(InternalError::index_unique_validation_corruption().into());
     }
     let (lower, upper) = new_index_key.raw_bounds_for_all_components();
     let lower = Bound::Included(lower);
@@ -188,12 +178,7 @@ fn validate_unique_constraint_structural_impl(
     }
 
     if matching_primary_keys.len() > 1 {
-        return Err(InternalError::index_unique_validation_corruption(
-            entity_path,
-            index_fields,
-            format_args!("{} keys", matching_primary_keys.len()),
-        )
-        .into());
+        return Err(InternalError::index_unique_validation_corruption().into());
     }
 
     let existing_key = matching_primary_keys[0];
@@ -206,32 +191,20 @@ fn validate_unique_constraint_structural_impl(
     let data_key = DecodedDataStoreKey::new_primary_key_value(entity_tag, &existing_key);
     let row = read_view
         .read_primary_row(&data_key)?
-        .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
+        .ok_or_else(InternalError::index_unique_validation_row_required)?;
     let row_fields = decode_unique_row_slots(&data_key, &row, row_contract)?;
 
     let Some(stored_index_key) = build_unique_index_key_from_row_slots(
         entity_tag,
-        entity_path,
-        &data_key,
         &existing_key,
         &row_fields,
         &key_authority,
     )?
     else {
-        return Err(InternalError::index_unique_validation_corruption(
-            entity_path,
-            index_fields,
-            "stored entity is not indexable for unique key",
-        )
-        .into());
+        return Err(InternalError::index_unique_validation_corruption().into());
     };
     if !stored_index_key.has_same_components(new_index_key) {
-        return Err(InternalError::index_unique_validation_corruption(
-            entity_path,
-            index_fields,
-            "index canonical collision",
-        )
-        .into());
+        return Err(InternalError::index_unique_validation_corruption().into());
     }
 
     Err(key_authority.unique_violation(entity_path))
@@ -246,14 +219,10 @@ fn decode_unique_row_slots<'a>(
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_contract(row, row_contract.clone())
-            .map_err(|source| {
-                InternalError::index_unique_validation_row_deserialize_failed(data_key, source)
-            })?;
+            .map_err(|_| InternalError::index_unique_validation_row_deserialize_failed())?;
     row_fields
         .validate_primary_key(data_key)
-        .map_err(|source| {
-            InternalError::index_unique_validation_primary_key_decode_failed(data_key, source)
-        })?;
+        .map_err(|_| InternalError::index_unique_validation_primary_key_decode_failed())?;
 
     Ok(row_fields)
 }
@@ -262,15 +231,11 @@ fn decode_unique_row_slots<'a>(
 // reader without reconstructing the full typed entity.
 fn build_unique_index_key_from_row_slots(
     entity_tag: EntityTag,
-    entity_path: &'static str,
-    data_key: &DecodedDataStoreKey,
     primary_key: &PrimaryKeyValue,
     row_fields: &StructuralSlotReader<'_>,
     key_authority: &UniqueKeyAuthority<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
     let key = key_authority.build_index_key_from_row_slots(entity_tag, primary_key, row_fields);
 
-    key.map_err(|err| {
-        InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
-    })
+    key.map_err(|_| InternalError::index_unique_validation_key_rebuild_failed())
 }

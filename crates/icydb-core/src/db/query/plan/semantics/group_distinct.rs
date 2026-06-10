@@ -131,43 +131,15 @@ impl GroupDistinctPolicyReason {
         Self::GlobalDistinctUnsupportedAggregateKind
     }
 
-    /// Return canonical executor invariant message text for this policy reason.
-    #[must_use]
-    pub(in crate::db) const fn invariant_message(self) -> &'static str {
-        match self {
-            Self::DistinctHavingUnsupported => "grouped HAVING with DISTINCT is unsupported",
-            Self::DistinctAdjacencyEligibilityRequired => {
-                "grouped DISTINCT requires ordered-group adjacency proof"
-            }
-            Self::GlobalDistinctHavingUnsupported => {
-                "global DISTINCT grouped aggregate shape does not support HAVING"
-            }
-            Self::GlobalDistinctRequiresSingleAggregate => {
-                "global DISTINCT grouped aggregate shape requires exactly one aggregate terminal"
-            }
-            Self::GlobalDistinctRequiresFieldTargetAggregate => {
-                "global DISTINCT grouped aggregate shape requires field-target aggregate"
-            }
-            Self::GlobalDistinctRequiresDistinctAggregateTerminal => {
-                "global DISTINCT grouped aggregate shape requires DISTINCT aggregate terminal"
-            }
-            Self::GlobalDistinctUnsupportedAggregateKind => {
-                "global DISTINCT grouped aggregate shape supports COUNT/SUM/AVG only"
-            }
-        }
-    }
-
     /// Convert this grouped DISTINCT policy reason into the executor-facing
     /// invariant used by global DISTINCT grouped route preparation.
     #[must_use]
     pub(in crate::db) fn into_global_distinct_prepare_internal_error(
         self,
-        kind: AggregateKind,
+        _kind: AggregateKind,
     ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "{}: found {kind:?}",
-            self.invariant_message(),
-        ))
+        let _ = self;
+        InternalError::query_executor_invariant("")
     }
 
     /// Convert this grouped DISTINCT policy reason into the planner handoff
@@ -175,10 +147,8 @@ impl GroupDistinctPolicyReason {
     /// without prior planner validation.
     #[must_use]
     pub(in crate::db) fn into_planner_handoff_internal_error(self) -> InternalError {
-        InternalError::planner_executor_invariant(format!(
-            "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
-            self.invariant_message()
-        ))
+        let _ = self;
+        InternalError::planner_executor_invariant("")
     }
 
     /// Convert this grouped DISTINCT policy reason into the executor-facing
@@ -186,7 +156,8 @@ impl GroupDistinctPolicyReason {
     /// grouped DISTINCT rejection path.
     #[must_use]
     pub(in crate::db) fn into_grouped_route_internal_error(self) -> InternalError {
-        InternalError::query_executor_invariant(self.invariant_message())
+        let _ = self;
+        InternalError::query_executor_invariant("")
     }
 
     /// Project this grouped DISTINCT policy reason into a planner-domain

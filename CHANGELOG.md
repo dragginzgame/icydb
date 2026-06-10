@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.21` compacts persisted-row, journal, commit-marker, key/index, and
+  store corruption diagnostics further by removing runtime-only prose and
+  hard-cutting store diagnostic constructors to compact code-only forms.
+
 - `0.180.20` compacts persisted-row scalar decode corruption diagnostics and
   brittle runtime tests onto stable diagnostic identity, removing more internal
   prose while preserving field ownership and verifying the wasm reduction.

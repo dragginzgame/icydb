@@ -125,16 +125,13 @@ fn read_index_primary_key_values_in_raw_range(
 // Decode one raw index entry into structural primary-key values for executor
 // context preflight reads that are not part of a user-visible scan.
 fn push_index_entry_primary_key_values(
-    index: IndexReadContract<'_>,
+    _index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
     out: &mut Vec<PrimaryKeyValue>,
     limit: usize,
 ) -> Result<bool, InternalError> {
-    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |err| {
-        InternalError::index_plan_index_corruption(format!(
-            "index corrupted: ({}) -> {err}",
-            index.fields()
-        ))
+    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |_err| {
+        InternalError::index_plan_index_corruption("")
     })
 }

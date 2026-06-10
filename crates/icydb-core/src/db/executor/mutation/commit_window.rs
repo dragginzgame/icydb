@@ -520,18 +520,15 @@ fn push_optional_index_entry_primary_key_values(
 // Decode one raw index entry into structural primary-key values under the
 // preflight overlay's corruption mapping.
 fn push_index_entry_primary_key_values(
-    index: IndexReadContract<'_>,
+    _index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
     out: &mut Vec<PrimaryKeyValue>,
     limit: usize,
-    entity_path: &'static str,
+    _entity_path: &'static str,
 ) -> Result<bool, InternalError> {
-    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |err| {
-        InternalError::index_plan_index_corruption(format!(
-            "index corrupted: {entity_path} ({}) -> {err}",
-            index.fields(),
-        ))
+    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |_err| {
+        InternalError::index_plan_index_corruption("")
     })
 }
 
@@ -1239,12 +1236,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         let handle = registered_handles
             .iter()
             .find(|handle| ptr::eq(handle.data_store(), prepared_row_op.data_store))
-            .ok_or_else(|| {
-                InternalError::executor_invariant(format!(
-                    "prepared row op for '{}' does not map to a registered data store",
-                    row_op.entity_path
-                ))
-            })?;
+            .ok_or_else(|| InternalError::executor_invariant(""))?;
 
         match handle.storage_capabilities().recovery() {
             StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone()),

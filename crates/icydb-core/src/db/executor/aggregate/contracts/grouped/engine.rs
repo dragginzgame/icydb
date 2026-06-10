@@ -83,10 +83,8 @@ impl GroupedAggregateState {
     // Build the canonical grouped-state invariant for unsupported field-target
     // aggregate kinds that should already have been removed before grouped
     // state construction.
-    fn unsupported_field_target_aggregate(kind: AggregateKind) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped field-target aggregate reached executor after planning: {kind:?}",
-        ))
+    fn unsupported_field_target_aggregate(_kind: AggregateKind) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     /// Build one empty grouped aggregate state container with one optional
@@ -125,11 +123,7 @@ impl GroupedAggregateState {
             ));
         };
         if canonical_group_values.len() != group_fields.len() {
-            return Err(InternalError::query_executor_invariant(format!(
-                "grouped aggregate key field count drifted from route group fields: key_len={} group_fields_len={}",
-                canonical_group_values.len(),
-                group_fields.len(),
-            )));
+            return Err(InternalError::query_executor_invariant(""));
         }
 
         for (field, canonical_group_value) in group_fields.iter().zip(canonical_group_values) {
@@ -240,11 +234,10 @@ impl GroupedAggregateState {
             && let Some(matched_group_key) =
                 self.find_matching_borrowed_group_key(borrowed_group_hash, row_view, group_fields)?
         {
-            let state = self.groups.get_mut(&matched_group_key).ok_or_else(|| {
-                GroupError::from(InternalError::query_executor_invariant(format!(
-                    "grouped aggregate state missing borrowed-probed group key: hash={borrowed_group_hash}",
-                )))
-            })?;
+            let state = self
+                .groups
+                .get_mut(&matched_group_key)
+                .ok_or_else(|| GroupError::from(InternalError::query_executor_invariant("")))?;
 
             return state.apply_with_row_view(data_key, Some(row_view), execution_context);
         }

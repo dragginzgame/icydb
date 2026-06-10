@@ -261,9 +261,7 @@ impl CommitStore {
     fn require_empty_marker_slot(&self) -> Result<(), InternalError> {
         let slot = inspect_commit_control_slot(self.cell.get().as_bytes())?;
         if !slot.marker_bytes.is_empty() {
-            return Err(InternalError::store_invariant(
-                "commit marker already present before begin",
-            ));
+            return Err(InternalError::store_invariant());
         }
 
         Ok(())

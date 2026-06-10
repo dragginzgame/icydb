@@ -50,11 +50,7 @@ fn expected_index_id_entity_email_bytes() -> Vec<u8> {
 
 fn decode_must_fail_corrupted(bytes: Vec<u8>, label: &str) {
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err(label);
-    assert!(
-        err.contains("corrupted"),
-        "decode error should classify corruption, got: {err}"
-    );
+    IndexKey::try_from_raw(&raw).expect_err(label);
 }
 
 fn make_component(byte: u8) -> Vec<u8> {
@@ -144,16 +140,14 @@ fn first_component_len_offset() -> usize {
 fn index_key_rejects_undersized_bytes() {
     let bytes = vec![0u8; IndexKey::MIN_STORED_SIZE_USIZE.saturating_sub(1)];
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("undersized key should fail");
-    assert!(err.contains("corrupted"));
+    IndexKey::try_from_raw(&raw).expect_err("undersized key should fail");
 }
 
 #[test]
 fn index_key_rejects_oversized_bytes() {
     let bytes = vec![0u8; IndexKey::MAX_STORED_SIZE_USIZE + 1];
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("oversized key should fail");
-    assert!(err.contains("corrupted"));
+    IndexKey::try_from_raw(&raw).expect_err("oversized key should fail");
 }
 
 #[test]
@@ -163,8 +157,7 @@ fn index_key_rejects_unknown_kind_tag() {
     bytes[0] = 0xFF;
 
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("unknown kind tag should fail");
-    assert!(err.contains("corrupted"));
+    IndexKey::try_from_raw(&raw).expect_err("unknown kind tag should fail");
 }
 
 #[test]
@@ -181,8 +174,7 @@ fn index_key_rejects_len_over_max() {
     bytes[len_offset()] = (MAX_INDEX_FIELDS as u8) + 1;
 
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("oversized length should fail");
-    assert!(err.contains("corrupted"));
+    IndexKey::try_from_raw(&raw).expect_err("oversized length should fail");
 }
 
 #[test]
@@ -207,8 +199,7 @@ fn index_key_rejects_truncated_key() {
     bytes.pop();
 
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("truncated payload should fail");
-    assert!(err.contains("truncated"));
+    IndexKey::try_from_raw(&raw).expect_err("truncated payload should fail");
 }
 
 #[test]
@@ -228,8 +219,7 @@ fn index_key_rejects_overlong_key_segments() {
     bytes[offset..offset + SEGMENT_LEN_SIZE].copy_from_slice(&overlong.to_be_bytes());
 
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("overlong payload should fail");
-    assert!(err.contains("overlong"));
+    IndexKey::try_from_raw(&raw).expect_err("overlong payload should fail");
 }
 
 #[test]
@@ -245,8 +235,7 @@ fn index_key_rejects_trailing_bytes() {
     bytes.push(42);
 
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("trailing bytes should fail");
-    assert!(err.contains("trailing"));
+    IndexKey::try_from_raw(&raw).expect_err("trailing bytes should fail");
 }
 
 #[test]
@@ -302,10 +291,8 @@ fn raw_index_store_key_validated_component_rejects_trailing_bytes() {
     bytes.push(42);
 
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
-    let err = raw
-        .validated_component(0)
+    raw.validated_component(0)
         .expect_err("component extraction should reject trailing bytes");
-    assert!(err.contains("trailing"));
 }
 
 #[test]

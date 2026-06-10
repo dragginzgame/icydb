@@ -106,12 +106,11 @@ fn assert_sql_write_unsupported_transition(
 ) {
     let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(session, sql)
         .expect_err("SQL write should reject unsupported accepted schema drift");
-    let err_text = err.to_string();
 
-    assert!(
-        err_text.contains("schema evolution is not yet supported")
-            && err_text.contains("schema changed without schema_version bump"),
-        "{context} should surface the schema-transition barrier: {err_text}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "{context} should surface the schema-transition barrier as a compact unsupported diagnostic",
     );
 }
 

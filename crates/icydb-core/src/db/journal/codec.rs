@@ -249,9 +249,7 @@ pub(in crate::db) fn encode_journal_batch(batch: &JournalBatch) -> Result<Vec<u8
     let payload_len = journal_batch_payload_len(batch);
     let total_len = JOURNAL_BATCH_HEADER_BYTES.saturating_add(payload_len);
     if total_len > MAX_JOURNAL_BATCH_BYTES as usize {
-        return Err(InternalError::store_unsupported(format!(
-            "journal batch exceeds max size: {total_len} bytes (limit {MAX_JOURNAL_BATCH_BYTES})",
-        )));
+        return Err(InternalError::store_unsupported());
     }
 
     let mut encoded = Vec::with_capacity(total_len);
@@ -265,39 +263,28 @@ pub(in crate::db) fn encode_journal_batch(batch: &JournalBatch) -> Result<Vec<u8
 
 pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, InternalError> {
     if bytes.len() > MAX_JOURNAL_BATCH_BYTES as usize {
-        return Err(journal_batch_corruption(format!(
-            "journal batch exceeds max size: {} bytes (limit {MAX_JOURNAL_BATCH_BYTES})",
-            bytes.len(),
-        )));
+        return Err(journal_batch_corruption());
     }
     if bytes.len() < JOURNAL_BATCH_HEADER_BYTES {
-        return Err(journal_batch_corruption(
-            "journal batch decode: truncated header",
-        ));
+        return Err(journal_batch_corruption());
     }
 
     let mut cursor = 0usize;
     let magic = read_fixed_array::<4>(bytes, &mut cursor, "journal batch magic")?;
     if magic != JOURNAL_BATCH_MAGIC {
-        return Err(journal_batch_corruption(
-            "journal batch decode: invalid batch magic",
-        ));
+        return Err(journal_batch_corruption());
     }
 
-    let format_version = *bytes
-        .get(cursor)
-        .ok_or_else(|| journal_batch_corruption("journal batch decode: missing format version"))?;
+    let format_version = *bytes.get(cursor).ok_or_else(journal_batch_corruption)?;
     cursor = cursor.saturating_add(1);
     validate_journal_batch_format_version(format_version)?;
 
     let payload_len = read_len_u32(bytes, &mut cursor, "journal batch payload")? as usize;
     let payload_end = cursor
         .checked_add(payload_len)
-        .ok_or_else(|| journal_batch_corruption("journal batch decode: payload length overflow"))?;
+        .ok_or_else(journal_batch_corruption)?;
     if payload_end != bytes.len() {
-        return Err(journal_batch_corruption(
-            "journal batch decode: payload length does not match envelope",
-        ));
+        return Err(journal_batch_corruption());
     }
 
     let batch_id = read_fixed_array::<JOURNAL_BATCH_ID_BYTES>(bytes, &mut cursor, "batch id")?;
@@ -306,9 +293,7 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
     let journal_sequence = JournalSequence::new(read_u64_le(bytes, &mut cursor, "sequence")?);
     let record_count = read_len_u32(bytes, &mut cursor, "journal batch record count")? as usize;
     if record_count > MAX_JOURNAL_BATCH_RECORDS {
-        return Err(journal_batch_corruption(format!(
-            "journal batch record count exceeds max: {record_count} (limit {MAX_JOURNAL_BATCH_RECORDS})",
-        )));
+        return Err(journal_batch_corruption());
     }
 
     let mut records = Vec::with_capacity(record_count);
@@ -317,9 +302,7 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
     }
 
     if cursor != payload_end {
-        return Err(journal_batch_corruption(
-            "journal batch decode: trailing bytes after payload",
-        ));
+        return Err(journal_batch_corruption());
     }
 
     JournalBatch::new(batch_id, commit_marker_id, journal_sequence, records)
@@ -387,9 +370,7 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
 }
 
 fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord, InternalError> {
-    let tag = *bytes
-        .get(*cursor)
-        .ok_or_else(|| journal_batch_corruption("journal batch decode: truncated record tag"))?;
+    let tag = *bytes.get(*cursor).ok_or_else(journal_batch_corruption)?;
     *cursor = cursor.saturating_add(1);
 
     match tag {
@@ -423,20 +404,14 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
 
             JournalRecord::schema_put(store_path, schema_snapshot_bytes)
         }
-        _ => Err(journal_batch_corruption(
-            "journal batch decode: unknown record tag",
-        )),
+        _ => Err(journal_batch_corruption()),
     }
 }
 
 fn read_primary_key(bytes: &[u8], cursor: &mut usize) -> Result<RawDataStoreKey, InternalError> {
     let primary_key = read_len_prefixed_bytes(bytes, cursor, "journal row primary_key")?;
     if primary_key.len() > RawDataStoreKey::MAX_STORED_SIZE_USIZE {
-        return Err(journal_batch_corruption(format!(
-            "journal row primary_key exceeds max size: {} bytes (limit {})",
-            primary_key.len(),
-            RawDataStoreKey::MAX_STORED_SIZE_USIZE,
-        )));
+        return Err(journal_batch_corruption());
     }
 
     Ok(<RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(
@@ -487,18 +462,13 @@ fn journal_record_payload_len(record: &JournalRecord) -> usize {
 
 fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalError> {
     if batch.batch_id == [0; JOURNAL_BATCH_ID_BYTES] {
-        return Err(journal_batch_corruption("journal batch id is empty"));
+        return Err(journal_batch_corruption());
     }
     if batch.commit_marker_id == [0; JOURNAL_COMMIT_MARKER_ID_BYTES] {
-        return Err(journal_batch_corruption(
-            "journal commit marker id is empty",
-        ));
+        return Err(journal_batch_corruption());
     }
     if batch.records.len() > MAX_JOURNAL_BATCH_RECORDS {
-        return Err(journal_batch_corruption(format!(
-            "journal batch record count exceeds max: {} (limit {MAX_JOURNAL_BATCH_RECORDS})",
-            batch.records.len(),
-        )));
+        return Err(journal_batch_corruption());
     }
     for record in &batch.records {
         validate_journal_record(record)?;
@@ -533,10 +503,7 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
         } => {
             validate_path(store_path, "journal schema store_path")?;
             if schema_snapshot_bytes.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
-                return Err(journal_batch_corruption(format!(
-                    "journal schema snapshot exceeds max size: {} bytes (limit {MAX_SCHEMA_SNAPSHOT_BYTES})",
-                    schema_snapshot_bytes.len(),
-                )));
+                return Err(journal_batch_corruption());
             }
         }
     }
@@ -544,15 +511,12 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
     Ok(())
 }
 
-fn validate_path(path: &str, label: &'static str) -> Result<(), InternalError> {
+fn validate_path(path: &str, _label: &'static str) -> Result<(), InternalError> {
     if path.is_empty() {
-        return Err(journal_batch_corruption(format!("{label} is empty")));
+        return Err(journal_batch_corruption());
     }
     if path.len() > MAX_JOURNAL_PATH_BYTES {
-        return Err(journal_batch_corruption(format!(
-            "{label} exceeds max size: {} bytes (limit {MAX_JOURNAL_PATH_BYTES})",
-            path.len(),
-        )));
+        return Err(journal_batch_corruption());
     }
 
     Ok(())
@@ -560,11 +524,7 @@ fn validate_path(path: &str, label: &'static str) -> Result<(), InternalError> {
 
 fn validate_primary_key_shape(primary_key: &RawDataStoreKey) -> Result<(), InternalError> {
     if primary_key.as_bytes().len() > RawDataStoreKey::MAX_STORED_SIZE_USIZE {
-        return Err(journal_batch_corruption(format!(
-            "journal row primary_key exceeds max size: {} bytes (limit {})",
-            primary_key.as_bytes().len(),
-            RawDataStoreKey::MAX_STORED_SIZE_USIZE,
-        )));
+        return Err(journal_batch_corruption());
     }
 
     Ok(())
@@ -572,10 +532,7 @@ fn validate_primary_key_shape(primary_key: &RawDataStoreKey) -> Result<(), Inter
 
 fn validate_row_payload(row_bytes: &[u8]) -> Result<(), InternalError> {
     if row_bytes.len() > MAX_ROW_BYTES as usize {
-        return Err(journal_batch_corruption(format!(
-            "journal row payload exceeds max size: {} bytes (limit {MAX_ROW_BYTES})",
-            row_bytes.len(),
-        )));
+        return Err(journal_batch_corruption());
     }
 
     Ok(())
@@ -593,9 +550,8 @@ fn validate_journal_batch_format_version(format_version: u8) -> Result<(), Inter
     ))
 }
 
-fn write_len_u32(out: &mut Vec<u8>, len: usize, label: &'static str) -> Result<(), InternalError> {
-    let len = u32::try_from(len)
-        .map_err(|_| InternalError::store_unsupported(format!("{label} exceeds u32 length")))?;
+fn write_len_u32(out: &mut Vec<u8>, len: usize, _label: &'static str) -> Result<(), InternalError> {
+    let len = u32::try_from(len).map_err(|_| InternalError::store_unsupported())?;
     out.extend_from_slice(&len.to_le_bytes());
 
     Ok(())
@@ -615,11 +571,11 @@ fn write_len_prefixed_bytes(
 fn read_len_u32(
     bytes: &[u8],
     cursor: &mut usize,
-    label: &'static str,
+    _label: &'static str,
 ) -> Result<u32, InternalError> {
     let payload = bytes
         .get(*cursor..cursor.saturating_add(size_of::<u32>()))
-        .ok_or_else(|| journal_batch_corruption(format!("{label} decode: truncated length")))?;
+        .ok_or_else(journal_batch_corruption)?;
     *cursor = cursor.saturating_add(size_of::<u32>());
 
     Ok(u32::from_le_bytes([
@@ -630,11 +586,11 @@ fn read_len_u32(
 fn read_u64_le(
     bytes: &[u8],
     cursor: &mut usize,
-    label: &'static str,
+    _label: &'static str,
 ) -> Result<u64, InternalError> {
     let payload = bytes
         .get(*cursor..cursor.saturating_add(size_of::<u64>()))
-        .ok_or_else(|| journal_batch_corruption(format!("{label} decode: truncated bytes")))?;
+        .ok_or_else(journal_batch_corruption)?;
     *cursor = cursor.saturating_add(size_of::<u64>());
 
     Ok(u64::from_le_bytes([
@@ -646,16 +602,14 @@ fn read_u64_le(
 fn read_fixed_array<const N: usize>(
     bytes: &[u8],
     cursor: &mut usize,
-    label: &'static str,
+    _label: &'static str,
 ) -> Result<[u8; N], InternalError> {
     let payload = bytes
         .get(*cursor..cursor.saturating_add(N))
-        .ok_or_else(|| journal_batch_corruption(format!("{label} decode: truncated bytes")))?;
+        .ok_or_else(journal_batch_corruption)?;
     *cursor = cursor.saturating_add(N);
 
-    payload
-        .try_into()
-        .map_err(|_| journal_batch_corruption(format!("{label} decode: invalid fixed payload")))
+    payload.try_into().map_err(|_| journal_batch_corruption())
 }
 
 fn read_len_prefixed_bytes<'a>(
@@ -666,7 +620,7 @@ fn read_len_prefixed_bytes<'a>(
     let len = read_len_u32(bytes, cursor, label)? as usize;
     let payload = bytes
         .get(*cursor..cursor.saturating_add(len))
-        .ok_or_else(|| journal_batch_corruption(format!("{label} decode: truncated bytes")))?;
+        .ok_or_else(journal_batch_corruption)?;
     *cursor = cursor.saturating_add(len);
 
     Ok(payload)
@@ -678,13 +632,12 @@ fn read_utf8_path(
     label: &'static str,
 ) -> Result<String, InternalError> {
     let path = read_len_prefixed_bytes(bytes, cursor, label)?;
-    let path = std::str::from_utf8(path)
-        .map_err(|_| journal_batch_corruption(format!("{label} decode: not utf-8")))?;
+    let path = std::str::from_utf8(path).map_err(|_| journal_batch_corruption())?;
     validate_path(path, label)?;
 
     Ok(path.to_owned())
 }
 
-fn journal_batch_corruption(detail: impl Into<String>) -> InternalError {
-    InternalError::store_corruption(format!("journal batch corrupted: {}", detail.into()))
+fn journal_batch_corruption() -> InternalError {
+    InternalError::store_corruption()
 }

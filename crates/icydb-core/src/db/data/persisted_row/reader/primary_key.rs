@@ -63,11 +63,7 @@ pub(super) fn validate_primary_key_value_from_field_bytes(
         PrimaryKeyValue::Composite(composite) => {
             let slots = contract.primary_key_slot_indices();
             if slots.len() != composite.len() {
-                return Err(InternalError::persisted_row_decode_failed(format!(
-                    "composite primary-key slot count mismatch: expected {} slots, row contract has {}",
-                    composite.len(),
-                    slots.len(),
-                )));
+                return Err(InternalError::persisted_row_decode_corruption());
             }
 
             for (&slot, &component) in slots.iter().zip(composite.components()) {
@@ -156,22 +152,13 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
             }
 
             primary_key_component_from_runtime_value(&value).ok_or_else(|| {
-                InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                    expected_key,
-                    format!(
-                        "primary-key field '{}' is not primary-key compatible",
-                        field.field_name()
-                    ),
-                )
+                InternalError::persisted_row_primary_key_not_primary_key_encodable(expected_key, "")
             })?
         }
     };
 
     if decoded_key != expected_key {
-        return Err(InternalError::persisted_row_key_mismatch(
-            expected_key,
-            decoded_key,
-        ));
+        return Err(InternalError::persisted_row_key_mismatch());
     }
 
     Ok(())
@@ -196,10 +183,7 @@ fn validate_primary_key_value_from_slot_bytes_with_field(
                     .ok_or_else(|| {
                         InternalError::persisted_row_primary_key_not_primary_key_encodable(
                             expected_key,
-                            format!(
-                                "scalar primary-key field '{}' is not primary-key compatible",
-                                field.name()
-                            ),
+                            "",
                         )
                     })?,
             }
@@ -214,22 +198,13 @@ fn validate_primary_key_value_from_slot_bytes_with_field(
                 })?;
 
             primary_key_component_from_runtime_value(&value).ok_or_else(|| {
-                InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                    expected_key,
-                    format!(
-                        "primary-key field '{}' is not primary-key compatible",
-                        field.name()
-                    ),
-                )
+                InternalError::persisted_row_primary_key_not_primary_key_encodable(expected_key, "")
             })?
         }
     };
 
     if decoded_key != expected_key {
-        return Err(InternalError::persisted_row_key_mismatch(
-            expected_key,
-            decoded_key,
-        ));
+        return Err(InternalError::persisted_row_key_mismatch());
     }
 
     Ok(())
@@ -286,10 +261,7 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_component(
         (FieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => Ok(Value::Nat128(value)),
         (FieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
-        (kind, component) => Err(InternalError::persisted_row_decode_failed(format!(
-            "validated primary-key component does not match field kind: field='{}' kind={kind:?} component={component:?}",
-            field.name(),
-        ))),
+        (_, _) => Err(InternalError::persisted_row_decode_corruption()),
     }
 }
 
@@ -307,13 +279,8 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_component_with_ac
         probe.record_materialized_non_scalar();
     }
 
-    materialize_primary_key_value_from_persisted_kind(field.kind(), expected_key).map_err(|err| {
-        InternalError::persisted_row_decode_failed(format!(
-            "{err}: field='{}' kind={:?}",
-            field.field_name(),
-            field.kind(),
-        ))
-    })
+    materialize_primary_key_value_from_persisted_kind(field.kind(), expected_key)
+        .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
 // Rebuild one semantic primary-key value from the already-authoritative
@@ -361,9 +328,7 @@ fn materialize_primary_key_value_from_kind(
         (FieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => Ok(Value::Nat128(value)),
         (FieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
-        (kind, component) => Err(InternalError::persisted_row_decode_failed(format!(
-            "validated primary-key component does not match field kind kind={kind:?} component={component:?}",
-        ))),
+        (_, _) => Err(InternalError::persisted_row_decode_corruption()),
     }
 }
 

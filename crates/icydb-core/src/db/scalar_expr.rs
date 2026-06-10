@@ -60,36 +60,13 @@ pub(in crate::db) enum ScalarIndexExpressionOp {
 }
 
 impl ScalarIndexExpressionOp {
-    // Return the stable expression label used in scalar mismatch diagnostics.
-    #[cfg(test)]
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Lower => "LOWER",
-            Self::Upper => "UPPER",
-            Self::Trim => "TRIM",
-            Self::LowerTrim => "LOWER(TRIM)",
-            Self::Date => "DATE",
-            Self::Year => "YEAR",
-            Self::Month => "MONTH",
-            Self::Day => "DAY",
-        }
-    }
-
     // Build the canonical scalar-expression input mismatch error.
     #[cfg(test)]
     fn input_type_mismatch(self, expected: &'static str) -> InternalError {
-        let label = self.label();
-
+        let _ = self;
         match expected {
-            EXPECTED_TEXT => InternalError::query_executor_invariant(format!(
-                "scalar expression {label} expected text input",
-            )),
-            EXPECTED_DATE_OR_TIMESTAMP => InternalError::executor_internal(format!(
-                "scalar expression {label} expected date/timestamp input",
-            )),
-            _ => InternalError::executor_internal(format!(
-                "scalar expression {label} expected {expected} input",
-            )),
+            EXPECTED_TEXT => InternalError::query_executor_invariant(""),
+            _ => InternalError::executor_internal(""),
         }
     }
 }

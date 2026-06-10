@@ -159,9 +159,9 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_metadata() {
     let err = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect_err("accepted schema construction should reject invalid metadata");
 
-    assert!(
-        err.message()
-            .contains("accepted schema snapshot primary key field missing from row layout"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should report the integrity failure"
     );
 }
@@ -193,9 +193,9 @@ fn accepted_schema_snapshot_try_new_rejects_zero_schema_version() {
     let err = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect_err("accepted schema construction should reject version-zero metadata");
 
-    assert!(
-        err.message()
-            .contains("accepted schema snapshot schema_version must be positive"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should hard-cut non-positive schema versions"
     );
 }
@@ -227,9 +227,9 @@ fn accepted_schema_snapshot_try_new_rejects_duplicate_primary_key_fields() {
     let err = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect_err("accepted schema construction should reject duplicate primary-key ids");
 
-    assert!(
-        err.message()
-            .contains("accepted schema snapshot duplicate primary key field"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should report duplicate primary-key fields"
     );
 }
@@ -291,9 +291,9 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
     let err = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect_err("accepted schema construction should reject invalid index metadata");
 
-    assert!(
-        err.message()
-            .contains("accepted schema snapshot index field slot mismatch"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should reject index slots that diverge from row layout"
     );
 }
@@ -354,9 +354,9 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
     let err = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect_err("accepted schema construction should reject invalid relation metadata");
 
-    assert!(
-        err.message()
-            .contains("accepted schema snapshot duplicate relation name"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should report invalid relation metadata"
     );
 }
@@ -394,9 +394,9 @@ fn accepted_schema_snapshot_try_new_rejects_relation_missing_local_field() {
     let err = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect_err("accepted schema construction should reject invalid relation metadata");
 
-    assert!(
-        err.message()
-            .contains("accepted schema snapshot relation local field missing from row layout"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should report missing relation local fields"
     );
 }
@@ -524,9 +524,9 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
     let err = AcceptedSchemaSnapshot::try_new(snapshot)
         .expect_err("accepted schema construction should reject invalid expression metadata");
 
-    assert!(
-        err.message()
-            .contains("accepted schema snapshot index expression output kind mismatch"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "accepted schema construction should reject expression output-kind drift"
     );
 }

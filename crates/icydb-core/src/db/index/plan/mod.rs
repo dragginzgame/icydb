@@ -11,7 +11,7 @@ mod unique;
 use crate::{
     db::{
         data::{CanonicalSlotReader, StructuralRowContract},
-        index::{IndexEntryCorruption, IndexKey, IndexReadContract, IndexRowIdentity},
+        index::{IndexKey, IndexReadContract, IndexRowIdentity},
         key_taxonomy::PrimaryKeyValue,
         predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
         schema::{
@@ -47,15 +47,6 @@ impl IndexKeyLane {
     }
 }
 
-fn accepted_expression_index_fields_csv(index: &SchemaExpressionIndexInfo) -> String {
-    index
-        .key_items()
-        .iter()
-        .map(accepted_expression_key_item_label)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 pub(super) fn accepted_expression_key_item_label(
     key_item: &SchemaExpressionIndexKeyItemInfo,
 ) -> String {
@@ -65,17 +56,6 @@ pub(super) fn accepted_expression_key_item_label(
             expression.canonical_text().to_string()
         }
     }
-}
-
-// Format accepted field-path key components for corruption diagnostics without
-// reopening generated index field declarations.
-fn accepted_index_fields_csv(index: &SchemaIndexInfo) -> String {
-    index
-        .fields()
-        .iter()
-        .map(|field| field.path().join("."))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 fn accepted_predicate_program_for_accepted_field_path_index(
@@ -195,35 +175,26 @@ fn load_structural_accepted_expression_index_key(
 // Prove that the pre-existing old index entry still contains the expected row
 // membership before commit planning becomes purely mechanical.
 fn validate_existing_old_index_membership(
-    entity_path: &'static str,
-    index_fields: &str,
+    _entity_path: &'static str,
     _index_is_unique: bool,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_key: Option<&IndexKey>,
     old_entry: Option<&IndexRowIdentity>,
 ) -> Result<(), InternalError> {
-    let Some(old_key) = old_key else {
+    if old_key.is_none() {
         return Ok(());
-    };
+    }
 
     let Some(old_primary_key) = old_primary_key else {
         return Err(InternalError::structural_index_removal_entity_key_required());
     };
 
-    let entry = old_entry.as_ref().ok_or_else(|| {
-        InternalError::structural_index_entry_corruption(
-            entity_path,
-            index_fields,
-            IndexEntryCorruption::missing_key(old_key.to_raw(), old_primary_key),
-        )
-    })?;
+    let entry = old_entry
+        .as_ref()
+        .ok_or_else(InternalError::structural_index_entry_corruption)?;
 
     if !entry.contains(old_primary_key) {
-        return Err(InternalError::structural_index_entry_corruption(
-            entity_path,
-            index_fields,
-            IndexEntryCorruption::missing_key(old_key.to_raw(), old_primary_key),
-        ));
+        return Err(InternalError::structural_index_entry_corruption());
     }
 
     Ok(())
@@ -336,10 +307,9 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<(), IndexPlanError> {
-    let index_fields = accepted_index_fields_csv(accepted_index);
     let index_store = accepted_index.store();
     let index_is_unique = accepted_index.unique();
-    let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
+    let read_contract = IndexReadContract::new(index_store, index_is_unique);
     let old_key = match old_slots {
         Some(slots) => load_structural_accepted_field_path_index_key(
             IndexKeyLane::Old,
@@ -363,17 +333,11 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         None => None,
     };
 
-    let old_entry = load_existing_entry_structural(
-        read_view,
-        read_contract,
-        &index_fields,
-        old_key.as_ref(),
-        entity_path,
-    )?;
+    let old_entry =
+        load_existing_entry_structural(read_view, read_contract, old_key.as_ref(), entity_path)?;
 
     validate_existing_old_index_membership(
         entity_path,
-        &index_fields,
         index_is_unique,
         old_primary_key,
         old_key.as_ref(),
@@ -387,7 +351,6 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         row_contract,
         accepted_index,
         read_contract,
-        &index_fields,
         new_key.as_ref().and(new_primary_key),
         new_key.as_ref(),
     )?;
@@ -418,10 +381,9 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<(), IndexPlanError> {
-    let index_fields = accepted_expression_index_fields_csv(accepted_index);
     let index_store = accepted_index.store();
     let index_is_unique = accepted_index.unique();
-    let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
+    let read_contract = IndexReadContract::new(index_store, index_is_unique);
 
     let old_key = match old_slots {
         Some(slots) => load_structural_accepted_expression_index_key(
@@ -446,17 +408,11 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         None => None,
     };
 
-    let old_entry = load_existing_entry_structural(
-        read_view,
-        read_contract,
-        &index_fields,
-        old_key.as_ref(),
-        entity_path,
-    )?;
+    let old_entry =
+        load_existing_entry_structural(read_view, read_contract, old_key.as_ref(), entity_path)?;
 
     validate_existing_old_index_membership(
         entity_path,
-        &index_fields,
         index_is_unique,
         old_primary_key,
         old_key.as_ref(),
@@ -470,7 +426,6 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         row_contract,
         accepted_index,
         read_contract,
-        &index_fields,
         new_key.as_ref().and(new_primary_key),
         new_key.as_ref(),
     )?;
@@ -524,9 +479,8 @@ fn push_index_delta_group(
 pub(super) fn load_existing_entry_structural(
     read_view: &dyn IndexPlanReadView,
     index: IndexReadContract<'_>,
-    index_fields: &str,
     key: Option<&IndexKey>,
-    entity_path: &'static str,
+    _entity_path: &'static str,
 ) -> Result<Option<IndexRowIdentity>, InternalError> {
     // No indexed key means no index entry to load.
     let Some(key) = key else {
@@ -538,9 +492,9 @@ pub(super) fn load_existing_entry_structural(
     read_view
         .read_index_entry(index, &raw_key)?
         .map(|raw_entry| {
-            raw_entry.decode_row_identity(&raw_key).map_err(|err| {
-                InternalError::structural_index_entry_corruption(entity_path, index_fields, err)
-            })
+            raw_entry
+                .decode_row_identity(&raw_key)
+                .map_err(|_| InternalError::structural_index_entry_corruption())
         })
         .transpose()
 }

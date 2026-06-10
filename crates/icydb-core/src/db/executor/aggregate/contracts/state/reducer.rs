@@ -29,8 +29,8 @@ pub(in crate::db::executor) enum ScalarAggregateReducerState {
 
 impl ScalarAggregateReducerState {
     // Build the canonical scalar reducer-state mismatch for one aggregate kind.
-    fn state_mismatch(kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(format!("aggregate reducer {kind} state mismatch"))
+    fn state_mismatch(_kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     /// Build the initial scalar reducer state for one supported scalar terminal.
@@ -187,10 +187,8 @@ pub(in crate::db::executor::aggregate::contracts::state) enum GroupedAggregateRe
 
 impl GroupedAggregateReducerState {
     // Build the canonical grouped reducer-state mismatch for one aggregate kind.
-    fn state_mismatch(kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped aggregate reducer {kind} state mismatch"
-        ))
+    fn state_mismatch(_kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     /// Build the initial grouped reducer state for one aggregate terminal.

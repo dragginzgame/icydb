@@ -77,32 +77,38 @@ impl AcceptedSchemaSnapshot {
     /// store and raw schema codec. Owner-local tests may use `new` to build
     /// deliberately inconsistent fixtures that exercise accessor authority.
     pub(in crate::db) fn try_new(snapshot: PersistedSchemaSnapshot) -> Result<Self, InternalError> {
-        if let Some(detail) = schema_snapshot_integrity_detail(
+        if schema_snapshot_integrity_detail(
             "accepted schema snapshot",
             snapshot.version(),
             snapshot.primary_key_field_ids(),
             snapshot.row_layout(),
             snapshot.fields(),
-        ) {
-            return Err(InternalError::store_invariant(detail));
+        )
+        .is_some()
+        {
+            return Err(InternalError::store_invariant());
         }
 
-        if let Some(detail) = schema_snapshot_index_integrity_detail(
+        if schema_snapshot_index_integrity_detail(
             "accepted schema snapshot",
             snapshot.row_layout(),
             snapshot.fields(),
             snapshot.indexes(),
-        ) {
-            return Err(InternalError::store_invariant(detail));
+        )
+        .is_some()
+        {
+            return Err(InternalError::store_invariant());
         }
 
-        if let Some(detail) = schema_snapshot_relation_integrity_detail(
+        if schema_snapshot_relation_integrity_detail(
             "accepted schema snapshot",
             snapshot.row_layout(),
             snapshot.fields(),
             snapshot.relations(),
-        ) {
-            return Err(InternalError::store_invariant(detail));
+        )
+        .is_some()
+        {
+            return Err(InternalError::store_invariant());
         }
 
         Ok(Self { snapshot })

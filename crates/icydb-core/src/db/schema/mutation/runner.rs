@@ -28,22 +28,6 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
     Diagnostics,
 }
 
-impl SchemaMutationRunnerPhase {
-    #[must_use]
-    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Preflight => "preflight",
-            Self::StageStores => "stage_stores",
-            Self::BuildPhysicalState => "build_physical_state",
-            Self::ValidatePhysicalState => "validate_physical_state",
-            Self::InvalidateRuntimeState => "invalidate_runtime_state",
-            Self::PublishSnapshot => "publish_snapshot",
-            Self::PublishPhysicalStore => "publish_physical_store",
-            Self::Diagnostics => "diagnostics",
-        }
-    }
-}
-
 ///
 /// SchemaMutationDeveloperKind
 ///
@@ -59,15 +43,6 @@ impl SchemaMutationRunnerPhase {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationDeveloperKind {
     AddFieldPathIndex,
-}
-
-impl SchemaMutationDeveloperKind {
-    #[must_use]
-    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
-        match self {
-            Self::AddFieldPathIndex => "add_field_path_index",
-        }
-    }
 }
 
 ///
@@ -88,17 +63,6 @@ pub(in crate::db::schema) enum SchemaMutationValidationStatus {
     Failed,
 }
 
-impl SchemaMutationValidationStatus {
-    #[must_use]
-    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
-        match self {
-            Self::NotStarted => "not_started",
-            Self::Passed => "passed",
-            Self::Failed => "failed",
-        }
-    }
-}
-
 ///
 /// SchemaMutationPublishStatus
 ///
@@ -116,17 +80,6 @@ pub(in crate::db::schema) enum SchemaMutationPublishStatus {
     NotStarted,
     Published,
     Failed,
-}
-
-impl SchemaMutationPublishStatus {
-    #[must_use]
-    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
-        match self {
-            Self::NotStarted => "not_started",
-            Self::Published => "published",
-            Self::Failed => "failed",
-        }
-    }
 }
 
 ///
@@ -235,23 +188,6 @@ impl SchemaMutationDeveloperReport {
     #[must_use]
     pub(in crate::db::schema) const fn publish_status(&self) -> SchemaMutationPublishStatus {
         self.publish_status
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) fn summary(&self) -> String {
-        format!(
-            "phase={} mutation_kind={} entity='{}' target_index='{}' target_store='{}' target_fields='{}' rows_scanned={} index_keys_written={} validation_status={} publish_status={}",
-            self.phase.as_str(),
-            self.mutation_kind.as_str(),
-            self.entity_path,
-            self.target_index,
-            self.target_store,
-            self.target_fields.join(","),
-            self.rows_scanned,
-            self.index_keys_written,
-            self.validation_status.as_str(),
-            self.publish_status.as_str(),
-        )
     }
 }
 

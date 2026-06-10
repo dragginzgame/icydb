@@ -268,10 +268,10 @@ fn register_store_rejects_allocation_capability_mismatch() {
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("allocation identities do not match storage capabilities"),
-        "allocation/capability mismatch should be diagnosed"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "allocation/capability mismatch should stay store-invariant classified",
     );
 }
 
@@ -295,10 +295,10 @@ fn register_store_rejects_journaled_capabilities_without_journal_allocation_iden
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("allocation identities do not match storage capabilities"),
-        "journal allocation/capability mismatch should be diagnosed"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "journal allocation/capability mismatch should stay store-invariant classified",
     );
 }
 
@@ -346,10 +346,10 @@ fn register_store_rejects_stable_capabilities_with_journal_allocation_identity()
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("allocation identities do not match storage capabilities"),
-        "stable/journal allocation mismatch should be diagnosed"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "stable/journal allocation mismatch should stay store-invariant classified",
     );
 }
 
@@ -362,10 +362,10 @@ fn missing_store_path_rejected_before_access() {
 
     assert_eq!(err.class, ErrorClass::Internal);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("store 'store_registry_tests::Missing' not found"),
-        "missing store lookup should include the missing path"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
+        "missing store lookup should stay internal classified",
     );
 }
 
@@ -395,10 +395,10 @@ fn duplicate_store_registration_is_rejected() {
         .expect_err("duplicate registration should fail");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("store 'store_registry_tests::Store' already registered"),
-        "duplicate registration should include the conflicting path"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "duplicate registration should stay store-invariant classified",
     );
 }
 
@@ -428,15 +428,9 @@ fn alias_store_registration_reusing_same_store_triplet_is_rejected() {
         .expect_err("alias registration reusing the same store triplet should fail");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains(
-            "store 'store_registry_tests::StoreAlias' reuses the same row/index/schema store triplet"
-        ),
-        "alias registration should include conflicting alias path"
-    );
-    assert!(
-        err.message
-            .contains("registered as 'store_registry_tests::Store'"),
-        "alias registration should include original path"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "alias registration should report a compact store invariant",
     );
 }

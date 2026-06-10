@@ -15,6 +15,26 @@ use thiserror::Error as ThisError;
 const COMPACT_QUERY_DIAGNOSTIC_MESSAGE: &str = "query diagnostic";
 const COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE: &str = "runtime diagnostic";
 const COMPACT_SCHEMA_DDL_STORE_MESSAGE: &str = "schema DDL diagnostic";
+const COMPACT_STORE_DIAGNOSTIC_MESSAGE: &str = "store diagnostic";
+const COMPACT_INDEX_DIAGNOSTIC_MESSAGE: &str = "index diagnostic";
+const COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE: &str = "serialize diagnostic";
+const COMPACT_IDENTITY_DIAGNOSTIC_MESSAGE: &str = "identity diagnostic";
+
+const fn compact_message_for(_class: ErrorClass, origin: ErrorOrigin) -> &'static str {
+    match origin {
+        ErrorOrigin::Serialize => COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
+        ErrorOrigin::Store => COMPACT_STORE_DIAGNOSTIC_MESSAGE,
+        ErrorOrigin::Index => COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
+        ErrorOrigin::Identity => COMPACT_IDENTITY_DIAGNOSTIC_MESSAGE,
+        ErrorOrigin::Query | ErrorOrigin::Planner | ErrorOrigin::Response => {
+            COMPACT_QUERY_DIAGNOSTIC_MESSAGE
+        }
+        ErrorOrigin::Cursor
+        | ErrorOrigin::Recovery
+        | ErrorOrigin::Executor
+        | ErrorOrigin::Interface => COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
+    }
+}
 
 // ============================================================================
 // INTERNAL ERROR TAXONOMY — ARCHITECTURAL CONTRACT
@@ -134,18 +154,18 @@ impl InternalError {
     /// (class, origin) combinations but does not guarantee a detail payload.
     #[cold]
     #[inline(never)]
-    pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
-        let message = message.into();
+    pub fn new(class: ErrorClass, origin: ErrorOrigin, _message: impl Into<String>) -> Self {
+        let message = compact_message_for(class, origin);
 
         let detail = match (class, origin) {
             (ErrorClass::Corruption, ErrorOrigin::Store) => {
                 Some(ErrorDetail::Store(StoreError::Corrupt {
-                    message: message.clone(),
+                    message: message.to_string(),
                 }))
             }
             (ErrorClass::InvariantViolation, ErrorOrigin::Store) => {
                 Some(ErrorDetail::Store(StoreError::InvariantViolation {
-                    message: message.clone(),
+                    message: message.to_string(),
                 }))
             }
             _ => None,
@@ -154,7 +174,7 @@ impl InternalError {
         Self {
             class,
             origin,
-            message,
+            message: message.to_string(),
             detail,
         }
     }
@@ -221,68 +241,60 @@ impl InternalError {
         Self::new(class, origin, message)
     }
 
-    /// Rebuild this error with a new message while preserving class/origin taxonomy.
+    /// Preserve taxonomy while discarding legacy prose relabeling.
     #[cold]
     #[inline(never)]
-    pub(crate) fn with_message(self, message: impl Into<String>) -> Self {
-        Self::classified(self.class, self.origin, message)
+    pub(crate) fn with_message(self, _message: impl Into<String>) -> Self {
+        self
     }
 
-    /// Rebuild this error with a new origin while preserving class/message.
+    /// Rebuild this error with a new origin while preserving class taxonomy.
     ///
     /// Origin-scoped detail payloads are intentionally dropped when re-origining.
     #[cold]
     #[inline(never)]
     pub(crate) fn with_origin(self, origin: ErrorOrigin) -> Self {
-        Self::classified(self.class, origin, self.message)
+        Self::classified(self.class, origin, "")
     }
 
     /// Construct an index-origin invariant violation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn index_invariant(message: impl Into<String>) -> Self {
+    pub(crate) fn index_invariant(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Index,
-            message.into(),
+            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
         )
     }
 
     /// Construct the canonical index field-count invariant for key building.
     pub(crate) fn index_key_field_count_exceeds_max(
-        index_name: &str,
-        field_count: usize,
-        max_fields: usize,
+        _index_name: &str,
+        _field_count: usize,
+        _max_fields: usize,
     ) -> Self {
-        Self::index_invariant(format!(
-            "index '{index_name}' has {field_count} fields (max {max_fields})",
-        ))
+        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical index-key source-field-missing-on-model invariant.
-    pub(crate) fn index_key_item_field_missing_on_entity_model(field: &str) -> Self {
-        Self::index_invariant(format!(
-            "index key item field missing on entity model: {field}",
-        ))
+    pub(crate) fn index_key_item_field_missing_on_entity_model(_field: &str) -> Self {
+        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical index-key source-field-missing-on-row invariant.
-    pub(crate) fn index_key_item_field_missing_on_lookup_row(field: &str) -> Self {
-        Self::index_invariant(format!(
-            "index key item field missing on lookup row: {field}",
-        ))
+    pub(crate) fn index_key_item_field_missing_on_lookup_row(_field: &str) -> Self {
+        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical index-expression source-type mismatch invariant.
     pub(crate) fn index_expression_source_type_mismatch(
-        index_name: &str,
-        expression: impl fmt::Display,
-        expected: &str,
-        source_label: &str,
+        _index_name: &str,
+        _expression: impl fmt::Display,
+        _expected: &str,
+        _source_label: &str,
     ) -> Self {
-        Self::index_invariant(format!(
-            "index '{index_name}' expression '{expression}' expected {expected} source value, got {source_label}",
-        ))
+        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a planner-origin invariant violation for executor-boundary
@@ -324,120 +336,107 @@ impl InternalError {
     /// Construct an executor-origin invariant violation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn executor_invariant(message: impl Into<String>) -> Self {
+    pub(crate) fn executor_invariant(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Executor,
-            message.into(),
+            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
         )
     }
 
     /// Construct an executor-origin internal error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn executor_internal(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Internal, ErrorOrigin::Executor, message.into())
+    pub(crate) fn executor_internal(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Executor,
+            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct an executor-origin unsupported error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn executor_unsupported(message: impl Into<String>) -> Self {
+    pub(crate) fn executor_unsupported(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::Unsupported,
             ErrorOrigin::Executor,
-            message.into(),
+            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
         )
     }
 
     /// Construct an executor-origin save-preflight primary-key missing invariant.
-    pub(crate) fn mutation_entity_primary_key_missing(entity_path: &str, field_name: &str) -> Self {
-        Self::executor_invariant(format!(
-            "entity primary key field missing: {entity_path} field={field_name}",
-        ))
+    pub(crate) fn mutation_entity_primary_key_missing(
+        _entity_path: &str,
+        _field_name: &str,
+    ) -> Self {
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight primary-key invalid-value invariant.
     pub(crate) fn mutation_entity_primary_key_invalid_value(
-        entity_path: &str,
-        field_name: &str,
-        value: &crate::value::Value,
+        _entity_path: &str,
+        _field_name: &str,
+        _value: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "entity primary key field has invalid value: {entity_path} field={field_name} value={value:?}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight primary-key type mismatch invariant.
     pub(crate) fn mutation_entity_primary_key_type_mismatch(
-        entity_path: &str,
-        field_name: &str,
-        value: &crate::value::Value,
+        _entity_path: &str,
+        _field_name: &str,
+        _value: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "entity primary key field type mismatch: {entity_path} field={field_name} value={value:?}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight primary-key identity mismatch invariant.
     pub(crate) fn mutation_entity_primary_key_mismatch(
-        entity_path: &str,
-        field_name: &str,
-        field_value: &crate::value::Value,
-        identity_key: &crate::value::Value,
+        _entity_path: &str,
+        _field_name: &str,
+        _field_value: &crate::value::Value,
+        _identity_key: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "entity primary key mismatch: {entity_path} field={field_name} field_value={field_value:?} id_key={identity_key:?}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight field-missing invariant.
     pub(crate) fn mutation_entity_field_missing(
-        entity_path: &str,
-        field_name: &str,
-        indexed: bool,
+        _entity_path: &str,
+        _field_name: &str,
+        _indexed: bool,
     ) -> Self {
-        let indexed_note = if indexed { " (indexed)" } else { "" };
-
-        Self::executor_invariant(format!(
-            "entity field missing: {entity_path} field={field_name}{indexed_note}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin sparse structural patch required-field invariant.
     pub(crate) fn mutation_structural_patch_required_field_missing(
-        entity_path: &str,
-        field_name: &str,
+        _entity_path: &str,
+        _field_name: &str,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "structural patch missing required field: {entity_path} field={field_name}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight field-type mismatch invariant.
     pub(crate) fn mutation_entity_field_type_mismatch(
-        entity_path: &str,
-        field_name: &str,
-        value: &crate::value::Value,
+        _entity_path: &str,
+        _field_name: &str,
+        _value: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "entity field type mismatch: {entity_path} field={field_name} value={value:?}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin generated-field authored-write rejection.
-    pub(crate) fn mutation_generated_field_explicit(entity_path: &str, field_name: &str) -> Self {
-        Self::executor_unsupported(format!(
-            "generated field may not be explicitly written: {entity_path} field={field_name}",
-        ))
+    pub(crate) fn mutation_generated_field_explicit(_entity_path: &str, _field_name: &str) -> Self {
+        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin typed create omission rejection.
     #[must_use]
-    pub fn mutation_create_missing_authored_fields(entity_path: &str, field_names: &str) -> Self {
-        Self::executor_unsupported(format!(
-            "create requires explicit values for authorable fields {field_names}: {entity_path}",
-        ))
+    pub fn mutation_create_missing_authored_fields(_entity_path: &str, _field_names: &str) -> Self {
+        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin mutation result invariant.
@@ -445,87 +444,68 @@ impl InternalError {
     /// This constructor lands ahead of the public structural mutation surface,
     /// so the library target may not route through it until that caller exists.
     pub(crate) fn mutation_structural_after_image_invalid(
-        entity_path: &str,
-        data_key: impl fmt::Display,
-        detail: impl AsRef<str>,
+        _entity_path: &str,
+        _data_key: impl fmt::Display,
+        _detail: impl AsRef<str>,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "mutation result is invalid: {entity_path} key={data_key} ({})",
-            detail.as_ref(),
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin mutation unknown-field invariant.
-    pub(crate) fn mutation_structural_field_unknown(entity_path: &str, field_name: &str) -> Self {
-        Self::executor_invariant(format!(
-            "mutation field not found: {entity_path} field={field_name}",
-        ))
+    pub(crate) fn mutation_structural_field_unknown(_entity_path: &str, _field_name: &str) -> Self {
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight decimal-scale unsupported error.
     pub(crate) fn mutation_decimal_scale_mismatch(
-        entity_path: &str,
-        field_name: &str,
-        expected_scale: impl fmt::Display,
-        actual_scale: impl fmt::Display,
+        _entity_path: &str,
+        _field_name: &str,
+        _expected_scale: impl fmt::Display,
+        _actual_scale: impl fmt::Display,
     ) -> Self {
-        Self::executor_unsupported(format!(
-            "decimal field scale mismatch: {entity_path} field={field_name} expected_scale={expected_scale} actual_scale={actual_scale}",
-        ))
+        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight text-length unsupported error.
     pub(crate) fn mutation_text_max_len_exceeded(
-        entity_path: &str,
-        field_name: &str,
-        max_len: impl fmt::Display,
-        actual_len: impl fmt::Display,
+        _entity_path: &str,
+        _field_name: &str,
+        _max_len: impl fmt::Display,
+        _actual_len: impl fmt::Display,
     ) -> Self {
-        Self::executor_unsupported(format!(
-            "text length exceeds max_len: {entity_path} field={field_name} max_len={max_len} actual_len={actual_len}",
-        ))
+        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight set-encoding invariant.
-    pub(crate) fn mutation_set_field_list_required(entity_path: &str, field_name: &str) -> Self {
-        Self::executor_invariant(format!(
-            "set field must encode as Value::List: {entity_path} field={field_name}",
-        ))
+    pub(crate) fn mutation_set_field_list_required(_entity_path: &str, _field_name: &str) -> Self {
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight set-canonicality invariant.
-    pub(crate) fn mutation_set_field_not_canonical(entity_path: &str, field_name: &str) -> Self {
-        Self::executor_invariant(format!(
-            "set field must be strictly ordered and deduplicated: {entity_path} field={field_name}",
-        ))
+    pub(crate) fn mutation_set_field_not_canonical(_entity_path: &str, _field_name: &str) -> Self {
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight map-encoding invariant.
-    pub(crate) fn mutation_map_field_map_required(entity_path: &str, field_name: &str) -> Self {
-        Self::executor_invariant(format!(
-            "map field must encode as Value::Map: {entity_path} field={field_name}",
-        ))
+    pub(crate) fn mutation_map_field_map_required(_entity_path: &str, _field_name: &str) -> Self {
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight map-entry invariant.
     pub(crate) fn mutation_map_field_entries_invalid(
-        entity_path: &str,
-        field_name: &str,
-        detail: impl fmt::Display,
+        _entity_path: &str,
+        _field_name: &str,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "map field entries violate map invariants: {entity_path} field={field_name} ({detail})",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin save-preflight map-canonicality invariant.
     pub(crate) fn mutation_map_field_entries_not_canonical(
-        entity_path: &str,
-        field_name: &str,
+        _entity_path: &str,
+        _field_name: &str,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "map field entries are not in canonical deterministic order: {entity_path} field={field_name}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a query-origin scalar page invariant for ordering before filtering.
@@ -610,22 +590,18 @@ impl InternalError {
 
     /// Construct an executor-origin mutation unsupported error for duplicate atomic save keys.
     pub(crate) fn mutation_atomic_save_duplicate_key(
-        entity_path: &str,
-        key: impl fmt::Display,
+        _entity_path: &str,
+        _key: impl fmt::Display,
     ) -> Self {
-        Self::executor_unsupported(format!(
-            "atomic save batch rejected duplicate key: entity={entity_path} key={key}",
-        ))
+        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an executor-origin mutation invariant for index-store generation drift.
     pub(crate) fn mutation_index_store_generation_changed(
-        expected_generation: u64,
-        observed_generation: u64,
+        _expected_generation: u64,
+        _observed_generation: u64,
     ) -> Self {
-        Self::executor_invariant(format!(
-            "index store generation changed between preflight and apply: expected {expected_generation}, found {observed_generation}",
-        ))
+        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a planner-origin invariant violation.
@@ -645,36 +621,35 @@ impl InternalError {
     }
 
     /// Construct a store-origin invariant violation.
-    pub(crate) fn store_invariant(message: impl Into<String>) -> Self {
+    pub(crate) fn store_invariant() -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Store,
-            message.into(),
+            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
         )
     }
 
     /// Construct the canonical duplicate runtime-hook entity-tag invariant.
     pub(crate) fn duplicate_runtime_hooks_for_entity_tag(
-        entity_tag: crate::types::EntityTag,
+        _entity_tag: crate::types::EntityTag,
     ) -> Self {
-        Self::store_invariant(format!(
-            "duplicate runtime hooks for entity tag '{}'",
-            entity_tag.value()
-        ))
+        Self::store_invariant()
     }
 
     /// Construct the canonical duplicate runtime-hook entity-path invariant.
-    pub(crate) fn duplicate_runtime_hooks_for_entity_path(entity_path: &str) -> Self {
-        Self::store_invariant(format!(
-            "duplicate runtime hooks for entity path '{entity_path}'"
-        ))
+    pub(crate) fn duplicate_runtime_hooks_for_entity_path(_entity_path: &str) -> Self {
+        Self::store_invariant()
     }
 
     /// Construct a store-origin internal error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn store_internal(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Internal, ErrorOrigin::Store, message.into())
+    pub(crate) fn store_internal(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Store,
+            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct the canonical unconfigured commit-memory id internal error.
@@ -685,20 +660,16 @@ impl InternalError {
     }
 
     /// Construct the canonical commit-memory id mismatch internal error.
-    pub(crate) fn commit_memory_id_mismatch(cached_id: u8, configured_id: u8) -> Self {
-        Self::store_internal(format!(
-            "commit memory id mismatch: cached={cached_id}, configured={configured_id}",
-        ))
+    pub(crate) fn commit_memory_id_mismatch(_cached_id: u8, _configured_id: u8) -> Self {
+        Self::store_internal(COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical commit-memory stable-key mismatch internal error.
     pub(crate) fn commit_memory_stable_key_mismatch(
-        cached_key: &str,
-        configured_key: &str,
+        _cached_key: &str,
+        _configured_key: &str,
     ) -> Self {
-        Self::store_internal(format!(
-            "commit memory stable key mismatch: cached={cached_key}, configured={configured_key}",
-        ))
+        Self::store_internal(COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical missing rollback-row invariant for delete execution.
@@ -708,20 +679,22 @@ impl InternalError {
 
     /// Construct the canonical recovery-integrity totals corruption error.
     pub(crate) fn recovery_integrity_validation_failed(
-        missing_index_entries: u64,
-        divergent_index_entries: u64,
-        orphan_index_references: u64,
+        _missing_index_entries: u64,
+        _divergent_index_entries: u64,
+        _orphan_index_references: u64,
     ) -> Self {
-        Self::store_corruption(format!(
-            "recovery integrity validation failed: missing_index_entries={missing_index_entries} divergent_index_entries={divergent_index_entries} orphan_index_references={orphan_index_references}",
-        ))
+        Self::store_corruption()
     }
 
     /// Construct an index-origin internal error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn index_internal(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Internal, ErrorOrigin::Index, message.into())
+    pub(crate) fn index_internal(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Index,
+            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct the canonical missing old entity-key internal error for structural index removal.
@@ -806,127 +779,130 @@ impl InternalError {
     /// Construct a serialize-origin internal error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn serialize_internal(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Internal, ErrorOrigin::Serialize, message.into())
+    pub(crate) fn serialize_internal(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Serialize,
+            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct the canonical persisted-row encode internal error.
-    pub(crate) fn persisted_row_encode_failed(detail: impl fmt::Display) -> Self {
-        Self::serialize_internal(format!("row encode failed: {detail}"))
+    pub(crate) fn persisted_row_encode_failed(_detail: impl fmt::Display) -> Self {
+        Self::persisted_row_encode_internal()
+    }
+
+    /// Construct the compact persisted-row encode internal error.
+    pub(crate) fn persisted_row_encode_internal() -> Self {
+        Self::serialize_internal("row encode failed")
     }
 
     /// Construct the canonical persisted-row field encode internal error.
     pub(crate) fn persisted_row_field_encode_failed(
         field_name: &str,
-        detail: impl fmt::Display,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::serialize_internal(format!(
-            "row encode failed for field '{field_name}': {detail}",
-        ))
+        Self::persisted_row_field_encode_internal(field_name)
+    }
+
+    /// Construct the compact persisted-row field encode internal error.
+    pub(crate) fn persisted_row_field_encode_internal(_field_name: &str) -> Self {
+        Self::persisted_row_encode_internal()
     }
 
     /// Construct the canonical bytes(field) value encode internal error.
-    pub(crate) fn bytes_field_value_encode_failed(detail: impl fmt::Display) -> Self {
-        Self::serialize_internal(format!("bytes(field) value encode failed: {detail}"))
+    pub(crate) fn bytes_field_value_encode_failed(_detail: impl fmt::Display) -> Self {
+        Self::serialize_internal(COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a store-origin corruption error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Corruption, ErrorOrigin::Store, message.into())
+    pub(crate) fn store_corruption() -> Self {
+        Self::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct a store-origin commit-marker corruption error.
-    pub(crate) fn commit_corruption(detail: impl fmt::Display) -> Self {
-        Self::store_corruption(format!("commit marker corrupted: {detail}"))
+    pub(crate) fn commit_corruption(_detail: impl fmt::Display) -> Self {
+        Self::store_corruption()
     }
 
     /// Construct a store-origin commit-marker component corruption error.
-    pub(crate) fn commit_component_corruption(component: &str, detail: impl fmt::Display) -> Self {
-        Self::store_corruption(format!("commit marker {component} corrupted: {detail}"))
+    pub(crate) fn commit_component_corruption(
+        _component: &str,
+        _detail: impl fmt::Display,
+    ) -> Self {
+        Self::commit_corruption(COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical commit-marker id generation internal error.
-    pub(crate) fn commit_id_generation_failed(detail: impl fmt::Display) -> Self {
-        Self::store_internal(format!("commit id generation failed: {detail}"))
+    pub(crate) fn commit_id_generation_failed(_detail: impl fmt::Display) -> Self {
+        Self::store_internal(COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical commit-marker payload u32-length-limit error.
-    pub(crate) fn commit_marker_payload_exceeds_u32_length_limit(label: &str, len: usize) -> Self {
-        Self::store_unsupported(format!("{label} exceeds u32 length limit: {len} bytes"))
+    pub(crate) fn commit_marker_payload_exceeds_u32_length_limit(
+        _label: &str,
+        _len: usize,
+    ) -> Self {
+        Self::store_unsupported()
     }
 
     /// Construct the canonical commit-marker component invalid-length corruption error.
     pub(crate) fn commit_component_length_invalid(
-        component: &str,
-        len: usize,
-        expected: impl fmt::Display,
+        _component: &str,
+        _len: usize,
+        _expected: impl fmt::Display,
     ) -> Self {
-        Self::commit_component_corruption(
-            component,
-            format!("invalid length {len}, expected {expected}"),
-        )
+        Self::commit_corruption(COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical commit-marker max-size corruption error.
-    pub(crate) fn commit_marker_exceeds_max_size(size: usize, max_size: u32) -> Self {
-        Self::commit_corruption(format!(
-            "commit marker exceeds max size: {size} bytes (limit {max_size})",
-        ))
+    pub(crate) fn commit_marker_exceeds_max_size(_size: usize, _max_size: u32) -> Self {
+        Self::commit_corruption(COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical commit-control slot max-size unsupported error.
-    pub(crate) fn commit_control_slot_exceeds_max_size(size: usize, max_size: u32) -> Self {
-        Self::store_unsupported(format!(
-            "commit control slot exceeds max size: {size} bytes (limit {max_size})",
-        ))
+    pub(crate) fn commit_control_slot_exceeds_max_size(_size: usize, _max_size: u32) -> Self {
+        Self::store_unsupported()
     }
 
     /// Construct the canonical commit-control marker-bytes length-limit error.
-    pub(crate) fn commit_control_slot_marker_bytes_exceed_u32_length_limit(size: usize) -> Self {
-        Self::store_unsupported(format!(
-            "commit marker bytes exceed u32 length limit: {size} bytes",
-        ))
+    pub(crate) fn commit_control_slot_marker_bytes_exceed_u32_length_limit(_size: usize) -> Self {
+        Self::store_unsupported()
     }
 
     /// Construct the canonical startup index-rebuild invalid-data-key corruption error.
     pub(crate) fn startup_index_rebuild_invalid_data_key(
-        store_path: &str,
-        detail: impl fmt::Display,
+        _store_path: &str,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::store_corruption(format!(
-            "startup index rebuild failed: invalid data key in store '{store_path}' ({detail})",
-        ))
+        Self::store_corruption()
     }
 
     /// Construct an index-origin corruption error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn index_corruption(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Corruption, ErrorOrigin::Index, message.into())
+    pub(crate) fn index_corruption(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Index,
+            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct the canonical unique-validation corruption wrapper.
-    pub(crate) fn index_unique_validation_corruption(
-        entity_path: &str,
-        fields: &str,
-        detail: impl fmt::Display,
-    ) -> Self {
-        Self::index_plan_index_corruption(format!(
-            "index corrupted: {entity_path} ({fields}) -> {detail}",
-        ))
+    pub(crate) fn index_unique_validation_corruption() -> Self {
+        Self::index_plan_index_corruption("unique index corrupted")
     }
 
     /// Construct the canonical structural index-entry corruption wrapper.
-    pub(crate) fn structural_index_entry_corruption(
-        entity_path: &str,
-        fields: &str,
-        detail: impl fmt::Display,
-    ) -> Self {
-        Self::index_plan_index_corruption(format!(
-            "index corrupted: {entity_path} ({fields}) -> {detail}",
-        ))
+    pub(crate) fn structural_index_entry_corruption() -> Self {
+        Self::index_plan_index_corruption("index entry corrupted")
     }
 
     /// Construct the canonical missing new entity-key invariant during unique validation.
@@ -935,39 +911,23 @@ impl InternalError {
     }
 
     /// Construct the canonical unique-validation structural row-decode corruption error.
-    pub(crate) fn index_unique_validation_row_deserialize_failed(
-        data_key: impl fmt::Display,
-        source: impl fmt::Display,
-    ) -> Self {
-        Self::index_plan_serialize_corruption(format!(
-            "failed to structurally deserialize row: {data_key} ({source})"
-        ))
+    pub(crate) fn index_unique_validation_row_deserialize_failed() -> Self {
+        Self::index_plan_serialize_corruption("unique row decode failed")
     }
 
     /// Construct the canonical unique-validation primary-key slot decode corruption error.
-    pub(crate) fn index_unique_validation_primary_key_decode_failed(
-        data_key: impl fmt::Display,
-        source: impl fmt::Display,
-    ) -> Self {
-        Self::index_plan_serialize_corruption(format!(
-            "failed to decode structural primary-key slot: {data_key} ({source})"
-        ))
+    pub(crate) fn index_unique_validation_primary_key_decode_failed() -> Self {
+        Self::index_plan_serialize_corruption("unique primary key decode failed")
     }
 
     /// Construct the canonical unique-validation stored key rebuild corruption error.
-    pub(crate) fn index_unique_validation_key_rebuild_failed(
-        data_key: impl fmt::Display,
-        entity_path: &str,
-        source: impl fmt::Display,
-    ) -> Self {
-        Self::index_plan_serialize_corruption(format!(
-            "failed to structurally decode unique key row {data_key} for {entity_path}: {source}",
-        ))
+    pub(crate) fn index_unique_validation_key_rebuild_failed() -> Self {
+        Self::index_plan_serialize_corruption("unique key rebuild failed")
     }
 
     /// Construct the canonical unique-validation missing-row corruption error.
-    pub(crate) fn index_unique_validation_row_required(data_key: impl fmt::Display) -> Self {
-        Self::index_plan_store_corruption(format!("missing row: {data_key}"))
+    pub(crate) fn index_unique_validation_row_required() -> Self {
+        Self::index_plan_store_corruption()
     }
 
     /// Construct the canonical index-only predicate missing-component invariant.
@@ -989,39 +949,42 @@ impl InternalError {
 
     /// Construct the canonical index-scan key-decode corruption error.
     pub(crate) fn index_scan_key_corrupted_during(
-        context: &'static str,
-        err: impl fmt::Display,
+        _context: &'static str,
+        _err: impl fmt::Display,
     ) -> Self {
-        Self::index_corruption(format!("index key corrupted during {context}: {err}"))
+        Self::index_corruption("index key corrupted")
     }
 
     /// Construct the canonical index-scan missing projection-component invariant.
     pub(crate) fn index_projection_component_required(
-        index_name: &str,
-        component_index: usize,
+        _index_name: &str,
+        _component_index: usize,
     ) -> Self {
-        Self::index_invariant(format!(
-            "index projection referenced missing component: index='{index_name}' component_index={component_index}",
-        ))
+        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical scan-time index-entry decode corruption error.
-    pub(crate) fn index_entry_decode_failed(err: impl fmt::Display) -> Self {
-        Self::index_corruption(err.to_string())
+    pub(crate) fn index_entry_decode_failed(_err: impl fmt::Display) -> Self {
+        Self::index_corruption("index entry decode failed")
     }
 
     /// Construct a serialize-origin corruption error.
-    pub(crate) fn serialize_corruption(message: impl Into<String>) -> Self {
+    pub(crate) fn serialize_corruption(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::Corruption,
             ErrorOrigin::Serialize,
-            message.into(),
+            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
         )
     }
 
     /// Construct the canonical persisted-row decode corruption error.
-    pub(crate) fn persisted_row_decode_failed(detail: impl fmt::Display) -> Self {
-        Self::serialize_corruption(format!("row decode: {detail}"))
+    pub(crate) fn persisted_row_decode_failed(_detail: impl fmt::Display) -> Self {
+        Self::persisted_row_decode_corruption()
+    }
+
+    /// Construct the compact persisted-row decode corruption error.
+    pub(crate) fn persisted_row_decode_corruption() -> Self {
+        Self::serialize_corruption("row decode failed")
     }
 
     /// Construct the canonical persisted-row field decode corruption error.
@@ -1033,8 +996,8 @@ impl InternalError {
     }
 
     /// Construct the compact persisted-row field decode corruption error.
-    pub(crate) fn persisted_row_field_decode_corruption(field_name: &str) -> Self {
-        Self::serialize_corruption(format!("row decode failed for field '{field_name}'"))
+    pub(crate) fn persisted_row_field_decode_corruption(_field_name: &str) -> Self {
+        Self::persisted_row_decode_corruption()
     }
 
     /// Construct the canonical persisted-row field-kind decode corruption error.
@@ -1077,238 +1040,204 @@ impl InternalError {
     }
 
     /// Construct the canonical persisted-row structural slot-lookup invariant.
-    pub(crate) fn persisted_row_slot_lookup_out_of_bounds(model_path: &str, slot: usize) -> Self {
-        Self::index_invariant(format!(
-            "slot lookup outside model bounds during structural row access: model='{model_path}' slot={slot}",
-        ))
+    pub(crate) fn persisted_row_slot_lookup_out_of_bounds(_model_path: &str, _slot: usize) -> Self {
+        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical persisted-row structural slot-cache invariant.
     pub(crate) fn persisted_row_slot_cache_lookup_out_of_bounds(
-        model_path: &str,
-        slot: usize,
+        _model_path: &str,
+        _slot: usize,
     ) -> Self {
-        Self::index_invariant(format!(
-            "slot cache lookup outside model bounds during structural row access: model='{model_path}' slot={slot}",
-        ))
+        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical persisted-row primary-key decode corruption error.
     pub(crate) fn persisted_row_primary_key_not_primary_key_encodable(
-        data_key: impl fmt::Debug,
-        detail: impl fmt::Display,
+        _data_key: impl fmt::Debug,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::persisted_row_decode_failed(format!(
-            "primary-key value is not primary-key encodable: {data_key:?} ({detail})",
-        ))
+        Self::persisted_row_decode_corruption()
     }
 
     /// Construct the canonical persisted-row missing primary-key slot corruption error.
-    pub(crate) fn persisted_row_primary_key_slot_missing(data_key: impl fmt::Debug) -> Self {
-        Self::persisted_row_decode_failed(format!(
-            "missing primary-key slot while validating {data_key:?}",
-        ))
+    pub(crate) fn persisted_row_primary_key_slot_missing(_data_key: impl fmt::Debug) -> Self {
+        Self::persisted_row_decode_corruption()
     }
 
     /// Construct the canonical persisted-row key mismatch corruption error.
-    pub(crate) fn persisted_row_key_mismatch(
-        expected_key: impl fmt::Debug,
-        found_key: impl fmt::Debug,
-    ) -> Self {
-        Self::store_corruption(format!(
-            "row key mismatch: expected {expected_key:?}, found {found_key:?}",
-        ))
+    pub(crate) fn persisted_row_key_mismatch() -> Self {
+        Self::store_corruption()
     }
 
     /// Construct the canonical persisted-row missing declared-field corruption error.
     pub(crate) fn persisted_row_declared_field_missing(field_name: &str) -> Self {
-        Self::persisted_row_decode_failed(format!("missing declared field `{field_name}`"))
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical data-key entity mismatch corruption error.
-    pub(crate) fn data_key_entity_mismatch(
-        expected: impl fmt::Display,
-        found: impl fmt::Display,
-    ) -> Self {
-        Self::store_corruption(format!(
-            "data key entity mismatch: expected {expected}, found {found}",
-        ))
+    pub(crate) fn data_key_entity_mismatch() -> Self {
+        Self::store_corruption()
     }
 
     /// Construct the canonical reverse-index ordinal overflow internal error.
     pub(crate) fn reverse_index_ordinal_overflow(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        detail: impl fmt::Display,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::index_internal(format!(
-            "reverse index ordinal overflow: source={source_path} field={field_name} target={target_path} ({detail})",
-        ))
+        Self::index_internal(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical reverse-index entry corruption error.
     pub(crate) fn reverse_index_entry_corrupted(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        index_key: impl fmt::Debug,
-        detail: impl fmt::Display,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _index_key: impl fmt::Debug,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::index_corruption(format!(
-            "reverse index entry corrupted: source={source_path} field={field_name} target={target_path} key={index_key:?} ({detail})",
-        ))
+        Self::index_corruption(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical relation-target store missing internal error.
     pub(crate) fn relation_target_store_missing(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        store_path: &str,
-        detail: impl fmt::Display,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _store_path: &str,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::executor_internal(format!(
-            "relation target store missing: source={source_path} field={field_name} target={target_path} store={store_path} ({detail})",
-        ))
+        Self::executor_internal(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical relation-target key decode corruption error.
     pub(crate) fn relation_target_key_decode_failed(
-        context_label: &str,
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        detail: impl fmt::Display,
+        _context_label: &str,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::identity_corruption(format!(
-            "{context_label}: source={source_path} field={field_name} target={target_path} ({detail})",
-        ))
+        Self::identity_corruption(COMPACT_IDENTITY_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical relation-target entity mismatch corruption error.
     pub(crate) fn relation_target_entity_mismatch(
-        context_label: &str,
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        target_entity_name: &str,
-        expected_tag: impl fmt::Display,
-        actual_tag: impl fmt::Display,
+        _context_label: &str,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _target_entity_name: &str,
+        _expected_tag: impl fmt::Display,
+        _actual_tag: impl fmt::Display,
     ) -> Self {
-        Self::store_corruption(format!(
-            "{context_label}: source={source_path} field={field_name} target={target_path} expected={target_entity_name} (tag={expected_tag}) actual_tag={actual_tag}",
-        ))
+        Self::store_corruption()
     }
 
     /// Construct the canonical relation-source row decode corruption error.
     pub(crate) fn relation_source_row_decode_failed(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        detail: impl fmt::Display,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _detail: impl fmt::Display,
     ) -> Self {
-        Self::serialize_corruption(format!(
-            "relation source row decode: source={source_path} field={field_name} target={target_path} ({detail})",
-        ))
+        Self::persisted_row_decode_corruption()
     }
 
     /// Construct the canonical relation-source unsupported scalar relation-key corruption error.
     pub(crate) fn relation_source_row_unsupported_scalar_relation_key(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
     ) -> Self {
-        Self::serialize_corruption(format!(
-            "relation source row decode: unsupported scalar relation key: source={source_path} field={field_name} target={target_path}",
-        ))
+        Self::persisted_row_decode_corruption()
     }
 
     /// Construct the canonical unsupported strong-relation key-kind corruption error.
-    pub(crate) fn relation_source_row_unsupported_key_kind(field_kind: impl fmt::Debug) -> Self {
-        Self::serialize_corruption(format!(
-            "unsupported strong relation key kind during structural decode: {field_kind:?}"
-        ))
+    pub(crate) fn relation_source_row_unsupported_key_kind(_field_kind: impl fmt::Debug) -> Self {
+        Self::persisted_row_decode_corruption()
     }
 
     /// Construct the canonical reverse-index relation-target decode invariant failure.
     pub(crate) fn reverse_index_relation_target_decode_invariant_violated(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
     ) -> Self {
-        Self::executor_internal(format!(
-            "relation target decode invariant violated while preparing reverse index: source={source_path} field={field_name} target={target_path}",
-        ))
+        Self::executor_internal(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct the canonical covering-component empty-payload corruption error.
     pub(crate) fn bytes_covering_component_payload_empty() -> Self {
-        Self::index_corruption("index component payload is empty during covering projection decode")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component truncated bool corruption error.
     pub(crate) fn bytes_covering_bool_payload_truncated() -> Self {
-        Self::index_corruption("bool covering component payload is truncated")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component invalid-length corruption error.
-    pub(crate) fn bytes_covering_component_payload_invalid_length(payload_kind: &str) -> Self {
-        Self::index_corruption(format!(
-            "{payload_kind} covering component payload has invalid length"
-        ))
+    pub(crate) fn bytes_covering_component_payload_invalid_length(_payload_kind: &str) -> Self {
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component invalid-bool corruption error.
     pub(crate) fn bytes_covering_bool_payload_invalid_value() -> Self {
-        Self::index_corruption("bool covering component payload has invalid value")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component invalid text terminator corruption error.
     pub(crate) fn bytes_covering_text_payload_invalid_terminator() -> Self {
-        Self::index_corruption("text covering component payload has invalid terminator")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component trailing-text corruption error.
     pub(crate) fn bytes_covering_text_payload_trailing_bytes() -> Self {
-        Self::index_corruption("text covering component payload contains trailing bytes")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component invalid-UTF-8 text corruption error.
     pub(crate) fn bytes_covering_text_payload_invalid_utf8() -> Self {
-        Self::index_corruption("text covering component payload is not valid UTF-8")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component invalid text escape corruption error.
     pub(crate) fn bytes_covering_text_payload_invalid_escape_byte() -> Self {
-        Self::index_corruption("text covering component payload has invalid escape byte")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical covering-component missing text terminator corruption error.
     pub(crate) fn bytes_covering_text_payload_missing_terminator() -> Self {
-        Self::index_corruption("text covering component payload is missing terminator")
+        Self::index_corruption("covering component corrupted")
     }
 
     /// Construct the canonical missing persisted-field decode error.
     #[must_use]
     pub fn missing_persisted_slot(field_name: &'static str) -> Self {
-        Self::serialize_corruption(format!("row decode: missing required field '{field_name}'"))
+        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct an identity-origin corruption error.
-    pub(crate) fn identity_corruption(message: impl Into<String>) -> Self {
+    pub(crate) fn identity_corruption(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::Corruption,
             ErrorOrigin::Identity,
-            message.into(),
+            COMPACT_IDENTITY_DIAGNOSTIC_MESSAGE,
         )
     }
 
     /// Construct a store-origin unsupported error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn store_unsupported(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Unsupported, ErrorOrigin::Store, message.into())
+    pub(crate) fn store_unsupported() -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Store,
+            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct the canonical schema DDL publication race error.
@@ -1346,56 +1275,59 @@ impl InternalError {
 
     /// Construct the canonical unsupported persisted entity-tag store error.
     pub(crate) fn unsupported_entity_tag_in_data_store(
-        entity_tag: crate::types::EntityTag,
+        _entity_tag: crate::types::EntityTag,
     ) -> Self {
-        Self::store_unsupported(format!(
-            "unsupported entity tag in data store: '{}'",
-            entity_tag.value()
-        ))
+        Self::store_unsupported()
     }
 
     /// Construct the canonical commit-memory id registration failure.
     #[cfg_attr(test, expect(dead_code))]
-    pub(crate) fn commit_memory_id_registration_failed(err: impl fmt::Display) -> Self {
-        Self::store_internal(format!("commit memory id registration failed: {err}"))
+    pub(crate) fn commit_memory_id_registration_failed(_err: impl fmt::Display) -> Self {
+        Self::store_internal(COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an index-origin unsupported error.
-    pub(crate) fn index_unsupported(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Unsupported, ErrorOrigin::Index, message.into())
+    pub(crate) fn index_unsupported(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Index,
+            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct the canonical index-key component size-limit unsupported error.
     pub(crate) fn index_component_exceeds_max_size(
-        key_item: impl fmt::Display,
-        len: usize,
-        max_component_size: usize,
+        _key_item: impl fmt::Display,
+        _len: usize,
+        _max_component_size: usize,
     ) -> Self {
-        Self::index_unsupported(format!(
-            "index component exceeds max size: key item '{key_item}' -> {len} bytes (limit {max_component_size})",
-        ))
+        Self::index_unsupported(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct a serialize-origin unsupported error.
-    pub(crate) fn serialize_unsupported(message: impl Into<String>) -> Self {
+    pub(crate) fn serialize_unsupported(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::Unsupported,
             ErrorOrigin::Serialize,
-            message.into(),
+            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
         )
     }
 
     /// Construct a cursor-origin unsupported error.
-    pub(crate) fn cursor_unsupported(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Unsupported, ErrorOrigin::Cursor, message.into())
+    pub(crate) fn cursor_unsupported(_message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Cursor,
+            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
+        )
     }
 
     /// Construct a serialize-origin incompatible persisted-format error.
-    pub(crate) fn serialize_incompatible_persisted_format(message: impl Into<String>) -> Self {
+    pub(crate) fn serialize_incompatible_persisted_format(_message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::IncompatiblePersistedFormat,
             ErrorOrigin::Serialize,
-            message.into(),
+            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
         )
     }
 
@@ -1504,20 +1436,14 @@ impl InternalError {
         Self {
             class: ErrorClass::NotFound,
             origin: ErrorOrigin::Store,
-            message: format!("data key not found: {key}"),
+            message: COMPACT_STORE_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Store(StoreError::NotFound { key })),
         }
     }
 
     /// Construct a standardized unsupported-entity-path error.
-    pub fn unsupported_entity_path(path: impl Into<String>) -> Self {
-        let path = path.into();
-
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Store,
-            format!("unsupported entity path: '{path}'"),
-        )
+    pub fn unsupported_entity_path(_path: impl Into<String>) -> Self {
+        Self::store_unsupported()
     }
 
     #[must_use]
@@ -1536,13 +1462,14 @@ impl InternalError {
     /// Construct an index-plan corruption error with a canonical prefix.
     #[cold]
     #[inline(never)]
-    pub(crate) fn index_plan_corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
-        let message = message.into();
-        Self::new(
-            ErrorClass::Corruption,
-            origin,
-            format!("corruption detected ({origin}): {message}"),
-        )
+    pub(crate) fn index_plan_corruption(origin: ErrorOrigin, _message: impl Into<String>) -> Self {
+        let message = match origin {
+            ErrorOrigin::Index => COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
+            ErrorOrigin::Store => COMPACT_STORE_DIAGNOSTIC_MESSAGE,
+            ErrorOrigin::Serialize => COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
+            _ => COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
+        };
+        Self::new(ErrorClass::Corruption, origin, message)
     }
 
     /// Construct an index-plan corruption error for index-origin failures.
@@ -1555,8 +1482,8 @@ impl InternalError {
     /// Construct an index-plan corruption error for store-origin failures.
     #[cold]
     #[inline(never)]
-    pub(crate) fn index_plan_store_corruption(message: impl Into<String>) -> Self {
-        Self::index_plan_corruption(ErrorOrigin::Store, message)
+    pub(crate) fn index_plan_store_corruption() -> Self {
+        Self::index_plan_corruption(ErrorOrigin::Store, COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an index-plan corruption error for serialize-origin failures.
@@ -1568,30 +1495,26 @@ impl InternalError {
 
     /// Construct an index-plan invariant violation error with a canonical prefix.
     #[cfg(test)]
-    pub(crate) fn index_plan_invariant(origin: ErrorOrigin, message: impl Into<String>) -> Self {
-        let message = message.into();
+    pub(crate) fn index_plan_invariant(origin: ErrorOrigin, _message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             origin,
-            format!("invariant violation detected ({origin}): {message}"),
+            compact_message_for(ErrorClass::InvariantViolation, origin),
         )
     }
 
     /// Construct an index-plan invariant violation error for store-origin failures.
     #[cfg(test)]
-    pub(crate) fn index_plan_store_invariant(message: impl Into<String>) -> Self {
-        Self::index_plan_invariant(ErrorOrigin::Store, message)
+    pub(crate) fn index_plan_store_invariant() -> Self {
+        Self::index_plan_invariant(ErrorOrigin::Store, COMPACT_STORE_DIAGNOSTIC_MESSAGE)
     }
 
     /// Construct an index uniqueness violation conflict error.
-    pub(crate) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
+    pub(crate) fn index_violation(_path: &str, _index_fields: &[&str]) -> Self {
         Self::new(
             ErrorClass::Conflict,
             ErrorOrigin::Index,
-            format!(
-                "index constraint violation: {path} ({})",
-                index_fields.join(", ")
-            ),
+            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
         )
     }
 }

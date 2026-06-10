@@ -161,11 +161,9 @@ fn mark_projection_expr_slots(
     expr.try_for_each_tree_expr(&mut |node| match node {
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
-            let slot = schema.field_slot_index(field_name).ok_or_else(|| {
-                InternalError::query_invalid_logical_plan(format!(
-                    "projection expression references unknown field '{field_name}'",
-                ))
-            })?;
+            let slot = schema
+                .field_slot_index(field_name)
+                .ok_or_else(|| InternalError::query_invalid_logical_plan(""))?;
             if !referenced.contains(&slot) {
                 referenced.push(slot);
             }
@@ -173,11 +171,9 @@ fn mark_projection_expr_slots(
         }
         Expr::FieldPath(path) => {
             let field_name = path.root().as_str();
-            let slot = schema.field_slot_index(field_name).ok_or_else(|| {
-                InternalError::query_invalid_logical_plan(format!(
-                    "projection expression references unknown field '{field_name}'",
-                ))
-            })?;
+            let slot = schema
+                .field_slot_index(field_name)
+                .ok_or_else(|| InternalError::query_invalid_logical_plan(""))?;
             if !referenced.contains(&slot) {
                 referenced.push(slot);
             }

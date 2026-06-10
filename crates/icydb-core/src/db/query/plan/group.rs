@@ -110,15 +110,12 @@ impl GroupedAggregateExecutionSpec {
     // invariant message for both aggregate inputs and aggregate-local filters.
     fn compile_attached_scalar_expr(
         schema_info: &SchemaInfo,
-        kind: AggregateKind,
-        role: &'static str,
+        _kind: AggregateKind,
+        _role: &'static str,
         expr: &Expr,
     ) -> Result<CompiledExpr, InternalError> {
-        let scalar = compile_scalar_projection_expr_with_schema(schema_info, expr).ok_or_else(|| {
-            InternalError::planner_executor_invariant(format!(
-                "grouped aggregate {role} expression must stay on the scalar seam: kind={kind:?} {role}_expr={expr:?}",
-            ))
-        })?;
+        let scalar = compile_scalar_projection_expr_with_schema(schema_info, expr)
+            .ok_or_else(|| InternalError::planner_executor_invariant(""))?;
 
         Ok(CompiledExpr::compile(&scalar))
     }
@@ -177,13 +174,8 @@ impl GroupedAggregateExecutionSpec {
         let target_slot = self
             .target_field()
             .map(|field| {
-                resolve_aggregate_target_field_slot_from_schema(schema_info, field).ok_or_else(
-                    || {
-                        InternalError::planner_executor_invariant(format!(
-                            "grouped aggregate execution target slot resolution failed: field='{field}'",
-                        ))
-                    },
-                )
+                resolve_aggregate_target_field_slot_from_schema(schema_info, field)
+                    .ok_or_else(|| InternalError::planner_executor_invariant(""))
             })
             .transpose()?;
 
@@ -342,21 +334,17 @@ impl PlannedProjectionLayout {
 
     /// Construct one grouped layout invariant for mixed field/aggregate ordering.
     pub(in crate::db) fn group_fields_must_precede_aggregates() -> InternalError {
-        InternalError::planner_executor_invariant(
-            "grouped projection layout must keep group fields before aggregate terminals",
-        )
+        InternalError::planner_executor_invariant("")
     }
 
     /// Construct one grouped layout invariant for runtime projection splits
     /// that reference a layout position outside the projected value buffer.
     pub(in crate::db) fn projected_position_out_of_bounds(
-        position_kind: &str,
-        position: usize,
-        projected_len: usize,
+        _position_kind: &str,
+        _position: usize,
+        _projected_len: usize,
     ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped projection layout {position_kind} position out of bounds: position={position}, projected_len={projected_len}",
-        ))
+        InternalError::query_executor_invariant("")
     }
 }
 
@@ -817,12 +805,7 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_with_schema_in
                 schema_info,
                 aggregate.target_field(),
             )
-            .ok_or_else(|| {
-                InternalError::planner_executor_invariant(format!(
-                    "grouped DISTINCT strategy target slot resolution failed: field='{}'",
-                    aggregate.target_field(),
-                ))
-            })?;
+            .ok_or_else(|| InternalError::planner_executor_invariant(""))?;
 
             let distinct_kind = aggregate.kind().global_distinct_kind().ok_or_else(|| {
                 InternalError::planner_executor_invariant(
@@ -972,12 +955,10 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
             .map(FieldSlot::field)
             .collect::<Vec<_>>();
 
-        for (index, field) in projection_spec.fields().enumerate() {
+        for field in projection_spec.fields() {
             let root_expr = expression_without_alias(field.expr());
             if !root_expr.references_only_fields(grouped_field_names.as_slice()) {
-                return Err(InternalError::planner_executor_invariant(format!(
-                    "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
-                )));
+                return Err(InternalError::planner_executor_invariant(""));
             }
         }
     }

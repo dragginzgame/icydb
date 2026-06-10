@@ -348,19 +348,11 @@ impl StructuralRowContract {
     // long when trailing retired slots still exist in older physical rows.
     fn validate_physical_slot_count(&self, physical_count: usize) -> Result<(), InternalError> {
         if physical_count != self.field_count() && self.accepted_decode_contract.is_none() {
-            return Err(InternalError::serialize_corruption(format!(
-                "row decode: slot count mismatch: expected {}, found {}",
-                self.field_count(),
-                physical_count,
-            )));
+            return Err(InternalError::persisted_row_decode_corruption());
         }
 
         if physical_count > self.max_physical_slot_count() {
-            return Err(InternalError::serialize_corruption(format!(
-                "row decode: slot count mismatch: expected at most {}, found {}",
-                self.max_physical_slot_count(),
-                physical_count,
-            )));
+            return Err(InternalError::persisted_row_decode_corruption());
         }
 
         for slot in physical_count..self.field_count() {
@@ -553,8 +545,8 @@ impl StructuralRowDecodeError {
     }
 
     // Build one structural row corruption error at the manual decode boundary.
-    fn corruption(message: impl Into<String>) -> Self {
-        Self::Deserialize(InternalError::serialize_corruption(message.into()))
+    fn corruption() -> Self {
+        Self::Deserialize(InternalError::persisted_row_decode_corruption())
     }
 }
 
@@ -587,32 +579,24 @@ fn decode_row_field_spans<'payload>(
     let mut spans: SlotSpans = vec![None; contract.field_count()];
 
     for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
-        let entry_start = slot.checked_mul(8).ok_or_else(|| {
-            StructuralRowDecodeError::corruption("row decode: slot index overflow")
-        })?;
-        let entry = table.get(entry_start..entry_start + 8).ok_or_else(|| {
-            StructuralRowDecodeError::corruption("row decode: truncated slot table entry")
-        })?;
+        let entry_start = slot
+            .checked_mul(8)
+            .ok_or_else(StructuralRowDecodeError::corruption)?;
+        let entry = table
+            .get(entry_start..entry_start + 8)
+            .ok_or_else(StructuralRowDecodeError::corruption)?;
         let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
-            .map_err(|_| {
-            StructuralRowDecodeError::corruption("row decode: slot start out of range")
-        })?;
+            .map_err(|_| StructuralRowDecodeError::corruption())?;
         let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
-            .map_err(|_| {
-                StructuralRowDecodeError::corruption("row decode: slot length out of range")
-            })?;
+            .map_err(|_| StructuralRowDecodeError::corruption())?;
         if len == 0 {
-            return Err(StructuralRowDecodeError::corruption(format!(
-                "row decode: missing slot payload: slot={slot}",
-            )));
+            return Err(StructuralRowDecodeError::corruption());
         }
-        let end = start.checked_add(len).ok_or_else(|| {
-            StructuralRowDecodeError::corruption("row decode: slot span overflow")
-        })?;
+        let end = start
+            .checked_add(len)
+            .ok_or_else(StructuralRowDecodeError::corruption)?;
         if end > data_section.len() {
-            return Err(StructuralRowDecodeError::corruption(
-                "row decode: slot span exceeds payload length",
-            ));
+            return Err(StructuralRowDecodeError::corruption());
         }
         *span = Some((start, end));
     }
@@ -643,32 +627,24 @@ fn decode_sparse_required_row_field_spans<'payload>(
     let mut primary_key_span = None;
 
     for slot in 0..physical_count {
-        let entry_start = slot.checked_mul(8).ok_or_else(|| {
-            StructuralRowDecodeError::corruption("row decode: slot index overflow")
-        })?;
-        let entry = table.get(entry_start..entry_start + 8).ok_or_else(|| {
-            StructuralRowDecodeError::corruption("row decode: truncated slot table entry")
-        })?;
+        let entry_start = slot
+            .checked_mul(8)
+            .ok_or_else(StructuralRowDecodeError::corruption)?;
+        let entry = table
+            .get(entry_start..entry_start + 8)
+            .ok_or_else(StructuralRowDecodeError::corruption)?;
         let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
-            .map_err(|_| {
-            StructuralRowDecodeError::corruption("row decode: slot start out of range")
-        })?;
+            .map_err(|_| StructuralRowDecodeError::corruption())?;
         let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
-            .map_err(|_| {
-                StructuralRowDecodeError::corruption("row decode: slot length out of range")
-            })?;
+            .map_err(|_| StructuralRowDecodeError::corruption())?;
         if len == 0 {
-            return Err(StructuralRowDecodeError::corruption(format!(
-                "row decode: missing slot payload: slot={slot}",
-            )));
+            return Err(StructuralRowDecodeError::corruption());
         }
-        let end = start.checked_add(len).ok_or_else(|| {
-            StructuralRowDecodeError::corruption("row decode: slot span overflow")
-        })?;
+        let end = start
+            .checked_add(len)
+            .ok_or_else(StructuralRowDecodeError::corruption)?;
         if end > data_section.len() {
-            return Err(StructuralRowDecodeError::corruption(
-                "row decode: slot span exceeds payload length",
-            ));
+            return Err(StructuralRowDecodeError::corruption());
         }
         if slot == required_slot {
             required_span = Some((start, end));
@@ -683,11 +659,7 @@ fn decode_sparse_required_row_field_spans<'payload>(
             .missing_slot_value(required_slot)
             .map_err(StructuralRowDecodeError::from)?;
     }
-    let primary_key_span = primary_key_span.ok_or_else(|| {
-        StructuralRowDecodeError::corruption(format!(
-            "row decode: missing primary-key slot span: slot={primary_key_slot}",
-        ))
-    })?;
+    let primary_key_span = primary_key_span.ok_or_else(StructuralRowDecodeError::corruption)?;
     let payload = match payload {
         Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[data_start..]),
         Cow::Owned(bytes) => Cow::Owned(bytes[data_start..].to_vec()),
@@ -706,7 +678,7 @@ fn decode_slot_table_sections<'bytes>(
 ) -> Result<RowSlotTableSections<'bytes>, StructuralRowDecodeError> {
     let field_count_bytes = bytes
         .get(..2)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot header"))?;
+        .ok_or_else(StructuralRowDecodeError::corruption)?;
     let field_count = usize::from(u16::from_be_bytes([
         field_count_bytes[0],
         field_count_bytes[1],
@@ -716,16 +688,16 @@ fn decode_slot_table_sections<'bytes>(
         .map_err(StructuralRowDecodeError::from)?;
     let table_len = field_count
         .checked_mul(8)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: slot table overflow"))?;
-    let data_start = 2usize.checked_add(table_len).ok_or_else(|| {
-        StructuralRowDecodeError::corruption("row decode: slot payload header overflow")
-    })?;
+        .ok_or_else(StructuralRowDecodeError::corruption)?;
+    let data_start = 2usize
+        .checked_add(table_len)
+        .ok_or_else(StructuralRowDecodeError::corruption)?;
     let table = bytes
         .get(2..data_start)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot table"))?;
+        .ok_or_else(StructuralRowDecodeError::corruption)?;
     let data_section = bytes
         .get(data_start..)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: missing slot payloads"))?;
+        .ok_or_else(StructuralRowDecodeError::corruption)?;
 
     Ok((data_start, field_count, table, data_section))
 }

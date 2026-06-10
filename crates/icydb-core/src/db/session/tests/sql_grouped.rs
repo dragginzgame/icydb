@@ -1458,10 +1458,10 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     )
     .expect_err("projection row helper should reject grouped statement payloads");
 
-    assert!(
-        err.to_string()
-            .contains("projection row SQL only supports value-row SQL projection payloads"),
-        "projection row helper must preserve its value-row-only contract for grouped payloads",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "projection row helper must preserve its value-row-only unsupported boundary for grouped payloads",
     );
 }
 

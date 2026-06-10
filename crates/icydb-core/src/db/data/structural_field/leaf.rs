@@ -140,9 +140,8 @@ fn encode_structured_leaf_null_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let Value::Null = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            "structured ByKind field encoding is unsupported",
         ));
     };
 
@@ -203,9 +202,8 @@ fn decode_nat_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value,
 // Encode one date payload into canonical signed day-count form.
 fn encode_date_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
     let Value::Date(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind Date does not accept runtime value {value:?}"),
         ));
     };
 
@@ -218,9 +216,8 @@ fn encode_date_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, I
 // tuple.
 fn encode_decimal_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
     let Value::Decimal(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind Decimal does not accept runtime value {value:?}"),
         ));
     };
 
@@ -236,9 +233,8 @@ fn encode_decimal_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>
 // Encode one duration payload into canonical millis.
 fn encode_duration_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
     let Value::Duration(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind Duration does not accept runtime value {value:?}"),
         ));
     };
 
@@ -254,14 +250,12 @@ fn encode_int_big_value_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let Value::IntBig(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind IntBig does not accept runtime value {value:?}"),
         ));
     };
-    ensure_int_big_max_bytes(value, max_bytes).map_err(|err| {
-        InternalError::persisted_row_field_encode_failed(field_name, err.to_string())
-    })?;
+    ensure_int_big_max_bytes(value, max_bytes)
+        .map_err(|_| InternalError::persisted_row_field_encode_internal(field_name))?;
 
     let (is_negative, digits) = value.sign_and_u32_digits();
     let sign = if digits.is_empty() {
@@ -287,14 +281,12 @@ fn encode_nat_big_value_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let Value::NatBig(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind NatBig does not accept runtime value {value:?}"),
         ));
     };
-    ensure_nat_big_max_bytes(value, max_bytes).map_err(|err| {
-        InternalError::persisted_row_field_encode_failed(field_name, err.to_string())
-    })?;
+    ensure_nat_big_max_bytes(value, max_bytes)
+        .map_err(|_| InternalError::persisted_row_field_encode_internal(field_name))?;
 
     let mut encoded = Vec::new();
     push_binary_u32_digit_list(&mut encoded, value.u32_digits().as_slice());
@@ -457,9 +449,8 @@ pub(super) fn encode_date_field_by_kind_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Date) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept date"),
         ));
     }
 
@@ -488,9 +479,8 @@ pub(super) fn encode_decimal_field_by_kind_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Decimal { .. }) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept decimal"),
         ));
     }
 
@@ -519,9 +509,8 @@ pub(super) fn encode_duration_field_by_kind_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Duration) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept duration"),
         ));
     }
 
@@ -550,9 +539,8 @@ pub(super) fn encode_int_big_field_by_kind_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let FieldKind::IntBig { max_bytes } = kind else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept int_big payload"),
         ));
     };
 
@@ -581,9 +569,8 @@ pub(super) fn encode_nat_big_field_by_kind_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let FieldKind::NatBig { max_bytes } = kind else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept nat_big payload"),
         ));
     };
 

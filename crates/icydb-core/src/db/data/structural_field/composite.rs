@@ -385,9 +385,8 @@ fn encode_structural_binary_field_by_kind_into(
     match kind {
         FieldKind::List(inner) | FieldKind::Set(inner) => {
             let Value::List(items) = value else {
-                return Err(InternalError::persisted_row_field_encode_failed(
+                return Err(InternalError::persisted_row_field_encode_internal(
                     field_name,
-                    format!("field kind {kind:?} does not accept runtime value {value:?}"),
                 ));
             };
             push_binary_list_len(out, items.len());
@@ -400,9 +399,8 @@ fn encode_structural_binary_field_by_kind_into(
             value: value_kind,
         } => {
             let Value::Map(entries) = value else {
-                return Err(InternalError::persisted_row_field_encode_failed(
+                return Err(InternalError::persisted_row_field_encode_internal(
                     field_name,
-                    format!("field kind {kind:?} does not accept runtime value {value:?}"),
                 ));
             };
             push_binary_map_len(out, entries.len());
@@ -423,9 +421,8 @@ fn encode_structural_binary_field_by_kind_into(
             encode_structural_binary_field_by_kind_into(out, *key_kind, value, field_name)?;
         }
         _ => {
-            return Err(InternalError::persisted_row_field_encode_failed(
+            return Err(InternalError::persisted_row_field_encode_internal(
                 field_name,
-                format!("field kind {kind:?} is unsupported in binary composite lane"),
             ));
         }
     }
@@ -442,18 +439,16 @@ fn encode_binary_enum_payload(
     field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::Enum(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("enum field '{path}' does not accept runtime value {value:?}"),
         ));
     };
 
     if let Some(actual_path) = value.path()
         && actual_path != path
     {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("enum path mismatch: expected '{path}', found '{actual_path}'"),
         ));
     }
 
@@ -463,21 +458,13 @@ fn encode_binary_enum_payload(
     };
 
     let Some(variant_model) = variants.iter().find(|item| item.ident() == value.variant()) else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!(
-                "unknown enum variant '{}' for path '{path}'",
-                value.variant()
-            ),
         ));
     };
     let Some(payload_kind) = variant_model.payload_kind() else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!(
-                "enum variant '{}' does not accept a payload",
-                value.variant()
-            ),
         ));
     };
     if matches!(

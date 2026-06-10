@@ -268,10 +268,7 @@ impl EntityAuthority {
         plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
         if !plan.has_static_execution_planning_contract() {
-            return Err(InternalError::query_executor_invariant(format!(
-                "executor plan validation requires planner-frozen static execution planning contract for '{}'",
-                self.entity_path()
-            )));
+            return Err(InternalError::query_executor_invariant(""));
         }
 
         let schema_info = self.accepted_schema_info.as_ref().ok_or_else(|| {

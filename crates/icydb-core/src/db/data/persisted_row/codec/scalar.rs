@@ -291,9 +291,8 @@ fn encode_scalar_payload_envelope(
     encoded.extend_from_slice(payload);
 
     if encoded.len() < 2 {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            "scalar payload envelope underflow",
         ));
     }
 

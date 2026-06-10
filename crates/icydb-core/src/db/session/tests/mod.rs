@@ -1168,18 +1168,14 @@ impl crate::traits::PrimaryKeyCodec for SessionSqlCompositeWriteEntityKey {
 impl crate::traits::PrimaryKeyDecode for SessionSqlCompositeWriteEntityKey {
     fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
         let crate::db::PrimaryKeyValue::Composite(composite) = key else {
-            return Err(InternalError::store_corruption(
-                "session SQL composite key decode expected composite primary key",
-            ));
+            return Err(InternalError::store_corruption());
         };
         let [
             crate::db::PrimaryKeyComponent::Nat64(tenant_id),
             crate::db::PrimaryKeyComponent::Nat64(local_id),
         ] = composite.components()
         else {
-            return Err(InternalError::store_corruption(
-                "session SQL composite key decode expected two nat components",
-            ));
+            return Err(InternalError::store_corruption());
         };
 
         Ok(Self {

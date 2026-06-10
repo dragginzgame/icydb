@@ -52,50 +52,40 @@ pub(in crate::db) fn decode_row_payload_bytes(
 ) -> Result<Cow<'_, [u8]>, InternalError> {
     // Phase 1: validate the fixed-width row-envelope header.
     if bytes.len() > MAX_ROW_BYTES as usize {
-        return Err(InternalError::serialize_corruption(format!(
-            "row decode: payload size {} exceeds limit {}",
-            bytes.len(),
-            MAX_ROW_BYTES
-        )));
+        return Err(InternalError::persisted_row_decode_corruption());
     }
 
     let magic = bytes
         .get(..ROW_ENVELOPE_MAGIC.len())
-        .ok_or_else(|| InternalError::serialize_corruption("row decode: truncated row envelope"))?;
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     if magic != ROW_ENVELOPE_MAGIC {
-        return Err(InternalError::serialize_corruption(
-            "row decode: invalid row envelope magic",
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     }
 
-    let format_version = *bytes.get(ROW_ENVELOPE_MAGIC.len()).ok_or_else(|| {
-        InternalError::serialize_corruption("row decode: missing row format version")
-    })?;
+    let format_version = *bytes
+        .get(ROW_ENVELOPE_MAGIC.len())
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     validate_row_format_version(format_version)?;
 
     let payload_len_offset = ROW_ENVELOPE_MAGIC.len() + 1;
     let payload_len_bytes = bytes
         .get(payload_len_offset..payload_len_offset + 4)
-        .ok_or_else(|| {
-            InternalError::serialize_corruption("row decode: truncated row payload length")
-        })?;
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let payload_len = usize::try_from(u32::from_be_bytes([
         payload_len_bytes[0],
         payload_len_bytes[1],
         payload_len_bytes[2],
         payload_len_bytes[3],
     ]))
-    .map_err(|_| InternalError::serialize_corruption("row decode: payload length out of range"))?;
+    .map_err(|_| InternalError::persisted_row_decode_corruption())?;
 
     // Phase 2: validate the declared payload span and borrow it directly.
     let payload_start = ROW_ENVELOPE_HEADER_LEN;
-    let payload_end = payload_start.checked_add(payload_len).ok_or_else(|| {
-        InternalError::serialize_corruption("row decode: payload length overflow")
-    })?;
+    let payload_end = payload_start
+        .checked_add(payload_len)
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     if payload_end != bytes.len() {
-        return Err(InternalError::serialize_corruption(
-            "row decode: payload length does not match row envelope",
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     }
 
     Ok(Cow::Borrowed(&bytes[payload_start..payload_end]))
@@ -122,13 +112,9 @@ pub(in crate::db) fn serialize_row_payload_with_version(
     // Phase 1: validate the payload against the bounded row envelope budget.
     let total_len = ROW_ENVELOPE_HEADER_LEN
         .checked_add(payload.len())
-        .ok_or_else(|| {
-            InternalError::persisted_row_encode_failed("row envelope length overflow")
-        })?;
+        .ok_or_else(InternalError::persisted_row_encode_internal)?;
     if total_len > MAX_ROW_BYTES as usize {
-        return Err(InternalError::persisted_row_encode_failed(format!(
-            "row envelope exceeds max size: {total_len} bytes (limit {MAX_ROW_BYTES})",
-        )));
+        return Err(InternalError::persisted_row_encode_internal());
     }
 
     // Phase 2: write the fixed-width row envelope header and payload bytes.

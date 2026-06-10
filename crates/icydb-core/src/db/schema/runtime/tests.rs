@@ -560,15 +560,15 @@ fn accepted_field_decode_contract_reports_persisted_scalar_field_name() {
     )
     .expect_err("invalid accepted scalar payload should fail closed");
 
-    assert!(
-        err.message.contains("field 'nickname'"),
-        "accepted scalar decode should retain field ownership in diagnostics: {}",
-        err.message,
+    assert_eq!(
+        err.class(),
+        ErrorClass::Corruption,
+        "accepted scalar decode should retain corruption classification",
     );
-    assert!(
-        !err.message.contains("accepted field"),
-        "accepted scalar decode should not use the old placeholder field name: {}",
-        err.message,
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Serialize,
+        "accepted scalar decode should retain serialize ownership",
     );
 }
 
@@ -612,9 +612,9 @@ fn accepted_row_layout_runtime_contract_rejects_non_generated_compatible_layout(
         .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
         .expect_err("slot-expanded schema must not produce generated-compatible row proof");
 
-    assert!(
-        err.message
-            .contains("accepted row layout slot is not generated-compatible"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible proof error: {}",
         err.message,
     );
@@ -660,9 +660,9 @@ fn accepted_row_layout_runtime_contract_rejects_extra_generated_field_layout() {
         .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
         .expect_err("extra generated field must not produce generated-compatible row proof");
 
-    assert!(
-        err.message
-            .contains("accepted row layout has generated field outside generated model"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible proof error: {}",
         err.message,
     );
@@ -682,9 +682,9 @@ fn accepted_row_layout_runtime_contract_rejects_storage_decode_drift() {
         .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
         .expect_err("storage decode drift must reject generated decoder bridge");
 
-    assert!(
-        err.message
-            .contains("accepted row layout storage decode is not generated-compatible"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible storage decode error: {}",
         err.message,
     );
@@ -704,9 +704,9 @@ fn accepted_row_layout_runtime_contract_rejects_leaf_codec_drift() {
         .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
         .expect_err("leaf codec drift must reject generated decoder bridge");
 
-    assert!(
-        err.message
-            .contains("accepted row layout leaf codec is not generated-compatible"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible leaf codec error: {}",
         err.message,
     );
@@ -726,9 +726,9 @@ fn accepted_row_layout_runtime_contract_rejects_nullability_drift() {
         .generated_row_compatibility_proof_for_model(&RUNTIME_ENTITY_MODEL)
         .expect_err("nullability drift must reject generated decoder bridge");
 
-    assert!(
-        err.message
-            .contains("accepted row layout nullability is not generated-compatible"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible nullability error: {}",
         err.message,
     );

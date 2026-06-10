@@ -202,7 +202,7 @@ impl AcceptedRelationScalarTargetDescriptor {
 
 fn accepted_strong_scalar_relation_target_descriptor(
     source_path: &str,
-    diagnostic_relation_name: &str,
+    _diagnostic_relation_name: &str,
     authority_relation_name: &str,
     kind: &PersistedFieldKind,
     expected_edge_target_path: Option<&str>,
@@ -216,10 +216,7 @@ fn accepted_strong_scalar_relation_target_descriptor(
     if let Some(edge_target_path) = expected_edge_target_path
         && target.target_path != edge_target_path
     {
-        return Err(InternalError::store_invariant(format!(
-            "accepted relation edge '{diagnostic_relation_name}' target path mismatch: edge={edge_target_path} field={}",
-            target.target_path,
-        )));
+        return Err(InternalError::store_invariant());
     }
     validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
 

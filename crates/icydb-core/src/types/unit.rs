@@ -77,10 +77,7 @@ impl PrimaryKeyDecode for Unit {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, crate::error::InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit) => Ok(Self),
-            _ => Err(crate::error::InternalError::store_corruption(format!(
-                "primary key decode failed for `{}`: expected PrimaryKeyComponent::Unit, found {key:?}",
-                std::any::type_name::<Self>(),
-            ))),
+            _ => Err(crate::error::InternalError::store_corruption()),
         }
     }
 }

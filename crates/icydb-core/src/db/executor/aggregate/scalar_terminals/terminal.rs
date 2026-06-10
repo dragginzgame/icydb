@@ -535,19 +535,14 @@ impl StructuralAggregateTerminalKind {
 fn compile_structural_aggregate_expr(
     schema: &SchemaInfo,
     expr: &Expr,
-    label: &str,
+    _label: &str,
 ) -> Result<CompiledExpr, InternalError> {
-    if let Some(field) = first_unknown_structural_aggregate_expr_field(schema, expr) {
-        return Err(InternalError::query_executor_invariant(format!(
-            "unknown expression field '{field}'",
-        )));
+    if let Some(_field) = first_unknown_structural_aggregate_expr_field(schema, expr) {
+        return Err(InternalError::query_executor_invariant(""));
     }
 
-    let scalar = compile_scalar_projection_expr_from_schema(schema, expr).ok_or_else(|| {
-        InternalError::query_executor_invariant(format!(
-            "structural aggregate {label} expression must compile on the scalar seam",
-        ))
-    })?;
+    let scalar = compile_scalar_projection_expr_from_schema(schema, expr)
+        .ok_or_else(|| InternalError::query_executor_invariant(""))?;
 
     Ok(CompiledExpr::compile(&scalar))
 }

@@ -37,19 +37,12 @@ pub(super) fn execute_supported_expression_index_addition(
 ) -> Result<(usize, usize), InternalError> {
     let entity_tag = publication_gate.entity_tag();
     if plan.kind() != SchemaTransitionPlanKind::AddExpressionIndex {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index execution rejected for entity '{entity_path}': plan_kind={:?}",
-            plan.kind(),
-        )));
+        return Err(InternalError::store_unsupported());
     }
     validate_expression_execution_plan(plan, target, entity_path)?;
     let input =
         SchemaMutationRunnerInput::new(accepted_before, accepted_after, plan.execution_plan())
-            .map_err(|error| {
-                InternalError::store_unsupported(format!(
-                    "schema mutation expression-index runner input rejected for entity '{entity_path}': error={error:?}",
-                ))
-            })?;
+            .map_err(|_error| InternalError::store_unsupported())?;
     let accepted = AcceptedSchemaSnapshot::try_new(accepted_before.clone())?;
     let row_contract =
         StructuralRowContract::from_accepted_schema_snapshot(entity_path, &accepted)?;
@@ -94,7 +87,7 @@ pub(super) fn execute_supported_expression_index_addition(
 fn validate_expression_execution_plan(
     plan: &SchemaTransitionPlan,
     target: &SchemaExpressionIndexRebuildTarget,
-    entity_path: &'static str,
+    _entity_path: &'static str,
 ) -> Result<(), InternalError> {
     let execution_plan = plan.execution_plan();
     let [
@@ -105,16 +98,10 @@ fn validate_expression_execution_plan(
         SchemaMutationExecutionStep::InvalidateRuntimeState,
     ] = execution_plan.steps()
     else {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index execution rejected unsupported plan shape for entity '{entity_path}'",
-        )));
+        return Err(InternalError::store_unsupported());
     };
     if planned_target != target {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index execution target drifted for entity '{entity_path}': prepared='{}' actual='{}'",
-            target.name(),
-            planned_target.name(),
-        )));
+        return Err(InternalError::store_unsupported());
     }
 
     Ok(())
@@ -127,12 +114,8 @@ fn expression_rebuild_predicate_program(
     let Some(predicate_sql) = target.predicate_sql() else {
         return Ok(None);
     };
-    let predicate = parse_sql_predicate(predicate_sql).map_err(|error| {
-        InternalError::store_unsupported(format!(
-            "schema mutation expression rebuild predicate failed to parse for target '{}': {error}",
-            target.name(),
-        ))
-    })?;
+    let predicate =
+        parse_sql_predicate(predicate_sql).map_err(|_error| InternalError::store_unsupported())?;
 
     Ok(Some(PredicateProgram::compile_with_row_contract(
         row_contract,
@@ -150,23 +133,13 @@ fn execute_expression_index_store_mutation(
     input: &SchemaMutationRunnerInput<'_>,
 ) -> Result<(usize, usize), InternalError> {
     if index_store.state() != IndexState::Ready {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index rebuild requires a ready physical index store before rebuild for entity '{entity_path}': target_index={} index_state={}",
-            target.name(),
-            index_store.state().as_str(),
-        )));
+        return Err(InternalError::store_unsupported());
     }
     let target_index_id = IndexId::new(entity_tag, target.ordinal());
     let preflight =
         expression_startup_index_store_preflight(index_store, entity_tag, target, entity_path)?;
     if preflight.target != 0 {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index rebuild requires an empty target physical index for entity '{entity_path}': target_index={} target_index_entries={} other_index_entries={} total_entries={}",
-            target.name(),
-            preflight.target,
-            preflight.other,
-            preflight.total,
-        )));
+        return Err(InternalError::store_unsupported());
     }
 
     let rebuild_rows = rows
@@ -179,12 +152,9 @@ fn execute_expression_index_store_mutation(
         predicate_program,
         rebuild_rows,
     )?;
-    let validation = staged.validate().map_err(|error| {
-        InternalError::store_unsupported(format!(
-            "schema mutation expression-index staged validation failed for entity '{entity_path}': target_index={} error={error:?}",
-            target.name(),
-        ))
-    })?;
+    let validation = staged
+        .validate()
+        .map_err(|_error| InternalError::store_unsupported())?;
 
     index_store.mark_building();
     for entry in staged.entries() {
@@ -213,7 +183,7 @@ fn expression_startup_index_store_preflight(
     index_store: &IndexStore,
     entity_tag: EntityTag,
     target: &SchemaExpressionIndexRebuildTarget,
-    entity_path: &'static str,
+    _entity_path: &'static str,
 ) -> Result<StartupExpressionIndexStorePreflight, InternalError> {
     let target_index_id = IndexId::new(entity_tag, target.ordinal());
     let mut preflight = StartupExpressionIndexStorePreflight {
@@ -223,12 +193,8 @@ fn expression_startup_index_store_preflight(
     };
 
     let result: Result<(), InternalError> = index_store.visit_entries(|raw_key, _| {
-        let index_key = IndexKey::try_from_raw(raw_key).map_err(|error| {
-            InternalError::store_corruption(format!(
-                "schema mutation expression-index key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
-                target.name(),
-            ))
-        })?;
+        let index_key =
+            IndexKey::try_from_raw(raw_key).map_err(|_error| InternalError::store_corruption())?;
         if *index_key.index_id() == target_index_id {
             preflight.target += 1;
         } else {
@@ -250,51 +216,26 @@ fn validate_expression_index_store_batch(
     entries: &[SchemaExpressionIndexStagedEntry],
 ) -> Result<(), InternalError> {
     if index_store.state() != IndexState::Building {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index validation requires a building index store for entity '{entity_path}': target_index={} index_state={}",
-            target.name(),
-            index_store.state().as_str(),
-        )));
+        return Err(InternalError::store_unsupported());
     }
-    let expected_entry_count = u64::try_from(entries.len()).map_err(|_| {
-        InternalError::store_unsupported(format!(
-            "schema mutation expression-index produced too many entries for entity '{entity_path}': target_index={}",
-            target.name(),
-        ))
-    })?;
+    let expected_entry_count =
+        u64::try_from(entries.len()).map_err(|_| InternalError::store_unsupported())?;
     let actual_entry_count =
         expression_target_index_entry_count(index_store, target_index_id, entity_path, target)?;
     if actual_entry_count != expected_entry_count {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index entry count mismatch for entity '{entity_path}': target_index={} expected={} actual={actual_entry_count}",
-            target.name(),
-            expected_entry_count,
-        )));
+        return Err(InternalError::store_unsupported());
     }
     for entry in entries {
-        let index_key = IndexKey::try_from_raw(entry.key()).map_err(|error| {
-            InternalError::store_corruption(format!(
-                "schema mutation expression-index key decode failed for entity '{entity_path}' while validating target index '{}': {error}",
-                target.name(),
-            ))
-        })?;
+        let index_key = IndexKey::try_from_raw(entry.key())
+            .map_err(|_error| InternalError::store_corruption())?;
         if index_key.index_id() != target_index_id {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation expression-index target mismatch for entity '{entity_path}': target_index={}",
-                target.name(),
-            )));
+            return Err(InternalError::store_unsupported());
         }
         let Some(index_entry) = index_store.get(entry.key()) else {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation expression-index missing written entry for entity '{entity_path}': target_index={}",
-                target.name(),
-            )));
+            return Err(InternalError::store_unsupported());
         };
         if index_entry != *entry.entry() {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation expression-index written entry mismatch for entity '{entity_path}': target_index={}",
-                target.name(),
-            )));
+            return Err(InternalError::store_unsupported());
         }
     }
 
@@ -310,11 +251,7 @@ fn validate_expression_physical_store_before_schema_publication(
 ) -> Result<(), InternalError> {
     store.with_index(|index_store| {
         if index_store.state() != IndexState::Ready {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation expression-index publication requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
-                target.name(),
-                index_store.state().as_str(),
-            )));
+            return Err(InternalError::store_unsupported());
         }
         let target_index_id = IndexId::new(entity_tag, target.ordinal());
         let actual = expression_target_index_entry_count(
@@ -323,20 +260,13 @@ fn validate_expression_physical_store_before_schema_publication(
             entity_path,
             target,
         )?;
-        let expected = u64::try_from(expected_entries).map_err(|_| {
-            InternalError::store_unsupported(format!(
-                "schema mutation expression-index expected-entry count is unpublishable for entity '{entity_path}': target_index={}",
-                target.name(),
-            ))
-        })?;
+        let expected =
+            u64::try_from(expected_entries).map_err(|_| InternalError::store_unsupported())?;
         if actual == expected {
             return Ok(());
         }
 
-        Err(InternalError::store_unsupported(format!(
-            "schema mutation expression-index physical store changed before schema publication for entity '{entity_path}': target_index={} expected_entries={expected} actual_entries={actual}",
-            target.name(),
-        )))
+        Err(InternalError::store_unsupported())
     })
 }
 
@@ -361,15 +291,11 @@ fn expression_target_index_entry_count(
 fn expression_key_targets_index(
     raw_key: &RawIndexStoreKey,
     target_index_id: &IndexId,
-    entity_path: &'static str,
-    target: &SchemaExpressionIndexRebuildTarget,
+    _entity_path: &'static str,
+    _target: &SchemaExpressionIndexRebuildTarget,
 ) -> Result<bool, InternalError> {
-    let index_key = IndexKey::try_from_raw(raw_key).map_err(|error| {
-        InternalError::store_corruption(format!(
-            "schema mutation expression-index key decode failed for entity '{entity_path}' while counting target index '{}': {error}",
-            target.name(),
-        ))
-    })?;
+    let index_key =
+        IndexKey::try_from_raw(raw_key).map_err(|_error| InternalError::store_corruption())?;
 
     Ok(index_key.index_id() == target_index_id)
 }
@@ -383,10 +309,6 @@ struct StartupExpressionRebuildRowFingerprint {
 impl StartupExpressionRebuildRowFingerprint {
     const fn new(rows: usize, digest: [u8; 32]) -> Self {
         Self { rows, digest }
-    }
-
-    const fn rows(&self) -> usize {
-        self.rows
     }
 }
 
@@ -432,28 +354,20 @@ impl StartupExpressionRebuildGate {
     fn validate_current_state(
         &self,
         store: StoreHandle,
-        rows_scanned: usize,
-        boundary: &'static str,
+        _rows_scanned: usize,
+        _boundary: &'static str,
     ) -> Result<(), InternalError> {
         let current =
             expression_rebuild_row_fingerprint_for_store(store, self.entity_tag, self.entity_path)?;
         if current != self.row_fingerprint {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation expression-index rebuild lost exclusive row gate {boundary} for entity '{}': expected_rows={} actual_rows={} rows_scanned={rows_scanned}",
-                self.entity_path,
-                self.row_fingerprint.rows(),
-                current.rows(),
-            )));
+            return Err(InternalError::store_unsupported());
         }
 
         let latest = store.with_schema_mut(|schema_store| {
             schema_store.latest_persisted_snapshot(self.entity_tag)
         })?;
         if latest.as_ref() != Some(&self.accepted_before) {
-            return Err(InternalError::store_unsupported(format!(
-                "schema mutation expression-index rebuild lost exclusive schema gate {boundary} for entity '{}'",
-                self.entity_path,
-            )));
+            return Err(InternalError::store_unsupported());
         }
 
         Ok(())
@@ -481,17 +395,14 @@ fn expression_rebuild_row_fingerprint_from_rows(
 fn expression_rebuild_row_fingerprint_for_store(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'static str,
+    _entity_path: &'static str,
 ) -> Result<StartupExpressionRebuildRowFingerprint, InternalError> {
     store.with_data(|data_store| {
         let mut rows = 0usize;
         let mut hasher = Sha256::new();
         data_store.visit_entries(|raw_key, raw_row| {
-            let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
-                InternalError::store_corruption(format!(
-                    "schema mutation expression-index data key decode failed for entity '{entity_path}' while validating startup rebuild gate: {error}",
-                ))
-            })?;
+            let data_key = DecodedDataStoreKey::try_from_raw(raw_key)
+                .map_err(|_error| InternalError::store_corruption())?;
             if data_key.entity_tag() != entity_tag {
                 return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
             }

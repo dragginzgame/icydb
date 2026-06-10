@@ -151,9 +151,9 @@ fn query_execute_storage_and_index_errors_stay_in_execution_boundary() {
     let cases = [
         InternalError::store_internal("store internal"),
         InternalError::index_internal("index internal"),
-        InternalError::store_corruption("store corruption"),
+        InternalError::store_corruption(),
         InternalError::index_corruption("index corruption"),
-        InternalError::store_unsupported("store unsupported"),
+        InternalError::store_unsupported(),
         InternalError::index_unsupported("index unsupported"),
     ];
 

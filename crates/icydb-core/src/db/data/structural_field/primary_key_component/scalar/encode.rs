@@ -94,9 +94,8 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
             push_binary_unit(out);
             Ok(())
         }
-        (other, key) => Err(InternalError::persisted_row_field_encode_failed(
+        (_, _) => Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {other:?} does not accept primary-key component {key:?}"),
         )),
     }
 }

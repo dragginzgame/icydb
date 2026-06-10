@@ -895,9 +895,7 @@ fn resolved_order_value_source_for_term(
 
     let field = term.direct_field().expect("query semantics invariant");
     let slot = resolve_required_schema_slot(schema_info, field, || {
-        InternalError::query_invalid_logical_plan(format!(
-            "order expression references unknown field '{field}'",
-        ))
+        InternalError::query_invalid_logical_plan("")
     })?;
 
     Ok(ResolvedOrderValueSource::direct_field(slot))
@@ -911,9 +909,7 @@ fn validate_resolved_order_expr_fields(
     expr.try_for_each_tree_expr(&mut |node| match node {
         Expr::Field(field_id) => {
             resolve_required_schema_slot(schema_info, field_id.as_str(), || {
-                InternalError::query_invalid_logical_plan(format!(
-                    "order expression references unknown field '{rendered}'",
-                ))
+                InternalError::query_invalid_logical_plan("")
             })
             .map(|_| ())
         }
@@ -943,10 +939,8 @@ where
 
 // Keep the scalar-order expression seam violation text under one helper so the
 // parse validation and compile validation paths do not drift.
-fn order_expression_scalar_seam_error(rendered: &str) -> InternalError {
-    InternalError::query_invalid_logical_plan(format!(
-        "order expression '{rendered}' did not stay on the scalar expression seam",
-    ))
+fn order_expression_scalar_seam_error(_rendered: &str) -> InternalError {
+    InternalError::query_invalid_logical_plan("")
 }
 
 // Keep one stable executor-facing slot list for grouped order terms after the

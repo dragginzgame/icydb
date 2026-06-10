@@ -178,9 +178,8 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
             push_binary_bytes(&mut encoded, &encode_ulid_payload_bytes(*value));
         }
         _ => {
-            return Err(InternalError::persisted_row_field_encode_failed(
+            return Err(InternalError::persisted_row_field_encode_internal(
                 field_name,
-                format!("field kind {kind:?} does not accept runtime value {value:?}"),
             ));
         }
     }
@@ -195,9 +194,8 @@ pub(super) fn encode_bool_fast_path_binary_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Bool) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept bool"),
         ));
     }
 
@@ -225,9 +223,8 @@ pub(super) fn encode_text_fast_path_binary_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Text { .. }) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept text"),
         ));
     }
 
@@ -255,9 +252,8 @@ pub(super) fn encode_blob_fast_path_binary_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Blob { .. }) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept blob"),
         ));
     }
 
@@ -285,9 +281,8 @@ pub(super) fn encode_float32_fast_path_binary_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Float32) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept float32"),
         ));
     }
 
@@ -315,9 +310,8 @@ pub(super) fn encode_float64_fast_path_binary_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Float64) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept float64"),
         ));
     }
 
@@ -345,9 +339,8 @@ pub(super) fn encode_int128_fast_path_binary_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Int128) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept int128"),
         ));
     }
 
@@ -375,9 +368,8 @@ pub(super) fn encode_nat128_fast_path_binary_bytes(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Nat128) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept nat128"),
         ));
     }
 

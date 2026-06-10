@@ -91,8 +91,8 @@ pub(in crate::db) enum RawRowError {
 }
 
 impl From<RawRowError> for InternalError {
-    fn from(err: RawRowError) -> Self {
-        Self::store_unsupported(err.to_string())
+    fn from(_err: RawRowError) -> Self {
+        Self::store_unsupported()
     }
 }
 

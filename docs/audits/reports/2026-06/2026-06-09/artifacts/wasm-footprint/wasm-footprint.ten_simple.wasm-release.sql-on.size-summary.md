@@ -2,13 +2,13 @@
 
 | Artifact | Bytes |
 | --- | ---: |
-| icp-built `.wasm` | 2486457 |
-| icp-built deterministic `.wasm.gz` | 794717 |
+| icp-built `.wasm` | 2463593 |
+| icp-built deterministic `.wasm.gz` | 787380 |
 | candid export | unavailable |
-| icp-shrunk `.wasm` (canonical) | 2315722 |
-| icp-shrunk `.wasm.gz` (canonical) | 754129 |
-| Shrink delta `.wasm` | 170735 |
-| Shrink delta `.wasm.gz` | 40588 |
+| icp-shrunk `.wasm` (canonical) | 2295015 |
+| icp-shrunk `.wasm.gz` (canonical) | 747157 |
+| Shrink delta `.wasm` | 168578 |
+| Shrink delta `.wasm.gz` | 40223 |
 
 SQL variant: `sql-on`
 

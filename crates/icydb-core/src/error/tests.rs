@@ -65,34 +65,36 @@ fn assert_runtime_invariant(err: &InternalError, origin: ErrorOrigin) {
     assert_eq!(diagnostic.detail(), None);
 }
 
+fn assert_runtime_corruption(err: &InternalError, origin: ErrorOrigin) {
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, origin);
+
+    let diagnostic = err.diagnostic();
+    let expected_code = if matches!(origin, ErrorOrigin::Store) {
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption
+    } else {
+        icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption
+    };
+    assert_eq!(diagnostic.code(), expected_code);
+    assert_eq!(diagnostic.origin(), origin.diagnostic_origin());
+}
+
 #[test]
 fn index_plan_index_corruption_uses_index_origin() {
     let err = InternalError::index_plan_index_corruption("broken key payload");
-    assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Index);
-    assert_eq!(
-        err.message,
-        "corruption detected (index): broken key payload"
-    );
+    assert_runtime_corruption(&err, ErrorOrigin::Index);
 }
 
 #[test]
 fn index_plan_store_corruption_uses_store_origin() {
-    let err = InternalError::index_plan_store_corruption("row/key mismatch");
-    assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Store);
-    assert_eq!(err.message, "corruption detected (store): row/key mismatch");
+    let err = InternalError::index_plan_store_corruption();
+    assert_runtime_corruption(&err, ErrorOrigin::Store);
 }
 
 #[test]
 fn index_plan_serialize_corruption_uses_serialize_origin() {
     let err = InternalError::index_plan_serialize_corruption("decode failed");
-    assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Serialize);
-    assert_eq!(
-        err.message,
-        "corruption detected (serialize): decode failed"
-    );
+    assert_runtime_corruption(&err, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -100,17 +102,20 @@ fn serialize_incompatible_persisted_format_uses_serialize_origin() {
     let err = InternalError::serialize_incompatible_persisted_format("row format version 7");
     assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(err.origin, ErrorOrigin::Serialize);
-    assert_eq!(err.message, "row format version 7");
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeIncompatiblePersistedFormat,
+    );
 }
 
 #[test]
 fn index_plan_store_invariant_uses_store_origin() {
-    let err = InternalError::index_plan_store_invariant("row/key mismatch");
+    let err = InternalError::index_plan_store_invariant();
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
     assert_eq!(
-        err.message,
-        "invariant violation detected (store): row/key mismatch"
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
     );
 }
 
@@ -512,12 +517,12 @@ fn classification_integrity_access_plan_conversion_stays_invariant() {
 #[test]
 fn classification_integrity_corruption_constructors_never_downgrade() {
     let corruption_cases = [
-        InternalError::store_corruption("store"),
+        InternalError::store_corruption(),
         InternalError::index_corruption("index"),
         InternalError::serialize_corruption("serialize"),
         InternalError::identity_corruption("identity"),
         InternalError::index_plan_index_corruption("index-plan-index"),
-        InternalError::index_plan_store_corruption("index-plan-store"),
+        InternalError::index_plan_store_corruption(),
         InternalError::index_plan_serialize_corruption("index-plan-serialize"),
     ];
 
@@ -535,26 +540,26 @@ fn classification_integrity_corruption_constructors_never_downgrade() {
 }
 
 #[test]
-fn mutation_unknown_field_message_uses_public_wording() {
+fn mutation_unknown_field_uses_compact_executor_invariant() {
     let err = InternalError::mutation_structural_field_unknown("tests::User", "missing_name");
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);
     assert_eq!(
-        err.message,
-        "mutation field not found: tests::User field=missing_name",
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
 }
 
 #[test]
-fn mutation_invalid_result_message_uses_public_wording() {
+fn mutation_invalid_result_uses_compact_executor_invariant() {
     let err =
         InternalError::mutation_structural_after_image_invalid("tests::User", "abc123", "detail");
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);
     assert_eq!(
-        err.message,
-        "mutation result is invalid: tests::User key=abc123 (detail)",
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
     );
 }

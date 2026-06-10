@@ -8,9 +8,8 @@ use crate::{
         DecodedDataStoreKey, PersistedRow, RawRow, StructuralRowContract, StructuralSlotReader,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
 };
-use std::fmt::Display;
 
 /// Decode one persisted `(DecodedDataStoreKey, RawRow)` pair through an explicit row contract.
 ///
@@ -32,45 +31,15 @@ where
     // Phase 2: decode entity bytes through the caller-selected structural row
     // contract and classify persisted decode failures once.
     let mut slots = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)
-        .map_err(|err| {
-        InternalError::serialize_corruption(decode_failure_message(data_key, err))
-    })?;
-    let entity = E::materialize_from_slots(&mut slots).map_err(|err| {
-        InternalError::serialize_corruption(decode_failure_message(data_key, err))
-    })?;
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+    let entity = E::materialize_from_slots(&mut slots)
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
 
     // Phase 3: enforce key consistency before returning the typed row.
     let actual_key = entity.id().key();
     if expected_key != actual_key {
-        let expected = format_entity_key_for_mismatch::<E>(expected_key);
-        let found = format_entity_key_for_mismatch::<E>(actual_key);
-        return Err(InternalError::store_corruption(key_mismatch_message(
-            expected, found,
-        )));
+        return Err(InternalError::persisted_row_key_mismatch());
     }
 
     Ok((expected_key, entity))
-}
-
-// Build the canonical row-decode failure message for one persisted row.
-fn decode_failure_message(data_key: &DecodedDataStoreKey, err: impl Display) -> String {
-    format!("failed to deserialize row: {data_key} ({err})")
-}
-
-// Build the canonical row-key mismatch message for one persisted row.
-fn key_mismatch_message(expected: impl Display, actual: impl Display) -> String {
-    format!("row key mismatch: expected {expected}, found {actual}")
-}
-
-// Format an entity key for mismatch diagnostics using canonical `DecodedDataStoreKey`
-// formatting when possible, and `Debug` fallback otherwise.
-fn format_entity_key_for_mismatch<E>(key: E::Key) -> String
-where
-    E: EntityKind,
-    E::Key: std::fmt::Debug,
-{
-    // Prefer canonical DecodedDataStoreKey formatting when key encoding is available.
-    // Fall back to Debug so mismatch diagnostics remain informative.
-    DecodedDataStoreKey::try_new::<E>(key)
-        .map_or_else(|_| format!("{key:?}"), |key| key.to_string())
 }

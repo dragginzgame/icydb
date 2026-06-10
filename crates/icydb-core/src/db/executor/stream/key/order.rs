@@ -49,12 +49,4 @@ impl KeyOrderComparator {
             Direction::Desc => current > previous,
         }
     }
-
-    // Human-readable direction label for invariant diagnostics.
-    pub(super) const fn order_label(self) -> &'static str {
-        match self.direction {
-            Direction::Asc => "ASC",
-            Direction::Desc => "DESC",
-        }
-    }
 }

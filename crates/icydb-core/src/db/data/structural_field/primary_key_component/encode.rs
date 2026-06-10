@@ -67,9 +67,8 @@ pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
         FieldKind::List(FieldKind::Relation { .. })
         | FieldKind::Set(FieldKind::Relation { .. }) => {
             let Value::List(items) = value else {
-                return Err(InternalError::persisted_row_field_encode_failed(
+                return Err(InternalError::persisted_row_field_encode_internal(
                     field_name,
-                    format!("field kind {kind:?} does not accept runtime value {value:?}"),
                 ));
             };
             let mut keys = Vec::with_capacity(items.len());
@@ -113,9 +112,8 @@ fn encode_relation_target_primary_key_components_binary_into(
             [key] => {
                 encode_primary_key_component_field_binary_into(out, *key, *key_kind, field_name)
             }
-            _ => Err(InternalError::persisted_row_field_encode_failed(
+            _ => Err(InternalError::persisted_row_field_encode_internal(
                 field_name,
-                "singular relation field received more than one target key",
             )),
         },
         FieldKind::List(FieldKind::Relation { key_kind, .. })
@@ -127,11 +125,8 @@ fn encode_relation_target_primary_key_components_binary_into(
 
             Ok(())
         }
-        other => Err(InternalError::persisted_row_field_encode_failed(
+        _ => Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!(
-                "invalid strong relation field kind during structural binary encode: {other:?}"
-            ),
         )),
     }
 }
@@ -158,10 +153,6 @@ fn primary_key_component_from_runtime_value(
     value: &Value,
     field_name: &str,
 ) -> Result<PrimaryKeyComponent, InternalError> {
-    PrimaryKeyComponent::from_runtime_value(value).ok_or_else(|| {
-        InternalError::persisted_row_field_encode_failed(
-            field_name,
-            format!("runtime value {value:?} is not admitted as a primary-key component"),
-        )
-    })
+    PrimaryKeyComponent::from_runtime_value(value)
+        .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field_name))
 }

@@ -4056,10 +4056,10 @@ fn load_cursor_pagination_pk_order_missing_slot_is_unsupported() {
         crate::error::ErrorOrigin::Cursor,
         "missing pk slot should originate from cursor validation checks",
     );
-    assert!(
-        err.message
-            .contains("continuation cursor primary key type mismatch"),
-        "missing pk slot should return a clear cursor mismatch message: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "missing pk slot should report the unsupported runtime diagnostic code: {err:?}",
     );
 }
 
@@ -4090,10 +4090,10 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_unsupported() {
         crate::error::ErrorOrigin::Cursor,
         "pk slot mismatch should originate from cursor validation checks",
     );
-    assert!(
-        err.message
-            .contains("continuation cursor primary key type mismatch"),
-        "pk slot mismatch should return a clear cursor mismatch message: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "pk slot mismatch should report the unsupported runtime diagnostic code: {err:?}",
     );
 }
 
@@ -4125,10 +4125,10 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_unsupported() {
         crate::error::ErrorOrigin::Cursor,
         "pk slot arity mismatch should originate from cursor validation checks",
     );
-    assert!(
-        err.message
-            .contains("continuation cursor boundary arity mismatch"),
-        "pk slot arity mismatch should return a clear cursor mismatch message: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "pk slot arity mismatch should report the unsupported runtime diagnostic code: {err:?}",
     );
 }
 

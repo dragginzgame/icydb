@@ -164,10 +164,7 @@ impl PersistedStructuredFieldCodec for DirectPersistedProfileValue {
         let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
         let bio_bytes = &bytes[2..];
         if bio_bytes.len() != len {
-            return Err(InternalError::persisted_row_decode_failed(format!(
-                "direct structured payload length prefix mismatch: declared={len} actual={}",
-                bio_bytes.len()
-            )));
+            return Err(InternalError::persisted_row_decode_failed(""));
         }
 
         let bio = std::str::from_utf8(bio_bytes)
@@ -192,18 +189,13 @@ impl PersistedStructuredFieldCodec for PersistedRowProfileValue {
     fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
         let entries = crate::db::decode_generated_structural_map_payload_bytes(bytes)?;
         if entries.len() != 1 {
-            return Err(InternalError::persisted_row_decode_failed(format!(
-                "structured profile payload field count mismatch: expected 1, got {}",
-                entries.len(),
-            )));
+            return Err(InternalError::persisted_row_decode_failed(""));
         }
 
         let (entry_key, entry_value) = entries[0];
         let entry_name = crate::db::decode_generated_structural_text_payload_bytes(entry_key)?;
         if entry_name != "bio" {
-            return Err(InternalError::persisted_row_decode_failed(format!(
-                "structured profile payload contains unknown field `{entry_name}`",
-            )));
+            return Err(InternalError::persisted_row_decode_failed(""));
         }
 
         Ok(Self {
@@ -794,12 +786,7 @@ fn encode_slot_payload_allowing_missing_for_tests(
     slots: &[Option<&[u8]>],
 ) -> Result<Vec<u8>, InternalError> {
     if slots.len() != model.fields().len() {
-        return Err(InternalError::persisted_row_encode_failed(format!(
-            "noncanonical slot payload test helper expected {} slots for entity '{}', found {}",
-            model.fields().len(),
-            model.path(),
-            slots.len()
-        )));
+        return Err(InternalError::persisted_row_encode_failed(""));
     }
     let mut payload_bytes = Vec::new();
     let mut slot_table = Vec::with_capacity(slots.len());

@@ -114,9 +114,8 @@ pub(in crate::db::data::persisted_row::codec) fn encode_runtime_value_with_strat
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError> {
     match strategy {
-        StorageStrategy::Scalar => Err(InternalError::persisted_row_field_encode_failed(
+        StorageStrategy::Scalar => Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            "scalar strategy does not encode runtime values",
         )),
         StorageStrategy::ByKind(kind) => by_kind::encode_explicit_value(kind, value, field_name),
         StorageStrategy::Structured => storage_encode::value(value)

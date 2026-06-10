@@ -1315,18 +1315,10 @@ fn ensure_accepted_schema_snapshot_rejects_nested_leaf_drift_as_field_contract()
     .expect_err("nested leaf schema drift should still be rejected");
 
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert!(
-        err.message
-            .contains("field[1] nested leaf metadata changed"),
-        "nested leaf drift should name the owning field"
-    );
-    assert!(
-        err.message.contains("stored_path='legacy_rank'"),
-        "nested leaf drift should include the stored nested path"
-    );
-    assert!(
-        err.message.contains("generated_path='rank'"),
-        "nested leaf drift should include the generated nested path"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "nested leaf drift should remain a compact unsupported transition diagnostic",
     );
 
     let report = metrics_report(None);

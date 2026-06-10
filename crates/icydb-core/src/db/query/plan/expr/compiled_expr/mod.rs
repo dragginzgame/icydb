@@ -146,9 +146,7 @@ impl ProjectionEvalError {
                 class,
                 origin,
             } => InternalError::new(class, origin, message),
-            err => InternalError::query_invalid_logical_plan(format!(
-                "grouped projection evaluation failed: {err}",
-            )),
+            _err => InternalError::query_invalid_logical_plan(""),
         }
     }
 }

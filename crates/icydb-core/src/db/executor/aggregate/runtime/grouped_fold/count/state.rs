@@ -78,13 +78,12 @@ impl GroupedCountState {
     fn increment_existing_group(
         &mut self,
         existing_index: usize,
-        source: &'static str,
+        _source: &'static str,
     ) -> Result<(), InternalError> {
-        let (_, count) = self.groups.get_mut(existing_index).ok_or_else(|| {
-            InternalError::query_executor_invariant(format!(
-                "grouped count state missing {source} group: index={existing_index}",
-            ))
-        })?;
+        let (_, count) = self
+            .groups
+            .get_mut(existing_index)
+            .ok_or_else(|| InternalError::query_executor_invariant(""))?;
         *count = count.saturating_add(1);
         Ok(())
     }

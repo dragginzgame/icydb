@@ -37,10 +37,10 @@ fn decode_persisted_schema_snapshot_rejects_obsolete_codec_without_version_infer
     let err = decode_persisted_schema_snapshot(&encoded)
         .expect_err("obsolete schema snapshot codec should hard-cut");
 
-    assert!(
-        err.message()
-            .contains("unsupported persisted schema snapshot codec version"),
-        "obsolete schema snapshots should fail clearly before schema_version inference"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+        "obsolete schema snapshots should fail before schema_version inference"
     );
 }
 
@@ -60,9 +60,9 @@ fn decode_persisted_schema_snapshot_rejects_zero_schema_version() {
     let err = decode_persisted_schema_snapshot(&encoded)
         .expect_err("decode should reject version-zero schema snapshots");
 
-    assert!(
-        err.message()
-            .contains("persisted schema snapshot schema_version must be positive"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "schema codec should hard-cut non-positive persisted schema versions"
     );
 }
@@ -83,9 +83,9 @@ fn decode_persisted_schema_snapshot_rejects_snapshot_layout_version_mismatch() {
     let err = decode_persisted_schema_snapshot(&encoded)
         .expect_err("decode should reject mismatched snapshot/layout versions");
 
-    assert!(
-        err.message()
-            .contains("persisted schema snapshot row-layout version mismatch"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "schema codec should report the decoded version invariant"
     );
 }

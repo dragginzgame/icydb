@@ -47,17 +47,14 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
         SchemaTransitionPlanKind::AddFieldPathIndex,
         "add_field_path_index",
     )?;
-    let supported = plan.supported_developer_physical_path().map_err(|rejection| {
-        InternalError::store_unsupported(format!(
-            "SQL DDL schema mutation physical execution rejected for entity '{entity_path}': supported_path_rejection={rejection:?}",
-        ))
-    })?;
+    let supported = plan
+        .supported_developer_physical_path()
+        .map_err(|rejection| {
+            let _ = rejection;
+            InternalError::store_unsupported()
+        })?;
     if supported.target() != derivation.admission().target() {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL schema mutation target drifted before physical execution for entity '{entity_path}': prepared='{}' actual='{}'",
-            derivation.admission().target().name(),
-            supported.target().name(),
-        )));
+        return Err(InternalError::store_unsupported());
     }
 
     let report = execute_supported_field_path_index_addition(
@@ -96,9 +93,7 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
         "add_expression_index",
     )?;
     let Some(target) = derivation.admission().expression_target() else {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL expression-index execution requires an expression target for entity '{entity_path}'",
-        )));
+        return Err(InternalError::store_unsupported());
     };
 
     execute_supported_expression_index_addition(
@@ -130,9 +125,7 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
         derivation,
     );
     let Some(target) = derivation.admission().field_addition_target() else {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-addition execution requires a field target for entity '{entity_path}'",
-        )));
+        return Err(InternalError::store_unsupported());
     };
     let plan = envelope.require_transition_plan(
         "field-addition",
@@ -146,17 +139,9 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
         .fields()
         .iter()
         .find(|field| field.id() == target.field_id())
-        .ok_or_else(|| {
-            InternalError::store_unsupported(format!(
-                "SQL DDL field-addition target is absent from accepted-after schema for entity '{entity_path}': field='{}'",
-                target.name(),
-            ))
-        })?;
+        .ok_or_else(InternalError::store_unsupported)?;
     if added_field.name() != target.name() || added_field.slot() != target.slot() {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL field-addition target drifted before publication for entity '{entity_path}': field='{}'",
-            target.name(),
-        )));
+        return Err(InternalError::store_unsupported());
     }
 
     envelope.publish()
@@ -247,17 +232,13 @@ fn require_sql_ddl_transition_plan(
     let plan = match decide_schema_transition(before, after) {
         SchemaTransitionDecision::Accepted(plan) => plan,
         SchemaTransitionDecision::Rejected(rejection) => {
-            return Err(InternalError::store_unsupported(format!(
-                "SQL DDL {operation} schema mutation rejected before publication for entity '{entity_path}': {}",
-                rejection.detail(),
-            )));
+            let _ = (operation, entity_path, rejection);
+            return Err(InternalError::store_unsupported());
         }
     };
     if plan.kind() != expected_kind {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL {operation} execution supports only {expected_label} for entity '{entity_path}': actual={:?}",
-            plan.kind(),
-        )));
+        let _ = (operation, expected_label, entity_path);
+        return Err(InternalError::store_unsupported());
     }
 
     Ok(plan)
@@ -294,9 +275,7 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
         derivation,
     );
     let Some(target) = derivation.admission().drop_target() else {
-        return Err(InternalError::store_unsupported(format!(
-            "SQL DDL index drop execution requires a drop target for entity '{entity_path}'",
-        )));
+        return Err(InternalError::store_unsupported());
     };
 
     validate_sql_ddl_drop_schema_gate(
@@ -345,12 +324,8 @@ fn sql_ddl_drop_target_index_keys(
 
         let mut target_keys = Vec::new();
         index_store.visit_entries(|raw_key, _| {
-            let decoded = IndexKey::try_from_raw(raw_key).map_err(|error| {
-                InternalError::store_corruption(format!(
-                    "SQL DDL DROP INDEX key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
-                    target.name(),
-                ))
-            });
+            let decoded =
+                IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption());
             match decoded {
                 Ok(index_key) if *index_key.index_id() == target_index_id => {
                     target_keys.push(raw_key.clone());
@@ -373,11 +348,8 @@ fn validate_sql_ddl_drop_ready_index_state(
         return Ok(());
     }
 
-    Err(InternalError::store_unsupported(format!(
-        "SQL DDL DROP INDEX requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
-        target.name(),
-        state.as_str(),
-    )))
+    let _ = (entity_path, target, state);
+    Err(InternalError::store_unsupported())
 }
 
 fn validate_sql_ddl_drop_physical_cleanup(
@@ -391,11 +363,8 @@ fn validate_sql_ddl_drop_physical_cleanup(
         return Ok(());
     }
 
-    Err(InternalError::store_unsupported(format!(
-        "SQL DDL DROP INDEX cleanup did not remove all target physical entries for entity '{entity_path}': target_index={} remaining_entries={}",
-        target.name(),
-        remaining.len(),
-    )))
+    let _ = (entity_path, target, remaining);
+    Err(InternalError::store_unsupported())
 }
 
 fn validate_sql_ddl_drop_schema_gate(
@@ -411,7 +380,6 @@ fn validate_sql_ddl_drop_schema_gate(
         return Ok(());
     }
 
-    Err(InternalError::store_unsupported(format!(
-        "SQL DDL DROP INDEX lost exclusive schema gate {boundary} for entity '{entity_path}'",
-    )))
+    let _ = (entity_path, boundary);
+    Err(InternalError::store_unsupported())
 }

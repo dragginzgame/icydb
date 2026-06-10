@@ -20,17 +20,13 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
     primary_key_field_ids: &[FieldId],
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
-) -> Option<String> {
+) -> Option<()> {
     if version.get() == 0 {
-        return Some(format!("{subject} schema_version must be positive"));
+        return Some(());
     }
 
     if row_layout.version() != version {
-        return Some(format!(
-            "{subject} row-layout version mismatch: snapshot={} row_layout={}",
-            version.get(),
-            row_layout.version().get(),
-        ));
+        return Some(());
     }
 
     if let Some(detail) = duplicate_row_layout_detail(subject, row_layout) {
@@ -46,31 +42,21 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
     }
 
     if primary_key_field_ids.is_empty() {
-        return Some(format!("{subject} primary key has no fields"));
+        return Some(());
     }
 
     for (index, primary_key_field_id) in primary_key_field_ids.iter().enumerate() {
         if primary_key_field_ids[..index].contains(primary_key_field_id) {
-            return Some(format!(
-                "{subject} duplicate primary key field: field_id={}",
-                primary_key_field_id.get(),
-            ));
+            return Some(());
         }
 
         if row_layout.slot_for_field(*primary_key_field_id).is_none() {
-            return Some(format!(
-                "{subject} primary key field missing from row layout: field_id={}",
-                primary_key_field_id.get(),
-            ));
+            return Some(());
         }
     }
 
     if row_layout.field_to_slot().len() != fields.len() {
-        return Some(format!(
-            "{subject} row-layout field count mismatch: row_layout={} fields={}",
-            row_layout.field_to_slot().len(),
-            fields.len(),
-        ));
+        return Some(());
     }
 
     let mut matched_primary_key_fields = 0usize;
@@ -80,32 +66,16 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         }
 
         let Some(row_layout_slot) = row_layout.slot_for_field(field.id()) else {
-            return Some(format!(
-                "{subject} missing row-layout slot for field_id={}",
-                field.id().get(),
-            ));
+            return Some(());
         };
 
         if row_layout_slot != field.slot() {
-            return Some(format!(
-                "{subject} field slot mismatch: field_id={} field_slot={} row_layout_slot={}",
-                field.id().get(),
-                field.slot().get(),
-                row_layout_slot.get(),
-            ));
+            return Some(());
         }
     }
 
     if matched_primary_key_fields != primary_key_field_ids.len() {
-        let missing = primary_key_field_ids
-            .iter()
-            .find(|field_id| !fields.iter().any(|field| field.id() == **field_id))
-            .copied()
-            .unwrap_or(primary_key_field_ids[0]);
-        return Some(format!(
-            "{subject} primary key field missing from fields: field_id={}",
-            missing.get(),
-        ));
+        return Some(());
     }
 
     None
@@ -113,22 +83,16 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
 
 // Find duplicate row-layout entries before slot lookup can hide the ambiguity
 // by returning only the first matching field ID.
-fn duplicate_row_layout_detail(subject: &str, row_layout: &SchemaRowLayout) -> Option<String> {
+fn duplicate_row_layout_detail(_subject: &str, row_layout: &SchemaRowLayout) -> Option<()> {
     let entries = row_layout.field_to_slot();
     for (index, (field_id, slot)) in entries.iter().enumerate() {
         for (other_field_id, other_slot) in &entries[index + 1..] {
             if field_id == other_field_id {
-                return Some(format!(
-                    "{subject} duplicate row-layout field id: field_id={}",
-                    field_id.get(),
-                ));
+                return Some(());
             }
 
             if slot == other_slot {
-                return Some(format!(
-                    "{subject} duplicate row-layout slot: slot={}",
-                    slot.get(),
-                ));
+                return Some(());
             }
         }
     }
@@ -136,24 +100,15 @@ fn duplicate_row_layout_detail(subject: &str, row_layout: &SchemaRowLayout) -> O
     None
 }
 
-fn duplicate_retired_row_layout_detail(
-    subject: &str,
-    row_layout: &SchemaRowLayout,
-) -> Option<String> {
+fn duplicate_retired_row_layout_detail(_subject: &str, row_layout: &SchemaRowLayout) -> Option<()> {
     for (field_id, slot) in row_layout.field_to_slot() {
         for (retired_field_id, retired_slot) in row_layout.retired_field_slots() {
             if field_id == retired_field_id {
-                return Some(format!(
-                    "{subject} active and retired row-layout field id overlap: field_id={}",
-                    field_id.get(),
-                ));
+                return Some(());
             }
 
             if slot == retired_slot {
-                return Some(format!(
-                    "{subject} active and retired row-layout slot overlap: slot={}",
-                    slot.get(),
-                ));
+                return Some(());
             }
         }
     }
@@ -162,17 +117,11 @@ fn duplicate_retired_row_layout_detail(
     for (index, (field_id, slot)) in entries.iter().enumerate() {
         for (other_field_id, other_slot) in &entries[index + 1..] {
             if field_id == other_field_id {
-                return Some(format!(
-                    "{subject} duplicate retired row-layout field id: field_id={}",
-                    field_id.get(),
-                ));
+                return Some(());
             }
 
             if slot == other_slot {
-                return Some(format!(
-                    "{subject} duplicate retired row-layout slot: slot={}",
-                    slot.get(),
-                ));
+                return Some(());
             }
         }
     }
@@ -182,21 +131,15 @@ fn duplicate_retired_row_layout_detail(
 
 // Find duplicate persisted field entries before name or field-ID lookup can
 // become order-dependent. Accepted schema metadata must be unambiguous.
-fn duplicate_field_detail(subject: &str, fields: &[PersistedFieldSnapshot]) -> Option<String> {
+fn duplicate_field_detail(subject: &str, fields: &[PersistedFieldSnapshot]) -> Option<()> {
     for (index, field) in fields.iter().enumerate() {
         for other in &fields[index + 1..] {
             if field.id() == other.id() {
-                return Some(format!(
-                    "{subject} duplicate field id: field_id={}",
-                    field.id().get(),
-                ));
+                return Some(());
             }
 
             if field.name() == other.name() {
-                return Some(format!(
-                    "{subject} duplicate field name: name='{}'",
-                    field.name(),
-                ));
+                return Some(());
             }
         }
 
@@ -211,22 +154,15 @@ fn duplicate_field_detail(subject: &str, fields: &[PersistedFieldSnapshot]) -> O
 // Find ambiguous nested leaf descriptors before accepted field-path inference
 // can become first-match dependent. Nested paths are local to their owning
 // top-level field, so uniqueness is enforced per field.
-fn nested_leaf_detail(subject: &str, field: &PersistedFieldSnapshot) -> Option<String> {
+fn nested_leaf_detail(_subject: &str, field: &PersistedFieldSnapshot) -> Option<()> {
     for (index, leaf) in field.nested_leaves().iter().enumerate() {
         if leaf.path().is_empty() {
-            return Some(format!(
-                "{subject} empty nested leaf path: field_id={}",
-                field.id().get(),
-            ));
+            return Some(());
         }
 
         for other in &field.nested_leaves()[index + 1..] {
             if leaf.path() == other.path() {
-                return Some(format!(
-                    "{subject} duplicate nested leaf path: field_id={} path={:?}",
-                    field.id().get(),
-                    leaf.path(),
-                ));
+                return Some(());
             }
         }
     }

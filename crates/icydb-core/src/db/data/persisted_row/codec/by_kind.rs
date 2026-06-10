@@ -71,19 +71,15 @@ fn decode_primary_key_component_as<T>(
     bytes: &[u8],
     kind: FieldKind,
     field_name: &'static str,
-    label: impl std::fmt::Display,
     extract: impl FnOnce(PrimaryKeyComponent) -> Option<T>,
 ) -> Result<Option<T>, InternalError> {
     let Some(key) = decode_optional_primary_key_component(bytes, kind, field_name)? else {
         return Ok(None);
     };
 
-    extract(key).map(Some).ok_or_else(|| {
-        InternalError::persisted_row_field_decode_failed(
-            field_name,
-            format!("field kind {kind:?} did not decode as {label}"),
-        )
-    })
+    extract(key)
+        .map(Some)
+        .ok_or_else(|| InternalError::persisted_row_field_decode_corruption(field_name))
 }
 
 // Decode a storage-key variant that still needs a fallible primitive narrowing
@@ -92,21 +88,16 @@ fn decode_primary_key_component_and_convert<T, Raw>(
     bytes: &[u8],
     kind: FieldKind,
     field_name: &'static str,
-    label: &'static str,
     extract: impl FnOnce(PrimaryKeyComponent) -> Option<Raw>,
     convert: impl FnOnce(Raw) -> Result<T, ()>,
 ) -> Result<Option<T>, InternalError> {
-    let Some(value) = decode_primary_key_component_as(bytes, kind, field_name, label, extract)?
-    else {
+    let Some(value) = decode_primary_key_component_as(bytes, kind, field_name, extract)? else {
         return Ok(None);
     };
 
-    convert(value).map(Some).map_err(|()| {
-        InternalError::persisted_row_field_decode_failed(
-            field_name,
-            format!("field kind {kind:?} did not decode as {label}"),
-        )
-    })
+    convert(value)
+        .map(Some)
+        .map_err(|()| InternalError::persisted_row_field_decode_corruption(field_name))
 }
 
 /// Decode one persisted slot payload using the stricter schema-owned `ByKind`
@@ -241,7 +232,6 @@ macro_rules! impl_persisted_by_kind_storage_int_leaf {
                             bytes,
                             kind,
                             field_name,
-                            "storage int64",
                             |key| match key {
                                 PrimaryKeyComponent::Int64(value) => Some(value),
                                 _ => None,
@@ -268,7 +258,6 @@ macro_rules! impl_persisted_by_kind_storage_nat_leaf {
                             bytes,
                             kind,
                             field_name,
-                            "storage nat64",
                             |key| match key {
                                 PrimaryKeyComponent::Nat64(value) => Some(value),
                                 _ => None,
@@ -291,7 +280,7 @@ macro_rules! impl_persisted_by_kind_storage_leaf {
                         encode_primary_key_component_field_bytes(PrimaryKeyComponent::$variant(*value), kind, field_name)
                     },
                     decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
-                        decode_primary_key_component_as(bytes, kind, field_name, $label, |key| match key {
+                        decode_primary_key_component_as(bytes, kind, field_name, |key| match key {
                             PrimaryKeyComponent::$variant(value) => Some(value),
                             _ => None,
                         })
@@ -310,7 +299,7 @@ macro_rules! impl_persisted_by_kind_storage_unit_leaf {
                     encode_primary_key_component_field_bytes(PrimaryKeyComponent::Unit, kind, field_name)
                 },
                 decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
-                    decode_primary_key_component_as(bytes, kind, field_name, "storage unit", |key| {
+                    decode_primary_key_component_as(bytes, kind, field_name, |key| {
                         matches!(key, PrimaryKeyComponent::Unit).then_some(Unit)
                     })
                 }
@@ -364,12 +353,7 @@ pub(in crate::db::data::persisted_row::codec) fn encode_explicit_value(
 
     if supports_primary_key_component_binary_kind(kind) {
         return encode_primary_key_component_binary_value_bytes(kind, value, field_name)?
-            .ok_or_else(|| {
-                InternalError::persisted_row_field_encode_failed(
-                    field_name,
-                    "storage-key binary lane rejected a supported field kind",
-                )
-            });
+            .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field_name));
     }
 
     encode_structural_field_by_kind_bytes(kind, value, field_name)

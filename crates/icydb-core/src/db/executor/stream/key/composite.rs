@@ -36,29 +36,22 @@ struct StreamSideState {
     last_key: Option<RowKeyWitness>,
     comparator: KeyOrderComparator,
     strict_monotonicity: bool,
-    name: &'static str,
 }
 
 impl StreamSideState {
     /// Construct one stream-side lookahead state.
-    const fn new(name: &'static str, comparator: KeyOrderComparator) -> Self {
+    const fn new(comparator: KeyOrderComparator) -> Self {
         Self {
             item: None,
             done: false,
             last_key: None,
             comparator,
             strict_monotonicity: true,
-            name,
         }
     }
 
     // Ensure one lookahead item is available for this stream side.
-    fn ensure_item<S>(
-        &mut self,
-        stream: &mut S,
-        stream_kind: &'static str,
-        direction_context: &'static str,
-    ) -> Result<(), InternalError>
+    fn ensure_item<S>(&mut self, stream: &mut S) -> Result<(), InternalError>
     where
         S: OrderedKeyStream,
     {
@@ -67,7 +60,7 @@ impl StreamSideState {
         }
 
         match stream.next_key()? {
-            Some(key) => self.push_key(key, stream_kind, direction_context)?,
+            Some(key) => self.push_key(key)?,
             None => self.done = true,
         }
 
@@ -75,61 +68,25 @@ impl StreamSideState {
     }
 
     // Push one polled key into this stream-side lookahead slot with direction checks.
-    fn push_key(
-        &mut self,
-        key: DecodedDataStoreKey,
-        stream_kind: &'static str,
-        direction_context: &'static str,
-    ) -> Result<(), InternalError> {
-        self.validate_monotonicity(&key, stream_kind, direction_context)?;
+    fn push_key(&mut self, key: DecodedDataStoreKey) -> Result<(), InternalError> {
+        self.validate_monotonicity(&key)?;
         self.item = Some(key);
 
         Ok(())
     }
 
     // Build the canonical invariant for entity drift within one ordered child stream.
-    fn entity_monotonicity_required(
-        &self,
-        stream_kind: &'static str,
-        direction_context: &'static str,
-        previous_entity: EntityTag,
-        current_entity: EntityTag,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "{stream_kind} stream {} changed entity while enforcing {} {direction_context} monotonicity (previous entity: {:?}, current entity: {:?})",
-            self.name,
-            self.comparator.order_label(),
-            previous_entity,
-            current_entity,
-        ))
+    fn entity_monotonicity_required() -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     // Build the canonical invariant for out-of-order keys within one ordered child stream.
-    fn key_monotonicity_required(
-        &self,
-        stream_kind: &'static str,
-        direction_context: &'static str,
-        current_entity: EntityTag,
-        previous_key: &PrimaryKeyValue,
-        current_key: &PrimaryKeyValue,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "{stream_kind} stream {} emitted out-of-order key for {} {direction_context} (entity: {:?}, previous key: {:?}, current key: {:?})",
-            self.name,
-            self.comparator.order_label(),
-            current_entity,
-            previous_key,
-            current_key,
-        ))
+    fn key_monotonicity_required() -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     // Validate this stream-side monotonicity according to configured direction.
-    fn validate_monotonicity(
-        &self,
-        current: &DecodedDataStoreKey,
-        stream_kind: &'static str,
-        direction_context: &'static str,
-    ) -> Result<(), InternalError> {
+    fn validate_monotonicity(&self, current: &DecodedDataStoreKey) -> Result<(), InternalError> {
         if !self.strict_monotonicity {
             return Ok(());
         }
@@ -139,12 +96,7 @@ impl StreamSideState {
         let (current_entity, current_key) = row_key_witness(current);
 
         if *previous_entity != current_entity {
-            return Err(self.entity_monotonicity_required(
-                stream_kind,
-                direction_context,
-                *previous_entity,
-                current_entity,
-            ));
+            return Err(Self::entity_monotonicity_required());
         }
 
         if !self
@@ -154,13 +106,7 @@ impl StreamSideState {
             return Ok(());
         }
 
-        Err(self.key_monotonicity_required(
-            stream_kind,
-            direction_context,
-            current_entity,
-            previous_key,
-            &current_key,
-        ))
+        Err(Self::key_monotonicity_required())
     }
 
     fn take_item(&mut self) -> Option<DecodedDataStoreKey> {
@@ -193,8 +139,8 @@ impl OrderedPairState {
     /// Construct one ordered-pair lookahead envelope.
     const fn new(comparator: KeyOrderComparator) -> Self {
         Self {
-            left: StreamSideState::new("left", comparator),
-            right: StreamSideState::new("right", comparator),
+            left: StreamSideState::new(comparator),
+            right: StreamSideState::new(comparator),
         }
     }
 }
@@ -236,13 +182,11 @@ where
     }
 
     fn ensure_left_item(&mut self) -> Result<(), InternalError> {
-        self.pair.left.ensure_item(&mut self.left, "merge", "merge")
+        self.pair.left.ensure_item(&mut self.left)
     }
 
     fn ensure_right_item(&mut self) -> Result<(), InternalError> {
-        self.pair
-            .right
-            .ensure_item(&mut self.right, "merge", "merge")
+        self.pair.right.ensure_item(&mut self.right)
     }
 }
 
@@ -339,15 +283,11 @@ where
     }
 
     fn ensure_left_item(&mut self) -> Result<(), InternalError> {
-        self.pair
-            .left
-            .ensure_item(&mut self.left, "intersect", "intersection")
+        self.pair.left.ensure_item(&mut self.left)
     }
 
     fn ensure_right_item(&mut self) -> Result<(), InternalError> {
-        self.pair
-            .right
-            .ensure_item(&mut self.right, "intersect", "intersection")
+        self.pair.right.ensure_item(&mut self.right)
     }
 }
 

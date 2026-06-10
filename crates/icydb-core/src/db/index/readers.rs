@@ -26,18 +26,13 @@ use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 pub(in crate::db) struct IndexReadContract<'a> {
     store_path: &'a str,
     unique: bool,
-    fields: &'a str,
 }
 
 impl<'a> IndexReadContract<'a> {
     /// Build one reduced index read contract.
     #[must_use]
-    pub(in crate::db) const fn new(store_path: &'a str, unique: bool, fields: &'a str) -> Self {
-        Self {
-            store_path,
-            unique,
-            fields,
-        }
+    pub(in crate::db) const fn new(store_path: &'a str, unique: bool) -> Self {
+        Self { store_path, unique }
     }
 
     /// Borrow the schema-owned index store path.
@@ -50,12 +45,6 @@ impl<'a> IndexReadContract<'a> {
     #[must_use]
     pub(in crate::db) const fn unique(self) -> bool {
         self.unique
-    }
-
-    /// Borrow the diagnostic field list.
-    #[must_use]
-    pub(in crate::db) const fn fields(self) -> &'a str {
-        self.fields
     }
 }
 

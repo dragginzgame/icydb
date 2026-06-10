@@ -106,11 +106,8 @@ impl ValueReducerState {
         match self {
             Self::Count { .. } => self.increment_count(),
             Self::Sum { .. } | Self::Avg { .. } => {
-                let decimal = coerce_numeric_decimal(value).ok_or_else(|| {
-                    InternalError::query_executor_invariant(format!(
-                        "value aggregate numeric reducer encountered non-numeric value: {value:?}",
-                    ))
-                })?;
+                let decimal = coerce_numeric_decimal(value)
+                    .ok_or_else(|| InternalError::query_executor_invariant(""))?;
 
                 self.ingest_decimal(decimal)
             }
@@ -145,11 +142,8 @@ impl ValueReducerState {
             Self::Count { .. } => self.increment_count(),
             #[cfg(feature = "sql")]
             Self::Sum { .. } | Self::Avg { .. } => {
-                let decimal = coerce_numeric_decimal(&value).ok_or_else(|| {
-                    InternalError::query_executor_invariant(format!(
-                        "value aggregate numeric reducer encountered non-numeric value: {value:?}",
-                    ))
-                })?;
+                let decimal = coerce_numeric_decimal(&value)
+                    .ok_or_else(|| InternalError::query_executor_invariant(""))?;
 
                 self.ingest_decimal(decimal)
             }
@@ -369,11 +363,8 @@ fn selected_value_should_replace(
     let Some(current) = selected else {
         return Ok(true);
     };
-    let ordering = compare_numeric_or_strict_order(candidate, current).ok_or_else(|| {
-        InternalError::query_executor_invariant(format!(
-            "value aggregate extrema reducer encountered incomparable values: left={candidate:?} right={current:?}",
-        ))
-    })?;
+    let ordering = compare_numeric_or_strict_order(candidate, current)
+        .ok_or_else(|| InternalError::query_executor_invariant(""))?;
 
     Ok(if select_min {
         ordering.is_lt()
@@ -383,8 +374,6 @@ fn selected_value_should_replace(
 }
 
 #[cfg(feature = "sql")]
-fn reducer_state_mismatch(kind: &'static str) -> InternalError {
-    InternalError::query_executor_invariant(format!(
-        "value aggregate reducer {kind} state mismatch"
-    ))
+fn reducer_state_mismatch(_kind: &'static str) -> InternalError {
+    InternalError::query_executor_invariant("")
 }

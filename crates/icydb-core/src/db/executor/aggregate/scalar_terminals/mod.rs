@@ -125,11 +125,8 @@ where
             compiled.aggregate_execution_specs(),
         );
         if let Some(expr) = compiled.having()
-            && !evaluate_grouped_having_expr(expr, &grouped_row).map_err(|err| {
-                InternalError::query_executor_invariant(format!(
-                    "structural aggregate HAVING evaluation failed: {err}",
-                ))
-            })?
+            && !evaluate_grouped_having_expr(expr, &grouped_row)
+                .map_err(|_err| InternalError::query_executor_invariant(""))?
         {
             return Ok(StructuralAggregateResult::new(Vec::new()));
         }
@@ -139,11 +136,7 @@ where
             row.push(
                 expr.evaluate(&grouped_row)
                     .map(Cow::into_owned)
-                    .map_err(|err| {
-                        InternalError::query_executor_invariant(format!(
-                            "structural aggregate projection evaluation failed: {err}",
-                        ))
-                    })?,
+                    .map_err(|_err| InternalError::query_executor_invariant(""))?,
             );
         }
 

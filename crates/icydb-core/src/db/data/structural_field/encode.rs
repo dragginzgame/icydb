@@ -38,8 +38,7 @@ pub(in crate::db) fn encode_structural_field_by_kind_bytes(
         return encode_composite_field_binary_bytes(kind, value, field_name);
     }
 
-    Err(InternalError::persisted_row_field_encode_failed(
+    Err(InternalError::persisted_row_field_encode_internal(
         field_name,
-        format!("unsupported structural field kind during encode: {kind:?}"),
     ))
 }

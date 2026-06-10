@@ -125,30 +125,24 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
 
 impl GroupedTerminalAggregateState {
     // Build the canonical grouped terminal invariant for field-target-only kinds.
-    fn field_target_execution_required(kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped aggregate reducer {kind} requires field-target execution path"
-        ))
+    fn field_target_execution_required(_kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     // Build the canonical grouped terminal invariant for primary-key-value-required updates.
-    fn primary_key_value_required(kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped aggregate reducer {kind} update requires primary key value"
-        ))
+    fn primary_key_value_required(_kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     // Build the canonical grouped terminal invariant for one non-numeric
     // SUM/AVG(field) payload that planner semantics should already have
     // rejected.
     fn sum_like_field_requires_numeric_value(
-        label: &'static str,
-        field: &str,
-        value: &Value,
+        _label: &'static str,
+        _field: &str,
+        _value: &Value,
     ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped aggregate reducer {label} requires numeric field '{field}', found value {value:?}"
-        ))
+        InternalError::query_executor_invariant("")
     }
 
     // Build the canonical grouped terminal invariant for aggregate-input
@@ -158,9 +152,7 @@ impl GroupedTerminalAggregateState {
             return err.into_internal_error();
         }
 
-        InternalError::query_invalid_logical_plan(format!(
-            "grouped aggregate input expression evaluation failed: {err}",
-        ))
+        InternalError::query_invalid_logical_plan("")
     }
 
     // Build the canonical grouped terminal invariant for aggregate filters
@@ -170,9 +162,7 @@ impl GroupedTerminalAggregateState {
             return err.into_internal_error();
         }
 
-        InternalError::query_invalid_logical_plan(format!(
-            "grouped aggregate filter expression evaluation failed: {err}",
-        ))
+        InternalError::query_invalid_logical_plan("")
     }
 
     // Evaluate one row-backed grouped expression for aggregate execution. Input
@@ -285,11 +275,7 @@ impl GroupedTerminalAggregateState {
 
             return Self::coerce_sum_like_decimal(&value)
                 .map(Some)
-                .ok_or_else(|| {
-                    InternalError::query_executor_invariant(format!(
-                        "grouped aggregate reducer {label} requires numeric expression input, found value {value:?}",
-                    ))
-                });
+                .ok_or_else(|| InternalError::query_executor_invariant(""));
         }
 
         let Some(target_field) = self.target_field.as_ref() else {
@@ -325,11 +311,8 @@ impl GroupedTerminalAggregateState {
             Self::filter_expression_evaluation_failed,
         )?;
 
-        collapse_true_only_boolean_admission(value, |found| {
-            InternalError::query_invalid_logical_plan(format!(
-                "grouped aggregate filter expression produced non-boolean value: {:?}",
-                found.as_ref(),
-            ))
+        collapse_true_only_boolean_admission(value, |_found| {
+            InternalError::query_invalid_logical_plan("")
         })
     }
 

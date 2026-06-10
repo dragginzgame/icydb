@@ -181,9 +181,7 @@ impl DataStore {
             live, tombstones, ..
         } = &mut self.backend
         else {
-            return Err(crate::error::InternalError::store_invariant(
-                "journaled live projection reset requires a journaled data store",
-            ));
+            return Err(crate::error::InternalError::store_invariant());
         };
 
         live.clear();
@@ -204,9 +202,7 @@ impl DataStore {
             tombstones,
         } = &mut self.backend
         else {
-            return Err(crate::error::InternalError::store_invariant(
-                "journal row replay requires a journaled data store",
-            ));
+            return Err(crate::error::InternalError::store_invariant());
         };
 
         let previous = if tombstones.contains(&key) {
@@ -231,9 +227,7 @@ impl DataStore {
             tombstones,
         } = &mut self.backend
         else {
-            return Err(crate::error::InternalError::store_invariant(
-                "journal row replay requires a journaled data store",
-            ));
+            return Err(crate::error::InternalError::store_invariant());
         };
 
         let previous = if tombstones.contains(key) {
@@ -254,9 +248,7 @@ impl DataStore {
         row: RawRow,
     ) -> Result<Option<RawRow>, crate::error::InternalError> {
         let DataStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
-            return Err(crate::error::InternalError::store_invariant(
-                "journal row fold requires a journaled data store",
-            ));
+            return Err(crate::error::InternalError::store_invariant());
         };
 
         Ok(canonical.insert(key, row))
@@ -268,9 +260,7 @@ impl DataStore {
         key: &RawDataStoreKey,
     ) -> Result<Option<RawRow>, crate::error::InternalError> {
         let DataStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
-            return Err(crate::error::InternalError::store_invariant(
-                "journal row fold requires a journaled data store",
-            ));
+            return Err(crate::error::InternalError::store_invariant());
         };
 
         Ok(canonical.remove(key))

@@ -322,9 +322,7 @@ impl IndexStore {
             tombstones,
         } = &mut self.backend
         else {
-            return Err(crate::error::InternalError::store_invariant(
-                "journal index fold requires a journaled index store",
-            ));
+            return Err(crate::error::InternalError::store_invariant());
         };
 
         canonical.clear_new();

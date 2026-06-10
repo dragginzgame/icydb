@@ -185,10 +185,7 @@ impl DecodedDataStoreKey {
     {
         let expected = E::ENTITY_TAG;
         if self.entity != expected {
-            return Err(InternalError::data_key_entity_mismatch(
-                expected.value(),
-                self.entity.value(),
-            ));
+            return Err(InternalError::data_key_entity_mismatch());
         }
 
         <E::Key as PrimaryKeyDecode>::from_primary_key_value(&self.key)
@@ -331,8 +328,7 @@ fn composite_primary_key_value_from_structural_values(
 fn primary_key_component_from_structural_value(
     value: &Value,
 ) -> Result<PrimaryKeyComponent, InternalError> {
-    PrimaryKeyComponent::from_runtime_value(value)
-        .ok_or_else(|| InternalError::store_unsupported("value is not admitted as a primary key"))
+    PrimaryKeyComponent::from_runtime_value(value).ok_or_else(InternalError::store_unsupported)
 }
 
 impl Clone for DecodedDataStoreKey {

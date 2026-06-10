@@ -1431,14 +1431,13 @@ fn execute_sql_statement_rejects_unsupported_schema_transition_before_select_com
         "SELECT id, name FROM SessionSqlWriteEntity WHERE id = 1",
     )
     .expect_err("SQL SELECT should reject unsupported accepted schema drift");
-    let err_text = err.to_string();
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
-    assert!(
-        err_text.contains("schema evolution is not yet supported")
-            && err_text.contains("schema changed without schema_version bump"),
-        "SQL SELECT should surface the schema-transition barrier: {err_text}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "SQL SELECT should surface the schema-transition barrier as a compact unsupported diagnostic",
     );
 }
 

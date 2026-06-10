@@ -26,11 +26,9 @@ impl GroupedRouteStage {
     /// Construct one grouped route invariant for grouped page-finalize keys
     /// that no longer match the canonical list-based group-key shape.
     pub(in crate::db::executor) fn canonical_group_key_must_be_list(
-        value: &Value,
+        _value: &Value,
     ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped canonical key must be Value::List, found {value:?}"
-        ))
+        InternalError::query_executor_invariant("")
     }
 
     /// Borrow grouped logical plan payload.

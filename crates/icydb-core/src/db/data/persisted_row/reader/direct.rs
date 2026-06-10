@@ -443,11 +443,7 @@ fn expected_primary_key_component_for_slot(
         PrimaryKeyValue::Composite(composite) => {
             let slots = contract.primary_key_slot_indices();
             if slots.len() != composite.len() {
-                return Err(InternalError::persisted_row_decode_failed(format!(
-                    "composite primary-key slot count mismatch: expected {} slots, row contract has {}",
-                    composite.len(),
-                    slots.len(),
-                )));
+                return Err(InternalError::persisted_row_decode_corruption());
             }
 
             Ok(slots

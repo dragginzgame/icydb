@@ -51,9 +51,8 @@ impl PrimaryScan {
     pub(in crate::db::executor) fn decode_data_key(
         raw: &RawDataStoreKey,
     ) -> Result<DecodedDataStoreKey, InternalError> {
-        DecodedDataStoreKey::try_from_raw(raw).map_err(|err| {
-            InternalError::identity_corruption(format!("failed to decode data key: {err}"))
-        })
+        DecodedDataStoreKey::try_from_raw(raw)
+            .map_err(|_err| InternalError::identity_corruption(""))
     }
 }
 

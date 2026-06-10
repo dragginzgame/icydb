@@ -389,9 +389,8 @@ fn encode_accepted_list_bytes(
     field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::List(items) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("accepted field kind {inner:?} list does not accept runtime value {value:?}"),
         ));
     };
     let skip_null_items = matches!(inner, PersistedFieldKind::Relation { .. });
@@ -437,9 +436,8 @@ fn encode_accepted_map_bytes(
     field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::Map(entries) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("accepted map field does not accept runtime value {value:?}"),
         ));
     };
 
@@ -496,18 +494,16 @@ fn encode_accepted_enum_bytes(
     field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::Enum(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("enum field '{path}' does not accept runtime value {value:?}"),
         ));
     };
 
     if let Some(actual_path) = value.path()
         && actual_path != path
     {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("enum path mismatch: expected '{path}', found '{actual_path}'"),
         ));
     }
 
@@ -516,21 +512,13 @@ fn encode_accepted_enum_bytes(
         return Ok(());
     };
     let Some(variant_model) = variants.iter().find(|item| item.ident() == value.variant()) else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!(
-                "unknown enum variant '{}' for path '{path}'",
-                value.variant()
-            ),
         ));
     };
     let Some(payload_kind) = variant_model.payload_kind() else {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!(
-                "enum variant '{}' does not accept a payload",
-                value.variant()
-            ),
         ));
     };
     let payload_bytes = match variant_model.payload_storage_decode() {

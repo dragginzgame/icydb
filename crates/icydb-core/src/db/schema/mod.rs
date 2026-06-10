@@ -89,11 +89,10 @@ pub(in crate::db::schema) use mutation::{
     MutationPublicationStatus, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
     SchemaFieldPathIndexRunnerFailure, SchemaFieldPathIndexRunnerReport,
     SchemaMutationAcceptedSnapshotPublicationSink, SchemaMutationDeveloperReport,
-    SchemaMutationExecutionPlan, SchemaMutationPublishStatus, SchemaMutationRequest,
-    SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaMutationRunnerInput,
-    SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch, SchemaMutationRuntimeInvalidationSink,
-    SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
-    SchemaMutationValidationStatus, schema_mutation_request_for_snapshots,
+    SchemaMutationExecutionPlan, SchemaMutationRequest, SchemaMutationRunnerCapability,
+    SchemaMutationRunnerContract, SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
+    SchemaMutationRuntimeInvalidationSink, SchemaMutationSupportedExecutionPath,
+    SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{

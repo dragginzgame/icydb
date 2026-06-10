@@ -295,22 +295,18 @@ pub trait PrimaryKeyDecode: Sized {
 }
 
 fn primary_key_variant_decode_failed(
-    type_name: &'static str,
-    key: &PrimaryKeyValue,
-    expected: &'static str,
+    _type_name: &'static str,
+    _key: &PrimaryKeyValue,
+    _expected: &'static str,
 ) -> InternalError {
-    InternalError::store_corruption(format!(
-        "primary key decode failed for `{type_name}`: expected {expected}, found {key:?}",
-    ))
+    InternalError::store_corruption()
 }
 
 fn primary_key_range_decode_failed(
-    type_name: &'static str,
-    key: &PrimaryKeyValue,
+    _type_name: &'static str,
+    _key: &PrimaryKeyValue,
 ) -> InternalError {
-    InternalError::store_corruption(format!(
-        "primary key decode failed for `{type_name}`: value out of range for {key:?}",
-    ))
+    InternalError::store_corruption()
 }
 
 macro_rules! impl_primary_key_codec_signed {

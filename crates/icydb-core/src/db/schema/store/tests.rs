@@ -663,9 +663,9 @@ fn schema_store_rejects_mismatched_snapshot_and_layout_versions() {
         .insert_persisted_snapshot(EntityTag::new(43), &invalid)
         .expect_err("schema store should reject mismatched snapshot/layout versions");
 
-    assert!(
-        err.message()
-            .contains("schema snapshot row-layout version mismatch"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "schema store should preserve the version mismatch diagnostic"
     );
 }
@@ -679,9 +679,9 @@ fn schema_store_rejects_typed_snapshot_with_zero_schema_version() {
         .insert_persisted_snapshot(EntityTag::new(44), &invalid)
         .expect_err("schema store should reject non-positive schema versions");
 
-    assert!(
-        err.message()
-            .contains("schema snapshot schema_version must be positive"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "schema store should hard-cut non-positive persisted schema versions"
     );
 }
@@ -709,9 +709,9 @@ fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
         .insert_persisted_snapshot(EntityTag::new(44), &invalid)
         .expect_err("schema store should reject divergent field/layout slots");
 
-    assert!(
-        err.message()
-            .contains("schema snapshot field slot mismatch"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "schema store should report the duplicated slot divergence"
     );
 }
@@ -739,9 +739,9 @@ fn schema_store_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
         .insert_persisted_snapshot(EntityTag::new(49), &invalid)
         .expect_err("schema store should reject duplicate row-layout slots");
 
-    assert!(
-        err.message()
-            .contains("schema snapshot duplicate row-layout slot"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "schema store should report the row-layout slot ambiguity"
     );
 }
@@ -763,9 +763,9 @@ fn schema_store_rejects_typed_snapshot_with_missing_primary_key_field() {
         .insert_persisted_snapshot(EntityTag::new(47), &invalid)
         .expect_err("schema store should reject snapshots without the primary-key field");
 
-    assert!(
-        err.message()
-            .contains("schema snapshot primary key field missing from row layout"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "schema store should report the missing primary-key field"
     );
 }
@@ -785,9 +785,9 @@ fn schema_store_does_not_fallback_when_latest_snapshot_is_corrupt() {
         .latest_persisted_snapshot(EntityTag::new(45))
         .expect_err("latest corrupt schema snapshot must fail closed");
 
-    assert!(
-        err.message()
-            .contains("failed to decode persisted schema snapshot"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "latest-version lookup should report the corrupt newest snapshot"
     );
 }
@@ -820,9 +820,9 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
         .latest_persisted_snapshot(EntityTag::new(46))
         .expect_err("raw decode should reject divergent field/layout slots");
 
-    assert!(
-        err.message()
-            .contains("persisted schema snapshot field slot mismatch"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "schema codec should report the raw decoded slot divergence"
     );
 }
@@ -849,9 +849,9 @@ fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
         .latest_persisted_snapshot(EntityTag::new(48))
         .expect_err("raw decode should reject snapshots without the primary-key field");
 
-    assert!(
-        err.message()
-            .contains("persisted schema snapshot primary key field missing from row layout"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "schema codec should report the raw decoded missing primary-key field"
     );
 }
@@ -891,9 +891,9 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
         .latest_persisted_snapshot(EntityTag::new(50))
         .expect_err("raw decode should reject duplicate field names");
 
-    assert!(
-        err.message()
-            .contains("persisted schema snapshot duplicate field name"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "schema codec should report the raw decoded field-name ambiguity"
     );
 }
@@ -934,9 +934,9 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
         .insert_persisted_snapshot(EntityTag::new(51), &invalid)
         .expect_err("schema store should reject empty nested leaf paths");
 
-    assert!(
-        err.message()
-            .contains("schema snapshot empty nested leaf path"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "schema store should report the empty nested leaf path"
     );
 }
@@ -992,9 +992,9 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
         .latest_persisted_snapshot(EntityTag::new(52))
         .expect_err("raw decode should reject duplicate nested leaf paths");
 
-    assert!(
-        err.message()
-            .contains("persisted schema snapshot duplicate nested leaf path"),
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "schema codec should report the raw decoded nested path ambiguity"
     );
 }

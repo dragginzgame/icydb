@@ -2057,10 +2057,10 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         ErrorOrigin::Executor,
         "generation mismatch should originate from executor apply invariants",
     );
-    assert!(
-        err.message
-            .contains("index store generation changed between preflight and apply"),
-        "unexpected error: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "generation mismatch should surface as a compact executor invariant",
     );
 
     let persisted = load_unique_email_entity(entity.id);
@@ -2611,10 +2611,10 @@ fn set_field_encoding_requires_canonical_order_and_uniqueness() {
         &Value::List(vec![higher, lower]),
     )
     .expect_err("unordered set encoding must fail");
-    assert!(
-        err.message
-            .contains("set field must be strictly ordered and deduplicated"),
-        "unexpected error: {err:?}"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "unordered set encoding should surface as a compact executor invariant",
     );
 
     let dup = Value::Ulid(Ulid::from_u128(7));
@@ -2624,10 +2624,10 @@ fn set_field_encoding_requires_canonical_order_and_uniqueness() {
         &Value::List(vec![dup.clone(), dup]),
     )
     .expect_err("duplicate set entries must fail");
-    assert!(
-        err.message
-            .contains("set field must be strictly ordered and deduplicated"),
-        "unexpected error: {err:?}"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "duplicate set encoding should surface as a compact executor invariant",
     );
 }
 
@@ -2646,10 +2646,10 @@ fn map_field_encoding_requires_canonical_entry_order() {
         "settings", &kind, &unordered,
     )
     .expect_err("unordered map entries must fail");
-    assert!(
-        err.message
-            .contains("map field entries are not in canonical deterministic order"),
-        "unexpected error: {err:?}"
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
+        "unordered map encoding should surface as a compact executor invariant",
     );
 }
 
@@ -3185,13 +3185,10 @@ fn session_insert_rejects_unsupported_schema_transition_before_write_staging() {
     SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert!(
-        err.message
-            .contains("schema evolution is not yet supported")
-            && err
-                .message
-                .contains("schema changed without schema_version bump"),
-        "unexpected schema transition error: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "unexpected schema transition diagnostic: {err:?}",
     );
     assert!(
         load_unique_email_entity(Ulid::from_u128(25)).is_none(),
@@ -3226,13 +3223,10 @@ fn session_load_rejects_unsupported_schema_transition_before_row_decode() {
         matches!(&err, QueryError::Execute(_)),
         "schema transition should surface through the query execution boundary: {err:?}",
     );
-    assert!(
-        err.to_string()
-            .contains("schema evolution is not yet supported")
-            && err
-                .to_string()
-                .contains("schema changed without schema_version bump"),
-        "unexpected schema transition error: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "unexpected schema transition diagnostic: {err:?}",
     );
 }
 
@@ -3265,13 +3259,10 @@ fn session_delete_rejects_unsupported_schema_transition_before_row_decode() {
         matches!(&err, QueryError::Execute(_)),
         "schema transition should surface through the query execution boundary: {err:?}",
     );
-    assert!(
-        err.to_string()
-            .contains("schema evolution is not yet supported")
-            && err
-                .to_string()
-                .contains("schema changed without schema_version bump"),
-        "unexpected schema transition error: {err:?}",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        "unexpected schema transition diagnostic: {err:?}",
     );
     assert!(
         load_unique_email_entity(id).is_some(),

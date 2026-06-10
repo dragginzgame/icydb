@@ -349,10 +349,7 @@ impl OwnedAcceptedRelationEdgeContract {
         let mut local_field_slots = Vec::with_capacity(relation.local_field_ids().len());
         for field_id in relation.local_field_ids() {
             let Some(field) = fields.iter().find(|field| field.field_id() == *field_id) else {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout runtime contract missing relation local field_id={}",
-                    field_id.get(),
-                )));
+                return Err(InternalError::store_invariant());
             };
             local_field_slots.push(usize::from(field.slot().get()));
         }
@@ -570,10 +567,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         // the runtime slot authority.
         for field in snapshot.fields() {
             let Some(slot) = row_layout.slot_for_field(field.id()) else {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout runtime contract missing slot for field_id={}",
-                    field.id().get(),
-                )));
+                return Err(InternalError::store_invariant());
             };
             let slot_end = usize::from(slot.get()).saturating_add(1);
             required_slot_count = required_slot_count.max(slot_end);
@@ -602,10 +596,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
                 .iter()
                 .find(|field| field.field_id() == *primary_key_field_id)
             else {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout runtime contract missing primary-key field_id={}",
-                    primary_key_field_id.get(),
-                )));
+                return Err(InternalError::store_invariant());
             };
             primary_key_names.push(primary_key_field.name());
             primary_key_kinds.push(primary_key_field.kind());
@@ -835,11 +826,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             .map(FieldModel::name)
             .collect::<Vec<_>>();
         if self.primary_key_names() != generated_primary_key_names.as_slice() {
-            return Err(InternalError::store_invariant(format!(
-                "accepted row layout primary key is not generated-compatible: accepted_primary_key={:?} generated_primary_key={:?}",
-                self.primary_key_names(),
-                generated_primary_key_names,
-            )));
+            return Err(InternalError::store_invariant());
         }
 
         // Phase 2: require the accepted row layout to cover every generated
@@ -847,11 +834,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         // they remain accepted-runtime fields and are not exposed through the
         // generated typed materializer.
         if self.required_slot_count() < model.fields().len() {
-            return Err(InternalError::store_invariant(format!(
-                "accepted row layout field count is not generated-compatible: accepted={} generated={}",
-                self.required_slot_count(),
-                model.fields().len(),
-            )));
+            return Err(InternalError::store_invariant());
         }
 
         // Phase 3: compare every generated field against the accepted
@@ -859,19 +842,11 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         // consume the descriptor.
         for (generated_slot, field) in model.fields().iter().enumerate() {
             let Some(accepted_field) = self.field_by_name(field.name()) else {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout missing generated field '{}'",
-                    field.name(),
-                )));
+                return Err(InternalError::store_invariant());
             };
             let accepted_slot = usize::from(accepted_field.slot().get());
             if accepted_slot != generated_slot {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout slot is not generated-compatible: field='{}' accepted_slot={} generated_slot={}",
-                    field.name(),
-                    accepted_slot,
-                    generated_slot,
-                )));
+                return Err(InternalError::store_invariant());
             }
 
             ensure_generated_field_decode_contract_compatible(accepted_field, field)?;
@@ -882,19 +857,13 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
                 continue;
             };
             if extra_field.generated() {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout has generated field outside generated model: field='{}' slot={slot}",
-                    extra_field.name(),
-                )));
+                return Err(InternalError::store_invariant());
             }
             if matches!(
                 extra_field.absence_policy(),
                 AcceptedFieldAbsencePolicy::Required
             ) {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout trailing DDL field is required without missing-field policy: field='{}' slot={slot}",
-                    extra_field.name(),
-                )));
+                return Err(InternalError::store_invariant());
             }
         }
 
@@ -916,39 +885,19 @@ fn ensure_generated_field_decode_contract_compatible(
     let accepted_contract = accepted_field.decode_contract();
     let generated_kind = PersistedFieldKind::from_model_kind(generated_field.kind());
     if accepted_contract.kind() != &generated_kind {
-        return Err(InternalError::store_invariant(format!(
-            "accepted row layout kind is not generated-compatible: field='{}' accepted_kind={:?} generated_kind={:?}",
-            accepted_contract.field_name(),
-            accepted_contract.kind(),
-            generated_kind,
-        )));
+        return Err(InternalError::store_invariant());
     }
 
     if accepted_contract.nullable() != generated_field.nullable() {
-        return Err(InternalError::store_invariant(format!(
-            "accepted row layout nullability is not generated-compatible: field='{}' accepted_nullable={} generated_nullable={}",
-            accepted_contract.field_name(),
-            accepted_contract.nullable(),
-            generated_field.nullable(),
-        )));
+        return Err(InternalError::store_invariant());
     }
 
     if accepted_contract.storage_decode() != generated_field.storage_decode() {
-        return Err(InternalError::store_invariant(format!(
-            "accepted row layout storage decode is not generated-compatible: field='{}' accepted_storage_decode={:?} generated_storage_decode={:?}",
-            accepted_contract.field_name(),
-            accepted_contract.storage_decode(),
-            generated_field.storage_decode(),
-        )));
+        return Err(InternalError::store_invariant());
     }
 
     if accepted_contract.leaf_codec() != generated_field.leaf_codec() {
-        return Err(InternalError::store_invariant(format!(
-            "accepted row layout leaf codec is not generated-compatible: field='{}' accepted_leaf_codec={:?} generated_leaf_codec={:?}",
-            accepted_contract.field_name(),
-            accepted_contract.leaf_codec(),
-            generated_field.leaf_codec(),
-        )));
+        return Err(InternalError::store_invariant());
     }
 
     Ok(())

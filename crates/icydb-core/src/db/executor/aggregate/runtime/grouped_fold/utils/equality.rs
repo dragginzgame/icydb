@@ -32,10 +32,7 @@ fn single_group_key_matches_value(
         ));
     };
     let [canonical_group_value] = canonical_group_values.as_slice() else {
-        return Err(InternalError::query_executor_invariant(format!(
-            "single-field grouped count key must retain exactly one canonical value: len={}",
-            canonical_group_values.len(),
-        )));
+        return Err(InternalError::query_executor_invariant(""));
     };
 
     Ok(canonical_value_compare(group_value, canonical_group_value) == Ordering::Equal)
@@ -47,19 +44,13 @@ fn canonical_group_value_matches_row_view_with_context(
     canonical_group_value: &Value,
     row_view: &RowView,
     group_fields: &[FieldSlot],
-    context: &'static str,
+    _context: &'static str,
 ) -> Result<bool, InternalError> {
     let Value::List(canonical_group_values) = canonical_group_value else {
-        return Err(InternalError::query_executor_invariant(format!(
-            "{context} key must remain a canonical Value::List"
-        )));
+        return Err(InternalError::query_executor_invariant(""));
     };
     if canonical_group_values.len() != group_fields.len() {
-        return Err(InternalError::query_executor_invariant(format!(
-            "{context} key field count drifted from route group fields: key_len={} group_fields_len={}",
-            canonical_group_values.len(),
-            group_fields.len(),
-        )));
+        return Err(InternalError::query_executor_invariant(""));
     }
 
     for (field, canonical_group_value) in group_fields.iter().zip(canonical_group_values) {
@@ -136,11 +127,7 @@ fn find_matching_group_in_bucket(
         },
         matches_group,
         metrics::record_bucket_candidate_check,
-        |group_index, group_count| {
-            InternalError::query_executor_invariant(format!(
-                "grouped count bucket index out of bounds: index={group_index} len={group_count}",
-            ))
-        },
+        |_group_index, _group_count| InternalError::query_executor_invariant(""),
     )
 }
 

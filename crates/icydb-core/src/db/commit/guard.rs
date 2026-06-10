@@ -46,16 +46,14 @@ enum ApplyRollback {
 ///
 
 pub(crate) struct CommitApplyGuard {
-    phase: &'static str,
     finished: bool,
     rollback: ApplyRollback,
 }
 
 impl CommitApplyGuard {
     /// Create one apply-phase rollback guard for diagnostic context `phase`.
-    pub(crate) const fn new(phase: &'static str) -> Self {
+    pub(crate) const fn new(_phase: &'static str) -> Self {
         Self {
-            phase,
             finished: false,
             rollback: ApplyRollback::None,
         }
@@ -87,10 +85,7 @@ impl CommitApplyGuard {
     /// Mark the guarded apply phase complete and drop rollback closures.
     pub(crate) fn finish(mut self) -> Result<(), InternalError> {
         if self.finished {
-            return Err(InternalError::executor_invariant(format!(
-                "commit apply guard invariant violated: finish called twice ({})",
-                self.phase
-            )));
+            return Err(InternalError::executor_invariant(""));
         }
 
         self.finished = true;

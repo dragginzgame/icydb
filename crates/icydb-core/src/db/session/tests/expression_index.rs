@@ -521,9 +521,9 @@ fn session_sql_expression_order_without_matching_index_stays_fail_closed() {
     )
     .expect_err("expression order without one matching index should fail closed");
 
-    assert!(
-        err.to_string()
-            .contains("expression ORDER BY requires a matching index-backed access order for bounded execution"),
-        "expression-order failures should preserve the explicit fail-closed policy message",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryPlan,
+        "expression-order failures should preserve the fail-closed planning boundary",
     );
 }

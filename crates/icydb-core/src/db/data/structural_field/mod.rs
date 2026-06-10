@@ -286,9 +286,8 @@ pub(in crate::db) fn encode_list_field_items(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::List(_) | FieldKind::Set(_)) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept list or set payload items"),
         ));
     }
 
@@ -309,9 +308,8 @@ pub(in crate::db) fn encode_list_field_owned_items(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::List(_) | FieldKind::Set(_)) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept list or set payload items"),
         ));
     }
 
@@ -352,9 +350,8 @@ pub(in crate::db) fn encode_map_field_entries(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Map { .. }) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept map payload entries"),
         ));
     }
 
@@ -376,9 +373,8 @@ pub(in crate::db) fn encode_map_field_owned_entries(
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     if !matches!(kind, FieldKind::Map { .. }) {
-        return Err(InternalError::persisted_row_field_encode_failed(
+        return Err(InternalError::persisted_row_field_encode_internal(
             field_name,
-            format!("field kind {kind:?} does not accept map payload entries"),
         ));
     }
 

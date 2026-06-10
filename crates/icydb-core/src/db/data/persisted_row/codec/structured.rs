@@ -22,10 +22,7 @@ where
     let mut out = BTreeSet::new();
     for item in item_bytes {
         if !out.insert(item) {
-            return Err(traversal::structured_container_decode_failed(&format!(
-                "BTreeSet<{}>",
-                std::any::type_name::<T>()
-            )));
+            return Err(traversal::structured_container_decode_failed());
         }
     }
 
@@ -86,12 +83,8 @@ macro_rules! impl_persisted_structured_signed_scalar_codec {
                     let value = storage_decode::i64(bytes)
                         .map_err(InternalError::persisted_row_decode_failed)?;
 
-                    <$ty>::try_from(value).map_err(|_| {
-                        InternalError::persisted_row_decode_failed(format!(
-                            "value payload does not match {}",
-                            std::any::type_name::<$ty>()
-                        ))
-                    })
+                    <$ty>::try_from(value)
+                        .map_err(|_| InternalError::persisted_row_decode_corruption())
                 }
             }
         )*
@@ -110,12 +103,8 @@ macro_rules! impl_persisted_structured_unsigned_scalar_codec {
                     let value = storage_decode::u64(bytes)
                         .map_err(InternalError::persisted_row_decode_failed)?;
 
-                    <$ty>::try_from(value).map_err(|_| {
-                        InternalError::persisted_row_decode_failed(format!(
-                            "value payload does not match {}",
-                            std::any::type_name::<$ty>()
-                        ))
-                    })
+                    <$ty>::try_from(value)
+                        .map_err(|_| InternalError::persisted_row_decode_corruption())
                 }
             }
         )*

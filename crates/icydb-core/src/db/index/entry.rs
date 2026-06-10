@@ -37,8 +37,6 @@ pub(crate) enum IndexEntryCorruption {
     InvalidWitness,
 
     EmptyEntry,
-
-    MissingKey,
 }
 
 impl std::fmt::Display for IndexEntryCorruption {
@@ -48,13 +46,6 @@ impl std::fmt::Display for IndexEntryCorruption {
 }
 
 impl std::error::Error for IndexEntryCorruption {}
-
-impl IndexEntryCorruption {
-    #[must_use]
-    pub(crate) fn missing_key(_index_key: RawIndexStoreKey, _entity_key: &PrimaryKeyValue) -> Self {
-        Self::MissingKey
-    }
-}
 
 ///
 /// IndexRowIdentity

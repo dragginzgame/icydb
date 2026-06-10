@@ -114,9 +114,8 @@ where
     )?;
 
     let Value::List(items) = runtime_value else {
-        return Err(InternalError::persisted_row_field_decode_failed(
+        return Err(InternalError::persisted_row_field_decode_corruption(
             field_name,
-            format!("payload does not match Vec<{}>", std::any::type_name::<T>()),
         ));
     };
 
@@ -217,12 +216,8 @@ fn decode_runtime_value_as_meta<T>(
 where
     T: FieldTypeMeta + RuntimeValueDecode,
 {
-    T::from_value(value).ok_or_else(|| {
-        InternalError::persisted_row_field_decode_failed(
-            field_name,
-            format!("payload does not match {}", std::any::type_name::<T>()),
-        )
-    })
+    T::from_value(value)
+        .ok_or_else(|| InternalError::persisted_row_field_decode_corruption(field_name))
 }
 
 fn decode_meta_many_value_option<T>(

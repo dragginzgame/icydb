@@ -37,7 +37,6 @@ struct AcceptedSaveStrongRelationInfo {
 
 struct AcceptedSaveStrongRelationLocalComponent {
     index: usize,
-    name: String,
     kind: PersistedFieldKind,
 }
 
@@ -77,16 +76,12 @@ impl AcceptedSaveStrongRelationInfo {
 }
 
 impl AcceptedSaveStrongRelationLocalComponent {
-    fn new(index: usize, name: impl Into<String>, kind: PersistedFieldKind) -> Self {
-        Self {
-            index,
-            name: name.into(),
-            kind,
-        }
+    const fn new(index: usize, kind: PersistedFieldKind) -> Self {
+        Self { index, kind }
     }
 
     fn from_field(index: usize, field: &OwnedAcceptedFieldDecodeContract) -> Self {
-        Self::new(index, field.field_name(), field.kind().clone())
+        Self::new(index, field.kind().clone())
     }
 }
 
@@ -186,14 +181,7 @@ where
         .map(|slot| {
             accepted_row_decode_contract
                 .field_for_slot(*slot)
-                .ok_or_else(|| {
-                    InternalError::store_invariant(format!(
-                        "accepted relation edge '{}' local slot missing: source={} slot={}",
-                        edge.name(),
-                        E::PATH,
-                        slot,
-                    ))
-                })
+                .ok_or_else(InternalError::store_invariant)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -297,7 +285,6 @@ fn accepted_save_strong_relation_from_field(
         field_name,
         vec![AcceptedSaveStrongRelationLocalComponent::new(
             field_index,
-            field_name,
             kind.clone(),
         )],
         descriptor.into_target_contract().into_target(),
@@ -425,13 +412,9 @@ fn relation_component_value<E>(
 where
     E: EntityKind + EntityValue,
 {
-    entity.get_value_by_index(component.index).ok_or_else(|| {
-        InternalError::executor_invariant(format!(
-            "entity field missing: {} field={}",
-            E::PATH,
-            component.name
-        ))
-    })
+    entity
+        .get_value_by_index(component.index)
+        .ok_or_else(|| InternalError::executor_invariant(""))
 }
 
 fn relation_target_key_from_entity_components<E>(
@@ -466,12 +449,7 @@ where
         return Ok(None);
     }
     if null_count != 0 {
-        return Err(InternalError::executor_unsupported(format!(
-            "partial composite relation target tuple: source={} relation={} target={}",
-            E::PATH,
-            relation.relation_name,
-            relation.target.path(),
-        )));
+        return Err(InternalError::executor_unsupported(""));
     }
 
     match components.as_slice() {

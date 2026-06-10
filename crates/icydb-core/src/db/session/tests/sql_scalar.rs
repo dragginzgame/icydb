@@ -1391,10 +1391,10 @@ fn execute_sql_scalar_field_to_field_invalid_type_compare_rejects_semantically()
     )
     .expect_err("text-vs-numeric field ordering should fail schema validation");
 
-    assert!(
-        err.to_string()
-            .contains("operator Gt against field 'age' is not valid for field 'name'"),
-        "invalid type compare should preserve the incompatible field-ordering boundary message",
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryPlan,
+        "invalid type compare should preserve the query planning boundary",
     );
 }
 

@@ -200,11 +200,8 @@ impl RawSchemaSnapshot {
     /// Return the accepted schema identity fingerprint stored beside the raw
     /// payload, without decoding the persisted snapshot.
     fn accepted_schema_fingerprint(&self) -> Result<CommitSchemaFingerprint, InternalError> {
-        self.accepted_schema_fingerprint.ok_or_else(|| {
-            InternalError::store_corruption(
-                "obsolete raw schema snapshot storage format missing accepted schema identity header",
-            )
-        })
+        self.accepted_schema_fingerprint
+            .ok_or_else(InternalError::store_corruption)
     }
 
     /// Decode this raw store payload into a typed persisted-schema snapshot.
@@ -299,21 +296,15 @@ impl AcceptedCatalogSnapshotSelection {
         let identity = self.identity();
 
         if accepted.persisted_snapshot().version() != identity.accepted_schema_version() {
-            return Err(InternalError::store_invariant(
-                "accepted catalog identity selected a different schema version than the decoded snapshot",
-            ));
+            return Err(InternalError::store_invariant());
         }
         if accepted.entity_path() != identity.entity_path() {
-            return Err(InternalError::store_invariant(
-                "accepted catalog identity selected a different entity path than the decoded snapshot",
-            ));
+            return Err(InternalError::store_invariant());
         }
 
         let decoded_fingerprint = accepted_schema_cache_fingerprint(&accepted)?;
         if decoded_fingerprint != identity.accepted_schema_fingerprint() {
-            return Err(InternalError::store_invariant(
-                "accepted catalog identity fingerprint did not match the decoded snapshot",
-            ));
+            return Err(InternalError::store_invariant());
         }
 
         Ok(accepted)
@@ -384,14 +375,16 @@ impl Storable for RawSchemaSnapshot {
 fn validate_typed_schema_snapshot_for_store(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
-    if let Some(detail) = schema_snapshot_integrity_detail(
+    if schema_snapshot_integrity_detail(
         "schema snapshot",
         snapshot.version(),
         snapshot.primary_key_field_ids(),
         snapshot.row_layout(),
         snapshot.fields(),
-    ) {
-        return Err(InternalError::store_invariant(detail));
+    )
+    .is_some()
+    {
+        return Err(InternalError::store_invariant());
     }
 
     Ok(())
@@ -669,9 +662,7 @@ impl SchemaStore {
             live, tombstones, ..
         } = &mut self.backend
         else {
-            return Err(InternalError::store_invariant(
-                "journaled live projection reset requires a journaled schema store",
-            ));
+            return Err(InternalError::store_invariant());
         };
 
         live.clear();
@@ -687,9 +678,7 @@ impl SchemaStore {
         snapshot: &PersistedSchemaSnapshot,
     ) -> Result<(), InternalError> {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
-            return Err(InternalError::store_invariant(
-                "journal schema fold requires a journaled schema store",
-            ));
+            return Err(InternalError::store_invariant());
         };
 
         let key = RawSchemaKey::from_entity_version(entity, snapshot.version());

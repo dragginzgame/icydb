@@ -639,18 +639,14 @@ impl crate::traits::PrimaryKeyCodec for CompositeRelationTargetKey {
 impl crate::traits::PrimaryKeyDecode for CompositeRelationTargetKey {
     fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
         let crate::db::PrimaryKeyValue::Composite(composite) = key else {
-            return Err(InternalError::store_corruption(
-                "composite relation target key decode expected composite primary key",
-            ));
+            return Err(InternalError::store_corruption());
         };
         let [
             crate::db::PrimaryKeyComponent::Nat64(tenant_id),
             crate::db::PrimaryKeyComponent::Nat64(local_id),
         ] = composite.components()
         else {
-            return Err(InternalError::store_corruption(
-                "composite relation target key decode expected two nat components",
-            ));
+            return Err(InternalError::store_corruption());
         };
 
         Ok(Self {
@@ -828,18 +824,14 @@ impl crate::traits::PrimaryKeyCodec for CompositePkRelationSourceKey {
 impl crate::traits::PrimaryKeyDecode for CompositePkRelationSourceKey {
     fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
         let crate::db::PrimaryKeyValue::Composite(composite) = key else {
-            return Err(InternalError::store_corruption(
-                "composite relation source key decode expected composite primary key",
-            ));
+            return Err(InternalError::store_corruption());
         };
         let [
             crate::db::PrimaryKeyComponent::Nat64(tenant_id),
             crate::db::PrimaryKeyComponent::Nat64(source_local_id),
         ] = composite.components()
         else {
-            return Err(InternalError::store_corruption(
-                "composite relation source key decode expected two nat components",
-            ));
+            return Err(InternalError::store_corruption());
         };
 
         Ok(Self {

@@ -18,11 +18,10 @@ fn resolve_collection_item_kind(
     encode: bool,
 ) -> Result<FieldKind, InternalError> {
     collection_item_kind(kind).ok_or_else(|| {
-        let message = format!("field kind {kind:?} does not accept collection payloads");
         if encode {
-            InternalError::persisted_row_field_encode_failed(field_name, message)
+            InternalError::persisted_row_field_encode_internal(field_name)
         } else {
-            InternalError::persisted_row_field_decode_failed(field_name, message)
+            InternalError::persisted_row_field_decode_corruption(field_name)
         }
     })
 }
@@ -35,11 +34,10 @@ fn resolve_map_entry_kinds(
     encode: bool,
 ) -> Result<(FieldKind, FieldKind), InternalError> {
     map_entry_kinds(kind).ok_or_else(|| {
-        let message = format!("field kind {kind:?} does not accept map payloads");
         if encode {
-            InternalError::persisted_row_field_encode_failed(field_name, message)
+            InternalError::persisted_row_field_encode_internal(field_name)
         } else {
-            InternalError::persisted_row_field_decode_failed(field_name, message)
+            InternalError::persisted_row_field_decode_corruption(field_name)
         }
     })
 }
@@ -193,7 +191,7 @@ where
         value_kind,
         field_name,
         true,
-        || by_kind_map_decode_failed::<K, V>(field_name),
+        || by_kind_map_decode_failed(field_name),
         decode_key,
         decode_value,
     )
@@ -216,7 +214,7 @@ where
     decode_entries(
         entry_bytes,
         true,
-        structured_map_decode_failed::<K, V>,
+        structured_map_decode_failed,
         |key_bytes, value_bytes| Ok((decode_key(key_bytes)?, decode_value(value_bytes)?)),
     )
 }
@@ -291,33 +289,21 @@ where
 // Build a by-kind field-level map shape error for malformed duplicate or
 // unordered decoded keys. This mirrors the structured invariant while preserving
 // by-kind field error taxonomy.
-fn by_kind_map_decode_failed<K, V>(field_name: &'static str) -> InternalError {
-    InternalError::persisted_row_field_decode_failed(
-        field_name,
-        format!(
-            "by-kind map payload contains duplicate or unordered keys for BTreeMap<{}, {}>",
-            std::any::type_name::<K>(),
-            std::any::type_name::<V>()
-        ),
-    )
+fn by_kind_map_decode_failed(field_name: &'static str) -> InternalError {
+    InternalError::persisted_row_field_decode_corruption(field_name)
 }
 
 // Build the canonical structured-map shape error from one place so both
-// ordering and duplicate checks preserve exactly the same message.
-fn structured_map_decode_failed<K, V>() -> InternalError {
-    structured_container_decode_failed(&format!(
-        "BTreeMap<{}, {}>",
-        std::any::type_name::<K>(),
-        std::any::type_name::<V>()
-    ))
+// ordering and duplicate checks preserve the same compact taxonomy.
+fn structured_map_decode_failed() -> InternalError {
+    structured_container_decode_failed()
 }
 
-// Build the shared structured container mismatch error while keeping each
-// caller responsible for its precise rendered type name.
-pub(in crate::db::data::persisted_row::codec) fn structured_container_decode_failed(
-    type_name: &str,
-) -> InternalError {
-    InternalError::persisted_row_decode_failed(format!("value payload does not match {type_name}"))
+// Build the shared structured container mismatch error while keeping callers on
+// the compact structured-container taxonomy.
+pub(in crate::db::data::persisted_row::codec) fn structured_container_decode_failed()
+-> InternalError {
+    InternalError::persisted_row_decode_corruption()
 }
 
 // Select the item kind shared by list and set wrappers. Keeping this decision

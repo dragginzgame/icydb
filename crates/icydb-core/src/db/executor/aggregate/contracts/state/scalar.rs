@@ -65,10 +65,8 @@ impl ScalarAggregateState for ScalarTerminalAggregateState {
 
 impl ScalarTerminalAggregateState {
     // Build the canonical scalar terminal invariant for primary-key-value-required updates.
-    fn primary_key_value_required(kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "aggregate reducer {kind} update requires primary key value"
-        ))
+    fn primary_key_value_required(_kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     // Dispatch one scalar terminal aggregate update by kind at one canonical boundary.

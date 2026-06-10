@@ -2730,6 +2730,64 @@ fn sql_canister_query_endpoint_rejects_mutation_sql() {
 }
 
 #[test]
+fn sql_canister_query_endpoint_rejects_update_sql() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let err = query_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 22 WHERE name = 'alice'",
+    )
+    .expect_err("query(sql) must reject UPDATE statements");
+
+    assert_query_sql_surface_mismatch_error(
+        &err,
+        ErrorCode::SQL_SURFACE_QUERY_REJECTS_UPDATE,
+        "query endpoint UPDATE rejection should stay at the SQL surface boundary",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_update_sql_without_row_mutation() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
+            .expect("pre-rejection read should prove the UPDATE target exists"),
+    );
+    let err = ddl_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 22 WHERE name = 'alice'",
+    )
+    .expect_err("DDL endpoint must reject row UPDATE statements");
+
+    assert_eq!(
+        err.diagnostic_code(),
+        DiagnosticCode::SchemaDdlAdmission,
+        "DDL endpoint UPDATE rejection should stay at the schema DDL admission boundary",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "DDL endpoint UPDATE rejection should keep query-owned origin metadata",
+    );
+    assert_eq!(
+        err.code(),
+        ErrorCode::SCHEMA_DDL_VALIDATION_FAILED,
+        "DDL endpoint UPDATE rejection should preserve the NotDdl validation leaf code",
+    );
+    let after = expect_projection(
+        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
+            .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected DDL endpoint UPDATE must not mutate rows",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_rejects_malformed_sql() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

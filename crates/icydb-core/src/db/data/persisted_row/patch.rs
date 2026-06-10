@@ -150,12 +150,8 @@ impl<'a> SerializedPatchPayloads<'a> {
     // fresh-row emission boundary where every declared slot must be present.
     #[cfg(test)]
     fn required_complete_payload(&self, slot: usize) -> Result<&[u8], InternalError> {
-        self.get(slot).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "serialized patch did not emit slot {slot} for entity '{}'",
-                self.contract.entity_path()
-            ))
-        })
+        self.get(slot)
+            .ok_or_else(|| InternalError::persisted_row_encode_failed(""))
     }
 }
 
@@ -388,10 +384,7 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
     }
 
     #[cfg(not(test))]
-    Err(InternalError::store_invariant(format!(
-        "raw row canonicalization requires accepted row contract for entity '{}'",
-        row_fields.contract().entity_path(),
-    )))
+    Err(InternalError::store_invariant())
 }
 
 /// Build one canonical row from raw bytes using an accepted row-decode contract.
@@ -590,22 +583,17 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
     // before final canonical row emission.
     for entry in patch.entries() {
         let slot = entry.slot().index();
-        let value = values.get_mut(slot).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is outside the accepted structural after-image for entity '{}'",
-                contract.entity_path()
-            ))
-        })?;
+        let value = values
+            .get_mut(slot)
+            .ok_or_else(InternalError::persisted_row_encode_internal)?;
         *value = decode_runtime_value_from_row_contract(&contract, slot, entry.payload())?;
     }
 
     canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
-        values.get(slot).map(Cow::Borrowed).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is missing from accepted structural after-image for entity '{}'",
-                contract.entity_path()
-            ))
-        })
+        values
+            .get(slot)
+            .map(Cow::Borrowed)
+            .ok_or_else(InternalError::persisted_row_encode_internal)
     })
 }
 
@@ -619,10 +607,5 @@ fn structural_slot_reader_value<'a>(
     row_fields
         .required_cached_value(slot)
         .map(Cow::Borrowed)
-        .map_err(|_| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is missing from the structural value cache for entity '{}'",
-                row_fields.contract().entity_path()
-            ))
-        })
+        .map_err(|_| InternalError::persisted_row_encode_internal())
 }

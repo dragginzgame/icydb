@@ -217,32 +217,28 @@ impl CommitMarker {
     }
 
     // Build the canonical payload corruption for truncated variable-length fields.
-    fn payload_truncated_length(label: &'static str) -> InternalError {
-        InternalError::commit_corruption(format!("{label} decode failed: truncated length"))
+    fn payload_truncated_length(_label: &'static str) -> InternalError {
+        InternalError::commit_corruption("")
     }
 
     // Build the canonical payload corruption for truncated byte payloads.
-    fn payload_truncated_bytes(label: &'static str) -> InternalError {
-        InternalError::commit_corruption(format!("{label} decode failed: truncated bytes"))
+    fn payload_truncated_bytes(_label: &'static str) -> InternalError {
+        InternalError::commit_corruption("")
     }
 
     // Build the canonical payload corruption for invalid fixed-size payloads.
-    fn payload_invalid_fixed_size(label: &'static str) -> InternalError {
-        InternalError::commit_corruption(format!(
-            "{label} decode failed: invalid fixed-size payload",
-        ))
+    fn payload_invalid_fixed_size(_label: &'static str) -> InternalError {
+        InternalError::commit_corruption("")
     }
 
     // Build the canonical row-op corruption for oversized row payloads.
-    fn row_op_payload_too_large(label: &str, len: usize) -> InternalError {
-        InternalError::commit_corruption(format!(
-            "row op {label} payload exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})",
-        ))
+    fn row_op_payload_too_large(_label: &str, _len: usize) -> InternalError {
+        InternalError::commit_corruption("")
     }
 
     // Build the canonical row-op corruption for key decode failures.
-    fn row_op_key_decode_failed(err: impl std::fmt::Display) -> InternalError {
-        InternalError::commit_corruption(format!("row op key decode: {err}"))
+    fn row_op_key_decode_failed(_err: impl std::fmt::Display) -> InternalError {
+        InternalError::commit_corruption("")
     }
 }
 

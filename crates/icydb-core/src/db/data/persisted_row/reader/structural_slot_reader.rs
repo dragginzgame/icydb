@@ -198,11 +198,7 @@ impl<'a> StructuralSlotReader<'a> {
             PrimaryKeyValue::Composite(composite) => {
                 let slots = self.contract.primary_key_slot_indices();
                 if slots.len() != composite.len() {
-                    return Err(InternalError::persisted_row_decode_failed(format!(
-                        "composite primary-key slot count mismatch: expected {} slots, row contract has {}",
-                        composite.len(),
-                        slots.len(),
-                    )));
+                    return Err(InternalError::persisted_row_decode_corruption());
                 }
 
                 for (&slot, &component) in slots.iter().zip(composite.components()) {
@@ -290,11 +286,9 @@ impl<'a> StructuralSlotReader<'a> {
                         let _ = materialized.set(self.contract.missing_slot_value(slot)?);
                     }
 
-                    return materialized.get().ok_or_else(|| {
-                        InternalError::persisted_row_decode_failed(format!(
-                            "structural missing scalar slot failed to materialize deferred value: slot={slot}",
-                        ))
-                    });
+                    return materialized
+                        .get()
+                        .ok_or_else(InternalError::persisted_row_decode_corruption);
                 }
 
                 let validated =
@@ -309,11 +303,9 @@ impl<'a> StructuralSlotReader<'a> {
                     let _ = materialized.set(value);
                 }
 
-                materialized.get().ok_or_else(|| {
-                    InternalError::persisted_row_decode_failed(format!(
-                        "structural scalar cache failed to materialize deferred value: slot={slot}",
-                    ))
-                })
+                materialized
+                    .get()
+                    .ok_or_else(InternalError::persisted_row_decode_corruption)
             }
             CachedSlotValue::Deferred { materialized } => {
                 if self.field_bytes.field(slot).is_none() {
@@ -321,11 +313,9 @@ impl<'a> StructuralSlotReader<'a> {
                         let _ = materialized.set(self.contract.missing_slot_value(slot)?);
                     }
 
-                    return materialized.get().ok_or_else(|| {
-                        InternalError::persisted_row_decode_failed(format!(
-                            "structural missing deferred slot failed to materialize value: slot={slot}",
-                        ))
-                    });
+                    return materialized
+                        .get()
+                        .ok_or_else(InternalError::persisted_row_decode_corruption);
                 }
 
                 let field_name = self.contract.field_name(slot)?;
@@ -343,11 +333,9 @@ impl<'a> StructuralSlotReader<'a> {
                     let _ = materialized.set(value);
                 }
 
-                materialized.get().ok_or_else(|| {
-                    InternalError::persisted_row_decode_failed(format!(
-                        "structural slot cache failed to materialize deferred value: slot={slot}",
-                    ))
-                })
+                materialized
+                    .get()
+                    .ok_or_else(InternalError::persisted_row_decode_corruption)
             }
         }
     }
@@ -561,9 +549,7 @@ impl<'a> StructuralSlotReader<'a> {
         if self.field_bytes.field(slot).is_none() {
             return match self.contract.missing_slot_value(slot)? {
                 Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
-                value => Err(InternalError::persisted_row_decode_failed(format!(
-                    "missing value-storage scalar slot materialized non-null value: slot={slot} value={value:?}",
-                ))),
+                _ => Err(InternalError::persisted_row_decode_corruption()),
             };
         }
 
@@ -703,9 +689,7 @@ impl SlotReader for StructuralSlotReader<'_> {
                     if self.field_bytes.field(slot).is_none() {
                         return match self.contract.missing_slot_value(slot)? {
                             Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
-                            value => Err(InternalError::persisted_row_decode_failed(format!(
-                                "missing scalar slot materialized non-null value: slot={slot} value={value:?}",
-                            ))),
+                            _ => Err(InternalError::persisted_row_decode_corruption()),
                         };
                     }
 
@@ -721,9 +705,7 @@ impl SlotReader for StructuralSlotReader<'_> {
                     .map(Some)
                 }
                 Some(CachedSlotValue::Deferred { .. }) => {
-                    Err(InternalError::persisted_row_decode_failed(format!(
-                        "structural scalar slot routed through non-scalar cache variant: slot={slot}",
-                    )))
+                    Err(InternalError::persisted_row_decode_corruption())
                 }
                 None => Err(
                     InternalError::persisted_row_slot_cache_lookup_out_of_bounds(

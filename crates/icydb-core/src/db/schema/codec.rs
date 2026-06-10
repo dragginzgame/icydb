@@ -318,11 +318,7 @@ pub(in crate::db) fn encode_persisted_schema_snapshot(
 ) -> Result<Vec<u8>, InternalError> {
     let wire = PersistedSchemaSnapshotWire::from_snapshot(snapshot);
 
-    Encode!(&wire).map_err(|err| {
-        InternalError::store_corruption(format!(
-            "failed to encode persisted schema snapshot: {err}"
-        ))
-    })
+    Encode!(&wire).map_err(|_| InternalError::store_corruption())
 }
 
 /// Decode one typed persisted-schema snapshot from durable raw bytes.
@@ -332,11 +328,8 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
     #[cfg(test)]
     PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
 
-    let wire = Decode!(bytes, PersistedSchemaSnapshotWire).map_err(|err| {
-        InternalError::store_corruption(format!(
-            "failed to decode persisted schema snapshot: {err}"
-        ))
-    })?;
+    let wire = Decode!(bytes, PersistedSchemaSnapshotWire)
+        .map_err(|_| InternalError::store_corruption())?;
 
     wire.into_snapshot()
 }
@@ -374,10 +367,7 @@ impl PersistedSchemaSnapshotWire {
 
     fn into_snapshot(self) -> Result<PersistedSchemaSnapshot, InternalError> {
         if self.codec_version != SCHEMA_SNAPSHOT_CODEC_VERSION {
-            return Err(InternalError::store_corruption(format!(
-                "unsupported persisted schema snapshot codec version: {}",
-                self.codec_version
-            )));
+            return Err(InternalError::store_corruption());
         }
 
         let version = SchemaVersion::new(self.version);
@@ -402,32 +392,38 @@ impl PersistedSchemaSnapshotWire {
             .into_iter()
             .map(PersistedRelationEdgeSnapshotWire::into_relation)
             .collect::<Vec<_>>();
-        if let Some(detail) = schema_snapshot_integrity_detail(
+        if schema_snapshot_integrity_detail(
             "persisted schema snapshot",
             version,
             primary_key_field_ids.as_slice(),
             &row_layout,
             &fields,
-        ) {
-            return Err(InternalError::store_corruption(detail));
+        )
+        .is_some()
+        {
+            return Err(InternalError::store_corruption());
         }
 
-        if let Some(detail) = schema_snapshot_index_integrity_detail(
+        if schema_snapshot_index_integrity_detail(
             "persisted schema snapshot",
             &row_layout,
             &fields,
             &indexes,
-        ) {
-            return Err(InternalError::store_corruption(detail));
+        )
+        .is_some()
+        {
+            return Err(InternalError::store_corruption());
         }
 
-        if let Some(detail) = schema_snapshot_relation_integrity_detail(
+        if schema_snapshot_relation_integrity_detail(
             "persisted schema snapshot",
             &row_layout,
             &fields,
             &relations,
-        ) {
-            return Err(InternalError::store_corruption(detail));
+        )
+        .is_some()
+        {
+            return Err(InternalError::store_corruption());
         }
 
         Ok(

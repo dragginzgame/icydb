@@ -15,9 +15,7 @@ mod scan;
 mod store;
 
 pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
-pub(in crate::db) use entry::{
-    IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryRowWitness, IndexRowIdentity,
-};
+pub(in crate::db) use entry::{IndexEntryExistenceWitness, IndexEntryRowWitness, IndexRowIdentity};
 pub(in crate::db) use envelope::{
     KeyEnvelope, envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
     validate_index_scan_continuation_advancement,

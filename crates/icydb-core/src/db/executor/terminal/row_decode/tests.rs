@@ -435,11 +435,10 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
         .expect_err("payload contract drift must stay rejected at generated-compatible bridge");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("accepted row layout storage decode is not generated-compatible"),
-        "unexpected compatibility error: {}",
-        err.message,
+    assert_eq!(
+        err.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        "storage-decode compatibility drift should stay store-invariant classified",
     );
 }
 

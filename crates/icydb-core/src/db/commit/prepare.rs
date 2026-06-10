@@ -91,13 +91,11 @@ struct CommitInputs {
 impl CommitInputs {
     // Build the canonical schema-fingerprint mismatch mapping for structural commit inputs.
     fn schema_fingerprint_mismatch(
-        entity_path: &str,
-        marker: crate::db::commit::CommitSchemaFingerprint,
-        runtime: crate::db::commit::CommitSchemaFingerprint,
+        _entity_path: &str,
+        _marker: crate::db::commit::CommitSchemaFingerprint,
+        _runtime: crate::db::commit::CommitSchemaFingerprint,
     ) -> InternalError {
-        InternalError::store_unsupported(format!(
-            "commit marker schema fingerprint mismatch for entity '{entity_path}': marker={marker:?}, runtime={runtime:?}",
-        ))
+        InternalError::store_unsupported()
     }
 }
 
@@ -405,21 +403,20 @@ fn decode_optional_commit_marker_row_slots<'a>(
 fn decode_commit_marker_structural_slots<'a>(
     data_key: &DecodedDataStoreKey,
     row: &'a RawRow,
-    label: &str,
+    _label: &str,
     row_contract: StructuralRowContract,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
     let slots = StructuralSlotReader::from_raw_row_with_validated_contract(row, row_contract)
         .map_err(|err| {
-            let message = format!("commit marker {label} row: {err}");
             if err.class() == ErrorClass::IncompatiblePersistedFormat {
-                InternalError::serialize_incompatible_persisted_format(message)
+                InternalError::serialize_incompatible_persisted_format("commit marker row")
             } else {
-                InternalError::serialize_corruption(message)
+                InternalError::serialize_corruption("commit marker row")
             }
         })?;
-    slots.validate_primary_key(data_key).map_err(|err| {
-        InternalError::store_corruption(format!("commit marker {label} row key mismatch: {err}"))
-    })?;
+    slots
+        .validate_primary_key(data_key)
+        .map_err(|_| InternalError::store_corruption())?;
 
     Ok(slots)
 }
@@ -468,10 +465,7 @@ fn prepare_row_commit_structural_inputs(
     authority: &CommitPrepareAuthority,
 ) -> Result<CommitInputs, InternalError> {
     if op.entity_path != authority.entity_path {
-        return Err(InternalError::store_corruption(format!(
-            "commit marker entity path mismatch: expected '{}', found '{}'",
-            authority.entity_path, op.entity_path,
-        )));
+        return Err(InternalError::store_corruption());
     }
     if op.schema_fingerprint != authority.schema_fingerprint {
         return Err(CommitInputs::schema_fingerprint_mismatch(
@@ -482,9 +476,8 @@ fn prepare_row_commit_structural_inputs(
     }
 
     let raw_key = op.key.clone();
-    let data_key = DecodedDataStoreKey::try_from_raw(&raw_key).map_err(|_| {
-        InternalError::store_corruption("commit marker row op key decode: invalid primary key")
-    })?;
+    let data_key = DecodedDataStoreKey::try_from_raw(&raw_key)
+        .map_err(|_| InternalError::store_corruption())?;
     let old_row = op
         .before
         .as_ref()
@@ -497,9 +490,7 @@ fn prepare_row_commit_structural_inputs(
         .transpose()?;
 
     if old_row.is_none() && new_row.is_none() {
-        return Err(InternalError::store_corruption(
-            "commit marker row op is a no-op (before/after both missing)",
-        ));
+        return Err(InternalError::store_corruption());
     }
 
     Ok(CommitInputs {

@@ -100,9 +100,7 @@ impl JournalTailStore {
     ) -> Result<(), InternalError> {
         let key = batch.journal_sequence();
         if key == FOLD_WATERMARK_CONTROL_SEQUENCE {
-            return Err(InternalError::store_corruption(
-                "journal batch sequence 0 is reserved for fold watermark control",
-            ));
+            return Err(journal_tail_corruption());
         }
         let raw = RawJournalBatch::from_batch(batch)?;
 
@@ -111,10 +109,7 @@ impl JournalTailStore {
                 return Ok(());
             }
 
-            return Err(InternalError::store_corruption(format!(
-                "journal tail sequence {} already maps to different batch bytes",
-                key.get(),
-            )));
+            return Err(journal_tail_corruption());
         }
 
         self.map.insert(key, raw);
@@ -138,9 +133,7 @@ impl JournalTailStore {
             break;
         }
 
-        last_sequence.next().ok_or_else(|| {
-            InternalError::store_corruption("journal tail sequence space exhausted before append")
-        })
+        last_sequence.next().ok_or_else(journal_tail_corruption)
     }
 
     /// Return the durable replay boundary encoded in the journal-tail memory.
@@ -167,9 +160,7 @@ impl JournalTailStore {
                 == current.highest_folded_journal_sequence()
                 && watermark.fold_epoch() < current.fold_epoch())
         {
-            return Err(InternalError::store_corruption(
-                "journal fold watermark cannot move backward",
-            ));
+            return Err(journal_tail_corruption());
         }
 
         self.map.insert(
@@ -214,31 +205,17 @@ impl JournalTailStore {
 
         for entry in self.map.range((Excluded(watermark), Unbounded)) {
             let key = entry.key();
-            let expected_sequence = expected.ok_or_else(|| {
-                InternalError::store_corruption(
-                    "journal tail contains batch after maximum fold watermark",
-                )
-            })?;
+            let expected_sequence = expected.ok_or_else(journal_tail_corruption)?;
             if *key != expected_sequence {
-                return Err(InternalError::store_corruption(format!(
-                    "journal tail sequence gap after watermark: expected {}, found {}",
-                    expected_sequence.get(),
-                    key.get(),
-                )));
+                return Err(journal_tail_corruption());
             }
 
             let batch = entry.value().decode()?;
             if batch.journal_sequence() != *key {
-                return Err(InternalError::store_corruption(format!(
-                    "journal batch sequence {} disagrees with journal tail key {}",
-                    batch.journal_sequence().get(),
-                    key.get(),
-                )));
+                return Err(journal_tail_corruption());
             }
             if !seen_batch_ids.insert(batch.batch_id()) {
-                return Err(InternalError::store_corruption(
-                    "journal tail contains duplicate batch id above fold watermark",
-                ));
+                return Err(journal_tail_corruption());
             }
 
             if visitor(&batch)?.should_stop() {
@@ -287,23 +264,16 @@ fn encode_fold_watermark(watermark: FoldWatermark) -> Vec<u8> {
 
 fn decode_fold_watermark(bytes: &[u8]) -> Result<FoldWatermark, InternalError> {
     if bytes.len() != FOLD_WATERMARK_BYTES {
-        return Err(InternalError::store_corruption(format!(
-            "journal fold watermark has invalid byte length: expected {FOLD_WATERMARK_BYTES}, found {}",
-            bytes.len(),
-        )));
+        return Err(journal_tail_corruption());
     }
     if !bytes.starts_with(FOLD_WATERMARK_MAGIC) {
-        return Err(InternalError::store_corruption(
-            "journal fold watermark magic mismatch",
-        ));
+        return Err(journal_tail_corruption());
     }
 
     let version_index = FOLD_WATERMARK_MAGIC.len();
     let version = bytes[version_index];
     if version != FOLD_WATERMARK_VERSION {
-        return Err(InternalError::store_corruption(format!(
-            "unsupported journal fold watermark version: {version}",
-        )));
+        return Err(journal_tail_corruption());
     }
 
     let sequence_start = version_index + 1;
@@ -317,4 +287,8 @@ fn decode_fold_watermark(bytes: &[u8]) -> Result<FoldWatermark, InternalError> {
         JournalSequence::new(u64::from_be_bytes(sequence_bytes)),
         u64::from_be_bytes(epoch_bytes),
     ))
+}
+
+fn journal_tail_corruption() -> InternalError {
+    InternalError::store_corruption()
 }

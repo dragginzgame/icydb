@@ -98,10 +98,8 @@ impl ScalarAggregateOutput {
 impl ScalarTerminalKind {
     // Build the canonical scalar terminal kind rejection for unsupported
     // numeric or otherwise non-terminal aggregate families.
-    fn unsupported_aggregate_kind(kind: AggregateKind) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "scalar terminal reducer requires COUNT/EXISTS/MIN/MAX/FIRST/LAST aggregate kind, found {kind:?}",
-        ))
+    fn unsupported_aggregate_kind(_kind: AggregateKind) -> InternalError {
+        InternalError::query_executor_invariant("")
     }
 
     /// Narrow one aggregate kind onto the supported scalar terminal reducer family.

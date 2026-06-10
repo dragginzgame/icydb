@@ -15,42 +15,28 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     indexes: &[PersistedIndexSnapshot],
-) -> Option<String> {
+) -> Option<()> {
     for (index_offset, index) in indexes.iter().enumerate() {
         if index.name().is_empty() {
-            return Some(format!(
-                "{subject} empty index name: index_offset={index_offset}",
-            ));
+            return Some(());
         }
 
         if index.store().is_empty() {
-            return Some(format!(
-                "{subject} empty index store: index='{}'",
-                index.name(),
-            ));
+            return Some(());
         }
 
         for other in &indexes[index_offset + 1..] {
             if index.ordinal() == other.ordinal() {
-                return Some(format!(
-                    "{subject} duplicate index ordinal: ordinal={}",
-                    index.ordinal(),
-                ));
+                return Some(());
             }
 
             if index.name() == other.name() {
-                return Some(format!(
-                    "{subject} duplicate index name: name='{}'",
-                    index.name(),
-                ));
+                return Some(());
             }
         }
 
         if index_key_len(index.key()) == 0 {
-            return Some(format!(
-                "{subject} empty index key: index='{}'",
-                index.name(),
-            ));
+            return Some(());
         }
 
         if let Some(detail) = index_key_detail(subject, row_layout, fields, index) {
@@ -73,7 +59,7 @@ fn index_key_detail(
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     index: &PersistedIndexSnapshot,
-) -> Option<String> {
+) -> Option<()> {
     match index.key() {
         PersistedIndexKeySnapshot::FieldPath(paths) => paths
             .iter()
@@ -95,28 +81,17 @@ fn index_expression_detail(
     fields: &[PersistedFieldSnapshot],
     index: &PersistedIndexSnapshot,
     expression: &PersistedIndexExpressionSnapshot,
-) -> Option<String> {
+) -> Option<()> {
     if expression.canonical_text().is_empty() {
-        return Some(format!(
-            "{subject} empty index expression canonical text: index='{}'",
-            index.name(),
-        ));
+        return Some(());
     }
 
     if expression.input_kind() != expression.source().kind() {
-        return Some(format!(
-            "{subject} index expression input kind mismatch: index='{}' expression='{}'",
-            index.name(),
-            expression.canonical_text(),
-        ));
+        return Some(());
     }
 
     if !expression_output_kind_matches_op(expression.op(), expression.output_kind()) {
-        return Some(format!(
-            "{subject} index expression output kind mismatch: index='{}' expression='{}'",
-            index.name(),
-            expression.canonical_text(),
-        ));
+        return Some(());
     }
 
     index_field_path_detail(subject, row_layout, fields, index, expression.source())
@@ -145,44 +120,26 @@ const fn expression_output_kind_matches_op(
 }
 
 fn index_field_path_detail(
-    subject: &str,
+    _subject: &str,
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
-    index: &PersistedIndexSnapshot,
+    _index: &PersistedIndexSnapshot,
     path: &PersistedIndexFieldPathSnapshot,
-) -> Option<String> {
+) -> Option<()> {
     let Some(row_layout_slot) = row_layout.slot_for_field(path.field_id()) else {
-        return Some(format!(
-            "{subject} index field missing from row layout: index='{}' field_id={}",
-            index.name(),
-            path.field_id().get(),
-        ));
+        return Some(());
     };
 
     if row_layout_slot != path.slot() {
-        return Some(format!(
-            "{subject} index field slot mismatch: index='{}' field_id={} index_slot={} row_layout_slot={}",
-            index.name(),
-            path.field_id().get(),
-            path.slot().get(),
-            row_layout_slot.get(),
-        ));
+        return Some(());
     }
 
     if path.path().is_empty() {
-        return Some(format!(
-            "{subject} empty index field path: index='{}' field_id={}",
-            index.name(),
-            path.field_id().get(),
-        ));
+        return Some(());
     }
 
     if !fields.iter().any(|field| field.id() == path.field_id()) {
-        return Some(format!(
-            "{subject} index field missing from fields: index='{}' field_id={}",
-            index.name(),
-            path.field_id().get(),
-        ));
+        return Some(());
     }
 
     None

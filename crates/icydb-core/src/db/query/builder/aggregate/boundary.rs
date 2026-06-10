@@ -136,11 +136,8 @@ where
     E: EntityKind + EntityValue,
 {
     let value = key.as_runtime_value();
-    let decoded = <E::Key as KeyValueCodec>::from_key_value(&value).ok_or_else(|| {
-        InternalError::store_corruption(format!(
-            "scalar aggregate output primary key decode failed: {value:?}"
-        ))
-    })?;
+    let decoded = <E::Key as KeyValueCodec>::from_key_value(&value)
+        .ok_or_else(InternalError::store_corruption)?;
 
     Ok(Id::from_key(decoded))
 }
