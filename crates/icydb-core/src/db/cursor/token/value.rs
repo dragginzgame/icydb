@@ -61,8 +61,7 @@ pub(in crate::db::cursor::token) fn write_value_slice(
 pub(in crate::db::cursor::token) fn read_value_vec(
     cursor: &mut ByteCursor<'_>,
 ) -> Result<Vec<Value>, TokenWireError> {
-    let len = usize::try_from(cursor.read_u32()?)
-        .map_err(|_| TokenWireError::decode("cursor value count does not fit usize"))?;
+    let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
     let mut values = Vec::with_capacity(len);
 
     for _ in 0..len {
@@ -193,17 +192,13 @@ pub(in crate::db::cursor::token) fn write_value(
 }
 
 fn write_account(out: &mut Vec<u8>, value: Account) -> Result<(), TokenWireError> {
-    let bytes = value
-        .to_bytes()
-        .map_err(|err| TokenWireError::encode(err.to_string()))?;
+    let bytes = value.to_bytes().map_err(|_| TokenWireError::encode())?;
 
     write_len_prefixed_bytes(out, bytes.as_slice())
 }
 
 fn write_principal(out: &mut Vec<u8>, value: Principal) -> Result<(), TokenWireError> {
-    let bytes = value
-        .to_bytes()
-        .map_err(|err| TokenWireError::encode(err.to_string()))?;
+    let bytes = value.to_bytes().map_err(|_| TokenWireError::encode())?;
 
     write_len_prefixed_bytes(out, bytes.as_slice())
 }
@@ -263,12 +258,10 @@ pub(in crate::db::cursor::token) fn read_value(
         VALUE_DURATION => Ok(Value::Duration(Duration::from_millis(cursor.read_u64()?))),
         VALUE_ENUM => Ok(Value::Enum(read_value_enum(cursor)?)),
         VALUE_FLOAT32 => Ok(Value::Float32(
-            Float32::try_from_bytes(cursor.read_exact(4)?)
-                .map_err(|err| TokenWireError::decode(err.to_string()))?,
+            Float32::try_from_bytes(cursor.read_exact(4)?).map_err(|_| TokenWireError::decode())?,
         )),
         VALUE_FLOAT64 => Ok(Value::Float64(
-            Float64::try_from_bytes(cursor.read_exact(8)?)
-                .map_err(|err| TokenWireError::decode(err.to_string()))?,
+            Float64::try_from_bytes(cursor.read_exact(8)?).map_err(|_| TokenWireError::decode())?,
         )),
         VALUE_INT => Ok(Value::Int64(cursor.read_i64()?)),
         VALUE_INT128 => Ok(Value::Int128(cursor.read_i128()?)),
@@ -287,9 +280,7 @@ pub(in crate::db::cursor::token) fn read_value(
         VALUE_NAT_BIG => Ok(Value::NatBig(read_big_nat(cursor)?)),
         VALUE_ULID => Ok(Value::Ulid(Ulid::from_bytes(cursor.read_array()?))),
         VALUE_UNIT => Ok(Value::Unit),
-        other => Err(TokenWireError::decode(format!(
-            "unsupported cursor value tag {other}"
-        ))),
+        _ => Err(TokenWireError::decode()),
     }
 }
 
@@ -297,20 +288,17 @@ fn read_bool(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
     match cursor.read_u8()? {
         0 => Ok(Value::Bool(false)),
         1 => Ok(Value::Bool(true)),
-        other => Err(TokenWireError::decode(format!(
-            "unsupported cursor bool tag {other}"
-        ))),
+        _ => Err(TokenWireError::decode()),
     }
 }
 
 fn read_account(cursor: &mut ByteCursor<'_>) -> Result<Account, TokenWireError> {
-    Account::try_from_bytes(cursor.read_len_prefixed_bytes()?)
-        .map_err(|err| TokenWireError::decode(err.to_string()))
+    Account::try_from_bytes(cursor.read_len_prefixed_bytes()?).map_err(|_| TokenWireError::decode())
 }
 
 fn read_principal(cursor: &mut ByteCursor<'_>) -> Result<Principal, TokenWireError> {
     Principal::try_from_bytes(cursor.read_len_prefixed_bytes()?)
-        .map_err(|err| TokenWireError::decode(err.to_string()))
+        .map_err(|_| TokenWireError::decode())
 }
 
 fn read_date(cursor: &mut ByteCursor<'_>) -> Result<Date, TokenWireError> {
@@ -324,7 +312,7 @@ fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> 
     let scale = cursor.read_u32()?;
     Decimal::try_from_i128_with_scale(mantissa, scale)
         .filter(|value| value.parts().scale() == scale && value.parts().mantissa() == mantissa)
-        .ok_or_else(|| TokenWireError::decode("invalid decimal token payload"))
+        .ok_or_else(TokenWireError::decode)
 }
 
 fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireError> {
@@ -333,20 +321,16 @@ fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireEr
     let path = match cursor.read_u8()? {
         0 => None,
         1 => Some(cursor.read_string()?),
-        other => {
-            return Err(TokenWireError::decode(format!(
-                "unsupported enum path presence tag {other}"
-            )));
+        _ => {
+            return Err(TokenWireError::decode());
         }
     };
 
     let payload = match cursor.read_u8()? {
         0 => None,
         1 => Some(read_value(cursor)?),
-        other => {
-            return Err(TokenWireError::decode(format!(
-                "unsupported enum payload presence tag {other}"
-            )));
+        _ => {
+            return Err(TokenWireError::decode());
         }
     };
 
@@ -360,28 +344,25 @@ fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireEr
 
 fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<IntBig, TokenWireError> {
     let text = cursor.read_string()?;
-    let big = BigInt::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| TokenWireError::decode("invalid IntBig token payload"))?;
+    let big = BigInt::parse_bytes(text.as_bytes(), 10).ok_or_else(TokenWireError::decode)?;
 
     Ok(IntBig::from_bigint(big))
 }
 
 fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<NatBig, TokenWireError> {
     let text = cursor.read_string()?;
-    let big = BigUint::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| TokenWireError::decode("invalid NatBig token payload"))?;
+    let big = BigUint::parse_bytes(text.as_bytes(), 10).ok_or_else(TokenWireError::decode)?;
 
     Ok(NatBig::from_biguint(big))
 }
 
 fn read_map_value(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
-    let len = usize::try_from(cursor.read_u32()?)
-        .map_err(|_| TokenWireError::decode("cursor map entry count does not fit usize"))?;
+    let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
     let mut entries = Vec::with_capacity(len);
 
     for _ in 0..len {
         entries.push((read_value(cursor)?, read_value(cursor)?));
     }
 
-    Value::from_map(entries).map_err(|err| TokenWireError::decode(err.to_string()))
+    Value::from_map(entries).map_err(|_| TokenWireError::decode())
 }

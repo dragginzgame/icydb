@@ -55,20 +55,14 @@ fn plan_error_from_policy_maps_to_policy_domain_variant() {
 
 #[test]
 fn plan_error_from_cursor_maps_to_cursor_domain_variant() {
-    let err = PlanError::from(CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-        expected: 2,
-        found: 1,
-    });
+    let err = PlanError::from(CursorPlanError::ContinuationCursorBoundaryArityMismatch);
 
     std::assert_matches!(
         err,
         PlanError::Cursor(inner)
             if matches!(
                 inner.as_ref(),
-                CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-                    expected: 2,
-                    found: 1
-                }
+                CursorPlanError::ContinuationCursorBoundaryArityMismatch
             )
     );
 }

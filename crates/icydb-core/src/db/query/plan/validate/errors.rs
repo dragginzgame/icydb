@@ -687,14 +687,12 @@ impl CursorOrderPlanShapeError {
 
     /// Map one cursor-order shape error into one cursor plan error using the
     /// caller-owned missing-order contract message.
-    pub(in crate::db) fn to_cursor_plan_error(
+    pub(in crate::db) const fn to_cursor_plan_error(
         self,
-        missing_order_message: &'static str,
+        _missing_order_message: &'static str,
     ) -> CursorPlanError {
         match self {
-            Self::MissingExplicitOrder => {
-                CursorPlanError::continuation_cursor_invariant(missing_order_message)
-            }
+            Self::MissingExplicitOrder => CursorPlanError::continuation_cursor_invariant(),
             Self::EmptyOrderSpec => CursorPlanError::cursor_requires_non_empty_order(),
         }
     }

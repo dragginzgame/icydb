@@ -162,12 +162,9 @@ pub(in crate::db::cursor::token) fn decode_grouped_token(
 /// TOKEN HEADER
 ///
 
-fn start_token_decode(bytes: &[u8]) -> Result<ByteCursor<'_>, TokenWireError> {
+const fn start_token_decode(bytes: &[u8]) -> Result<ByteCursor<'_>, TokenWireError> {
     if bytes.len() > MAX_CURSOR_TOKEN_BYTES {
-        return Err(TokenWireError::decode(format!(
-            "cursor token exceeds max length: {} bytes (max {MAX_CURSOR_TOKEN_BYTES})",
-            bytes.len()
-        )));
+        return Err(TokenWireError::decode());
     }
 
     Ok(ByteCursor::new(bytes))
@@ -175,10 +172,7 @@ fn start_token_decode(bytes: &[u8]) -> Result<ByteCursor<'_>, TokenWireError> {
 
 fn finish_token_encode(bytes: Vec<u8>) -> Result<Vec<u8>, TokenWireError> {
     if bytes.len() > MAX_CURSOR_TOKEN_BYTES {
-        return Err(TokenWireError::encode(format!(
-            "cursor token exceeds max length: {} bytes (max {MAX_CURSOR_TOKEN_BYTES})",
-            bytes.len()
-        )));
+        return Err(TokenWireError::encode());
     }
 
     Ok(bytes)
@@ -195,16 +189,12 @@ fn expect_token_variant(
 ) -> Result<(), TokenWireError> {
     let version = cursor.read_u8()?;
     if version != TOKEN_WIRE_VERSION {
-        return Err(TokenWireError::decode(format!(
-            "unsupported cursor token wire version {version}"
-        )));
+        return Err(TokenWireError::decode());
     }
 
     let actual_variant = cursor.read_u8()?;
     if actual_variant != expected_variant {
-        return Err(TokenWireError::decode(format!(
-            "cursor token variant mismatch: expected {expected_variant}, found {actual_variant}"
-        )));
+        return Err(TokenWireError::decode());
     }
 
     Ok(())
@@ -225,9 +215,7 @@ fn read_direction(cursor: &mut ByteCursor<'_>) -> Result<Direction, TokenWireErr
     match cursor.read_u8()? {
         DIRECTION_ASC => Ok(Direction::Asc),
         DIRECTION_DESC => Ok(Direction::Desc),
-        other => Err(TokenWireError::decode(format!(
-            "unsupported cursor direction tag {other}"
-        ))),
+        _ => Err(TokenWireError::decode()),
     }
 }
 
@@ -254,9 +242,7 @@ fn read_optional_anchor(
         1 => Ok(Some(IndexRangeCursorAnchor::new(
             cursor.read_len_prefixed_bytes()?.to_vec(),
         ))),
-        other => Err(TokenWireError::decode(format!(
-            "unsupported cursor anchor presence tag {other}"
-        ))),
+        _ => Err(TokenWireError::decode()),
     }
 }
 
@@ -284,18 +270,15 @@ fn write_cursor_boundary(
 }
 
 fn read_cursor_boundary(cursor: &mut ByteCursor<'_>) -> Result<CursorBoundary, TokenWireError> {
-    let slot_count = usize::try_from(cursor.read_u32()?)
-        .map_err(|_| TokenWireError::decode("cursor boundary slot count does not fit usize"))?;
+    let slot_count = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
     let mut slots = Vec::with_capacity(slot_count);
 
     for _ in 0..slot_count {
         match cursor.read_u8()? {
             SLOT_MISSING => slots.push(CursorBoundarySlot::Missing),
             SLOT_PRESENT => slots.push(CursorBoundarySlot::Present(read_value(cursor)?)),
-            other => {
-                return Err(TokenWireError::decode(format!(
-                    "unsupported cursor boundary slot tag {other}"
-                )));
+            _ => {
+                return Err(TokenWireError::decode());
             }
         }
     }

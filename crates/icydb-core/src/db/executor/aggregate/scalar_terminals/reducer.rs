@@ -149,15 +149,14 @@ struct RowAggregateReducer {
 /// FieldAggregateReducer
 ///
 /// FieldAggregateReducer stores a pre-classified retained-slot reducer.
-/// The slot and field label are copied out of the interned terminal once so
-/// per-row execution performs only filter evaluation and direct slot loading.
+/// The slot is copied out of the interned terminal once so per-row execution
+/// performs only filter evaluation and direct slot loading.
 ///
 
 struct FieldAggregateReducer {
     filter: Option<usize>,
     state: ScalarAggregateReducerState,
     slot: usize,
-    field: String,
 }
 
 ///
@@ -231,12 +230,11 @@ impl ScalarAggregateReducerRuntime {
                 InternedScalarAggregateInput::Rows => {
                     row_reducers.push(RowAggregateReducer { filter, state });
                 }
-                InternedScalarAggregateInput::Field { slot, field } => {
+                InternedScalarAggregateInput::Field { slot, field: _ } => {
                     field_reducers.push(FieldAggregateReducer {
                         filter,
                         state,
                         slot,
-                        field,
                     });
                 }
                 InternedScalarAggregateInput::Expr(expr_index) => {
@@ -323,11 +321,7 @@ impl ScalarAggregateReducerRuntime {
                 continue;
             }
             let value = row.slot_ref(reducer.slot).ok_or_else(|| {
-                ProjectionEvalError::MissingFieldValue {
-                    field: reducer.field.clone(),
-                    index: reducer.slot,
-                }
-                .into_invalid_logical_plan_internal_error()
+                ProjectionEvalError::MissingFieldValue.into_invalid_logical_plan_internal_error()
             })?;
             reducer.state.ingest_borrowed_value(value)?;
         }

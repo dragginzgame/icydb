@@ -69,8 +69,7 @@ fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
         .expect_err("grouped mixed numeric/non-numeric equality should fail");
     std::assert_matches!(
         err,
-        crate::db::executor::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
-            if op == "eq"
+        crate::db::executor::projection::ProjectionEvalError::InvalidBinaryOperands
     );
 }
 

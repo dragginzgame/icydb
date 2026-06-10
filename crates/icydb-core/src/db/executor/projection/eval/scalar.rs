@@ -42,27 +42,24 @@ fn reader_error(err: InternalError) -> ProjectionEvalError {
     ProjectionEvalError::ReaderFailed {
         class: err.class(),
         origin: err.origin(),
-        message: err.into_message(),
     }
 }
 
 // Preserve persisted-row decode classifications for nested path traversal
 // while keeping storage decoding outside the compiled expression module.
-fn field_path_error(field: &str, err: InternalError) -> ProjectionEvalError {
+fn field_path_error(_field: &str, err: InternalError) -> ProjectionEvalError {
     ProjectionEvalError::FieldPathEvaluationFailed {
-        field: field.to_string(),
         class: err.class(),
         origin: err.origin(),
-        message: err.into_message(),
     }
 }
 
 // Convert low-level structural field decode failures into the persisted-row
 // decode taxonomy expected by projection callers.
-fn field_path_decode_error(field: &str, err: impl fmt::Display) -> ProjectionEvalError {
+fn field_path_decode_error(field: &str, _err: impl fmt::Display) -> ProjectionEvalError {
     field_path_error(
         field,
-        InternalError::persisted_row_field_decode_failed(field, err),
+        InternalError::persisted_row_field_decode_corruption(field),
     )
 }
 
@@ -380,11 +377,10 @@ fn eval_direct_scalar_octet_length(
     field: &str,
 ) -> Result<Option<Value>, InternalError> {
     let leaf_codec = slots.field_leaf_codec(slot).map_err(|_| {
-        ProjectionEvalError::MissingFieldValue {
-            field: field.to_string(),
-            index: slot,
-        }
-        .into_invalid_logical_plan_internal_error()
+        let _ = field;
+        let _ = slot;
+
+        ProjectionEvalError::MissingFieldValue.into_invalid_logical_plan_internal_error()
     })?;
     if !matches!(
         leaf_codec,
@@ -421,7 +417,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_required_slot_reader(
     };
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
-        Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
+        Err(ProjectionEvalError::MissingFieldPathValue) => return Ok(false),
         Err(err) => return Err(err.into_invalid_logical_plan_internal_error()),
     };
 
@@ -442,10 +438,10 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_ref_reader<'a>(
     };
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
-        Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
+        Err(ProjectionEvalError::MissingFieldPathValue) => return Ok(false),
         Err(err) => {
             return Err(match err {
-                ProjectionEvalError::MissingFieldValue { index: _, .. } => {
+                ProjectionEvalError::MissingFieldValue => {
                     InternalError::query_invalid_logical_plan()
                 }
                 err => err.into_invalid_logical_plan_internal_error(),
@@ -470,10 +466,10 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
     };
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
-        Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
+        Err(ProjectionEvalError::MissingFieldPathValue) => return Ok(false),
         Err(err) => {
             return Err(match err {
-                ProjectionEvalError::MissingFieldValue { index: _, .. } => {
+                ProjectionEvalError::MissingFieldValue => {
                     InternalError::query_invalid_logical_plan()
                 }
                 err => err.into_invalid_logical_plan_internal_error(),

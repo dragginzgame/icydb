@@ -38,13 +38,10 @@ impl<'a> ByteCursor<'a> {
         let end = self
             .offset
             .checked_add(len)
-            .ok_or_else(|| TokenWireError::decode("cursor token length overflow"))?;
+            .ok_or_else(TokenWireError::decode)?;
 
         let Some(slice) = self.bytes.get(self.offset..end) else {
-            return Err(TokenWireError::decode(format!(
-                "cursor token truncated: needed {len} bytes with {} remaining",
-                self.remaining()
-            )));
+            return Err(TokenWireError::decode());
         };
 
         self.offset = end;
@@ -95,8 +92,7 @@ impl<'a> ByteCursor<'a> {
     pub(in crate::db::cursor::token) fn read_len_prefixed_bytes(
         &mut self,
     ) -> Result<&'a [u8], TokenWireError> {
-        let len = usize::try_from(self.read_u32()?)
-            .map_err(|_| TokenWireError::decode("cursor token length does not fit usize"))?;
+        let len = usize::try_from(self.read_u32()?).map_err(|_| TokenWireError::decode())?;
 
         self.read_exact(len)
     }
@@ -104,28 +100,23 @@ impl<'a> ByteCursor<'a> {
     // Read one UTF-8 string from a length-prefixed byte payload.
     pub(in crate::db::cursor::token) fn read_string(&mut self) -> Result<String, TokenWireError> {
         let bytes = self.read_len_prefixed_bytes()?;
-        let text = str::from_utf8(bytes)
-            .map_err(|err| TokenWireError::decode(format!("cursor token invalid utf-8: {err}")))?;
+        let text = str::from_utf8(bytes).map_err(|_| TokenWireError::decode())?;
 
         Ok(text.to_string())
     }
 
     // Require full cursor consumption at the end of decode.
-    pub(in crate::db::cursor::token) fn finish(self) -> Result<(), TokenWireError> {
+    pub(in crate::db::cursor::token) const fn finish(self) -> Result<(), TokenWireError> {
         if self.remaining() == 0 {
             return Ok(());
         }
 
-        Err(TokenWireError::decode(format!(
-            "cursor token has {} trailing bytes",
-            self.remaining()
-        )))
+        Err(TokenWireError::decode())
     }
 }
 
 pub(in crate::db::cursor::token) fn checked_len_u32(len: usize) -> Result<u32, TokenWireError> {
-    u32::try_from(len)
-        .map_err(|_| TokenWireError::encode("cursor token payload exceeds u32 length"))
+    u32::try_from(len).map_err(|_| TokenWireError::encode())
 }
 
 pub(in crate::db::cursor::token) fn write_u32(out: &mut Vec<u8>, value: u32) {

@@ -44,11 +44,7 @@ fn prepare_grouped_cursor_rejects_direction_mismatch() {
     )
     .expect_err("grouped cursor direction must match grouped execution direction");
 
-    std::assert_matches!(
-        err,
-        CursorPlanError::InvalidContinuationCursorPayload { reason }
-            if reason == "grouped continuation cursor direction does not match executable plan direction"
-    );
+    std::assert_matches!(err, CursorPlanError::InvalidContinuationCursorPayload);
 }
 
 #[test]
@@ -88,14 +84,7 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
     )
     .expect_err("grouped cursor signature mismatch must fail");
 
-    std::assert_matches!(
-        err,
-        CursorPlanError::ContinuationCursorSignatureMismatch {
-            entity_path,
-            expected: _,
-            actual: _,
-        } if entity_path == "grouped::test_entity"
-    );
+    std::assert_matches!(err, CursorPlanError::ContinuationCursorSignatureMismatch);
 }
 
 #[test]
@@ -114,13 +103,7 @@ fn prepare_grouped_cursor_rejects_offset_mismatch() {
     )
     .expect_err("grouped cursor initial offset mismatch must fail");
 
-    std::assert_matches!(
-        err,
-        CursorPlanError::ContinuationCursorWindowMismatch {
-            expected_offset,
-            actual_offset,
-        } if expected_offset == token.initial_offset() + 1 && actual_offset == token.initial_offset()
-    );
+    std::assert_matches!(err, CursorPlanError::ContinuationCursorWindowMismatch);
 }
 
 #[test]
@@ -129,11 +112,7 @@ fn validate_grouped_cursor_order_plan_rejects_empty_order_spec() {
     let err = validate_grouped_cursor_order_plan(Some(&empty_order))
         .expect_err("grouped cursor order plan must reject empty order specs");
 
-    std::assert_matches!(
-        err,
-        CursorPlanError::ContinuationCursorInvariantViolation { reason }
-            if reason.contains("cursor pagination requires non-empty ordering")
-    );
+    std::assert_matches!(err, CursorPlanError::ContinuationCursorInvariantViolation);
 }
 
 #[test]
@@ -151,7 +130,7 @@ fn validate_grouped_cursor_order_plan_accepts_missing_or_non_empty_order() {
 }
 
 #[test]
-fn cursor_order_invariant_constructors_keep_raw_reasons() {
+fn cursor_order_invariant_constructors_use_compact_variant() {
     let requires_order = CursorPlanError::cursor_requires_order();
     let requires_non_empty_order = CursorPlanError::cursor_requires_non_empty_order();
     let requires_explicit_or_grouped =
@@ -159,19 +138,15 @@ fn cursor_order_invariant_constructors_keep_raw_reasons() {
 
     std::assert_matches!(
         requires_order,
-        CursorPlanError::ContinuationCursorInvariantViolation { reason }
-            if reason == CursorPlanError::cursor_requires_order_message()
+        CursorPlanError::ContinuationCursorInvariantViolation
     );
     std::assert_matches!(
         requires_non_empty_order,
-        CursorPlanError::ContinuationCursorInvariantViolation { reason }
-            if reason == CursorPlanError::cursor_requires_non_empty_order_message()
+        CursorPlanError::ContinuationCursorInvariantViolation
     );
     std::assert_matches!(
         requires_explicit_or_grouped,
-        CursorPlanError::ContinuationCursorInvariantViolation { reason }
-            if reason
-                == CursorPlanError::cursor_requires_explicit_or_grouped_ordering_message()
+        CursorPlanError::ContinuationCursorInvariantViolation
     );
 }
 
@@ -215,13 +190,7 @@ fn revalidate_grouped_cursor_rejects_offset_mismatch() {
     let err = revalidate_grouped_cursor(token.initial_offset() + 1, prepared)
         .expect_err("grouped cursor revalidate must enforce offset compatibility");
 
-    std::assert_matches!(
-        err,
-        CursorPlanError::ContinuationCursorWindowMismatch {
-            expected_offset,
-            actual_offset,
-        } if expected_offset == token.initial_offset() + 1 && actual_offset == token.initial_offset()
-    );
+    std::assert_matches!(err, CursorPlanError::ContinuationCursorWindowMismatch);
 }
 
 #[test]
@@ -230,40 +199,13 @@ fn pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants() {
         CursorPlanError::InvalidContinuationCursor {
             reason: CursorDecodeError::OddLength,
         },
-        CursorPlanError::InvalidContinuationCursorPayload {
-            reason: "payload type mismatch".to_string(),
-        },
-        CursorPlanError::ContinuationCursorSignatureMismatch {
-            entity_path: "tests::Entity",
-            expected: "aa".to_string(),
-            actual: "bb".to_string(),
-        },
-        CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-            expected: 2,
-            found: 1,
-        },
-        CursorPlanError::ContinuationCursorWindowMismatch {
-            expected_offset: 8,
-            actual_offset: 3,
-        },
-        CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
-            field: "id".to_string(),
-            expected: "Ulid".to_string(),
-            value: Value::Text("x".to_string()),
-        },
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-            field: "id".to_string(),
-            expected: "Ulid".to_string(),
-            value: None,
-        },
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-            field: "id".to_string(),
-            expected: "Ulid".to_string(),
-            value: Some(Value::Text("x".to_string())),
-        },
-        CursorPlanError::ContinuationCursorInvariantViolation {
-            reason: "runtime cursor contract violated".to_string(),
-        },
+        CursorPlanError::InvalidContinuationCursorPayload,
+        CursorPlanError::ContinuationCursorSignatureMismatch,
+        CursorPlanError::ContinuationCursorBoundaryArityMismatch,
+        CursorPlanError::ContinuationCursorWindowMismatch,
+        CursorPlanError::ContinuationCursorBoundaryTypeMismatch,
+        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch,
+        CursorPlanError::ContinuationCursorInvariantViolation,
     ];
 
     for err in cases {

@@ -88,8 +88,7 @@ fn grouped_cursor_contract_shares_policy_gate_for_token_and_window_paths() {
 
     std::assert_matches!(
         &token_err,
-        CursorPlanError::ContinuationCursorInvariantViolation { reason }
-            if reason == "grouped continuation cursors require an explicit LIMIT"
+        CursorPlanError::ContinuationCursorInvariantViolation
     );
     assert_eq!(
         token_err.to_string(),

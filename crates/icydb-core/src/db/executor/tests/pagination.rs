@@ -2518,7 +2518,7 @@ fn assert_simple_token_page2_and_cross_shape_contracts(
             crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch
                 )
         ),
         "cross-shape fallback token replay should fail with signature mismatch for case={case_name}",
@@ -2533,7 +2533,7 @@ fn assert_simple_token_page2_and_cross_shape_contracts(
             crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch
                 )
         ),
         "cross-shape fast token replay should fail with signature mismatch for case={case_name}",
@@ -4491,7 +4491,7 @@ fn load_cursor_rejects_signature_mismatch() {
             crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch
                 )
         ),
         "planning should reject plan-signature mismatch",
@@ -4551,7 +4551,7 @@ fn load_cursor_rejects_signature_mismatch_between_pk_fast_and_by_ids_shapes() {
             crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch
                 )
         ),
         "cross-shape cursor replay should fail with signature mismatch",
@@ -4941,7 +4941,7 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
             crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch
                 )
         ),
         "pushdown/fallback cross-shape cursor replay should fail with signature mismatch",
@@ -9198,7 +9198,7 @@ fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_des
                 crate::db::executor::ExecutorPlanError::Cursor(inner)
                     if matches!(
                         inner.as_ref(),
-                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch
                     )
             ),
             "cross-shape fallback token replay should fail with signature mismatch for case={case_name}",
@@ -9214,7 +9214,7 @@ fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_des
                 crate::db::executor::ExecutorPlanError::Cursor(inner)
                     if matches!(
                         inner.as_ref(),
-                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch
                     )
             ),
             "cross-shape fast token replay should fail with signature mismatch for case={case_name}",

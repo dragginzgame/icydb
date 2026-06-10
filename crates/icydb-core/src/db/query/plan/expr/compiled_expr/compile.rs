@@ -11,7 +11,7 @@ use crate::{
         plan::{
             FieldSlot, GroupedAggregateExecutionSpec,
             expr::{
-                BinaryOp, CompiledExpr, CompiledExprCaseArm, Expr, FieldPath, ProjectionEvalError,
+                BinaryOp, CompiledExpr, CompiledExprCaseArm, Expr, ProjectionEvalError,
                 ProjectionSpec, ScalarProjectionCaseArm, ScalarProjectionExpr,
             },
         },
@@ -291,9 +291,7 @@ pub(in crate::db) fn compile_grouped_projection_expr(
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
             let Some(offset) = resolve_group_field_offset(group_fields, field_name) else {
-                return Err(ProjectionEvalError::UnknownField {
-                    field: field_name.to_string(),
-                });
+                return Err(ProjectionEvalError::UnknownField);
             };
 
             Ok(CompiledExpr::GroupKey {
@@ -301,18 +299,12 @@ pub(in crate::db) fn compile_grouped_projection_expr(
                 field: field_name.to_string(),
             })
         }
-        Expr::FieldPath(path) => Err(ProjectionEvalError::UnknownField {
-            field: render_grouped_projection_field_path_label(path),
-        }),
+        Expr::FieldPath(_) => Err(ProjectionEvalError::UnknownField),
         Expr::Aggregate(aggregate_expr) => {
             let Some(index) =
                 resolve_grouped_aggregate_index(aggregate_execution_specs, aggregate_expr)
             else {
-                return Err(ProjectionEvalError::UnknownGroupedAggregateExpression {
-                    kind: format!("{:?}", aggregate_expr.kind()),
-                    target_field: aggregate_expr.target_field().map(str::to_string),
-                    distinct: aggregate_expr.is_distinct(),
-                });
+                return Err(ProjectionEvalError::UnknownGroupedAggregateExpression);
             };
 
             Ok(CompiledExpr::Aggregate { index })
@@ -417,16 +409,6 @@ const fn is_comparison_op(op: BinaryOp) -> bool {
 fn render_field_path_label(root: &str, segments: &[String]) -> String {
     let mut label = root.to_string();
     for segment in segments {
-        label.push('.');
-        label.push_str(segment);
-    }
-
-    label
-}
-
-fn render_grouped_projection_field_path_label(path: &FieldPath) -> String {
-    let mut label = path.root().as_str().to_string();
-    for segment in path.segments() {
         label.push('.');
         label.push_str(segment);
     }

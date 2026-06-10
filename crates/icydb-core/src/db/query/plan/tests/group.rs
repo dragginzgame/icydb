@@ -814,9 +814,8 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         .grouped_plan()
         .expect("grouped plan should be present");
     assert_eq!(
-        grouped_cursor_policy_violation(grouped_without_limit_plan, true)
-            .map(GroupedCursorPolicyViolation::invariant_message),
-        Some("grouped continuation cursors require an explicit LIMIT"),
+        grouped_cursor_policy_violation(grouped_without_limit_plan, true),
+        Some(GroupedCursorPolicyViolation::ContinuationRequiresLimit),
         "grouped cursor contract should require explicit limit when continuation is present",
     );
 
@@ -846,9 +845,8 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         .grouped_plan()
         .expect("grouped plan should be present");
     assert_eq!(
-        grouped_cursor_policy_violation(grouped_global_distinct_plan, true)
-            .map(GroupedCursorPolicyViolation::invariant_message),
-        Some("global DISTINCT grouped aggregates do not support continuation cursors"),
+        grouped_cursor_policy_violation(grouped_global_distinct_plan, true),
+        Some(GroupedCursorPolicyViolation::GlobalDistinctContinuationUnsupported),
         "global DISTINCT grouped cursor policy should reject continuation reuse",
     );
 }

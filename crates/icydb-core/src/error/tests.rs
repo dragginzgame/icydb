@@ -332,10 +332,7 @@ fn group_plan_error_mapping_rejects_non_group_policy_variant() {
 #[test]
 fn group_plan_error_mapping_rejects_cursor_variant() {
     let err = from_group_plan_error(PlanError::from(
-        CursorPlanError::ContinuationCursorWindowMismatch {
-            expected_offset: 8,
-            actual_offset: 3,
-        },
+        CursorPlanError::ContinuationCursorWindowMismatch,
     ));
 
     assert_runtime_invariant(&err, ErrorOrigin::Planner);
@@ -343,10 +340,7 @@ fn group_plan_error_mapping_rejects_cursor_variant() {
 
 #[test]
 fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
-    let err = CursorPlanError::InvalidContinuationCursorPayload {
-        reason: "bad payload".to_string(),
-    }
-    .into_internal_error();
+    let err = CursorPlanError::InvalidContinuationCursorPayload.into_internal_error();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -364,12 +358,7 @@ fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
 
 #[test]
 fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
-    let err = CursorPlanError::ContinuationCursorSignatureMismatch {
-        entity_path: "tests::Entity",
-        expected: "aa".to_string(),
-        actual: "bb".to_string(),
-    }
-    .into_internal_error();
+    let err = CursorPlanError::ContinuationCursorSignatureMismatch.into_internal_error();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -377,10 +366,7 @@ fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
 
 #[test]
 fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
-    let err = CursorPlanError::ContinuationCursorInvariantViolation {
-        reason: "runtime cursor contract violated".to_string(),
-    }
-    .into_internal_error();
+    let err = CursorPlanError::ContinuationCursorInvariantViolation.into_internal_error();
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -423,50 +409,24 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
     fn expected_class_from_cursor_variant(err: &CursorPlanError) -> ErrorClass {
         match err {
             CursorPlanError::InvalidContinuationCursor { .. }
-            | CursorPlanError::InvalidContinuationCursorPayload { .. }
-            | CursorPlanError::ContinuationCursorSignatureMismatch { .. }
-            | CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
-            | CursorPlanError::ContinuationCursorWindowMismatch { .. }
-            | CursorPlanError::ContinuationCursorBoundaryTypeMismatch { .. }
-            | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
-                ErrorClass::Unsupported
-            }
-            CursorPlanError::ContinuationCursorInvariantViolation { .. } => {
-                ErrorClass::InvariantViolation
-            }
+            | CursorPlanError::InvalidContinuationCursorPayload
+            | CursorPlanError::ContinuationCursorSignatureMismatch
+            | CursorPlanError::ContinuationCursorBoundaryArityMismatch
+            | CursorPlanError::ContinuationCursorWindowMismatch
+            | CursorPlanError::ContinuationCursorBoundaryTypeMismatch
+            | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch => ErrorClass::Unsupported,
+            CursorPlanError::ContinuationCursorInvariantViolation => ErrorClass::InvariantViolation,
         }
     }
 
     let cases = vec![
-        CursorPlanError::InvalidContinuationCursorPayload {
-            reason: "payload".to_string(),
-        },
-        CursorPlanError::ContinuationCursorInvariantViolation {
-            reason: "invariant".to_string(),
-        },
-        CursorPlanError::ContinuationCursorSignatureMismatch {
-            entity_path: "tests::Entity",
-            expected: "aabb".to_string(),
-            actual: "ccdd".to_string(),
-        },
-        CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-            expected: 2,
-            found: 1,
-        },
-        CursorPlanError::ContinuationCursorWindowMismatch {
-            expected_offset: 10,
-            actual_offset: 2,
-        },
-        CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
-            field: "rank".to_string(),
-            expected: "u64".to_string(),
-            value: crate::value::Value::Text("x".to_string()),
-        },
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-            field: "id".to_string(),
-            expected: "Ulid".to_string(),
-            value: Some(crate::value::Value::Text("x".to_string())),
-        },
+        CursorPlanError::InvalidContinuationCursorPayload,
+        CursorPlanError::ContinuationCursorInvariantViolation,
+        CursorPlanError::ContinuationCursorSignatureMismatch,
+        CursorPlanError::ContinuationCursorBoundaryArityMismatch,
+        CursorPlanError::ContinuationCursorWindowMismatch,
+        CursorPlanError::ContinuationCursorBoundaryTypeMismatch,
+        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch,
     ];
 
     for cursor_err in cases {

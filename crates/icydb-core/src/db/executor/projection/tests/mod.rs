@@ -301,7 +301,6 @@ fn projection_test_reader_error(err: InternalError) -> ProjectionEvalError {
     ProjectionEvalError::ReaderFailed {
         class: err.class(),
         origin: err.origin(),
-        message: err.into_message(),
     }
 }
 

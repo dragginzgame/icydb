@@ -310,19 +310,12 @@ fn project_slot_row_direct_octet_lengths_into(
             continue;
         };
 
-        let (_slot, field) = compiled.direct_octet_length_slot().ok_or_else(|| {
-            ProjectionEvalError::MissingFieldValue {
-                field: String::new(),
-                index: *slot,
-            }
-            .into_invalid_logical_plan_internal_error()
+        let (_slot, _field) = compiled.direct_octet_length_slot().ok_or_else(|| {
+            ProjectionEvalError::MissingFieldValue.into_invalid_logical_plan_internal_error()
         })?;
         let value = row
             .slot_ref(*slot)
-            .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
-                field: field.to_string(),
-                index: *slot,
-            })
+            .ok_or(ProjectionEvalError::MissingFieldValue)
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
         shaped.push(retained_slot_octet_length_value(value)?);
     }
@@ -383,13 +376,10 @@ fn project_slot_row_from_direct_field_slots_into(
     shaped.clear();
     shaped.reserve(field_slots.len());
 
-    for (field_name, slot) in field_slots {
+    for (_field_name, slot) in field_slots {
         let value = row
             .take_slot(*slot)
-            .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
-                field: field_name.clone(),
-                index: *slot,
-            })
+            .ok_or(ProjectionEvalError::MissingFieldValue)
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
         shaped.push(value);
     }

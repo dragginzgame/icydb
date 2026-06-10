@@ -305,11 +305,7 @@ impl EntityAuthority {
     fn cursor_schema_info(&self) -> Result<&SchemaInfo, CursorPlanError> {
         self.accepted_schema_info
             .as_ref()
-            .ok_or_else(|| {
-                CursorPlanError::continuation_cursor_invariant(
-                    "scalar cursor validation requires accepted schema info",
-                )
-            })
+            .ok_or_else(CursorPlanError::continuation_cursor_invariant)
             .map(AsRef::as_ref)
     }
 

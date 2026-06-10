@@ -6,7 +6,6 @@
 use crate::{
     db::cursor::{ContinuationSignature, CursorDecodeError, TokenWireError},
     error::InternalError,
-    value::Value,
 };
 use thiserror::Error as ThisError;
 
@@ -23,55 +22,32 @@ pub enum CursorPlanError {
     InvalidContinuationCursor { reason: CursorDecodeError },
 
     /// Cursor token payload/semantics are invalid after token decode.
-    #[error("invalid continuation cursor: {reason}")]
-    InvalidContinuationCursorPayload { reason: String },
+    #[error("invalid continuation cursor payload")]
+    InvalidContinuationCursorPayload,
 
     /// Cursor plan/runtime contract invariants were violated.
-    #[error("{reason}")]
-    ContinuationCursorInvariantViolation { reason: String },
+    #[error("continuation cursor invariant violation")]
+    ContinuationCursorInvariantViolation,
 
     /// Cursor token does not belong to this canonical query shape.
-    #[error(
-        "continuation cursor does not match query plan signature for '{entity_path}': expected={expected}, actual={actual}"
-    )]
-    ContinuationCursorSignatureMismatch {
-        entity_path: &'static str,
-        expected: String,
-        actual: String,
-    },
+    #[error("continuation cursor signature mismatch")]
+    ContinuationCursorSignatureMismatch,
 
     /// Cursor boundary width does not match canonical order width.
-    #[error("continuation cursor boundary arity mismatch: expected {expected}, found {found}")]
-    ContinuationCursorBoundaryArityMismatch { expected: usize, found: usize },
+    #[error("continuation cursor boundary arity mismatch")]
+    ContinuationCursorBoundaryArityMismatch,
 
     /// Cursor window offset does not match the current query window shape.
-    #[error(
-        "continuation cursor offset mismatch: expected {expected_offset}, found {actual_offset}"
-    )]
-    ContinuationCursorWindowMismatch {
-        expected_offset: u32,
-        actual_offset: u32,
-    },
+    #[error("continuation cursor window mismatch")]
+    ContinuationCursorWindowMismatch,
 
     /// Cursor boundary value type mismatch for a non-primary-key ordered field.
-    #[error(
-        "continuation cursor boundary type mismatch for field '{field}': expected {expected}, found {value:?}"
-    )]
-    ContinuationCursorBoundaryTypeMismatch {
-        field: String,
-        expected: String,
-        value: Value,
-    },
+    #[error("continuation cursor boundary type mismatch")]
+    ContinuationCursorBoundaryTypeMismatch,
 
     /// Cursor primary-key boundary does not match the entity key type.
-    #[error(
-        "continuation cursor primary key type mismatch for '{field}': expected {expected}, found {value:?}"
-    )]
-    ContinuationCursorPrimaryKeyTypeMismatch {
-        field: String,
-        expected: String,
-        value: Option<Value>,
-    },
+    #[error("continuation cursor primary key type mismatch")]
+    ContinuationCursorPrimaryKeyTypeMismatch,
 }
 
 impl CursorPlanError {
@@ -80,22 +56,9 @@ impl CursorPlanError {
         "cursor pagination requires an explicit ordering"
     }
 
-    /// Canonical invariant text for cursor surfaces that require either
-    /// explicit scalar ordering or canonical grouped ordering.
-    #[cfg(test)]
-    pub(in crate::db) const fn cursor_requires_explicit_or_grouped_ordering_message() -> &'static str
-    {
-        "cursor pagination requires explicit or grouped ordering"
-    }
-
     /// Canonical policy text for missing cursor LIMIT requirements.
     pub(in crate::db) const fn cursor_requires_limit_message() -> &'static str {
         "cursor pagination requires a limit"
-    }
-
-    /// Canonical payload text for empty cursor ORDER BY specifications.
-    pub(in crate::db) const fn cursor_requires_non_empty_order_message() -> &'static str {
-        "cursor pagination requires non-empty ordering"
     }
 
     /// Construct one invalid cursor-token decode error.
@@ -104,226 +67,164 @@ impl CursorPlanError {
     }
 
     /// Construct the canonical invalid-continuation payload error variant.
-    pub(in crate::db) fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> Self {
-        Self::InvalidContinuationCursorPayload {
-            reason: reason.into(),
-        }
+    pub(in crate::db) const fn invalid_continuation_cursor_payload() -> Self {
+        Self::InvalidContinuationCursorPayload
     }
 
     /// Construct one cursor-direction mismatch payload error.
-    pub(in crate::db) fn continuation_cursor_direction_mismatch() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "continuation cursor direction does not match executable plan direction",
-        )
+    pub(in crate::db) const fn continuation_cursor_direction_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one grouped-cursor direction mismatch payload error.
-    pub(in crate::db) fn grouped_continuation_cursor_direction_mismatch() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "grouped continuation cursor direction does not match executable plan direction",
-        )
+    pub(in crate::db) const fn grouped_continuation_cursor_direction_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one unknown ORDER BY field payload error.
-    pub(in crate::db) fn continuation_cursor_unknown_order_field(field: &str) -> Self {
-        Self::invalid_continuation_cursor_payload(format!("unknown order field '{field}'"))
+    pub(in crate::db) const fn continuation_cursor_unknown_order_field(_field: &str) -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one deterministic tie-break payload error.
-    pub(in crate::db) fn continuation_cursor_primary_key_tie_break_required(
-        pk_field: &str,
+    pub(in crate::db) const fn continuation_cursor_primary_key_tie_break_required(
+        _pk_field: &str,
     ) -> Self {
-        Self::invalid_continuation_cursor_payload(format!(
-            "order specification must include primary key '{pk_field}' as deterministic tie-break"
-        ))
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one anchor decode failure payload error.
-    pub(in crate::db) fn index_range_anchor_decode_failed(reason: impl Into<String>) -> Self {
-        Self::invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor decode failed: {}",
-            reason.into(),
-        ))
+    pub(in crate::db) fn index_range_anchor_decode_failed(_reason: impl Into<String>) -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one canonical-anchor encoding mismatch payload error.
-    pub(in crate::db) fn index_range_anchor_canonical_encoding_mismatch() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation anchor canonical encoding mismatch",
-        )
+    pub(in crate::db) const fn index_range_anchor_canonical_encoding_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one anchor index-id mismatch payload error.
-    pub(in crate::db) fn index_range_anchor_index_id_mismatch() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation anchor index id mismatch",
-        )
+    pub(in crate::db) const fn index_range_anchor_index_id_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one anchor key-namespace mismatch payload error.
-    pub(in crate::db) fn index_range_anchor_key_namespace_mismatch() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation anchor key namespace mismatch",
-        )
+    pub(in crate::db) const fn index_range_anchor_key_namespace_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one anchor component-arity mismatch payload error.
-    pub(in crate::db) fn index_range_anchor_component_arity_mismatch() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation anchor component arity mismatch",
-        )
+    pub(in crate::db) const fn index_range_anchor_component_arity_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one out-of-envelope anchor payload error.
-    pub(in crate::db) fn index_range_anchor_outside_envelope() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation anchor is outside the original range envelope",
-        )
+    pub(in crate::db) const fn index_range_anchor_outside_envelope() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one composite-plan anchor rejection payload error.
-    pub(in crate::db) fn unexpected_index_range_anchor_for_composite_plan() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "unexpected index-range continuation anchor for composite access plan",
-        )
+    pub(in crate::db) const fn unexpected_index_range_anchor_for_composite_plan() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one missing semantic-bounds payload error.
-    pub(in crate::db) fn index_range_anchor_semantic_bounds_required() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation validation is missing semantic bounds payload",
-        )
+    pub(in crate::db) const fn index_range_anchor_semantic_bounds_required() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one missing raw anchor payload error.
-    pub(in crate::db) fn index_range_anchor_required() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation cursor is missing a raw-key anchor",
-        )
+    pub(in crate::db) const fn index_range_anchor_required() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one non-index-range path anchor rejection payload error.
-    pub(in crate::db) fn unexpected_index_range_anchor_for_non_range_path() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "unexpected index-range continuation anchor for non-index-range access path",
-        )
+    pub(in crate::db) const fn unexpected_index_range_anchor_for_non_range_path() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one anchor-primary-key decode failure payload error.
     pub(in crate::db) fn index_range_anchor_primary_key_decode_failed(
-        reason: impl std::fmt::Display,
+        _reason: impl std::fmt::Display,
     ) -> Self {
-        Self::invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor primary key decode failed: {reason}",
-        ))
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one boundary-primary-key decode failure payload error.
     #[cfg(test)]
     pub(in crate::db) fn index_range_boundary_primary_key_decode_failed(
-        reason: impl std::fmt::Display,
+        _reason: impl std::fmt::Display,
     ) -> Self {
-        Self::invalid_continuation_cursor_payload(format!(
-            "index-range continuation boundary primary key decode failed: {reason}",
-        ))
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one boundary/anchor mismatch payload error.
-    pub(in crate::db) fn index_range_boundary_anchor_mismatch() -> Self {
-        Self::invalid_continuation_cursor_payload(
-            "index-range continuation boundary/anchor mismatch",
-        )
+    pub(in crate::db) const fn index_range_boundary_anchor_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload()
     }
 
     /// Construct one cursor invariant-violation error variant.
-    pub(in crate::db) fn continuation_cursor_invariant(reason: impl Into<String>) -> Self {
-        Self::ContinuationCursorInvariantViolation {
-            reason: reason.into(),
-        }
+    pub(in crate::db) const fn continuation_cursor_invariant() -> Self {
+        Self::ContinuationCursorInvariantViolation
     }
 
     /// Construct one invariant error for missing explicit cursor ordering.
-    pub(in crate::db) fn cursor_requires_order() -> Self {
-        Self::continuation_cursor_invariant(Self::cursor_requires_order_message())
+    pub(in crate::db) const fn cursor_requires_order() -> Self {
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one invariant error for cursor surfaces that require either
     /// explicit scalar ordering or canonical grouped ordering.
     #[cfg(test)]
-    pub(in crate::db) fn cursor_requires_explicit_or_grouped_ordering() -> Self {
-        Self::continuation_cursor_invariant(
-            Self::cursor_requires_explicit_or_grouped_ordering_message(),
-        )
+    pub(in crate::db) const fn cursor_requires_explicit_or_grouped_ordering() -> Self {
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one invariant error for empty cursor ORDER BY specifications.
-    pub(in crate::db) fn cursor_requires_non_empty_order() -> Self {
-        Self::continuation_cursor_invariant(Self::cursor_requires_non_empty_order_message())
+    pub(in crate::db) const fn cursor_requires_non_empty_order() -> Self {
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one cursor-signature mismatch error for the current entity path.
-    pub(in crate::db) fn continuation_cursor_signature_mismatch(
-        entity_path: &'static str,
-        expected: &ContinuationSignature,
-        actual: &ContinuationSignature,
+    pub(in crate::db) const fn continuation_cursor_signature_mismatch(
+        _entity_path: &'static str,
+        _expected: &ContinuationSignature,
+        _actual: &ContinuationSignature,
     ) -> Self {
-        Self::ContinuationCursorSignatureMismatch {
-            entity_path,
-            expected: expected.to_string(),
-            actual: actual.to_string(),
-        }
+        Self::ContinuationCursorSignatureMismatch
     }
 
     /// Construct one cursor boundary arity mismatch error.
     pub(in crate::db) const fn continuation_cursor_boundary_arity_mismatch(
-        expected: usize,
-        found: usize,
+        _expected: usize,
+        _found: usize,
     ) -> Self {
-        Self::ContinuationCursorBoundaryArityMismatch { expected, found }
+        Self::ContinuationCursorBoundaryArityMismatch
     }
 
     /// Construct one cursor window mismatch error.
     pub(in crate::db) const fn continuation_cursor_window_mismatch(
-        expected_offset: u32,
-        actual_offset: u32,
+        _expected_offset: u32,
+        _actual_offset: u32,
     ) -> Self {
-        Self::ContinuationCursorWindowMismatch {
-            expected_offset,
-            actual_offset,
-        }
+        Self::ContinuationCursorWindowMismatch
     }
 
     /// Construct one non-primary-key boundary type mismatch error.
-    pub(in crate::db) fn continuation_cursor_boundary_type_mismatch(
-        field: impl Into<String>,
-        expected: impl Into<String>,
-        value: Value,
-    ) -> Self {
-        Self::ContinuationCursorBoundaryTypeMismatch {
-            field: field.into(),
-            expected: expected.into(),
-            value,
-        }
+    pub(in crate::db) const fn continuation_cursor_boundary_type_mismatch() -> Self {
+        Self::ContinuationCursorBoundaryTypeMismatch
     }
 
     /// Construct one primary-key boundary type mismatch error.
-    pub(in crate::db) fn continuation_cursor_primary_key_type_mismatch(
-        field: impl Into<String>,
-        expected: impl Into<String>,
-        value: Option<Value>,
-    ) -> Self {
-        Self::ContinuationCursorPrimaryKeyTypeMismatch {
-            field: field.into(),
-            expected: expected.into(),
-            value,
-        }
+    pub(in crate::db) const fn continuation_cursor_primary_key_type_mismatch() -> Self {
+        Self::ContinuationCursorPrimaryKeyTypeMismatch
     }
 
     /// Map cursor token decode failures into canonical plan-surface cursor errors.
-    pub(in crate::db) fn from_token_wire_error(err: TokenWireError) -> Self {
+    pub(in crate::db) const fn from_token_wire_error(err: TokenWireError) -> Self {
         match err {
-            TokenWireError::Encode(message) | TokenWireError::Decode(message) => {
-                Self::invalid_continuation_cursor_payload(message)
+            TokenWireError::Encode | TokenWireError::Decode => {
+                Self::invalid_continuation_cursor_payload()
             }
         }
     }
@@ -343,18 +244,16 @@ impl CursorPlanError {
     /// continuation invariant violations remain invariant-class failures.
     pub(crate) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::ContinuationCursorInvariantViolation { reason: _ } => {
+            Self::ContinuationCursorInvariantViolation => {
                 InternalError::cursor_executor_invariant()
             }
             Self::InvalidContinuationCursor { .. }
-            | Self::InvalidContinuationCursorPayload { .. }
-            | Self::ContinuationCursorSignatureMismatch { .. }
-            | Self::ContinuationCursorBoundaryArityMismatch { .. }
-            | Self::ContinuationCursorWindowMismatch { .. }
-            | Self::ContinuationCursorBoundaryTypeMismatch { .. }
-            | Self::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
-                InternalError::cursor_unsupported()
-            }
+            | Self::InvalidContinuationCursorPayload
+            | Self::ContinuationCursorSignatureMismatch
+            | Self::ContinuationCursorBoundaryArityMismatch
+            | Self::ContinuationCursorWindowMismatch
+            | Self::ContinuationCursorBoundaryTypeMismatch
+            | Self::ContinuationCursorPrimaryKeyTypeMismatch => InternalError::cursor_unsupported(),
         }
     }
 }

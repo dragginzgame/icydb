@@ -187,7 +187,7 @@ fn grouped_compiled_expr_function_calls_reuse_projection_semantics() {
 }
 
 #[test]
-fn grouped_compiled_expr_missing_slot_keeps_field_diagnostic() {
+fn grouped_compiled_expr_missing_slot_keeps_compact_diagnostic() {
     let expr = CompiledExpr::Slot {
         slot: 99,
         field: "missing_field".to_string(),
@@ -196,10 +196,7 @@ fn grouped_compiled_expr_missing_slot_keeps_field_diagnostic() {
         .evaluate(&row_view())
         .expect_err("missing grouped slot should stay a projection error");
 
-    assert_eq!(
-        err.to_string(),
-        "projection expression could not read field 'missing_field' at index=99",
-    );
+    assert_eq!(err, ProjectionEvalError::MissingFieldValue);
 }
 
 #[test]
@@ -209,13 +206,7 @@ fn compiled_expr_aggregate_in_row_context_errors_not_null() {
         .evaluate(&row_view())
         .expect_err("row readers must not silently NULL aggregate leaves");
 
-    assert_eq!(
-        err,
-        ProjectionEvalError::MissingGroupedAggregateValue {
-            aggregate_index: 0,
-            aggregate_count: 0,
-        },
-    );
+    assert_eq!(err, ProjectionEvalError::MissingGroupedAggregateValue);
 }
 
 #[test]
@@ -228,13 +219,7 @@ fn compiled_expr_group_key_in_row_context_errors_not_null() {
         .evaluate(&row_view())
         .expect_err("row readers must not silently NULL grouped-key leaves");
 
-    assert_eq!(
-        err,
-        ProjectionEvalError::MissingFieldValue {
-            field: "class".to_string(),
-            index: 0,
-        },
-    );
+    assert_eq!(err, ProjectionEvalError::MissingFieldValue);
 }
 
 #[test]
@@ -247,13 +232,7 @@ fn compiled_expr_slot_in_grouped_context_errors_not_null() {
         .evaluate(&grouped_view())
         .expect_err("grouped-output readers must not silently NULL slot leaves");
 
-    assert_eq!(
-        err,
-        ProjectionEvalError::MissingFieldValue {
-            field: "age".to_string(),
-            index: 0,
-        },
-    );
+    assert_eq!(err, ProjectionEvalError::MissingFieldValue);
 }
 
 #[test]
@@ -267,15 +246,11 @@ fn compiled_expr_out_of_bounds_grouped_reads_error_not_null() {
 
     std::assert_matches!(
         group_key.evaluate(&grouped_view),
-        Err(ProjectionEvalError::MissingFieldValue { field, index })
-            if field == "class" && index == 9
+        Err(ProjectionEvalError::MissingFieldValue)
     );
     std::assert_matches!(
         aggregate.evaluate(&grouped_view),
-        Err(ProjectionEvalError::MissingGroupedAggregateValue {
-            aggregate_index: 9,
-            ..
-        })
+        Err(ProjectionEvalError::MissingGroupedAggregateValue)
     );
 }
 
@@ -293,13 +268,7 @@ fn compiled_expr_case_missing_condition_read_errors_before_else() {
         .evaluate(&row_view())
         .expect_err("missing CASE condition reads must not fall through as NULL");
 
-    assert_eq!(
-        err,
-        ProjectionEvalError::MissingGroupedAggregateValue {
-            aggregate_index: 0,
-            aggregate_count: 0,
-        },
-    );
+    assert_eq!(err, ProjectionEvalError::MissingGroupedAggregateValue);
 }
 
 #[test]

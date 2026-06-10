@@ -522,52 +522,6 @@ impl Function {
         }
     }
 
-    /// Return the stable executor-facing projection function name used by
-    /// scalar projection evaluation diagnostics and invariant messages.
-    #[must_use]
-    pub(in crate::db::query::plan::expr) const fn projection_eval_name(self) -> &'static str {
-        match self {
-            Self::IsNull => "is_null",
-            Self::IsNotNull => "is_not_null",
-            Self::IsMissing => "is_missing",
-            Self::IsEmpty => "is_empty",
-            Self::IsNotEmpty => "is_not_empty",
-            Self::Trim => "trim",
-            Self::Ltrim => "ltrim",
-            Self::Rtrim => "rtrim",
-            Self::Coalesce => "coalesce",
-            Self::NullIf => "nullif",
-            Self::OctetLength => "octet_length",
-            Self::Abs => "abs",
-            Self::Cbrt => "cbrt",
-            Self::Ceiling => "ceiling",
-            Self::Exp => "exp",
-            Self::Floor => "floor",
-            Self::Ln => "ln",
-            Self::Log => "log",
-            Self::Log10 => "log10",
-            Self::Log2 => "log2",
-            Self::Sign => "sign",
-            Self::Sqrt => "sqrt",
-            Self::Mod => "mod",
-            Self::Power => "power",
-            Self::Lower => "lower",
-            Self::Upper => "upper",
-            Self::Length => "length",
-            Self::Left => "left",
-            Self::Right => "right",
-            Self::StartsWith => "starts_with",
-            Self::EndsWith => "ends_with",
-            Self::Contains => "contains",
-            Self::CollectionContains => "collection_contains",
-            Self::Position => "position",
-            Self::Replace => "replace",
-            Self::Substring => "substring",
-            Self::Round => "round",
-            Self::Trunc => "trunc",
-        }
-    }
-
     /// Return the aggregate-input constant-fold family for this scalar
     /// function when a literal-only aggregate input can collapse
     /// deterministically.

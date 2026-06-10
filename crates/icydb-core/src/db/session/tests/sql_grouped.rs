@@ -2220,10 +2220,7 @@ fn grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy(
             });
         } else {
             assert_query_error_is_cursor_plan(err, |inner| {
-                matches!(
-                    inner,
-                    CursorPlanError::ContinuationCursorSignatureMismatch { .. }
-                )
+                matches!(inner, CursorPlanError::ContinuationCursorSignatureMismatch)
             });
         }
     }

@@ -143,9 +143,10 @@ where
         direction,
         initial_offset: expected_initial_offset,
     };
-    let boundary = cursor.boundary().cloned().ok_or_else(|| {
-        CursorPlanError::continuation_cursor_invariant("continuation cursor boundary is missing")
-    })?;
+    let boundary = cursor
+        .boundary()
+        .cloned()
+        .ok_or_else(CursorPlanError::continuation_cursor_invariant)?;
     let index_range_anchor = cursor
         .index_range_anchor()
         .map(ValidatedInEnvelopeIndexRangeCursorAnchor::as_unvalidated_anchor);

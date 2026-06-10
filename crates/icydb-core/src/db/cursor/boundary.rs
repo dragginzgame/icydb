@@ -145,29 +145,11 @@ pub(in crate::db) fn validate_cursor_boundary_types(
             Some(field) => Some(boundary_order_field_type(schema, field)?),
             None => None,
         };
-        let rendered = expression.as_ref().map_or_else(
-            || {
-                field
-                    .expect("field-backed order term should have field")
-                    .to_owned()
-            },
-            |_| term.rendered_label(),
-        );
 
         match slot {
             CursorBoundarySlot::Missing => {
                 if field.is_some_and(|field| is_primary_key_field(schema, field)) {
-                    return Err(
-                        CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                            rendered,
-                            boundary_order_expected_type_name(
-                                schema,
-                                field_type,
-                                expression.as_ref(),
-                            ),
-                            None,
-                        ),
-                    );
+                    return Err(CursorPlanError::continuation_cursor_primary_key_type_mismatch());
                 }
             }
             CursorBoundarySlot::Present(value) => {
@@ -180,40 +162,19 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                 };
 
                 if !type_matches {
-                    let expected =
-                        boundary_order_expected_type_name(schema, field_type, expression.as_ref());
-
                     if field.is_some_and(|field| is_primary_key_field(schema, field)) {
                         return Err(
-                            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                                rendered,
-                                expected,
-                                Some(value.clone()),
-                            ),
+                            CursorPlanError::continuation_cursor_primary_key_type_mismatch(),
                         );
                     }
 
-                    return Err(CursorPlanError::continuation_cursor_boundary_type_mismatch(
-                        rendered,
-                        expected,
-                        value.clone(),
-                    ));
+                    return Err(CursorPlanError::continuation_cursor_boundary_type_mismatch());
                 }
 
                 if field.is_some_and(|field| is_primary_key_field(schema, field))
                     && PrimaryKeyComponent::from_runtime_value(value).is_none()
                 {
-                    return Err(
-                        CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                            rendered,
-                            boundary_order_expected_type_name(
-                                schema,
-                                field_type,
-                                expression.as_ref(),
-                            ),
-                            Some(value.clone()),
-                        ),
-                    );
+                    return Err(CursorPlanError::continuation_cursor_primary_key_type_mismatch());
                 }
             }
         }
@@ -227,33 +188,6 @@ fn is_primary_key_field(schema: &SchemaInfo, field: &str) -> bool {
         .primary_key_names()
         .iter()
         .any(|primary_key_field| primary_key_field == field)
-}
-
-fn boundary_order_expected_type_name(
-    schema: &SchemaInfo,
-    field_type: Option<&FieldType>,
-    expression: Option<&Expr>,
-) -> String {
-    if let Some(field_type) = field_type {
-        return field_type.to_string();
-    }
-
-    let Some(expression) = expression else {
-        return "unknown".to_string();
-    };
-
-    match infer_expr_type(expression, schema) {
-        Ok(ExprType::Bool) => "bool".to_string(),
-        Ok(ExprType::Blob) => "blob".to_string(),
-        Ok(ExprType::Text) => "text".to_string(),
-        Ok(ExprType::Numeric(_)) => "numeric".to_string(),
-        Ok(ExprType::Collection) => "collection".to_string(),
-        Ok(ExprType::Structured) => "structured".to_string(),
-        Ok(ExprType::Opaque) => "opaque".to_string(),
-        Ok(ExprType::Unknown) | Err(_) => "unknown".to_string(),
-        #[cfg(test)]
-        Ok(ExprType::Null) => "null".to_string(),
-    }
 }
 
 fn boundary_order_expression_value_matches(
@@ -315,25 +249,14 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slots(
         let slot = &boundary.slots[index];
         match slot {
             CursorBoundarySlot::Missing => {
-                return Err(
-                    CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                        primary_key_field.to_string(),
-                        "primary key value".to_string(),
-                        None,
-                    ),
-                );
+                return Err(CursorPlanError::continuation_cursor_primary_key_type_mismatch());
             }
             CursorBoundarySlot::Present(value) => values.push(value.clone()),
         }
     }
 
-    primary_key_value_from_structural_value(&Value::List(values)).map_err(|_| {
-        CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-            primary_key_fields.join(", "),
-            "primary key value".to_string(),
-            None,
-        )
-    })
+    primary_key_value_from_structural_value(&Value::List(values))
+        .map_err(|_| CursorPlanError::continuation_cursor_primary_key_type_mismatch())
 }
 
 /// Decode one scalar structural primary-key cursor slot from one validated cursor boundary.
@@ -343,25 +266,14 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
     boundary: &CursorBoundary,
 ) -> Result<PrimaryKeyValue, CursorPlanError> {
     let pk_index = primary_key_boundary_index(order, pk_field)?;
-    let expected = "primary key value".to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {
-        CursorBoundarySlot::Missing => Err(
-            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                pk_field.to_string(),
-                expected,
-                None,
-            ),
-        ),
+        CursorBoundarySlot::Missing => {
+            Err(CursorPlanError::continuation_cursor_primary_key_type_mismatch())
+        }
         CursorBoundarySlot::Present(value) => primary_key_value_from_structural_value(value)
-            .map_err(|_| {
-                CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                    pk_field.to_string(),
-                    expected,
-                    Some(value.clone()),
-                )
-            }),
+            .map_err(|_| CursorPlanError::continuation_cursor_primary_key_type_mismatch()),
     }
 }
 
@@ -402,13 +314,7 @@ pub(in crate::db) fn decode_pk_cursor_boundary_primary_key_value_for_names(
         let slot = &boundary.slots[index];
         match slot {
             CursorBoundarySlot::Missing => {
-                return Err(
-                    CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                        (*primary_key_name).to_string(),
-                        "primary key value".to_string(),
-                        None,
-                    ),
-                );
+                return Err(CursorPlanError::continuation_cursor_primary_key_type_mismatch());
             }
             CursorBoundarySlot::Present(value) => values.push(value.clone()),
         }
@@ -416,13 +322,7 @@ pub(in crate::db) fn decode_pk_cursor_boundary_primary_key_value_for_names(
 
     primary_key_value_from_structural_value(&Value::List(values))
         .map(Some)
-        .map_err(|_| {
-            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                primary_key_names.join(", "),
-                "primary key value".to_string(),
-                None,
-            )
-        })
+        .map_err(|_| CursorPlanError::continuation_cursor_primary_key_type_mismatch())
 }
 
 #[cfg(test)]

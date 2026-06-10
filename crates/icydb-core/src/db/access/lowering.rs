@@ -150,11 +150,6 @@ pub(in crate::db) struct LoweredIndexPrefixSpec {
 }
 
 impl LoweredIndexPrefixSpec {
-    #[cfg(test)]
-    const INVALID_REASON: &str = "validated index-prefix plan could not be lowered to raw bounds";
-    #[cfg(not(test))]
-    const INVALID_REASON: &str = "index-prefix lowering invariant";
-
     #[must_use]
     pub(in crate::db) fn new(
         index: crate::db::access::SemanticIndexAccessContract,
@@ -181,13 +176,6 @@ impl LoweredIndexPrefixSpec {
     #[must_use]
     pub(in crate::db) const fn upper(&self) -> &Bound<LoweredKey> {
         &self.upper
-    }
-
-    /// Return the canonical lowered-prefix invalidation reason shared by
-    /// planner/executor boundary checks.
-    #[must_use]
-    pub(in crate::db) const fn invalid_reason() -> &'static str {
-        Self::INVALID_REASON
     }
 }
 
@@ -205,11 +193,6 @@ pub(in crate::db) struct LoweredIndexRangeSpec {
 }
 
 impl LoweredIndexRangeSpec {
-    #[cfg(test)]
-    const INVALID_REASON: &str = "validated index-range plan could not be lowered to raw bounds";
-    #[cfg(not(test))]
-    const INVALID_REASON: &str = "index-range lowering invariant";
-
     #[must_use]
     pub(in crate::db) fn new(
         index: crate::db::access::SemanticIndexAccessContract,
@@ -236,13 +219,6 @@ impl LoweredIndexRangeSpec {
     #[must_use]
     pub(in crate::db) const fn upper(&self) -> &Bound<LoweredKey> {
         &self.upper
-    }
-
-    /// Return the canonical lowered-range invalidation reason shared by
-    /// planner/executor boundary checks.
-    #[must_use]
-    pub(in crate::db) const fn invalid_reason() -> &'static str {
-        Self::INVALID_REASON
     }
 
     // Build the canonical lowering-time invariant for validated range specs

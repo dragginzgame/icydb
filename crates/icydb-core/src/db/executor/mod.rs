@@ -225,66 +225,52 @@ pub(in crate::db) enum ExecutorPlanError {
 
 impl ExecutorPlanError {
     /// Construct one executor plan error from one cursor invariant violation.
-    pub(in crate::db::executor) fn continuation_cursor_invariant(
-        message: impl Into<String>,
-    ) -> Self {
-        Self::from(CursorPlanError::continuation_cursor_invariant(message))
+    pub(in crate::db::executor) fn continuation_cursor_invariant() -> Self {
+        Self::from(CursorPlanError::continuation_cursor_invariant())
     }
 
     /// Construct one executor plan error for load-only continuation cursors.
     pub(in crate::db::executor) fn continuation_cursor_requires_load_plan() -> Self {
-        Self::continuation_cursor_invariant(
-            "continuation cursors are only supported for load plans",
-        )
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one executor plan error for grouped cursor preparation
     /// attempted against non-grouped logical plans.
     pub(in crate::db::executor) fn grouped_cursor_preparation_requires_grouped_plan() -> Self {
-        Self::continuation_cursor_invariant(
-            "grouped cursor preparation requires grouped logical plans",
-        )
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one executor plan error for grouped cursor revalidation
     /// attempted against non-grouped logical plans.
     pub(in crate::db::executor) fn grouped_cursor_revalidation_requires_grouped_plan() -> Self {
-        Self::continuation_cursor_invariant(
-            "grouped cursor revalidation requires grouped logical plans",
-        )
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one executor plan error for grouped boundary-arity access
     /// attempted against non-grouped logical plans.
     pub(in crate::db::executor) fn grouped_cursor_boundary_arity_requires_grouped_plan() -> Self {
-        Self::continuation_cursor_invariant(
-            "grouped cursor boundary arity requires grouped logical plans",
-        )
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one executor plan error for load-only continuation contracts.
     pub(in crate::db::executor) fn continuation_contract_requires_load_plan() -> Self {
-        Self::continuation_cursor_invariant(
-            "continuation contracts are only supported for load plans",
-        )
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one executor plan error for load execution descriptor access
     /// attempted against non-load prepared execution plans.
     pub(in crate::db::executor) fn load_execution_descriptor_requires_load_plan() -> Self {
-        Self::continuation_cursor_invariant(
-            "load execution descriptor requires load-mode prepared execution plans",
-        )
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one executor plan error for invalid lowered index-prefix specs.
     pub(in crate::db::executor) fn lowered_index_prefix_spec_invalid() -> Self {
-        Self::continuation_cursor_invariant(LoweredIndexPrefixSpec::invalid_reason())
+        Self::continuation_cursor_invariant()
     }
 
     /// Construct one executor plan error for invalid lowered index-range specs.
     pub(in crate::db::executor) fn lowered_index_range_spec_invalid() -> Self {
-        Self::continuation_cursor_invariant(LoweredIndexRangeSpec::invalid_reason())
+        Self::continuation_cursor_invariant()
     }
 
     /// Lift one executor plan error into the runtime internal taxonomy.

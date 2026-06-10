@@ -40,24 +40,13 @@ pub(in crate::db) enum GroupedCursorPolicyViolation {
 }
 
 impl GroupedCursorPolicyViolation {
-    /// Return canonical invariant message text for grouped cursor policy violations.
-    #[must_use]
-    pub(in crate::db) const fn invariant_message(self) -> &'static str {
-        match self {
-            Self::ContinuationRequiresLimit => {
-                "grouped continuation cursors require an explicit LIMIT"
-            }
-            Self::GlobalDistinctContinuationUnsupported => {
-                "global DISTINCT grouped aggregates do not support continuation cursors"
-            }
-        }
-    }
-
     /// Convert one grouped cursor-policy violation into the cursor-plan error
     /// surface used by continuation validation.
     #[must_use]
-    pub(in crate::db) fn into_cursor_plan_error(self) -> CursorPlanError {
-        CursorPlanError::continuation_cursor_invariant(self.invariant_message())
+    pub(in crate::db) const fn into_cursor_plan_error(self) -> CursorPlanError {
+        let _ = self;
+
+        CursorPlanError::continuation_cursor_invariant()
     }
 }
 

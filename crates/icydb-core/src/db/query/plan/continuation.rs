@@ -160,8 +160,8 @@ impl GroupedContinuationWindowDraft {
 /// GroupedCursorAction
 ///
 /// Internal grouped continuation action discriminator.
-/// Keeps grouped-plan requirement messages and cursor-policy gating shared
-/// across grouped cursor preparation, grouped cursor revalidation, and grouped
+/// Keeps grouped-plan requirement gating shared across grouped cursor
+/// preparation, grouped cursor revalidation, and grouped
 /// paging-window projection so those entrypoints do not drift independently.
 ///
 
@@ -170,17 +170,6 @@ enum GroupedCursorAction {
     Prepare,
     Revalidate,
     PagingWindow,
-}
-
-impl GroupedCursorAction {
-    // Return the canonical grouped-plan requirement text for one grouped cursor action.
-    const fn grouped_plan_required_message(self) -> &'static str {
-        match self {
-            Self::Prepare => "grouped cursor preparation requires grouped logical plans",
-            Self::Revalidate => "grouped cursor revalidation requires grouped logical plans",
-            Self::PagingWindow => "grouped paging window requires grouped logical plans",
-        }
-    }
 }
 
 /// Derive the effective offset under cursor-window semantics.
@@ -367,9 +356,7 @@ impl PlannedContinuationContract {
         bytes: Option<&[u8]>,
     ) -> Result<ValidatedCursor, CursorPlanError> {
         if self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                "grouped plans require grouped cursor preparation",
-            ));
+            return Err(CursorPlanError::continuation_cursor_invariant());
         }
 
         crate::db::cursor::prepare_cursor(
@@ -430,9 +417,7 @@ impl PlannedContinuationContract {
         cursor: ValidatedCursor,
     ) -> Result<ValidatedCursor, CursorPlanError> {
         if self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                "grouped plans require grouped cursor revalidation",
-            ));
+            return Err(CursorPlanError::continuation_cursor_invariant());
         }
 
         crate::db::cursor::revalidate_cursor(
@@ -470,22 +455,20 @@ impl PlannedContinuationContract {
     }
 
     // Enforce grouped continuation ownership once for all grouped cursor entrypoints.
-    fn validate_grouped_cursor_contract(
+    const fn validate_grouped_cursor_contract(
         &self,
-        action: GroupedCursorAction,
+        _action: GroupedCursorAction,
         cursor_applied: bool,
     ) -> Result<(), CursorPlanError> {
         if !self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                action.grouped_plan_required_message(),
-            ));
+            return Err(CursorPlanError::continuation_cursor_invariant());
         }
 
         self.validate_grouped_cursor_policy_if_applied(cursor_applied)
     }
 
     // Apply grouped cursor-policy violations only when continuation is actually reused.
-    fn validate_grouped_cursor_policy_if_applied(
+    const fn validate_grouped_cursor_policy_if_applied(
         &self,
         cursor_applied: bool,
     ) -> Result<(), CursorPlanError> {
@@ -496,7 +479,7 @@ impl PlannedContinuationContract {
         self.validate_grouped_cursor_policy()
     }
 
-    fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
+    const fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
         if let Some(violation) = self.grouped_cursor_policy_violation() {
             return Err(violation.into_cursor_plan_error());
         }

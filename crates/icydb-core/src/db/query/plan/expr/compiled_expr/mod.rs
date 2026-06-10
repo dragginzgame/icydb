@@ -42,72 +42,50 @@ pub(in crate::db) use evaluate::evaluate_grouped_having_expr;
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub(in crate::db) enum ProjectionEvalError {
-    #[error("projection expression references unknown field '{field}'")]
-    UnknownField { field: String },
+    #[error("projection expression references unknown field")]
+    UnknownField,
 
-    #[error("projection expression could not read field '{field}' at index={index}")]
-    MissingFieldValue { field: String, index: usize },
+    #[error("projection expression could not read field")]
+    MissingFieldValue,
 
-    #[error(
-        "projection expression could not read field-path '{field}' rooted at index={root_slot}"
-    )]
-    MissingFieldPathValue { field: String, root_slot: usize },
+    #[error("projection expression could not read field-path")]
+    MissingFieldPathValue,
 
-    #[error("projection field-path '{field}' failed evaluation: {message}")]
+    #[error("projection field-path failed evaluation")]
     FieldPathEvaluationFailed {
-        field: String,
-        message: String,
         class: ErrorClass,
         origin: ErrorOrigin,
     },
 
-    #[error("projection value reader failed: {message}")]
+    #[error("projection value reader failed")]
     ReaderFailed {
-        message: String,
         class: ErrorClass,
         origin: ErrorOrigin,
     },
 
-    #[error("projection unary operator '{op}' is incompatible with operand value {found:?}")]
-    InvalidUnaryOperand { op: String, found: Box<Value> },
+    #[error("projection unary operator is incompatible with operand value")]
+    InvalidUnaryOperand,
 
-    #[error("projection CASE condition produced non-boolean value {found:?}")]
-    InvalidCaseCondition { found: Box<Value> },
+    #[error("projection CASE condition produced non-boolean value")]
+    InvalidCaseCondition,
 
-    #[error(
-        "projection binary operator '{op}' is incompatible with operand values ({left:?}, {right:?})"
-    )]
-    InvalidBinaryOperands {
-        op: String,
-        left: Box<Value>,
-        right: Box<Value>,
-    },
+    #[error("projection binary operator is incompatible with operand values")]
+    InvalidBinaryOperands,
 
-    #[error(
-        "grouped projection expression references unknown aggregate expression kind={kind} target_field={target_field:?} distinct={distinct}"
-    )]
-    UnknownGroupedAggregateExpression {
-        kind: String,
-        target_field: Option<String>,
-        distinct: bool,
-    },
+    #[error("grouped projection expression references unknown aggregate expression")]
+    UnknownGroupedAggregateExpression,
 
-    #[error(
-        "grouped projection expression references aggregate output index={aggregate_index} but only {aggregate_count} outputs are available"
-    )]
-    MissingGroupedAggregateValue {
-        aggregate_index: usize,
-        aggregate_count: usize,
-    },
+    #[error("grouped projection expression references missing aggregate output")]
+    MissingGroupedAggregateValue,
 
-    #[error("projection function '{function}' failed evaluation: {message}")]
-    InvalidFunctionCall { function: String, message: String },
+    #[error("projection function failed evaluation")]
+    InvalidFunctionCall,
 
     #[error("{0}")]
     Numeric(#[from] NumericEvalError),
 
-    #[error("grouped HAVING expression produced non-boolean value {found:?}")]
-    InvalidGroupedHavingResult { found: Box<Value> },
+    #[error("grouped HAVING expression produced non-boolean value")]
+    InvalidGroupedHavingResult,
 }
 
 impl ProjectionEvalError {
@@ -520,11 +498,8 @@ impl CompiledExpr {
     }
 }
 
-fn missing_field_value(field: &str, index: usize) -> ProjectionEvalError {
-    ProjectionEvalError::MissingFieldValue {
-        field: field.to_string(),
-        index,
-    }
+const fn missing_field_value(_field: &str, _index: usize) -> ProjectionEvalError {
+    ProjectionEvalError::MissingFieldValue
 }
 
 ///

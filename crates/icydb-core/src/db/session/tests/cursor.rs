@@ -9,23 +9,14 @@ fn session_cursor_error_mapping_parity_matrix_preserves_cursor_variants() {
             Box::new(|inner: &CursorPlanError| {
                 matches!(
                     inner,
-                    CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-                        expected: 2,
-                        found: 1
-                    }
+                    CursorPlanError::ContinuationCursorBoundaryArityMismatch
                 )
             }) as Box<dyn Fn(&CursorPlanError) -> bool>,
         ),
         (
             Box::new(|| CursorPlanError::continuation_cursor_window_mismatch(8, 3)),
             Box::new(|inner: &CursorPlanError| {
-                matches!(
-                    inner,
-                    CursorPlanError::ContinuationCursorWindowMismatch {
-                        expected_offset: 8,
-                        actual_offset: 3
-                    }
-                )
+                matches!(inner, CursorPlanError::ContinuationCursorWindowMismatch)
             }),
         ),
         (
@@ -44,21 +35,11 @@ fn session_cursor_error_mapping_parity_matrix_preserves_cursor_variants() {
             }),
         ),
         (
-            Box::new(|| {
-                CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                    "id",
-                    "ulid",
-                    Some(crate::value::Value::Text("not-a-ulid".to_string())),
-                )
-            }),
+            Box::new(CursorPlanError::continuation_cursor_primary_key_type_mismatch),
             Box::new(|inner: &CursorPlanError| {
                 matches!(
                     inner,
-                    CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                        field,
-                        expected,
-                        value: Some(crate::value::Value::Text(value))
-                    } if field == "id" && expected == "ulid" && value == "not-a-ulid"
+                    CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch
                 )
             }),
         ),

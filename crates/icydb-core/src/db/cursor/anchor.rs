@@ -170,7 +170,7 @@ fn validate_anchor_in_envelope(
 ) -> Result<ValidatedInEnvelopeIndexRangeCursorAnchor, CursorPlanError> {
     let (range_start, range_end) =
         lower_cursor_anchor_index_range_bounds(entity_tag, index, prefix, lower, upper)
-            .map_err(CursorPlanError::invalid_continuation_cursor_payload)?;
+            .map_err(|_| CursorPlanError::invalid_continuation_cursor_payload())?;
 
     if !KeyEnvelope::new(range_start, range_end).contains(anchor.lowered_key()) {
         return Err(CursorPlanError::index_range_anchor_outside_envelope());
