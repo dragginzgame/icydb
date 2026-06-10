@@ -393,9 +393,7 @@ fn decode_scalar_octet_length_value(
             Value::Nat64(u64::try_from(text.len()).unwrap_or(u64::MAX))
         }
         ScalarSlotValueRef::Value(_) => {
-            return Err(InternalError::query_executor_invariant(
-                "retained-slot OCTET_LENGTH optimization requires text or blob scalar slots",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
     };
 

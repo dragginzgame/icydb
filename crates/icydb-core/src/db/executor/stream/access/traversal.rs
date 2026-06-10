@@ -199,9 +199,7 @@ impl AccessPlanStreamResolver {
         if let Some(details) = path_facts.index_prefix_details() {
             for spec in index_prefix_specs {
                 if spec.scan_contract().name() != details.name() {
-                    return Err(InternalError::query_executor_invariant(
-                        "index-prefix spec does not match access path index",
-                    ));
+                    return Err(InternalError::query_executor_invariant());
                 }
             }
         }

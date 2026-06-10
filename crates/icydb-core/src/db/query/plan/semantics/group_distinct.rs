@@ -139,7 +139,7 @@ impl GroupDistinctPolicyReason {
         _kind: AggregateKind,
     ) -> InternalError {
         let _ = self;
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     /// Convert this grouped DISTINCT policy reason into the planner handoff
@@ -157,7 +157,7 @@ impl GroupDistinctPolicyReason {
     #[must_use]
     pub(in crate::db) fn into_grouped_route_internal_error(self) -> InternalError {
         let _ = self;
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     /// Project this grouped DISTINCT policy reason into a planner-domain

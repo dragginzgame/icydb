@@ -113,7 +113,7 @@ impl CompiledStructuralAggregateRequest {
             let ProjectionField::Scalar { expr, .. } = field;
             projection.push(
                 compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
-                    .map_err(|_err| InternalError::query_executor_invariant(""))?,
+                    .map_err(|_err| InternalError::query_executor_invariant())?,
             );
         }
 
@@ -122,7 +122,7 @@ impl CompiledStructuralAggregateRequest {
             .as_ref()
             .map(|expr| {
                 compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
-                    .map_err(|_err| InternalError::query_executor_invariant(""))
+                    .map_err(|_err| InternalError::query_executor_invariant())
             })
             .transpose()?;
 

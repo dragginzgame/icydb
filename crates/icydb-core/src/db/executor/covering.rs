@@ -105,9 +105,7 @@ where
         );
     }
     if !index_prefix_specs.is_empty() {
-        return Err(InternalError::query_executor_invariant(
-            "covering projection index-prefix path requires one lowered prefix spec",
-        ));
+        return Err(InternalError::query_executor_invariant());
     }
 
     if let [spec] = index_range_specs {
@@ -123,14 +121,10 @@ where
         );
     }
     if !index_range_specs.is_empty() {
-        return Err(InternalError::query_executor_invariant(
-            "covering projection index-range path requires one lowered range spec",
-        ));
+        return Err(InternalError::query_executor_invariant());
     }
 
-    Err(InternalError::query_executor_invariant(
-        "covering projection component scans require index-backed access paths",
-    ))
+    Err(InternalError::query_executor_invariant())
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.
@@ -254,14 +248,13 @@ fn decode_covering_projection_components(
 // covering route promised exactly one projection payload per row.
 pub(in crate::db::executor) fn decode_single_covering_projection_value(
     components: CoveringComponentValues,
-    invariant_message: &'static str,
 ) -> Result<Option<Value>, InternalError> {
     let mut components = components.iter();
     let Some(component) = components.next() else {
-        return Err(InternalError::query_executor_invariant(invariant_message));
+        return Err(InternalError::query_executor_invariant());
     };
     if components.next().is_some() {
-        return Err(InternalError::query_executor_invariant(invariant_message));
+        return Err(InternalError::query_executor_invariant());
     }
 
     decode_covering_projection_component(component.as_slice())
@@ -326,7 +319,6 @@ pub(in crate::db::executor) fn decode_single_covering_projection_pairs<T, F>(
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
-    invariant_message: &'static str,
     map_decoded: F,
 ) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
@@ -337,7 +329,7 @@ where
         store,
         consistency,
         existing_row_mode,
-        |components| decode_single_covering_projection_value(components, invariant_message),
+        decode_single_covering_projection_value,
         map_decoded,
     )
 }
@@ -461,11 +453,8 @@ mod tests {
             vec![ValueTag::Bool.to_u8(), 0],
         ]);
 
-        let error = decode_single_covering_projection_value(
-            components,
-            "expected one covering component for test",
-        )
-        .expect_err("multi-component vectors must violate the single-component invariant");
+        let error = decode_single_covering_projection_value(components)
+            .expect_err("multi-component vectors must violate the single-component invariant");
 
         assert_eq!(error.class(), ErrorClass::InvariantViolation);
         assert_eq!(error.origin(), ErrorOrigin::Query);

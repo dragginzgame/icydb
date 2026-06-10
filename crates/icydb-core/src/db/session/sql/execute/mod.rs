@@ -304,9 +304,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         if matches!(compiled, CompiledSqlCommand::Select { .. }) {
             return Err(QueryError::execute(
-                InternalError::query_executor_invariant(
-                    "non-select SQL phase attribution helper received SELECT",
-                ),
+                InternalError::query_executor_invariant(),
             ));
         }
 

@@ -194,7 +194,7 @@ fn having_requires_group_by_constructor_keeps_intent_boundary() {
 
 #[test]
 fn query_invariant_constructor_preserves_query_invariant_boundary() {
-    let query_err = QueryError::invariant("route contract mismatch");
+    let query_err = QueryError::invariant();
 
     std::assert_matches!(
         query_err,

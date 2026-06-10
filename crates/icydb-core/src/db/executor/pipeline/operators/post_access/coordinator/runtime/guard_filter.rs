@@ -47,9 +47,7 @@ impl<K> PostAccessPlan<'_, K> {
             }
 
             let Some(filter_program) = filter_program else {
-                return Err(InternalError::query_executor_invariant(
-                    "post-access filtering requires one compiled residual filter program",
-                ));
+                return Err(InternalError::query_executor_invariant());
             };
 
             compact_rows_in_place_result(rows, |row| {

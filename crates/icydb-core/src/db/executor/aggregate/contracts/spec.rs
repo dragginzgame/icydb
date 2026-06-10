@@ -52,29 +52,23 @@ pub(in crate::db::executor) enum ScalarTerminalKind {
 
 impl ScalarAggregateOutput {
     // Build the canonical aggregate output-kind mismatch on the owner type.
-    fn output_kind_mismatch(mismatch_context: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(mismatch_context)
+    fn output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant()
     }
 
     // Decode COUNT reducer output while preserving the caller's contract label.
-    pub(in crate::db::executor) fn into_count(
-        self,
-        mismatch_context: &'static str,
-    ) -> Result<u32, InternalError> {
+    pub(in crate::db::executor) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(mismatch_context)),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
     // Decode EXISTS reducer output while preserving the caller's contract label.
-    pub(in crate::db::executor) fn into_exists(
-        self,
-        mismatch_context: &'static str,
-    ) -> Result<bool, InternalError> {
+    pub(in crate::db::executor) fn into_exists(self) -> Result<bool, InternalError> {
         match self {
             Self::Exists(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(mismatch_context)),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -83,14 +77,13 @@ impl ScalarAggregateOutput {
     pub(in crate::db::executor) fn into_optional_id_terminal(
         self,
         kind: AggregateKind,
-        mismatch_context: &'static str,
     ) -> Result<Option<PrimaryKeyValue>, InternalError> {
         match (kind, self) {
             (AggregateKind::Min, Self::Min(value))
             | (AggregateKind::Max, Self::Max(value))
             | (AggregateKind::First, Self::First(value))
             | (AggregateKind::Last, Self::Last(value)) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(mismatch_context)),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 }
@@ -99,7 +92,7 @@ impl ScalarTerminalKind {
     // Build the canonical scalar terminal kind rejection for unsupported
     // numeric or otherwise non-terminal aggregate families.
     fn unsupported_aggregate_kind(_kind: AggregateKind) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     /// Narrow one aggregate kind onto the supported scalar terminal reducer family.

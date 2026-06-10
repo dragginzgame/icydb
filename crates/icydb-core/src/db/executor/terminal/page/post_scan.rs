@@ -224,11 +224,7 @@ fn apply_cursorless_short_path_page_window<T>(plan: &AccessPlannedQuery, rows: &
 pub(super) fn required_prepared_projection_validation(
     prepared_projection_validation: Option<&PreparedSlotProjectionValidation>,
 ) -> Result<&PreparedSlotProjectionValidation, InternalError> {
-    prepared_projection_validation.ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "retained-slot projection validation requires prepared projection state",
-        )
-    })
+    prepared_projection_validation.ok_or_else(InternalError::query_executor_invariant)
 }
 
 // Finalize one already-materialized kernel row set onto the outward

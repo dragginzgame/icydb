@@ -726,10 +726,7 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     if schema.primary_key_names().is_empty() {
-        return Err(QueryError::invariant(
-            "SQL UPDATE selector must resolve the primary key from schema metadata",
-        )
-        .into());
+        return Err(QueryError::invariant().into());
     }
 
     let base_query = lower_update_selector_shape(statement, schema.primary_key_names())?;

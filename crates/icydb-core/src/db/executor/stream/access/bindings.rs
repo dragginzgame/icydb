@@ -64,11 +64,8 @@ impl<'a> AccessSpecCursor<'a> {
         &mut self,
         count: usize,
     ) -> Result<&'a [LoweredIndexPrefixSpec], InternalError> {
-        self.next_index_prefix_specs(count).ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "index-prefix execution requires pre-lowered specs",
-            )
-        })
+        self.next_index_prefix_specs(count)
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Consume the next lowered index-range spec in traversal order.
@@ -94,9 +91,7 @@ impl<'a> AccessSpecCursor<'a> {
     /// Enforce that all lowered specs were consumed during access-plan traversal.
     pub(in crate::db::executor) fn validate_consumed(&self) -> Result<(), InternalError> {
         if self.index_prefix_offset < self.index_prefix_specs.len() {
-            return Err(InternalError::query_executor_invariant(
-                "unused index-prefix executable specs after access-plan traversal",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
         validate_index_range_specs_consumed(self.index_range_offset, self.index_range_specs.len())?;
 

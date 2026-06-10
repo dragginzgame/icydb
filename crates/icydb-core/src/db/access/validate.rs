@@ -62,7 +62,8 @@ pub enum AccessPlanError {
 impl AccessPlanError {
     /// Map access-validation failures into query-boundary runtime invariants.
     pub(crate) fn into_internal_error(self) -> InternalError {
-        InternalError::query_executor_invariant(self.to_string())
+        let _ = self;
+        InternalError::query_executor_invariant()
     }
 }
 

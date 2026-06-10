@@ -91,7 +91,7 @@ impl<C: CanisterKind> DbSession<C> {
             .into_iter()
             .map(|strategy| {
                 build_structural_aggregate_terminal_from_sql_strategy(strategy)
-                    .map_err(QueryError::invariant)
+                    .map_err(|_err| QueryError::invariant())
             })
             .collect::<Result<Vec<_>, _>>()?;
         let request = StructuralAggregateRequest::new(terminals, projection, having, schema_info);

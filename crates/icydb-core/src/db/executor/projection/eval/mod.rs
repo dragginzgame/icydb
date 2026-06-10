@@ -85,9 +85,7 @@ pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_r
     }
 
     let Some(filter_expr) = filter_program.expression_filter() else {
-        return Err(InternalError::query_executor_invariant(
-            "effective runtime filter must contain a predicate or expression program",
-        ));
+        return Err(InternalError::query_executor_invariant());
     };
 
     eval_compiled_filter_expr_with_required_slot_reader(filter_expr, slots)
@@ -113,9 +111,7 @@ where
     }
 
     let Some(filter_expr) = filter_program.expression_filter() else {
-        return Err(InternalError::query_executor_invariant(
-            "effective runtime filter must contain a predicate or expression program",
-        ));
+        return Err(InternalError::query_executor_invariant());
     };
 
     eval_compiled_filter_expr_with_value_ref_reader(filter_expr, read_slot, missing_slot_context)
@@ -138,9 +134,7 @@ where
     }
 
     let Some(filter_expr) = filter_program.expression_filter() else {
-        return Err(InternalError::query_executor_invariant(
-            "effective runtime filter must contain a predicate or expression program",
-        ));
+        return Err(InternalError::query_executor_invariant());
     };
 
     eval_compiled_filter_expr_with_value_cow_reader(filter_expr, read_slot, missing_slot_context)

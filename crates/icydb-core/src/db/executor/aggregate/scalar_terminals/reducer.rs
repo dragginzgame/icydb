@@ -53,9 +53,7 @@ impl ScalarAggregateReducerState {
 
     fn ingest_row(&mut self) -> Result<(), InternalError> {
         if self.distinct {
-            return Err(InternalError::query_executor_invariant(
-                "COUNT(*) scalar aggregate terminal cannot be DISTINCT",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
 
         self.reducer.increment_count()?;
@@ -80,9 +78,9 @@ impl ScalarAggregateReducerState {
             | ScalarAggregateTerminalKind::Avg
             | ScalarAggregateTerminalKind::Min
             | ScalarAggregateTerminalKind::Max => self.reducer.ingest(value),
-            ScalarAggregateTerminalKind::CountRows => Err(InternalError::query_executor_invariant(
-                "COUNT(*) scalar aggregate terminal cannot consume projected values",
-            )),
+            ScalarAggregateTerminalKind::CountRows => {
+                Err(InternalError::query_executor_invariant())
+            }
         }
     }
 
@@ -109,9 +107,9 @@ impl ScalarAggregateReducerState {
 
                 Ok(())
             }
-            ScalarAggregateTerminalKind::CountRows => Err(InternalError::query_executor_invariant(
-                "COUNT(*) scalar aggregate terminal cannot consume projected values",
-            )),
+            ScalarAggregateTerminalKind::CountRows => {
+                Err(InternalError::query_executor_invariant())
+            }
         }
     }
 
@@ -383,11 +381,7 @@ impl ScalarAggregateReducerRuntime {
 
         let mut ordered_values = Vec::with_capacity(values.len());
         for value in values {
-            let value = value.ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "scalar aggregate reducer did not finalize every terminal",
-                )
-            })?;
+            let value = value.ok_or_else(InternalError::query_executor_invariant)?;
             ordered_values.push(value);
         }
 

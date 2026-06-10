@@ -27,12 +27,10 @@ fn single_group_key_matches_value(
     group_value: &Value,
 ) -> Result<bool, InternalError> {
     let Value::List(canonical_group_values) = group_key.canonical_value() else {
-        return Err(InternalError::query_executor_invariant(
-            "grouped count key must remain a canonical Value::List".to_string(),
-        ));
+        return Err(InternalError::query_executor_invariant());
     };
     let [canonical_group_value] = canonical_group_values.as_slice() else {
-        return Err(InternalError::query_executor_invariant(""));
+        return Err(InternalError::query_executor_invariant());
     };
 
     Ok(canonical_value_compare(group_value, canonical_group_value) == Ordering::Equal)
@@ -47,10 +45,10 @@ fn canonical_group_value_matches_row_view_with_context(
     _context: &'static str,
 ) -> Result<bool, InternalError> {
     let Value::List(canonical_group_values) = canonical_group_value else {
-        return Err(InternalError::query_executor_invariant(""));
+        return Err(InternalError::query_executor_invariant());
     };
     if canonical_group_values.len() != group_fields.len() {
-        return Err(InternalError::query_executor_invariant(""));
+        return Err(InternalError::query_executor_invariant());
     }
 
     for (field, canonical_group_value) in group_fields.iter().zip(canonical_group_values) {
@@ -127,7 +125,7 @@ fn find_matching_group_in_bucket(
         },
         matches_group,
         metrics::record_bucket_candidate_check,
-        |_group_index, _group_count| InternalError::query_executor_invariant(""),
+        |_group_index, _group_count| InternalError::query_executor_invariant(),
     )
 }
 

@@ -251,9 +251,7 @@ where
             return Ok(None);
         };
         let Some((max_key, _)) = max_candidate else {
-            return Err(InternalError::query_executor_invariant(
-                "min_max(field) reduction produced a min id without a max id",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
 
         Ok(Some((min_key, max_key)))

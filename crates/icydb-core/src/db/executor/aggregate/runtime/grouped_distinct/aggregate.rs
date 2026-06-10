@@ -48,16 +48,14 @@ struct GlobalDistinctFieldAggregateDispatcher {
 // invariant when the planner strategy omitted that field-target aggregate.
 fn global_distinct_aggregate_kind(
     execution_strategy: &GroupedDistinctExecutionStrategy,
-    missing_message: &'static str,
-    unsupported_message: &'static str,
 ) -> Result<GlobalDistinctAggregateKind, InternalError> {
     let aggregate_kind = execution_strategy
         .global_distinct_aggregate_kind()
-        .ok_or_else(|| InternalError::query_executor_invariant(missing_message))?;
+        .ok_or_else(InternalError::query_executor_invariant)?;
 
     aggregate_kind
         .global_distinct_kind()
-        .ok_or_else(|| InternalError::query_executor_invariant(unsupported_message))
+        .ok_or_else(InternalError::query_executor_invariant)
 }
 
 impl GlobalDistinctAggregateKind {
@@ -94,16 +92,8 @@ impl GlobalDistinctFieldAggregateDispatcher {
         execution_strategy: &GroupedDistinctExecutionStrategy,
     ) -> Result<Self, InternalError> {
         let (target_slot, _) = global_distinct_field_target_and_kind(execution_strategy)
-            .ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "grouped DISTINCT dispatcher requires a global field-target strategy",
-                )
-            })?;
-        let reducer_kind = global_distinct_aggregate_kind(
-            execution_strategy,
-            "grouped DISTINCT dispatcher requires a global field-target aggregate kind",
-            "grouped DISTINCT dispatcher admits only COUNT/SUM/AVG field-target aggregates",
-        )?;
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        let reducer_kind = global_distinct_aggregate_kind(execution_strategy)?;
         let field_slot = if reducer_kind.needs_numeric_distinct_payload() {
             resolve_numeric_aggregate_target_slot_from_planner_slot(target_slot)
                 .map_err(AggregateFieldValueError::into_internal_error)?
@@ -161,11 +151,7 @@ impl DistinctReducerSpec {
     fn from_strategy(
         execution_strategy: &GroupedDistinctExecutionStrategy,
     ) -> Result<Self, InternalError> {
-        let reducer_kind = global_distinct_aggregate_kind(
-            execution_strategy,
-            "grouped DISTINCT reducer requires a global field-target aggregate kind",
-            "grouped DISTINCT reducer admits only COUNT/SUM/AVG field-target aggregates",
-        )?;
+        let reducer_kind = global_distinct_aggregate_kind(execution_strategy)?;
 
         Ok(reducer_kind.reducer_spec())
     }

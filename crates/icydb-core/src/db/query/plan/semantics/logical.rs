@@ -546,16 +546,12 @@ fn project_static_execution_planning_contract_for_model(
     )?;
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
-                compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
-                    .ok_or_else(|| {
-                        InternalError::query_executor_invariant(
-                            "scalar projection program must compile during static planning finalization",
-                        )
-                    })?
-                    .iter()
-                    .map(CompiledExpr::compile)
-                    .collect(),
-            )
+            compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
+                .ok_or_else(InternalError::query_executor_invariant)?
+                .iter()
+                .map(CompiledExpr::compile)
+                .collect(),
+        )
     } else {
         None
     };

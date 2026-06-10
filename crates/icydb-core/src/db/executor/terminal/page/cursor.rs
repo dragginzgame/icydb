@@ -66,11 +66,7 @@ fn resolve_last_cursor_row(
         let data_key = &row
             .data_row
             .as_ref()
-            .ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "slot-only kernel row reached cursor anchor derivation path",
-                )
-            })?
+            .ok_or_else(InternalError::query_executor_invariant)?
             .0;
         let mut read_slot = |slot| row.slot_ref(slot);
         let primary_key = data_key.primary_key_value();

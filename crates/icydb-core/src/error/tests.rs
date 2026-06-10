@@ -100,7 +100,7 @@ fn index_plan_store_invariant_uses_store_origin() {
 
 #[test]
 fn query_executor_invariant_uses_invariant_violation_class() {
-    let err = InternalError::query_executor_invariant("route contract mismatch");
+    let err = InternalError::query_executor_invariant();
     assert_runtime_invariant(&err, ErrorOrigin::Query);
 }
 

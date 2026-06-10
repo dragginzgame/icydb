@@ -65,7 +65,7 @@ impl ScalarIndexExpressionOp {
     fn input_type_mismatch(self, expected: &'static str) -> InternalError {
         let _ = self;
         match expected {
-            EXPECTED_TEXT => InternalError::query_executor_invariant(""),
+            EXPECTED_TEXT => InternalError::query_executor_invariant(),
             _ => InternalError::executor_internal(),
         }
     }

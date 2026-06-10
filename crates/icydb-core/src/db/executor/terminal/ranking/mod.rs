@@ -53,17 +53,15 @@ where
     E: EntityKind + EntityValue,
 {
     // Construct one canonical ranking boundary mismatch on the owner type.
-    fn output_kind_mismatch(message: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(message)
+    fn output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant()
     }
 
     // Decode row-returning ranking boundary output.
     fn into_rows(self) -> Result<EntityResponse<E>, InternalError> {
         match self {
             Self::Rows(rows) => Ok(rows),
-            _ => Err(Self::output_kind_mismatch(
-                "ranking terminal boundary rows output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -71,9 +69,7 @@ where
     fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
             Self::Values(values) => Ok(values),
-            _ => Err(Self::output_kind_mismatch(
-                "ranking terminal boundary values output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -84,9 +80,7 @@ where
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
-            _ => Err(Self::output_kind_mismatch(
-                "ranking terminal boundary values-with-ids output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 }

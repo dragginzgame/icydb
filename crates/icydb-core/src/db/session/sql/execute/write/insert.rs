@@ -180,11 +180,7 @@ fn sql_insert_primary_key_values(
     let mut key_values = Vec::with_capacity(descriptor.primary_key_names().len());
     for primary_key_name in descriptor.primary_key_names() {
         if let Some(pk_index) = columns.iter().position(|field| field == primary_key_name) {
-            let pk_value = values.get(pk_index).ok_or_else(|| {
-                QueryError::invariant(
-                    "INSERT primary key column must align with one VALUES literal",
-                )
-            })?;
+            let pk_value = values.get(pk_index).ok_or_else(QueryError::invariant)?;
             key_values.push(pk_value.clone());
             continue;
         }
@@ -257,9 +253,7 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlInsertStatement,
     ) -> Result<SqlSelectStatement, QueryError> {
         if primary_key_names.is_empty() {
-            return Err(QueryError::invariant(
-                "SQL INSERT SELECT must resolve the primary key from accepted schema metadata",
-            ));
+            return Err(QueryError::invariant());
         }
         let statement = SqlStatement::Insert(statement.clone());
         let prepared = prepare_sql_statement(&statement, schema.entity_name())
@@ -303,9 +297,9 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_sql_lowering_error)?;
         let authority =
             Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
-        let schema_info = authority.accepted_schema_info().ok_or_else(|| {
-            QueryError::invariant("SQL INSERT SELECT authority must carry accepted schema info")
-        })?;
+        let schema_info = authority
+            .accepted_schema_info()
+            .ok_or_else(QueryError::invariant)?;
         let save_schema_info = schema_info.clone();
         let query = bind_prepared_sql_select_statement_structural_with_schema(
             prepared,

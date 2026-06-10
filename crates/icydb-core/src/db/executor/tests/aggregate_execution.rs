@@ -696,7 +696,7 @@ where
     if aggregate.target_field().is_some()
         && !matches!(aggregate.kind(), AggregateKind::Min | AggregateKind::Max)
     {
-        return Err(InternalError::query_executor_invariant(""));
+        return Err(InternalError::query_executor_invariant());
     }
 
     // Phase 2: preserve field-target resolution taxonomy for unsupported and

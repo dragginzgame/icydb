@@ -138,20 +138,15 @@ impl KernelRow {
     }
 
     pub(in crate::db) fn into_data_row(self) -> Result<DataRow, InternalError> {
-        self.data_row.ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "slot-only kernel row reached data-row materialization path",
-            )
-        })
+        self.data_row
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     pub(in crate::db::executor) fn into_retained_slot_row(
         self,
     ) -> Result<RetainedSlotRow, InternalError> {
         match self.slots {
-            KernelRowSlots::NotMaterialized => Err(InternalError::query_executor_invariant(
-                "data-row-only kernel row reached retained-slot materialization path",
-            )),
+            KernelRowSlots::NotMaterialized => Err(InternalError::query_executor_invariant()),
             KernelRowSlots::Dense(slots) => Ok(RetainedSlotRow::from_dense_slots(slots)),
             KernelRowSlots::Retained(slots) => Ok(slots),
         }
@@ -160,17 +155,11 @@ impl KernelRow {
         self,
     ) -> Result<(DataRow, Vec<Option<Value>>), InternalError> {
         let Self { data_row, slots } = self;
-        let data_row = data_row.ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "slot-only kernel row reached delete row materialization path",
-            )
-        })?;
+        let data_row = data_row.ok_or_else(InternalError::query_executor_invariant)?;
 
         let slots = match slots {
             KernelRowSlots::NotMaterialized => {
-                return Err(InternalError::query_executor_invariant(
-                    "data-row-only kernel row reached delete row materialization path",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
             KernelRowSlots::Dense(slots) => slots,
             KernelRowSlots::Retained(slots) => slots.into_dense_slots(),
@@ -291,9 +280,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
     } = request;
     let scalar_materialization_plan = resolve_scalar_materialization_plan(plan, capabilities)?;
     if scalar_materialization_plan.direct_data_row_path().is_some() {
-        return Err(InternalError::query_executor_invariant(
-            "scalar aggregate kernel rows require the retained-slot kernel path",
-        ));
+        return Err(InternalError::query_executor_invariant());
     }
 
     // Phase 1: scan through the same scalar kernel used by structural page

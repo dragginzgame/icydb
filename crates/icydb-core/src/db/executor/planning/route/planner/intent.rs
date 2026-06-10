@@ -137,9 +137,7 @@ pub(super) fn derive_mutation_route_intent_stage(
     plan: &AccessPlannedQuery,
 ) -> Result<RouteIntentStage<'static>, InternalError> {
     if !plan.scalar_plan().mode.is_delete() {
-        return Err(InternalError::query_executor_invariant(
-            "mutation route planning requires delete plans",
-        ));
+        return Err(InternalError::query_executor_invariant());
     }
 
     Ok(route_intent_stage(

@@ -330,9 +330,7 @@ where
         S: AggregateExplain,
     {
         let Some(kind) = strategy.explain_aggregate_kind() else {
-            return Err(QueryError::invariant(
-                "prepared fluent aggregate explain requires an explain-visible aggregate kind",
-            ));
+            return Err(QueryError::invariant());
         };
         let aggregate = self
             .authority()

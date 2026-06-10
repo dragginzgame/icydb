@@ -82,7 +82,7 @@ impl ScalarTerminalExprCache {
             filter_evaluation_count,
         )?;
 
-        admit_true_only_boolean_value(value, |_found| InternalError::query_executor_invariant(""))
+        admit_true_only_boolean_value(value, |_found| InternalError::query_executor_invariant())
     }
 }
 
@@ -115,10 +115,10 @@ fn cached_scalar_terminal_expr_value<'a>(
 ) -> Result<&'a Value, InternalError> {
     let expr = exprs
         .get(index)
-        .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+        .ok_or_else(InternalError::query_executor_invariant)?;
     let value = values
         .get_mut(index)
-        .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+        .ok_or_else(InternalError::query_executor_invariant)?;
     if value.is_none() {
         #[cfg(feature = "diagnostics")]
         {
@@ -129,7 +129,7 @@ fn cached_scalar_terminal_expr_value<'a>(
 
     value
         .as_ref()
-        .ok_or_else(|| InternalError::query_executor_invariant(""))
+        .ok_or_else(InternalError::query_executor_invariant)
 }
 
 fn evaluate_scalar_terminal_expr(

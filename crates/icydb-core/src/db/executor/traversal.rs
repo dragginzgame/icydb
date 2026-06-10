@@ -38,9 +38,7 @@ impl IndexRangeTraversalContract {
             && let Some(details) = path_facts.index_range_details()
             && spec.scan_contract().name() != details.name()
         {
-            return Err(InternalError::query_executor_invariant(
-                "index-range spec does not match access path index",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
 
         Ok(())
@@ -50,11 +48,7 @@ impl IndexRangeTraversalContract {
     pub(in crate::db::executor) fn require_spec(
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<&LoweredIndexRangeSpec, InternalError> {
-        index_range_spec.ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "index-range execution requires pre-lowered index-range spec",
-            )
-        })
+        index_range_spec.ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Validate that index-range lowered specs were fully consumed during traversal.
@@ -63,9 +57,7 @@ impl IndexRangeTraversalContract {
         available: usize,
     ) -> Result<(), InternalError> {
         if consumed < available {
-            return Err(InternalError::query_executor_invariant(
-                "unused index-range executable specs after access-plan traversal",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
 
         Ok(())

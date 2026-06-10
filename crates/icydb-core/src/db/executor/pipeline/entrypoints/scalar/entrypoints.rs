@@ -152,9 +152,7 @@ where
                 ))
             }
             LoadExecutionSurface::GroupedPageWithTrace(..) => {
-                Err(InternalError::query_executor_invariant(
-                    "scalar traced entrypoint must produce scalar traced page surface",
-                ))
+                Err(InternalError::query_executor_invariant())
             }
         }
     }

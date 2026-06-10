@@ -67,7 +67,7 @@ impl AggregateFieldValueError {
             }
             Self::MissingFieldValue { .. }
             | Self::FieldValueTypeMismatch { .. }
-            | Self::IncomparableFieldValues { .. } => InternalError::query_executor_invariant(""),
+            | Self::IncomparableFieldValues { .. } => InternalError::query_executor_invariant(),
         }
     }
 }

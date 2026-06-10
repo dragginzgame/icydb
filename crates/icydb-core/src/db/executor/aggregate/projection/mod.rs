@@ -322,7 +322,7 @@ where
                         PreparedAggregateSpec::terminal(AggregateKind::Count),
                     ),
                 )?
-                .into_count("projection COUNT helper result kind mismatch")?;
+                .into_count()?;
                 let output_len = usize::try_from(row_count).unwrap_or(usize::MAX);
 
                 Ok(ScalarProjectionBoundaryOutput::Values(vec![
@@ -460,10 +460,7 @@ where
         let state =
             ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate);
         let selected_key = ExecutionKernel::execute_prepared_aggregate_state(self, state)?
-            .into_optional_id_terminal(
-                terminal_kind,
-                "terminal value projection result kind mismatch",
-            )?;
+            .into_optional_id_terminal(terminal_kind)?;
         let Some(selected_key) = selected_key else {
             return Ok(None);
         };
@@ -498,7 +495,7 @@ where
                 PreparedAggregateSpec::terminal(AggregateKind::Exists),
             ),
         )?
-        .into_exists("projection EXISTS helper result kind mismatch")
+        .into_exists()
     }
 
     // Project materialized structural rows into structural `(data_key, value)`
@@ -708,7 +705,6 @@ where
             prepared.store,
             prepared.consistency(),
             covering_requires_row_presence_check(),
-            "aggregate covering projection expected one decoded component",
             Ok,
         )?
         else {
@@ -762,11 +758,7 @@ where
                 continue;
             }
 
-            let Some(value) = decode_single_covering_projection_value(
-                components,
-                "aggregate covering projection expected one decoded component",
-            )?
-            else {
+            let Some(value) = decode_single_covering_projection_value(components)? else {
                 return Ok(None);
             };
             projected_pairs.push((data_key, value));

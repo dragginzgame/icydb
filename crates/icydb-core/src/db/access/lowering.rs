@@ -247,8 +247,8 @@ impl LoweredIndexRangeSpec {
 
     // Build the canonical lowering-time invariant for validated range specs
     // that still fail raw bound encoding.
-    fn validated_spec_not_indexable(err: IndexRangeBoundEncodeError) -> InternalError {
-        InternalError::query_executor_invariant(err.validated_spec_not_indexable_reason())
+    fn validated_spec_not_indexable(_err: IndexRangeBoundEncodeError) -> InternalError {
+        InternalError::query_executor_invariant()
     }
 }
 
@@ -378,7 +378,7 @@ fn lower_index_prefix_values_for_specs(
         index.key_arity(),
         IndexBoundsSpec::Prefix { values },
     )
-    .map_err(|_| InternalError::query_executor_invariant("index-prefix lowering invariant"))?;
+    .map_err(|_| InternalError::query_executor_invariant())?;
     specs.push(LoweredIndexPrefixSpec::new(index, lower, upper));
 
     Ok(())

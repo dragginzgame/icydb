@@ -216,11 +216,7 @@ impl DecodedDataStoreKey {
     ) -> Result<Value, InternalError> {
         self.key
             .component_runtime_value(component_index)
-            .ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "primary-key component projection index out of bounds",
-                )
-            })
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Compute the maximum on-disk entry size from value length.

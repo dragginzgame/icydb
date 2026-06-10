@@ -144,11 +144,9 @@ where
     // projection materializer choose slot-row, data-row, or scalar fallback
     // shaping behind the executor boundary.
     let row_layout = authority.row_layout();
-    let prepared_projection = prepared_projection_contract.as_deref().ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "structural projection runtime requires one frozen projection contract",
-        )
-    })?;
+    let prepared_projection = prepared_projection_contract
+        .as_deref()
+        .ok_or_else(InternalError::query_executor_invariant)?;
     let page = execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
         db,
         debug,
@@ -160,11 +158,7 @@ where
         project_distinct(
             row_layout,
             prepared_projection,
-            distinct_window.ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "distinct projection materialization requires a prepared page window",
-                )
-            })?,
+            distinct_window.ok_or_else(InternalError::query_executor_invariant)?,
             page,
             materialization_metrics,
         )?

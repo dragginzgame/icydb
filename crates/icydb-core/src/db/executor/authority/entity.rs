@@ -268,14 +268,13 @@ impl EntityAuthority {
         plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
         if !plan.has_static_execution_planning_contract() {
-            return Err(InternalError::query_executor_invariant(""));
+            return Err(InternalError::query_executor_invariant());
         }
 
-        let schema_info = self.accepted_schema_info.as_ref().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "executor plan validation requires accepted schema info",
-            )
-        })?;
+        let schema_info = self
+            .accepted_schema_info
+            .as_ref()
+            .ok_or_else(InternalError::query_executor_invariant)?;
 
         validate_access_runtime_invariants_with_schema(schema_info.as_ref(), &plan.access)
             .map_err(crate::db::access::AccessPlanError::into_internal_error)
@@ -320,11 +319,10 @@ impl EntityAuthority {
         kind: AggregateKind,
         target_field: Option<&'a str>,
     ) -> Result<AggregateRouteShape<'a>, InternalError> {
-        let schema_info = self.accepted_schema_info.as_ref().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "aggregate route shape derivation requires accepted schema info",
-            )
-        })?;
+        let schema_info = self
+            .accepted_schema_info
+            .as_ref()
+            .ok_or_else(InternalError::query_executor_invariant)?;
 
         Ok(AggregateRouteShape::new_from_schema_info(
             kind,
@@ -386,7 +384,7 @@ impl EntityAuthority {
             .field_path_indexes()
             .iter()
             .find(|accepted| accepted.name() == index.name())
-            .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+            .ok_or_else(InternalError::query_executor_invariant)?;
 
         IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(
             self.entity_tag,
@@ -399,11 +397,7 @@ impl EntityAuthority {
     fn index_key_schema_info(&self) -> Result<&SchemaInfo, InternalError> {
         self.accepted_schema_info
             .as_ref()
-            .ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "index cursor anchor derivation requires accepted schema info",
-                )
-            })
+            .ok_or_else(InternalError::query_executor_invariant)
             .map(AsRef::as_ref)
     }
 }

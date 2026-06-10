@@ -335,13 +335,11 @@ impl<C: CanisterKind> DbSession<C> {
                 },
                 0,
             )),
-            PreparedQueryExecutionOutcome::DeleteCount { .. } => Err(QueryError::invariant(
-                "diagnostics execution returned delete count result",
-            )),
+            PreparedQueryExecutionOutcome::DeleteCount { .. } => Err(QueryError::invariant()),
             PreparedQueryExecutionOutcome::Scalar { phase: None, .. }
-            | PreparedQueryExecutionOutcome::Grouped { phase: None, .. } => Err(
-                QueryError::invariant("diagnostics execution missing phase attribution"),
-            ),
+            | PreparedQueryExecutionOutcome::Grouped { phase: None, .. } => {
+                Err(QueryError::invariant())
+            }
         }
     }
 }

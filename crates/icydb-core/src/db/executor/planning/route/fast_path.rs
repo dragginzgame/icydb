@@ -53,23 +53,15 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
 ) -> Result<(), InternalError> {
     let access_shape_facts = access_strategy.shape_facts();
     let Some(path_facts) = access_shape_facts.single_path_facts() else {
-        return Err(InternalError::query_executor_invariant(
-            "pk stream fast-path requires direct access-path execution",
-        ));
+        return Err(InternalError::query_executor_invariant());
     };
     primary_key_stream_window_shape_supported(&path_facts)
         .then_some(())
-        .ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "pk stream fast-path requires full-scan/key-range access path",
-            )
-        })?;
+        .ok_or_else(InternalError::query_executor_invariant)?;
 
-    let access = access_strategy.as_path().ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "pk stream fast-path requires direct access-path execution",
-        )
-    })?;
+    let access = access_strategy
+        .as_path()
+        .ok_or_else(InternalError::query_executor_invariant)?;
     debug_assert_eq!(
         primary_key_stream_window_shape_supported(&access.shape_facts()),
         primary_key_stream_window_shape_supported(&path_facts),

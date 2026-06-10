@@ -8,7 +8,6 @@ use crate::db::executor::{GroupedExecutePhaseAttribution, ScalarExecutePhaseAttr
 use crate::{
     db::{
         DbSession, EntityResponse, LoadQueryResult, PersistedRow, Query, QueryError,
-        cursor::CursorPlanError,
         diagnostics::ExecutionTrace,
         executor::{
             ExecutionFamily, ExecutorPlanError, LoadExecutor, PreparedExecutionPlan,
@@ -90,13 +89,8 @@ impl<C: CanisterKind> DbSession<C> {
         family: ExecutionFamily,
     ) -> Result<(), QueryError> {
         match family {
-            ExecutionFamily::PrimaryKey => Err(QueryError::invariant(
-                CursorPlanError::cursor_requires_explicit_or_grouped_ordering_message(),
-            )),
             ExecutionFamily::Ordered => Ok(()),
-            ExecutionFamily::Grouped => Err(QueryError::invariant(
-                "grouped queries execute via execute(), not page().execute()",
-            )),
+            ExecutionFamily::PrimaryKey | ExecutionFamily::Grouped => Err(QueryError::invariant()),
         }
     }
 
@@ -107,9 +101,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(), QueryError> {
         match family {
             ExecutionFamily::Grouped => Ok(()),
-            ExecutionFamily::PrimaryKey | ExecutionFamily::Ordered => Err(QueryError::invariant(
-                "grouped execution requires grouped logical plans",
-            )),
+            ExecutionFamily::PrimaryKey | ExecutionFamily::Ordered => Err(QueryError::invariant()),
         }
     }
 
@@ -166,9 +158,7 @@ impl<C: CanisterKind> DbSession<C> {
             PreparedQueryExecutionOutcome::DeleteCount { row_count } => Ok(row_count),
             PreparedQueryExecutionOutcome::Scalar { .. }
             | PreparedQueryExecutionOutcome::Grouped { .. }
-            | PreparedQueryExecutionOutcome::Delete { .. } => Err(QueryError::invariant(
-                "delete count execution returned non-count result",
-            )),
+            | PreparedQueryExecutionOutcome::Delete { .. } => Err(QueryError::invariant()),
         }
     }
 
@@ -189,9 +179,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         if plan.is_grouped() {
             if output == PreparedQueryExecutionOutput::DeleteCount {
-                return Err(QueryError::invariant(
-                    "delete count execution requires delete query mode",
-                ));
+                return Err(QueryError::invariant());
             }
 
             #[cfg(feature = "diagnostics")]
@@ -223,9 +211,7 @@ impl<C: CanisterKind> DbSession<C> {
         match plan.mode() {
             QueryMode::Load(_) => {
                 if output == PreparedQueryExecutionOutput::DeleteCount {
-                    return Err(QueryError::invariant(
-                        "delete count execution requires delete query mode",
-                    ));
+                    return Err(QueryError::invariant());
                 }
 
                 #[cfg(feature = "diagnostics")]
@@ -289,9 +275,7 @@ impl<C: CanisterKind> DbSession<C> {
                 finalize_structural_grouped_projection_result(result, trace)
                     .map(LoadQueryResult::Grouped)
             }
-            PreparedQueryExecutionOutcome::DeleteCount { .. } => Err(QueryError::invariant(
-                "delete count result cannot be converted to load query result",
-            )),
+            PreparedQueryExecutionOutcome::DeleteCount { .. } => Err(QueryError::invariant()),
         }
     }
 

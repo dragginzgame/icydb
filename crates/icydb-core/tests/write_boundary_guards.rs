@@ -1328,8 +1328,7 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         entity_authority.contains("index_range_anchor_key_from_slot_ref_reader")
             && entity_authority.contains(".field_path_indexes()")
             && entity_authority.contains(".find(|accepted| accepted.name() == index.name())")
-            && entity_authority
-                .contains(".ok_or_else(|| InternalError::query_executor_invariant(\"\"))")
+            && entity_authority.contains(".ok_or_else(InternalError::query_executor_invariant)")
             && entity_authority
                 .contains("IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(")
             && entity_authority
@@ -2151,6 +2150,7 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
 #[test]
 fn session_explain_access_choice_uses_accepted_schema_info() {
     let session_query_explain = read_source("src/db/session/query/explain.rs");
+    let session_query_explain_compact = compact_source(&session_query_explain);
     let session_query_cache = read_source("src/db/session/query/cache.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
     let session_sql_explain_compact = compact_source(&session_sql_explain);
@@ -2168,7 +2168,10 @@ fn session_explain_access_choice_uses_accepted_schema_info() {
                 "fn finalize_access_choice_for_model_with_accepted_indexes_and_schema("
             )
             && session_query_explain.contains("let authority = prepared_plan.authority();")
-            && session_query_explain.contains("authority.accepted_schema_info()")
+            && session_query_explain_compact
+                .contains("authority.accepted_schema_info().ok_or_else(QueryError::invariant)?")
+            && session_query_explain_compact
+                .contains("visible_indexes.accepted_schema_info().ok_or_else(QueryError::invariant)?")
             && !session_query_explain.contains("ensure_accepted_schema_snapshot::<E>()")
             && !session_query_explain.contains("plan.finalize_access_choice_for_model_only_with_indexes(")
             && session_query_cache.contains("accepted_schema_catalog_context_for_query::<E>()")
@@ -2305,9 +2308,9 @@ fn executor_plan_validation_uses_accepted_schema_info() {
 
     assert!(
         entity_authority.contains("if !plan.has_static_execution_planning_contract()")
-            && entity_authority
-                .contains("return Err(InternalError::query_executor_invariant(\"\"));")
-            && entity_authority.contains("executor plan validation requires accepted schema info")
+            && entity_authority.contains("return Err(InternalError::query_executor_invariant());")
+            && entity_authority.contains("accepted_schema_info")
+            && entity_authority.contains(".ok_or_else(InternalError::query_executor_invariant)")
             && entity_authority.contains("validate_access_runtime_invariants_with_schema(")
             && !entity_authority.contains("fn schema_info(")
             && !entity_authority
@@ -2598,29 +2601,27 @@ fn sql_write_selectors_reuse_accepted_authority_schema_info() {
     let write_mod_compact = compact_source(&write_mod);
 
     assert!(
-        insert.contains("let schema_info = authority.accepted_schema_info().ok_or_else(|| {")
+        insert.contains(".accepted_schema_info()")
+            && insert.contains(".ok_or_else(QueryError::invariant)?")
             && insert.contains("let save_schema_info = schema_info.clone();")
             && insert.contains(") -> Result<crate::db::schema::SchemaInfo, QueryError>")
             && insert.contains("Ok(save_schema_info)")
-            && insert.contains("save_schema_info = Some(self.execute_sql_insert_select_source_patches::<E>(")
             && insert.contains(
-                "accepted_sql_write_save_contract::<E>(&schema, &descriptor, save_schema_info)",
+                "save_schema_info = Some(self.execute_sql_insert_select_source_patches::<E>("
             )
             && insert.contains(
-                "QueryError::invariant(\"SQL INSERT SELECT authority must carry accepted schema info\")",
+                "accepted_sql_write_save_contract::<E>(&schema, &descriptor, save_schema_info)",
             )
             && insert.contains("bind_prepared_sql_select_statement_structural_with_schema(")
             && !insert.contains("SchemaInfo::from_accepted_snapshot_for_model"),
         "SQL INSERT SELECT selector binding must reuse accepted authority SchemaInfo instead of rebuilding the same accepted schema projection",
     );
     assert!(
-        update.contains("let schema_info = authority.accepted_schema_info().ok_or_else(|| {")
+        update.contains(".accepted_schema_info()")
+            && update.contains(".ok_or_else(QueryError::invariant)?")
             && update.contains("let save_schema_info = schema_info.clone();")
             && update.contains(
                 "accepted_sql_write_save_contract::<E>(&schema, &descriptor, Some(save_schema_info))",
-            )
-            && update.contains(
-                "QueryError::invariant(\"SQL UPDATE selector authority must carry accepted schema info\")",
             )
             && update.contains(
                 "fn sql_update_selector_query<E>(\n        schema_info: &crate::db::schema::SchemaInfo,"

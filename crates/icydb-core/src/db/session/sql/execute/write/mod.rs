@@ -141,9 +141,7 @@ fn accepted_write_field_slot(
 ) -> Result<FieldSlot, QueryError> {
     let accepted_slot = descriptor
         .field_slot_index_by_name(field_name)
-        .ok_or_else(|| {
-            QueryError::invariant("SQL write field must resolve against accepted schema metadata")
-        })?;
+        .ok_or_else(QueryError::invariant)?;
 
     Ok(FieldSlot::from_validated_index(accepted_slot))
 }
@@ -164,9 +162,7 @@ fn write_policy_for_accepted_name(
     field_name: &str,
 ) -> Result<SchemaFieldWritePolicy, QueryError> {
     let Some(field) = descriptor.field_by_name(field_name) else {
-        return Err(QueryError::invariant(
-            "SQL write field must resolve against accepted schema metadata",
-        ));
+        return Err(QueryError::invariant());
     };
 
     Ok(field.write_policy())
@@ -177,9 +173,9 @@ fn sql_write_value_for_accepted_field(
     field_name: &str,
     value: &Value,
 ) -> Result<Value, QueryError> {
-    let accepted_kind = descriptor.field_kind_by_name(field_name).ok_or_else(|| {
-        QueryError::invariant("SQL write field must resolve against accepted schema metadata")
-    })?;
+    let accepted_kind = descriptor
+        .field_kind_by_name(field_name)
+        .ok_or_else(QueryError::invariant)?;
     let normalized = canonicalize_strict_sql_literal_for_persisted_kind(accepted_kind, value)
         .unwrap_or_else(|| value.clone());
 

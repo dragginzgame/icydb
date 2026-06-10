@@ -311,8 +311,8 @@ impl PreparedScalarNumericOp {
     // Route one numeric-op-specific invariant through the shared query
     // executor error taxonomy without repeating the constructor at each call
     // site in this enum.
-    fn invariant(message: impl Into<String>) -> InternalError {
-        InternalError::query_executor_invariant(message)
+    fn invariant() -> InternalError {
+        InternalError::query_executor_invariant()
     }
 
     /// Return the aggregate kind represented by this numeric terminal.
@@ -324,24 +324,13 @@ impl PreparedScalarNumericOp {
         }
     }
 
-    /// Return the stable terminal name used in DISTINCT decode mismatch text.
-    #[must_use]
-    pub(in crate::db::executor) const fn aggregate_name(self) -> &'static str {
-        match self {
-            Self::Sum => "SUM",
-            Self::Avg => "AVG",
-        }
-    }
-
     // Build the canonical grouped DISTINCT numeric output mismatch invariant.
     pub(in crate::db::executor) fn grouped_distinct_output_type_mismatch(
         self,
         value: &Value,
     ) -> InternalError {
-        Self::invariant(format!(
-            "global {}(DISTINCT field) grouped output type mismatch: {value:?}",
-            self.aggregate_name(),
-        ))
+        let _ = (self, value);
+        Self::invariant()
     }
 }
 
@@ -436,59 +425,26 @@ impl PreparedScalarProjectionOp {
     // Route one prepared projection-op invariant through the shared query
     // executor error taxonomy without repeating the constructor in each
     // branch-specific helper below.
-    fn invariant(message: impl Into<String>) -> InternalError {
-        InternalError::query_executor_invariant(message)
+    fn invariant() -> InternalError {
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical prepared-op invariant for missing covering DISTINCT strategy.
     pub(in crate::db::executor) fn covering_distinct_strategy_required(&self) -> InternalError {
-        let message = match self {
-            Self::DistinctValues => {
-                "covering DISTINCT projection requires prepared distinct strategy"
-            }
-            Self::CountDistinct => {
-                "covering COUNT DISTINCT projection requires prepared distinct strategy"
-            }
-            Self::Values { .. } | Self::ValuesWithIds { .. } | Self::TerminalValue { .. } => {
-                "covering DISTINCT strategy requirement is only valid for DISTINCT projection ops"
-            }
-        };
-
-        Self::invariant(message)
+        let _ = self;
+        Self::invariant()
     }
 
     // Build the canonical prepared-op invariant for unsupported constant covering values-with-ids.
     pub(in crate::db::executor) fn constant_covering_strategy_unsupported(&self) -> InternalError {
-        let message = match self {
-            Self::ValuesWithIds { .. } => {
-                "values-with-ids projection cannot execute constant covering strategy"
-            }
-            Self::Values { .. }
-            | Self::DistinctValues
-            | Self::CountDistinct
-            | Self::TerminalValue { .. } => {
-                "constant covering projection rejection is only valid for values-with-ids"
-            }
-        };
-
-        Self::invariant(message)
+        let _ = self;
+        Self::invariant()
     }
 
     // Build the canonical prepared-op invariant for terminal-value late materialization.
     pub(in crate::db::executor) fn materialized_branch_unreachable(&self) -> InternalError {
-        let message = match self {
-            Self::TerminalValue { .. } => {
-                "terminal value projection materialized branch must execute before row materialization"
-            }
-            Self::Values { .. }
-            | Self::DistinctValues
-            | Self::CountDistinct
-            | Self::ValuesWithIds { .. } => {
-                "materialized branch terminal-value invariant is only valid for terminal-value projection ops"
-            }
-        };
-
-        Self::invariant(message)
+        let _ = self;
+        Self::invariant()
     }
 
     // Validate that one terminal-value projection op only carries FIRST/LAST kinds.
@@ -499,9 +455,7 @@ impl PreparedScalarProjectionOp {
             Self::TerminalValue { terminal_kind, .. }
                 if !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last) =>
             {
-                Err(Self::invariant(
-                    "terminal value projection requires FIRST/LAST aggregate kind",
-                ))
+                Err(Self::invariant())
             }
             Self::Values { .. }
             | Self::DistinctValues
@@ -601,8 +555,8 @@ impl PreparedScalarTerminalOp {
     // Route one prepared terminal-op invariant through the shared query
     // executor error taxonomy without rebuilding the constructor in each
     // validation branch.
-    fn invariant(message: impl Into<String>) -> InternalError {
-        InternalError::query_executor_invariant(message)
+    fn invariant() -> InternalError {
+        InternalError::query_executor_invariant()
     }
 
     /// Return the aggregate kind represented by this prepared scalar terminal.
@@ -638,12 +592,7 @@ impl PreparedScalarTerminalOp {
                 kind: AggregateKind::Min | AggregateKind::Max,
                 ..
             } => Ok(()),
-            Self::IdTerminal { .. } => Err(Self::invariant(
-                "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
-            )),
-            Self::IdBySlot { .. } => Err(Self::invariant(
-                "id-by-slot aggregate request requires MIN/MAX kind",
-            )),
+            Self::IdTerminal { .. } | Self::IdBySlot { .. } => Err(Self::invariant()),
         }
     }
 }

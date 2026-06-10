@@ -429,11 +429,9 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime_with_phase
     InternalError,
 > {
     let result = execute_prepared_grouped_route_runtime_internal(prepared, true)?;
-    let phase_attribution = result.phase_attribution.ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "grouped attributed runtime must emit grouped phase attribution",
-        )
-    })?;
+    let phase_attribution = result
+        .phase_attribution
+        .ok_or_else(InternalError::query_executor_invariant)?;
 
     Ok((result.page, result.trace, phase_attribution))
 }
@@ -504,9 +502,7 @@ where
 
         let resolved_cursor = super::resolve_grouped_perf_cursor(&plan, cursor)?;
         let crate::db::executor::PreparedLoadCursor::Grouped(cursor) = resolved_cursor else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped traced perf entrypoint must resolve a grouped cursor",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
 
         let prepared_runtime_handoff = plan.cloned_grouped_runtime_handoff();
@@ -529,9 +525,7 @@ where
         match surface {
             LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
             LoadExecutionSurface::ScalarPageWithTrace(..) => {
-                Err(InternalError::query_executor_invariant(
-                    "grouped traced entrypoint must produce grouped traced page surface",
-                ))
+                Err(InternalError::query_executor_invariant())
             }
         }
     }

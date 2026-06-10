@@ -553,9 +553,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         let Some(plan) = query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?
         else {
-            return Err(QueryError::invariant(
-                "trivial scalar load fast path lost eligibility during plan build",
-            ));
+            return Err(QueryError::invariant());
         };
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(
             authority.clone(),

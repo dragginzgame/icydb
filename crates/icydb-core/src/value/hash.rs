@@ -34,11 +34,7 @@ fn feed_u32(h: &mut Xxh3, x: u32) {
     h.update(&x.to_be_bytes());
 }
 fn feed_len_u32(h: &mut Xxh3, len: usize) -> Result<(), InternalError> {
-    let len = u32::try_from(len).map_err(|_| {
-        InternalError::query_executor_invariant(
-            "canonical value hash length exceeded u32 framing capacity",
-        )
-    })?;
+    let len = u32::try_from(len).map_err(|_| InternalError::query_executor_invariant())?;
     feed_u32(h, len);
 
     Ok(())

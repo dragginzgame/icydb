@@ -177,9 +177,7 @@ impl KeyAccessRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         let [spec] = index_prefix_specs else {
-            return Err(InternalError::query_executor_invariant(
-                "index-prefix execution requires pre-lowered index-prefix spec",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
 
         let keys = IndexScan::prefix_structural(
@@ -207,9 +205,7 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let [spec] = index_prefix_specs else {
-            return Err(InternalError::query_executor_invariant(
-                "index-prefix execution requires pre-lowered index-prefix spec",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
 
         Ok(OrderedKeyStreamBox::index_range(
@@ -232,9 +228,7 @@ impl KeyAccessRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         if index_prefix_specs.len() != value_count {
-            return Err(InternalError::query_executor_invariant(
-                "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
 
         let mut keys = Vec::new();

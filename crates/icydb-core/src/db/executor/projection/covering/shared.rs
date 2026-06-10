@@ -32,9 +32,7 @@ pub(super) fn project_covering_row_from_decoded_values(
     decoded_values: &[Value],
 ) -> Result<Vec<Value>, InternalError> {
     if component_indices.len() != decoded_values.len() {
-        return Err(InternalError::query_executor_invariant(
-            "covering projection component decode arity mismatch",
-        ));
+        return Err(InternalError::query_executor_invariant());
     }
 
     let mut projected = Vec::with_capacity(fields.len());
@@ -46,25 +44,20 @@ pub(super) fn project_covering_row_from_decoded_values(
                     .iter()
                     .position(|candidate| candidate == component_index)
                 else {
-                    return Err(InternalError::query_executor_invariant(
-                        "covering projection missing decoded covering component",
-                    ));
+                    return Err(InternalError::query_executor_invariant());
                 };
 
-                decoded_values.get(position).cloned().ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "covering projection decoded component position out of bounds",
-                    )
-                })?
+                decoded_values
+                    .get(position)
+                    .cloned()
+                    .ok_or_else(InternalError::query_executor_invariant)?
             }
             CoveringReadFieldSource::PrimaryKey { component_index } => {
                 data_key.primary_key_component_runtime_value(*component_index)?
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
-                return Err(InternalError::query_executor_invariant(
-                    "pure covering projection unexpectedly reached row-backed field source",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
         };
         projected.push(value);
@@ -80,9 +73,7 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
     decoded_values: Vec<Value>,
 ) -> Result<Vec<Value>, InternalError> {
     if component_indices.len() != decoded_values.len() {
-        return Err(InternalError::query_executor_invariant(
-            "covering projection component decode arity mismatch",
-        ));
+        return Err(InternalError::query_executor_invariant());
     }
 
     let mut projected = Vec::with_capacity(fields.len());
@@ -97,16 +88,13 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
                     .iter()
                     .position(|candidate| candidate == component_index)
                 else {
-                    return Err(InternalError::query_executor_invariant(
-                        "covering projection missing decoded covering component",
-                    ));
+                    return Err(InternalError::query_executor_invariant());
                 };
 
                 take_or_clone_last_component_value(
                     decoded_values.as_mut_slice(),
                     remaining_component_uses.as_mut_slice(),
                     position,
-                    "covering projection decoded component position out of bounds",
                 )?
             }
             CoveringReadFieldSource::PrimaryKey { component_index } => {
@@ -114,9 +102,7 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
-                return Err(InternalError::query_executor_invariant(
-                    "pure covering projection unexpectedly reached row-backed field source",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
         };
         projected.push(value);
@@ -154,9 +140,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
                 component_index: field_component_index,
             } => {
                 if *field_component_index != component_index {
-                    return Err(InternalError::query_executor_invariant(
-                        "covering projection missing decoded covering component",
-                    ));
+                    return Err(InternalError::query_executor_invariant());
                 }
 
                 // Each projected column owns its value. Duplicate references
@@ -164,17 +148,13 @@ pub(super) fn project_covering_row_from_single_decoded_value(
                 // output row directly.
                 remaining_component_uses = remaining_component_uses.saturating_sub(1);
                 if remaining_component_uses == 0 {
-                    decoded_value.take().ok_or_else(|| {
-                        InternalError::query_executor_invariant(
-                            "covering projection decoded component was already consumed",
-                        )
-                    })?
+                    decoded_value
+                        .take()
+                        .ok_or_else(InternalError::query_executor_invariant)?
                 } else {
-                    decoded_value.clone().ok_or_else(|| {
-                        InternalError::query_executor_invariant(
-                            "covering projection decoded component was already consumed",
-                        )
-                    })?
+                    decoded_value
+                        .clone()
+                        .ok_or_else(InternalError::query_executor_invariant)?
                 }
             }
             CoveringReadFieldSource::PrimaryKey { component_index } => {
@@ -182,9 +162,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
-                return Err(InternalError::query_executor_invariant(
-                    "pure covering projection unexpectedly reached row-backed field source",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
         };
         projected.push(value);
@@ -218,10 +196,9 @@ fn take_or_clone_last_component_value(
     decoded_values: &mut [Value],
     remaining_component_uses: &mut [usize],
     position: usize,
-    missing_message: &'static str,
 ) -> Result<Value, InternalError> {
     let Some(remaining) = remaining_component_uses.get_mut(position) else {
-        return Err(InternalError::query_executor_invariant(missing_message));
+        return Err(InternalError::query_executor_invariant());
     };
 
     // Projected columns are independently owned. Duplicate references clone
@@ -229,7 +206,7 @@ fn take_or_clone_last_component_value(
     *remaining = remaining.saturating_sub(1);
     if *remaining == 0 {
         let Some(value) = decoded_values.get_mut(position) else {
-            return Err(InternalError::query_executor_invariant(missing_message));
+            return Err(InternalError::query_executor_invariant());
         };
 
         return Ok(std::mem::replace(value, Value::Null));
@@ -238,7 +215,7 @@ fn take_or_clone_last_component_value(
     decoded_values
         .get(position)
         .cloned()
-        .ok_or_else(|| InternalError::query_executor_invariant(missing_message))
+        .ok_or_else(InternalError::query_executor_invariant)
 }
 
 pub(super) fn decode_hybrid_covering_components(
@@ -251,9 +228,7 @@ pub(super) fn decode_hybrid_covering_components(
         let Some(value) =
             crate::db::executor::decode_covering_projection_component(component.as_slice())?
         else {
-            return Err(InternalError::query_executor_invariant(
-                "hybrid projection expected one decodable covering component payload",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
         decoded.insert(component_index, value);
     }

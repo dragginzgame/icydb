@@ -91,20 +91,14 @@ impl LoadSurfaceMode {
 
     // Construct the canonical entrypoint/logical-plan mismatch invariant.
     pub(in crate::db::executor) fn logical_plan_invariant_error(self) -> InternalError {
-        InternalError::query_executor_invariant(if self.is_scalar_page() {
-            "grouped plans require grouped load execution mode"
-        } else {
-            "grouped load execution mode requires grouped logical plans"
-        })
+        let _ = self;
+        InternalError::query_executor_invariant()
     }
 
     // Construct the canonical entrypoint/cursor-input mismatch invariant.
     pub(in crate::db::executor) fn cursor_input_invariant_error(self) -> InternalError {
-        InternalError::query_executor_invariant(if self.is_scalar_page() {
-            "scalar load execution mode requires scalar cursor input"
-        } else {
-            "grouped load execution mode requires grouped cursor input"
-        })
+        let _ = self;
+        InternalError::query_executor_invariant()
     }
 }
 

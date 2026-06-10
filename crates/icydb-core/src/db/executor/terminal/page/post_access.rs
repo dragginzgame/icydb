@@ -65,9 +65,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
 
             if rows.len() > 1 {
                 if rows.iter().any(|row| !row.has_materialized_slots()) {
-                    return Err(InternalError::query_executor_invariant(
-                        "non-route-satisfied kernel ordering requires materialized order slots",
-                    ));
+                    return Err(InternalError::query_executor_invariant());
                 }
                 apply_structural_order_window(
                     rows,

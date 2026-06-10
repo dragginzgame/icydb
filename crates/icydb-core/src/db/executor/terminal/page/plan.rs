@@ -527,67 +527,39 @@ fn resolve_kernel_row_scan_strategy<'a>(
             KernelRowPayloadMode::DataRowOnly,
             ResidualFilterScanMode::Absent | ResidualFilterScanMode::DeferredPostAccess,
         ) => Ok(KernelRowScanStrategy::DataRows),
-        (KernelRowPayloadMode::DataRowOnly, ResidualFilterScanMode::AppliedDuringScan) => {
-            Err(InternalError::query_executor_invariant(
-                "data-row-only kernel rows must not apply residual predicates during scan",
-            ))
-        }
         (KernelRowPayloadMode::FullRowRetained, ResidualFilterScanMode::Absent) => {
             Ok(KernelRowScanStrategy::RetainedFullRows {
-                retained_slot_layout: retained_slot_layout.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "retained full-row kernel rows require one retained-slot layout",
-                    )
-                })?,
+                retained_slot_layout: retained_slot_layout
+                    .ok_or_else(InternalError::query_executor_invariant)?,
             })
         }
         (KernelRowPayloadMode::FullRowRetained, ResidualFilterScanMode::AppliedDuringScan) => {
             Ok(KernelRowScanStrategy::RetainedFullRowsFiltered {
-                filter_program: residual_filter_program.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "retained full-row kernel rows require one residual filter program",
-                    )
-                })?,
-                retained_slot_layout: retained_slot_layout.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "retained full-row kernel rows require one retained-slot layout",
-                    )
-                })?,
+                filter_program: residual_filter_program
+                    .ok_or_else(InternalError::query_executor_invariant)?,
+                retained_slot_layout: retained_slot_layout
+                    .ok_or_else(InternalError::query_executor_invariant)?,
             })
-        }
-        (KernelRowPayloadMode::FullRowRetained, ResidualFilterScanMode::DeferredPostAccess) => {
-            Err(InternalError::query_executor_invariant(
-                "retained full-row kernel rows must apply residual predicates during scan",
-            ))
         }
         (KernelRowPayloadMode::SlotsOnly, ResidualFilterScanMode::Absent) => {
             Ok(KernelRowScanStrategy::SlotOnlyRows {
-                retained_slot_layout: retained_slot_layout.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "slot-only kernel rows require one retained-slot layout",
-                    )
-                })?,
+                retained_slot_layout: retained_slot_layout
+                    .ok_or_else(InternalError::query_executor_invariant)?,
             })
         }
         (KernelRowPayloadMode::SlotsOnly, ResidualFilterScanMode::AppliedDuringScan) => {
             Ok(KernelRowScanStrategy::SlotOnlyRowsFiltered {
-                filter_program: residual_filter_program.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "slot-only kernel rows require one residual filter program",
-                    )
-                })?,
-                retained_slot_layout: retained_slot_layout.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "slot-only kernel rows require one retained-slot layout",
-                    )
-                })?,
+                filter_program: residual_filter_program
+                    .ok_or_else(InternalError::query_executor_invariant)?,
+                retained_slot_layout: retained_slot_layout
+                    .ok_or_else(InternalError::query_executor_invariant)?,
             })
         }
-        (KernelRowPayloadMode::SlotsOnly, ResidualFilterScanMode::DeferredPostAccess) => {
-            Err(InternalError::query_executor_invariant(
-                "slot-only kernel rows must apply residual predicates during scan",
-            ))
-        }
+        (KernelRowPayloadMode::DataRowOnly, ResidualFilterScanMode::AppliedDuringScan)
+        | (
+            KernelRowPayloadMode::FullRowRetained | KernelRowPayloadMode::SlotsOnly,
+            ResidualFilterScanMode::DeferredPostAccess,
+        ) => Err(InternalError::query_executor_invariant()),
     }
 }
 
@@ -604,11 +576,8 @@ fn resolve_post_access_strategy<'a>(
         ResidualFilterScanMode::Absent => PostAccessPredicateStrategy::NotPresent,
         ResidualFilterScanMode::AppliedDuringScan => PostAccessPredicateStrategy::AppliedDuringScan,
         ResidualFilterScanMode::DeferredPostAccess => PostAccessPredicateStrategy::Deferred {
-            filter_program: residual_filter_program.ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "deferred post-access filtering requires one residual filter program",
-                )
-            })?,
+            filter_program: residual_filter_program
+                .ok_or_else(InternalError::query_executor_invariant)?,
         },
     };
 

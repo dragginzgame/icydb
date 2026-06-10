@@ -84,7 +84,7 @@ impl GroupedAggregateState {
     // aggregate kinds that should already have been removed before grouped
     // state construction.
     fn unsupported_field_target_aggregate(_kind: AggregateKind) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     /// Build one empty grouped aggregate state container with one optional
@@ -118,12 +118,10 @@ impl GroupedAggregateState {
         group_fields: &[FieldSlot],
     ) -> Result<bool, InternalError> {
         let Value::List(canonical_group_values) = group_key.canonical_value() else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped aggregate key must remain a canonical Value::List".to_string(),
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
         if canonical_group_values.len() != group_fields.len() {
-            return Err(InternalError::query_executor_invariant(""));
+            return Err(InternalError::query_executor_invariant());
         }
 
         for (field, canonical_group_value) in group_fields.iter().zip(canonical_group_values) {
@@ -237,7 +235,7 @@ impl GroupedAggregateState {
             let state = self
                 .groups
                 .get_mut(&matched_group_key)
-                .ok_or_else(|| GroupError::from(InternalError::query_executor_invariant("")))?;
+                .ok_or_else(|| GroupError::from(InternalError::query_executor_invariant()))?;
 
             return state.apply_with_row_view(data_key, Some(row_view), execution_context);
         }

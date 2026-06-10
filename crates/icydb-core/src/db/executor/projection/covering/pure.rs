@@ -219,7 +219,6 @@ where
                 store,
                 plan.scalar_consistency(),
                 covering.existing_row_mode,
-                "pure covering projection expected one decodable covering component payload",
                 Ok::<Value, InternalError>,
             )
         });
@@ -236,7 +235,6 @@ where
             store,
             plan.scalar_consistency(),
             covering.existing_row_mode,
-            "pure covering projection expected one decodable covering component payload",
             Ok::<Value, InternalError>,
         )?
         else {

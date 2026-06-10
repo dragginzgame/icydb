@@ -195,11 +195,7 @@ impl PreparedScalarAggregateTerminalSet {
             CursorEmissionMode::Suppress,
             extra_slots.as_slice(),
         )
-        .ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "scalar aggregate terminal execution requires a retained-slot layout",
-            )
-        })
+        .ok_or_else(InternalError::query_executor_invariant)
     }
 
     pub(super) fn into_runtime_inputs(
@@ -472,9 +468,7 @@ impl ResolvedStructuralAggregateInput<'_> {
             Self::Expr(input_expr) => Ok(ScalarAggregateInput::Expr(
                 compile_structural_aggregate_expr(schema, input_expr, "input")?,
             )),
-            Self::MissingFieldTarget => Err(InternalError::query_executor_invariant(
-                "field-target structural aggregate terminal requires a resolved field slot",
-            )),
+            Self::MissingFieldTarget => Err(InternalError::query_executor_invariant()),
         }
     }
 }
@@ -538,11 +532,11 @@ fn compile_structural_aggregate_expr(
     _label: &str,
 ) -> Result<CompiledExpr, InternalError> {
     if let Some(_field) = first_unknown_structural_aggregate_expr_field(schema, expr) {
-        return Err(InternalError::query_executor_invariant(""));
+        return Err(InternalError::query_executor_invariant());
     }
 
     let scalar = compile_scalar_projection_expr_from_schema(schema, expr)
-        .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+        .ok_or_else(InternalError::query_executor_invariant)?;
 
     Ok(CompiledExpr::compile(&scalar))
 }

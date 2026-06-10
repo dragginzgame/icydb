@@ -82,6 +82,7 @@ impl CursorPlanError {
 
     /// Canonical invariant text for cursor surfaces that require either
     /// explicit scalar ordering or canonical grouped ordering.
+    #[cfg(test)]
     pub(in crate::db) const fn cursor_requires_explicit_or_grouped_ordering_message() -> &'static str
     {
         "cursor pagination requires explicit or grouped ordering"

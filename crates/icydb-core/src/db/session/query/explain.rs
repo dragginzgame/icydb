@@ -66,11 +66,9 @@ impl<C: CanisterKind> DbSession<C> {
             self.cached_shared_query_plan_for_entity::<E>(query)?;
         let mut plan = prepared_plan.logical_plan().clone();
         let authority = prepared_plan.authority();
-        let schema_info = authority.accepted_schema_info().ok_or_else(|| {
-            QueryError::invariant(
-                "session query execution explain lost accepted schema authority before access-choice finalization",
-            )
-        })?;
+        let schema_info = authority
+            .accepted_schema_info()
+            .ok_or_else(QueryError::invariant)?;
 
         plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
             query.structural().model(),
@@ -93,11 +91,9 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
             self.try_map_cached_logical_query_plan(query, |plan| {
                 let mut plan = plan.clone();
-                let schema_info = visible_indexes.accepted_schema_info().ok_or_else(|| {
-                    QueryError::invariant(
-                        "session query explain lost accepted schema visibility before access-choice finalization",
-                    )
-                })?;
+                let schema_info = visible_indexes
+                    .accepted_schema_info()
+                    .ok_or_else(QueryError::invariant)?;
                 plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
                     query.structural().model(),
                     visible_indexes.accepted_field_path_indexes(),

@@ -207,21 +207,17 @@ impl ExecutionRuntimeAdapter {
     // Require the scalar materialization runtime when the caller enters one
     // scalar-only row materialization path through the shared execution spine.
     fn scalar_row_runtime(&self) -> Result<&ScalarRowRuntimeState, InternalError> {
-        self.scalar_row_runtime.as_ref().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "scalar row runtime is required for scalar materialization paths",
-            )
-        })
+        self.scalar_row_runtime
+            .as_ref()
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     // Require structural entity authority only for runtime paths that still
     // materialize rows or covering projections through shared scalar kernels.
     fn authority(&self) -> Result<EntityAuthority, InternalError> {
-        self.authority.clone().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "structural entity authority is required for row materialization paths",
-            )
-        })
+        self.authority
+            .clone()
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     // Reuse the adapter-owned scalar row runtime for one materialization call

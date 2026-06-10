@@ -43,11 +43,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let model = authority.model();
-        let entity_name = schema.entity_name().ok_or_else(|| {
-            QueryError::invariant(
-                "SQL compilation must resolve the expected entity name from schema metadata",
-            )
-        })?;
+        let entity_name = schema.entity_name().ok_or_else(QueryError::invariant)?;
 
         match statement {
             SqlStatement::Select(_) => Self::compile_select(statement, entity_name, model, schema),

@@ -91,11 +91,7 @@ pub(in crate::db) fn eval_projection_function_call_checked(
 ) -> Result<Value, ProjectionFunctionEvalError> {
     match function.scalar_eval_shape() {
         ScalarEvalFunctionShape::NullTest => eval_null_test_function_call(function, args),
-        ScalarEvalFunctionShape::NonExecutableProjection => Err(QueryError::invariant(format!(
-            "projection function '{}' is not executable in scalar projection evaluation",
-            function.projection_eval_name(),
-        ))
-        .into()),
+        ScalarEvalFunctionShape::NonExecutableProjection => Err(QueryError::invariant().into()),
         ScalarEvalFunctionShape::UnaryText => eval_unary_text_function_call(function, args),
         ScalarEvalFunctionShape::DynamicCoalesce => eval_coalesce_function_call(function, args),
         ScalarEvalFunctionShape::DynamicNullIf => eval_nullif_function_call(function, args),
@@ -123,10 +119,7 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
     match expr {
         Expr::Field(field) => {
             if field.as_str() != field_name {
-                return Err(QueryError::invariant(format!(
-                    "value projection expected field '{field_name}' but found '{}'",
-                    field.as_str()
-                )));
+                return Err(QueryError::invariant());
             }
 
             Ok(value.clone())
@@ -161,9 +154,7 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
 
             eval_builder_expr_for_value_preview(else_expr.as_ref(), field_name, value)
         }
-        Expr::Aggregate(_) => Err(QueryError::invariant(
-            "value projection expressions cannot evaluate aggregate leaves",
-        )),
+        Expr::Aggregate(_) => Err(QueryError::invariant()),
         Expr::Binary { op, left, right } => {
             let left = eval_builder_expr_for_value_preview(left.as_ref(), field_name, value)?;
             let right = eval_builder_expr_for_value_preview(right.as_ref(), field_name, value)?;
@@ -188,13 +179,10 @@ fn required_function_arg<'a>(
     index: usize,
     label: &str,
 ) -> Result<&'a Value, ProjectionFunctionEvalError> {
-    args.get(index).ok_or_else(|| {
-        QueryError::invariant(format!(
-            "{} projection item was missing its {label} argument",
-            function.projection_eval_name(),
-        ))
-        .into()
-    })
+    let _ = (function, label);
+
+    args.get(index)
+        .ok_or_else(|| QueryError::invariant().into())
 }
 
 fn eval_null_test_function_call(
@@ -204,12 +192,7 @@ fn eval_null_test_function_call(
     let value = required_function_arg(function, args, 0, "value")?;
 
     if args.len() != 1 {
-        return Err(QueryError::invariant(format!(
-            "projection function '{}' expected 1 argument but received {}",
-            function.projection_eval_name(),
-            args.len(),
-        ))
-        .into());
+        return Err(QueryError::invariant().into());
     }
 
     Ok(function
@@ -265,12 +248,7 @@ fn eval_octet_length_function_call(
     let input = required_function_arg(function, args, 0, "input")?;
 
     if args.len() != 1 {
-        return Err(QueryError::invariant(format!(
-            "projection function '{}' expected 1 argument but received {}",
-            function.projection_eval_name(),
-            args.len(),
-        ))
-        .into());
+        return Err(QueryError::invariant().into());
     }
 
     match input {
@@ -291,12 +269,7 @@ fn eval_binary_numeric_function_call(
     let right = required_function_arg(function, args, 1, "right")?;
 
     if args.len() != 2 {
-        return Err(QueryError::invariant(format!(
-            "projection function '{}' expected 2 arguments but received {}",
-            function.projection_eval_name(),
-            args.len(),
-        ))
-        .into());
+        return Err(QueryError::invariant().into());
     }
 
     match (left, right) {
@@ -328,12 +301,7 @@ fn eval_coalesce_function_call(
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     if args.len() < 2 {
-        return Err(QueryError::invariant(format!(
-            "projection function '{}' expected at least 2 arguments but received {}",
-            function.projection_eval_name(),
-            args.len(),
-        ))
-        .into());
+        return Err(QueryError::invariant().into());
     }
 
     Ok(function.eval_coalesce_values(args))
@@ -347,12 +315,7 @@ fn eval_nullif_function_call(
     let right = required_function_arg(function, args, 1, "right")?;
 
     if args.len() != 2 {
-        return Err(QueryError::invariant(format!(
-            "projection function '{}' expected 2 arguments but received {}",
-            function.projection_eval_name(),
-            args.len(),
-        ))
-        .into());
+        return Err(QueryError::invariant().into());
     }
 
     let equals = eval_preview_binary_expr(BinaryOp::Eq, left, right)?;

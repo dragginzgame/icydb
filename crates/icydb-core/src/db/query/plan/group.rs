@@ -340,7 +340,7 @@ impl PlannedProjectionLayout {
         _position: usize,
         _projected_len: usize,
     ) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 }
 

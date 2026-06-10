@@ -93,9 +93,7 @@ where
                 PreparedScalarAggregateTerminalSet::new(scalar_aggregate_terminals),
             )?;
             if terminal_values.len() != scalar_aggregate_terminal_positions.len() {
-                return Err(InternalError::query_executor_invariant(
-                    "structural aggregate terminal output count must match staged terminals",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
 
             for (terminal_index, value) in scalar_aggregate_terminal_positions
@@ -107,11 +105,7 @@ where
         }
         let mut ordered_values = Vec::with_capacity(unique_values.len());
         for value in unique_values {
-            let value = value.ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "structural aggregate terminal did not produce a reduced value",
-                )
-            })?;
+            let value = value.ok_or_else(InternalError::query_executor_invariant)?;
             ordered_values.push(value);
         }
 
@@ -126,7 +120,7 @@ where
         );
         if let Some(expr) = compiled.having()
             && !evaluate_grouped_having_expr(expr, &grouped_row)
-                .map_err(|_err| InternalError::query_executor_invariant(""))?
+                .map_err(|_err| InternalError::query_executor_invariant())?
         {
             return Ok(StructuralAggregateResult::new(Vec::new()));
         }
@@ -136,7 +130,7 @@ where
             row.push(
                 expr.evaluate(&grouped_row)
                     .map(Cow::into_owned)
-                    .map_err(|_err| InternalError::query_executor_invariant(""))?,
+                    .map_err(|_err| InternalError::query_executor_invariant())?,
             );
         }
 

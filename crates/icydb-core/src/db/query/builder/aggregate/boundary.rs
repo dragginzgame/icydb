@@ -70,17 +70,15 @@ pub(in crate::db) enum ScalarTerminalBoundaryOutput {
 
 impl ScalarTerminalBoundaryOutput {
     // Build one canonical scalar terminal boundary mismatch on the owner type.
-    fn output_kind_mismatch(message: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(message)
+    fn output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant()
     }
 
     // Decode COUNT boundary output while preserving request/output mismatch context.
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary COUNT output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -88,9 +86,7 @@ impl ScalarTerminalBoundaryOutput {
     pub(in crate::db) fn into_exists(self) -> Result<bool, InternalError> {
         match self {
             Self::Exists(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary EXISTS output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -103,9 +99,7 @@ impl ScalarTerminalBoundaryOutput {
             Self::Id(value) => value
                 .map(|key| decode_primary_key_value_to_id::<E>(&key))
                 .transpose(),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary id output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -123,9 +117,7 @@ impl ScalarTerminalBoundaryOutput {
                     ))
                 })
                 .transpose(),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary id-pair output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 }
@@ -203,17 +195,15 @@ pub(in crate::db) enum ScalarProjectionBoundaryOutput {
 
 impl ScalarProjectionBoundaryOutput {
     // Build the canonical boundary mismatch for projection output decoding.
-    fn output_kind_mismatch(message: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(message)
+    fn output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant()
     }
 
     // Decode one plain-value projection boundary output.
     pub(in crate::db) fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
             Self::Values(values) => Ok(values),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary values output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -221,9 +211,7 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary count output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -237,9 +225,7 @@ impl ScalarProjectionBoundaryOutput {
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary values-with-ids output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 
@@ -247,9 +233,7 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_terminal_value(self) -> Result<Option<Value>, InternalError> {
         match self {
             Self::TerminalValue(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary terminal-value output kind mismatch",
-            )),
+            _ => Err(Self::output_kind_mismatch()),
         }
     }
 }

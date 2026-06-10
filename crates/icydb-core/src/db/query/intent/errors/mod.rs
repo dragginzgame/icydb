@@ -136,40 +136,38 @@ impl QueryError {
     }
 
     /// Construct one query-origin invariant-violation execution error.
-    pub(in crate::db) fn invariant(message: impl Into<String>) -> Self {
-        Self::execute(InternalError::query_executor_invariant(message))
+    pub(in crate::db) fn invariant() -> Self {
+        Self::execute(InternalError::query_executor_invariant())
     }
 
     /// Construct one invariant for prepared SELECT lowering that lost SELECT shape.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn prepared_sql_select_lane_mismatch() -> Self {
-        Self::invariant("compiled SQL SELECT lane must lower to lowered SQL SELECT")
+        Self::invariant()
     }
 
     /// Construct one invariant for prepared DELETE lowering that lost DELETE shape.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn prepared_sql_delete_lane_mismatch() -> Self {
-        Self::invariant("compiled SQL DELETE lane must lower to lowered SQL DELETE")
+        Self::invariant()
     }
 
     /// Construct one invariant for prepared INSERT extraction that lost INSERT shape.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn prepared_sql_insert_lane_mismatch() -> Self {
-        Self::invariant("prepared SQL INSERT compilation must preserve INSERT statement ownership")
+        Self::invariant()
     }
 
     /// Construct one invariant for prepared INSERT SELECT extraction that lost SELECT source shape.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn prepared_sql_insert_select_source_mismatch() -> Self {
-        Self::invariant(
-            "prepared SQL INSERT SELECT compilation must preserve SELECT source ownership",
-        )
+        Self::invariant()
     }
 
     /// Construct one invariant for prepared UPDATE extraction that lost UPDATE shape.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn prepared_sql_update_lane_mismatch() -> Self {
-        Self::invariant("prepared SQL UPDATE compilation must preserve UPDATE statement ownership")
+        Self::invariant()
     }
 
     /// Construct one intent-domain query error.
@@ -324,12 +322,12 @@ impl QueryError {
 
     /// Construct one invariant violation for scalar pagination emitting the wrong cursor kind.
     pub(in crate::db) fn scalar_paged_emitted_grouped_continuation() -> Self {
-        Self::invariant("scalar load pagination emitted grouped continuation token")
+        Self::invariant()
     }
 
     /// Construct one invariant violation for grouped pagination emitting the wrong cursor kind.
     pub(in crate::db) fn grouped_paged_emitted_scalar_continuation() -> Self {
-        Self::invariant("grouped pagination emitted scalar continuation token")
+        Self::invariant()
     }
 }
 

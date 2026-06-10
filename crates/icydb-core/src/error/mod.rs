@@ -313,7 +313,7 @@ impl InternalError {
     /// contract drift.
     #[cold]
     #[inline(never)]
-    pub(crate) fn query_executor_invariant(_reason: impl Into<String>) -> Self {
+    pub(crate) fn query_executor_invariant() -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Query,
@@ -510,52 +510,52 @@ impl InternalError {
 
     /// Construct a query-origin scalar page invariant for ordering before filtering.
     pub(crate) fn scalar_page_ordering_after_filtering_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scalar page invariant for missing order at the cursor boundary.
     pub(crate) fn scalar_page_cursor_boundary_order_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scalar page invariant for cursor-before-ordering drift.
     pub(crate) fn scalar_page_cursor_boundary_after_ordering_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scalar page invariant for pagination-before-ordering drift.
     pub(crate) fn scalar_page_pagination_after_ordering_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scalar page invariant for delete-limit-before-ordering drift.
     pub(crate) fn scalar_page_delete_limit_after_ordering_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin load-runtime invariant for scalar-mode payload mismatch.
     pub(crate) fn load_runtime_scalar_payload_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin load-runtime invariant for grouped-mode payload mismatch.
     pub(crate) fn load_runtime_grouped_payload_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin load-surface invariant for scalar-page payload mismatch.
     pub(crate) fn load_runtime_scalar_surface_payload_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin load-surface invariant for grouped-page payload mismatch.
     pub(crate) fn load_runtime_grouped_surface_payload_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin load-entrypoint invariant for non-load plans.
     pub(crate) fn load_executor_load_plan_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct an executor-origin delete-entrypoint unsupported grouped-mode error.
@@ -565,27 +565,27 @@ impl InternalError {
 
     /// Construct a query-origin delete-entrypoint invariant for non-delete plans.
     pub(crate) fn delete_executor_delete_plan_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin aggregate kernel invariant for fold-mode contract drift.
     pub(crate) fn aggregate_fold_mode_terminal_contract_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin fast-stream invariant for route kind/request mismatch.
     pub(crate) fn fast_stream_route_kind_request_match_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scan invariant for missing index-prefix executable specs.
     pub(crate) fn secondary_index_prefix_spec_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct a query-origin scan invariant for missing index-range executable specs.
     pub(crate) fn index_range_limit_spec_required() -> Self {
-        Self::query_executor_invariant(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+        Self::query_executor_invariant()
     }
 
     /// Construct an executor-origin mutation unsupported error for duplicate atomic save keys.

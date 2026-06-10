@@ -56,49 +56,37 @@ struct FieldExtremaFoldSpec<'a> {
 impl FieldExtremaFoldSpec<'_> {
     // Build the canonical materialized reducer invariant for non-extrema kinds.
     fn materialized_reduction_requires_extrema() -> InternalError {
-        InternalError::query_executor_invariant(
-            "materialized field-extrema reduction requires MIN/MAX terminal",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical materialized reducer invariant for unexpected non-extrema output.
     fn materialized_reduction_reached_non_extrema() -> InternalError {
-        InternalError::query_executor_invariant(
-            "materialized field-extrema reduction reached non-extrema terminal",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical route-execution invariant for non-extrema field-target requests.
     fn execution_requires_extrema() -> InternalError {
-        InternalError::query_executor_invariant(
-            "field-target aggregate execution requires MIN/MAX terminal",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical route-execution invariant for missing field-extrema fast-path routing.
     fn route_fast_path_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "field-target aggregate streaming requires route-eligible field-extrema fast path",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical streaming invariant for non-extrema direction lookup.
     fn direction_requires_extrema() -> InternalError {
-        InternalError::query_executor_invariant(
-            "field-target aggregate direction requires MIN/MAX terminal",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical fold invariant for unexpected non-extrema output.
     fn fold_reached_non_extrema() -> InternalError {
-        InternalError::query_executor_invariant("field-extrema fold reached non-extrema terminal")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical fold invariant for route/order drift against extrema semantics.
     fn fold_direction_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "field-extrema fold direction must match aggregate terminal semantics",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Resolve the aggregate-owned extrema traversal direction for this fold.

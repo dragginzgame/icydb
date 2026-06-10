@@ -207,14 +207,10 @@ impl ScalarContinuationContext {
     ) -> Result<(), InternalError> {
         if scan_budget_hint.is_some() {
             if self.has_cursor_boundary() {
-                return Err(InternalError::query_executor_invariant(
-                    "load page scan budget hint requires non-continuation execution",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
             if !load_order_route_mode.allows_streaming_load() {
-                return Err(InternalError::query_executor_invariant(
-                    "load page scan budget hint requires streaming-safe access shape",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
         }
 

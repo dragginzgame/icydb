@@ -68,10 +68,8 @@ where
 // fallback behavior for unsupported component encodings.
 fn bytes_by_single_covering_component_len(
     components: CoveringComponentValues,
-    invariant_message: &'static str,
 ) -> Result<Option<usize>, InternalError> {
-    let Some(value) = decode_single_covering_projection_value(components, invariant_message)?
-    else {
+    let Some(value) = decode_single_covering_projection_value(components)? else {
         return Ok(None);
     };
 
@@ -195,11 +193,7 @@ where
                     &prepared.logical_plan().access,
                     target_field.field(),
                 )
-                .ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "bytes_by covering-constant mode selected without constant value",
-                    )
-                })?;
+                .ok_or_else(InternalError::query_executor_invariant)?;
                 let value_len = serialized_value_len(&constant_value)?;
                 let page = self.execute_scalar_materialized_page_boundary(prepared)?;
                 let row_count = u64::try_from(page.data_rows().len()).unwrap_or(u64::MAX);
@@ -302,7 +296,6 @@ where
             prepared.store,
             prepared.consistency(),
             covering_requires_row_presence_check(),
-            "bytes covering projection expected one decoded component",
             |value| serialized_value_len(&value),
         )?
         else {
@@ -362,11 +355,7 @@ where
                 continue;
             }
 
-            let Some(value_len) = bytes_by_single_covering_component_len(
-                components,
-                "bytes covering projection expected one decoded component",
-            )?
-            else {
+            let Some(value_len) = bytes_by_single_covering_component_len(components)? else {
                 return Ok(None);
             };
             total = saturating_add_payload_len(total, value_len);
@@ -424,9 +413,7 @@ where
         let page = prepared.page_spec().cloned();
         let executable = prepared.logical_plan().access.executable_contract();
         let Some(path) = executable.as_path() else {
-            return Err(InternalError::query_executor_invariant(
-                "bytes PK fast path requires single-path access strategy",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
         let (offset, limit) = page_window_state(page.as_ref());
 
@@ -458,9 +445,7 @@ where
                     limit,
                 )
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "bytes PK fast path requires full-scan or key-range access",
-            )),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 

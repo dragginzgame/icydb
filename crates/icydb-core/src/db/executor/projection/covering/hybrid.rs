@@ -242,9 +242,7 @@ fn read_hybrid_projection_row_fields_from_store(
         let Some(value) =
             row_layout.decode_required_value_from_data_key(&raw_row, data_key, *required_slot)?
         else {
-            return Err(InternalError::query_executor_invariant(
-                "hybrid projection sparse row decode expected declared direct field value",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
         let mut row_fields = BTreeMap::new();
         row_fields.insert(*required_slot, value);
@@ -261,9 +259,7 @@ fn read_hybrid_projection_row_fields_from_store(
 
     for (slot, value) in row_field_slots.iter().copied().zip(decoded) {
         let Some(value) = value else {
-            return Err(InternalError::query_executor_invariant(
-                "hybrid projection sparse row decode expected declared direct field value",
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
         row_fields.insert(slot, value);
     }
@@ -291,7 +287,6 @@ fn project_hybrid_covering_row(
                     &mut decoded_components,
                     &mut remaining_index_component_uses,
                     *component_index,
-                    "hybrid projection missing decoded covering component",
                 )?
             }
             CoveringReadFieldSource::PrimaryKey { component_index } => {
@@ -305,7 +300,6 @@ fn project_hybrid_covering_row(
                     &mut row_fields,
                     &mut remaining_row_field_uses,
                     field.field_slot.index(),
-                    "hybrid projection missing sparse row-backed field value",
                 )?
             }
         };
@@ -343,10 +337,9 @@ fn take_or_clone_last_covering_value(
     values: &mut BTreeMap<usize, Value>,
     remaining_uses: &mut BTreeMap<usize, usize>,
     slot: usize,
-    missing_message: &'static str,
 ) -> Result<Value, InternalError> {
     let Some(remaining) = remaining_uses.get_mut(&slot) else {
-        return Err(InternalError::query_executor_invariant(missing_message));
+        return Err(InternalError::query_executor_invariant());
     };
 
     // Projected columns are independently owned. Duplicate references clone
@@ -355,11 +348,11 @@ fn take_or_clone_last_covering_value(
     if *remaining == 0 {
         return values
             .remove(&slot)
-            .ok_or_else(|| InternalError::query_executor_invariant(missing_message));
+            .ok_or_else(InternalError::query_executor_invariant);
     }
 
     values
         .get(&slot)
         .cloned()
-        .ok_or_else(|| InternalError::query_executor_invariant(missing_message))
+        .ok_or_else(InternalError::query_executor_invariant)
 }

@@ -126,12 +126,12 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
 impl GroupedTerminalAggregateState {
     // Build the canonical grouped terminal invariant for field-target-only kinds.
     fn field_target_execution_required(_kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical grouped terminal invariant for primary-key-value-required updates.
     fn primary_key_value_required(_kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical grouped terminal invariant for one non-numeric
@@ -142,7 +142,7 @@ impl GroupedTerminalAggregateState {
         _field: &str,
         _value: &Value,
     ) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical grouped terminal invariant for aggregate-input
@@ -275,7 +275,7 @@ impl GroupedTerminalAggregateState {
 
             return Self::coerce_sum_like_decimal(&value)
                 .map(Some)
-                .ok_or_else(|| InternalError::query_executor_invariant(""));
+                .ok_or_else(InternalError::query_executor_invariant);
         }
 
         let Some(target_field) = self.target_field.as_ref() else {

@@ -83,7 +83,7 @@ impl GroupedCountState {
         let (_, count) = self
             .groups
             .get_mut(existing_index)
-            .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+            .ok_or_else(InternalError::query_executor_invariant)?;
         *count = count.saturating_add(1);
         Ok(())
     }

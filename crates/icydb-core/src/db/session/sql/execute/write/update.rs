@@ -70,9 +70,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         if schema_info.primary_key_names().is_empty() {
-            return Err(QueryError::invariant(
-                "SQL UPDATE selector must resolve the primary key from accepted schema metadata",
-            ));
+            return Err(QueryError::invariant());
         }
         let primary_key_names = schema_info
             .primary_key_names()
@@ -100,18 +98,14 @@ impl<C: CanisterKind> DbSession<C> {
         let primary_key_names = descriptor.primary_key_names();
         if primary_key_names.len() == 1 {
             let Some(value) = row.first() else {
-                return Err(QueryError::invariant(
-                    "SQL UPDATE target selector emitted an empty primary-key projection row",
-                ));
+                return Err(QueryError::invariant());
             };
 
             return sql_write_key_from_literal::<E>(descriptor, value);
         }
 
         if row.len() != primary_key_names.len() {
-            return Err(QueryError::invariant(
-                "SQL UPDATE target selector emitted a primary-key projection row with the wrong width",
-            ));
+            return Err(QueryError::invariant());
         }
 
         sql_write_key_from_component_literals::<E>(descriptor, row)
@@ -131,9 +125,9 @@ impl<C: CanisterKind> DbSession<C> {
         validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
         let authority = Self::accepted_entity_authority_for_schema::<E>(&schema)
             .map_err(QueryError::execute)?;
-        let schema_info = authority.accepted_schema_info().ok_or_else(|| {
-            QueryError::invariant("SQL UPDATE selector authority must carry accepted schema info")
-        })?;
+        let schema_info = authority
+            .accepted_schema_info()
+            .ok_or_else(QueryError::invariant)?;
         let save_schema_info = schema_info.clone();
         let selector = Self::sql_update_selector_query::<E>(schema_info, statement)?;
         let patch = Self::sql_structural_patch(&descriptor, statement)?;

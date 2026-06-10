@@ -120,7 +120,7 @@ impl RowView {
     // Build the shared missing-slot invariant so borrowed and consuming slot
     // access paths preserve the same failure text.
     fn missing_required_slot_error(_index: usize) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     /// Build one structural row view from slot-indexed values.
@@ -406,7 +406,7 @@ impl StructuralGroupedRowRuntime {
             single_grouped_slot_decode,
         )?;
 
-        let value = value.ok_or_else(|| InternalError::query_executor_invariant(""))?;
+        let value = value.ok_or_else(InternalError::query_executor_invariant)?;
 
         Ok(RowView::from_single_value(
             single_grouped_slot_decode.slot,

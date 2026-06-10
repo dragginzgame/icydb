@@ -44,22 +44,22 @@ struct GlobalDistinctGroupedOutputContract;
 impl GlobalDistinctGroupedOutputContract {
     // Build the canonical invariant for unexpected continuation output.
     fn continuation_cursor_forbidden() -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical invariant for grouped pages that exceed the zero-key singleton shape.
     fn grouped_row_count_invalid(_found: usize) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical invariant for grouped rows that retain grouping keys.
     fn grouped_key_must_be_empty() -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical invariant for grouped rows with unexpected aggregate width.
     fn aggregate_value_count_invalid(_found: usize) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Decode one grouped zero-key DISTINCT aggregate page back into one scalar

@@ -611,11 +611,8 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-frozen resolved ORDER BY program or return one executor invariant error.
     pub(in crate::db) fn require_resolved_order(&self) -> Result<&ResolvedOrder, InternalError> {
-        self.resolved_order().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "ordered execution must consume one planner-frozen resolved order program",
-            )
-        })
+        self.resolved_order()
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Attach one frozen planner-owned route profile.

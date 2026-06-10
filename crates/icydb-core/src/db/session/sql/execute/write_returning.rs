@@ -108,11 +108,9 @@ where
     let mut row = Vec::with_capacity(field_count);
 
     for index in 0..field_count {
-        let value = entity.get_value_by_index(index).ok_or_else(|| {
-            QueryError::invariant(
-                "SQL write statement projection row must include every declared field",
-            )
-        })?;
+        let value = entity
+            .get_value_by_index(index)
+            .ok_or_else(QueryError::invariant)?;
         row.push(value);
     }
 
@@ -128,11 +126,9 @@ where
     let mut row = Vec::with_capacity(indices.len());
 
     for index in indices {
-        let value = entity.get_value_by_index(*index).ok_or_else(|| {
-            QueryError::invariant(
-                "SQL write statement projection row must include every returned field",
-            )
-        })?;
+        let value = entity
+            .get_value_by_index(*index)
+            .ok_or_else(QueryError::invariant)?;
         row.push(value);
     }
 
@@ -314,5 +310,5 @@ fn sql_returning_project_owned_row(
 
 // Build the shared invariant for owned SQL RETURNING row/column mismatches.
 fn sql_returning_projection_alignment_error() -> QueryError {
-    QueryError::invariant("SQL RETURNING projection row must align with declared columns")
+    QueryError::invariant()
 }

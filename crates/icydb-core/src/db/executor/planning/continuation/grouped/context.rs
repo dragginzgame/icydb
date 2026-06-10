@@ -71,7 +71,7 @@ impl GroupedContinuationContext {
         last_group_key: Vec<Value>,
     ) -> Result<PageCursor, InternalError> {
         if last_group_key.len() != self.continuation_boundary_arity {
-            return Err(InternalError::query_executor_invariant(""));
+            return Err(InternalError::query_executor_invariant());
         }
 
         Ok(PageCursor::Grouped(

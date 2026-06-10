@@ -107,7 +107,7 @@ impl ValueReducerState {
             Self::Count { .. } => self.increment_count(),
             Self::Sum { .. } | Self::Avg { .. } => {
                 let decimal = coerce_numeric_decimal(value)
-                    .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+                    .ok_or_else(InternalError::query_executor_invariant)?;
 
                 self.ingest_decimal(decimal)
             }
@@ -143,7 +143,7 @@ impl ValueReducerState {
             #[cfg(feature = "sql")]
             Self::Sum { .. } | Self::Avg { .. } => {
                 let decimal = coerce_numeric_decimal(&value)
-                    .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+                    .ok_or_else(InternalError::query_executor_invariant)?;
 
                 self.ingest_decimal(decimal)
             }
@@ -364,7 +364,7 @@ fn selected_value_should_replace(
         return Ok(true);
     };
     let ordering = compare_numeric_or_strict_order(candidate, current)
-        .ok_or_else(|| InternalError::query_executor_invariant(""))?;
+        .ok_or_else(InternalError::query_executor_invariant)?;
 
     Ok(if select_min {
         ordering.is_lt()
@@ -375,5 +375,5 @@ fn selected_value_should_replace(
 
 #[cfg(feature = "sql")]
 fn reducer_state_mismatch(_kind: &'static str) -> InternalError {
-    InternalError::query_executor_invariant("")
+    InternalError::query_executor_invariant()
 }

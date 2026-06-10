@@ -163,9 +163,7 @@ fn execute_existing_rows_terminal_request(
         PreparedScalarTerminalOp::Count => ScalarTerminalKind::Count,
         PreparedScalarTerminalOp::Exists => ScalarTerminalKind::Exists,
         PreparedScalarTerminalOp::IdTerminal { .. } | PreparedScalarTerminalOp::IdBySlot { .. } => {
-            return Err(InternalError::query_executor_invariant(
-                "existing-row terminal execution requires COUNT or EXISTS op",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
     };
     let aggregate_output =
@@ -177,15 +175,13 @@ fn execute_existing_rows_terminal_request(
 
     match op {
         PreparedScalarTerminalOp::Count => aggregate_output
-            .into_count("existing-row COUNT reducer result kind mismatch")
+            .into_count()
             .map(ScalarAggregateOutput::Count),
         PreparedScalarTerminalOp::Exists => aggregate_output
-            .into_exists("existing-row EXISTS reducer result kind mismatch")
+            .into_exists()
             .map(ScalarAggregateOutput::Exists),
         PreparedScalarTerminalOp::IdTerminal { .. } | PreparedScalarTerminalOp::IdBySlot { .. } => {
-            Err(InternalError::query_executor_invariant(
-                "existing-row terminal finalization requires COUNT or EXISTS op",
-            ))
+            Err(InternalError::query_executor_invariant())
         }
     }
 }
@@ -249,9 +245,7 @@ fn aggregate_count_from_pk_cardinality_with_store(
     // Phase 1: snapshot pagination + access payload before resolving store cardinality.
     let page = logical_plan.scalar_plan().page.as_ref();
     let Some(path) = lowered_access.executable().as_path() else {
-        return Err(InternalError::query_executor_invariant(
-            "pk cardinality COUNT fast path requires single-path access strategy",
-        ));
+        return Err(InternalError::query_executor_invariant());
     };
 
     // Phase 2: read candidate-row cardinality directly from primary storage.
@@ -283,9 +277,7 @@ fn aggregate_count_from_pk_cardinality_with_store(
             })
         }
         _ => {
-            return Err(InternalError::query_executor_invariant(
-                "pk cardinality COUNT fast path requires full-scan or key-range access",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
     };
 
@@ -315,10 +307,7 @@ where
             )?;
 
             aggregate_output
-                .into_optional_id_terminal(
-                    kind,
-                    "aggregate order-sensitive id-terminal result kind mismatch",
-                )
+                .into_optional_id_terminal(kind)
                 .map(ScalarTerminalBoundaryOutput::Id)
         }
         PreparedOrderSensitiveTerminalOp::FieldOrder {
@@ -351,17 +340,13 @@ where
     // Build the canonical rejection for requests that do not belong on the
     // scalar COUNT/EXISTS/id terminal boundary.
     fn scalar_terminal_boundary_request_unsupported() -> InternalError {
-        InternalError::query_executor_invariant(
-            "prepared scalar terminal boundary only supports COUNT/EXISTS/id terminals",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical rejection for requests that do not belong on the
     // order-sensitive first/last/nth/median/min-max terminal boundary.
     fn order_sensitive_terminal_boundary_request_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "order-sensitive terminal boundary requires first/last/nth/median/min-max request",
-        )
+        InternalError::query_executor_invariant()
     }
 
     // Resolve one planner field slot and package it into the shared
@@ -595,14 +580,14 @@ where
 
         match op {
             PreparedScalarTerminalOp::Count => aggregate_output
-                .into_count("aggregate COUNT result kind mismatch")
+                .into_count()
                 .map(ScalarTerminalBoundaryOutput::Count),
             PreparedScalarTerminalOp::Exists => aggregate_output
-                .into_exists("aggregate EXISTS result kind mismatch")
+                .into_exists()
                 .map(ScalarTerminalBoundaryOutput::Exists),
             PreparedScalarTerminalOp::IdTerminal { kind }
             | PreparedScalarTerminalOp::IdBySlot { kind, .. } => aggregate_output
-                .into_optional_id_terminal(kind, "aggregate id-terminal result kind mismatch")
+                .into_optional_id_terminal(kind)
                 .map(ScalarTerminalBoundaryOutput::Id),
         }
     }

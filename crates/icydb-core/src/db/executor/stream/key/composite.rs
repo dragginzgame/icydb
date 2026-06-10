@@ -77,12 +77,12 @@ impl StreamSideState {
 
     // Build the canonical invariant for entity drift within one ordered child stream.
     fn entity_monotonicity_required() -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Build the canonical invariant for out-of-order keys within one ordered child stream.
     fn key_monotonicity_required() -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     // Validate this stream-side monotonicity according to configured direction.

@@ -337,9 +337,7 @@ fn retained_slot_octet_length_value(value: &Value) -> Result<Value, InternalErro
         Value::Text(text) => Value::Nat64(u64::try_from(text.len()).unwrap_or(u64::MAX)),
         Value::Nat64(length) => Value::Nat64(*length),
         _ => {
-            return Err(InternalError::query_executor_invariant(
-                "retained-slot OCTET_LENGTH optimization requires text, blob, or precomputed length values",
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
     };
 

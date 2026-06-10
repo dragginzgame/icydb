@@ -117,7 +117,6 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 key_stream,
                 scan_budget_hint,
                 Some(retained_slot_layout),
-                "retained full-row kernel rows require one retained-slot layout",
                 |key_stream, retained_slot_layout| {
                     scan_full_retained_rows_into_kernel(
                         key_stream,
@@ -141,7 +140,6 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 key_stream,
                 scan_budget_hint,
                 Some(retained_slot_layout),
-                "retained full-row kernel rows require one retained-slot layout",
                 |key_stream, retained_slot_layout| {
                     scan_full_retained_rows_into_kernel_with_filter_program(
                         key_stream,
@@ -165,7 +163,6 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 key_stream,
                 scan_budget_hint,
                 Some(retained_slot_layout),
-                "slot-only kernel rows require one retained-slot layout",
                 |key_stream, retained_slot_layout| {
                     scan_slot_rows_into_kernel(
                         key_stream,
@@ -189,7 +186,6 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 key_stream,
                 scan_budget_hint,
                 Some(retained_slot_layout),
-                "slot-only kernel rows require one retained-slot layout",
                 |key_stream, retained_slot_layout| {
                     scan_slot_rows_into_kernel_with_filter_program(
                         key_stream,
@@ -213,14 +209,13 @@ fn execute_retained_kernel_scan(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
-    missing_layout_message: &'static str,
     mut scan_rows: impl FnMut(
         &mut OrderedKeyStreamBox,
         &RetainedSlotLayout,
     ) -> Result<(Vec<KernelRow>, usize), InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
-    let retained_slot_layout = retained_slot_layout
-        .ok_or_else(|| InternalError::query_executor_invariant(missing_layout_message))?;
+    let retained_slot_layout =
+        retained_slot_layout.ok_or_else(InternalError::query_executor_invariant)?;
 
     execute_scalar_page_read_loop(key_stream, scan_budget_hint, |key_stream| {
         scan_rows(key_stream, retained_slot_layout)
@@ -544,7 +539,6 @@ pub(super) fn scan_materialized_order_direct_data_rows(
         row_runtime,
         residual_filter_program,
         retained_slot_layout,
-        "materialized-order direct data-row path cannot defer residual filtering",
     )
 }
 
@@ -562,7 +556,6 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
-    deferred_filtering_message: &'static str,
 ) -> Result<DirectDataRowScanResult, InternalError> {
     execute_scalar_data_row_read_loop(
         key_stream,
@@ -578,16 +571,10 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
                 row_runtime,
             ),
             ResidualFilterScanMode::AppliedDuringScan => {
-                let filter_program = residual_filter_program.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "scan-time residual filtering requires one compiled residual filter program",
-                    )
-                })?;
-                let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "scan-time residual filtering requires one retained-slot layout",
-                    )
-                })?;
+                let filter_program =
+                    residual_filter_program.ok_or_else(InternalError::query_executor_invariant)?;
+                let retained_slot_layout =
+                    retained_slot_layout.ok_or_else(InternalError::query_executor_invariant)?;
 
                 scan_data_rows_direct_with_filter_program(
                     key_stream,
@@ -599,9 +586,9 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
                     retained_slot_layout,
                 )
             }
-            ResidualFilterScanMode::DeferredPostAccess => Err(
-                InternalError::query_executor_invariant(deferred_filtering_message),
-            ),
+            ResidualFilterScanMode::DeferredPostAccess => {
+                Err(InternalError::query_executor_invariant())
+            }
         },
     )
 }

@@ -61,9 +61,7 @@ pub(super) fn execute_direct_data_row_path(
                 record_direct_filtered_data_row_path_hit();
             }
             ResidualFilterScanMode::DeferredPostAccess => {
-                return Err(InternalError::query_executor_invariant(
-                    "materialized-order direct data-row path cannot defer residual filtering",
-                ));
+                return Err(InternalError::query_executor_invariant());
             }
         },
     }
@@ -130,7 +128,6 @@ pub(super) fn execute_direct_data_row_path(
             row_runtime,
             None,
             None,
-            "direct data-row path cannot defer residual filtering",
         ),
         DirectDataRowPath::Filtered {
             row_keep_cap,
@@ -146,7 +143,6 @@ pub(super) fn execute_direct_data_row_path(
             row_runtime,
             Some(filter_program),
             Some(retained_slot_layout),
-            "direct filtered data-row path cannot defer residual filtering",
         ),
         DirectDataRowPath::MaterializedOrder {
             residual_filter_scan_mode,

@@ -147,14 +147,10 @@ fn entity_response_from_ranked_rows<E>(
 where
     E: PersistedRow + EntityValue,
 {
-    let output_rows = move_selected_ranked_rows(
-        rows,
-        ordered_rows,
-        "ranked row terminal selected an invalid materialized row index",
-    )?
-    .into_iter()
-    .map(|(row, _)| row)
-    .collect();
+    let output_rows = move_selected_ranked_rows(rows, ordered_rows)?
+        .into_iter()
+        .map(|(row, _)| row)
+        .collect();
 
     decode_data_rows_into_entity_response::<E>(row_layout, output_rows)
 }
@@ -163,12 +159,7 @@ fn field_values_with_data_keys_from_ranked_rows(
     rows: Vec<DataRow>,
     ordered_rows: Vec<(usize, Value)>,
 ) -> Result<Vec<(DecodedDataStoreKey, Value)>, InternalError> {
-    move_selected_ranked_rows(
-        rows,
-        ordered_rows,
-        "ranked values-with-ids terminal selected an invalid materialized row index",
-    )
-    .map(|rows| {
+    move_selected_ranked_rows(rows, ordered_rows).map(|rows| {
         rows.into_iter()
             .map(|((data_key, _raw_row), value)| (data_key, value))
             .collect()
@@ -182,7 +173,6 @@ fn field_values_with_data_keys_from_ranked_rows(
 fn move_selected_ranked_rows(
     mut rows: Vec<DataRow>,
     ordered_rows: Vec<(usize, Value)>,
-    invalid_index_message: &'static str,
 ) -> Result<Vec<(DataRow, Value)>, InternalError> {
     let mut selected_indices = Vec::with_capacity(ordered_rows.len());
     for (output_index, (row_index, value)) in ordered_rows.into_iter().enumerate() {
@@ -195,9 +185,7 @@ fn move_selected_ranked_rows(
     let mut previous_row_index = None;
     for (row_index, output_index, value) in selected_indices {
         if previous_row_index == Some(row_index) || row_index >= rows.len() {
-            return Err(InternalError::query_executor_invariant(
-                invalid_index_message,
-            ));
+            return Err(InternalError::query_executor_invariant());
         }
         previous_row_index = Some(row_index);
 
@@ -206,8 +194,7 @@ fn move_selected_ranked_rows(
 
     let mut ranked_rows = Vec::with_capacity(output_rows.len());
     for row in output_rows {
-        let row =
-            row.ok_or_else(|| InternalError::query_executor_invariant(invalid_index_message))?;
+        let row = row.ok_or_else(InternalError::query_executor_invariant)?;
         ranked_rows.push(row);
     }
 

@@ -28,7 +28,7 @@ impl GroupedRouteStage {
     pub(in crate::db::executor) fn canonical_group_key_must_be_list(
         _value: &Value,
     ) -> InternalError {
-        InternalError::query_executor_invariant("")
+        InternalError::query_executor_invariant()
     }
 
     /// Borrow grouped logical plan payload.
