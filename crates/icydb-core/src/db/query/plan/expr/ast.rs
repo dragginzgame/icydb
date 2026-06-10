@@ -205,25 +205,6 @@ pub(in crate::db) enum BinaryOp {
 }
 
 impl BinaryOp {
-    /// Return the stable planner-owned lowercase label for this binary operator.
-    #[must_use]
-    pub(in crate::db) const fn canonical_label(self) -> &'static str {
-        match self {
-            Self::Or => "or",
-            Self::And => "and",
-            Self::Eq => "eq",
-            Self::Ne => "ne",
-            Self::Lt => "lt",
-            Self::Lte => "lte",
-            Self::Gt => "gt",
-            Self::Gte => "gte",
-            Self::Add => "add",
-            Self::Sub => "sub",
-            Self::Mul => "mul",
-            Self::Div => "div",
-        }
-    }
-
     /// Report whether this operator belongs to the numeric arithmetic family.
     #[must_use]
     pub(in crate::db) const fn is_numeric_arithmetic(self) -> bool {

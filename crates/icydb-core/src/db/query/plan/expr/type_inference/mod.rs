@@ -149,10 +149,7 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
             match op {
                 UnaryOp::Not => {
                     if !matches!(inner, ExprType::Bool) {
-                        return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
-                            "not",
-                            format!("{inner:?}"),
-                        )));
+                        return Err(PlanError::from(ExprPlanError::invalid_unary_operand()));
                     }
 
                     Ok(ExprType::Bool)

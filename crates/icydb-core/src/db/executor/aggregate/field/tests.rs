@@ -139,7 +139,7 @@ fn resolve_orderable_target_slot_rejects_unknown_field() {
     )
     .expect_err("unknown target field must be rejected");
 
-    std::assert_matches!(err, AggregateFieldValueError::UnknownField { .. });
+    std::assert_matches!(err, AggregateFieldValueError::UnknownField);
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn resolve_orderable_target_slot_rejects_non_orderable_field_kind() {
     )
     .expect_err("list field should be rejected for field aggregates");
 
-    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind { .. });
+    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind);
 }
 
 #[test]
@@ -158,10 +158,7 @@ fn compare_orderable_field_values_rejects_mismatched_variants() {
     let err = compare_orderable_field_values("rank", &Value::Nat64(7), &Value::Text("x".into()))
         .expect_err("mismatched value variants must be rejected");
 
-    std::assert_matches!(
-        err,
-        AggregateFieldValueError::IncomparableFieldValues { .. }
-    );
+    std::assert_matches!(err, AggregateFieldValueError::IncomparableFieldValues);
 }
 
 #[test]
@@ -248,7 +245,7 @@ fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
     )
     .expect_err("runtime type mismatch must be rejected");
 
-    std::assert_matches!(err, AggregateFieldValueError::FieldValueTypeMismatch { .. });
+    std::assert_matches!(err, AggregateFieldValueError::FieldValueTypeMismatch);
 }
 
 #[test]
@@ -330,7 +327,7 @@ fn resolve_numeric_target_slot_rejects_non_numeric_field() {
     )
     .expect_err("text field should be rejected for numeric aggregates");
 
-    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind { .. });
+    std::assert_matches!(err, AggregateFieldValueError::UnsupportedFieldKind);
 }
 
 #[test]

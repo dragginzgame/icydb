@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Compacts cursor and compiled-projection diagnostics to code-only variants,
-  removing discarded cursor/expression payload prose while preserving compact
-  diagnostic classification and wire-format tests.
+- Compacts aggregate field, grouped key, and planner expression diagnostics
+  to code-only variants, removing discarded field/value/hash/type prose while
+  preserving executor and planner diagnostic taxonomy.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.27` compacts cursor and compiled-projection diagnostics to code-only
+  variants, removing discarded cursor/expression payload prose while preserving
+  compact diagnostic classification and wire-format tests.
 
 - `0.180.26` hard-cuts `InternalError::new` and internal diagnostic
   relabeling to code-only forms, removing discarded runtime and generated

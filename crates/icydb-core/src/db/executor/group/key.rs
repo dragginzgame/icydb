@@ -24,7 +24,7 @@ use std::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum KeyCanonicalError {
     InvalidMapValue(MapValueError),
-    HashingFailed { reason: String },
+    HashingFailed,
 }
 
 impl KeyCanonicalError {
@@ -37,7 +37,7 @@ impl KeyCanonicalError {
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
-            Self::HashingFailed { reason: _ } => InternalError::executor_internal(),
+            Self::HashingFailed => InternalError::executor_internal(),
         }
     }
 }
@@ -46,7 +46,7 @@ impl fmt::Display for KeyCanonicalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidMapValue(err) => write!(f, "{err}"),
-            Self::HashingFailed { reason } => write!(f, "{reason}"),
+            Self::HashingFailed => f.write_str("grouped key hashing failed"),
         }
     }
 }
@@ -93,9 +93,7 @@ fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
 
 impl GroupKey {
     fn from_raw(raw: Value) -> Result<Self, KeyCanonicalError> {
-        let hash = stable_hash_value(&raw).map_err(|err| KeyCanonicalError::HashingFailed {
-            reason: err.display_with_class(),
-        })?;
+        let hash = stable_hash_value(&raw).map_err(|_| KeyCanonicalError::HashingFailed)?;
 
         Ok(Self::from_raw_with_hash(raw, hash))
     }

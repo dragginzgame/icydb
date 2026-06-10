@@ -48,11 +48,7 @@ pub(in crate::db::query::plan::expr) fn infer_dynamic_function_result_exprs_coar
                 unify_coalesce_expr_types(current, next)
             })
         }
-        _ => Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.canonical_label(),
-            args.len(),
-            "function is outside the dynamic partial-inference surface".to_string(),
-        ))),
+        _ => Err(PlanError::from(ExprPlanError::invalid_function_argument())),
     }
 }
 

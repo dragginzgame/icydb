@@ -34,11 +34,7 @@ pub(super) fn unify_coalesce_expr_types(
         (ExprType::Unknown, other) | (other, ExprType::Unknown) => Ok(other),
         #[cfg(test)]
         (ExprType::Null, other) | (other, ExprType::Null) => Ok(other),
-        (left, right) => Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            "COALESCE",
-            0,
-            format!("incompatible argument types {left:?} and {right:?}"),
-        ))),
+        (_left, _right) => Err(PlanError::from(ExprPlanError::invalid_function_argument())),
     }
 }
 
@@ -73,10 +69,7 @@ pub(super) fn unify_case_branch_types(
     }
 
     Err(PlanError::from(
-        ExprPlanError::incompatible_case_branch_types(
-            format!("{left_type:?}"),
-            format!("{right_type:?}"),
-        ),
+        ExprPlanError::incompatible_case_branch_types(),
     ))
 }
 

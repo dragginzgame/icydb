@@ -170,9 +170,7 @@ fn stable_hash_projected_row(row: &RowView<'_>) -> Result<StableHash, KeyCanonic
     for value in row.values() {
         hash_writer
             .write_list_value(value)
-            .map_err(|err| KeyCanonicalError::HashingFailed {
-                reason: err.display_with_class(),
-            })?;
+            .map_err(|_| KeyCanonicalError::HashingFailed)?;
     }
 
     Ok(stable_hash_from_digest(hash_writer.finish()))

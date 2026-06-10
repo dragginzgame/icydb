@@ -31,30 +31,20 @@ use thiserror::Error as ThisError;
 
 #[derive(Clone, Debug, ThisError)]
 pub(in crate::db::executor) enum AggregateFieldValueError {
-    #[error("unknown aggregate target field: {field}")]
-    UnknownField { field: String },
+    #[error("unknown aggregate target field")]
+    UnknownField,
 
-    #[error("aggregate target field does not support ordering: {field} kind={kind:?}")]
-    UnsupportedFieldKind { field: String, kind: FieldKind },
+    #[error("aggregate target field does not support ordering")]
+    UnsupportedFieldKind,
 
-    #[error("aggregate target field value missing on entity: {field}")]
-    MissingFieldValue { field: String },
+    #[error("aggregate target field value missing on entity")]
+    MissingFieldValue,
 
-    #[error("aggregate target field value type mismatch: {field} kind={kind:?} value={value:?}")]
-    FieldValueTypeMismatch {
-        field: String,
-        kind: FieldKind,
-        value: Box<Value>,
-    },
+    #[error("aggregate target field value type mismatch")]
+    FieldValueTypeMismatch,
 
-    #[error(
-        "aggregate target field values are incomparable under strict ordering: {field} left={left:?} right={right:?}"
-    )]
-    IncomparableFieldValues {
-        field: String,
-        left: Box<Value>,
-        right: Box<Value>,
-    },
+    #[error("aggregate target field values are incomparable under strict ordering")]
+    IncomparableFieldValues,
 }
 
 impl AggregateFieldValueError {
@@ -62,12 +52,12 @@ impl AggregateFieldValueError {
     // execution errors.
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::UnknownField { .. } | Self::UnsupportedFieldKind { .. } => {
+            Self::UnknownField | Self::UnsupportedFieldKind => {
                 InternalError::executor_unsupported()
             }
-            Self::MissingFieldValue { .. }
-            | Self::FieldValueTypeMismatch { .. }
-            | Self::IncomparableFieldValues { .. } => InternalError::query_executor_invariant(),
+            Self::MissingFieldValue
+            | Self::FieldValueTypeMismatch
+            | Self::IncomparableFieldValues => InternalError::query_executor_invariant(),
         }
     }
 }
@@ -96,27 +86,22 @@ pub(in crate::db::executor) struct FieldSlot {
 }
 
 // Build the canonical unknown-field error for aggregate field-slot resolution.
-fn unknown_aggregate_target_field(target_field: &str) -> AggregateFieldValueError {
-    AggregateFieldValueError::UnknownField {
-        field: target_field.to_string(),
-    }
+const fn unknown_aggregate_target_field(_target_field: &str) -> AggregateFieldValueError {
+    AggregateFieldValueError::UnknownField
 }
 
 // Resolve one final field slot from already-known index/kind metadata and
 // optionally enforce one capability gate over the declared field kind.
 fn resolve_aggregate_target_slot(
     index: usize,
-    target_field: &str,
+    _target_field: &str,
     kind: FieldKind,
     supports_kind: Option<fn(&FieldKind) -> bool>,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     if let Some(supports_kind) = supports_kind
         && !supports_kind(&kind)
     {
-        return Err(AggregateFieldValueError::UnsupportedFieldKind {
-            field: target_field.to_string(),
-            kind,
-        });
+        return Err(AggregateFieldValueError::UnsupportedFieldKind);
     }
 
     Ok(FieldSlot { index, kind })
@@ -125,16 +110,15 @@ fn resolve_aggregate_target_slot(
 // Coerce one already-validated aggregate field payload into Decimal while
 // preserving the canonical type-mismatch error shape for numeric terminals.
 fn coerce_numeric_field_decimal_owned(
-    target_field: &str,
+    _target_field: &str,
     field_slot: FieldSlot,
     value: Value,
 ) -> Result<Decimal, AggregateFieldValueError> {
     let Some(decimal) = coerce_numeric_decimal(&value) else {
-        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
-            field: target_field.to_string(),
-            kind: field_slot.kind,
-            value: Box::new(value),
-        });
+        let _ = field_slot;
+        let _ = value;
+
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch);
     };
 
     Ok(decimal)
@@ -265,21 +249,15 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planne
 
 /// Extract one field value from a slot reader and enforce the declared runtime field kind.
 pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
-    target_field: &str,
+    _target_field: &str,
     field_slot: FieldSlot,
     read_slot: &mut dyn FnMut(usize) -> Option<Value>,
 ) -> Result<Value, AggregateFieldValueError> {
     let Some(value) = read_slot(field_slot.index) else {
-        return Err(AggregateFieldValueError::MissingFieldValue {
-            field: target_field.to_string(),
-        });
+        return Err(AggregateFieldValueError::MissingFieldValue);
     };
     if !field_slot.kind.accepts_value(&value) {
-        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
-            field: target_field.to_string(),
-            kind: field_slot.kind,
-            value: Box::new(value),
-        });
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch);
     }
 
     Ok(value)
@@ -288,21 +266,15 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
 /// Extract one borrowed field value from a slot reader and enforce the
 /// declared runtime field kind without cloning the underlying slot payload.
 pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_ref_reader<'a>(
-    target_field: &str,
+    _target_field: &str,
     field_slot: FieldSlot,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<&'a Value, AggregateFieldValueError> {
     let Some(value) = read_slot(field_slot.index) else {
-        return Err(AggregateFieldValueError::MissingFieldValue {
-            field: target_field.to_string(),
-        });
+        return Err(AggregateFieldValueError::MissingFieldValue);
     };
     if !field_slot.kind.accepts_value(value) {
-        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
-            field: target_field.to_string(),
-            kind: field_slot.kind,
-            value: Box::new(value.clone()),
-        });
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch);
     }
 
     Ok(value)
@@ -366,16 +338,12 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal_from_decoded_slot(
 /// Compare two extracted field values using shared numeric ordering semantics
 /// first, then strict same-variant ordering fallback.
 pub(in crate::db::executor) fn compare_orderable_field_values(
-    target_field: &str,
+    _target_field: &str,
     left: &Value,
     right: &Value,
 ) -> Result<Ordering, AggregateFieldValueError> {
     let Some(ordering) = compare_numeric_or_strict_order(left, right) else {
-        return Err(AggregateFieldValueError::IncomparableFieldValues {
-            field: target_field.to_string(),
-            left: Box::new(left.clone()),
-            right: Box::new(right.clone()),
-        });
+        return Err(AggregateFieldValueError::IncomparableFieldValues);
     };
 
     Ok(ordering)

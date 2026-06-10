@@ -74,44 +74,40 @@ impl FunctionTypeInferenceShape {
         }
     }
 
-    fn infer_function_result_type(
-        self,
-        function: Function,
-        args: &[ExprType],
-    ) -> Result<ExprType, PlanError> {
+    fn infer_function_result_type(self, args: &[ExprType]) -> Result<ExprType, PlanError> {
         match self {
             Self::ByteLengthResult => {
-                validate_byte_length_function_args(function, args)?;
+                validate_byte_length_function_args(args)?;
 
                 Ok(ExprType::Numeric(NumericSubtype::Integer))
             }
             Self::UnaryBoolPredicate => {
-                validate_exact_function_arg_count(function, args.len(), 1)?;
+                validate_exact_function_arg_count(args.len(), 1)?;
 
                 Ok(ExprType::Bool)
             }
             Self::CollectionContains => {
-                validate_exact_function_arg_count(function, args.len(), 2)?;
+                validate_exact_function_arg_count(args.len(), 2)?;
 
                 Ok(ExprType::Bool)
             }
             Self::TextResult { .. } => {
-                validate_function_arg_families(function, args, self)?;
+                validate_function_arg_families(args, self)?;
 
                 Ok(ExprType::Text)
             }
             Self::NumericResult { subtype, .. } => {
-                validate_function_arg_families(function, args, self)?;
+                validate_function_arg_families(args, self)?;
 
                 Ok(ExprType::Numeric(subtype))
             }
             Self::BoolResult { .. } => {
-                validate_function_arg_families(function, args, self)?;
+                validate_function_arg_families(args, self)?;
 
                 Ok(ExprType::Bool)
             }
             Self::NumericScaleResult => {
-                validate_numeric_scale_function_args(function, args)?;
+                validate_numeric_scale_function_args(args)?;
 
                 Ok(ExprType::Numeric(NumericSubtype::Decimal))
             }
@@ -142,30 +138,19 @@ pub(super) fn infer_function_expr_type(
 
     function
         .type_inference_shape()
-        .infer_function_result_type(function, arg_types.as_slice())
+        .infer_function_result_type(arg_types.as_slice())
 }
 
-fn validate_exact_function_arg_count(
-    function: Function,
-    actual: usize,
-    expected: usize,
-) -> Result<(), PlanError> {
+fn validate_exact_function_arg_count(actual: usize, expected: usize) -> Result<(), PlanError> {
     if actual != expected {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.canonical_label(),
-            actual,
-            format!("expected exactly {expected} args, found {actual}"),
-        )));
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
     }
 
     Ok(())
 }
 
-fn validate_byte_length_function_args(
-    function: Function,
-    args: &[ExprType],
-) -> Result<(), PlanError> {
-    validate_exact_function_arg_count(function, args.len(), 1)?;
+fn validate_byte_length_function_args(args: &[ExprType]) -> Result<(), PlanError> {
+    validate_exact_function_arg_count(args.len(), 1)?;
 
     let input_compatible = matches!(args[0], ExprType::Text | ExprType::Blob) || {
         #[cfg(test)]
@@ -179,11 +164,7 @@ fn validate_byte_length_function_args(
     };
 
     if !input_compatible {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.canonical_label(),
-            0,
-            format!("{:?}", args[0]),
-        )));
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
     }
 
     Ok(())
@@ -211,7 +192,6 @@ const fn expr_type_accepts_required_coarse_family(
 }
 
 fn validate_function_arg_families(
-    function: Function,
     args: &[ExprType],
     shape: FunctionTypeInferenceShape,
 ) -> Result<(), PlanError> {
@@ -221,35 +201,20 @@ fn validate_function_arg_families(
         };
 
         if !expr_type_accepts_required_coarse_family(arg, family) {
-            return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-                function.canonical_label(),
-                index,
-                format!("{arg:?}"),
-            )));
+            return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
         }
     }
 
     Ok(())
 }
 
-fn validate_numeric_scale_function_args(
-    function: Function,
-    args: &[ExprType],
-) -> Result<(), PlanError> {
+fn validate_numeric_scale_function_args(args: &[ExprType]) -> Result<(), PlanError> {
     if args.len() != 2 {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.canonical_label(),
-            args.len(),
-            format!("expected exactly 2 args, found {}", args.len()),
-        )));
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
     }
 
     if !matches!(args[0], ExprType::Numeric(_)) {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.canonical_label(),
-            0,
-            format!("{:?}", args[0]),
-        )));
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
     }
 
     let scale_compatible = matches!(args[1], ExprType::Numeric(NumericSubtype::Integer)) || {
@@ -264,11 +229,7 @@ fn validate_numeric_scale_function_args(
     };
 
     if !scale_compatible {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.canonical_label(),
-            1,
-            format!("{:?}", args[1]),
-        )));
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
     }
 
     Ok(())
@@ -276,11 +237,7 @@ fn validate_numeric_scale_function_args(
 
 fn infer_coalesce_function_type(args: &[ExprType]) -> Result<ExprType, PlanError> {
     if args.len() < 2 {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            "COALESCE",
-            args.len(),
-            format!("expected at least 2 args, found {}", args.len()),
-        )));
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
     }
 
     let mut common = None;
@@ -301,11 +258,7 @@ fn infer_coalesce_function_type(args: &[ExprType]) -> Result<ExprType, PlanError
 
 fn infer_nullif_function_type(args: &[ExprType]) -> Result<ExprType, PlanError> {
     if args.len() != 2 {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            "NULLIF",
-            args.len(),
-            format!("expected exactly 2 args, found {}", args.len()),
-        )));
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument()));
     }
 
     #[cfg(test)]

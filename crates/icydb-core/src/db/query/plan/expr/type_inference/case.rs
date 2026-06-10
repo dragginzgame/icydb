@@ -20,9 +20,7 @@ pub(super) fn infer_case_expr_type(
     for arm in when_then_arms {
         let condition_type = infer_expr_type(arm.condition(), schema)?;
         if !matches!(condition_type, ExprType::Bool) {
-            return Err(PlanError::from(ExprPlanError::invalid_case_condition_type(
-                format!("{condition_type:?}"),
-            )));
+            return Err(PlanError::from(ExprPlanError::invalid_case_condition_type()));
         }
 
         let branch_type = infer_expr_type(arm.result(), schema)?;

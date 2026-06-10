@@ -25,7 +25,7 @@ pub(super) fn infer_binary_expr_type(
     match op {
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
             if !left_ty.is_numeric_eligible() || !right_ty.is_numeric_eligible() {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands());
             }
 
             Ok(ExprType::Numeric(infer_numeric_result_subtype(
@@ -34,21 +34,21 @@ pub(super) fn infer_binary_expr_type(
         }
         BinaryOp::Or | BinaryOp::And => {
             if !matches!(left_ty, ExprType::Bool) || !matches!(right_ty, ExprType::Bool) {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands());
             }
 
             Ok(ExprType::Bool)
         }
         BinaryOp::Eq | BinaryOp::Ne => {
             if !binary_equality_comparable(&left_ty, &right_ty) {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands());
             }
 
             Ok(ExprType::Bool)
         }
         BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
             if !binary_order_comparable(&left_ty, &right_ty) {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands());
             }
 
             Ok(ExprType::Bool)
@@ -58,12 +58,8 @@ pub(super) fn infer_binary_expr_type(
 
 // Binary type inference keeps one shared planner-facing operand mismatch error
 // so arithmetic, boolean, and equality lanes cannot drift in diagnostics.
-fn invalid_binary_operands(op: BinaryOp, left: &ExprType, right: &ExprType) -> PlanError {
-    PlanError::from(ExprPlanError::invalid_binary_operands(
-        op.canonical_label(),
-        format!("{left:?}"),
-        format!("{right:?}"),
-    ))
+fn invalid_binary_operands() -> PlanError {
+    PlanError::from(ExprPlanError::invalid_binary_operands())
 }
 
 const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {

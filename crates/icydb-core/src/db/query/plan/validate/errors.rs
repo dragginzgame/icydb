@@ -525,40 +525,32 @@ pub enum ExprPlanError {
     UnknownExprField { field: String },
 
     /// Aggregate terminal requires a numeric target field.
-    #[error("aggregate '{kind}' requires numeric target field '{field}'")]
-    NonNumericAggregateTarget { kind: String, field: String },
+    #[error("aggregate target field is not numeric")]
+    NonNumericAggregateTarget,
 
     /// Aggregate expression requires an explicit target field.
-    #[error("aggregate '{kind}' requires an explicit target field")]
-    AggregateTargetRequired { kind: String },
+    #[error("aggregate target field is required")]
+    AggregateTargetRequired,
 
     /// Function call received one incompatible argument type.
-    #[error("function '{function}' argument at index={index} is incompatible with type {found}")]
-    InvalidFunctionArgument {
-        function: String,
-        index: usize,
-        found: String,
-    },
+    #[error("function argument is incompatible")]
+    InvalidFunctionArgument,
 
     /// Unary operation is incompatible with inferred operand type.
-    #[error("unary operator '{op}' is incompatible with operand type {found}")]
-    InvalidUnaryOperand { op: String, found: String },
+    #[error("unary operand is incompatible")]
+    InvalidUnaryOperand,
 
     /// CASE branch condition is not boolean-typed.
-    #[error("CASE branch condition is incompatible with type {found}")]
-    InvalidCaseConditionType { found: String },
+    #[error("CASE branch condition is incompatible")]
+    InvalidCaseConditionType,
 
     /// CASE result branches cannot agree on one shared scalar type.
-    #[error("CASE result branches are incompatible with types ({left}, {right})")]
-    IncompatibleCaseBranchTypes { left: String, right: String },
+    #[error("CASE result branches are incompatible")]
+    IncompatibleCaseBranchTypes,
 
     /// Binary operation is incompatible with inferred operand types.
-    #[error("binary operator '{op}' is incompatible with operand types ({left}, {right})")]
-    InvalidBinaryOperands {
-        op: String,
-        left: String,
-        right: String,
-    },
+    #[error("binary operands are incompatible")]
+    InvalidBinaryOperands,
 
     /// GROUP BY projections must not reference fields outside grouped keys.
     #[error(
@@ -584,74 +576,38 @@ impl ExprPlanError {
     }
 
     /// Construct one aggregate-target-required planner error.
-    pub(in crate::db::query) fn aggregate_target_required(kind: impl Into<String>) -> Self {
-        Self::AggregateTargetRequired { kind: kind.into() }
+    pub(in crate::db::query) const fn aggregate_target_required() -> Self {
+        Self::AggregateTargetRequired
     }
 
     /// Construct one non-numeric aggregate-target planner error.
-    pub(in crate::db::query) fn non_numeric_aggregate_target(
-        kind: impl Into<String>,
-        field: impl Into<String>,
-    ) -> Self {
-        Self::NonNumericAggregateTarget {
-            kind: kind.into(),
-            field: field.into(),
-        }
+    pub(in crate::db::query) const fn non_numeric_aggregate_target() -> Self {
+        Self::NonNumericAggregateTarget
     }
 
     /// Construct one invalid function-argument planner error.
-    pub(in crate::db::query) fn invalid_function_argument(
-        function: impl Into<String>,
-        index: usize,
-        found: impl Into<String>,
-    ) -> Self {
-        Self::InvalidFunctionArgument {
-            function: function.into(),
-            index,
-            found: found.into(),
-        }
+    pub(in crate::db::query) const fn invalid_function_argument() -> Self {
+        Self::InvalidFunctionArgument
     }
 
     /// Construct one invalid unary-operand planner error.
-    pub(in crate::db::query) fn invalid_unary_operand(
-        op: impl Into<String>,
-        found: impl Into<String>,
-    ) -> Self {
-        Self::InvalidUnaryOperand {
-            op: op.into(),
-            found: found.into(),
-        }
+    pub(in crate::db::query) const fn invalid_unary_operand() -> Self {
+        Self::InvalidUnaryOperand
     }
 
     /// Construct one invalid CASE-condition planner error.
-    pub(in crate::db::query) fn invalid_case_condition_type(found: impl Into<String>) -> Self {
-        Self::InvalidCaseConditionType {
-            found: found.into(),
-        }
+    pub(in crate::db::query) const fn invalid_case_condition_type() -> Self {
+        Self::InvalidCaseConditionType
     }
 
     /// Construct one incompatible CASE-branch-types planner error.
-    pub(in crate::db::query) fn incompatible_case_branch_types(
-        left: impl Into<String>,
-        right: impl Into<String>,
-    ) -> Self {
-        Self::IncompatibleCaseBranchTypes {
-            left: left.into(),
-            right: right.into(),
-        }
+    pub(in crate::db::query) const fn incompatible_case_branch_types() -> Self {
+        Self::IncompatibleCaseBranchTypes
     }
 
     /// Construct one invalid binary-operands planner error.
-    pub(in crate::db::query) fn invalid_binary_operands(
-        op: impl Into<String>,
-        left: impl Into<String>,
-        right: impl Into<String>,
-    ) -> Self {
-        Self::InvalidBinaryOperands {
-            op: op.into(),
-            left: left.into(),
-            right: right.into(),
-        }
+    pub(in crate::db::query) const fn invalid_binary_operands() -> Self {
+        Self::InvalidBinaryOperands
     }
 
     /// Construct one grouped projection non-group-field reference planner error.

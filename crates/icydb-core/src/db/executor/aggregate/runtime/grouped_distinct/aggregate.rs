@@ -117,12 +117,9 @@ impl GlobalDistinctFieldAggregateDispatcher {
             row_view.extract_orderable_field_value(self.field_name.as_str(), self.field_slot)?;
         let numeric_value = if self.needs_numeric {
             let Some(decimal) = coerce_numeric_decimal(&distinct_value) else {
-                return Err(AggregateFieldValueError::FieldValueTypeMismatch {
-                    field: self.field_name.clone(),
-                    kind: self.field_slot.kind,
-                    value: Box::new(distinct_value),
-                }
-                .into_internal_error());
+                let _ = distinct_value;
+
+                return Err(AggregateFieldValueError::FieldValueTypeMismatch.into_internal_error());
             };
 
             Some(decimal)
