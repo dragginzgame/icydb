@@ -639,11 +639,7 @@ fn compile_effective_runtime_filter_program(
 
     if let Some(filter_expr) = residual_filter_expr {
         let compiled = compile_scalar_projection_expr_with_schema(schema_info, filter_expr)
-            .ok_or_else(|| {
-                InternalError::query_invalid_logical_plan(
-                    "effective runtime scalar filter expression must compile during static planning finalization",
-                )
-            })?;
+            .ok_or_else(InternalError::query_invalid_logical_plan)?;
 
         return Ok(Some(EffectiveRuntimeFilterProgram::expression(
             CompiledExpr::compile(&compiled),
@@ -894,9 +890,11 @@ fn resolved_order_value_source_for_term(
     }
 
     let field = term.direct_field().expect("query semantics invariant");
-    let slot = resolve_required_schema_slot(schema_info, field, || {
-        InternalError::query_invalid_logical_plan("")
-    })?;
+    let slot = resolve_required_schema_slot(
+        schema_info,
+        field,
+        InternalError::query_invalid_logical_plan,
+    )?;
 
     Ok(ResolvedOrderValueSource::direct_field(slot))
 }
@@ -907,12 +905,12 @@ fn validate_resolved_order_expr_fields(
     rendered: &str,
 ) -> Result<(), InternalError> {
     expr.try_for_each_tree_expr(&mut |node| match node {
-        Expr::Field(field_id) => {
-            resolve_required_schema_slot(schema_info, field_id.as_str(), || {
-                InternalError::query_invalid_logical_plan("")
-            })
-            .map(|_| ())
-        }
+        Expr::Field(field_id) => resolve_required_schema_slot(
+            schema_info,
+            field_id.as_str(),
+            InternalError::query_invalid_logical_plan,
+        )
+        .map(|_| ()),
         Expr::Aggregate(_) => Err(order_expression_scalar_seam_error(rendered)),
         #[cfg(test)]
         Expr::Alias { .. } => Err(order_expression_scalar_seam_error(rendered)),
@@ -940,7 +938,7 @@ where
 // Keep the scalar-order expression seam violation text under one helper so the
 // parse validation and compile validation paths do not drift.
 fn order_expression_scalar_seam_error(_rendered: &str) -> InternalError {
-    InternalError::query_invalid_logical_plan("")
+    InternalError::query_invalid_logical_plan()
 }
 
 // Keep one stable executor-facing slot list for grouped order terms after the

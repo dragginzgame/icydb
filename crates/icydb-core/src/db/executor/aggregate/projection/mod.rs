@@ -810,7 +810,7 @@ fn project_scalar_value(
     };
 
     eval_builder_expr_for_value_preview(projection, target_field, &value)
-        .map_err(|err| InternalError::query_unsupported(err.to_string()))
+        .map_err(|_| InternalError::query_unsupported())
 }
 
 // Project a value-only terminal page in the same pass that consumes executor

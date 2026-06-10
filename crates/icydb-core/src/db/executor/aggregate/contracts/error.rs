@@ -79,7 +79,7 @@ impl GroupError {
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::MemoryLimitExceeded { .. } | Self::DistinctBudgetExceeded { .. } => {
-                InternalError::executor_internal(self.to_string())
+                InternalError::executor_internal()
             }
             Self::Internal(inner) => inner,
         }

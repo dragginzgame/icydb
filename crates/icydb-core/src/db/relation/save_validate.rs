@@ -388,7 +388,7 @@ where
 {
     let raw_key = crate::db::data::DecodedDataStoreKey::new(relation.target.entity_tag(), key)
         .to_raw()
-        .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
+        .map_err(|_| InternalError::executor_unsupported())?;
     let target_exists = target_store
         .data_store()
         .with_borrow(|store| store.get(&raw_key).is_some());
@@ -414,7 +414,7 @@ where
 {
     entity
         .get_value_by_index(component.index)
-        .ok_or_else(|| InternalError::executor_invariant(""))
+        .ok_or_else(InternalError::executor_invariant)
 }
 
 fn relation_target_key_from_entity_components<E>(
@@ -449,7 +449,7 @@ where
         return Ok(None);
     }
     if null_count != 0 {
-        return Err(InternalError::executor_unsupported(""));
+        return Err(InternalError::executor_unsupported());
     }
 
     match components.as_slice() {

@@ -115,7 +115,7 @@ impl GroupedAggregateExecutionSpec {
         expr: &Expr,
     ) -> Result<CompiledExpr, InternalError> {
         let scalar = compile_scalar_projection_expr_with_schema(schema_info, expr)
-            .ok_or_else(|| InternalError::planner_executor_invariant(""))?;
+            .ok_or_else(InternalError::planner_executor_invariant)?;
 
         Ok(CompiledExpr::compile(&scalar))
     }
@@ -175,7 +175,7 @@ impl GroupedAggregateExecutionSpec {
             .target_field()
             .map(|field| {
                 resolve_aggregate_target_field_slot_from_schema(schema_info, field)
-                    .ok_or_else(|| InternalError::planner_executor_invariant(""))
+                    .ok_or_else(InternalError::planner_executor_invariant)
             })
             .transpose()?;
 
@@ -320,21 +320,17 @@ impl PlannedProjectionLayout {
 
     /// Construct one grouped layout invariant for non-monotonic grouped-field positions.
     pub(in crate::db) fn group_field_positions_not_strictly_increasing() -> InternalError {
-        InternalError::planner_executor_invariant(
-            "grouped projection layout group-field positions must be strictly increasing",
-        )
+        InternalError::planner_executor_invariant()
     }
 
     /// Construct one grouped layout invariant for non-monotonic aggregate positions.
     pub(in crate::db) fn aggregate_positions_not_strictly_increasing() -> InternalError {
-        InternalError::planner_executor_invariant(
-            "grouped projection layout aggregate positions must be strictly increasing",
-        )
+        InternalError::planner_executor_invariant()
     }
 
     /// Construct one grouped layout invariant for mixed field/aggregate ordering.
     pub(in crate::db) fn group_fields_must_precede_aggregates() -> InternalError {
-        InternalError::planner_executor_invariant("")
+        InternalError::planner_executor_invariant()
     }
 
     /// Construct one grouped layout invariant for runtime projection splits
@@ -576,9 +572,7 @@ pub(in crate::db) fn grouped_executor_handoff(
 ) -> Result<GroupedExecutorHandoff<'_>, InternalError> {
     // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
-        return Err(InternalError::planner_executor_invariant(
-            "grouped executor handoff requires grouped logical plans",
-        ));
+        return Err(InternalError::planner_executor_invariant());
     };
     let projection_spec = plan.frozen_projection_spec();
     let (projection_layout, aggregate_specs, projection_is_identity) =
@@ -590,18 +584,11 @@ pub(in crate::db) fn grouped_executor_handoff(
     #[cfg(not(test))]
     let _ = &aggregate_specs;
     validate_grouped_projection_layout(&projection_layout)?;
-    let grouped_plan_strategy = grouped_plan_strategy(plan).ok_or_else(|| {
-        InternalError::planner_executor_invariant(
-            "grouped executor handoff must carry grouped strategy for grouped plans",
-        )
-    })?;
+    let grouped_plan_strategy =
+        grouped_plan_strategy(plan).ok_or_else(InternalError::planner_executor_invariant)?;
     let grouped_aggregate_execution_specs = plan
         .grouped_aggregate_execution_specs()
-        .ok_or_else(|| {
-            InternalError::planner_executor_invariant(
-                "grouped executor handoff requires frozen grouped aggregate execution specs",
-            )
-        })?
+        .ok_or_else(InternalError::planner_executor_invariant)?
         .to_vec();
     let grouped_fold_path = GroupedFoldPath::from_plan_strategy(
         grouped_plan_strategy,
@@ -614,11 +601,7 @@ pub(in crate::db) fn grouped_executor_handoff(
             GroupDistinctAdmissibility::Disallowed(reason) => Some(reason),
         },
         plan.grouped_distinct_execution_strategy()
-            .ok_or_else(|| {
-                InternalError::planner_executor_invariant(
-                    "grouped executor handoff requires frozen grouped DISTINCT strategy",
-                )
-            })?
+            .ok_or_else(InternalError::planner_executor_invariant)?
             .clone(),
     );
     let grouped_execution_route = GroupedExecutionRoute::from_planner_strategy(
@@ -805,13 +788,12 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_with_schema_in
                 schema_info,
                 aggregate.target_field(),
             )
-            .ok_or_else(|| InternalError::planner_executor_invariant(""))?;
+            .ok_or_else(InternalError::planner_executor_invariant)?;
 
-            let distinct_kind = aggregate.kind().global_distinct_kind().ok_or_else(|| {
-                InternalError::planner_executor_invariant(
-                    "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM/AVG field-target aggregates",
-                )
-            })?;
+            let distinct_kind = aggregate
+                .kind()
+                .global_distinct_kind()
+                .ok_or_else(InternalError::planner_executor_invariant)?;
 
             Ok(
                 GroupedDistinctExecutionStrategy::from_supported_global_distinct(
@@ -958,7 +940,7 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
         for field in projection_spec.fields() {
             let root_expr = expression_without_alias(field.expr());
             if !root_expr.references_only_fields(grouped_field_names.as_slice()) {
-                return Err(InternalError::planner_executor_invariant(""));
+                return Err(InternalError::planner_executor_invariant());
             }
         }
     }

@@ -23,9 +23,7 @@ impl<K> PostAccessPlan<'_, K> {
         cursor: Option<&CursorBoundary>,
     ) -> Result<(), InternalError> {
         if cursor.is_some() && !self.contract.mode().is_load() {
-            return Err(InternalError::query_invalid_logical_plan(
-                "delete plans must not carry cursor boundaries",
-            ));
+            return Err(InternalError::query_invalid_logical_plan());
         }
 
         Ok(())

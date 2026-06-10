@@ -265,7 +265,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ) -> Result<(), InternalError> {
         let identity_pk = crate::traits::KeyValueCodec::to_key_value(&entity.id().key());
         let Value::List(identity_components) = &identity_pk else {
-            return Err(InternalError::executor_invariant(""));
+            return Err(InternalError::executor_invariant());
         };
 
         if identity_components.len() != primary_key_slots.len() {

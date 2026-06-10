@@ -49,13 +49,11 @@ impl BlockedDeleteProof {
     where
         S: EntityKind + EntityValue,
     {
-        Ok(InternalError::executor_unsupported(
-            blocked_delete_diagnostic::<S>(
-                self.relation,
-                self.source_data_key.try_key::<S>()?,
-                &self.target_key,
-            ),
-        ))
+        let _ = self.relation;
+        let _ = self.source_data_key.try_key::<S>()?;
+        let _ = self.target_key;
+
+        Ok(InternalError::executor_unsupported())
     }
 }
 
@@ -239,22 +237,4 @@ where
         ensure_accepted_schema_snapshot(schema_store, S::ENTITY_TAG, S::PATH, S::MODEL)
     })?;
     StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)
-}
-
-/// Format operator-facing blocked-delete diagnostics with actionable context.
-fn blocked_delete_diagnostic<S>(
-    relation: AcceptedStrongRelationInfo,
-    source_key: S::Key,
-    target_key: &PrimaryKeyValue,
-) -> String
-where
-    S: EntityKind + EntityValue,
-{
-    format!(
-        "delete blocked by strong relation: source_entity={} source_field={} source_id={source_key:?} target_entity={} target_key={:?}; action=delete source rows or retarget relation before deleting target",
-        S::PATH,
-        relation.field_name(),
-        relation.target().path(),
-        target_key.as_runtime_value(),
-    )
 }

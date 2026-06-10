@@ -61,16 +61,13 @@ impl AggregateFieldValueError {
     // Map field-target extraction/comparison failures into taxonomy-correct
     // execution errors.
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
-        let message = self.to_string();
         match self {
             Self::UnknownField { .. } | Self::UnsupportedFieldKind { .. } => {
-                InternalError::executor_unsupported(message)
+                InternalError::executor_unsupported()
             }
             Self::MissingFieldValue { .. }
             | Self::FieldValueTypeMismatch { .. }
-            | Self::IncomparableFieldValues { .. } => {
-                InternalError::query_executor_invariant(message)
-            }
+            | Self::IncomparableFieldValues { .. } => InternalError::query_executor_invariant(""),
         }
     }
 }

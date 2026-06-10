@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Hard-cut generic runtime, planner, cursor, index, relation, and aggregate
+  compact diagnostic constructors to code-only forms, removing discarded
+  invariant/unsupported/internal prose before the larger query-executor
+  cleanup slice.
+
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)

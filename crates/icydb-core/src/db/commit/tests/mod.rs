@@ -1824,10 +1824,8 @@ fn finish_commit_error_keeps_marker_for_recovery() {
     let marker = CommitMarker::new(Vec::new()).expect("commit marker creation should succeed");
 
     let guard = begin_commit(marker).expect("begin_commit should persist marker");
-    let err = finish_commit(guard, |_| {
-        Err(InternalError::executor_invariant("simulated apply failure"))
-    })
-    .expect_err("failed finish_commit should surface apply error");
+    let err = finish_commit(guard, |_| Err(InternalError::executor_invariant()))
+        .expect_err("failed finish_commit should surface apply error");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Executor);
     assert!(
@@ -1891,9 +1889,7 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
         }
         rollback_prepared_row_ops_reverse(vec![rollback]);
 
-        Err(InternalError::executor_invariant(
-            "simulated mixed-state row-stage failure after index apply",
-        ))
+        Err(InternalError::executor_invariant())
     })
     .expect_err("mixed-state finish_commit path should surface apply error");
     assert_eq!(err.class, ErrorClass::InvariantViolation);

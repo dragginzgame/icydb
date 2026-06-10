@@ -260,7 +260,7 @@ impl InternalError {
     /// Construct an index-origin invariant violation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn index_invariant(_message: impl Into<String>) -> Self {
+    pub(crate) fn index_invariant() -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Index,
@@ -274,17 +274,17 @@ impl InternalError {
         _field_count: usize,
         _max_fields: usize,
     ) -> Self {
-        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
+        Self::index_invariant()
     }
 
     /// Construct the canonical index-key source-field-missing-on-model invariant.
     pub(crate) fn index_key_item_field_missing_on_entity_model(_field: &str) -> Self {
-        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
+        Self::index_invariant()
     }
 
     /// Construct the canonical index-key source-field-missing-on-row invariant.
     pub(crate) fn index_key_item_field_missing_on_lookup_row(_field: &str) -> Self {
-        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
+        Self::index_invariant()
     }
 
     /// Construct the canonical index-expression source-type mismatch invariant.
@@ -294,14 +294,14 @@ impl InternalError {
         _expected: &str,
         _source_label: &str,
     ) -> Self {
-        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
+        Self::index_invariant()
     }
 
     /// Construct a planner-origin invariant violation for executor-boundary
     /// contract drift.
     #[cold]
     #[inline(never)]
-    pub(crate) fn planner_executor_invariant(_reason: impl Into<String>) -> Self {
+    pub(crate) fn planner_executor_invariant() -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Planner,
@@ -325,7 +325,7 @@ impl InternalError {
     /// contract drift.
     #[cold]
     #[inline(never)]
-    pub(crate) fn cursor_executor_invariant(_reason: impl Into<String>) -> Self {
+    pub(crate) fn cursor_executor_invariant() -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Cursor,
@@ -336,7 +336,7 @@ impl InternalError {
     /// Construct an executor-origin invariant violation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn executor_invariant(_message: impl Into<String>) -> Self {
+    pub(crate) fn executor_invariant() -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Executor,
@@ -347,7 +347,7 @@ impl InternalError {
     /// Construct an executor-origin internal error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn executor_internal(_message: impl Into<String>) -> Self {
+    pub(crate) fn executor_internal() -> Self {
         Self::new(
             ErrorClass::Internal,
             ErrorOrigin::Executor,
@@ -358,7 +358,7 @@ impl InternalError {
     /// Construct an executor-origin unsupported error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn executor_unsupported(_message: impl Into<String>) -> Self {
+    pub(crate) fn executor_unsupported() -> Self {
         Self::new(
             ErrorClass::Unsupported,
             ErrorOrigin::Executor,
@@ -371,7 +371,7 @@ impl InternalError {
         _entity_path: &str,
         _field_name: &str,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight primary-key invalid-value invariant.
@@ -380,7 +380,7 @@ impl InternalError {
         _field_name: &str,
         _value: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight primary-key type mismatch invariant.
@@ -389,7 +389,7 @@ impl InternalError {
         _field_name: &str,
         _value: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight primary-key identity mismatch invariant.
@@ -399,7 +399,7 @@ impl InternalError {
         _field_value: &crate::value::Value,
         _identity_key: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight field-missing invariant.
@@ -408,7 +408,7 @@ impl InternalError {
         _field_name: &str,
         _indexed: bool,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin sparse structural patch required-field invariant.
@@ -416,7 +416,7 @@ impl InternalError {
         _entity_path: &str,
         _field_name: &str,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight field-type mismatch invariant.
@@ -425,18 +425,18 @@ impl InternalError {
         _field_name: &str,
         _value: &crate::value::Value,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin generated-field authored-write rejection.
     pub(crate) fn mutation_generated_field_explicit(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_unsupported()
     }
 
     /// Construct an executor-origin typed create omission rejection.
     #[must_use]
     pub fn mutation_create_missing_authored_fields(_entity_path: &str, _field_names: &str) -> Self {
-        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_unsupported()
     }
 
     /// Construct an executor-origin mutation result invariant.
@@ -448,12 +448,12 @@ impl InternalError {
         _data_key: impl fmt::Display,
         _detail: impl AsRef<str>,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin mutation unknown-field invariant.
     pub(crate) fn mutation_structural_field_unknown(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight decimal-scale unsupported error.
@@ -463,7 +463,7 @@ impl InternalError {
         _expected_scale: impl fmt::Display,
         _actual_scale: impl fmt::Display,
     ) -> Self {
-        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_unsupported()
     }
 
     /// Construct an executor-origin save-preflight text-length unsupported error.
@@ -473,22 +473,22 @@ impl InternalError {
         _max_len: impl fmt::Display,
         _actual_len: impl fmt::Display,
     ) -> Self {
-        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_unsupported()
     }
 
     /// Construct an executor-origin save-preflight set-encoding invariant.
     pub(crate) fn mutation_set_field_list_required(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight set-canonicality invariant.
     pub(crate) fn mutation_set_field_not_canonical(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight map-encoding invariant.
     pub(crate) fn mutation_map_field_map_required(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight map-entry invariant.
@@ -497,7 +497,7 @@ impl InternalError {
         _field_name: &str,
         _detail: impl fmt::Display,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct an executor-origin save-preflight map-canonicality invariant.
@@ -505,7 +505,7 @@ impl InternalError {
         _entity_path: &str,
         _field_name: &str,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct a query-origin scalar page invariant for ordering before filtering.
@@ -560,7 +560,7 @@ impl InternalError {
 
     /// Construct an executor-origin delete-entrypoint unsupported grouped-mode error.
     pub(crate) fn delete_executor_grouped_unsupported() -> Self {
-        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_unsupported()
     }
 
     /// Construct a query-origin delete-entrypoint invariant for non-delete plans.
@@ -593,7 +593,7 @@ impl InternalError {
         _entity_path: &str,
         _key: impl fmt::Display,
     ) -> Self {
-        Self::executor_unsupported(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_unsupported()
     }
 
     /// Construct an executor-origin mutation invariant for index-store generation drift.
@@ -601,13 +601,13 @@ impl InternalError {
         _expected_generation: u64,
         _observed_generation: u64,
     ) -> Self {
-        Self::executor_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_invariant()
     }
 
     /// Construct a planner-origin invariant violation.
     #[cold]
     #[inline(never)]
-    pub(crate) fn planner_invariant(_message: impl Into<String>) -> Self {
+    pub(crate) fn planner_invariant() -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Planner,
@@ -616,8 +616,8 @@ impl InternalError {
     }
 
     /// Construct a planner-origin invalid-logical-plan invariant.
-    pub(crate) fn query_invalid_logical_plan(_reason: impl Into<String>) -> Self {
-        Self::planner_invariant(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+    pub(crate) fn query_invalid_logical_plan() -> Self {
+        Self::planner_invariant()
     }
 
     /// Construct a store-origin invariant violation.
@@ -724,7 +724,7 @@ impl InternalError {
     /// Construct a query-origin unsupported error.
     #[cold]
     #[inline(never)]
-    pub(crate) fn query_unsupported(_message: impl Into<String>) -> Self {
+    pub(crate) fn query_unsupported() -> Self {
         Self::new(
             ErrorClass::Unsupported,
             ErrorOrigin::Query,
@@ -892,7 +892,7 @@ impl InternalError {
 
     /// Construct the canonical missing new entity-key invariant during unique validation.
     pub(crate) fn index_unique_validation_entity_key_required() -> Self {
-        Self::index_invariant("missing entity key during unique validation")
+        Self::index_invariant()
     }
 
     /// Construct the canonical unique-validation structural row-decode corruption error.
@@ -917,19 +917,17 @@ impl InternalError {
 
     /// Construct the canonical index-only predicate missing-component invariant.
     pub(crate) fn index_only_predicate_component_required() -> Self {
-        Self::index_invariant("index-only predicate program referenced missing index component")
+        Self::index_invariant()
     }
 
     /// Construct the canonical index-scan continuation-envelope invariant.
     pub(crate) fn index_scan_continuation_anchor_within_envelope_required() -> Self {
-        Self::index_invariant(
-            "index-range continuation anchor is outside the requested range envelope",
-        )
+        Self::index_invariant()
     }
 
     /// Construct the canonical index-scan continuation-advancement invariant.
     pub(crate) fn index_scan_continuation_advancement_required() -> Self {
-        Self::index_invariant("index-range continuation scan did not advance beyond the anchor")
+        Self::index_invariant()
     }
 
     /// Construct the canonical index-scan key-decode corruption error.
@@ -945,7 +943,7 @@ impl InternalError {
         _index_name: &str,
         _component_index: usize,
     ) -> Self {
-        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
+        Self::index_invariant()
     }
 
     /// Construct the canonical scan-time index-entry decode corruption error.
@@ -1026,7 +1024,7 @@ impl InternalError {
 
     /// Construct the canonical persisted-row structural slot-lookup invariant.
     pub(crate) fn persisted_row_slot_lookup_out_of_bounds(_model_path: &str, _slot: usize) -> Self {
-        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
+        Self::index_invariant()
     }
 
     /// Construct the canonical persisted-row structural slot-cache invariant.
@@ -1034,7 +1032,7 @@ impl InternalError {
         _model_path: &str,
         _slot: usize,
     ) -> Self {
-        Self::index_invariant(COMPACT_INDEX_DIAGNOSTIC_MESSAGE)
+        Self::index_invariant()
     }
 
     /// Construct the canonical persisted-row primary-key decode corruption error.
@@ -1094,7 +1092,7 @@ impl InternalError {
         _store_path: &str,
         _detail: impl fmt::Display,
     ) -> Self {
-        Self::executor_internal(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_internal()
     }
 
     /// Construct the canonical relation-target key decode corruption error.
@@ -1151,7 +1149,7 @@ impl InternalError {
         _field_name: &str,
         _target_path: &str,
     ) -> Self {
-        Self::executor_internal(COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE)
+        Self::executor_internal()
     }
 
     /// Construct the canonical covering-component empty-payload corruption error.

@@ -85,7 +85,7 @@ impl CommitApplyGuard {
     /// Mark the guarded apply phase complete and drop rollback closures.
     pub(crate) fn finish(mut self) -> Result<(), InternalError> {
         if self.finished {
-            return Err(InternalError::executor_invariant(""));
+            return Err(InternalError::executor_invariant());
         }
 
         self.finished = true;

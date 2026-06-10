@@ -30,14 +30,14 @@ pub(in crate::db::executor) enum KeyCanonicalError {
 impl KeyCanonicalError {
     // Build the canonical grouped-key invariant for invalid map payloads.
     fn invalid_map_value(_err: &MapValueError) -> InternalError {
-        InternalError::executor_invariant("")
+        InternalError::executor_invariant()
     }
 
     /// Convert one key-canonicalization failure into the executor error surface.
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
-            Self::HashingFailed { reason: _ } => InternalError::executor_internal(""),
+            Self::HashingFailed { reason: _ } => InternalError::executor_internal(),
         }
     }
 }

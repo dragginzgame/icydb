@@ -126,7 +126,7 @@ impl ProjectionEvalError {
                 class,
                 origin,
             } => InternalError::new(class, origin, message),
-            err => InternalError::query_invalid_logical_plan(err.to_string()),
+            _ => InternalError::query_invalid_logical_plan(),
         }
     }
 
@@ -146,7 +146,7 @@ impl ProjectionEvalError {
                 class,
                 origin,
             } => InternalError::new(class, origin, message),
-            _err => InternalError::query_invalid_logical_plan(""),
+            _ => InternalError::query_invalid_logical_plan(),
         }
     }
 }

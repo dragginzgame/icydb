@@ -311,11 +311,12 @@ fn compile_grouped_top_k_order(
         return Ok(None);
     }
 
-    let order = route.plan().scalar_plan().order.as_ref().ok_or_else(|| {
-        InternalError::query_invalid_logical_plan(
-            "grouped Top-K strategy requires explicit grouped ORDER BY terms",
-        )
-    })?;
+    let order = route
+        .plan()
+        .scalar_plan()
+        .order
+        .as_ref()
+        .ok_or_else(InternalError::query_invalid_logical_plan)?;
     let mut terms = Vec::with_capacity(order.fields.len());
 
     for term in &order.fields {
@@ -340,9 +341,7 @@ fn compile_grouped_top_k_order(
     }
 
     if terms.is_empty() {
-        return Err(InternalError::query_invalid_logical_plan(
-            "grouped Top-K order did not retain any grouped-row-visible order terms",
-        ));
+        return Err(InternalError::query_invalid_logical_plan());
     }
 
     Ok(Some(CompiledGroupedTopKOrder { terms }))

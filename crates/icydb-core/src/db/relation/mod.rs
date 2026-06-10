@@ -476,79 +476,67 @@ impl AcceptedRelationTargetAuthority {
 impl InternalError {
     /// Map a relation-target key normalization failure into a typed `InternalError`.
     pub(in crate::db::relation) fn relation_target_raw_key_error(
-        source_path: &'static str,
-        field_name: &str,
-        target_path: &str,
-        value: &Value,
-        message: &'static str,
+        _source_path: &'static str,
+        _field_name: &str,
+        _target_path: &str,
+        _value: &Value,
+        _message: &'static str,
     ) -> Self {
-        Self::executor_unsupported(format!(
-            "{message}: source={source_path} field={field_name} target={target_path} value={value:?}",
-        ))
+        Self::executor_unsupported()
     }
 
     /// Construct the canonical strong-relation invalid target-name error.
     pub(in crate::db::relation) fn strong_relation_target_name_invalid(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        target_entity_name: &str,
-        err: impl Display,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _target_entity_name: &str,
+        _err: impl Display,
     ) -> Self {
-        Self::executor_internal(format!(
-            "strong relation target name invalid: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
-        ))
+        Self::executor_internal()
     }
 
     /// Construct the canonical strong-relation target identity mismatch error.
     pub(in crate::db::relation) fn strong_relation_target_identity_mismatch(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        detail: impl Display,
+        _source_path: &str,
+        _field_name: &str,
+        _target_path: &str,
+        _detail: impl Display,
     ) -> Self {
-        Self::executor_internal(format!(
-            "strong relation target identity mismatch: source={source_path} field={field_name} target={target_path} ({detail})",
-        ))
+        Self::executor_internal()
     }
 
     /// Construct the canonical save-time strong-relation missing-target error.
     pub(in crate::db::relation) fn strong_relation_target_missing(
-        source_path: &'static str,
-        field_name: &str,
-        target_path: &str,
-        value: &Value,
+        _source_path: &'static str,
+        _field_name: &str,
+        _target_path: &str,
+        _value: &Value,
     ) -> Self {
-        Self::executor_unsupported(format!(
-            "strong relation missing: source={source_path} field={field_name} target={target_path} key={value:?}",
-        ))
+        Self::executor_unsupported()
     }
 
     /// Construct the canonical save-time strong-relation missing-store error.
     pub(in crate::db::relation) fn strong_relation_target_store_missing(
-        source_path: &'static str,
-        field_name: &str,
-        target_path: &str,
-        target_store_path: &str,
-        value: &Value,
-        err: impl Display,
+        _source_path: &'static str,
+        _field_name: &str,
+        _target_path: &str,
+        _target_store_path: &str,
+        _value: &Value,
+        _err: impl Display,
     ) -> Self {
-        Self::executor_internal(format!(
-            "strong relation target store missing: source={source_path} field={field_name} target={target_path} store={target_store_path} key={value:?} ({err})",
-        ))
+        Self::executor_internal()
     }
 
     /// Construct the canonical capability-based strong relation target policy error.
     pub(in crate::db::relation) fn strong_relation_volatile_target_unsupported(
-        source_path: &'static str,
-        field_name: &str,
-        target_path: &str,
-        source_store_path: &'static str,
-        target_store_path: &str,
+        _source_path: &'static str,
+        _field_name: &str,
+        _target_path: &str,
+        _source_store_path: &'static str,
+        _target_store_path: &str,
     ) -> Self {
-        Self::executor_unsupported(format!(
-            "strong relation from durable source store to volatile target store is not supported: source={source_path} field={field_name} target={target_path} source_store={source_store_path} target_store={target_store_path}",
-        ))
+        Self::executor_unsupported()
     }
 }
 

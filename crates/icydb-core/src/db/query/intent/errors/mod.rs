@@ -178,8 +178,8 @@ impl QueryError {
     }
 
     /// Construct one query-origin unsupported execution error.
-    pub(in crate::db) fn unsupported_query(message: impl Into<String>) -> Self {
-        Self::execute(InternalError::query_unsupported(message))
+    pub(in crate::db) fn unsupported_query(_message: impl Into<String>) -> Self {
+        Self::execute(InternalError::query_unsupported())
     }
 
     /// Construct one query-origin unsupported SQL write boundary error.

@@ -384,9 +384,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // assume an existing raw row.
     fn structural_update_baseline_row(old_row: Option<&RawRow>) -> Result<&RawRow, InternalError> {
         let Some(old_row) = old_row else {
-            return Err(InternalError::executor_invariant(
-                "structural update staging requires an existing baseline row",
-            ));
+            return Err(InternalError::executor_invariant());
         };
 
         Ok(old_row)
@@ -549,9 +547,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn primary_key_label_from_schema(schema: &SchemaInfo) -> Result<String, InternalError> {
         let primary_key_names = schema.primary_key_names();
         if primary_key_names.is_empty() {
-            return Err(InternalError::executor_invariant(
-                "structural save validation requires schema primary-key metadata",
-            ));
+            return Err(InternalError::executor_invariant());
         }
 
         if let Some(name) = schema.scalar_primary_key_name() {

@@ -1217,9 +1217,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
     prepared_row_ops: &[PreparedRowCommitOp],
 ) -> Result<CommitWindowPayload, InternalError> {
     if row_ops.len() != prepared_row_ops.len() {
-        return Err(InternalError::executor_invariant(
-            "commit marker recovery projection requires row-op and prepared-op parity",
-        ));
+        return Err(InternalError::executor_invariant());
     }
 
     let marker_id = generate_commit_id()?;
@@ -1236,7 +1234,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         let handle = registered_handles
             .iter()
             .find(|handle| ptr::eq(handle.data_store(), prepared_row_op.data_store))
-            .ok_or_else(|| InternalError::executor_invariant(""))?;
+            .ok_or_else(InternalError::executor_invariant)?;
 
         match handle.storage_capabilities().recovery() {
             StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone()),
@@ -1251,11 +1249,9 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
     let mut journal_appends = Vec::with_capacity(journal_records.len());
     let mut marker_batches = Vec::with_capacity(journal_records.len());
     for (handle, records) in journal_records {
-        let journal_store = handle.journal_tail_store().ok_or_else(|| {
-            InternalError::executor_invariant(
-                "journaled store does not expose journal-tail storage",
-            )
-        })?;
+        let journal_store = handle
+            .journal_tail_store()
+            .ok_or_else(InternalError::executor_invariant)?;
         let sequence = journal_store
             .with_borrow(crate::db::journal::JournalTailStore::next_append_sequence)?;
         let batch = JournalBatch::new(marker_id, marker_id, sequence, records)?;

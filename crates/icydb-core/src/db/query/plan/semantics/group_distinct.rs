@@ -148,7 +148,7 @@ impl GroupDistinctPolicyReason {
     #[must_use]
     pub(in crate::db) fn into_planner_handoff_internal_error(self) -> InternalError {
         let _ = self;
-        InternalError::planner_executor_invariant("")
+        InternalError::planner_executor_invariant()
     }
 
     /// Convert this grouped DISTINCT policy reason into the executor-facing

@@ -332,7 +332,7 @@ impl CursorPlanError {
     #[cfg(test)]
     pub(in crate::db) fn into_pk_cursor_decode_internal_error(self) -> InternalError {
         let _ = self;
-        InternalError::cursor_executor_invariant("")
+        InternalError::cursor_executor_invariant()
     }
 
     /// Map cursor-plan failures into runtime taxonomy classes.
@@ -342,8 +342,8 @@ impl CursorPlanError {
     /// continuation invariant violations remain invariant-class failures.
     pub(crate) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::ContinuationCursorInvariantViolation { reason } => {
-                InternalError::cursor_executor_invariant(reason)
+            Self::ContinuationCursorInvariantViolation { reason: _ } => {
+                InternalError::cursor_executor_invariant()
             }
             Self::InvalidContinuationCursor { .. }
             | Self::InvalidContinuationCursorPayload { .. }

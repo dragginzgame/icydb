@@ -66,7 +66,7 @@ impl ScalarIndexExpressionOp {
         let _ = self;
         match expected {
             EXPECTED_TEXT => InternalError::query_executor_invariant(""),
-            _ => InternalError::executor_internal(""),
+            _ => InternalError::executor_internal(),
         }
     }
 }

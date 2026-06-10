@@ -15,41 +15,20 @@ use crate::db::{
 fn from_group_plan_error(err: PlanError) -> InternalError {
     match err {
         PlanError::User(inner) => match *inner {
-            PlanUserError::Group(inner) => {
-                InternalError::query_invalid_logical_plan(inner.to_string())
-            }
-            other => InternalError::planner_executor_invariant(other.to_string()),
+            PlanUserError::Group(_) => InternalError::query_invalid_logical_plan(),
+            _ => InternalError::planner_executor_invariant(),
         },
         PlanError::Policy(inner) => match *inner {
-            PlanPolicyError::Group(inner) => {
-                InternalError::query_invalid_logical_plan(inner.to_string())
-            }
-            PlanPolicyError::Policy(inner) => {
-                InternalError::planner_executor_invariant(inner.to_string())
-            }
+            PlanPolicyError::Group(_) => InternalError::query_invalid_logical_plan(),
+            PlanPolicyError::Policy(_) => InternalError::planner_executor_invariant(),
         },
-        PlanError::Cursor(inner) => InternalError::planner_executor_invariant(inner.to_string()),
+        PlanError::Cursor(_) => InternalError::planner_executor_invariant(),
     }
 }
 
 fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
-    let reason = match err {
-        PolicyPlanError::EmptyOrderSpec => "order specification must include at least one field",
-        PolicyPlanError::DeletePlanWithGrouping => {
-            "delete plans must not include GROUP BY or HAVING"
-        }
-        PolicyPlanError::DeletePlanWithPagination => "delete plans must not include pagination",
-        PolicyPlanError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
-        PolicyPlanError::DeleteWindowRequiresOrder => {
-            "delete limit or offset requires explicit ordering"
-        }
-        PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
-        PolicyPlanError::ExpressionOrderRequiresIndexSatisfiedAccess => {
-            "expression ORDER BY requires matching index-backed access ordering"
-        }
-    };
-
-    InternalError::planner_executor_invariant(reason)
+    let _ = err;
+    InternalError::planner_executor_invariant()
 }
 
 fn assert_runtime_invariant(err: &InternalError, origin: ErrorOrigin) {
@@ -127,13 +106,13 @@ fn query_executor_invariant_uses_invariant_violation_class() {
 
 #[test]
 fn cursor_executor_invariant_uses_cursor_origin() {
-    let err = InternalError::cursor_executor_invariant("cursor contract mismatch");
+    let err = InternalError::cursor_executor_invariant();
     assert_runtime_invariant(&err, ErrorOrigin::Cursor);
 }
 
 #[test]
 fn query_unsupported_uses_query_origin() {
-    let err = InternalError::query_unsupported("unsupported query shape");
+    let err = InternalError::query_unsupported();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Query);

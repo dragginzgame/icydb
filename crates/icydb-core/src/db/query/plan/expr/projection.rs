@@ -163,7 +163,7 @@ fn mark_projection_expr_slots(
             let field_name = field_id.as_str();
             let slot = schema
                 .field_slot_index(field_name)
-                .ok_or_else(|| InternalError::query_invalid_logical_plan(""))?;
+                .ok_or_else(InternalError::query_invalid_logical_plan)?;
             if !referenced.contains(&slot) {
                 referenced.push(slot);
             }
@@ -173,7 +173,7 @@ fn mark_projection_expr_slots(
             let field_name = path.root().as_str();
             let slot = schema
                 .field_slot_index(field_name)
-                .ok_or_else(|| InternalError::query_invalid_logical_plan(""))?;
+                .ok_or_else(InternalError::query_invalid_logical_plan)?;
             if !referenced.contains(&slot) {
                 referenced.push(slot);
             }

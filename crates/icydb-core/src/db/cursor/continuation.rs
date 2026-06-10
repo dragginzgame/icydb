@@ -140,9 +140,7 @@ pub(in crate::db) fn next_cursor_for_materialized_rows<K>(
     };
 
     let Some(_order) = order else {
-        return Err(InternalError::cursor_executor_invariant(
-            "cannot build continuation cursor without ordering",
-        ));
+        return Err(InternalError::cursor_executor_invariant());
     };
 
     next_cursor_for_row(
@@ -200,9 +198,7 @@ fn next_cursor_for_row<K>(
 
     let token = if access.as_index_range_path().is_some() {
         let Some(last_emitted_raw_key) = index_anchor.as_ref() else {
-            return Err(InternalError::cursor_executor_invariant(
-                "cursor row is not indexable for planned index-range access",
-            ));
+            return Err(InternalError::cursor_executor_invariant());
         };
         validate_next_index_range_anchor_progression(
             direction,
@@ -230,11 +226,7 @@ fn validate_next_index_range_anchor_progression(
     last_emitted_raw_key: &RawIndexStoreKey,
 ) -> Result<(), InternalError> {
     validate_index_scan_continuation_advancement(direction, previous_anchor, last_emitted_raw_key)
-        .map_err(|_| {
-            InternalError::cursor_executor_invariant(
-                "index-range continuation anchor must advance strictly against previous anchor",
-            )
-        })?;
+        .map_err(|_| InternalError::cursor_executor_invariant())?;
 
     debug_assert!(
         previous_anchor.is_none_or(

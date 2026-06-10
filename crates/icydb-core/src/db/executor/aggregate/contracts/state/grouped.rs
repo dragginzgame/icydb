@@ -152,7 +152,7 @@ impl GroupedTerminalAggregateState {
             return err.into_internal_error();
         }
 
-        InternalError::query_invalid_logical_plan("")
+        InternalError::query_invalid_logical_plan()
     }
 
     // Build the canonical grouped terminal invariant for aggregate filters
@@ -162,7 +162,7 @@ impl GroupedTerminalAggregateState {
             return err.into_internal_error();
         }
 
-        InternalError::query_invalid_logical_plan("")
+        InternalError::query_invalid_logical_plan()
     }
 
     // Evaluate one row-backed grouped expression for aggregate execution. Input
@@ -312,7 +312,7 @@ impl GroupedTerminalAggregateState {
         )?;
 
         collapse_true_only_boolean_admission(value, |_found| {
-            InternalError::query_invalid_logical_plan("")
+            InternalError::query_invalid_logical_plan()
         })
     }
 
