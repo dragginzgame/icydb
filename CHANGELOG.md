@@ -7,14 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Hard-cut remaining compact store/index/serialize/identity/cursor diagnostic
-  constructor families to code-only forms, removing discarded runtime prose
-  from commit, row-format, journal-format, key/index, cursor, and hash
-  conversion paths.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.22` hard-cuts another store/index/cursor/serialize diagnostic
+  constructor layer to code-only forms, removing discarded runtime prose from
+  commit, row-format, journal-format, key/index, cursor, hash, covering, and
+  index-entry paths.
 
 - `0.180.21` compacts persisted-row, journal, commit-marker, key/index, and
   store corruption diagnostics further by removing runtime-only prose and
