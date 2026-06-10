@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Compacts reduced SQL parser syntax diagnostics by replacing invalid-syntax
   message strings with bounded syntax reason and token-context payloads.
+- Compacts schema transition rejection diagnostics by replacing production
+  detail strings with typed transition-detail codes while keeping rich
+  first-difference text in tests.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 

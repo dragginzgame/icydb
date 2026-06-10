@@ -32,14 +32,14 @@ use compatibility::{
 use admission::classify_schema_admission_rejection;
 
 macro_rules! transition_detail {
-    ($compact:expr, $rich:expr) => {{
+    ($code:expr, $rich:expr) => {{
         #[cfg(test)]
         {
-            $rich
+            SchemaTransitionRejectionDetail::new($code, $rich)
         }
         #[cfg(not(test))]
         {
-            $compact.to_string()
+            SchemaTransitionRejectionDetail::new($code)
         }
     }};
 }
@@ -188,6 +188,67 @@ pub(in crate::db::schema) enum SchemaTransitionRejectionKind {
 }
 
 ///
+/// SchemaTransitionRejectionDetailCode
+///
+/// Compact transition-detail taxonomy. This keeps production rejection state
+/// structured without retaining rendered diagnostic prose in wasm builds.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaTransitionRejectionDetailCode {
+    EntityPath,
+    EntityName,
+    PrimaryKeyFields,
+    UnsupportedAdditiveField { field_index: usize },
+    UnsupportedRemovedField { field_index: usize },
+    RowLayout,
+    FieldCount,
+    FieldId { field_index: usize },
+    FieldName { field_index: usize },
+    FieldSlot { field_index: usize },
+    FieldKind { field_index: usize },
+    NestedLeaf { field_index: usize },
+    FieldNullability { field_index: usize },
+    FieldDefault { field_index: usize },
+    FieldStorageDecode { field_index: usize },
+    FieldLeafCodec { field_index: usize },
+    Snapshot,
+    SchemaAdmission,
+}
+
+///
+/// SchemaTransitionRejectionDetail
+///
+/// Production keeps only a compact detail code. Tests retain the rich
+/// first-difference text so transition diagnostics can stay well specified
+/// without carrying those strings into runtime builds.
+///
+
+#[derive(Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaTransitionRejectionDetail {
+    code: SchemaTransitionRejectionDetailCode,
+    #[cfg(test)]
+    rich: String,
+}
+
+impl SchemaTransitionRejectionDetail {
+    #[cfg(test)]
+    const fn new(code: SchemaTransitionRejectionDetailCode, rich: String) -> Self {
+        Self { code, rich }
+    }
+
+    #[cfg(not(test))]
+    const fn new(code: SchemaTransitionRejectionDetailCode) -> Self {
+        Self { code }
+    }
+
+    #[cfg(test)]
+    const fn as_str(&self) -> &str {
+        self.rich.as_str()
+    }
+}
+
+///
 /// SchemaTransitionRejection
 ///
 /// SchemaTransitionRejection carries the schema-owned diagnostic for one
@@ -199,7 +260,7 @@ pub(in crate::db::schema) enum SchemaTransitionRejectionKind {
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaTransitionRejection {
     kind: SchemaTransitionRejectionKind,
-    detail: String,
+    detail: SchemaTransitionRejectionDetail,
     admission: Option<SchemaAdmissionRejectionClassification>,
 }
 
@@ -208,7 +269,7 @@ impl SchemaTransitionRejection {
     // produced by the diagnostic comparison helpers below.
     pub(super) const fn new(
         kind: SchemaTransitionRejectionKind,
-        detail: String,
+        detail: SchemaTransitionRejectionDetail,
         admission: Option<SchemaAdmissionRejectionClassification>,
     ) -> Self {
         Self {
@@ -224,7 +285,7 @@ impl SchemaTransitionRejection {
     }
 
     // Borrow the first rejected transition detail for final error formatting.
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(test)]
     pub(in crate::db::schema) const fn detail(&self) -> &str {
         self.detail.as_str()
     }
@@ -322,12 +383,15 @@ pub(in crate::db::schema) fn decide_schema_transition(
 fn schema_snapshot_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> (SchemaTransitionRejectionKind, String) {
+) -> (
+    SchemaTransitionRejectionKind,
+    SchemaTransitionRejectionDetail,
+) {
     if actual.entity_path() != expected.entity_path() {
         return (
             SchemaTransitionRejectionKind::EntityIdentity,
             transition_detail!(
-                "schema transition: entity_path",
+                SchemaTransitionRejectionDetailCode::EntityPath,
                 format!(
                     "entity path changed: stored='{}' generated='{}'",
                     actual.entity_path(),
@@ -341,7 +405,7 @@ fn schema_snapshot_mismatch_detail(
         return (
             SchemaTransitionRejectionKind::EntityIdentity,
             transition_detail!(
-                "schema transition: entity_name",
+                SchemaTransitionRejectionDetailCode::EntityName,
                 format!(
                     "entity name changed: stored='{}' generated='{}'",
                     actual.entity_name(),
@@ -360,12 +424,15 @@ fn schema_snapshot_mismatch_detail(
 fn schema_snapshot_structural_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> (SchemaTransitionRejectionKind, String) {
+) -> (
+    SchemaTransitionRejectionKind,
+    SchemaTransitionRejectionDetail,
+) {
     if actual.primary_key_field_ids() != expected.primary_key_field_ids() {
         return (
             SchemaTransitionRejectionKind::EntityIdentity,
             transition_detail!(
-                "schema transition: primary_key_fields",
+                SchemaTransitionRejectionDetailCode::PrimaryKeyFields,
                 format!(
                     "primary key field ids changed: stored={:?} generated={:?}",
                     actual
@@ -402,7 +469,7 @@ fn schema_snapshot_structural_mismatch_detail(
         return (
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_count",
+                SchemaTransitionRejectionDetailCode::FieldCount,
                 format!(
                     "field count changed: stored={} generated={}",
                     actual.fields().len(),
@@ -424,7 +491,7 @@ fn schema_snapshot_structural_mismatch_detail(
     (
         SchemaTransitionRejectionKind::Snapshot,
         transition_detail!(
-            "schema transition: snapshot",
+            SchemaTransitionRejectionDetailCode::Snapshot,
             "schema snapshot changed".to_string()
         ),
     )
@@ -436,7 +503,7 @@ fn schema_snapshot_structural_mismatch_detail(
 fn unsupported_generated_additive_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> Option<String> {
+) -> Option<SchemaTransitionRejectionDetail> {
     let SchemaMutationRequest::AppendOnlyFields(added_fields) =
         schema_mutation_request_for_snapshots(actual, expected)
     else {
@@ -447,7 +514,9 @@ fn unsupported_generated_additive_field_detail(
     let _ = added_fields;
 
     Some(transition_detail!(
-        "schema transition: unsupported_additive_field",
+        SchemaTransitionRejectionDetailCode::UnsupportedAdditiveField {
+            field_index: actual.fields().len()
+        },
         {
             let index = actual.fields().len();
             let field = &added_fields[0];
@@ -472,7 +541,7 @@ fn unsupported_generated_additive_field_detail(
 fn unsupported_generated_removed_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> Option<String> {
+) -> Option<SchemaTransitionRejectionDetail> {
     if actual.fields().len() <= expected.fields().len()
         || actual.row_layout().field_to_slot().len() <= expected.row_layout().field_to_slot().len()
     {
@@ -499,7 +568,9 @@ fn unsupported_generated_removed_field_detail(
     }
 
     Some(transition_detail!(
-        "schema transition: unsupported_removed_field",
+        SchemaTransitionRejectionDetailCode::UnsupportedRemovedField {
+            field_index: expected.fields().len()
+        },
         {
             let index = expected.fields().len();
             let field = &actual.fields()[index];
@@ -518,14 +589,12 @@ fn unsupported_generated_removed_field_detail(
 // startup error. Full layout dumps are too noisy for normal schema-change
 // rejection, while the first changed/missing/added fact is enough to debug the
 // generated-vs-accepted mismatch.
+#[cfg(test)]
 fn row_layout_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> String {
-    #[cfg(not(test))]
-    let _ = (actual, expected);
-
-    transition_detail!("schema transition: row_layout", {
+) -> SchemaTransitionRejectionDetail {
+    transition_detail!(SchemaTransitionRejectionDetailCode::RowLayout, {
         let stored_count = actual.row_layout().field_to_slot().len();
         let generated_count = expected.row_layout().field_to_slot().len();
         let prefix = format!(
@@ -537,15 +606,22 @@ fn row_layout_mismatch_detail(
         );
 
         if actual.row_layout().version() != expected.row_layout().version() {
-            return prefix;
+            prefix
+        } else if let Some(detail) = row_layout_first_pair_mismatch_detail(actual, expected) {
+            format!("{prefix}; {detail}")
+        } else {
+            prefix
         }
-
-        if let Some(detail) = row_layout_first_pair_mismatch_detail(actual, expected) {
-            return format!("{prefix}; {detail}");
-        }
-
-        prefix
     })
+}
+
+#[cfg(not(test))]
+const fn row_layout_mismatch_detail(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> SchemaTransitionRejectionDetail {
+    let _ = (actual, expected);
+    SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::RowLayout)
 }
 
 // Report the first row-layout pair difference in deterministic vector order.
@@ -634,7 +710,10 @@ fn field_snapshot_mismatch_detail(
     index: usize,
     actual: &PersistedFieldSnapshot,
     expected: &PersistedFieldSnapshot,
-) -> Option<(SchemaTransitionRejectionKind, String)> {
+) -> Option<(
+    SchemaTransitionRejectionKind,
+    SchemaTransitionRejectionDetail,
+)> {
     #[cfg(not(test))]
     let _ = index;
 
@@ -642,7 +721,7 @@ fn field_snapshot_mismatch_detail(
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_id",
+                SchemaTransitionRejectionDetailCode::FieldId { field_index: index },
                 format!(
                     "field[{index}] id changed: stored={} generated={}",
                     actual.id().get(),
@@ -656,7 +735,7 @@ fn field_snapshot_mismatch_detail(
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_name",
+                SchemaTransitionRejectionDetailCode::FieldName { field_index: index },
                 format!(
                     "field[{index}] name changed: stored='{}' generated='{}'",
                     actual.name(),
@@ -676,12 +755,15 @@ fn field_snapshot_contract_mismatch_detail(
     index: usize,
     actual: &PersistedFieldSnapshot,
     expected: &PersistedFieldSnapshot,
-) -> Option<(SchemaTransitionRejectionKind, String)> {
+) -> Option<(
+    SchemaTransitionRejectionKind,
+    SchemaTransitionRejectionDetail,
+)> {
     if actual.slot() != expected.slot() {
         return Some((
             SchemaTransitionRejectionKind::FieldSlot,
             transition_detail!(
-                "schema transition: field_slot",
+                SchemaTransitionRejectionDetailCode::FieldSlot { field_index: index },
                 format!(
                     "field[{index}] slot changed: stored={} generated={}",
                     actual.slot().get(),
@@ -695,7 +777,7 @@ fn field_snapshot_contract_mismatch_detail(
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_kind",
+                SchemaTransitionRejectionDetailCode::FieldKind { field_index: index },
                 format!(
                     "field[{index}] kind changed: stored={:?} generated={:?}",
                     actual.kind(),
@@ -718,26 +800,39 @@ fn field_snapshot_contract_mismatch_detail(
 // Summarize nested field-path drift on the owning top-level field. Nested
 // leaves do not carry physical row slots, so the first changed path/kind/codec
 // fact is more useful than a raw debug dump when generated metadata drifts.
+#[cfg(test)]
 fn nested_leaf_mismatch_detail(
     field_index: usize,
     actual: &[PersistedNestedLeafSnapshot],
     expected: &[PersistedNestedLeafSnapshot],
-) -> String {
-    #[cfg(not(test))]
-    let _ = (field_index, actual, expected);
+) -> SchemaTransitionRejectionDetail {
+    transition_detail!(
+        SchemaTransitionRejectionDetailCode::NestedLeaf { field_index },
+        {
+            let prefix = format!(
+                "field[{field_index}] nested leaf metadata changed: stored={} generated={}",
+                actual.len(),
+                expected.len(),
+            );
 
-    transition_detail!("schema transition: nested_leaf", {
-        let prefix = format!(
-            "field[{field_index}] nested leaf metadata changed: stored={} generated={}",
-            actual.len(),
-            expected.len(),
-        );
-
-        if let Some(detail) = nested_leaf_first_mismatch_detail(actual, expected) {
-            return format!("{prefix}; {detail}");
+            if let Some(detail) = nested_leaf_first_mismatch_detail(actual, expected) {
+                format!("{prefix}; {detail}")
+            } else {
+                prefix
+            }
         }
+    )
+}
 
-        prefix
+#[cfg(not(test))]
+const fn nested_leaf_mismatch_detail(
+    field_index: usize,
+    actual: &[PersistedNestedLeafSnapshot],
+    expected: &[PersistedNestedLeafSnapshot],
+) -> SchemaTransitionRejectionDetail {
+    let _ = (actual, expected);
+    SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::NestedLeaf {
+        field_index,
     })
 }
 
@@ -805,7 +900,10 @@ fn field_snapshot_storage_mismatch_detail(
     index: usize,
     actual: &PersistedFieldSnapshot,
     expected: &PersistedFieldSnapshot,
-) -> Option<(SchemaTransitionRejectionKind, String)> {
+) -> Option<(
+    SchemaTransitionRejectionKind,
+    SchemaTransitionRejectionDetail,
+)> {
     #[cfg(not(test))]
     let _ = index;
 
@@ -813,7 +911,7 @@ fn field_snapshot_storage_mismatch_detail(
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_nullability",
+                SchemaTransitionRejectionDetailCode::FieldNullability { field_index: index },
                 format!(
                     "field[{index}] nullability changed: stored={} generated={}",
                     actual.nullable(),
@@ -827,7 +925,7 @@ fn field_snapshot_storage_mismatch_detail(
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_default",
+                SchemaTransitionRejectionDetailCode::FieldDefault { field_index: index },
                 format!(
                     "field[{index}] default changed: stored={:?} generated={:?}",
                     actual.default(),
@@ -841,7 +939,7 @@ fn field_snapshot_storage_mismatch_detail(
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_storage_decode",
+                SchemaTransitionRejectionDetailCode::FieldStorageDecode { field_index: index },
                 format!(
                     "field[{index}] storage decode changed: stored={:?} generated={:?}",
                     actual.storage_decode(),
@@ -855,7 +953,7 @@ fn field_snapshot_storage_mismatch_detail(
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
             transition_detail!(
-                "schema transition: field_leaf_codec",
+                SchemaTransitionRejectionDetailCode::FieldLeafCodec { field_index: index },
                 format!(
                     "field[{index}] leaf codec changed: stored={:?} generated={:?}",
                     actual.leaf_codec(),

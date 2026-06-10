@@ -250,7 +250,6 @@ impl SchemaDdlAcceptedSnapshotDerivation {
                 SchemaDdlSchemaVersionAdmissionError::from_schema_admission(
                     rejection.admission().expect("ddl admission invariant"),
                 ),
-                rejection.detail().to_string(),
             ));
         }
 
@@ -277,8 +276,8 @@ pub(in crate::db) enum SchemaDdlMutationAdmissionError {
     AcceptedIndex(AcceptedSchemaMutationError),
     #[error("accepted-after schema snapshot rejected")]
     AcceptedAfterRejected,
-    #[error("schema-version admission rejected: {1}")]
-    SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError, String),
+    #[error("schema-version admission rejected")]
+    SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError),
     #[error("unsupported schema mutation execution path")]
     UnsupportedExecutionPath,
 }
@@ -288,7 +287,7 @@ impl SchemaDdlMutationAdmissionError {
         match self {
             Self::AcceptedIndex(_) => SchemaDdlAdmissionError::UnsupportedTransitionClass,
             Self::AcceptedAfterRejected => SchemaDdlAdmissionError::ValidationFailed,
-            Self::SchemaVersionAdmission(reason, _) => reason.schema_ddl_admission_error(),
+            Self::SchemaVersionAdmission(reason) => reason.schema_ddl_admission_error(),
             Self::UnsupportedExecutionPath => SchemaDdlAdmissionError::PhysicalRunnerMissing,
         }
     }

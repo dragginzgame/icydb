@@ -13,7 +13,10 @@ use crate::{
     error::InternalError,
 };
 
-use super::{SchemaTransitionRejection, SchemaTransitionRejectionKind};
+use super::{
+    SchemaTransitionRejection, SchemaTransitionRejectionDetail,
+    SchemaTransitionRejectionDetailCode, SchemaTransitionRejectionKind,
+};
 
 #[cfg(test)]
 use crate::db::codec::hex::encode_hex_lower;
@@ -224,28 +227,31 @@ pub(super) fn classify_schema_admission_rejection(
     }
 }
 
+#[cfg(test)]
 fn schema_admission_rejection_detail(
     classification: SchemaAdmissionRejectionClassification,
     comparison: SchemaAdmissionIdentityComparison,
-) -> String {
-    #[cfg(test)]
-    {
-        let facts = schema_admission_identity_facts(comparison);
-        let extra = classification
-            .expected_next
-            .map(|expected_next| format!("expected_next={expected_next}"));
+) -> SchemaTransitionRejectionDetail {
+    let facts = schema_admission_identity_facts(comparison);
+    let extra = classification
+        .expected_next
+        .map(|expected_next| format!("expected_next={expected_next}"));
 
-        match extra {
-            Some(extra) => format!("{}: {facts} {extra}", classification.reason.detail()),
-            None => format!("{}: {facts}", classification.reason.detail()),
-        }
-    }
+    let rich = match extra {
+        Some(extra) => format!("{}: {facts} {extra}", classification.reason.detail()),
+        None => format!("{}: {facts}", classification.reason.detail()),
+    };
 
-    #[cfg(not(test))]
-    {
-        let _ = (classification, comparison);
-        "schema admission".to_string()
-    }
+    SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::SchemaAdmission, rich)
+}
+
+#[cfg(not(test))]
+const fn schema_admission_rejection_detail(
+    classification: SchemaAdmissionRejectionClassification,
+    comparison: SchemaAdmissionIdentityComparison,
+) -> SchemaTransitionRejectionDetail {
+    let _ = (classification, comparison);
+    SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::SchemaAdmission)
 }
 
 #[cfg(test)]

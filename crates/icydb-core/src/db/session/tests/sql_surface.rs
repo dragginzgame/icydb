@@ -5077,19 +5077,12 @@ fn execute_sql_ddl_preserves_schema_version_admission_matrix_reason() {
         ),
     ] {
         let SqlDdlPrepareError::Lowering(SqlDdlLoweringError::MutationAdmission(
-            SchemaDdlMutationAdmissionError::SchemaVersionAdmission(reason, detail),
+            SchemaDdlMutationAdmissionError::SchemaVersionAdmission(reason),
         )) = prepare_err(&sql)
         else {
             panic!("DDL schema-version matrix rejection should preserve typed admission reason");
         };
         assert_eq!(reason, expected_reason);
-        assert!(
-            detail.contains("stored_version=1")
-                && detail.contains("candidate_version=")
-                && detail.contains("stored_fingerprint=")
-                && detail.contains("candidate_fingerprint="),
-            "schema-version admission detail should preserve compared identity facts: {detail}",
-        );
     }
 }
 
@@ -5116,7 +5109,7 @@ fn execute_sql_ddl_preserves_schema_version_rollback_admission_reason() {
     .expect("rollback DDL version contract should parse");
 
     let SqlDdlPrepareError::Lowering(SqlDdlLoweringError::MutationAdmission(
-        SchemaDdlMutationAdmissionError::SchemaVersionAdmission(reason, detail),
+        SchemaDdlMutationAdmissionError::SchemaVersionAdmission(reason),
     )) = prepare_sql_ddl_statement(
         &statement,
         catalog.snapshot(),
@@ -5130,10 +5123,6 @@ fn execute_sql_ddl_preserves_schema_version_rollback_admission_reason() {
     assert_eq!(
         reason,
         SchemaDdlSchemaVersionAdmissionError::VersionRollback
-    );
-    assert!(
-        detail.contains("stored_version=2") && detail.contains("candidate_version=1"),
-        "rollback admission detail should preserve compared versions: {detail}",
     );
 }
 
