@@ -1,0 +1,2 @@
+twiggy skipped: wasm has no function/code section
+error: function or code section is missing

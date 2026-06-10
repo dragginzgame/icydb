@@ -4,10 +4,75 @@
 //! Boundary: error surface for schema construction and predicate-schema validation.
 
 use crate::{
-    db::predicate::{CoercionId, UnsupportedQueryFeature},
+    db::predicate::{CoercionId, CompareOp, UnsupportedQueryFeature},
     model::index::{IndexExpression, IndexModel},
 };
 use std::fmt;
+
+/// Compact predicate operator identity for schema validation diagnostics.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SchemaValidationOperator {
+    Compare(CompareOp),
+    CompareField { op: CompareOp, right_field: String },
+    IsEmpty,
+    IsNotEmpty,
+    TextContains,
+    TextContainsCi,
+}
+
+impl SchemaValidationOperator {
+    pub(crate) const fn compare(op: CompareOp) -> Self {
+        Self::Compare(op)
+    }
+
+    pub(crate) fn compare_field(op: CompareOp, right_field: &str) -> Self {
+        Self::CompareField {
+            op,
+            right_field: right_field.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for SchemaValidationOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Compare(op) => write!(f, "{op:?}"),
+            Self::CompareField { op, right_field } => {
+                write!(f, "{op:?} against field '{right_field}'")
+            }
+            Self::IsEmpty => f.write_str("is_empty"),
+            Self::IsNotEmpty => f.write_str("is_not_empty"),
+            Self::TextContains => f.write_str("text_contains"),
+            Self::TextContainsCi => f.write_str("text_contains_ci"),
+        }
+    }
+}
+
+/// Compact literal validation reason for schema validation diagnostics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SchemaLiteralValidationReason {
+    ExpectedList,
+    ExpectedText,
+    ExpectedScalar,
+    LiteralTypeMismatch,
+    ListElementTypeMismatch,
+    EnumPathMismatch,
+}
+
+impl fmt::Display for SchemaLiteralValidationReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ExpectedList => f.write_str("expected list literal"),
+            Self::ExpectedText => f.write_str("expected text literal"),
+            Self::ExpectedScalar => f.write_str("expected scalar literal"),
+            Self::LiteralTypeMismatch => f.write_str("literal type does not match field type"),
+            Self::ListElementTypeMismatch => {
+                f.write_str("list literal does not match field element type")
+            }
+            Self::EnumPathMismatch => f.write_str("enum path does not match field enum type"),
+        }
+    }
+}
 
 /// Predicate/schema validation failures, including invalid model contracts.
 #[derive(Debug, thiserror::Error)]
@@ -78,28 +143,34 @@ pub enum ValidateError {
         predicate: &'static str,
     },
 
-    #[error("operator {op} is not valid for field '{field}'")]
-    InvalidOperator { field: String, op: String },
+    #[error("operator {operator} is not valid for field '{field}'")]
+    InvalidOperator {
+        field: String,
+        operator: SchemaValidationOperator,
+    },
 
     #[error("coercion {coercion:?} is not valid for field '{field}'")]
     InvalidCoercion { field: String, coercion: CoercionId },
 
-    #[error("invalid literal for field '{field}': {message}")]
-    InvalidLiteral { field: String, message: String },
+    #[error("invalid literal for field '{field}': {reason}")]
+    InvalidLiteral {
+        field: String,
+        reason: SchemaLiteralValidationReason,
+    },
 }
 
 impl ValidateError {
-    pub(crate) fn invalid_operator(field: &str, op: impl fmt::Display) -> Self {
+    pub(crate) fn invalid_operator(field: &str, operator: SchemaValidationOperator) -> Self {
         Self::InvalidOperator {
             field: field.to_string(),
-            op: op.to_string(),
+            operator,
         }
     }
 
-    pub(crate) fn invalid_literal(field: &str, msg: &str) -> Self {
+    pub(crate) fn invalid_literal(field: &str, reason: SchemaLiteralValidationReason) -> Self {
         Self::InvalidLiteral {
             field: field.to_string(),
-            message: msg.to_string(),
+            reason,
         }
     }
 }

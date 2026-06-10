@@ -7,6 +7,7 @@
 use crate::db::{
     access::AccessPlanError,
     cursor::CursorPlanError,
+    predicate::CompareOp,
     query::plan::{
         AggregateKind,
         expr::{BinaryOp, ExprType, Function, UnaryOp},
@@ -325,8 +326,8 @@ pub enum GroupPlanError {
     DistinctHavingUnsupported,
 
     /// HAVING currently supports compare operators only.
-    #[error("grouped HAVING clause at index={index} uses unsupported operator: {op}")]
-    HavingUnsupportedCompareOp { index: usize, op: String },
+    #[error("grouped HAVING clause at index={index} uses unsupported operator: {op:?}")]
+    HavingUnsupportedCompareOp { index: usize, op: CompareOp },
 
     /// HAVING group-field symbols must reference declared grouped keys.
     #[error("grouped HAVING clause at index={index} references non-group field '{field}'")]
@@ -344,17 +345,20 @@ pub enum GroupPlanError {
 
     /// DISTINCT grouped terminal kinds are intentionally conservative in v1.
     #[error(
-        "grouped DISTINCT aggregate at index={index} uses unsupported kind '{kind}' in this release"
+        "grouped DISTINCT aggregate at index={index} uses unsupported kind '{kind:?}' in this release"
     )]
-    DistinctAggregateKindUnsupported { index: usize, kind: String },
+    DistinctAggregateKindUnsupported {
+        index: usize,
+        kind: Option<AggregateKind>,
+    },
 
     /// DISTINCT over grouped field-target terminals is deferred with field-target support.
     #[error(
-        "grouped DISTINCT aggregate at index={index} cannot target field '{field}' in this release: found {kind}"
+        "grouped DISTINCT aggregate at index={index} cannot target field '{field}' in this release: found {kind:?}"
     )]
     DistinctAggregateFieldTargetUnsupported {
         index: usize,
-        kind: String,
+        kind: AggregateKind,
         field: String,
     },
 
@@ -370,11 +374,11 @@ pub enum GroupPlanError {
 
     /// Field-target grouped terminals are not enabled in grouped execution v1.
     #[error(
-        "grouped aggregate at index={index} cannot target field '{field}' in this release: found {kind}"
+        "grouped aggregate at index={index} cannot target field '{field}' in this release: found {kind:?}"
     )]
     FieldTargetAggregatesUnsupported {
         index: usize,
-        kind: String,
+        kind: AggregateKind,
         field: String,
     },
 }
@@ -460,36 +464,30 @@ impl GroupPlanError {
     }
 
     /// Construct one grouped HAVING unsupported-operator policy error.
-    pub(in crate::db::query) fn having_unsupported_compare_op(
+    pub(in crate::db::query) const fn having_unsupported_compare_op(
         index: usize,
-        op: impl Into<String>,
+        op: CompareOp,
     ) -> Self {
-        Self::HavingUnsupportedCompareOp {
-            index,
-            op: op.into(),
-        }
+        Self::HavingUnsupportedCompareOp { index, op }
     }
 
     /// Construct one grouped DISTINCT aggregate-kind unsupported policy error.
-    pub(in crate::db::query) fn distinct_aggregate_kind_unsupported(
+    pub(in crate::db::query) const fn distinct_aggregate_kind_unsupported(
         index: usize,
-        kind: impl Into<String>,
+        kind: Option<AggregateKind>,
     ) -> Self {
-        Self::DistinctAggregateKindUnsupported {
-            index,
-            kind: kind.into(),
-        }
+        Self::DistinctAggregateKindUnsupported { index, kind }
     }
 
     /// Construct one grouped DISTINCT field-target unsupported policy error.
     pub(in crate::db::query) fn distinct_aggregate_field_target_unsupported(
         index: usize,
-        kind: impl Into<String>,
+        kind: AggregateKind,
         field: impl Into<String>,
     ) -> Self {
         Self::DistinctAggregateFieldTargetUnsupported {
             index,
-            kind: kind.into(),
+            kind,
             field: field.into(),
         }
     }
@@ -497,12 +495,12 @@ impl GroupPlanError {
     /// Construct one grouped field-target aggregate unsupported policy error.
     pub(in crate::db::query) fn field_target_aggregates_unsupported(
         index: usize,
-        kind: impl Into<String>,
+        kind: AggregateKind,
         field: impl Into<String>,
     ) -> Self {
         Self::FieldTargetAggregatesUnsupported {
             index,
-            kind: kind.into(),
+            kind,
             field: field.into(),
         }
     }

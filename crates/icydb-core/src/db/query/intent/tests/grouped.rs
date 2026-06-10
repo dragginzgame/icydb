@@ -237,7 +237,7 @@ fn is_distinct_unsupported_exists_query_error(err: &QueryError) -> bool {
         matches!(
             inner,
             crate::db::query::plan::validate::GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
-                if *index == 0 && kind == "Exists"
+                if *index == 0 && *kind == Some(AggregateKind::Exists)
         )
     })
 }

@@ -10,7 +10,7 @@ use crate::{
             Predicate, collapse_membership_compare_leaves, encoding::encode_predicate_sort_key,
             simplify::simplify_and_compare_constraints,
         },
-        schema::{SchemaInfo, ValidateError},
+        schema::{SchemaInfo, SchemaLiteralValidationReason, ValidateError},
     },
     model::{classify_field_kind, field::FieldKind},
     types::{IntBig, NatBig},
@@ -433,7 +433,7 @@ fn normalize_enum_value(
         if path != expected_path {
             return Err(ValidateError::invalid_literal(
                 field,
-                "enum path does not match field enum type",
+                SchemaLiteralValidationReason::EnumPathMismatch,
             ));
         }
 

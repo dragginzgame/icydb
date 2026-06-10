@@ -7,15 +7,22 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Compacts reduced SQL parser syntax diagnostics by replacing invalid-syntax
-  message strings with bounded syntax reason and token-context payloads.
-- Compacts schema transition rejection diagnostics by replacing production
-  detail strings with typed transition-detail codes while keeping rich
-  first-difference text in tests.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.34` compacts schema predicate and grouped plan validation
+  diagnostics onto typed operator, aggregate-kind, and literal reason payloads
+  while preserving field context and verifying the comparable wasm-footprint
+  reduction.
+
+- `0.180.33` compacts schema transition rejection diagnostics by replacing
+  production detail strings with typed transition-detail codes while keeping
+  rich first-difference text in tests.
+
+- `0.180.32` compacts SQL parser invalid-syntax diagnostics by replacing
+  reduced syntax message strings with bounded syntax reason and token-context
+  payloads.
 
 - `0.180.31` compacts grouped aggregate budget, executor corruption, and SQL
   parameter-placement diagnostics onto bounded code, origin, index, and reason

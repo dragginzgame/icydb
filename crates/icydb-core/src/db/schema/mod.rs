@@ -28,7 +28,7 @@ pub use describe::{
     EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
     EntitySchemaDescription,
 };
-pub use errors::ValidateError;
+pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, ValidateError};
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::SqlCapabilities;

@@ -82,7 +82,6 @@ pub(super) fn execute_direct_data_row_path(
                     row_runtime,
                     None,
                     None,
-                    "direct data-row path cannot defer residual filtering",
                 )
             }
             DirectDataRowPath::Filtered {
@@ -99,7 +98,6 @@ pub(super) fn execute_direct_data_row_path(
                 row_runtime,
                 Some(filter_program),
                 Some(retained_slot_layout),
-                "direct filtered data-row path cannot defer residual filtering",
             ),
             DirectDataRowPath::MaterializedOrder {
                 residual_filter_scan_mode,

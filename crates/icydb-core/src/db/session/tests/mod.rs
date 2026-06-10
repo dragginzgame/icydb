@@ -81,7 +81,7 @@ use crate::{
         response::EntityResponse,
         schema::{
             FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore,
-            ValidateError, compiled_schema_proposal_for_model,
+            SchemaValidationOperator, ValidateError, compiled_schema_proposal_for_model,
         },
         sql::{
             lowering::{

@@ -98,12 +98,7 @@ pub(super) fn first_grouped_having_expr_policy_violation(
 
         grouped_having_compare_op_supported(compare_op)
             .then_some(())
-            .ok_or_else(|| {
-                GroupPlanError::having_unsupported_compare_op(
-                    compare_index,
-                    format!("{compare_op:?}"),
-                )
-            })
+            .ok_or_else(|| GroupPlanError::having_unsupported_compare_op(compare_index, compare_op))
     })
     .err()
 }
@@ -122,10 +117,7 @@ fn grouped_aggregate_distinct_kind_supported_rule(
     ctx: GroupedAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
     (ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_grouped_distinct_v1()).then(|| {
-        GroupPlanError::distinct_aggregate_kind_unsupported(
-            ctx.index,
-            format!("{:?}", ctx.aggregate.kind()),
-        )
+        GroupPlanError::distinct_aggregate_kind_unsupported(ctx.index, Some(ctx.aggregate.kind()))
     })
 }
 
@@ -141,7 +133,7 @@ fn grouped_aggregate_distinct_field_target_unsupported_rule(
         .map(|target_field| {
             GroupPlanError::distinct_aggregate_field_target_unsupported(
                 ctx.index,
-                format!("{:?}", ctx.aggregate.kind()),
+                ctx.aggregate.kind(),
                 target_field,
             )
         })
@@ -156,7 +148,7 @@ fn grouped_aggregate_field_target_unsupported_rule(
         .map(|target_field| {
             GroupPlanError::field_target_aggregates_unsupported(
                 ctx.index,
-                format!("{:?}", ctx.aggregate.kind()),
+                ctx.aggregate.kind(),
                 target_field,
             )
         })

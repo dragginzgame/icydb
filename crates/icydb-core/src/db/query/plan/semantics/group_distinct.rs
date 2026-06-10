@@ -163,7 +163,7 @@ impl GroupDistinctPolicyReason {
     /// Project this grouped DISTINCT policy reason into a planner-domain
     /// grouped plan error.
     #[must_use]
-    pub(in crate::db::query::plan) fn planner_group_plan_error(
+    pub(in crate::db::query::plan) const fn planner_group_plan_error(
         self,
         unsupported_kind: Option<AggregateKind>,
     ) -> GroupPlanError {
@@ -179,12 +179,7 @@ impl GroupDistinctPolicyReason {
                 GroupPlanError::global_distinct_aggregate_shape_unsupported()
             }
             Self::GlobalDistinctUnsupportedAggregateKind => {
-                let kind = unsupported_kind.map_or_else(
-                    || "Unknown".to_string(),
-                    |aggregate_kind| format!("{aggregate_kind:?}"),
-                );
-
-                GroupPlanError::distinct_aggregate_kind_unsupported(0, kind)
+                GroupPlanError::distinct_aggregate_kind_unsupported(0, unsupported_kind)
             }
         }
     }

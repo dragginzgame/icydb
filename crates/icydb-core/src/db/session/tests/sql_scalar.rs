@@ -1462,11 +1462,25 @@ fn execute_sql_scalar_field_to_field_bool_ordering_rejects_semantically() {
     )
     .expect_err("ordered bool field compare should fail schema validation");
 
-    assert!(
-        err.to_string()
-            .contains("operator Gt against field 'archived' is not valid for field 'active'",),
-        "bool ordering should stay fail-closed instead of silently widening predicate semantics",
-    );
+    let QueryError::Plan(plan) = err else {
+        panic!("bool ordering should fail during query planning");
+    };
+    let PlanError::User(user) = *plan else {
+        panic!("bool ordering should fail as a user-facing plan error");
+    };
+    let PlanUserError::PredicateInvalid(validate) = *user else {
+        panic!("bool ordering should fail as predicate validation");
+    };
+    let ValidateError::InvalidOperator { field, operator } = *validate else {
+        panic!("bool ordering should stay fail-closed as an invalid operator");
+    };
+    let SchemaValidationOperator::CompareField { op, right_field } = operator else {
+        panic!("bool ordering should preserve field-to-field operator context");
+    };
+
+    assert_eq!(field, "active");
+    assert_eq!(op, CompareOp::Gt);
+    assert_eq!(right_field, "archived");
 }
 
 #[test]

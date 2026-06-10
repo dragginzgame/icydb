@@ -491,7 +491,7 @@ fn is_distinct_aggregate_kind_unsupported_exists(err: &GroupPlanError) -> bool {
     matches!(
         err,
         GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
-            if *index == 0 && kind == "Exists"
+            if *index == 0 && *kind == Some(AggregateKind::Exists)
     )
 }
 
@@ -666,7 +666,7 @@ fn is_distinct_aggregate_kind_unsupported_exists_terminal(err: &GroupPlanError) 
     matches!(
         err,
         GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
-            if *index == 0 && kind == "Exists"
+            if *index == 0 && *kind == Some(AggregateKind::Exists)
     )
 }
 
