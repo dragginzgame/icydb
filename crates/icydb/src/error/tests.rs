@@ -219,7 +219,7 @@ fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
     ];
 
     for (class, expected_kind) in cases {
-        let core_err = InternalError::new(class, CoreErrorOrigin::Index, "runtime failure");
+        let core_err = InternalError::new(class, CoreErrorOrigin::Index);
         let facade = Error::from(core_err);
 
         assert_eq!(facade.code(), expected_kind.diagnostic_code().error_code());
@@ -235,35 +235,30 @@ fn query_execute_preserves_runtime_class_and_origin() {
             CoreErrorOrigin::Store,
             RuntimeErrorKind::Conflict,
             ErrorOrigin::Store,
-            "write conflict",
         ),
         (
             CoreErrorClass::NotFound,
             CoreErrorOrigin::Executor,
             RuntimeErrorKind::NotFound,
             ErrorOrigin::Executor,
-            "row missing",
         ),
         (
             CoreErrorClass::Internal,
             CoreErrorOrigin::Planner,
             RuntimeErrorKind::Internal,
             ErrorOrigin::Planner,
-            "planner internal",
         ),
         (
             CoreErrorClass::Unsupported,
             CoreErrorOrigin::Query,
             RuntimeErrorKind::Unsupported,
             ErrorOrigin::Query,
-            "unsupported SQL feature",
         ),
     ];
 
-    for (class, origin, expected_kind, expected_origin, message) in cases {
-        let query_err = QueryError::Execute(QueryExecutionError::from(InternalError::new(
-            class, origin, message,
-        )));
+    for (class, origin, expected_kind, expected_origin) in cases {
+        let query_err =
+            QueryError::Execute(QueryExecutionError::from(InternalError::new(class, origin)));
         let facade = Error::from(query_err);
 
         assert_eq!(facade.code(), expected_kind.diagnostic_code().error_code());
@@ -276,7 +271,6 @@ fn runtime_error_exposes_compact_diagnostic_bridge() {
     let facade = Error::from(InternalError::new(
         CoreErrorClass::Unsupported,
         CoreErrorOrigin::Query,
-        "unsupported query path",
     ));
     let diagnostic = facade.diagnostic();
 
@@ -308,35 +302,30 @@ fn query_execute_storage_and_index_origins_map_to_runtime_contract() {
             CoreErrorOrigin::Store,
             RuntimeErrorKind::Internal,
             ErrorOrigin::Store,
-            "store internal",
         ),
         (
             CoreErrorClass::Corruption,
             CoreErrorOrigin::Index,
             RuntimeErrorKind::Corruption,
             ErrorOrigin::Index,
-            "index corruption",
         ),
         (
             CoreErrorClass::Unsupported,
             CoreErrorOrigin::Store,
             RuntimeErrorKind::Unsupported,
             ErrorOrigin::Store,
-            "store unsupported",
         ),
         (
             CoreErrorClass::IncompatiblePersistedFormat,
             CoreErrorOrigin::Serialize,
             RuntimeErrorKind::IncompatiblePersistedFormat,
             ErrorOrigin::Serialize,
-            "incompatible persisted format",
         ),
     ];
 
-    for (class, origin, expected_kind, expected_origin, message) in cases {
-        let query_err = QueryError::Execute(QueryExecutionError::from(InternalError::new(
-            class, origin, message,
-        )));
+    for (class, origin, expected_kind, expected_origin) in cases {
+        let query_err =
+            QueryError::Execute(QueryExecutionError::from(InternalError::new(class, origin)));
         let facade = Error::from(query_err);
 
         assert_eq!(facade.code(), expected_kind.diagnostic_code().error_code());
@@ -354,11 +343,7 @@ fn origin_mapping_includes_new_core_domains() {
     ];
 
     for (origin, expected) in cases {
-        let facade = Error::from(InternalError::new(
-            CoreErrorClass::Internal,
-            origin,
-            "origin mapping",
-        ));
+        let facade = Error::from(InternalError::new(CoreErrorClass::Internal, origin));
         assert_eq!(facade.origin(), expected);
     }
 }

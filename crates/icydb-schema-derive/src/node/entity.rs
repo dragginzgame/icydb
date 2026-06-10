@@ -644,7 +644,6 @@ fn composite_primary_key_decode_tokens(
     key_ident: &Ident,
     key_field_specs: &[(Ident, TokenStream)],
 ) -> TokenStream {
-    let component_count = key_field_specs.len();
     let component_count_lit = component_count_lit(key_field_specs);
     let primary_key_component_decoders =
         key_field_specs
@@ -657,12 +656,6 @@ fn composite_primary_key_decode_tokens(
                     )?
                 }
             });
-    let unexpected_kind_message =
-        format!("primary key decode failed for `{key_ident}`: expected composite primary key");
-    let component_count_message = format!(
-        "primary key decode failed for `{key_ident}`: expected {component_count} composite components"
-    );
-
     quote! {
         impl ::icydb::__macro::PrimaryKeyDecode for #key_ident {
             fn from_primary_key_value(
@@ -671,15 +664,13 @@ fn composite_primary_key_decode_tokens(
                 let ::icydb::__macro::PrimaryKeyValue::Composite(composite) = key else {
                     return Err(::icydb::__macro::InternalError::new(
                         ::icydb::__macro::ErrorClass::Corruption,
-                        ::icydb::__macro::ErrorOrigin::Store,
-                        #unexpected_kind_message,
+                        ::icydb::__macro::ErrorOrigin::Store
                     ));
                 };
                 if composite.len() != #component_count_lit {
                     return Err(::icydb::__macro::InternalError::new(
                         ::icydb::__macro::ErrorClass::Corruption,
-                        ::icydb::__macro::ErrorOrigin::Store,
-                        #component_count_message,
+                        ::icydb::__macro::ErrorOrigin::Store
                     ));
                 }
                 let components = composite.components();

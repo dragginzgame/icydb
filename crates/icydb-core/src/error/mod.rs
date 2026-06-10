@@ -63,7 +63,7 @@ const fn compact_message_for(_class: ErrorClass, origin: ErrorOrigin) -> &'stati
 // 2. Call sites MUST prefer canonical constructors.
 //
 //    Do NOT construct errors manually via:
-//        InternalError::new(class, origin, ...)
+//        InternalError::new(class, origin)
 //    unless you are defining a new canonical helper here.
 //
 //    If a pattern appears more than once, centralize it here.
@@ -152,9 +152,10 @@ impl InternalError {
     /// Construct an InternalError with optional origin-specific detail.
     /// This constructor provides default StoreError details for certain
     /// (class, origin) combinations but does not guarantee a detail payload.
+    #[must_use]
     #[cold]
     #[inline(never)]
-    pub fn new(class: ErrorClass, origin: ErrorOrigin, _message: impl Into<String>) -> Self {
+    pub fn new(class: ErrorClass, origin: ErrorOrigin) -> Self {
         let message = compact_message_for(class, origin);
 
         let detail = match (class, origin) {
@@ -233,19 +234,8 @@ impl InternalError {
     /// Construct an error while preserving an explicit class/origin taxonomy pair.
     #[cold]
     #[inline(never)]
-    pub(crate) fn classified(
-        class: ErrorClass,
-        origin: ErrorOrigin,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(class, origin, message)
-    }
-
-    /// Preserve taxonomy while discarding legacy prose relabeling.
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn with_message(self, _message: impl Into<String>) -> Self {
-        self
+    pub(crate) fn classified(class: ErrorClass, origin: ErrorOrigin) -> Self {
+        Self::new(class, origin)
     }
 
     /// Rebuild this error with a new origin while preserving class taxonomy.
@@ -254,18 +244,14 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn with_origin(self, origin: ErrorOrigin) -> Self {
-        Self::classified(self.class, origin, "")
+        Self::classified(self.class, origin)
     }
 
     /// Construct an index-origin invariant violation.
     #[cold]
     #[inline(never)]
     pub(crate) fn index_invariant() -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Index,
-            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Index)
     }
 
     /// Construct the canonical index field-count invariant for key building.
@@ -302,11 +288,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn planner_executor_invariant() -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Planner,
-            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Planner)
     }
 
     /// Construct a query-origin invariant violation for executor-boundary
@@ -314,11 +296,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn query_executor_invariant() -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            COMPACT_QUERY_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Query)
     }
 
     /// Construct a cursor-origin invariant violation for executor-boundary
@@ -326,44 +304,28 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn cursor_executor_invariant() -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Cursor,
-            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Cursor)
     }
 
     /// Construct an executor-origin invariant violation.
     #[cold]
     #[inline(never)]
     pub(crate) fn executor_invariant() -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Executor,
-            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Executor)
     }
 
     /// Construct an executor-origin internal error.
     #[cold]
     #[inline(never)]
     pub(crate) fn executor_internal() -> Self {
-        Self::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Executor,
-            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Internal, ErrorOrigin::Executor)
     }
 
     /// Construct an executor-origin unsupported error.
     #[cold]
     #[inline(never)]
     pub(crate) fn executor_unsupported() -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Executor,
-            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Executor)
     }
 
     /// Construct an executor-origin save-preflight primary-key missing invariant.
@@ -608,11 +570,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn planner_invariant() -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Planner,
-            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Planner)
     }
 
     /// Construct a planner-origin invalid-logical-plan invariant.
@@ -622,11 +580,7 @@ impl InternalError {
 
     /// Construct a store-origin invariant violation.
     pub(crate) fn store_invariant() -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Store,
-            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Store)
     }
 
     /// Construct the canonical duplicate runtime-hook entity-tag invariant.
@@ -645,11 +599,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn store_internal() -> Self {
-        Self::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Store,
-            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Internal, ErrorOrigin::Store)
     }
 
     /// Construct the canonical unconfigured commit-memory id internal error.
@@ -688,11 +638,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn index_internal() -> Self {
-        Self::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Index,
-            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Internal, ErrorOrigin::Index)
     }
 
     /// Construct the canonical missing old entity-key internal error for structural index removal.
@@ -717,19 +663,15 @@ impl InternalError {
 
     /// Construct a query-origin internal error.
     #[cfg(test)]
-    pub(crate) fn query_internal(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Internal, ErrorOrigin::Query, message.into())
+    pub(crate) fn query_internal() -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Query)
     }
 
     /// Construct a query-origin unsupported error.
     #[cold]
     #[inline(never)]
     pub(crate) fn query_unsupported() -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Query,
-            COMPACT_QUERY_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Query)
     }
 
     /// Construct a query-origin SQL DDL admission error with structured detail.
@@ -778,11 +720,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn serialize_internal() -> Self {
-        Self::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Serialize,
-            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Internal, ErrorOrigin::Serialize)
     }
 
     /// Construct the canonical persisted-row encode internal error.
@@ -817,11 +755,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn store_corruption() -> Self {
-        Self::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Corruption, ErrorOrigin::Store)
     }
 
     /// Construct a store-origin commit-marker corruption error.
@@ -873,11 +807,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn index_corruption() -> Self {
-        Self::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Index,
-            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Corruption, ErrorOrigin::Index)
     }
 
     /// Construct the canonical unique-validation corruption wrapper.
@@ -953,11 +883,7 @@ impl InternalError {
 
     /// Construct a serialize-origin corruption error.
     pub(crate) fn serialize_corruption() -> Self {
-        Self::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Serialize,
-            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Corruption, ErrorOrigin::Serialize)
     }
 
     /// Construct the canonical persisted-row decode corruption error.
@@ -1205,22 +1131,14 @@ impl InternalError {
 
     /// Construct an identity-origin corruption error.
     pub(crate) fn identity_corruption() -> Self {
-        Self::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Identity,
-            COMPACT_IDENTITY_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Corruption, ErrorOrigin::Identity)
     }
 
     /// Construct a store-origin unsupported error.
     #[cold]
     #[inline(never)]
     pub(crate) fn store_unsupported() -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Store,
-            COMPACT_STORE_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Store)
     }
 
     /// Construct the canonical schema DDL publication race error.
@@ -1271,11 +1189,7 @@ impl InternalError {
 
     /// Construct an index-origin unsupported error.
     pub(crate) fn index_unsupported() -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Index,
-            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Index)
     }
 
     /// Construct the canonical index-key component size-limit unsupported error.
@@ -1285,20 +1199,12 @@ impl InternalError {
 
     /// Construct a serialize-origin unsupported error.
     pub(crate) fn serialize_unsupported() -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Serialize,
-            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Serialize)
     }
 
     /// Construct a cursor-origin unsupported error.
     pub(crate) fn cursor_unsupported() -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Cursor,
-            COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Cursor)
     }
 
     /// Construct a serialize-origin incompatible persisted-format error.
@@ -1306,7 +1212,6 @@ impl InternalError {
         Self::new(
             ErrorClass::IncompatiblePersistedFormat,
             ErrorOrigin::Serialize,
-            COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
         )
     }
 
@@ -1442,13 +1347,7 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub(crate) fn index_plan_corruption(origin: ErrorOrigin) -> Self {
-        let message = match origin {
-            ErrorOrigin::Index => COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
-            ErrorOrigin::Store => COMPACT_STORE_DIAGNOSTIC_MESSAGE,
-            ErrorOrigin::Serialize => COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
-            _ => COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE,
-        };
-        Self::new(ErrorClass::Corruption, origin, message)
+        Self::new(ErrorClass::Corruption, origin)
     }
 
     /// Construct an index-plan corruption error for index-origin failures.
@@ -1475,11 +1374,7 @@ impl InternalError {
     /// Construct an index-plan invariant violation error with a canonical prefix.
     #[cfg(test)]
     pub(crate) fn index_plan_invariant(origin: ErrorOrigin) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            origin,
-            compact_message_for(ErrorClass::InvariantViolation, origin),
-        )
+        Self::new(ErrorClass::InvariantViolation, origin)
     }
 
     /// Construct an index-plan invariant violation error for store-origin failures.
@@ -1490,11 +1385,7 @@ impl InternalError {
 
     /// Construct an index uniqueness violation conflict error.
     pub(crate) fn index_violation(_path: &str, _index_fields: &[&str]) -> Self {
-        Self::new(
-            ErrorClass::Conflict,
-            ErrorOrigin::Index,
-            COMPACT_INDEX_DIAGNOSTIC_MESSAGE,
-        )
+        Self::new(ErrorClass::Conflict, ErrorOrigin::Index)
     }
 }
 

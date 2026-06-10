@@ -115,17 +115,8 @@ impl ProjectionEvalError {
     pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
         match self {
             Self::Numeric(err) => err.into_internal_error(),
-            Self::FieldPathEvaluationFailed {
-                message,
-                class,
-                origin,
-                ..
-            }
-            | Self::ReaderFailed {
-                message,
-                class,
-                origin,
-            } => InternalError::new(class, origin, message),
+            Self::FieldPathEvaluationFailed { class, origin, .. }
+            | Self::ReaderFailed { class, origin, .. } => InternalError::classified(class, origin),
             _ => InternalError::query_invalid_logical_plan(),
         }
     }
@@ -135,17 +126,8 @@ impl ProjectionEvalError {
     pub(in crate::db) fn into_grouped_projection_internal_error(self) -> InternalError {
         match self {
             Self::Numeric(err) => err.into_internal_error(),
-            Self::FieldPathEvaluationFailed {
-                message,
-                class,
-                origin,
-                ..
-            }
-            | Self::ReaderFailed {
-                message,
-                class,
-                origin,
-            } => InternalError::new(class, origin, message),
+            Self::FieldPathEvaluationFailed { class, origin, .. }
+            | Self::ReaderFailed { class, origin, .. } => InternalError::classified(class, origin),
             _ => InternalError::query_invalid_logical_plan(),
         }
     }

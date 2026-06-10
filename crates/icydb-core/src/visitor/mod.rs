@@ -51,12 +51,8 @@ impl From<VisitorError> for VisitorIssues {
 }
 
 impl From<VisitorError> for InternalError {
-    fn from(err: VisitorError) -> Self {
-        Self::classified(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Executor,
-            err.to_string(),
-        )
+    fn from(_err: VisitorError) -> Self {
+        Self::classified(ErrorClass::Unsupported, ErrorOrigin::Executor)
     }
 }
 

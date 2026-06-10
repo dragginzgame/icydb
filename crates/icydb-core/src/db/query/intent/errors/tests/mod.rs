@@ -49,7 +49,7 @@ fn query_execute_error_from_internal_preserves_class_and_origin_matrix() {
     ];
 
     for (class, origin) in cases {
-        let internal = InternalError::classified(class, origin, "matrix");
+        let internal = InternalError::classified(class, origin);
         let mapped = QueryExecutionError::from(internal);
 
         assert_execute_variant_for_class(&mapped, class);
@@ -63,7 +63,6 @@ fn planner_internal_mapping_preserves_runtime_class_and_origin() {
     let planner_internal = PlannerError::Internal(Box::new(InternalError::classified(
         ErrorClass::Unsupported,
         ErrorOrigin::Cursor,
-        "cursor payload mismatch",
     )));
     let query_err = QueryError::from(planner_internal);
 
@@ -131,7 +130,7 @@ fn planner_internal_mapping_preserves_boundary_origins_for_telemetry_matrix() {
 
     for (class, origin) in cases {
         let planner_internal =
-            PlannerError::Internal(Box::new(InternalError::classified(class, origin, "matrix")));
+            PlannerError::Internal(Box::new(InternalError::classified(class, origin)));
         let query_err = QueryError::from(planner_internal);
 
         let QueryError::Execute(execute_err) = query_err else {

@@ -273,11 +273,7 @@ fn schema_ddl_publication_race_exposes_compact_admission_detail() {
 
 #[test]
 fn internal_error_without_detail_uses_class_origin_compact_code() {
-    let err = InternalError::classified(
-        ErrorClass::InvariantViolation,
-        ErrorOrigin::Planner,
-        "planner invariant",
-    );
+    let err = InternalError::classified(ErrorClass::InvariantViolation, ErrorOrigin::Planner);
     let diagnostic = err.diagnostic();
 
     assert_eq!(
@@ -413,9 +409,8 @@ fn classification_integrity_helpers_preserve_error_class() {
     ];
 
     for class in classes {
-        let base = InternalError::classified(class, ErrorOrigin::Query, "base");
-        let relabeled_message = base.with_message("updated");
-        let reorigined = relabeled_message.with_origin(ErrorOrigin::Store);
+        let base = InternalError::classified(class, ErrorOrigin::Query);
+        let reorigined = base.with_origin(ErrorOrigin::Store);
         assert_eq!(
             reorigined.class, class,
             "class must be preserved across helper relabeling operations",

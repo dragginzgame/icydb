@@ -2870,11 +2870,10 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
     );
 }
 
-fn unsupported_sql_statement_query_error(message: &'static str) -> QueryError {
+fn unsupported_sql_statement_query_error(_message: &'static str) -> QueryError {
     QueryError::execute(crate::error::InternalError::classified(
         ErrorClass::Unsupported,
         ErrorOrigin::Query,
-        message,
     ))
 }
 

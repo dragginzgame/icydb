@@ -367,7 +367,7 @@ impl ExecutorError {
 
 impl From<ExecutorError> for InternalError {
     fn from(err: ExecutorError) -> Self {
-        Self::classified(err.class(), err.origin(), err.to_string())
+        Self::classified(err.class(), err.origin())
     }
 }
 

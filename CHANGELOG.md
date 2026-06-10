@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.26` hard-cuts `InternalError::new` and internal diagnostic
+  relabeling to code-only forms, removing discarded runtime and generated
+  decode prose while preserving compact diagnostic identity.
+
 - `0.180.25` hard-cuts query unsupported and serialize-internal helper
   constructors to code-only forms, removing discarded SQL/query helper and
   cursor serialization prose while preserving compact diagnostic taxonomy.

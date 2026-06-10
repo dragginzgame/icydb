@@ -56,7 +56,7 @@ impl StaticOrderedKeyStream {
 impl OrderedKeyStream for StaticOrderedKeyStream {
     fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         if self.fail_at.is_some_and(|idx| self.index == idx) {
-            return Err(InternalError::query_internal("forced stream failure"));
+            return Err(InternalError::query_internal());
         }
         if self.index >= self.keys.len() {
             return Ok(None);
