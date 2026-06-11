@@ -11,9 +11,11 @@ use crate::{
         data::StructuralPatch,
         executor::MutationMode,
         query::intent::StructuralQuery,
-        schema::AcceptedRowLayoutRuntimeContract,
+        schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
         session::sql::{
-            SqlStatementResult,
+            SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
+            SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedUpdatePlan,
+            classify_sql_update_policy,
             execute::write_returning::{
                 sql_write_statement_result, validate_sql_returning_projection_fields,
             },
@@ -177,5 +179,117 @@ impl<C: CanisterKind> DbSession<C> {
         );
 
         sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)
+    }
+
+    fn schema_derived_sql_update_plan<E>(
+        &self,
+        sql: &str,
+        policy: SqlUpdateExposurePolicy,
+    ) -> Result<SqlValidatedUpdatePlan, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
+        let generated_fields = descriptor
+            .fields()
+            .iter()
+            .filter(|field| field.write_policy().insert_generation().is_some())
+            .map(AcceptedRowLayoutRuntimeField::name)
+            .collect::<Vec<_>>();
+        let managed_fields = descriptor
+            .fields()
+            .iter()
+            .filter(|field| field.write_policy().write_management().is_some())
+            .map(AcceptedRowLayoutRuntimeField::name)
+            .collect::<Vec<_>>();
+        let context = SqlUpdatePolicyContext {
+            primary_key_fields: descriptor.primary_key_names(),
+            generated_fields: generated_fields.as_slice(),
+            managed_fields: managed_fields.as_slice(),
+            max_public_bounded_limit: 100,
+            max_returning_response_bytes: None,
+        };
+        let report = classify_sql_update_policy(sql, policy, context)?;
+        let Some(plan) = report.plan else {
+            return Err(QueryError::unsupported_query());
+        };
+
+        Ok(plan)
+    }
+
+    /// Execute a policy-validated public primary-key SQL `UPDATE` plan.
+    ///
+    /// This adapter intentionally accepts only the primary-key validated plan
+    /// variant, so generated/public write surfaces cannot route broader
+    /// session-current or bounded/admin plans through this at-most-one-row
+    /// execution path by accident.
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_primary_key_update<E>(
+        &self,
+        plan: &SqlPublicPrimaryKeyUpdatePlan,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_sql_update_statement::<E>(plan.statement())
+    }
+
+    /// Execute a policy-validated bounded deterministic SQL `UPDATE` plan.
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_bounded_update<E>(
+        &self,
+        plan: &SqlPublicBoundedUpdatePlan,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_sql_update_statement::<E>(plan.statement())
+    }
+
+    /// Classify and execute one public primary-key-only SQL `UPDATE`.
+    ///
+    /// The policy context is derived from the accepted runtime descriptor, so
+    /// callers cannot accidentally validate public SQL against generated model
+    /// facts or hand-authored field lists.
+    #[doc(hidden)]
+    pub fn execute_sql_public_primary_key_update<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let plan = self.schema_derived_sql_update_plan::<E>(
+            sql,
+            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+        )?;
+        let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = plan else {
+            return Err(QueryError::invariant());
+        };
+
+        self.execute_validated_sql_public_primary_key_update::<E>(&plan)
+    }
+
+    /// Classify and execute one bounded deterministic public SQL `UPDATE`.
+    #[doc(hidden)]
+    pub fn execute_sql_public_bounded_update<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let plan = self.schema_derived_sql_update_plan::<E>(
+            sql,
+            SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+        )?;
+        let SqlValidatedUpdatePlan::PublicBoundedDeterministic(plan) = plan else {
+            return Err(QueryError::invariant());
+        };
+
+        self.execute_validated_sql_public_bounded_update::<E>(&plan)
     }
 }

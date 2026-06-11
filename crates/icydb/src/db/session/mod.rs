@@ -341,6 +341,69 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    /// Execute one policy-validated public primary-key SQL `UPDATE` plan.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_primary_key_update<E>(
+        &self,
+        plan: &crate::db::SqlPublicPrimaryKeyUpdatePlan,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner
+                .execute_validated_sql_public_primary_key_update::<E>(plan)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
+    /// Execute one public primary-key-only SQL `UPDATE` against one entity type.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_sql_public_primary_key_update<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner.execute_sql_public_primary_key_update::<E>(sql)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
+    /// Execute one policy-validated bounded deterministic SQL `UPDATE` plan.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_validated_sql_public_bounded_update<E>(
+        &self,
+        plan: &crate::db::SqlPublicBoundedUpdatePlan,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner
+                .execute_validated_sql_public_bounded_update::<E>(plan)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
+    /// Execute one bounded deterministic public SQL `UPDATE`.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_sql_public_bounded_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    where
+        E: crate::traits::EntityFor<C>,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner.execute_sql_public_bounded_update::<E>(sql)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
     /// Execute one supported SQL DDL statement against one concrete entity type.
     #[cfg(feature = "sql")]
     pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>

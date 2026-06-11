@@ -269,6 +269,12 @@ pub struct SqlPublicPrimaryKeyUpdatePlan {
     pub returning_bounds: SqlUpdateReturningBounds,
 }
 
+impl SqlPublicPrimaryKeyUpdatePlan {
+    pub(in crate::db::session::sql) const fn statement(&self) -> &SqlUpdateStatement {
+        &self.statement
+    }
+}
+
 /// Validated plan for public bounded deterministic update.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -282,6 +288,12 @@ pub struct SqlPublicBoundedUpdatePlan {
     pub ordered_primary_key_fields: Vec<String>,
     /// `RETURNING` bounds attached to the admitted plan.
     pub returning_bounds: SqlUpdateReturningBounds,
+}
+
+impl SqlPublicBoundedUpdatePlan {
+    pub(in crate::db::session::sql) const fn statement(&self) -> &SqlUpdateStatement {
+        &self.statement
+    }
 }
 
 /// Validated plan for future admin/bulk update.

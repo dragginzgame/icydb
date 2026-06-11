@@ -1,6 +1,10 @@
 use super::*;
 use crate::{
-    db::{MutationMode, StructuralPatch},
+    db::{
+        MutationMode, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
+        SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedUpdatePlan, StructuralPatch,
+        classify_sql_update_policy,
+    },
     error::InternalError,
     metrics::sink::SqlWriteKind,
 };
@@ -95,6 +99,64 @@ fn seed_write_entities(session: &DbSession<SessionSqlCanister>, rows: &[(u64, &s
             })
             .expect("typed setup insert should succeed");
     }
+}
+
+fn public_primary_key_update_plan(sql: &str) -> SqlPublicPrimaryKeyUpdatePlan {
+    let report = classify_sql_update_policy(
+        sql,
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+        SqlUpdatePolicyContext::new(&["id"]),
+    )
+    .expect("public primary-key UPDATE SQL should parse");
+
+    let Some(SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan)) = report.plan else {
+        panic!("public primary-key UPDATE SQL should produce a primary-key plan");
+    };
+
+    plan
+}
+
+fn public_bounded_update_plan(sql: &str) -> SqlPublicBoundedUpdatePlan {
+    let report = classify_sql_update_policy(
+        sql,
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+        SqlUpdatePolicyContext::new(&["id"]),
+    )
+    .expect("public bounded UPDATE SQL should parse");
+
+    let Some(SqlValidatedUpdatePlan::PublicBoundedDeterministic(plan)) = report.plan else {
+        panic!("public bounded UPDATE SQL should produce a bounded plan");
+    };
+
+    plan
+}
+
+fn rejected_public_primary_key_update_has_no_plan(sql: &str) {
+    let report = classify_sql_update_policy(
+        sql,
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+        SqlUpdatePolicyContext::new(&["id"]),
+    )
+    .expect("public primary-key UPDATE rejection SQL should parse");
+
+    assert!(
+        report.plan.is_none(),
+        "rejected public primary-key UPDATE must not expose an executable plan",
+    );
+}
+
+fn rejected_public_bounded_update_has_no_plan(sql: &str) {
+    let report = classify_sql_update_policy(
+        sql,
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+        SqlUpdatePolicyContext::new(&["id"]),
+    )
+    .expect("public bounded UPDATE rejection SQL should parse");
+
+    assert!(
+        report.plan.is_none(),
+        "rejected public bounded UPDATE must not expose an executable plan",
+    );
 }
 
 // Assert one SQL write rejection from the accepted-schema transition barrier
@@ -1264,6 +1326,309 @@ fn execute_sql_statement_single_row_update_matrix_returns_count_without_returnin
             );
         }
     }
+}
+
+#[test]
+fn execute_validated_sql_public_primary_key_update_plan_mutates_one_row() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
+
+    let plan =
+        public_primary_key_update_plan("UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1");
+    let result = session
+        .execute_validated_sql_public_primary_key_update::<SessionSqlWriteEntity>(&plan)
+        .expect("validated public primary-key UPDATE plan should execute");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("validated public primary-key UPDATE should return count payload");
+    };
+
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(30),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_primary_key_update_rejects_non_pk_plan_before_execution() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21)]);
+
+    rejected_public_primary_key_update_has_no_plan(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
+    );
+
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_public_primary_key_update_derives_context_and_mutates_one_row() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
+
+    let result = session
+        .execute_sql_public_primary_key_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+        )
+        .expect("schema-derived public primary-key UPDATE should execute");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("schema-derived public primary-key UPDATE should return count payload");
+    };
+
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(30),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_public_primary_key_update_rejects_non_pk_where_without_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21)]);
+
+    let err = session
+        .execute_sql_public_primary_key_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
+        )
+        .expect_err("schema-derived public primary-key UPDATE should reject non-PK WHERE");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "public primary-key UPDATE should fail closed before execution",
+    );
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_public_primary_key_update_rejects_schema_owned_assignments_before_execution() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+
+    let err = session
+        .execute_sql_public_primary_key_update::<SessionSqlGeneratedTimestampEntity>(
+            "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = 7 WHERE id = 1",
+        )
+        .expect_err("public primary-key UPDATE should reject generated assignment pre-execution");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "generated-field assignment should be rejected by schema-derived public policy context",
+    );
+
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlManagedWriteEntity {
+            id: 1,
+            name: "Ada".to_string(),
+            created_at: Timestamp::from_nanos(1),
+            updated_at: Timestamp::from_nanos(1),
+        })
+        .expect("managed-field setup insert should succeed");
+
+    let err = session
+        .execute_sql_public_primary_key_update::<SessionSqlManagedWriteEntity>(
+            "UPDATE SessionSqlManagedWriteEntity SET updated_at = 0 WHERE id = 1",
+        )
+        .expect_err("public primary-key UPDATE should reject managed assignment pre-execution");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "managed-field assignment should be rejected by schema-derived public policy context",
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_update_plan_mutates_limited_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+
+    let plan = public_bounded_update_plan(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2",
+    );
+    let result = session
+        .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+        .expect("validated public bounded UPDATE plan should execute");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("validated public bounded UPDATE should return count payload");
+    };
+
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(3),
+                Value::Text("Cid".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_bounded_update_rejects_unordered_plan_before_execution() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21)]);
+
+    rejected_public_bounded_update_has_no_plan(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 2",
+    );
+
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_public_bounded_update_derives_context_and_mutates_limited_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+
+    let result = session
+        .execute_sql_public_bounded_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2",
+        )
+        .expect("schema-derived public bounded UPDATE should execute");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("schema-derived public bounded UPDATE should return count payload");
+    };
+
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(3),
+                Value::Text("Cid".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_public_bounded_update_rejects_unordered_without_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21)]);
+
+    let err = session
+        .execute_sql_public_bounded_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 2",
+        )
+        .expect_err("schema-derived public bounded UPDATE should reject implicit ordering");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "public bounded UPDATE should require explicit primary-key order before execution",
+    );
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
 }
 
 #[test]

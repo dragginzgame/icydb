@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.3` adds typed-plan and accepted-schema-derived execution adapters for
+  public primary-key and bounded deterministic SQL `UPDATE`, keeping
+  generated/public-safe execution behind policy-specific validated plans.
+
 - `0.181.2` upgrades the SQL `UPDATE` policy gate to return typed validated
   update plans, so admitted generated/public write policies produce
   policy-specific success values instead of only raw classification reports.
