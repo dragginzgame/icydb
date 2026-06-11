@@ -80,10 +80,9 @@ fn lower_sql_where_expr_rejects_expression_only_shapes_on_strict_predicate_path(
     let err = lower_sql_where_expr(&expr)
         .expect_err("strict predicate-only WHERE lowering should reject expression-only shapes");
 
-    assert_eq!(
-        err.to_string(),
-        crate::db::sql::lowering::SqlLoweringError::unsupported_where_expression().to_string(),
-        "strict predicate-only lowering should fail closed with the normal unsupported WHERE error",
+    std::assert_matches!(
+        err,
+        crate::db::sql::lowering::SqlLoweringError::UnsupportedWhereExpression
     );
 }
 

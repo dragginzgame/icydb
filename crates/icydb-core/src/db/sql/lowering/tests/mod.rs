@@ -1605,7 +1605,7 @@ fn prepare_sql_statement_rejects_parameters_before_lowering() {
 
     for (sql, context) in cases {
         let statement =
-            parse_sql(sql).unwrap_or_else(|err| panic!("{context} should parse: {err}"));
+            parse_sql(sql).unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
         let Err(err) = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name()) else {
             panic!("{context} should fail during prepare");
         };
@@ -3928,7 +3928,7 @@ fn compile_sql_command_casefold_not_like_prefix_matrix_matches_negated_casefold_
 
     for (sql, context, prefix) in cases {
         let sql_command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
-            .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
+            .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
         let SqlCommand::Query(sql_query) = sql_command else {
             panic!("expected lowered SQL query command");
         };
@@ -6402,18 +6402,17 @@ fn compile_sql_global_aggregate_command_for_model_only_rejects_direct_field_glob
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_for_model_only_rejection_message_names_global_aggregate_list_support()
- {
+fn compile_sql_global_aggregate_command_for_model_only_rejects_mixed_projection_structurally() {
     let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT MIN(age), name FROM SqlLowerEntity",
         MissingRowPolicy::Ignore,
     )
     .expect_err("mixed global aggregate and scalar projection should remain fail-closed");
 
-    assert!(
-        err.to_string()
-            .contains("scalar wrappers over aggregate results"),
-        "mixed aggregate rejection should name the admitted global aggregate list shape: {err}",
+    std::assert_matches!(
+        err,
+        SqlLoweringError::UnsupportedGlobalAggregateProjection,
+        "mixed aggregate rejection should keep the global aggregate projection boundary",
     );
 }
 

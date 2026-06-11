@@ -22,7 +22,7 @@ mod tests;
 
 use crate::db::{
     query::intent::QueryError,
-    sql::parser::{SqlExplainMode, SqlStatement},
+    sql::parser::{SqlExplainMode, SqlParseError, SqlStatement},
 };
 #[cfg(test)]
 use crate::{
@@ -30,7 +30,6 @@ use crate::{
     traits::EntityKind,
 };
 use icydb_diagnostic_code::SqlLoweringCode;
-use thiserror::Error as ThisError;
 
 ///
 /// SqlParameterPlacementReason
@@ -224,83 +223,60 @@ pub(crate) enum LoweredSqlQuery {
 ///
 /// SQL frontend lowering failures before planner validation/execution.
 ///
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(crate) enum SqlLoweringError {
-    #[error("{0}")]
-    Parse(#[from] crate::db::sql::parser::SqlParseError),
+    Parse(SqlParseError),
 
-    #[error("{0}")]
     Query(Box<QueryError>),
 
-    #[error("SQL entity '{sql_entity}' does not match requested entity type '{expected_entity}'")]
     EntityMismatch {
         sql_entity: String,
         expected_entity: String,
     },
 
-    #[error(
-        "unsupported SQL SELECT projection; supported forms are SELECT *, field lists, global aggregate terminal lists, or grouped aggregate shapes"
-    )]
     UnsupportedSelectProjection,
 
-    #[error("unsupported SQL SELECT DISTINCT")]
     UnsupportedSelectDistinct,
 
-    #[error("SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple")]
     DistinctOrderByRequiresProjectedTuple,
 
-    #[error(
-        "unsupported global aggregate SQL projection; supported forms are aggregate projections such as COUNT(*), SUM(field), AVG(expr), or scalar wrappers over aggregate results"
-    )]
     UnsupportedGlobalAggregateProjection,
 
-    #[error("global aggregate SQL does not support GROUP BY")]
     GlobalAggregateDoesNotSupportGroupBy,
 
-    #[error("unsupported SQL GROUP BY projection shape")]
     UnsupportedSelectGroupBy,
 
-    #[error("grouped SELECT requires an explicit projection list")]
     GroupedProjectionRequiresExplicitList,
 
-    #[error("grouped SELECT projection must include at least one aggregate expression")]
     GroupedProjectionRequiresAggregate,
 
-    #[error(
-        "grouped projection expression at index={index} references fields outside GROUP BY keys"
-    )]
-    GroupedProjectionReferencesNonGroupField { index: usize },
+    GroupedProjectionReferencesNonGroupField {
+        index: usize,
+    },
 
-    #[error(
-        "grouped projection expression at index={index} appears after aggregate expressions started"
-    )]
-    GroupedProjectionScalarAfterAggregate { index: usize },
+    GroupedProjectionScalarAfterAggregate {
+        index: usize,
+    },
 
-    #[error("HAVING requires GROUP BY")]
     HavingRequiresGroupBy,
 
-    #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
 
-    #[error("aggregate input expressions are not executable in this release")]
     UnsupportedAggregateInputExpressions,
 
-    #[error("unsupported SQL WHERE expression shape")]
     UnsupportedWhereExpression,
 
-    #[error("unknown field '{field}'")]
-    UnknownField { field: String },
+    UnknownField {
+        field: String,
+    },
 
-    #[error("unsupported SQL parameter placement")]
     UnsupportedParameterPlacement {
         index: Option<usize>,
         reason: SqlParameterPlacementReason,
     },
 
-    #[error("SQL DDL execution is not supported in this release")]
     UnsupportedSqlDdl,
 
-    #[error("query-lane lowering reached a non query-compatible statement")]
     UnexpectedQueryLaneStatement,
 }
 
@@ -412,7 +388,13 @@ impl SqlLoweringError {
     /// do not need dynamic message payloads at the public boundary.
     pub(crate) const fn compact_diagnostic_code(&self) -> Option<SqlLoweringCode> {
         match self {
-            Self::EntityMismatch { .. } => Some(SqlLoweringCode::EntityMismatch),
+            Self::EntityMismatch {
+                sql_entity,
+                expected_entity,
+            } => {
+                let _ = (sql_entity, expected_entity);
+                Some(SqlLoweringCode::EntityMismatch)
+            }
             Self::UnsupportedSelectProjection => Some(SqlLoweringCode::SelectProjectionShape),
             Self::UnsupportedSelectDistinct => Some(SqlLoweringCode::SelectDistinct),
             Self::DistinctOrderByRequiresProjectedTuple => {
@@ -431,10 +413,12 @@ impl SqlLoweringError {
             Self::GroupedProjectionRequiresAggregate => {
                 Some(SqlLoweringCode::GroupedProjectionAggregateRequired)
             }
-            Self::GroupedProjectionReferencesNonGroupField { .. } => {
+            Self::GroupedProjectionReferencesNonGroupField { index } => {
+                let _ = index;
                 Some(SqlLoweringCode::GroupedProjectionNonGroupField)
             }
-            Self::GroupedProjectionScalarAfterAggregate { .. } => {
+            Self::GroupedProjectionScalarAfterAggregate { index } => {
+                let _ = index;
                 Some(SqlLoweringCode::GroupedProjectionScalarAfterAggregate)
             }
             Self::HavingRequiresGroupBy => Some(SqlLoweringCode::HavingRequiresGroupBy),
@@ -443,7 +427,10 @@ impl SqlLoweringError {
                 Some(SqlLoweringCode::AggregateInputExpressions)
             }
             Self::UnsupportedWhereExpression => Some(SqlLoweringCode::WhereExpressionShape),
-            Self::UnsupportedParameterPlacement { .. } => Some(SqlLoweringCode::ParameterPlacement),
+            Self::UnsupportedParameterPlacement { index, reason } => {
+                let _ = (index, reason);
+                Some(SqlLoweringCode::ParameterPlacement)
+            }
             Self::UnsupportedSqlDdl => Some(SqlLoweringCode::SqlDdlExecutionUnsupported),
             Self::Parse(_)
             | Self::Query(_)
@@ -456,6 +443,12 @@ impl SqlLoweringError {
 impl From<QueryError> for SqlLoweringError {
     fn from(value: QueryError) -> Self {
         Self::Query(Box::new(value))
+    }
+}
+
+impl From<SqlParseError> for SqlLoweringError {
+    fn from(value: SqlParseError) -> Self {
+        Self::Parse(value)
     }
 }
 

@@ -1,23 +1,23 @@
 use crate::{types::Decimal, value::Value};
 use icydb_diagnostic_code::SqlFeatureCode;
 use std::str::FromStr;
-use thiserror::Error as ThisError;
 
 #[cfg_attr(
     doc,
     doc = "SqlParseError\n\nReduced SQL parser errors shared by standalone predicate parsing and the statement-level SQL frontend."
 )]
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlParseError {
     #[cfg(feature = "sql")]
-    #[error("empty SQL input")]
     EmptyInput,
 
-    #[error("unsupported SQL feature")]
-    UnsupportedFeature { feature: SqlFeatureCode },
+    UnsupportedFeature {
+        feature: SqlFeatureCode,
+    },
 
-    #[error("invalid SQL syntax")]
-    InvalidSyntax { kind: SqlSyntaxErrorKind },
+    InvalidSyntax {
+        kind: SqlSyntaxErrorKind,
+    },
 }
 
 impl SqlParseError {

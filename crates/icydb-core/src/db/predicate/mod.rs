@@ -70,7 +70,7 @@ pub(in crate::db::predicate) use semantics::{
 /// Parse one generated filtered-index predicate at macro/build time.
 #[doc(hidden)]
 pub fn parse_generated_index_predicate_sql(predicate_sql: &str) -> Result<Predicate, String> {
-    parse_sql_predicate(predicate_sql).map_err(|error| error.to_string())
+    parse_sql_predicate(predicate_sql).map_err(|_| "invalid generated index predicate".to_owned())
 }
 
 /// Validate one generated filtered-index predicate against trusted field metadata.

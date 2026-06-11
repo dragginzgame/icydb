@@ -39,7 +39,6 @@ use crate::db::{
     },
     sql::parser::{SqlDdlStatement, SqlStatement},
 };
-use thiserror::Error as ThisError;
 
 #[cfg(test)]
 use crate::db::schema::{
@@ -185,150 +184,137 @@ impl BoundSqlDdlNoOpRequest {
 ///
 /// Typed fail-closed reasons for SQL DDL catalog binding.
 ///
-#[derive(Debug, Eq, PartialEq, ThisError)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::db) enum SqlDdlBindError {
-    #[error("SQL DDL bind failed")]
     NotDdl,
 
-    #[error("SQL DDL bind failed")]
     MissingEntityName,
 
-    #[error("SQL DDL bind failed")]
     EntityMismatch {
         sql_entity: String,
         expected_entity: String,
     },
 
-    #[error("SQL DDL bind failed")]
     UnknownFieldPath {
         entity_name: String,
         field_path: String,
     },
 
-    #[error("SQL DDL bind failed")]
-    FieldPathNotIndexable { field_path: String },
+    FieldPathNotIndexable {
+        field_path: String,
+    },
 
-    #[error("SQL DDL bind failed")]
-    FieldPathNotAcceptedCatalogBacked { field_path: String },
+    FieldPathNotAcceptedCatalogBacked {
+        field_path: String,
+    },
 
-    #[error("SQL DDL bind failed")]
     InvalidFilteredIndexPredicate,
 
-    #[error("SQL DDL bind failed")]
-    DuplicateIndexName { index_name: String },
+    DuplicateIndexName {
+        index_name: String,
+    },
 
-    #[error("SQL DDL bind failed")]
     DuplicateFieldPathIndex {
         field_path: String,
         existing_index: String,
     },
 
-    #[error("SQL DDL bind failed")]
     UnknownIndex {
         entity_name: String,
         index_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
-    GeneratedIndexDropRejected { index_name: String },
+    GeneratedIndexDropRejected {
+        index_name: String,
+    },
 
-    #[error("SQL DDL bind failed")]
-    UnsupportedDropIndex { index_name: String },
+    UnsupportedDropIndex {
+        index_name: String,
+    },
 
-    #[error("SQL DDL bind failed")]
     InvalidAlterTableAddColumnDefault {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     UnsupportedAlterTableAddColumnNotNull {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     DuplicateColumn {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     UnsupportedAlterTableAddColumnType {
         entity_name: String,
         column_name: String,
         column_type: String,
     },
 
-    #[error("SQL DDL bind failed")]
     UnknownColumn {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     InvalidAlterTableAlterColumnDefault {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     UnsupportedAlterTableDropDefaultRequired {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     GeneratedFieldDefaultChangeRejected {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     GeneratedFieldNullabilityChangeRejected {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     PrimaryKeyFieldDropRejected {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     GeneratedFieldDropRejected {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     IndexedFieldDropRejected {
         entity_name: String,
         column_name: String,
         index_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
     GeneratedFieldRenameRejected {
         entity_name: String,
         column_name: String,
     },
 
-    #[error("SQL DDL bind failed")]
-    NonPositiveSchemaVersion { clause: &'static str },
+    NonPositiveSchemaVersion {
+        clause: &'static str,
+    },
 
-    #[error("SQL DDL bind failed")]
     MissingExpectedSchemaVersion,
 
-    #[error("SQL DDL bind failed")]
     MissingNextSchemaVersion,
 
-    #[error("SQL DDL bind failed")]
-    StaleExpectedSchemaVersion { expected: u32, accepted: u32 },
+    StaleExpectedSchemaVersion {
+        expected: u32,
+        accepted: u32,
+    },
 
-    #[error("SQL DDL bind failed")]
-    EmptySchemaVersionBump { requested: u32 },
+    EmptySchemaVersionBump {
+        requested: u32,
+    },
 }
 
 ///
@@ -337,12 +323,10 @@ pub(in crate::db) enum SqlDdlBindError {
 /// Typed fail-closed reasons while lowering bound DDL into schema mutation
 /// admission.
 ///
-#[derive(Debug, Eq, PartialEq, ThisError)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::db) enum SqlDdlLoweringError {
-    #[error("SQL DDL lowering failed")]
     UnsupportedStatement,
 
-    #[error("SQL DDL lowering failed")]
     MutationAdmission(SchemaDdlMutationAdmissionError),
 }
 
@@ -351,13 +335,23 @@ pub(in crate::db) enum SqlDdlLoweringError {
 ///
 /// Typed fail-closed preparation errors for SQL DDL.
 ///
-#[derive(Debug, Eq, PartialEq, ThisError)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::db) enum SqlDdlPrepareError {
-    #[error("SQL DDL preparation failed")]
-    Bind(#[from] SqlDdlBindError),
+    Bind(SqlDdlBindError),
 
-    #[error("SQL DDL preparation failed")]
-    Lowering(#[from] SqlDdlLoweringError),
+    Lowering(SqlDdlLoweringError),
+}
+
+impl From<SqlDdlBindError> for SqlDdlPrepareError {
+    fn from(value: SqlDdlBindError) -> Self {
+        Self::Bind(value)
+    }
+}
+
+impl From<SqlDdlLoweringError> for SqlDdlPrepareError {
+    fn from(value: SqlDdlLoweringError) -> Self {
+        Self::Lowering(value)
+    }
 }
 
 /// Prepare one parsed SQL DDL statement through every pre-execution proof.
