@@ -71,18 +71,25 @@ pub(crate) enum SqlSyntaxErrorKind {
     BlobLiteralTooLarge {
         max_decoded_bytes: usize,
     },
+    #[cfg(feature = "sql")]
     IntegerLiteralRequiresNonNegative {
         clause: SqlIntegerLiteralClause,
     },
+    #[cfg(feature = "sql")]
     IntegerLiteralU32Overflow {
         clause: SqlIntegerLiteralClause,
     },
+    #[cfg(feature = "sql")]
     ClauseOrder {
         rule: SqlClauseOrderRule,
     },
+    #[cfg(feature = "sql")]
     InsertValuesTupleLengthMismatch,
+    #[cfg(feature = "sql")]
     CoalesceRequiresTwoArguments,
+    #[cfg(feature = "sql")]
     RoundScaleRequiresIntegerLiteral,
+    #[cfg(feature = "sql")]
     InRequiresLiteral,
 }
 
@@ -96,21 +103,29 @@ pub(crate) enum SqlExpectedToken {
     NumericLiteralAfterMinus,
     Identifier,
     IdentifierAfterDot,
+    #[cfg(feature = "sql")]
     IdentifierKeyword {
         keyword: SqlIdentifierKeyword,
     },
     LParen,
     RParen,
+    #[cfg(feature = "sql")]
     Eq,
+    #[cfg(feature = "sql")]
     UpdateAssignmentEq,
+    #[cfg(feature = "sql")]
     UpdateAssignment,
+    #[cfg(feature = "sql")]
     SelectOrDelete,
     CompareOperator,
     FieldSpecialOperator,
     NotSpecialOperator,
+    #[cfg(feature = "sql")]
     ProjectionItem,
+    #[cfg(feature = "sql")]
     Comma,
     PredicateArgumentComma,
+    #[cfg(feature = "sql")]
     ScalarFunctionArgumentComma,
     #[cfg(test)]
     Then,
@@ -119,15 +134,19 @@ pub(crate) enum SqlExpectedToken {
     #[cfg(test)]
     Where,
     EndOfInput,
+    #[cfg(feature = "sql")]
     StatementStart,
+    #[cfg(feature = "sql")]
     ShowIndexesSource,
     Keyword(Keyword),
+    #[cfg(feature = "sql")]
     IntegerLiteral {
         clause: SqlIntegerLiteralClause,
     },
 }
 
 impl SqlExpectedToken {
+    #[cfg(feature = "sql")]
     pub(crate) fn identifier_keyword(keyword: &str) -> Self {
         Self::IdentifierKeyword {
             keyword: SqlIdentifierKeyword::from_str(keyword),
@@ -135,6 +154,7 @@ impl SqlExpectedToken {
     }
 }
 
+#[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlIdentifierKeyword {
     Into,
@@ -146,6 +166,7 @@ pub(crate) enum SqlIdentifierKeyword {
     Other,
 }
 
+#[cfg(feature = "sql")]
 impl SqlIdentifierKeyword {
     fn from_str(keyword: &str) -> Self {
         match keyword {
@@ -215,6 +236,7 @@ impl SqlFoundToken {
     }
 }
 
+#[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlIntegerLiteralClause {
     Limit,
@@ -224,6 +246,7 @@ pub(crate) enum SqlIntegerLiteralClause {
     SetSchemaVersion,
 }
 
+#[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlClauseOrderRule {
     SelectOrderBeforeLimitOffset,
@@ -300,6 +323,7 @@ pub(crate) enum Keyword {
 }
 
 impl Keyword {
+    #[cfg(feature = "sql")]
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::And => "AND",

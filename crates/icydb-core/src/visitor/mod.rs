@@ -18,7 +18,10 @@ use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
 
 // re-exports
-pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
+pub use context::{
+    Issue, IssueCode, IssueComparisonOp, IssueTextPattern, PathSegment, ScopedContext,
+    VisitorContext,
+};
 
 //
 // VisitorError
@@ -66,7 +69,7 @@ impl From<VisitorError> for InternalError {
 //
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct VisitorIssues(BTreeMap<String, Vec<String>>);
+pub struct VisitorIssues(BTreeMap<String, Vec<Issue>>);
 
 impl VisitorIssues {
     #[must_use]
@@ -86,17 +89,17 @@ impl VisitorIssues {
     }
 
     #[must_use]
-    pub fn get(&self, path: impl AsRef<str>) -> Option<&[String]> {
+    pub fn get(&self, path: impl AsRef<str>) -> Option<&[Issue]> {
         self.0.get(path.as_ref()).map(Vec::as_slice)
     }
 
     pub fn push(&mut self, path: String, issue: Issue) {
-        self.0.entry(path).or_default().push(issue.into_message());
+        self.0.entry(path).or_default().push(issue);
     }
 }
 
-impl From<BTreeMap<String, Vec<String>>> for VisitorIssues {
-    fn from(map: BTreeMap<String, Vec<String>>) -> Self {
+impl From<BTreeMap<String, Vec<Issue>>> for VisitorIssues {
+    fn from(map: BTreeMap<String, Vec<Issue>>) -> Self {
         Self(map)
     }
 }

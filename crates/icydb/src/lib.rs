@@ -114,9 +114,10 @@ pub mod metrics {
 
 pub mod visitor {
     pub use icydb_core::visitor::{
-        Issue, PathSegment, SanitizeFieldDescriptor, ScopedContext, ValidateFieldDescriptor,
-        VisitableFieldDescriptor, VisitorContext, VisitorCore, VisitorError, VisitorIssues,
-        VisitorMutCore, drive_sanitize_fields, drive_validate_fields, drive_visitable_fields,
+        Issue, IssueCode, IssueComparisonOp, IssueTextPattern, PathSegment,
+        SanitizeFieldDescriptor, ScopedContext, ValidateFieldDescriptor, VisitableFieldDescriptor,
+        VisitorContext, VisitorCore, VisitorError, VisitorIssues, VisitorMutCore,
+        drive_sanitize_fields, drive_validate_fields, drive_visitable_fields,
         drive_visitable_fields_mut, perform_visit, perform_visit_mut,
     };
     pub use icydb_core::{
@@ -269,7 +270,7 @@ pub mod design {
             },
             types::*,
             value::{InputValue, OutputValue},
-            visitor::VisitorContext,
+            visitor::{Issue, IssueComparisonOp, IssueTextPattern, VisitorContext},
             visitor::{SanitizeWriteContext, SanitizeWriteMode},
         };
     }

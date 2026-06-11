@@ -1,8 +1,15 @@
 use crate::types::Decimal;
-use crate::types::decimal::{DEFAULT_DIVISION_SCALE, MAX_SUPPORTED_SCALE};
+use crate::types::decimal::{DEFAULT_DIVISION_SCALE, MAX_SUPPORTED_SCALE, ParseDecimalErrorReason};
 use candid::{decode_one, encode_one};
 use proptest::prelude::*;
 use std::str::FromStr;
+
+fn assert_decimal_parse_reason(input: &str, reason: ParseDecimalErrorReason) {
+    let err = Decimal::from_str(input).expect_err("decimal input should reject");
+
+    assert_eq!(err.reason(), reason);
+    assert_eq!(err.to_string(), "decimal parse error");
+}
 
 #[test]
 fn decimal_candid_roundtrip() {
@@ -53,13 +60,22 @@ fn decimal_div_by_zero_returns_zero() {
 #[test]
 fn decimal_parse_rejects_mantissa_overflow_without_float_fallback() {
     let too_large = "340282366920938463463374607431768211456";
-    assert!(Decimal::from_str(too_large).is_err());
+    assert_decimal_parse_reason(too_large, ParseDecimalErrorReason::MantissaOverflow);
 }
 
 #[test]
 fn decimal_parse_rejects_exponent_notation() {
-    assert!(Decimal::from_str("1e3").is_err());
-    assert!(Decimal::from_str("1E3").is_err());
+    assert_decimal_parse_reason("1e3", ParseDecimalErrorReason::ExponentNotationUnsupported);
+    assert_decimal_parse_reason("1E3", ParseDecimalErrorReason::ExponentNotationUnsupported);
+}
+
+#[test]
+fn decimal_parse_rejects_invalid_significand_and_digits_with_reason_codes() {
+    assert_decimal_parse_reason("", ParseDecimalErrorReason::Empty);
+    assert_decimal_parse_reason(".", ParseDecimalErrorReason::InvalidSignificand);
+    assert_decimal_parse_reason("1.2.3", ParseDecimalErrorReason::InvalidSignificand);
+    assert_decimal_parse_reason("abc", ParseDecimalErrorReason::InvalidDigits);
+    assert_decimal_parse_reason("1.x", ParseDecimalErrorReason::InvalidDigits);
 }
 
 #[test]

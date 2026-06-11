@@ -91,7 +91,10 @@ impl<T: HasLen + ?Sized> Validator<T> for Equal {
         let len = t.len();
 
         if len != self.target {
-            ctx.issue(format!("length ({len}) is not equal to {}", self.target));
+            ctx.issue(Issue::LengthEqual {
+                actual: len,
+                expected: self.target,
+            });
         }
     }
 }
@@ -118,10 +121,10 @@ impl<T: HasLen + ?Sized> Validator<T> for Min {
         let len = t.len();
 
         if len < self.target {
-            ctx.issue(format!(
-                "length ({len}) is lower than minimum of {}",
-                self.target
-            ));
+            ctx.issue(Issue::LengthMin {
+                actual: len,
+                min: self.target,
+            });
         }
     }
 }
@@ -148,10 +151,10 @@ impl<T: HasLen + ?Sized> Validator<T> for Max {
         let len = t.len();
 
         if len > self.target {
-            ctx.issue(format!(
-                "length ({len}) is greater than maximum of {}",
-                self.target
-            ));
+            ctx.issue(Issue::LengthMax {
+                actual: len,
+                max: self.target,
+            });
         }
     }
 }
@@ -180,10 +183,11 @@ impl<T: HasLen + ?Sized> Validator<T> for Range {
         let len = t.len();
 
         if len < self.min || len > self.max {
-            ctx.issue(format!(
-                "length ({len}) must be between {} and {} (inclusive)",
-                self.min, self.max
-            ));
+            ctx.issue(Issue::LengthRange {
+                actual: len,
+                min: self.min,
+                max: self.max,
+            });
         }
     }
 }
@@ -227,7 +231,10 @@ mod tests {
 
         assert_eq!(
             ctx.issues.get("").expect("root issue should exist")[0],
-            "length (4) is not equal to 3"
+            Issue::LengthEqual {
+                actual: 4,
+                expected: 3,
+            }
         );
     }
 
@@ -250,7 +257,11 @@ mod tests {
 
         assert_eq!(
             ctx.issues.get("").expect("root issue should exist")[0],
-            "length (1) must be between 2 and 4 (inclusive)"
+            Issue::LengthRange {
+                actual: 1,
+                min: 2,
+                max: 4,
+            }
         );
     }
 }

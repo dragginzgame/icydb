@@ -14,14 +14,14 @@ pub struct E164PhoneNumber;
 impl Validator<str> for E164PhoneNumber {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.starts_with('+') {
-            ctx.issue(format!("phone number '{s}' must start with '+'"));
+            ctx.issue(Issue::PhoneMissingPlus);
             return;
         }
 
         let digits = s.chars().filter(char::is_ascii_digit).count();
 
         if !(7..=15).contains(&digits) {
-            ctx.issue(format!("phone number '{s}' has the wrong number of digits"));
+            ctx.issue(Issue::PhoneDigitCount { digits });
         }
     }
 }

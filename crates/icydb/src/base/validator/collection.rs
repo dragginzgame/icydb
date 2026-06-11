@@ -22,14 +22,13 @@ impl<T> InArray<T> {
 
 impl<T> Validator<T> for InArray<T>
 where
-    T: PartialEq + std::fmt::Debug + std::fmt::Display,
+    T: PartialEq,
 {
     fn validate(&self, n: &T, ctx: &mut dyn VisitorContext) {
         if !self.values.contains(n) {
-            ctx.issue(format!(
-                "{n} is not in the allowed values: {:?}",
-                self.values
-            ));
+            ctx.issue(Issue::CollectionValueNotAllowed {
+                allowed_count: self.values.len(),
+            });
         }
     }
 }

@@ -20,7 +20,7 @@ impl Validator<str> for MimeType {
 
         // Must contain exactly one '/'
         if type_part.is_none() || subtype_part.is_none() || extra_part.is_some() {
-            ctx.issue(format!("MIME type '{s}' must contain exactly one '/'"));
+            ctx.issue(Issue::MimeSlashCount);
             return;
         }
 
@@ -37,10 +37,7 @@ impl Validator<str> for MimeType {
         };
 
         if !is_valid_part(type_part) || !is_valid_part(subtype_part) {
-            ctx.issue(format!(
-                "MIME type '{s}' contains invalid characters; \
-                 only alphanumeric, '+', '-', '.' allowed"
-            ));
+            ctx.issue(Issue::MimeInvalidChars);
         }
     }
 }
@@ -58,7 +55,7 @@ pub struct Url;
 impl Validator<str> for Url {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !(s.starts_with("http://") || s.starts_with("https://")) {
-            ctx.issue(format!("URL '{s}' must start with 'http://' or 'https://'"));
+            ctx.issue(Issue::UrlScheme);
         }
     }
 }

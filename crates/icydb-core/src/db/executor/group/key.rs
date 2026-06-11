@@ -27,6 +27,7 @@ pub(in crate::db::executor) enum KeyCanonicalError {
     HashingFailed {
         value: KeyCanonicalValueCode,
     },
+    #[cfg(feature = "sql")]
     ProjectedRowHashingFailed {
         value_index: usize,
         value: KeyCanonicalValueCode,
@@ -93,6 +94,7 @@ impl KeyCanonicalValueCode {
 }
 
 impl KeyCanonicalError {
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) const fn projected_row_hashing_failed(
         value_index: usize,
         value: &Value,
@@ -112,9 +114,9 @@ impl KeyCanonicalError {
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
-            Self::HashingFailed { .. } | Self::ProjectedRowHashingFailed { .. } => {
-                InternalError::executor_internal()
-            }
+            Self::HashingFailed { .. } => InternalError::executor_internal(),
+            #[cfg(feature = "sql")]
+            Self::ProjectedRowHashingFailed { .. } => InternalError::executor_internal(),
         }
     }
 }
@@ -123,9 +125,9 @@ impl fmt::Display for KeyCanonicalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidMapValue(err) => write!(f, "{err}"),
-            Self::HashingFailed { .. } | Self::ProjectedRowHashingFailed { .. } => {
-                f.write_str("grouped key hashing failed")
-            }
+            Self::HashingFailed { .. } => f.write_str("grouped key hashing failed"),
+            #[cfg(feature = "sql")]
+            Self::ProjectedRowHashingFailed { .. } => f.write_str("grouped key hashing failed"),
         }
     }
 }

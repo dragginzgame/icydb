@@ -1,4 +1,4 @@
-use crate::types::decimal::{Decimal, ParseDecimalError};
+use crate::types::decimal::{Decimal, ParseDecimalError, ParseDecimalErrorReason};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
@@ -52,7 +52,7 @@ impl FromStr for Decimal {
         // Phase 1: parse sign.
         let input = s.trim();
         if input.is_empty() {
-            return Err(ParseDecimalError::new("empty decimal string"));
+            return Err(ParseDecimalError::new(ParseDecimalErrorReason::Empty));
         }
 
         let (negative, unsigned) = if let Some(rest) = input.strip_prefix('-') {
@@ -66,7 +66,9 @@ impl FromStr for Decimal {
         // Exponent notation is intentionally unsupported for predictable decimal
         // parsing semantics in 0.23.
         if unsigned.contains(['e', 'E']) {
-            return Err(ParseDecimalError::new("exponent notation is not supported"));
+            return Err(ParseDecimalError::new(
+                ParseDecimalErrorReason::ExponentNotationUnsupported,
+            ));
         }
 
         // Phase 2: parse base-10 digits and decimal point.
@@ -74,12 +76,13 @@ impl FromStr for Decimal {
         let combined = format!("{int_digits}{frac_digits}");
         let combined = strip_leading_zeros(&combined);
 
-        let scale_i64 = i64::try_from(frac_digits.len())
-            .map_err(|_| ParseDecimalError::new("decimal fractional length overflow"))?;
+        let scale_i64 = i64::try_from(frac_digits.len()).map_err(|_| {
+            ParseDecimalError::new(ParseDecimalErrorReason::FractionalLengthOverflow)
+        })?;
         let digits = combined.to_string();
 
         let scale = u32::try_from(scale_i64)
-            .map_err(|_| ParseDecimalError::new("decimal scale overflow"))?;
+            .map_err(|_| ParseDecimalError::new(ParseDecimalErrorReason::ScaleOverflow))?;
 
         // Phase 3: materialize mantissa without floating-point fallback.
         let signed_digits = if negative {
@@ -89,10 +92,11 @@ impl FromStr for Decimal {
         };
         let mantissa = signed_digits
             .parse::<i128>()
-            .map_err(|_| ParseDecimalError::new("decimal mantissa overflow"))?;
+            .map_err(|_| ParseDecimalError::new(ParseDecimalErrorReason::MantissaOverflow))?;
 
-        Self::checked_from_mantissa_scale(mantissa, scale)
-            .ok_or_else(|| ParseDecimalError::new("decimal scale exceeds supported range"))
+        Self::checked_from_mantissa_scale(mantissa, scale).ok_or_else(|| {
+            ParseDecimalError::new(ParseDecimalErrorReason::ScaleExceedsSupportedRange)
+        })
     }
 }
 
@@ -100,23 +104,31 @@ fn split_decimal_significand(input: &str) -> Result<(&str, &str), ParseDecimalEr
     let mut segments = input.split('.');
     let int_digits = segments
         .next()
-        .ok_or_else(|| ParseDecimalError::new("invalid decimal significand"))?;
+        .ok_or_else(|| ParseDecimalError::new(ParseDecimalErrorReason::InvalidSignificand))?;
     let frac_digits = segments.next().unwrap_or("");
 
     if segments.next().is_some() {
-        return Err(ParseDecimalError::new("invalid decimal significand"));
+        return Err(ParseDecimalError::new(
+            ParseDecimalErrorReason::InvalidSignificand,
+        ));
     }
 
     if int_digits.is_empty() && frac_digits.is_empty() {
-        return Err(ParseDecimalError::new("invalid decimal significand"));
+        return Err(ParseDecimalError::new(
+            ParseDecimalErrorReason::InvalidSignificand,
+        ));
     }
 
     if !int_digits.chars().all(|c| c.is_ascii_digit()) {
-        return Err(ParseDecimalError::new("invalid decimal digits"));
+        return Err(ParseDecimalError::new(
+            ParseDecimalErrorReason::InvalidDigits,
+        ));
     }
 
     if !frac_digits.chars().all(|c| c.is_ascii_digit()) {
-        return Err(ParseDecimalError::new("invalid decimal digits"));
+        return Err(ParseDecimalError::new(
+            ParseDecimalErrorReason::InvalidDigits,
+        ));
     }
 
     Ok((int_digits, frac_digits))

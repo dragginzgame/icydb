@@ -12,7 +12,6 @@ pub(in crate::db::sql_shared) mod types;
 
 pub(crate) use cursor::SqlTokenCursor;
 pub(crate) use lexer::tokenize_sql;
-pub(crate) use types::{
-    Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError,
-    SqlSyntaxErrorKind, TokenKind,
-};
+pub(crate) use types::{Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind};
+#[cfg(feature = "sql")]
+pub(crate) use types::{SqlClauseOrderRule, SqlIntegerLiteralClause};

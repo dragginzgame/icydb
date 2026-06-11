@@ -61,16 +61,20 @@ impl DecimalParts {
 /// arithmetic semantics into the error surface.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParseDecimalError {
-    message: String,
+    reason: ParseDecimalErrorReason,
 }
 
 impl ParseDecimalError {
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+    pub(in crate::types::decimal) const fn new(reason: ParseDecimalErrorReason) -> Self {
+        Self { reason }
+    }
+
+    /// Return the compact reason code for this parse failure.
+    #[must_use]
+    pub const fn reason(&self) -> ParseDecimalErrorReason {
+        self.reason
     }
 }
 
@@ -78,8 +82,27 @@ impl std::error::Error for ParseDecimalError {}
 
 impl Display for ParseDecimalError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        f.write_str("decimal parse error")
     }
+}
+
+///
+/// ParseDecimalErrorReason
+///
+/// Compact decimal parse-failure reason.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ParseDecimalErrorReason {
+    Empty,
+    ExponentNotationUnsupported,
+    FractionalLengthOverflow,
+    ScaleOverflow,
+    MantissaOverflow,
+    ScaleExceedsSupportedRange,
+    InvalidSignificand,
+    InvalidDigits,
 }
 
 ///

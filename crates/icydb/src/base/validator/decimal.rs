@@ -24,12 +24,10 @@ impl MaxDecimalPlaces {
 impl Validator<Decimal> for MaxDecimalPlaces {
     fn validate(&self, n: &Decimal, ctx: &mut dyn VisitorContext) {
         if n.scale() > self.target {
-            let plural = if self.target == 1 { "" } else { "s" };
-
-            ctx.issue(format!(
-                "{n} must not have more than {} decimal place{}",
-                self.target, plural
-            ));
+            ctx.issue(Issue::DecimalScaleMax {
+                actual: n.scale(),
+                max: self.target,
+            });
         }
     }
 }
