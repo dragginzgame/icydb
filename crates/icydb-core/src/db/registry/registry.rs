@@ -61,9 +61,7 @@ impl StoreRegistry {
     ) -> Result<(), InternalError> {
         self.validate_register_store_shape(name, data, index, schema, allocations, capabilities)?;
         if capabilities.storage_mode() == StoreRuntimeStorageMode::Journaled {
-            return Err(
-                StoreRegistryError::StoreAllocationCapabilityMismatch(name.to_string()).into(),
-            );
+            return Err(StoreRegistryError::StoreAllocationCapabilityMismatch.into());
         }
 
         self.stores.push((
@@ -93,9 +91,7 @@ impl StoreRegistry {
         if capabilities.storage_mode() != StoreRuntimeStorageMode::Journaled
             || allocations.journal().is_none()
         {
-            return Err(
-                StoreRegistryError::StoreAllocationCapabilityMismatch(name.to_string()).into(),
-            );
+            return Err(StoreRegistryError::StoreAllocationCapabilityMismatch.into());
         }
 
         self.stores.push((
@@ -111,7 +107,7 @@ impl StoreRegistry {
         self.stores
             .iter()
             .find_map(|(existing_path, handle)| (*existing_path == path).then_some(*handle))
-            .ok_or_else(|| StoreRegistryError::StoreNotFound(path.to_string()).into())
+            .ok_or_else(|| StoreRegistryError::StoreNotFound.into())
     }
 
     fn validate_register_store_shape(
@@ -128,34 +124,23 @@ impl StoreRegistry {
             .iter()
             .any(|(existing_name, _)| *existing_name == name)
         {
-            return Err(StoreRegistryError::StoreAlreadyRegistered(name.to_string()).into());
+            return Err(StoreRegistryError::StoreAlreadyRegistered.into());
         }
 
         // Keep one canonical logical store name per physical row/index/schema
         // store triplet.
-        if let Some(existing_name) =
-            self.stores
-                .iter()
-                .find_map(|(existing_name, existing_handle)| {
-                    (std::ptr::eq(existing_handle.data_store(), data)
-                        && std::ptr::eq(existing_handle.index_store(), index)
-                        && std::ptr::eq(existing_handle.schema_store(), schema))
-                    .then_some(*existing_name)
-                })
-        {
-            return Err(StoreRegistryError::StoreHandleTripletAlreadyRegistered {
-                name: name.to_string(),
-                existing_name: existing_name.to_string(),
-            }
-            .into());
+        if self.stores.iter().any(|(_, existing_handle)| {
+            std::ptr::eq(existing_handle.data_store(), data)
+                && std::ptr::eq(existing_handle.index_store(), index)
+                && std::ptr::eq(existing_handle.schema_store(), schema)
+        }) {
+            return Err(StoreRegistryError::StoreHandleTripletAlreadyRegistered.into());
         }
 
         if allocations.allocation_identity_capability() != Some(capabilities.allocation_identity())
             || !allocations.matches_storage_capabilities(capabilities)
         {
-            return Err(
-                StoreRegistryError::StoreAllocationCapabilityMismatch(name.to_string()).into(),
-            );
+            return Err(StoreRegistryError::StoreAllocationCapabilityMismatch.into());
         }
 
         Ok(())

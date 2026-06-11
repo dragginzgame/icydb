@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Remove discarded store-registry and executor-local diagnostic payloads,
+  keeping compact class/origin mapping while avoiding runtime-only strings and
+  key/name allocations.
+
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)

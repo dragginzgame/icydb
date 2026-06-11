@@ -1,5 +1,4 @@
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};
-use thiserror::Error as ThisError;
 
 ///
 /// StoreRegistryError
@@ -10,31 +9,25 @@ use thiserror::Error as ThisError;
 /// for callers that operate on the wider database error contract.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 #[expect(clippy::enum_variant_names)]
 pub enum StoreRegistryError {
-    #[error("store '{0}' not found")]
-    StoreNotFound(String),
+    StoreNotFound,
 
-    #[error("store '{0}' already registered")]
-    StoreAlreadyRegistered(String),
+    StoreAlreadyRegistered,
 
-    #[error(
-        "store '{name}' reuses the same row/index/schema store triplet already registered as '{existing_name}'"
-    )]
-    StoreHandleTripletAlreadyRegistered { name: String, existing_name: String },
+    StoreHandleTripletAlreadyRegistered,
 
-    #[error("store '{0}' allocation identities do not match storage capabilities")]
-    StoreAllocationCapabilityMismatch(String),
+    StoreAllocationCapabilityMismatch,
 }
 
 impl StoreRegistryError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
-            Self::StoreNotFound(_) => ErrorClass::Internal,
-            Self::StoreAlreadyRegistered(_)
-            | Self::StoreHandleTripletAlreadyRegistered { .. }
-            | Self::StoreAllocationCapabilityMismatch(_) => ErrorClass::InvariantViolation,
+            Self::StoreNotFound => ErrorClass::Internal,
+            Self::StoreAlreadyRegistered
+            | Self::StoreHandleTripletAlreadyRegistered
+            | Self::StoreAllocationCapabilityMismatch => ErrorClass::InvariantViolation,
         }
     }
 }

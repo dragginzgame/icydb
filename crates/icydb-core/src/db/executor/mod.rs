@@ -208,7 +208,6 @@ use crate::{
     db::{cursor::CursorPlanError, data::DecodedDataStoreKey, query::plan::AccessPlannedQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
-use thiserror::Error as ThisError;
 
 ///
 /// ExecutorPlanError
@@ -217,9 +216,8 @@ use thiserror::Error as ThisError;
 /// Mapped to query-owned plan errors only at query/session boundaries.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum ExecutorPlanError {
-    #[error("{0}")]
     Cursor(Box<CursorPlanError>),
 }
 
@@ -295,26 +293,24 @@ impl From<CursorPlanError> for ExecutorPlanError {
 /// User-shape validation failures remain plan-layer errors.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db::executor) enum ExecutorError {
-    #[error("corruption detected")]
     Corruption { origin: ErrorOrigin },
 
-    #[error("data key exists: {0}")]
-    KeyExists(Box<DecodedDataStoreKey>),
+    KeyExists,
 }
 
 impl ExecutorError {
     pub(in crate::db::executor) const fn class(&self) -> ErrorClass {
         match self {
-            Self::KeyExists(_) => ErrorClass::Conflict,
+            Self::KeyExists => ErrorClass::Conflict,
             Self::Corruption { .. } => ErrorClass::Corruption,
         }
     }
 
     pub(in crate::db::executor) const fn origin(&self) -> ErrorOrigin {
         match self {
-            Self::KeyExists(_) => ErrorOrigin::Store,
+            Self::KeyExists => ErrorOrigin::Store,
             Self::Corruption { origin } => *origin,
         }
     }

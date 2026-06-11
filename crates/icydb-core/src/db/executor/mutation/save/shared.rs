@@ -61,7 +61,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 if let Some(existing) = ctx.with_store(|store| store.get(&raw_key))? {
                     validate_existing_row(data_key, &existing)?;
 
-                    return Err(ExecutorError::KeyExists(Box::new(data_key.clone())).into());
+                    return Err(ExecutorError::KeyExists.into());
                 }
 
                 Ok(None)
