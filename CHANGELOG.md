@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.42` removes generated display strings from fixed-width schema
+  identity validation, ordered index-value encoding, and primary-key
+  equivalence errors while preserving structural variants and compact internal
+  mappings.
+
 - `0.180.41` removes the schema DDL field-default encoding string payload
   while preserving the compact null-default versus encoding-failed diagnostic
   distinction.

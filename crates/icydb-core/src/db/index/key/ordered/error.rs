@@ -24,14 +24,6 @@ pub(crate) enum OrderedValueEncodeError {
     DecimalExponentOverflow,
 }
 
-impl std::fmt::Display for OrderedValueEncodeError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("index ordered value encode error")
-    }
-}
-
-impl std::error::Error for OrderedValueEncodeError {}
-
 impl From<OrderedValueEncodeError> for InternalError {
     fn from(_err: OrderedValueEncodeError) -> Self {
         Self::index_unsupported()

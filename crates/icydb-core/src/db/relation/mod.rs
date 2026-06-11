@@ -23,7 +23,10 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
-use std::{collections::BTreeSet, fmt::Display};
+use std::{
+    collections::BTreeSet,
+    fmt::{Debug, Display},
+};
 
 pub(in crate::db) use metadata::{
     RelationFieldCardinality, RelationFieldMetadata, relation_field_metadata_for_model_iter,
@@ -491,7 +494,7 @@ impl InternalError {
         _field_name: &str,
         _target_path: &str,
         _target_entity_name: &str,
-        _err: impl Display,
+        _err: impl Debug,
     ) -> Self {
         Self::executor_internal()
     }

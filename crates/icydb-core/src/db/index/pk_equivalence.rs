@@ -29,22 +29,6 @@ pub(in crate::db) enum PrimaryKeyEquivalenceError {
     BoundaryDecode { source: InternalError },
 }
 
-impl std::fmt::Display for PrimaryKeyEquivalenceError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("primary key equivalence error")
-    }
-}
-
-impl std::error::Error for PrimaryKeyEquivalenceError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::AnchorDecode { source } => Some(source),
-            #[cfg(test)]
-            Self::BoundaryDecode { source } => Some(source),
-        }
-    }
-}
-
 /// Compare an index-key primary-key payload with a semantic boundary key value.
 #[cfg(test)]
 pub(in crate::db) fn primary_key_matches_value(

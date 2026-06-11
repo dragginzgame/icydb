@@ -21,7 +21,6 @@ use std::{
     cmp::Ordering,
     fmt::{self, Display},
 };
-use thiserror::Error as ThisError;
 
 ///
 /// Constants
@@ -43,21 +42,16 @@ const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
 /// Decode errors (storage / corruption boundary)
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum IdentityDecodeError {
-    #[error("invalid size")]
     InvalidSize,
 
-    #[error("invalid length")]
     InvalidLength,
 
-    #[error("non-ascii encoding")]
     NonAscii,
 
-    #[error("non-zero padding")]
     NonZeroPadding,
 
-    #[error("reserved identity delimiter")]
     Delimiter,
 }
 
@@ -65,18 +59,14 @@ pub enum IdentityDecodeError {
 /// EntityNameError
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum EntityNameError {
-    #[error("entity name is empty")]
     Empty,
 
-    #[error("entity name length {len} exceeds max {max}")]
     TooLong { len: usize, max: usize },
 
-    #[error("entity name must be ASCII")]
     NonAscii,
 
-    #[error("entity name must not contain '|'")]
     Delimiter,
 }
 
@@ -84,27 +74,20 @@ pub enum EntityNameError {
 /// IndexNameError
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum IndexNameError {
-    #[error("index has {len} fields (max {max})")]
     TooManyFields { len: usize, max: usize },
 
-    #[error("index must reference at least one field")]
     NoFields,
 
-    #[error("index field name is empty")]
     FieldEmpty,
 
-    #[error("index field name '{field}' exceeds max length {max}")]
     FieldTooLong { field: String, max: usize },
 
-    #[error("index field name '{field}' must be ASCII")]
     FieldNonAscii { field: String },
 
-    #[error("index field name '{field}' must not contain '|'")]
     FieldDelimiter { field: String },
 
-    #[error("index name length {len} exceeds max {max}")]
     TooLong { len: usize, max: usize },
 }
 

@@ -8,7 +8,7 @@ use crate::{
         direction::Direction,
         index::{
             EncodedValue, RawIndexStoreKey, envelope_is_empty,
-            key::{IndexId, IndexKeyKind},
+            key::{IndexId, IndexKeyKind, OrderedValueEncodeError},
             raw_keys_for_encoded_prefix_with_kind,
         },
     },
@@ -352,9 +352,5 @@ proptest! {
 fn canonical_ordering_property_domain_rejects_null_components() {
     let err = EncodedValue::try_encode_all(&[Value::Null, Value::Text("a".to_string())])
         .expect_err("null values must remain non-indexable for canonical key domains");
-    let message = err.to_string();
-    assert!(
-        message.contains("null") || message.contains("index"),
-        "null component rejection should remain explicit: {message}",
-    );
+    std::assert_matches!(err, OrderedValueEncodeError::NullNotIndexable);
 }
