@@ -241,14 +241,6 @@ pub enum PrimaryKeyEncodeError {
     UnitComponent { index: usize },
 }
 
-impl std::fmt::Display for PrimaryKeyEncodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("primary key encode error")
-    }
-}
-
-impl std::error::Error for PrimaryKeyEncodeError {}
-
 impl From<CompositePrimaryKeyValueError> for PrimaryKeyEncodeError {
     fn from(err: CompositePrimaryKeyValueError) -> Self {
         match err {

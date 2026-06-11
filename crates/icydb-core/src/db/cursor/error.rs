@@ -58,7 +58,7 @@ impl CursorSignaturePrefix {
 #[derive(Debug, ThisError)]
 pub enum CursorPlanError {
     /// Cursor token could not be decoded.
-    #[error("invalid continuation cursor: {reason}")]
+    #[error("invalid continuation cursor")]
     InvalidContinuationCursor { reason: CursorDecodeError },
 
     /// Cursor token payload/semantics are invalid after token decode.
@@ -174,7 +174,7 @@ impl CursorPlanError {
     }
 
     /// Construct one anchor decode failure payload error.
-    pub(in crate::db) fn index_range_anchor_decode_failed(_reason: impl Into<String>) -> Self {
+    pub(in crate::db) fn index_range_anchor_decode_failed(_reason: impl Sized) -> Self {
         Self::invalid_continuation_cursor_payload(
             CursorPayloadErrorCode::INDEX_RANGE_ANCHOR_DECODE_FAILED,
         )

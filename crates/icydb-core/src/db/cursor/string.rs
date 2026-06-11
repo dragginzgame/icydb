@@ -17,18 +17,14 @@ const MAX_CURSOR_TOKEN_HEX_LEN: usize = MAX_CURSOR_TOKEN_BYTES * 2;
 /// External continuation cursor string decode failures.
 ///
 
-#[derive(Debug, Eq, thiserror::Error, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum CursorDecodeError {
-    #[error("cursor token is empty")]
     Empty,
 
-    #[error("cursor token exceeds max length: {len} hex chars (max {max})")]
     TooLong { len: usize, max: usize },
 
-    #[error("cursor token must have an even number of hex characters")]
     OddLength,
 
-    #[error("invalid hex character at position {position}")]
     InvalidHex { position: usize },
 }
 

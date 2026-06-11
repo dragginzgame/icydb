@@ -39,14 +39,6 @@ pub(crate) enum IndexEntryCorruption {
     EmptyEntry,
 }
 
-impl std::fmt::Display for IndexEntryCorruption {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("index entry corruption")
-    }
-}
-
-impl std::error::Error for IndexEntryCorruption {}
-
 ///
 /// IndexRowIdentity
 ///

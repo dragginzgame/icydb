@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Remove generated display strings from data-key, row, structural-row, and
-  structural-field decode wrappers, and relax discarded-detail mapper bounds
-  away from `Display`, while preserving compact variant classification and
-  internal error mapping.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.44` removes more display-only diagnostic surfaces from primary-key,
+  key-taxonomy, index-entry, and cursor decode paths while preserving compact
+  structured variants.
+
+- `0.180.43` removes generated display strings from data-key, row, and
+  structural decode wrappers while relaxing discarded-detail mapper bounds
+  away from `Display` and preserving compact internal error mapping.
 
 - `0.180.42` removes generated display strings from fixed-width schema
   identity validation, ordered index-value encoding, and primary-key

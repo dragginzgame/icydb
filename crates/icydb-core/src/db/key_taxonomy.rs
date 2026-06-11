@@ -20,7 +20,7 @@ use crate::{
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
-use std::{cmp::Ordering, fmt};
+use std::cmp::Ordering;
 
 const TAG_SIZE: usize = 1;
 const NAT64_SIZE: usize = 8;
@@ -424,46 +424,6 @@ pub(in crate::db) enum CompactStoreKeyDecodeError {
 
     InvalidPrimaryKey(CompactPrimaryKeyDecodeError),
 }
-
-impl fmt::Display for CompositePrimaryKeyValueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("composite primary key error")
-    }
-}
-
-impl std::error::Error for CompositePrimaryKeyValueError {}
-
-impl fmt::Display for CompactPrimaryKeyEncodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("primary key encode error")
-    }
-}
-
-impl std::error::Error for CompactPrimaryKeyEncodeError {}
-
-impl fmt::Display for CompactPrimaryKeyDecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("primary key decode error")
-    }
-}
-
-impl std::error::Error for CompactPrimaryKeyDecodeError {}
-
-impl fmt::Display for CompactStoreKeyEncodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("store key encode error")
-    }
-}
-
-impl std::error::Error for CompactStoreKeyEncodeError {}
-
-impl fmt::Display for CompactStoreKeyDecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("store key decode error")
-    }
-}
-
-impl std::error::Error for CompactStoreKeyDecodeError {}
 
 impl From<CompactPrimaryKeyDecodeError> for CompactStoreKeyDecodeError {
     fn from(err: CompactPrimaryKeyDecodeError) -> Self {

@@ -270,7 +270,7 @@ impl InternalError {
     /// Construct the canonical index-expression source-type mismatch invariant.
     pub(crate) fn index_expression_source_type_mismatch(
         _index_name: &str,
-        _expression: impl fmt::Display,
+        _expression: impl Sized,
         _expected: &str,
         _source_label: &str,
     ) -> Self {
@@ -401,8 +401,8 @@ impl InternalError {
     /// so the library target may not route through it until that caller exists.
     pub(crate) fn mutation_structural_after_image_invalid(
         _entity_path: &str,
-        _data_key: impl fmt::Display,
-        _detail: impl AsRef<str>,
+        _data_key: impl Sized,
+        _detail: impl Sized,
     ) -> Self {
         Self::executor_invariant()
     }
@@ -416,8 +416,8 @@ impl InternalError {
     pub(crate) fn mutation_decimal_scale_mismatch(
         _entity_path: &str,
         _field_name: &str,
-        _expected_scale: impl fmt::Display,
-        _actual_scale: impl fmt::Display,
+        _expected_scale: impl Sized,
+        _actual_scale: impl Sized,
     ) -> Self {
         Self::executor_unsupported()
     }
@@ -426,8 +426,8 @@ impl InternalError {
     pub(crate) fn mutation_text_max_len_exceeded(
         _entity_path: &str,
         _field_name: &str,
-        _max_len: impl fmt::Display,
-        _actual_len: impl fmt::Display,
+        _max_len: impl Sized,
+        _actual_len: impl Sized,
     ) -> Self {
         Self::executor_unsupported()
     }
@@ -545,10 +545,7 @@ impl InternalError {
     }
 
     /// Construct an executor-origin mutation unsupported error for duplicate atomic save keys.
-    pub(crate) fn mutation_atomic_save_duplicate_key(
-        _entity_path: &str,
-        _key: impl fmt::Display,
-    ) -> Self {
+    pub(crate) fn mutation_atomic_save_duplicate_key(_entity_path: &str, _key: impl Sized) -> Self {
         Self::executor_unsupported()
     }
 
@@ -1024,8 +1021,8 @@ impl InternalError {
         _field_name: &str,
         _target_path: &str,
         _target_entity_name: &str,
-        _expected_tag: impl fmt::Display,
-        _actual_tag: impl fmt::Display,
+        _expected_tag: impl Sized,
+        _actual_tag: impl Sized,
     ) -> Self {
         Self::store_corruption()
     }
