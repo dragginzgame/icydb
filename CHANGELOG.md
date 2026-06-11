@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.2` upgrades the SQL `UPDATE` policy gate to return typed validated
+  update plans, so admitted generated/public write policies produce
+  policy-specific success values instead of only raw classification reports.
+
 - `0.181.1` adds an explicit SQL `UPDATE` exposure-policy classifier so
   generated/public write surfaces can inspect mutation shape before execution
   while preserving the existing broad session write lane.

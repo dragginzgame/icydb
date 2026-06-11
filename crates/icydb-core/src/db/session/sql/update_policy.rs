@@ -44,6 +44,8 @@ pub struct SqlUpdatePolicyContext<'a> {
     pub managed_fields: &'a [&'a str],
     /// Maximum admitted limit for the public bounded deterministic policy.
     pub max_public_bounded_limit: u32,
+    /// Optional response-size cap carried by validated plans with `RETURNING`.
+    pub max_returning_response_bytes: Option<u32>,
 }
 
 impl<'a> SqlUpdatePolicyContext<'a> {
@@ -55,6 +57,7 @@ impl<'a> SqlUpdatePolicyContext<'a> {
             generated_fields: &[],
             managed_fields: &[],
             max_public_bounded_limit: 100,
+            max_returning_response_bytes: None,
         }
     }
 }
@@ -143,6 +146,16 @@ impl SqlUpdateReturningPolicy {
     }
 }
 
+/// `RETURNING` bounds carried by a validated update plan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlUpdateReturningBounds {
+    /// Maximum rows the plan may return, when statically bounded by policy.
+    pub max_rows: Option<u32>,
+    /// Maximum encoded response bytes, when supplied by the caller surface.
+    pub max_response_bytes: Option<u32>,
+}
+
 /// Parsed `UPDATE` classification before a caller-selected exposure policy is applied.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -177,6 +190,109 @@ impl SqlUpdateStatementClassification {
     pub const fn has_explicit_canonical_primary_key_order(&self) -> bool {
         matches!(self.order_policy, SqlUpdateOrderPolicy::CanonicalPrimaryKey)
     }
+}
+
+/// Validated non-executing SQL `UPDATE` plan.
+///
+/// Generated/public executors should consume one of these policy-specific
+/// variants instead of a raw parsed `SqlUpdateStatement` plus a separate
+/// "already checked" report.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub enum SqlValidatedUpdatePlan {
+    /// Current broad session/library write-lane plan.
+    SessionCurrent(SqlSessionCurrentUpdatePlan),
+    /// Public-safe one-row primary-key plan.
+    PublicPrimaryKeyOnly(SqlPublicPrimaryKeyUpdatePlan),
+    /// Public-safe bounded deterministic plan.
+    PublicBoundedDeterministic(SqlPublicBoundedUpdatePlan),
+    /// Future admin/bulk plan.
+    AdminBulk(SqlAdminBulkUpdatePlan),
+}
+
+impl SqlValidatedUpdatePlan {
+    /// Return the classification carried by this validated plan.
+    #[must_use]
+    pub const fn classification(&self) -> &SqlUpdateStatementClassification {
+        match self {
+            Self::SessionCurrent(plan) => &plan.classification,
+            Self::PublicPrimaryKeyOnly(plan) => &plan.classification,
+            Self::PublicBoundedDeterministic(plan) => &plan.classification,
+            Self::AdminBulk(plan) => &plan.classification,
+        }
+    }
+
+    /// Return the `RETURNING` bounds carried by this validated plan.
+    #[must_use]
+    pub const fn returning_bounds(&self) -> SqlUpdateReturningBounds {
+        match self {
+            Self::SessionCurrent(plan) => plan.returning_bounds,
+            Self::PublicPrimaryKeyOnly(plan) => plan.returning_bounds,
+            Self::PublicBoundedDeterministic(plan) => plan.returning_bounds,
+            Self::AdminBulk(plan) => plan.returning_bounds,
+        }
+    }
+
+    /// Return the entity targeted by the policy-validated parsed update statement.
+    #[must_use]
+    pub const fn statement_entity(&self) -> &str {
+        match self {
+            Self::SessionCurrent(plan) => plan.statement.entity.as_str(),
+            Self::PublicPrimaryKeyOnly(plan) => plan.statement.entity.as_str(),
+            Self::PublicBoundedDeterministic(plan) => plan.statement.entity.as_str(),
+            Self::AdminBulk(plan) => plan.statement.entity.as_str(),
+        }
+    }
+}
+
+/// Validated plan for the current broad session/library update lane.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlSessionCurrentUpdatePlan {
+    statement: SqlUpdateStatement,
+    /// Shape classification admitted by the current session policy.
+    pub classification: SqlUpdateStatementClassification,
+    /// `RETURNING` bounds attached to the admitted plan.
+    pub returning_bounds: SqlUpdateReturningBounds,
+}
+
+/// Validated plan for public primary-key-only update.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlPublicPrimaryKeyUpdatePlan {
+    statement: SqlUpdateStatement,
+    /// Shape classification admitted by the primary-key policy.
+    pub classification: SqlUpdateStatementClassification,
+    /// Primary-key fields proven by the policy, in canonical order.
+    pub primary_key_fields: Vec<String>,
+    /// `RETURNING` bounds attached to the admitted plan.
+    pub returning_bounds: SqlUpdateReturningBounds,
+}
+
+/// Validated plan for public bounded deterministic update.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlPublicBoundedUpdatePlan {
+    statement: SqlUpdateStatement,
+    /// Shape classification admitted by the bounded deterministic policy.
+    pub classification: SqlUpdateStatementClassification,
+    /// Explicit positive limit admitted by the policy.
+    pub limit: u32,
+    /// Primary-key fields used for explicit canonical ordering.
+    pub ordered_primary_key_fields: Vec<String>,
+    /// `RETURNING` bounds attached to the admitted plan.
+    pub returning_bounds: SqlUpdateReturningBounds,
+}
+
+/// Validated plan for future admin/bulk update.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlAdminBulkUpdatePlan {
+    statement: SqlUpdateStatement,
+    /// Shape classification admitted by the admin/bulk policy.
+    pub classification: SqlUpdateStatementClassification,
+    /// `RETURNING` bounds attached to the admitted plan.
+    pub returning_bounds: SqlUpdateReturningBounds,
 }
 
 /// Stable policy rejection for one classified SQL `UPDATE`.
@@ -217,6 +333,8 @@ pub enum SqlUpdatePolicyRejection {
 pub struct SqlUpdatePolicyReport {
     /// Parsed `UPDATE` classification when the statement is an `UPDATE`.
     pub classification: Option<SqlUpdateStatementClassification>,
+    /// Typed validated plan when the selected policy admits the statement.
+    pub plan: Option<SqlValidatedUpdatePlan>,
     /// Policy rejection, or `None` when the selected policy admits the statement.
     pub rejection: Option<SqlUpdatePolicyRejection>,
 }
@@ -231,6 +349,7 @@ impl SqlUpdatePolicyReport {
     const fn rejected(rejection: SqlUpdatePolicyRejection) -> Self {
         Self {
             classification: None,
+            plan: None,
             rejection: Some(rejection),
         }
     }
@@ -265,9 +384,13 @@ pub(in crate::db) fn classify_sql_update_statement_policy(
 
     let classification = classify_update_statement(statement, context);
     let rejection = update_policy_rejection(policy, &classification, context);
+    let plan = rejection
+        .is_none()
+        .then(|| validated_update_plan(statement, policy, &classification, context));
 
     SqlUpdatePolicyReport {
         classification: Some(classification),
+        plan,
         rejection,
     }
 }
@@ -335,6 +458,87 @@ fn update_policy_rejection(
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies returned before shared checks")
         }
+    }
+}
+
+fn validated_update_plan(
+    statement: &SqlUpdateStatement,
+    policy: SqlUpdateExposurePolicy,
+    classification: &SqlUpdateStatementClassification,
+    context: SqlUpdatePolicyContext<'_>,
+) -> SqlValidatedUpdatePlan {
+    let returning_bounds = returning_bounds(policy, classification, context);
+    match policy {
+        SqlUpdateExposurePolicy::SessionWriteCurrent => {
+            SqlValidatedUpdatePlan::SessionCurrent(SqlSessionCurrentUpdatePlan {
+                statement: statement.clone(),
+                classification: classification.clone(),
+                returning_bounds,
+            })
+        }
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => {
+            SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyUpdatePlan {
+                statement: statement.clone(),
+                classification: classification.clone(),
+                primary_key_fields: context
+                    .primary_key_fields
+                    .iter()
+                    .map(|field| (*field).to_string())
+                    .collect(),
+                returning_bounds,
+            })
+        }
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic => {
+            SqlValidatedUpdatePlan::PublicBoundedDeterministic(SqlPublicBoundedUpdatePlan {
+                statement: statement.clone(),
+                classification: classification.clone(),
+                limit: classification
+                    .limit
+                    .expect("bounded policy admitted a limit"),
+                ordered_primary_key_fields: context
+                    .primary_key_fields
+                    .iter()
+                    .map(|field| (*field).to_string())
+                    .collect(),
+                returning_bounds,
+            })
+        }
+        SqlUpdateExposurePolicy::AdminBulk => {
+            SqlValidatedUpdatePlan::AdminBulk(SqlAdminBulkUpdatePlan {
+                statement: statement.clone(),
+                classification: classification.clone(),
+                returning_bounds,
+            })
+        }
+        SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
+            unreachable!("generated policies never produce validated update plans")
+        }
+    }
+}
+
+fn returning_bounds(
+    policy: SqlUpdateExposurePolicy,
+    classification: &SqlUpdateStatementClassification,
+    context: SqlUpdatePolicyContext<'_>,
+) -> SqlUpdateReturningBounds {
+    let max_rows = if classification.returning_policy.is_requested() {
+        match policy {
+            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => Some(1),
+            SqlUpdateExposurePolicy::PublicBoundedDeterministic => classification.limit,
+            SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => {
+                None
+            }
+            SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
+                unreachable!("generated policies never produce validated update plans")
+            }
+        }
+    } else {
+        None
+    };
+
+    SqlUpdateReturningBounds {
+        max_rows,
+        max_response_bytes: context.max_returning_response_bytes,
     }
 }
 
@@ -612,6 +816,20 @@ mod tests {
         classify_sql_update_policy(sql, policy, context()).expect("SQL should parse")
     }
 
+    fn expect_plan(report: &SqlUpdatePolicyReport) -> &SqlValidatedUpdatePlan {
+        report
+            .plan
+            .as_ref()
+            .expect("admitted policy should produce a validated plan")
+    }
+
+    fn assert_no_plan(report: &SqlUpdatePolicyReport) {
+        assert!(
+            report.plan.is_none(),
+            "rejected policy should not expose a partially usable plan",
+        );
+    }
+
     #[test]
     fn update_policy_session_write_current_admits_broad_current_shape() {
         let report = classify(
@@ -627,6 +845,11 @@ mod tests {
         assert_eq!(classification.target_entity, "Character");
         assert_eq!(classification.assigned_fields, ["active"]);
         assert_eq!(classification.where_policy, SqlUpdateWherePolicy::Other);
+        assert!(matches!(
+            expect_plan(&report),
+            SqlValidatedUpdatePlan::SessionCurrent(_),
+        ));
+        assert_eq!(expect_plan(&report).statement_entity(), "Character");
     }
 
     #[test]
@@ -638,6 +861,7 @@ mod tests {
 
         assert_eq!(report.classification, None);
         assert_eq!(report.rejection, Some(SqlUpdatePolicyRejection::NotUpdate),);
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -659,6 +883,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::MissingWhere),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -672,6 +897,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::GeneratedQueryRejectsUpdate),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -685,6 +911,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::GeneratedDdlRejectsUpdate),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -703,6 +930,10 @@ mod tests {
                 .where_policy,
             SqlUpdateWherePolicy::PrimaryKeyEquality,
         );
+        let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = expect_plan(&report) else {
+            panic!("primary-key policy should produce only the primary-key plan variant");
+        };
+        assert_eq!(plan.primary_key_fields, ["id"]);
     }
 
     #[test]
@@ -746,6 +977,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::PrimaryKeyMutation),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -759,6 +991,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -772,6 +1005,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -793,6 +1027,10 @@ mod tests {
                 .where_policy,
             SqlUpdateWherePolicy::PrimaryKeyEquality,
         );
+        let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = expect_plan(&report) else {
+            panic!("composite primary-key proof should produce a primary-key plan");
+        };
+        assert_eq!(plan.primary_key_fields, ["tenant_id", "id"]);
     }
 
     #[test]
@@ -809,6 +1047,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -843,6 +1082,44 @@ mod tests {
     }
 
     #[test]
+    fn update_policy_validated_plans_carry_returning_bounds() {
+        let context = SqlUpdatePolicyContext {
+            primary_key_fields: PRIMARY_KEY,
+            generated_fields: &[],
+            managed_fields: &[],
+            max_public_bounded_limit: 100,
+            max_returning_response_bytes: Some(4096),
+        };
+        let primary_key = classify_sql_update_policy(
+            "UPDATE Character SET age = 22 WHERE id = 1 RETURNING id",
+            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+            context,
+        )
+        .expect("SQL should parse");
+        let bounded = classify_sql_update_policy(
+            "UPDATE Character SET active = false WHERE age = 21 ORDER BY id LIMIT 10 RETURNING id",
+            SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+            context,
+        )
+        .expect("SQL should parse");
+
+        assert_eq!(
+            expect_plan(&primary_key).returning_bounds(),
+            SqlUpdateReturningBounds {
+                max_rows: Some(1),
+                max_response_bytes: Some(4096),
+            },
+        );
+        assert_eq!(
+            expect_plan(&bounded).returning_bounds(),
+            SqlUpdateReturningBounds {
+                max_rows: Some(10),
+                max_response_bytes: Some(4096),
+            },
+        );
+    }
+
+    #[test]
     fn update_policy_public_bounded_accepts_explicit_primary_key_order_and_limit() {
         let report = classify(
             "UPDATE Character SET active = false WHERE age = 21 ORDER BY id LIMIT 10",
@@ -856,6 +1133,11 @@ mod tests {
             .expect("admitted UPDATE should include classification");
         assert!(classification.is_bounded());
         assert!(classification.has_explicit_canonical_primary_key_order());
+        let SqlValidatedUpdatePlan::PublicBoundedDeterministic(plan) = expect_plan(&report) else {
+            panic!("bounded policy should produce only the bounded plan variant");
+        };
+        assert_eq!(plan.limit, 10);
+        assert_eq!(plan.ordered_primary_key_fields, ["id"]);
     }
 
     #[test]
@@ -869,6 +1151,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -882,6 +1165,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -895,6 +1179,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::DescendingOrder),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -908,6 +1193,7 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::LimitTooHigh),
         );
+        assert_no_plan(&report);
     }
 
     #[test]
@@ -921,6 +1207,21 @@ mod tests {
             report.rejection,
             Some(SqlUpdatePolicyRejection::OffsetUnsupported),
         );
+        assert_no_plan(&report);
+    }
+
+    #[test]
+    fn update_policy_admin_bulk_produces_only_admin_plan_variant() {
+        let report = classify(
+            "UPDATE Character SET active = false WHERE age = 21",
+            SqlUpdateExposurePolicy::AdminBulk,
+        );
+
+        assert!(report.is_admitted());
+        assert!(matches!(
+            expect_plan(&report),
+            SqlValidatedUpdatePlan::AdminBulk(_),
+        ));
     }
 
     #[test]
@@ -930,6 +1231,7 @@ mod tests {
             generated_fields: &["slug"],
             managed_fields: &["updated_at"],
             max_public_bounded_limit: 100,
+            max_returning_response_bytes: None,
         };
 
         let generated = classify_sql_update_policy(
@@ -953,5 +1255,7 @@ mod tests {
             managed.rejection,
             Some(SqlUpdatePolicyRejection::ManagedFieldMutation),
         );
+        assert_no_plan(&generated);
+        assert_no_plan(&managed);
     }
 }

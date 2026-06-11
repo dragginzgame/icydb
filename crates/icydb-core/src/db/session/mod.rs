@@ -55,18 +55,20 @@ pub(in crate::db) use response::finalize_scalar_paged_execution;
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 #[cfg(feature = "sql")]
 pub(in crate::db) use response::sql_grouped_cursor_from_bytes;
+#[cfg(feature = "sql")]
+pub use sql::{
+    SqlAdminBulkUpdatePlan, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
+    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentUpdatePlan,
+    SqlStatementResult, SqlStatementSurface, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy,
+    SqlUpdateOrderPolicy, SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
+    SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
+    sql_statement_entity_name, sql_statement_surface,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
     SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
-};
-#[cfg(feature = "sql")]
-pub use sql::{
-    SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport, SqlStatementResult,
-    SqlStatementSurface, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdateOrderPolicy,
-    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
-    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
-    classify_sql_update_policy, sql_statement_entity_name, sql_statement_surface,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
