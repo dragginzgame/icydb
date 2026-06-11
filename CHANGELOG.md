@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Adds an explicit SQL `UPDATE` exposure-policy classifier so generated/public
-  write surfaces can inspect `UPDATE` shape before execution while preserving
-  the existing broad session write lane.
-
 ## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
+
+- `0.181.1` adds an explicit SQL `UPDATE` exposure-policy classifier so
+  generated/public write surfaces can inspect mutation shape before execution
+  while preserving the existing broad session write lane.
 
 - `0.181.0` starts the safe SQL `UPDATE` line by documenting the current
   session/library write-lane boundary, preserving generated query/DDL endpoint
