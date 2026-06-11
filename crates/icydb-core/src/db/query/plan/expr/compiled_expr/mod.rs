@@ -28,7 +28,6 @@ use crate::{
     value::Value,
 };
 use std::borrow::Cow;
-use thiserror::Error as ThisError;
 
 pub(in crate::db) use compile::{compile_grouped_projection_expr, compile_grouped_projection_plan};
 pub(in crate::db) use evaluate::evaluate_grouped_having_expr;
@@ -275,68 +274,71 @@ impl ProjectionAggregateKindCode {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ProjectionEvalError {
-    #[error("projection expression references unknown field")]
-    UnknownField { access: ProjectionAccessCode },
+    UnknownField {
+        access: ProjectionAccessCode,
+    },
 
-    #[error("projection expression could not read field")]
     MissingFieldValue {
         access: ProjectionAccessCode,
         index: usize,
     },
 
-    #[error("projection expression could not read field-path")]
-    MissingFieldPathValue { root_slot: usize },
+    MissingFieldPathValue {
+        root_slot: usize,
+    },
 
-    #[error("projection field-path failed evaluation")]
     FieldPathEvaluationFailed {
         class: ErrorClass,
         origin: ErrorOrigin,
     },
 
-    #[error("projection value reader failed")]
     ReaderFailed {
         class: ErrorClass,
         origin: ErrorOrigin,
     },
 
-    #[error("projection unary operator is incompatible with operand value")]
     InvalidUnaryOperand {
         op: ProjectionUnaryOpCode,
         found: ProjectionValueKindCode,
     },
 
-    #[error("projection CASE condition produced non-boolean value")]
     InvalidCaseCondition {
         arm_index: Option<usize>,
         found: ProjectionValueKindCode,
     },
 
-    #[error("projection binary operator is incompatible with operand values")]
     InvalidBinaryOperands {
         op: ProjectionBinaryOpCode,
         left: ProjectionValueKindCode,
         right: ProjectionValueKindCode,
     },
 
-    #[error("grouped projection expression references unknown aggregate expression")]
-    UnknownGroupedAggregateExpression { kind: ProjectionAggregateKindCode },
+    UnknownGroupedAggregateExpression {
+        kind: ProjectionAggregateKindCode,
+    },
 
-    #[error("grouped projection expression references missing aggregate output")]
-    MissingGroupedAggregateValue { index: usize },
+    MissingGroupedAggregateValue {
+        index: usize,
+    },
 
-    #[error("projection function failed evaluation")]
     InvalidFunctionCall {
         function: ProjectionFunctionCode,
         argument_count: usize,
     },
 
-    #[error("{0}")]
-    Numeric(#[from] NumericEvalError),
+    Numeric(NumericEvalError),
 
-    #[error("grouped HAVING expression produced non-boolean value")]
-    InvalidGroupedHavingResult { found: ProjectionValueKindCode },
+    InvalidGroupedHavingResult {
+        found: ProjectionValueKindCode,
+    },
+}
+
+impl From<NumericEvalError> for ProjectionEvalError {
+    fn from(err: NumericEvalError) -> Self {
+        Self::Numeric(err)
+    }
 }
 
 impl ProjectionEvalError {
@@ -442,22 +444,59 @@ impl ProjectionEvalError {
 
     /// Map one projection evaluation failure into the invalid-logical-plan boundary.
     pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
-        match self {
-            Self::Numeric(err) => err.into_internal_error(),
-            Self::FieldPathEvaluationFailed { class, origin, .. }
-            | Self::ReaderFailed { class, origin, .. } => InternalError::classified(class, origin),
-            _ => InternalError::query_invalid_logical_plan(),
-        }
+        self.into_internal_error()
     }
 
     /// Map one grouped projection evaluation failure into the grouped-output
     /// invalid-logical-plan boundary while preserving grouped context.
     pub(in crate::db) fn into_grouped_projection_internal_error(self) -> InternalError {
+        self.into_internal_error()
+    }
+
+    fn into_internal_error(self) -> InternalError {
         match self {
             Self::Numeric(err) => err.into_internal_error(),
-            Self::FieldPathEvaluationFailed { class, origin, .. }
-            | Self::ReaderFailed { class, origin, .. } => InternalError::classified(class, origin),
-            _ => InternalError::query_invalid_logical_plan(),
+            Self::FieldPathEvaluationFailed { class, origin }
+            | Self::ReaderFailed { class, origin } => InternalError::classified(class, origin),
+            Self::UnknownField { access } | Self::MissingFieldValue { access, .. } => {
+                let _ = access;
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::MissingFieldPathValue { root_slot } => {
+                let _ = root_slot;
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::InvalidUnaryOperand { op, found } => {
+                let _ = (op, found);
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::InvalidCaseCondition { arm_index, found } => {
+                let _ = (arm_index, found);
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::InvalidBinaryOperands { op, left, right } => {
+                let _ = (op, left, right);
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::UnknownGroupedAggregateExpression { kind } => {
+                let _ = kind;
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::MissingGroupedAggregateValue { index } => {
+                let _ = index;
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::InvalidFunctionCall {
+                function,
+                argument_count,
+            } => {
+                let _ = (function, argument_count);
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::InvalidGroupedHavingResult { found } => {
+                let _ = found;
+                InternalError::query_invalid_logical_plan()
+            }
         }
     }
 }

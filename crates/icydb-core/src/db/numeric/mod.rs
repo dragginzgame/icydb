@@ -10,7 +10,6 @@ mod tests;
 
 use crate::{error::InternalError, types::Decimal, value::Value};
 use std::cmp::Ordering;
-use thiserror::Error as ThisError;
 
 ///
 /// NumericArithmeticOp
@@ -39,12 +38,10 @@ pub(in crate::db) enum NumericArithmeticOp {
 /// cannot be represented in the exact numeric result domain.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NumericEvalError {
-    #[error("numeric overflow")]
     Overflow,
 
-    #[error("numeric result is not representable")]
     NotRepresentable,
 }
 

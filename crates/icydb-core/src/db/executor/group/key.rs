@@ -10,7 +10,6 @@ use crate::{
 };
 use std::{
     collections::HashSet,
-    fmt,
     hash::{Hash, Hasher},
 };
 
@@ -114,25 +113,18 @@ impl KeyCanonicalError {
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
-            Self::HashingFailed { .. } => InternalError::executor_internal(),
+            Self::HashingFailed { value } => {
+                let _ = value;
+                InternalError::executor_internal()
+            }
             #[cfg(feature = "sql")]
-            Self::ProjectedRowHashingFailed { .. } => InternalError::executor_internal(),
+            Self::ProjectedRowHashingFailed { value_index, value } => {
+                let _ = (value_index, value);
+                InternalError::executor_internal()
+            }
         }
     }
 }
-
-impl fmt::Display for KeyCanonicalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidMapValue(err) => write!(f, "{err}"),
-            Self::HashingFailed { .. } => f.write_str("grouped key hashing failed"),
-            #[cfg(feature = "sql")]
-            Self::ProjectedRowHashingFailed { .. } => f.write_str("grouped key hashing failed"),
-        }
-    }
-}
-
-impl std::error::Error for KeyCanonicalError {}
 
 ///
 /// CanonicalValue
