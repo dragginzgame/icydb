@@ -9,17 +9,14 @@ use crate::db::{
 };
 use crate::model::field::{FieldStorageDecode, LeafCodec};
 use crate::value::Value;
-use thiserror::Error as ThisError;
 
 /// Default payload encoding failures for SQL DDL-authored schema mutations.
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlFieldDefaultEncodingError {
     /// Accepted database defaults cannot persist explicit NULL payloads.
-    #[error("NULL cannot be used as an accepted database default")]
     NullDefault,
     /// The accepted field contract rejected the supplied runtime value.
-    #[error("{0}")]
-    Encoding(String),
+    Encoding,
 }
 
 /// Encode an ADD COLUMN default through the accepted field contract selected by
@@ -78,7 +75,7 @@ fn encode_sql_ddl_field_default_payload(
     let contract =
         AcceptedFieldDecodeContract::new(field_name, kind, nullable, storage_decode, leaf_codec);
     let payload = encode_runtime_value_for_accepted_field_contract(contract, &normalized)
-        .map_err(|error| SchemaDdlFieldDefaultEncodingError::Encoding(error.to_string()))?;
+        .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
 
     Ok(SchemaFieldDefault::SlotPayload(payload))
 }

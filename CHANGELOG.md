@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Remove internal numeric/projection evaluation and grouped-key display strings
-  while keeping compact structured payloads for query/executor diagnostic
-  mapping.
-
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
+
+- `0.180.41` removes the schema DDL field-default encoding string payload
+  while preserving the compact null-default versus encoding-failed diagnostic
+  distinction.
+
+- `0.180.40` removes internal numeric, compiled-projection, and grouped-key
+  display strings while preserving compact structured diagnostic payloads for
+  query and executor mapping.
 
 - `0.180.39` removes internal cursor token wire, aggregate field, and grouped
   aggregate contract display strings while retaining compact structured
