@@ -20,6 +20,7 @@ use crate::{
             plan::{DeleteLimitSpec, OrderDirection, OrderSpec, PageSpec, QueryMode, expr::Expr},
         },
     },
+    error::InternalError,
     value::{Value, hash_value},
 };
 use sha2::{Digest, Sha256};
@@ -241,7 +242,7 @@ pub(in crate::db) fn write_value(hasher: &mut Sha256, value: &Value) {
         Ok(digest) => hasher.update(digest),
         Err(err) => {
             write_tag(hasher, HASH_VALUE_ERROR_TAG);
-            write_str(hasher, &err.display_with_class());
+            write_internal_error_identity(hasher, &err);
         }
     }
 }
@@ -277,6 +278,17 @@ pub(in crate::db) fn write_str(hasher: &mut Sha256, value: &str) {
 
 pub(in crate::db) fn write_u32(hasher: &mut Sha256, value: u32) {
     write_hash_u32(hasher, value);
+}
+
+///
+/// Encode one compact internal-error identity into the plan hash stream.
+///
+
+pub(in crate::db) fn write_internal_error_identity(hasher: &mut Sha256, err: &InternalError) {
+    let diagnostic = err.diagnostic();
+
+    write_u32(hasher, u32::from(diagnostic.error_code().raw()));
+    write_u32(hasher, diagnostic.origin() as u32);
 }
 
 ///

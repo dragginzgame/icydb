@@ -14,7 +14,6 @@ use thiserror::Error as ThisError;
 
 const COMPACT_QUERY_DIAGNOSTIC_MESSAGE: &str = "query diagnostic";
 const COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE: &str = "runtime diagnostic";
-const COMPACT_SCHEMA_DDL_STORE_MESSAGE: &str = "schema DDL diagnostic";
 const COMPACT_STORE_DIAGNOSTIC_MESSAGE: &str = "store diagnostic";
 const COMPACT_INDEX_DIAGNOSTIC_MESSAGE: &str = "index diagnostic";
 const COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE: &str = "serialize diagnostic";
@@ -136,18 +135,20 @@ const fn compact_message_for(_class: ErrorClass, origin: ErrorOrigin) -> &'stati
 /// Not a stable API; intended for internal use and may change without notice.
 ///
 
-#[derive(Debug, ThisError)]
-#[error("{message}")]
+#[derive(Debug)]
 pub struct InternalError {
     pub(crate) class: ErrorClass,
     pub(crate) origin: ErrorOrigin,
-    pub(crate) message: String,
 
     /// Optional structured error detail.
     /// The variant (if present) must correspond to `origin`.
     pub(crate) detail: Option<ErrorDetail>,
 }
 
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "internal error constructors stay non-const so compact diagnostic construction does not force const churn across subsystem helper seams"
+)]
 impl InternalError {
     /// Construct an InternalError with optional origin-specific detail.
     /// This constructor provides default StoreError details for certain
@@ -156,18 +157,12 @@ impl InternalError {
     #[cold]
     #[inline(never)]
     pub fn new(class: ErrorClass, origin: ErrorOrigin) -> Self {
-        let message = compact_message_for(class, origin);
-
         let detail = match (class, origin) {
             (ErrorClass::Corruption, ErrorOrigin::Store) => {
-                Some(ErrorDetail::Store(StoreError::Corrupt {
-                    message: message.to_string(),
-                }))
+                Some(ErrorDetail::Store(StoreError::Corrupt))
             }
             (ErrorClass::InvariantViolation, ErrorOrigin::Store) => {
-                Some(ErrorDetail::Store(StoreError::InvariantViolation {
-                    message: message.to_string(),
-                }))
+                Some(ErrorDetail::Store(StoreError::InvariantViolation))
             }
             _ => None,
         };
@@ -175,7 +170,6 @@ impl InternalError {
         Self {
             class,
             origin,
-            message: message.to_string(),
             detail,
         }
     }
@@ -194,8 +188,8 @@ impl InternalError {
 
     /// Return the rendered internal error message.
     #[must_use]
-    pub fn message(&self) -> &str {
-        &self.message
+    pub const fn message(&self) -> &'static str {
+        compact_message_for(self.class, self.origin)
     }
 
     /// Return the optional structured detail payload.
@@ -228,7 +222,7 @@ impl InternalError {
     /// Consume and return the rendered internal error message.
     #[must_use]
     pub fn into_message(self) -> String {
-        self.message
+        self.message().to_string()
     }
 
     /// Construct an error while preserving an explicit class/origin taxonomy pair.
@@ -682,7 +676,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SchemaDdlAdmission {
                 error,
             })),
@@ -696,7 +689,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::NumericOverflow)),
         }
     }
@@ -709,7 +701,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::NumericNotRepresentable,
             )),
@@ -1146,7 +1137,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,
-            message: COMPACT_SCHEMA_DDL_STORE_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Store(
                 StoreError::SchemaDdlPublicationRaceLost {
                     entity_path: entity_path.to_string(),
@@ -1164,7 +1154,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,
-            message: COMPACT_SCHEMA_DDL_STORE_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Store(
                 StoreError::SchemaDdlSetNotNullValidationFailed {
                     entity_path: entity_path.to_string(),
@@ -1222,7 +1211,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnsupportedSqlFeature { feature },
             )),
@@ -1236,7 +1224,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlLowering { reason })),
         }
     }
@@ -1249,7 +1236,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnsupportedProjection { reason },
             )),
@@ -1261,7 +1247,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(
                 QueryErrorDetail::UnknownAggregateTargetField,
             )),
@@ -1276,7 +1261,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::ResultShapeMismatch {
                 reason,
             })),
@@ -1292,7 +1276,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlSurfaceMismatch {
                 mismatch,
             })),
@@ -1307,7 +1290,6 @@ impl InternalError {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Query,
-            message: COMPACT_QUERY_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Query(QueryErrorDetail::SqlWriteBoundary {
                 boundary,
             })),
@@ -1320,7 +1302,6 @@ impl InternalError {
         Self {
             class: ErrorClass::NotFound,
             origin: ErrorOrigin::Store,
-            message: COMPACT_STORE_DIAGNOSTIC_MESSAGE.to_string(),
             detail: Some(ErrorDetail::Store(StoreError::NotFound { key })),
         }
     }
@@ -1336,11 +1317,6 @@ impl InternalError {
             self.detail,
             Some(ErrorDetail::Store(StoreError::NotFound { .. }))
         )
-    }
-
-    #[must_use]
-    pub fn display_with_class(&self) -> String {
-        format!("{}:{}: {}", self.origin, self.class, self.message)
     }
 
     /// Construct an index-plan corruption error with a canonical prefix.
@@ -1389,6 +1365,14 @@ impl InternalError {
     }
 }
 
+impl fmt::Display for InternalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl std::error::Error for InternalError {}
+
 ///
 /// ErrorDetail
 ///
@@ -1422,11 +1406,11 @@ pub enum StoreError {
     #[error("key not found: {key}")]
     NotFound { key: String },
 
-    #[error("store corruption: {message}")]
-    Corrupt { message: String },
+    #[error("store corruption")]
+    Corrupt,
 
-    #[error("store invariant violation: {message}")]
-    InvariantViolation { message: String },
+    #[error("store invariant violation")]
+    InvariantViolation,
 
     #[error("schema DDL diagnostic")]
     SchemaDdlPublicationRaceLost { entity_path: String },
@@ -1617,10 +1601,8 @@ impl StoreError {
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
             Self::NotFound { .. } => diagnostic_code::DiagnosticCode::StoreNotFound,
-            Self::Corrupt { .. } => diagnostic_code::DiagnosticCode::StoreCorruption,
-            Self::InvariantViolation { .. } => {
-                diagnostic_code::DiagnosticCode::StoreInvariantViolation
-            }
+            Self::Corrupt => diagnostic_code::DiagnosticCode::StoreCorruption,
+            Self::InvariantViolation => diagnostic_code::DiagnosticCode::StoreInvariantViolation,
             Self::SchemaDdlPublicationRaceLost { .. }
             | Self::SchemaDdlSetNotNullValidationFailed { .. } => {
                 diagnostic_code::DiagnosticCode::SchemaDdlAdmission
@@ -1642,7 +1624,7 @@ impl StoreError {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed,
                 })
             }
-            Self::NotFound { .. } | Self::Corrupt { .. } | Self::InvariantViolation { .. } => None,
+            Self::NotFound { .. } | Self::Corrupt | Self::InvariantViolation => None,
         }
     }
 }
@@ -1824,21 +1806,6 @@ impl ErrorClass {
     }
 }
 
-impl fmt::Display for ErrorClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let label = match self {
-            Self::Corruption => "corruption",
-            Self::IncompatiblePersistedFormat => "incompatible_persisted_format",
-            Self::NotFound => "not_found",
-            Self::Internal => "internal",
-            Self::Conflict => "conflict",
-            Self::Unsupported => "unsupported",
-            Self::InvariantViolation => "invariant_violation",
-        };
-        write!(f, "{label}")
-    }
-}
-
 impl fmt::Debug for ErrorClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", *self as u16)
@@ -1884,25 +1851,6 @@ impl ErrorOrigin {
             Self::Executor => diagnostic_code::ErrorOrigin::Executor,
             Self::Interface => diagnostic_code::ErrorOrigin::Interface,
         }
-    }
-}
-
-impl fmt::Display for ErrorOrigin {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let label = match self {
-            Self::Serialize => "serialize",
-            Self::Store => "store",
-            Self::Index => "index",
-            Self::Identity => "identity",
-            Self::Query => "query",
-            Self::Planner => "planner",
-            Self::Cursor => "cursor",
-            Self::Recovery => "recovery",
-            Self::Response => "response",
-            Self::Executor => "executor",
-            Self::Interface => "interface",
-        };
-        write!(f, "{label}")
     }
 }
 

@@ -23,6 +23,7 @@ use crate::{
             },
         },
     },
+    error::InternalError,
     traits::KeyValueCodec,
     value::{Value, hash_value},
 };
@@ -71,7 +72,24 @@ enum PredicateCacheKey {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum ValueCacheKey {
     Canonical([u8; 16]),
-    HashError(String),
+    HashError(DiagnosticCacheKey),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct DiagnosticCacheKey {
+    code: u16,
+    origin: u16,
+}
+
+impl DiagnosticCacheKey {
+    fn from_internal_error(err: &InternalError) -> Self {
+        let diagnostic = err.diagnostic();
+
+        Self {
+            code: diagnostic.error_code().raw(),
+            origin: diagnostic.origin() as u16,
+        }
+    }
 }
 
 // Shared lower cache identity still needs one explicit access-path key
@@ -408,7 +426,7 @@ impl ValueCacheKey {
     fn from_value(value: &Value) -> Self {
         match hash_value(value) {
             Ok(digest) => Self::Canonical(digest),
-            Err(err) => Self::HashError(err.display_with_class()),
+            Err(err) => Self::HashError(DiagnosticCacheKey::from_internal_error(&err)),
         }
     }
 }

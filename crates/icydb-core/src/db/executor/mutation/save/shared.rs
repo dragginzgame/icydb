@@ -115,10 +115,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 crate::error::ErrorClass::Corruption,
                 crate::error::ErrorOrigin::Serialize | crate::error::ErrorOrigin::Store,
             ) => err,
-            _ => InternalError::from(ExecutorError::persisted_row_invariant_violation(
-                data_key,
-                &err.message,
-            )),
+            _ => InternalError::from(ExecutorError::persisted_row_invariant_violation(data_key)),
         })?;
 
         Ok(())

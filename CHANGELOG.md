@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.35` removes stored internal error message payloads and formatted
+  query cache/fingerprint fallback identity, keeping compact local diagnostics
+  on numeric codes instead of runtime strings.
+
 - `0.180.34` compacts schema predicate and grouped plan validation
   diagnostics onto typed operator, aggregate-kind, and literal reason payloads
   while preserving field context and verifying the comparable wasm-footprint

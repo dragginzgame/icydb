@@ -319,27 +319,23 @@ impl ExecutorError {
         }
     }
 
-    pub(in crate::db::executor) fn corruption(
-        origin: ErrorOrigin,
-        _message: impl Into<String>,
-    ) -> Self {
+    pub(in crate::db::executor) const fn corruption(origin: ErrorOrigin) -> Self {
         Self::Corruption { origin }
     }
 
     // Construct a store-origin corruption error with canonical taxonomy.
-    pub(in crate::db::executor) fn store_corruption() -> Self {
-        Self::corruption(ErrorOrigin::Store, "")
+    pub(in crate::db::executor) const fn store_corruption() -> Self {
+        Self::corruption(ErrorOrigin::Store)
     }
 
     // Construct the canonical missing-row store corruption error.
-    pub(in crate::db::executor) fn missing_row(_key: &DecodedDataStoreKey) -> Self {
+    pub(in crate::db::executor) const fn missing_row(_key: &DecodedDataStoreKey) -> Self {
         Self::store_corruption()
     }
 
     // Construct the canonical persisted-row invariant-violation corruption error.
-    pub(in crate::db::executor) fn persisted_row_invariant_violation(
+    pub(in crate::db::executor) const fn persisted_row_invariant_violation(
         _data_key: &DecodedDataStoreKey,
-        _detail: impl AsRef<str>,
     ) -> Self {
         Self::store_corruption()
     }

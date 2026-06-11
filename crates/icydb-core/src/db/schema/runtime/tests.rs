@@ -616,7 +616,7 @@ fn accepted_row_layout_runtime_contract_rejects_non_generated_compatible_layout(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible proof error: {}",
-        err.message,
+        err.message(),
     );
 }
 
@@ -664,7 +664,7 @@ fn accepted_row_layout_runtime_contract_rejects_extra_generated_field_layout() {
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible proof error: {}",
-        err.message,
+        err.message(),
     );
 }
 
@@ -686,7 +686,7 @@ fn accepted_row_layout_runtime_contract_rejects_storage_decode_drift() {
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible storage decode error: {}",
-        err.message,
+        err.message(),
     );
 }
 
@@ -708,7 +708,7 @@ fn accepted_row_layout_runtime_contract_rejects_leaf_codec_drift() {
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible leaf codec error: {}",
-        err.message,
+        err.message(),
     );
 }
 
@@ -730,7 +730,7 @@ fn accepted_row_layout_runtime_contract_rejects_nullability_drift() {
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "unexpected generated-compatible nullability error: {}",
-        err.message,
+        err.message(),
     );
 }
 
