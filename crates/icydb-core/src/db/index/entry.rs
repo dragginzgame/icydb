@@ -214,8 +214,8 @@ impl IndexEntryValue {
 fn primary_key_value_from_raw_index_store_key(
     raw_key: &RawIndexStoreKey,
 ) -> Result<PrimaryKeyValue, IndexEntryCorruption> {
-    IndexKey::try_from_raw(raw_key)
-        .and_then(|key| key.primary_key_value().map_err(|_| "invalid primary key"))
+    let key = IndexKey::try_from_raw(raw_key).map_err(|_| IndexEntryCorruption::InvalidKey)?;
+    key.primary_key_value()
         .map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 

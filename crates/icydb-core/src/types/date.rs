@@ -8,7 +8,7 @@ use crate::{
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{
-        Decimal,
+        Decimal, TypeParseError,
         parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
     },
     value::Value,
@@ -245,7 +245,7 @@ impl<'de> Deserialize<'de> for Date {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Self::parse(&s).ok_or_else(|| serde::de::Error::custom("invalid date"))
+        Self::parse(&s).ok_or_else(|| serde::de::Error::custom(TypeParseError::InvalidDate))
     }
 }
 

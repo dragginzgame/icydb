@@ -7,13 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Continue compacting runtime diagnostics by replacing generated display/error
-  implementations on query, store-detail, and schema DDL admission wrappers with
-  explicit compact diagnostic formatting, and by trimming map validation display
-  prose, internal field-storage validation text, primitive serde decode messages,
-  top-level `InternalError` debug output, timestamp/duration parse failure
-  allocation, field-storage validation allocation, and accepted primary-key
-  materialization mismatch formatting while preserving structured error payloads.
+## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
+
+Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
+
+- `0.181.0` starts the safe SQL `UPDATE` line by documenting the current
+  session/library write-lane boundary, preserving generated query/DDL endpoint
+  rejection of row mutation SQL, and setting up explicit policy gates before
+  broader generated/public `UPDATE` exposure.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
@@ -21,8 +22,9 @@ Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
 - `0.180.x` moves IcyDB diagnostics toward compact stable codes and structured
   payloads, trims runtime/display strings from shared wasm surfaces, keeps rich
-  rendering in host-side tooling where appropriate, and records the detailed
-  per-slice cleanup and wasm-footprint evidence in the linked notes.
+  rendering in host-side tooling where appropriate, and closes with public
+  errors on compact wire codes plus final wasm-footprint evidence in the linked
+  notes.
 
 ## [0.179.x] 🧹 - 2026-06-04 - Repeated Audits / Cleanup
 

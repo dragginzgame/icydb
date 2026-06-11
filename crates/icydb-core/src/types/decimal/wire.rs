@@ -1,4 +1,4 @@
-use crate::types::decimal::Decimal;
+use crate::types::{TypeParseError, decimal::Decimal};
 use candid::CandidType;
 use serde::Deserialize;
 use serde_bytes::ByteBuf;
@@ -30,7 +30,9 @@ impl<'de> Deserialize<'de> for Decimal {
 
         if deserializer.is_human_readable() {
             let s = String::deserialize(deserializer)?;
-            return s.parse::<Self>().map_err(serde::de::Error::custom);
+            return s
+                .parse::<Self>()
+                .map_err(|_| serde::de::Error::custom(TypeParseError::InvalidDecimal));
         }
 
         // Candid currently reports non-human-readable, but Decimal's Candid wire type is `text`.
@@ -40,12 +42,14 @@ impl<'de> Deserialize<'de> for Decimal {
         let (mantissa_bytes, scale) = match payload {
             DecimalPayload::Binary(parts) => parts,
             DecimalPayload::Text(s) => {
-                return s.parse::<Self>().map_err(serde::de::Error::custom);
+                return s
+                    .parse::<Self>()
+                    .map_err(|_| serde::de::Error::custom(TypeParseError::InvalidDecimal));
             }
         };
 
         if mantissa_bytes.len() != 16 {
-            return Err(serde::de::Error::custom("invalid decimal mantissa length"));
+            return Err(serde::de::Error::custom(TypeParseError::InvalidDecimal));
         }
 
         let mut mantissa_buf = [0u8; 16];
@@ -53,7 +57,7 @@ impl<'de> Deserialize<'de> for Decimal {
         let mantissa = i128::from_be_bytes(mantissa_buf);
 
         Self::checked_from_mantissa_scale(mantissa, scale)
-            .ok_or_else(|| serde::de::Error::custom("invalid decimal binary payload"))
+            .ok_or_else(|| serde::de::Error::custom(TypeParseError::InvalidDecimal))
     }
 }
 

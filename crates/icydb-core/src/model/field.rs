@@ -10,13 +10,16 @@ use crate::{
 };
 use std::{borrow::Cow, cmp::Ordering};
 
-const REQUIRED_FIELD_NULL_ERROR: &str = "required field cannot store null";
-const FIELD_STORAGE_CONTRACT_ERROR: &str = "field storage contract error";
-const DECIMAL_SCALE_MISMATCH_ERROR: &str = "decimal scale mismatch";
-const SCALAR_MAX_LEN_ERROR: &str = "scalar length exceeds max_len";
-const SET_CANONICAL_ORDER_ERROR: &str = "set payload is not canonical";
-const MAP_ENTRY_CONTRACT_ERROR: &str = "map payload has invalid entries";
-const MAP_CANONICAL_ORDER_ERROR: &str = "map payload is not canonical";
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FieldStorageValidationError {
+    RequiredFieldNull,
+    StorageContract,
+    DecimalScaleMismatch,
+    ScalarMaxLen,
+    SetCanonicalOrder,
+    MapEntryContract,
+    MapCanonicalOrder,
+}
 
 /// Default `max_bytes` bound for `int_big` and `nat_big` field payloads.
 pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = 256;
@@ -431,13 +434,13 @@ impl FieldModel {
     pub(crate) fn validate_runtime_value_for_storage(
         &self,
         value: &Value,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), FieldStorageValidationError> {
         if matches!(value, Value::Null) {
             if self.nullable() {
                 return Ok(());
             }
 
-            return Err(REQUIRED_FIELD_NULL_ERROR);
+            return Err(FieldStorageValidationError::RequiredFieldNull);
         }
 
         let accepts = match self.storage_decode() {
@@ -449,7 +452,7 @@ impl FieldModel {
             }
         };
         if !accepts {
-            return Err(FIELD_STORAGE_CONTRACT_ERROR);
+            return Err(FieldStorageValidationError::StorageContract);
         }
 
         ensure_decimal_scale_matches(self.kind(), value)?;
@@ -463,7 +466,7 @@ impl FieldModel {
     pub(crate) fn normalize_runtime_value_for_storage<'a>(
         &self,
         value: &'a Value,
-    ) -> Result<Cow<'a, Value>, &'static str> {
+    ) -> Result<Cow<'a, Value>, FieldStorageValidationError> {
         normalize_decimal_scale_for_storage(self.kind(), value)
     }
 }
@@ -848,7 +851,10 @@ fn value_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> b
 
 // Enforce fixed decimal scales through nested collection/map shapes before a
 // field-level runtime value is persisted.
-fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), &'static str> {
+fn ensure_decimal_scale_matches(
+    kind: FieldKind,
+    value: &Value,
+) -> Result<(), FieldStorageValidationError> {
     if matches!(value, Value::Null) {
         return Ok(());
     }
@@ -856,7 +862,7 @@ fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), &'
     match (kind, value) {
         (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
             if decimal.scale() != scale {
-                return Err(DECIMAL_SCALE_MISMATCH_ERROR);
+                return Err(FieldStorageValidationError::DecimalScaleMismatch);
             }
 
             Ok(())
@@ -896,15 +902,15 @@ fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), &'
 pub(crate) fn normalize_decimal_scale_for_storage(
     kind: FieldKind,
     value: &Value,
-) -> Result<Cow<'_, Value>, &'static str> {
+) -> Result<Cow<'_, Value>, FieldStorageValidationError> {
     if matches!(value, Value::Null) {
         return Ok(Cow::Borrowed(value));
     }
 
     match (kind, value) {
         (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-            let normalized =
-                decimal_with_storage_scale(*decimal, scale).ok_or(DECIMAL_SCALE_MISMATCH_ERROR)?;
+            let normalized = decimal_with_storage_scale(*decimal, scale)
+                .ok_or(FieldStorageValidationError::DecimalScaleMismatch)?;
 
             if normalized.scale() == decimal.scale() {
                 Ok(Cow::Borrowed(value))
@@ -957,7 +963,7 @@ fn decimal_with_storage_scale(decimal: Decimal, scale: u32) -> Option<Decimal> {
 fn normalize_decimal_list_items(
     kind: FieldKind,
     items: &[Value],
-) -> Result<Option<Vec<Value>>, &'static str> {
+) -> Result<Option<Vec<Value>>, FieldStorageValidationError> {
     let mut normalized_items = None;
 
     for (index, item) in items.iter().enumerate() {
@@ -977,7 +983,7 @@ fn normalize_decimal_map_entries(
     key_kind: FieldKind,
     value_kind: FieldKind,
     entries: &[(Value, Value)],
-) -> Result<Option<Vec<(Value, Value)>>, &'static str> {
+) -> Result<Option<Vec<(Value, Value)>>, FieldStorageValidationError> {
     let mut normalized_entries = None;
 
     for (index, (entry_key, entry_value)) in entries.iter().enumerate() {
@@ -1000,7 +1006,10 @@ fn normalize_decimal_map_entries(
 
 // Enforce bounded text/blob length through nested collection/map shapes before
 // a field-level runtime value is persisted.
-fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), &'static str> {
+fn ensure_scalar_max_len_matches(
+    kind: FieldKind,
+    value: &Value,
+) -> Result<(), FieldStorageValidationError> {
     if matches!(value, Value::Null) {
         return Ok(());
     }
@@ -1009,7 +1018,7 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), &
         (FieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
             let len = text.chars().count();
             if len > max as usize {
-                return Err(SCALAR_MAX_LEN_ERROR);
+                return Err(FieldStorageValidationError::ScalarMaxLen);
             }
 
             Ok(())
@@ -1017,7 +1026,7 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), &
         (FieldKind::Blob { max_len: Some(max) }, Value::Blob(bytes)) => {
             let len = bytes.len();
             if len > max as usize {
-                return Err(SCALAR_MAX_LEN_ERROR);
+                return Err(FieldStorageValidationError::ScalarMaxLen);
             }
 
             Ok(())
@@ -1055,7 +1064,7 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), &
 fn ensure_value_is_deterministic_for_storage(
     kind: FieldKind,
     value: &Value,
-) -> Result<(), &'static str> {
+) -> Result<(), FieldStorageValidationError> {
     match (kind, value) {
         (FieldKind::Set(_), Value::List(items)) => {
             for pair in items.windows(2) {
@@ -1063,7 +1072,7 @@ fn ensure_value_is_deterministic_for_storage(
                     continue;
                 };
                 if Value::canonical_cmp(left, right) != Ordering::Less {
-                    return Err(SET_CANONICAL_ORDER_ERROR);
+                    return Err(FieldStorageValidationError::SetCanonicalOrder);
                 }
             }
 
@@ -1071,10 +1080,10 @@ fn ensure_value_is_deterministic_for_storage(
         }
         (FieldKind::Map { .. }, Value::Map(entries)) => {
             Value::validate_map_entries(entries.as_slice())
-                .map_err(|_| MAP_ENTRY_CONTRACT_ERROR)?;
+                .map_err(|_| FieldStorageValidationError::MapEntryContract)?;
 
             if !Value::map_entries_are_strictly_canonical(entries.as_slice()) {
-                return Err(MAP_CANONICAL_ORDER_ERROR);
+                return Err(FieldStorageValidationError::MapCanonicalOrder);
             }
 
             Ok(())

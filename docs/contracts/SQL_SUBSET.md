@@ -251,6 +251,34 @@ Public SQL ownership is split deliberately:
 - `execute_sql_update::<E>(...)` owns state-changing SQL
 - `execute_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
 
+### SQL `UPDATE` Availability By Surface
+
+`UPDATE` is an existing session/library write-lane capability, not a generated
+query or DDL endpoint capability.
+
+Current boundary:
+
+- `execute_sql_update::<E>(...)` admits supported single-entity `UPDATE`
+  statements.
+- `execute_sql_update::<E>(...)` admits current narrow
+  `UPDATE ... RETURNING` forms.
+- generated `__icydb_query` rejects row mutation SQL, including `UPDATE`.
+- generated `__icydb_ddl` rejects row mutation SQL, including `UPDATE`.
+- no generated SQL write endpoint is part of the current default generated
+  canister surface.
+
+Current `execute_sql_update::<E>(...)` support includes primary-key and
+non-primary-key predicates, explicit `ORDER BY`, `LIMIT`, and `OFFSET` where
+the reduced SQL write lane admits them. That broader session/library behavior
+does not define the policy for any future generated public SQL write endpoint.
+Any generated/public canister SQL write exposure must choose an explicit
+`UPDATE` policy before executing row mutation SQL.
+
+Future generated/public SQL write policy is expected to start stricter than
+the session/library lane: primary-key `UPDATE` first, then explicit bounded
+deterministic non-primary-key `UPDATE` only with canonical primary-key
+`ORDER BY` and `LIMIT`.
+
 ## Blob Literals and Blob Values
 
 SQL accepts hex blob literals in the `X'...'` / `x'...'` form. The hex body
@@ -483,6 +511,10 @@ Supported `RETURNING` forms are intentionally narrow:
 - `INSERT ... RETURNING`
 - `UPDATE ... RETURNING`
 - `DELETE ... RETURNING`
+
+For `UPDATE`, `RETURNING` is available where the underlying SQL write surface
+admits the `UPDATE` shape. Generated query and DDL endpoints still reject
+`UPDATE` before `RETURNING` semantics apply.
 
 Unsupported `RETURNING` projection forms remain fail-closed:
 

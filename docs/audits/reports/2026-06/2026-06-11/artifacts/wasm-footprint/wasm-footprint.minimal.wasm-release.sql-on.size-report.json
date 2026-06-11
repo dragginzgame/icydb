@@ -8,23 +8,23 @@
     "icp_built_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm",
       "bytes": 37369,
-      "sha256": "ee17196562ba64d96d5f0cf18dcde35dff27ca8d1d112229a2ddfc35ac178e57"
+      "sha256": "88d90b819ba233f278c38bc0b029a30ff900708471f79933b41cd5a76c4093ea"
     },
     "icp_built_wasm_gz_deterministic": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm.gz",
       "bytes": 16361,
-      "sha256": "de647d894b12ce982b66a0658c6413795ab3277116e9fbed2273ab03207836f6"
+      "sha256": "f34578d0a936c6357134f1aea80eef97cbc78a5818b1ab9fa5e0b50128f072bf"
     },
     "icp_built_wasm_gz_emitted": null,
     "icp_shrunk_wasm": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm",
       "bytes": 6516,
-      "sha256": "6437814eabaffa9e60cf157246b22f807fdc9ed3e9567709bd86ed46a394dabc"
+      "sha256": "e403b673fe4d19f3e7361ead9cfbe35259fd561aa6d5e610f0bf230016acdf21"
     },
     "icp_shrunk_wasm_gz": {
       "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm.gz",
-      "bytes": 4095,
-      "sha256": "72768c9cecfaf0945d0ee441d02b8c32033da2cc78c1791e2c55710b1da1d6f8"
+      "bytes": 4096,
+      "sha256": "e2828ef5cbe2742770126e7c8338f5976b857ff25750d12a6ace0219b27868d7"
     }
   },
   "analysis": {
@@ -59,6 +59,6 @@
   },
   "deltas": {
     "shrink_wasm_bytes": 30853,
-    "shrink_wasm_gz_bytes": 12266
+    "shrink_wasm_gz_bytes": 12265
   }
 }

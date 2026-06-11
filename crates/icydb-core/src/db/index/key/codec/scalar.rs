@@ -3,7 +3,7 @@
 //! Does not own: full key framing.
 //! Boundary: consumed by codec encode/decode.
 
-use crate::db::index::key::codec::error::ERR_INVALID_KEY_KIND;
+use crate::db::index::key::codec::error::IndexKeyDecodeError;
 
 ///
 /// IndexKeyKind
@@ -21,11 +21,11 @@ impl IndexKeyKind {
     const USER_TAG: u8 = 0;
     const SYSTEM_TAG: u8 = 1;
 
-    pub(super) const fn from_tag(tag: u8) -> Result<Self, &'static str> {
+    pub(super) const fn from_tag(tag: u8) -> Result<Self, IndexKeyDecodeError> {
         match tag {
             Self::USER_TAG => Ok(Self::User),
             Self::SYSTEM_TAG => Ok(Self::System),
-            _ => Err(ERR_INVALID_KEY_KIND),
+            _ => Err(IndexKeyDecodeError::InvalidKeyKind),
         }
     }
 }

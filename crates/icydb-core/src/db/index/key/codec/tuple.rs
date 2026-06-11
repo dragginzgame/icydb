@@ -3,12 +3,7 @@
 //! Does not own: index-key semantic ordering policy.
 //! Boundary: internal utility for codec framing.
 
-use crate::db::index::key::codec::{
-    bounds::SEGMENT_LEN_SIZE,
-    error::{
-        ERR_OVERLONG_SEGMENT, ERR_SEGMENT_OVERFLOW, ERR_TRUNCATED_KEY, ERR_ZERO_LENGTH_SEGMENT,
-    },
-};
+use crate::db::index::key::codec::{bounds::SEGMENT_LEN_SIZE, error::IndexKeyDecodeError};
 use std::cmp::Ordering;
 
 #[expect(clippy::checked_conversions)]
@@ -43,10 +38,10 @@ pub(super) fn read_segment<'a>(
     offset: &mut usize,
     max_len: usize,
     _label: &str,
-) -> Result<&'a [u8], &'static str> {
+) -> Result<&'a [u8], IndexKeyDecodeError> {
     // Phase 1: decode segment length and enforce shape bounds.
     if *offset + SEGMENT_LEN_SIZE > bytes.len() {
-        return Err(ERR_TRUNCATED_KEY);
+        return Err(IndexKeyDecodeError::TruncatedKey);
     }
 
     let mut len_buf = [0u8; SEGMENT_LEN_SIZE];
@@ -55,15 +50,17 @@ pub(super) fn read_segment<'a>(
 
     let len = u16::from_be_bytes(len_buf) as usize;
     if len == 0 {
-        return Err(ERR_ZERO_LENGTH_SEGMENT);
+        return Err(IndexKeyDecodeError::ZeroLengthSegment);
     }
     if len > max_len {
-        return Err(ERR_OVERLONG_SEGMENT);
+        return Err(IndexKeyDecodeError::OverlongSegment);
     }
 
-    let end = (*offset).checked_add(len).ok_or(ERR_SEGMENT_OVERFLOW)?;
+    let end = (*offset)
+        .checked_add(len)
+        .ok_or(IndexKeyDecodeError::SegmentOverflow)?;
     if end > bytes.len() {
-        return Err(ERR_TRUNCATED_KEY);
+        return Err(IndexKeyDecodeError::TruncatedKey);
     }
 
     // Phase 2: return the segment slice and advance decode cursor.

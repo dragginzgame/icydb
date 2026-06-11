@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{SemanticIndexExpression, SemanticIndexKeyItemRef},
-        index::derive_index_expression_value,
+        index::{IndexExpressionSourceClass, derive_index_expression_value},
         predicate::CoercionId,
         scalar_expr::{
             ScalarExprValue, derive_non_null_scalar_expression_value, scalar_expr_value_into_value,
@@ -126,7 +126,7 @@ fn lower_lookup_value_for_key_item(
 fn derive_accepted_index_expression_value(
     expression: &SemanticIndexExpression,
     source: Value,
-) -> Result<Option<Value>, &'static str> {
+) -> Result<Option<Value>, IndexExpressionSourceClass> {
     match expression.op() {
         PersistedIndexExpressionOp::Lower
         | PersistedIndexExpressionOp::Upper
@@ -146,31 +146,33 @@ fn derive_accepted_index_expression_value(
 fn derive_accepted_text_expression_value(
     op: PersistedIndexExpressionOp,
     source: Value,
-) -> Result<Option<Value>, &'static str> {
+) -> Result<Option<Value>, IndexExpressionSourceClass> {
     let source = match source {
         Value::Null => return Ok(None),
         Value::Text(value) => ScalarExprValue::Text(value.into()),
-        _ => return Err("Text"),
+        _ => return Err(IndexExpressionSourceClass::Text),
     };
 
     derive_non_null_scalar_expression_value(accepted_expression_op(op), source)
         .map(scalar_expr_value_into_value)
+        .map_err(|_| IndexExpressionSourceClass::Text)
         .map(Some)
 }
 
 fn derive_accepted_temporal_expression_value(
     op: PersistedIndexExpressionOp,
     source: Value,
-) -> Result<Option<Value>, &'static str> {
+) -> Result<Option<Value>, IndexExpressionSourceClass> {
     let source = match source {
         Value::Null => return Ok(None),
         Value::Date(value) => ScalarExprValue::Date(value),
         Value::Timestamp(value) => ScalarExprValue::Timestamp(value),
-        _ => return Err("Date/Timestamp"),
+        _ => return Err(IndexExpressionSourceClass::DateOrTimestamp),
     };
 
     derive_non_null_scalar_expression_value(accepted_expression_op(op), source)
         .map(scalar_expr_value_into_value)
+        .map_err(|_| IndexExpressionSourceClass::DateOrTimestamp)
         .map(Some)
 }
 

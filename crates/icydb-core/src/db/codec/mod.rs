@@ -121,9 +121,7 @@ pub(in crate::db) fn serialize_row_payload_with_version(
     encoded.push(format_version);
     encoded.extend_from_slice(
         &u32::try_from(payload.len())
-            .map_err(|_| {
-                InternalError::persisted_row_encode_failed("row payload exceeds u32 length")
-            })?
+            .map_err(|_| InternalError::persisted_row_encode_internal())?
             .to_be_bytes(),
     );
     encoded.extend_from_slice(&payload);

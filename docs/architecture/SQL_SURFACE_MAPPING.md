@@ -85,6 +85,18 @@ Legend:
 | `execute_sql_ddl::<E>` | no | no | no | no | no | no | no | yes | no | no |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no | no |
 
+Generated canister SQL endpoints are narrower than the session/library write
+lane:
+
+| generated endpoint | `SELECT` / explain / introspection | row mutation SQL | DDL |
+|---|---|---|---|
+| `__icydb_query` | yes | no | no |
+| `__icydb_ddl` | no | no | yes |
+
+No generated SQL write endpoint is part of the current default generated
+surface. If one is added, it must choose an explicit `UPDATE` exposure policy
+rather than inheriting broad `execute_sql_update::<E>` behavior by default.
+
 ## What Is Already Stable
 
 The 0.166 SQL surface proof matrix is the canonical checklist for public
@@ -237,6 +249,13 @@ entrypoint:
 
 That means typed write helpers remain an ergonomic owner, not a missing SQL
 mutation capability.
+
+`execute_sql_update::<E>(...)` currently owns the session/library SQL write
+lane for `INSERT`, `UPDATE`, `DELETE`, and the narrow write `RETURNING`
+contract. Its broad `UPDATE` behavior is not the generated canister SQL
+contract: generated `__icydb_query` and `__icydb_ddl` reject row mutation SQL,
+and a future generated SQL write endpoint must pass through an explicit
+surface policy before executing `UPDATE`.
 
 ## DDL Boundary
 

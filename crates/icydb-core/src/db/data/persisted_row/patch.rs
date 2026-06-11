@@ -151,7 +151,7 @@ impl<'a> SerializedPatchPayloads<'a> {
     #[cfg(test)]
     fn required_complete_payload(&self, slot: usize) -> Result<&[u8], InternalError> {
         self.get(slot)
-            .ok_or_else(|| InternalError::persisted_row_encode_failed(""))
+            .ok_or_else(InternalError::persisted_row_encode_internal)
     }
 }
 

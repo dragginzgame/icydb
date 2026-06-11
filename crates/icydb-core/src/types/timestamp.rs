@@ -10,7 +10,7 @@ use crate::{
         ValidateCustom, Visitable,
     },
     types::{
-        Decimal, Duration,
+        Decimal, Duration, TypeParseError,
         parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
     },
     value::Value,
@@ -22,8 +22,6 @@ use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 use time::{Date as TimeDate, Month, PrimitiveDateTime, Time as TimeOfDay, UtcOffset};
-
-const TIMESTAMP_PARSE_ERROR: &str = "timestamp parse error";
 
 // Invariant:
 // Timestamp and Duration are both millisecond-native.
@@ -102,7 +100,7 @@ impl Timestamp {
         }
     }
 
-    pub fn parse_rfc3339(s: &str) -> Result<Self, &'static str> {
+    pub fn parse_rfc3339(s: &str) -> Result<Self, TypeParseError> {
         // Phase 1: parse one strict RFC3339 timestamp locally so persisted
         // field decode does not retain the full `time` text parser.
         let parsed = parse_rfc3339_components(s)?;
@@ -110,30 +108,30 @@ impl Timestamp {
         // Phase 2: rebuild a validated UTC timestamp through `time`'s date/time
         // constructors rather than its format parser.
         let date = TimeDate::from_calendar_date(parsed.year, parsed.month, parsed.day)
-            .map_err(|_| TIMESTAMP_PARSE_ERROR)?;
+            .map_err(|_| TypeParseError::InvalidTimestamp)?;
         let time = TimeOfDay::from_hms_nano(
             parsed.hour,
             parsed.minute,
             parsed.second,
             parsed.nanoseconds,
         )
-        .map_err(|_| TIMESTAMP_PARSE_ERROR)?;
+        .map_err(|_| TypeParseError::InvalidTimestamp)?;
         let offset = UtcOffset::from_hms(
             parsed.offset_sign * i8::try_from(parsed.offset_hour).unwrap_or(i8::MAX),
             parsed.offset_sign * i8::try_from(parsed.offset_minute).unwrap_or(i8::MAX),
             0,
         )
-        .map_err(|_| TIMESTAMP_PARSE_ERROR)?;
+        .map_err(|_| TypeParseError::InvalidTimestamp)?;
         let ts_millis = PrimitiveDateTime::new(date, time)
             .assume_offset(offset)
             .unix_timestamp_nanos()
             / 1_000_000;
-        let ts_millis = i64::try_from(ts_millis).map_err(|_| TIMESTAMP_PARSE_ERROR)?;
+        let ts_millis = i64::try_from(ts_millis).map_err(|_| TypeParseError::InvalidTimestamp)?;
 
         Ok(Self::from_millis(ts_millis))
     }
 
-    pub fn parse_flexible(s: &str) -> Result<Self, &'static str> {
+    pub fn parse_flexible(s: &str) -> Result<Self, TypeParseError> {
         // Try integer milliseconds.
         if let Ok(n) = s.parse::<i64>() {
             return Ok(Self::from_millis(n));
@@ -201,10 +199,10 @@ struct Rfc3339TimestampComponents {
 
 // Parse one strict RFC3339 timestamp payload without routing through
 // `time`'s format-description parser.
-fn parse_rfc3339_components(s: &str) -> Result<Rfc3339TimestampComponents, &'static str> {
+fn parse_rfc3339_components(s: &str) -> Result<Rfc3339TimestampComponents, TypeParseError> {
     let bytes = s.as_bytes();
     if bytes.len() < 20 {
-        return Err(TIMESTAMP_PARSE_ERROR);
+        return Err(TypeParseError::InvalidTimestamp);
     }
     if bytes[4] != b'-'
         || bytes[7] != b'-'
@@ -212,13 +210,13 @@ fn parse_rfc3339_components(s: &str) -> Result<Rfc3339TimestampComponents, &'sta
         || bytes[13] != b':'
         || bytes[16] != b':'
     {
-        return Err(TIMESTAMP_PARSE_ERROR);
+        return Err(TypeParseError::InvalidTimestamp);
     }
 
     // Phase 1: decode the fixed-width calendar and wall-clock fields.
     let year = parse_required_i32(&bytes[0..4])?;
     let month_raw = parse_required_u8(&bytes[5..7])?;
-    let month = Month::try_from(month_raw).map_err(|_| TIMESTAMP_PARSE_ERROR)?;
+    let month = Month::try_from(month_raw).map_err(|_| TypeParseError::InvalidTimestamp)?;
     let day = parse_required_u8(&bytes[8..10])?;
     let hour = parse_required_u8(&bytes[11..13])?;
     let minute = parse_required_u8(&bytes[14..16])?;
@@ -233,7 +231,7 @@ fn parse_rfc3339_components(s: &str) -> Result<Rfc3339TimestampComponents, &'sta
             cursor += 1;
         }
         if cursor == fraction_start {
-            return Err(TIMESTAMP_PARSE_ERROR);
+            return Err(TypeParseError::InvalidTimestamp);
         }
         parse_fractional_nanoseconds(&bytes[fraction_start..cursor])?
     } else {
@@ -258,27 +256,29 @@ fn parse_rfc3339_components(s: &str) -> Result<Rfc3339TimestampComponents, &'sta
 
 // Parse one RFC3339 fractional second suffix into nanoseconds, truncating
 // precision beyond nine digits.
-fn parse_fractional_nanoseconds(bytes: &[u8]) -> Result<u32, &'static str> {
+fn parse_fractional_nanoseconds(bytes: &[u8]) -> Result<u32, TypeParseError> {
     let mut value = 0_u32;
     for &byte in bytes.iter().take(9) {
         let digit = byte
             .checked_sub(b'0')
             .filter(|digit| *digit <= 9)
-            .ok_or(TIMESTAMP_PARSE_ERROR)?;
+            .ok_or(TypeParseError::InvalidTimestamp)?;
         value = value
             .checked_mul(10)
             .and_then(|current| current.checked_add(u32::from(digit)))
-            .ok_or(TIMESTAMP_PARSE_ERROR)?;
+            .ok_or(TypeParseError::InvalidTimestamp)?;
     }
     for _ in bytes.len().min(9)..9 {
-        value = value.checked_mul(10).ok_or(TIMESTAMP_PARSE_ERROR)?;
+        value = value
+            .checked_mul(10)
+            .ok_or(TypeParseError::InvalidTimestamp)?;
     }
 
     Ok(value)
 }
 
 // Parse one strict RFC3339 UTC offset suffix.
-fn parse_rfc3339_offset(bytes: &[u8]) -> Result<(i8, u8, u8), &'static str> {
+fn parse_rfc3339_offset(bytes: &[u8]) -> Result<(i8, u8, u8), TypeParseError> {
     match bytes {
         [b'Z'] => Ok((1, 0, 0)),
         [sign @ (b'+' | b'-'), hour0, hour1, b':', minute0, minute1] => {
@@ -288,18 +288,18 @@ fn parse_rfc3339_offset(bytes: &[u8]) -> Result<(i8, u8, u8), &'static str> {
 
             Ok((sign, hour, minute))
         }
-        _ => Err(TIMESTAMP_PARSE_ERROR),
+        _ => Err(TypeParseError::InvalidTimestamp),
     }
 }
 
 // Parse one required fixed-width ASCII integer field into `i32`.
-fn parse_required_i32(bytes: &[u8]) -> Result<i32, &'static str> {
-    parse_fixed_ascii_i32(bytes).ok_or(TIMESTAMP_PARSE_ERROR)
+fn parse_required_i32(bytes: &[u8]) -> Result<i32, TypeParseError> {
+    parse_fixed_ascii_i32(bytes).ok_or(TypeParseError::InvalidTimestamp)
 }
 
 // Parse one required fixed-width ASCII integer field into `u8`.
-fn parse_required_u8(bytes: &[u8]) -> Result<u8, &'static str> {
-    parse_fixed_ascii_u8(bytes).ok_or(TIMESTAMP_PARSE_ERROR)
+fn parse_required_u8(bytes: &[u8]) -> Result<u8, TypeParseError> {
+    parse_fixed_ascii_u8(bytes).ok_or(TypeParseError::InvalidTimestamp)
 }
 
 impl Add<Duration> for Timestamp {

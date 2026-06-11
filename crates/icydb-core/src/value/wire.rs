@@ -3,7 +3,7 @@
 //! from the stable `Value` enum wire shape.
 
 use crate::{
-    types::*,
+    types::{TypeParseError, *},
     value::{VALUE_WIRE_TYPE_NAME, VALUE_WIRE_VARIANT_LABELS, Value, ValueWireVariant},
 };
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
@@ -40,7 +40,7 @@ impl<'de> Deserialize<'de> for IntBigWire {
             -1 => BigIntSign::Minus,
             0 => BigIntSign::NoSign,
             1 => BigIntSign::Plus,
-            _ => return Err(de::Error::custom("invalid IntBig sign")),
+            _ => return Err(de::Error::custom(TypeParseError::InvalidIntBig)),
         };
         let magnitude = BigUint::new(limbs);
 

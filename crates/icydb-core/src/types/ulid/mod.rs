@@ -13,7 +13,7 @@ use crate::{
         EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    types::GenerateKey,
+    types::{GenerateKey, TypeParseError},
     value::Value,
     visitor::VisitorContext,
 };
@@ -207,7 +207,7 @@ impl<'de> Deserialize<'de> for Ulid {
         let deserialized_str = String::deserialize(deserializer)?;
         match WrappedUlid::from_string(&deserialized_str) {
             Ok(u) => Ok(Self(u)),
-            Err(_) => Err(serde::de::Error::custom("invalid ulid string")),
+            Err(_) => Err(serde::de::Error::custom(TypeParseError::InvalidUlid)),
         }
     }
 }

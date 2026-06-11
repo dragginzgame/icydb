@@ -27,11 +27,16 @@ use crate::{
     traits::{CanisterKind, EntityValue},
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SqlAggregateTerminalBuildError {
+    UnsupportedStrategyDrift,
+}
+
 // Convert one prepared SQL aggregate strategy into the executor terminal DTO at
 // the session boundary so SQL lowering stays executor-neutral.
 fn build_structural_aggregate_terminal_from_sql_strategy(
     strategy: PreparedSqlScalarAggregateStrategy,
-) -> Result<StructuralAggregateTerminal, &'static str> {
+) -> Result<StructuralAggregateTerminal, SqlAggregateTerminalBuildError> {
     let (descriptor, target_slot, input_expr, filter_expr, distinct_input) =
         strategy.into_structural_terminal_inputs();
 
@@ -56,7 +61,7 @@ fn build_structural_aggregate_terminal_from_sql_strategy(
         } => StructuralAggregateTerminalKind::Max,
         PreparedSqlScalarAggregatePlanFragment::NumericField { .. }
         | PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField { .. } => {
-            return Err("prepared SQL scalar aggregate strategy drifted outside SQL support");
+            return Err(SqlAggregateTerminalBuildError::UnsupportedStrategyDrift);
         }
     };
 

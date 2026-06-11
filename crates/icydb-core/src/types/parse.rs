@@ -3,6 +3,26 @@
 //! Does not own: type-specific validation or format policy for date, timestamp, or duration.
 //! Boundary: core scalar types call into this module for reusable ASCII digit parsing only.
 
+use std::fmt;
+
+/// Compact parse/decode taxonomy for scalar type text and wire adapters.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypeParseError {
+    InvalidDate,
+    InvalidDecimal,
+    InvalidDuration,
+    InvalidFloat,
+    InvalidIntBig,
+    InvalidTimestamp,
+    InvalidUlid,
+}
+
+impl fmt::Display for TypeParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("type parse")
+    }
+}
+
 /// Parse one fixed-width ASCII digit slice into an `i32`.
 #[must_use]
 pub(in crate::types) fn parse_fixed_ascii_i32(bytes: &[u8]) -> Option<i32> {

@@ -7,7 +7,7 @@ use crate::{
         NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
         RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    types::Decimal,
+    types::{Decimal, TypeParseError},
     value::Value,
 };
 use candid::CandidType;
@@ -16,8 +16,6 @@ use std::{
     fmt,
     ops::{Add, AddAssign, Sub, SubAssign},
 };
-
-const INVALID_DURATION_FORMAT: &str = "invalid duration format";
 
 // Invariant:
 // Timestamp and Duration are both millisecond-native.
@@ -163,11 +161,12 @@ impl Duration {
     }
 
     /// Parse integer milliseconds or unit-suffixed strings (`ms`, `s`, `m`, `h`, `d`).
-    pub fn parse_flexible(s: &str) -> Result<Self, &'static str> {
+    pub fn parse_flexible(s: &str) -> Result<Self, TypeParseError> {
         // Phase 1: split one strict ASCII duration into digit and suffix parts
         // without routing through the heavier generic integer parser.
-        let (digits, unit) = split_duration_digits_and_unit(s).ok_or(INVALID_DURATION_FORMAT)?;
-        let value = parse_duration_ascii_u64(digits).ok_or(INVALID_DURATION_FORMAT)?;
+        let (digits, unit) =
+            split_duration_digits_and_unit(s).ok_or(TypeParseError::InvalidDuration)?;
+        let value = parse_duration_ascii_u64(digits).ok_or(TypeParseError::InvalidDuration)?;
 
         // Phase 2: apply the accepted unit family with the existing saturating
         // constructors so overflow semantics stay unchanged.

@@ -680,7 +680,7 @@ impl PersistedScalar for Principal {
 
     fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
         self.to_bytes()
-            .map_err(|err| InternalError::persisted_row_field_encode_failed("principal", err))
+            .map_err(|_err| InternalError::persisted_row_encode_internal())
     }
 
     fn decode_scalar_payload(

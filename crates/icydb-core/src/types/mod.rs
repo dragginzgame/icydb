@@ -31,6 +31,7 @@ pub use float::*;
 pub use identity::*;
 pub use int_big::*;
 pub use nat_big::*;
+pub use parse::TypeParseError;
 pub use principal::*;
 pub use subaccount::*;
 pub use timestamp::*;

@@ -22,9 +22,7 @@ use crate::{
 use bounds::{
     COMPONENT_COUNT_SIZE, INDEX_ID_SIZE, KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE,
 };
-use error::{
-    ERR_INVALID_INDEX_ID_BYTES, ERR_INVALID_INDEX_LENGTH, ERR_INVALID_SIZE, ERR_TRAILING_BYTES,
-};
+use error::IndexKeyDecodeError;
 use std::cmp::Ordering;
 use tuple::{compare_component_segments, compare_segment_bytes, push_segment, read_segment};
 
@@ -140,7 +138,7 @@ impl IndexKey {
         )
     }
 
-    pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, &'static str> {
+    pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, IndexKeyDecodeError> {
         let bytes = raw.as_bytes();
         let (key_kind, index_id, component_count_usize, mut offset) =
             parse_index_key_header(bytes)?;
@@ -159,7 +157,7 @@ impl IndexKey {
 
         let primary_key = read_segment(bytes, &mut offset, Self::MAX_PK_SIZE, "primary key")?;
         if offset != bytes.len() {
-            return Err(ERR_TRAILING_BYTES);
+            return Err(IndexKeyDecodeError::TrailingBytes);
         }
 
         Ok(Self {
@@ -219,11 +217,11 @@ const fn index_key_kind_to_store_key_kind(kind: IndexKeyKind) -> IndexStoreKeyKi
 // Parse the fixed-width index-key prefix and return the decoded frame header.
 fn parse_index_key_header(
     bytes: &[u8],
-) -> Result<(IndexKeyKind, IndexId, usize, usize), &'static str> {
+) -> Result<(IndexKeyKind, IndexId, usize, usize), IndexKeyDecodeError> {
     if bytes.len() < IndexKey::MIN_STORED_SIZE_USIZE
         || bytes.len() > IndexKey::MAX_STORED_SIZE_USIZE
     {
-        return Err(ERR_INVALID_SIZE);
+        return Err(IndexKeyDecodeError::InvalidSize);
     }
 
     let mut offset = 0;
@@ -232,7 +230,7 @@ fn parse_index_key_header(
     offset += KEY_KIND_TAG_SIZE;
 
     let index_id = IndexId::from_bytes(&bytes[offset..offset + INDEX_ID_SIZE])
-        .ok_or(ERR_INVALID_INDEX_ID_BYTES)?;
+        .ok_or(IndexKeyDecodeError::InvalidIndexIdBytes)?;
     offset += INDEX_ID_SIZE;
 
     let component_count = bytes[offset];
@@ -240,7 +238,7 @@ fn parse_index_key_header(
 
     let component_count_usize = usize::from(component_count);
     if component_count_usize > MAX_INDEX_FIELDS {
-        return Err(ERR_INVALID_INDEX_LENGTH);
+        return Err(IndexKeyDecodeError::InvalidIndexLength);
     }
 
     Ok((key_kind, index_id, component_count_usize, offset))
@@ -254,7 +252,7 @@ impl RawIndexStoreKey {
     pub(in crate::db) fn validated_component(
         &self,
         index: usize,
-    ) -> Result<Option<&[u8]>, &'static str> {
+    ) -> Result<Option<&[u8]>, IndexKeyDecodeError> {
         let bytes = self.as_bytes();
         let (_, _, component_count, mut offset) = parse_index_key_header(bytes)?;
         if index >= component_count {
@@ -276,7 +274,7 @@ impl RawIndexStoreKey {
 
         read_segment(bytes, &mut offset, IndexKey::MAX_PK_SIZE, "primary key")?;
         if offset != bytes.len() {
-            return Err(ERR_TRAILING_BYTES);
+            return Err(IndexKeyDecodeError::TrailingBytes);
         }
 
         Ok(target)
