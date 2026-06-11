@@ -134,7 +134,6 @@ const fn compact_message_for(_class: ErrorClass, origin: ErrorOrigin) -> &'stati
 /// Not a stable API; intended for internal use and may change without notice.
 ///
 
-#[derive(Debug)]
 pub struct InternalError {
     pub(crate) class: ErrorClass,
     pub(crate) origin: ErrorOrigin,
@@ -1352,6 +1351,18 @@ impl InternalError {
     /// Construct an index uniqueness violation conflict error.
     pub(crate) fn index_violation(_path: &str, _index_fields: &[&str]) -> Self {
         Self::new(ErrorClass::Conflict, ErrorOrigin::Index)
+    }
+}
+
+impl fmt::Debug for InternalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_compact_diagnostic(
+            f,
+            self.diagnostic_code(),
+            self.detail
+                .as_ref()
+                .and_then(ErrorDetail::diagnostic_detail),
+        )
     }
 }
 

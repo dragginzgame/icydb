@@ -6,6 +6,7 @@
 
 use crate::value::Value;
 use std::cmp::Ordering;
+use std::fmt;
 
 ///
 /// MapValueError
@@ -34,27 +35,9 @@ pub enum MapValueError {
     },
 }
 
-impl std::fmt::Display for MapValueError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyKey { index } => write!(f, "map key at index {index} must be non-null"),
-            Self::NonScalarKey { index, key } => {
-                write!(f, "map key at index {index} is not scalar: {key:?}")
-            }
-            Self::NonScalarValue { index, value } => {
-                write!(
-                    f,
-                    "map value at index {index} is not scalar/ref-like: {value:?}"
-                )
-            }
-            Self::DuplicateKey {
-                left_index,
-                right_index,
-            } => write!(
-                f,
-                "map contains duplicate keys at normalized positions {left_index} and {right_index}"
-            ),
-        }
+impl fmt::Display for MapValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("map value error")
     }
 }
 
@@ -73,11 +56,9 @@ pub enum SchemaInvariantError {
     InvalidMapValue(MapValueError),
 }
 
-impl std::fmt::Display for SchemaInvariantError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidMapValue(err) => write!(f, "{err}"),
-        }
+impl fmt::Display for SchemaInvariantError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("schema invariant error")
     }
 }
 

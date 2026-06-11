@@ -45,10 +45,7 @@ impl<'de> Deserialize<'de> for Decimal {
         };
 
         if mantissa_bytes.len() != 16 {
-            return Err(serde::de::Error::custom(format!(
-                "invalid decimal mantissa length: {} bytes (expected 16)",
-                mantissa_bytes.len()
-            )));
+            return Err(serde::de::Error::custom("invalid decimal mantissa length"));
         }
 
         let mut mantissa_buf = [0u8; 16];

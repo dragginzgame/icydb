@@ -40,7 +40,7 @@ impl<'de> Deserialize<'de> for IntBigWire {
             -1 => BigIntSign::Minus,
             0 => BigIntSign::NoSign,
             1 => BigIntSign::Plus,
-            _ => return Err(de::Error::custom(format!("invalid IntBig sign {sign}"))),
+            _ => return Err(de::Error::custom("invalid IntBig sign")),
         };
         let magnitude = BigUint::new(limbs);
 

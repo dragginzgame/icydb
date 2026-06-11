@@ -45,6 +45,8 @@ use crate::db::data::persisted_row::{
     types::generated_compatible_field_model_for_slot,
 };
 
+const DECIMAL_SCALE_MISMATCH_ERROR: &str = "decimal scale mismatch";
+
 pub(in crate::db::data::persisted_row) const RETIRED_SLOT_PLACEHOLDER_PAYLOAD: &[u8] = &[0];
 
 /// Decode one structural slot payload into a runtime boundary `Value`.
@@ -421,13 +423,8 @@ fn normalize_decimal_scale_for_accepted_storage<'a>(
 
     match (kind, value) {
         (PersistedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-            let normalized =
-                decimal_with_accepted_storage_scale(*decimal, *scale).ok_or_else(|| {
-                    format!(
-                        "decimal scale mismatch: expected {scale}, found {}",
-                        decimal.scale()
-                    )
-                })?;
+            let normalized = decimal_with_accepted_storage_scale(*decimal, *scale)
+                .ok_or_else(|| DECIMAL_SCALE_MISMATCH_ERROR.to_owned())?;
 
             if normalized.scale() == decimal.scale() {
                 Ok(Cow::Borrowed(value))

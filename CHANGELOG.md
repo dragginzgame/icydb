@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Continue compacting runtime diagnostics by replacing generated display/error
   implementations on query, store-detail, and schema DDL admission wrappers with
-  explicit compact diagnostic formatting.
+  explicit compact diagnostic formatting, and by trimming map validation display
+  prose, internal field-storage validation text, primitive serde decode messages,
+  and top-level `InternalError` debug output while preserving structured error
+  payloads.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 

@@ -10,6 +10,14 @@ use crate::{
 };
 use std::{borrow::Cow, cmp::Ordering};
 
+const REQUIRED_FIELD_NULL_ERROR: &str = "required field cannot store null";
+const FIELD_STORAGE_CONTRACT_ERROR: &str = "field storage contract error";
+const DECIMAL_SCALE_MISMATCH_ERROR: &str = "decimal scale mismatch";
+const SCALAR_MAX_LEN_ERROR: &str = "scalar length exceeds max_len";
+const SET_CANONICAL_ORDER_ERROR: &str = "set payload is not canonical";
+const MAP_ENTRY_CONTRACT_ERROR: &str = "map payload has invalid entries";
+const MAP_CANONICAL_ORDER_ERROR: &str = "map payload is not canonical";
+
 /// Default `max_bytes` bound for `int_big` and `nat_big` field payloads.
 pub const DEFAULT_BIG_INT_MAX_BYTES: u32 = 256;
 
@@ -426,7 +434,7 @@ impl FieldModel {
                 return Ok(());
             }
 
-            return Err("required field cannot store null".into());
+            return Err(REQUIRED_FIELD_NULL_ERROR.into());
         }
 
         let accepts = match self.storage_decode() {
@@ -438,10 +446,7 @@ impl FieldModel {
             }
         };
         if !accepts {
-            return Err(format!(
-                "field kind {:?} does not accept runtime value {value:?}",
-                self.kind()
-            ));
+            return Err(FIELD_STORAGE_CONTRACT_ERROR.into());
         }
 
         ensure_decimal_scale_matches(self.kind(), value)?;
@@ -848,10 +853,7 @@ fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), St
     match (kind, value) {
         (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
             if decimal.scale() != scale {
-                return Err(format!(
-                    "decimal scale mismatch: expected {scale}, found {}",
-                    decimal.scale()
-                ));
+                return Err(DECIMAL_SCALE_MISMATCH_ERROR.into());
             }
 
             Ok(())
@@ -898,12 +900,8 @@ pub(crate) fn normalize_decimal_scale_for_storage(
 
     match (kind, value) {
         (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-            let normalized = decimal_with_storage_scale(*decimal, scale).ok_or_else(|| {
-                format!(
-                    "decimal scale mismatch: expected {scale}, found {}",
-                    decimal.scale()
-                )
-            })?;
+            let normalized = decimal_with_storage_scale(*decimal, scale)
+                .ok_or_else(|| DECIMAL_SCALE_MISMATCH_ERROR.to_owned())?;
 
             if normalized.scale() == decimal.scale() {
                 Ok(Cow::Borrowed(value))
@@ -1008,9 +1006,7 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), S
         (FieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
             let len = text.chars().count();
             if len > max as usize {
-                return Err(format!(
-                    "text length exceeds max_len: expected at most {max}, found {len}"
-                ));
+                return Err(SCALAR_MAX_LEN_ERROR.into());
             }
 
             Ok(())
@@ -1018,9 +1014,7 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), S
         (FieldKind::Blob { max_len: Some(max) }, Value::Blob(bytes)) => {
             let len = bytes.len();
             if len > max as usize {
-                return Err(format!(
-                    "blob length exceeds max_len: expected at most {max}, found {len}"
-                ));
+                return Err(SCALAR_MAX_LEN_ERROR.into());
             }
 
             Ok(())
@@ -1063,17 +1057,18 @@ fn ensure_value_is_deterministic_for_storage(kind: FieldKind, value: &Value) -> 
                     continue;
                 };
                 if Value::canonical_cmp(left, right) != Ordering::Less {
-                    return Err("set payload must already be canonical and deduplicated".into());
+                    return Err(SET_CANONICAL_ORDER_ERROR.into());
                 }
             }
 
             Ok(())
         }
         (FieldKind::Map { .. }, Value::Map(entries)) => {
-            Value::validate_map_entries(entries.as_slice()).map_err(|err| err.to_string())?;
+            Value::validate_map_entries(entries.as_slice())
+                .map_err(|_| MAP_ENTRY_CONTRACT_ERROR.to_owned())?;
 
             if !Value::map_entries_are_strictly_canonical(entries.as_slice()) {
-                return Err("map payload must already be canonical and deduplicated".into());
+                return Err(MAP_CANONICAL_ORDER_ERROR.into());
             }
 
             Ok(())

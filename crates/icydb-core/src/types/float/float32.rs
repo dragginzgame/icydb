@@ -202,8 +202,7 @@ impl<'de> Deserialize<'de> for Float32 {
         D: serde::Deserializer<'de>,
     {
         let value = f32::deserialize(deserializer)?;
-        Self::try_new(value)
-            .ok_or_else(|| serde::de::Error::custom(format!("invalid Float32 value: {value}")))
+        Self::try_new(value).ok_or_else(|| serde::de::Error::custom("invalid Float32 value"))
     }
 }
 

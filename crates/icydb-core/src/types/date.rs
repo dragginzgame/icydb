@@ -245,7 +245,7 @@ impl<'de> Deserialize<'de> for Date {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Self::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("invalid date: {s}")))
+        Self::parse(&s).ok_or_else(|| serde::de::Error::custom("invalid date"))
     }
 }
 

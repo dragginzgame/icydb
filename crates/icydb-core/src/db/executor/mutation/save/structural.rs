@@ -453,18 +453,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let expected_key = data_key.try_key::<E>()?;
         let mut slots = StructuralSlotReader::from_raw_row_with_validated_contract(row, contract)
             .map_err(|err| {
-            InternalError::mutation_structural_after_image_invalid(
-                E::PATH,
-                data_key,
-                err.to_string(),
-            )
+            InternalError::mutation_structural_after_image_invalid(E::PATH, data_key, err)
         })?;
         let mut entity = E::materialize_from_slots(&mut slots).map_err(|err| {
-            InternalError::mutation_structural_after_image_invalid(
-                E::PATH,
-                data_key,
-                err.to_string(),
-            )
+            InternalError::mutation_structural_after_image_invalid(E::PATH, data_key, err)
         })?;
         let identity_key = entity.id().key();
         if identity_key != expected_key {
@@ -513,7 +505,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 InternalError::mutation_structural_after_image_invalid(
                     E::PATH,
                     data_key,
-                    err.to_string(),
+                    err,
                 )
         })?;
         let identity_key = entity.id().key();
