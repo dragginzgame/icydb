@@ -28,33 +28,27 @@ use crate::{
         response::ResponseError,
         schema::ValidateError,
     },
-    error::{ErrorClass, InternalError},
+    error::{COMPACT_QUERY_DIAGNOSTIC_MESSAGE, ErrorClass, InternalError},
 };
 use icydb_diagnostic_code as diagnostic_code;
-use thiserror::Error as ThisError;
+use std::fmt;
 
 ///
 /// QueryError
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum QueryError {
-    #[error("query validation failed")]
     Validate(Box<ValidateError>),
 
-    #[error("query planning failed")]
     Plan(Box<PlanError>),
 
-    #[error("query intent failed")]
     Intent(IntentError),
 
-    #[error("access requirement failed")]
     AccessRequirement(Box<AccessRequirementError>),
 
-    #[error("response cardinality failed")]
     Response(ResponseError),
 
-    #[error("query execution failed")]
     Execute(QueryExecutionError),
 }
 
@@ -359,31 +353,32 @@ impl From<ValidateError> for QueryError {
     }
 }
 
+impl fmt::Display for QueryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+    }
+}
+
+impl std::error::Error for QueryError {}
+
 ///
 /// QueryExecutionError
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum QueryExecutionError {
-    #[error("query execution corruption")]
     Corruption(InternalError),
 
-    #[error("query execution incompatible persisted format")]
     IncompatiblePersistedFormat(InternalError),
 
-    #[error("query execution invariant violation")]
     InvariantViolation(InternalError),
 
-    #[error("query execution conflict")]
     Conflict(InternalError),
 
-    #[error("query execution not found")]
     NotFound(InternalError),
 
-    #[error("query execution unsupported")]
     Unsupported(InternalError),
 
-    #[error("query execution internal error")]
     Internal(InternalError),
 }
 
@@ -428,6 +423,14 @@ impl From<InternalError> for QueryExecutionError {
         }
     }
 }
+
+impl fmt::Display for QueryExecutionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
+    }
+}
+
+impl std::error::Error for QueryExecutionError {}
 
 impl From<PlannerError> for QueryError {
     fn from(err: PlannerError) -> Self {

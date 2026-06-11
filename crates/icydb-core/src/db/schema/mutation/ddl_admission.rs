@@ -14,7 +14,6 @@ use crate::db::schema::{
     },
 };
 use crate::error::SchemaDdlAdmissionError;
-use thiserror::Error as ThisError;
 
 ///
 /// SchemaDdlMutationAdmission
@@ -270,15 +269,11 @@ impl SchemaDdlAcceptedSnapshotDerivation {
     dead_code,
     reason = "0.155 stages SQL DDL lowering before execution can call the runner"
 )]
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlMutationAdmissionError {
-    #[error("accepted-index mutation rejected: {0:?}")]
     AcceptedIndex(AcceptedSchemaMutationError),
-    #[error("accepted-after schema snapshot rejected")]
     AcceptedAfterRejected,
-    #[error("schema-version admission rejected")]
     SchemaVersionAdmission(SchemaDdlSchemaVersionAdmissionError),
-    #[error("unsupported schema mutation execution path")]
     UnsupportedExecutionPath,
 }
 
@@ -300,21 +295,16 @@ impl SchemaDdlMutationAdmissionError {
 /// fingerprint transitions.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlSchemaVersionAdmissionError {
-    #[error("schema fingerprint method changed")]
     FingerprintMethodMismatch,
 
-    #[error("schema changed without schema_version bump")]
     AcceptedSchemaChangeWithoutVersionBump,
 
-    #[error("schema_version bumped without schema shape change")]
     EmptyVersionBump,
 
-    #[error("schema_version jumped")]
     VersionGap { expected_next: u32 },
 
-    #[error("schema_version moved backwards")]
     VersionRollback,
 }
 
@@ -325,20 +315,14 @@ pub(in crate::db) enum SchemaDdlSchemaVersionAdmissionError {
 /// contracts.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlVersionContractPreflightError {
-    #[error("DDL requires EXPECT SCHEMA VERSION")]
     MissingExpectedSchemaVersion,
 
-    #[error("DDL requires SET SCHEMA VERSION")]
     MissingNextSchemaVersion,
 
-    #[error(
-        "DDL expected accepted schema version {expected}, but accepted schema version is {accepted}"
-    )]
     StaleExpectedSchemaVersion { expected: u32, accepted: u32 },
 
-    #[error("DDL no-op cannot SET SCHEMA VERSION {requested}")]
     EmptySchemaVersionBump { requested: u32 },
 }
 

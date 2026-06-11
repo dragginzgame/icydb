@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Continue compacting runtime diagnostics by replacing generated display/error
+  implementations on query, store-detail, and schema DDL admission wrappers with
+  explicit compact diagnostic formatting.
+
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)

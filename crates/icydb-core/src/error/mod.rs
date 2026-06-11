@@ -10,9 +10,8 @@ mod tests;
 
 use icydb_diagnostic_code as diagnostic_code;
 use std::fmt;
-use thiserror::Error as ThisError;
 
-const COMPACT_QUERY_DIAGNOSTIC_MESSAGE: &str = "query diagnostic";
+pub(crate) const COMPACT_QUERY_DIAGNOSTIC_MESSAGE: &str = "query diagnostic";
 const COMPACT_RUNTIME_DIAGNOSTIC_MESSAGE: &str = "runtime diagnostic";
 const COMPACT_STORE_DIAGNOSTIC_MESSAGE: &str = "store diagnostic";
 const COMPACT_INDEX_DIAGNOSTIC_MESSAGE: &str = "index diagnostic";
@@ -1371,17 +1370,12 @@ impl std::error::Error for InternalError {}
 /// This enum is intentionally extensible.
 ///
 
-#[derive(ThisError)]
 pub enum ErrorDetail {
-    #[error("{0}")]
     Store(StoreError),
-    #[error("{0}")]
     Query(QueryErrorDetail),
     // Future-proofing:
-    // #[error("{0}")]
     // Index(IndexError),
     //
-    // #[error("{0}")]
     // Executor(ExecutorErrorDetail),
 }
 
@@ -1392,21 +1386,19 @@ pub enum ErrorDetail {
 /// Never returned directly; always wrapped in [`ErrorDetail::Store`].
 ///
 
-#[derive(ThisError)]
 pub enum StoreError {
-    #[error("key not found: {key}")]
-    NotFound { key: String },
+    NotFound {
+        key: String,
+    },
 
-    #[error("store corruption")]
     Corrupt,
 
-    #[error("store invariant violation")]
     InvariantViolation,
 
-    #[error("schema DDL diagnostic")]
-    SchemaDdlPublicationRaceLost { entity_path: String },
+    SchemaDdlPublicationRaceLost {
+        entity_path: String,
+    },
 
-    #[error("schema DDL diagnostic")]
     SchemaDdlSetNotNullValidationFailed {
         entity_path: String,
         column_name: String,
@@ -1518,7 +1510,7 @@ pub enum SchemaDdlAdmissionError {
 
 impl fmt::Display for SchemaDdlAdmissionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("schema DDL admission")
+        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
     }
 }
 
