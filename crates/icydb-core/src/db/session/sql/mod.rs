@@ -12,6 +12,7 @@ mod compiled;
 mod execute;
 mod projection;
 mod result;
+mod update_policy;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
@@ -69,6 +70,12 @@ pub(in crate::db) use compiled::{
     CompiledSqlCommand, SqlCompiledCommandExecutionContext, SqlProjectionContract,
 };
 pub use result::SqlStatementResult;
+pub use update_policy::{
+    SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdateOrderPolicy,
+    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
+    classify_sql_update_policy,
+};
 
 /// Parsed SQL endpoint surface used by generated SQL helper dispatch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

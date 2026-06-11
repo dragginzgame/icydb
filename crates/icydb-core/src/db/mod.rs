@@ -179,7 +179,10 @@ pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
     DbSession, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
-    SqlStatementResult, SqlStatementSurface, sql_statement_entity_name, sql_statement_surface,
+    SqlStatementResult, SqlStatementSurface, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy,
+    SqlUpdateOrderPolicy, SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
+    classify_sql_update_policy, sql_statement_entity_name, sql_statement_surface,
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{

@@ -66,4 +66,9 @@ pub use icydb_core::db::{
 };
 #[cfg(feature = "sql")]
 #[doc(hidden)]
-pub use icydb_core::db::{SqlStatementSurface, sql_statement_entity_name, sql_statement_surface};
+pub use icydb_core::db::{
+    SqlStatementSurface, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdateOrderPolicy,
+    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
+    classify_sql_update_policy, sql_statement_entity_name, sql_statement_surface,
+};
