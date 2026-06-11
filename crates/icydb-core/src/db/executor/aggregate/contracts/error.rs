@@ -4,7 +4,6 @@
 //! Boundary: typed runtime failures shared by aggregate execution contracts.
 
 use crate::error::InternalError;
-use thiserror::Error as ThisError;
 
 ///
 /// GroupBudgetResourceCode
@@ -28,24 +27,21 @@ pub(in crate::db::executor) enum GroupBudgetResourceCode {
 /// grouped resource guardrails from degrading into generic internal errors.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db::executor) enum GroupError {
-    #[error("grouped execution memory limit exceeded")]
     MemoryLimitExceeded {
         resource: GroupBudgetResourceCode,
         attempted: u64,
         limit: u64,
     },
 
-    #[error("grouped DISTINCT budget exceeded")]
     DistinctBudgetExceeded {
         resource: GroupBudgetResourceCode,
         attempted: u64,
         limit: u64,
     },
 
-    #[error("{0}")]
-    Internal(#[from] InternalError),
+    Internal(InternalError),
 }
 
 impl GroupError {
@@ -88,10 +84,26 @@ impl GroupError {
     #[must_use]
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::MemoryLimitExceeded { .. } | Self::DistinctBudgetExceeded { .. } => {
+            Self::MemoryLimitExceeded {
+                resource,
+                attempted,
+                limit,
+            }
+            | Self::DistinctBudgetExceeded {
+                resource,
+                attempted,
+                limit,
+            } => {
+                let _ = (resource, attempted, limit);
                 InternalError::executor_internal()
             }
             Self::Internal(inner) => inner,
         }
+    }
+}
+
+impl From<InternalError> for GroupError {
+    fn from(err: InternalError) -> Self {
+        Self::Internal(err)
     }
 }

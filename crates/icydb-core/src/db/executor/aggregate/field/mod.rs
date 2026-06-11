@@ -20,7 +20,6 @@ use crate::{
     value::Value,
 };
 use std::cmp::Ordering;
-use thiserror::Error as ThisError;
 
 ///
 /// AggregateFieldValueError
@@ -29,28 +28,25 @@ use thiserror::Error as ThisError;
 /// field-value helpers. These remain internal while field aggregates are scaffolded.
 ///
 
-#[derive(Clone, Debug, ThisError)]
+#[derive(Clone, Debug)]
 pub(in crate::db::executor) enum AggregateFieldValueError {
-    #[error("unknown aggregate target field")]
     UnknownField,
 
-    #[error("aggregate target field does not support ordering")]
     UnsupportedFieldKind {
         slot_index: usize,
         kind: AggregateFieldKindCode,
     },
 
-    #[error("aggregate target field value missing on entity")]
-    MissingFieldValue { slot_index: usize },
+    MissingFieldValue {
+        slot_index: usize,
+    },
 
-    #[error("aggregate target field value type mismatch")]
     FieldValueTypeMismatch {
         slot_index: usize,
         expected: AggregateFieldKindCode,
         found: AggregateValueKindCode,
     },
 
-    #[error("aggregate target field values are incomparable under strict ordering")]
     IncomparableFieldValues {
         left: AggregateValueKindCode,
         right: AggregateValueKindCode,
@@ -207,12 +203,27 @@ impl AggregateFieldValueError {
     // execution errors.
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::UnknownField | Self::UnsupportedFieldKind { .. } => {
+            Self::UnknownField => InternalError::executor_unsupported(),
+            Self::UnsupportedFieldKind { slot_index, kind } => {
+                let _ = (slot_index, kind);
                 InternalError::executor_unsupported()
             }
-            Self::MissingFieldValue { .. }
-            | Self::FieldValueTypeMismatch { .. }
-            | Self::IncomparableFieldValues { .. } => InternalError::query_executor_invariant(),
+            Self::MissingFieldValue { slot_index } => {
+                let _ = slot_index;
+                InternalError::query_executor_invariant()
+            }
+            Self::FieldValueTypeMismatch {
+                slot_index,
+                expected,
+                found,
+            } => {
+                let _ = (slot_index, expected, found);
+                InternalError::query_executor_invariant()
+            }
+            Self::IncomparableFieldValues { left, right } => {
+                let _ = (left, right);
+                InternalError::query_executor_invariant()
+            }
         }
     }
 }

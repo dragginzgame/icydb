@@ -3,20 +3,16 @@
 //! Does not own: higher-level cursor validation or continuation policy.
 //! Boundary: local error surface for cursor token serialization helpers.
 
-use thiserror::Error as ThisError;
-
 ///
 /// TokenWireError
 ///
 /// Cursor token wire encode/decode failures.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum TokenWireError {
-    #[error("failed to encode cursor token")]
     Encode,
 
-    #[error("failed to decode cursor token")]
     Decode,
 }
 
