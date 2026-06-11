@@ -14,7 +14,6 @@ use crate::db::{
     },
     schema::ValidateError,
 };
-use thiserror::Error as ThisError;
 
 ///
 /// PlanError
@@ -25,15 +24,12 @@ use thiserror::Error as ThisError;
 /// Cursor continuation failures remain in `CursorPlanError`.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PlanError {
-    #[error("query plan user validation failed")]
     User(Box<PlanUserError>),
 
-    #[error("query plan policy validation failed")]
     Policy(Box<PlanPolicyError>),
 
-    #[error("cursor validation failed")]
     Cursor(Box<CursorPlanError>),
 }
 
@@ -61,21 +57,16 @@ impl PlanError {
 /// release-gating capability decisions.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PlanUserError {
-    #[error("predicate validation failed")]
     PredicateInvalid(Box<ValidateError>),
 
-    #[error("order validation failed")]
     Order(Box<OrderPlanError>),
 
-    #[error("access validation failed")]
     Access(Box<AccessPlanError>),
 
-    #[error("group validation failed")]
     Group(Box<GroupPlanError>),
 
-    #[error("expression validation failed")]
     Expr(Box<ExprPlanError>),
 }
 
@@ -87,12 +78,10 @@ pub enum PlanUserError {
 /// not supported by the current execution policy surface.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PlanPolicyError {
-    #[error("policy validation failed")]
     Policy(Box<PolicyPlanError>),
 
-    #[error("group policy validation failed")]
     Group(Box<GroupPlanError>),
 }
 
@@ -102,29 +91,21 @@ pub enum PlanPolicyError {
 /// ORDER BY-specific validation failures.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum OrderPlanError {
     /// ORDER BY references an unknown field.
-    #[error("unknown order field at term index={term_index}")]
     UnknownField { term_index: usize },
 
     /// ORDER BY references a field that cannot be ordered.
-    #[error("order field at term index={term_index} is not orderable")]
     UnorderableField { term_index: usize },
 
     /// ORDER BY references the same non-primary-key field multiple times.
-    #[error(
-        "order field appears multiple times at term indexes {first_term_index} and {duplicate_term_index}"
-    )]
     DuplicateOrderField {
         first_term_index: usize,
         duplicate_term_index: usize,
     },
 
     /// Ordered plans must include every primary-key tie-break component.
-    #[error(
-        "order specification must include primary key component index={primary_key_index} as deterministic tie-break"
-    )]
     MissingPrimaryKeyTieBreak { primary_key_index: usize },
 }
 
@@ -256,68 +237,51 @@ impl CursorPagingPolicyError {
 /// GROUP BY wrapper validation failures owned by query planning.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GroupPlanError {
     /// HAVING requires GROUP BY grouped plan shape.
-    #[error("HAVING requires GROUP BY")]
     HavingRequiresGroupBy,
 
     /// Grouped validation entrypoint received a scalar logical plan.
-    #[error("group validation requires grouped plan")]
     GroupedLogicalPlanRequired,
 
     /// GROUP BY requires at least one declared grouping field.
-    #[error("group specification must include at least one group field")]
     EmptyGroupFields,
 
     /// Global DISTINCT aggregate shapes without GROUP BY are restricted.
-    #[error("global DISTINCT without GROUP BY requires one DISTINCT field aggregate")]
     GlobalDistinctAggregateShapeUnsupported,
 
     /// GROUP BY requires at least one aggregate terminal.
-    #[error("group specification must include at least one aggregate terminal")]
     EmptyAggregates,
 
     /// GROUP BY references an unknown group field.
-    #[error("unknown group field '{field}'")]
     UnknownGroupField { field: String },
 
     /// GROUP BY must not repeat the same resolved group slot.
-    #[error("group specification has duplicate group key: '{field}'")]
     DuplicateGroupField { field: String },
 
     /// GROUP BY v1 does not accept DISTINCT unless adjacency eligibility is explicit.
-    #[error("grouped DISTINCT requires ordered-group adjacency proof")]
     DistinctAdjacencyEligibilityRequired,
 
     /// GROUP BY ORDER BY shape must start with grouped-key prefix.
-    #[error("grouped ORDER BY must start with GROUP BY key prefix")]
     OrderPrefixNotAlignedWithGroupKeys,
 
     /// GROUP BY ORDER BY expression parses but is not order-admissible in grouped v1.
-    #[error("grouped ORDER BY expression is not order-admissible in this release: '{term}'")]
     OrderExpressionNotAdmissible { term: String },
 
     /// Aggregate ORDER BY requires an explicit LIMIT for bounded execution.
-    #[error("aggregate ORDER BY requires LIMIT for bounded execution")]
     OrderRequiresLimit,
 
     /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
-    #[error("grouped HAVING with DISTINCT is unsupported")]
     DistinctHavingUnsupported,
 
     /// HAVING currently supports compare operators only.
-    #[error("grouped HAVING clause at index={index} uses unsupported operator: {op:?}")]
     HavingUnsupportedCompareOp { index: usize, op: CompareOp },
 
     /// HAVING group-field symbols must reference declared grouped keys.
-    #[error("grouped HAVING clause at index={index} references non-group field '{field}'")]
     HavingNonGroupFieldReference { index: usize, field: String },
 
     /// HAVING aggregate references must resolve to declared grouped terminals.
-    #[error(
-        "grouped HAVING clause at index={index} references aggregate index {aggregate_index} but aggregate_count={aggregate_count}"
-    )]
     HavingAggregateIndexOutOfBounds {
         index: usize,
         aggregate_index: usize,
@@ -325,18 +289,12 @@ pub enum GroupPlanError {
     },
 
     /// DISTINCT grouped terminal kinds are intentionally conservative in v1.
-    #[error(
-        "grouped DISTINCT aggregate at index={index} uses unsupported kind '{kind:?}' in this release"
-    )]
     DistinctAggregateKindUnsupported {
         index: usize,
         kind: Option<AggregateKind>,
     },
 
     /// DISTINCT over grouped field-target terminals is deferred with field-target support.
-    #[error(
-        "grouped DISTINCT aggregate at index={index} cannot target field '{field}' in this release: found {kind:?}"
-    )]
     DistinctAggregateFieldTargetUnsupported {
         index: usize,
         kind: AggregateKind,
@@ -344,19 +302,12 @@ pub enum GroupPlanError {
     },
 
     /// Aggregate target fields must resolve in the model schema.
-    #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
     UnknownAggregateTargetField { index: usize, field: String },
 
     /// Global DISTINCT SUM requires a numeric field target.
-    #[error(
-        "global DISTINCT SUM aggregate target field at index={index} is not numeric: '{field}'"
-    )]
     GlobalDistinctSumTargetNotNumeric { index: usize, field: String },
 
     /// Field-target grouped terminals are not enabled in grouped execution v1.
-    #[error(
-        "grouped aggregate at index={index} cannot target field '{field}' in this release: found {kind:?}"
-    )]
     FieldTargetAggregatesUnsupported {
         index: usize,
         kind: AggregateKind,
@@ -681,29 +632,24 @@ impl ExprPlanFunctionCode {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExprPlanError {
     /// SQL lowering references a field that does not exist in schema.
-    #[error("unknown field '{field}'")]
     UnknownField { field: String },
 
     /// Expression references a field that does not exist in schema.
-    #[error("unknown expression field '{field}'")]
     UnknownExprField { field: String },
 
     /// Aggregate terminal requires a numeric target field.
-    #[error("aggregate target field is not numeric")]
     NonNumericAggregateTarget {
         kind: AggregateKind,
         found: ExprPlanTypeClass,
     },
 
     /// Aggregate expression requires an explicit target field.
-    #[error("aggregate target field is required")]
     AggregateTargetRequired { kind: AggregateKind },
 
     /// Function call received an unsupported argument count.
-    #[error("function argument count is incompatible")]
     InvalidFunctionArity {
         function: ExprPlanFunctionCode,
         expected: usize,
@@ -711,7 +657,6 @@ pub enum ExprPlanError {
     },
 
     /// Function call received one incompatible argument type.
-    #[error("function argument is incompatible")]
     InvalidFunctionArgument {
         function: ExprPlanFunctionCode,
         argument_index: usize,
@@ -719,7 +664,6 @@ pub enum ExprPlanError {
     },
 
     /// Function call received incompatible dynamic argument types.
-    #[error("function arguments are incompatible")]
     IncompatibleFunctionArguments {
         function: ExprPlanFunctionCode,
         left_argument_index: usize,
@@ -729,21 +673,18 @@ pub enum ExprPlanError {
     },
 
     /// Unary operation is incompatible with inferred operand type.
-    #[error("unary operand is incompatible")]
     InvalidUnaryOperand {
         op: ExprPlanUnaryOpCode,
         found: ExprPlanTypeClass,
     },
 
     /// CASE branch condition is not boolean-typed.
-    #[error("CASE branch condition is incompatible")]
     InvalidCaseConditionType {
         arm_index: usize,
         found: ExprPlanTypeClass,
     },
 
     /// CASE result branches cannot agree on one shared scalar type.
-    #[error("CASE result branches are incompatible")]
     IncompatibleCaseBranchTypes {
         left_branch_index: Option<usize>,
         right_branch_index: Option<usize>,
@@ -752,7 +693,6 @@ pub enum ExprPlanError {
     },
 
     /// Binary operation is incompatible with inferred operand types.
-    #[error("binary operands are incompatible")]
     InvalidBinaryOperands {
         op: ExprPlanBinaryOpCode,
         left: ExprPlanTypeClass,
@@ -760,9 +700,6 @@ pub enum ExprPlanError {
     },
 
     /// GROUP BY projections must not reference fields outside grouped keys.
-    #[error(
-        "grouped projection expression at index={index} references fields outside GROUP BY keys"
-    )]
     GroupedProjectionReferencesNonGroupField { index: usize },
 }
 
