@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   implementations on query, store-detail, and schema DDL admission wrappers with
   explicit compact diagnostic formatting, and by trimming map validation display
   prose, internal field-storage validation text, primitive serde decode messages,
-  and top-level `InternalError` debug output while preserving structured error
-  payloads.
+  top-level `InternalError` debug output, timestamp/duration parse failure
+  allocation, field-storage validation allocation, and accepted primary-key
+  materialization mismatch formatting while preserving structured error payloads.
 
 ## [0.180.x] 🧭 - 2026-06-06 - Compact Diagnostic Codes
 

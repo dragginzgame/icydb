@@ -17,6 +17,8 @@ use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 
+const INVALID_DURATION_FORMAT: &str = "invalid duration format";
+
 // Invariant:
 // Timestamp and Duration are both millisecond-native.
 // All arithmetic is millisecond-consistent.
@@ -161,13 +163,11 @@ impl Duration {
     }
 
     /// Parse integer milliseconds or unit-suffixed strings (`ms`, `s`, `m`, `h`, `d`).
-    pub fn parse_flexible(s: &str) -> Result<Self, String> {
+    pub fn parse_flexible(s: &str) -> Result<Self, &'static str> {
         // Phase 1: split one strict ASCII duration into digit and suffix parts
         // without routing through the heavier generic integer parser.
-        let (digits, unit) = split_duration_digits_and_unit(s)
-            .ok_or_else(|| "invalid duration format".to_string())?;
-        let value = parse_duration_ascii_u64(digits)
-            .ok_or_else(|| "invalid duration format".to_string())?;
+        let (digits, unit) = split_duration_digits_and_unit(s).ok_or(INVALID_DURATION_FORMAT)?;
+        let value = parse_duration_ascii_u64(digits).ok_or(INVALID_DURATION_FORMAT)?;
 
         // Phase 2: apply the accepted unit family with the existing saturating
         // constructors so overflow semantics stay unchanged.

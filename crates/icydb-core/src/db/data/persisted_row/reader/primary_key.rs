@@ -128,10 +128,7 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
                     .ok_or_else(|| {
                         InternalError::persisted_row_primary_key_not_primary_key_encodable(
                             expected_key,
-                            format!(
-                                "scalar primary-key field '{}' is not primary-key compatible",
-                                field.field_name()
-                            ),
+                            "",
                         )
                     })?,
             }
@@ -280,7 +277,6 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_component_with_ac
     }
 
     materialize_primary_key_value_from_persisted_kind(field.kind(), expected_key)
-        .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
 // Rebuild one semantic primary-key value from the already-authoritative
@@ -338,7 +334,7 @@ fn materialize_primary_key_value_from_kind(
 fn materialize_primary_key_value_from_persisted_kind(
     kind: &PersistedFieldKind,
     component: PrimaryKeyComponent,
-) -> Result<Value, String> {
+) -> Result<Value, InternalError> {
     match (kind, component) {
         (PersistedFieldKind::Account, PrimaryKeyComponent::Account(value)) => {
             Ok(Value::Account(value))
@@ -395,8 +391,6 @@ fn materialize_primary_key_value_from_persisted_kind(
         }
         (PersistedFieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
         (PersistedFieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
-        (kind, component) => Err(format!(
-            "validated primary-key component does not match accepted field kind: kind={kind:?} component={component:?}",
-        )),
+        (_, _) => Err(InternalError::persisted_row_decode_corruption()),
     }
 }

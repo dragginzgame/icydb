@@ -416,7 +416,7 @@ const fn scalar_slot_value_ref_from_runtime_value(
 fn normalize_decimal_scale_for_accepted_storage<'a>(
     kind: &PersistedFieldKind,
     value: &'a Value,
-) -> Result<Cow<'a, Value>, String> {
+) -> Result<Cow<'a, Value>, &'static str> {
     if matches!(value, Value::Null) {
         return Ok(Cow::Borrowed(value));
     }
@@ -424,7 +424,7 @@ fn normalize_decimal_scale_for_accepted_storage<'a>(
     match (kind, value) {
         (PersistedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
             let normalized = decimal_with_accepted_storage_scale(*decimal, *scale)
-                .ok_or_else(|| DECIMAL_SCALE_MISMATCH_ERROR.to_owned())?;
+                .ok_or(DECIMAL_SCALE_MISMATCH_ERROR)?;
 
             if normalized.scale() == decimal.scale() {
                 Ok(Cow::Borrowed(value))
@@ -477,7 +477,7 @@ fn decimal_with_accepted_storage_scale(decimal: Decimal, scale: u32) -> Option<D
 fn normalize_accepted_decimal_list_items(
     kind: &PersistedFieldKind,
     items: &[Value],
-) -> Result<Option<Vec<Value>>, String> {
+) -> Result<Option<Vec<Value>>, &'static str> {
     let mut normalized = None;
     for (index, item) in items.iter().enumerate() {
         let value = normalize_decimal_scale_for_accepted_storage(kind, item)?;
@@ -496,7 +496,7 @@ fn normalize_accepted_decimal_map_entries(
     key_kind: &PersistedFieldKind,
     value_kind: &PersistedFieldKind,
     entries: &[(Value, Value)],
-) -> Result<Option<Vec<(Value, Value)>>, String> {
+) -> Result<Option<Vec<(Value, Value)>>, &'static str> {
     let mut normalized = None;
     for (index, (entry_key, entry_value)) in entries.iter().enumerate() {
         let key = normalize_decimal_scale_for_accepted_storage(key_kind, entry_key)?;

@@ -428,13 +428,16 @@ impl FieldModel {
     /// predicate compatibility, so `FieldStorageDecode::Value` can accept
     /// open-ended structured payloads while still enforcing outer collection
     /// shape, decimal scale, and deterministic set/map ordering.
-    pub(crate) fn validate_runtime_value_for_storage(&self, value: &Value) -> Result<(), String> {
+    pub(crate) fn validate_runtime_value_for_storage(
+        &self,
+        value: &Value,
+    ) -> Result<(), &'static str> {
         if matches!(value, Value::Null) {
             if self.nullable() {
                 return Ok(());
             }
 
-            return Err(REQUIRED_FIELD_NULL_ERROR.into());
+            return Err(REQUIRED_FIELD_NULL_ERROR);
         }
 
         let accepts = match self.storage_decode() {
@@ -446,7 +449,7 @@ impl FieldModel {
             }
         };
         if !accepts {
-            return Err(FIELD_STORAGE_CONTRACT_ERROR.into());
+            return Err(FIELD_STORAGE_CONTRACT_ERROR);
         }
 
         ensure_decimal_scale_matches(self.kind(), value)?;
@@ -460,7 +463,7 @@ impl FieldModel {
     pub(crate) fn normalize_runtime_value_for_storage<'a>(
         &self,
         value: &'a Value,
-    ) -> Result<Cow<'a, Value>, String> {
+    ) -> Result<Cow<'a, Value>, &'static str> {
         normalize_decimal_scale_for_storage(self.kind(), value)
     }
 }
@@ -845,7 +848,7 @@ fn value_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> b
 
 // Enforce fixed decimal scales through nested collection/map shapes before a
 // field-level runtime value is persisted.
-fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), String> {
+fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), &'static str> {
     if matches!(value, Value::Null) {
         return Ok(());
     }
@@ -853,7 +856,7 @@ fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), St
     match (kind, value) {
         (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
             if decimal.scale() != scale {
-                return Err(DECIMAL_SCALE_MISMATCH_ERROR.into());
+                return Err(DECIMAL_SCALE_MISMATCH_ERROR);
             }
 
             Ok(())
@@ -893,15 +896,15 @@ fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), St
 pub(crate) fn normalize_decimal_scale_for_storage(
     kind: FieldKind,
     value: &Value,
-) -> Result<Cow<'_, Value>, String> {
+) -> Result<Cow<'_, Value>, &'static str> {
     if matches!(value, Value::Null) {
         return Ok(Cow::Borrowed(value));
     }
 
     match (kind, value) {
         (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-            let normalized = decimal_with_storage_scale(*decimal, scale)
-                .ok_or_else(|| DECIMAL_SCALE_MISMATCH_ERROR.to_owned())?;
+            let normalized =
+                decimal_with_storage_scale(*decimal, scale).ok_or(DECIMAL_SCALE_MISMATCH_ERROR)?;
 
             if normalized.scale() == decimal.scale() {
                 Ok(Cow::Borrowed(value))
@@ -954,7 +957,7 @@ fn decimal_with_storage_scale(decimal: Decimal, scale: u32) -> Option<Decimal> {
 fn normalize_decimal_list_items(
     kind: FieldKind,
     items: &[Value],
-) -> Result<Option<Vec<Value>>, String> {
+) -> Result<Option<Vec<Value>>, &'static str> {
     let mut normalized_items = None;
 
     for (index, item) in items.iter().enumerate() {
@@ -974,7 +977,7 @@ fn normalize_decimal_map_entries(
     key_kind: FieldKind,
     value_kind: FieldKind,
     entries: &[(Value, Value)],
-) -> Result<Option<Vec<(Value, Value)>>, String> {
+) -> Result<Option<Vec<(Value, Value)>>, &'static str> {
     let mut normalized_entries = None;
 
     for (index, (entry_key, entry_value)) in entries.iter().enumerate() {
@@ -997,7 +1000,7 @@ fn normalize_decimal_map_entries(
 
 // Enforce bounded text/blob length through nested collection/map shapes before
 // a field-level runtime value is persisted.
-fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), String> {
+fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), &'static str> {
     if matches!(value, Value::Null) {
         return Ok(());
     }
@@ -1006,7 +1009,7 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), S
         (FieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
             let len = text.chars().count();
             if len > max as usize {
-                return Err(SCALAR_MAX_LEN_ERROR.into());
+                return Err(SCALAR_MAX_LEN_ERROR);
             }
 
             Ok(())
@@ -1014,7 +1017,7 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), S
         (FieldKind::Blob { max_len: Some(max) }, Value::Blob(bytes)) => {
             let len = bytes.len();
             if len > max as usize {
-                return Err(SCALAR_MAX_LEN_ERROR.into());
+                return Err(SCALAR_MAX_LEN_ERROR);
             }
 
             Ok(())
@@ -1049,7 +1052,10 @@ fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), S
 
 // Enforce the canonical persisted ordering rules for set/map shapes before one
 // field-level runtime value becomes row bytes.
-fn ensure_value_is_deterministic_for_storage(kind: FieldKind, value: &Value) -> Result<(), String> {
+fn ensure_value_is_deterministic_for_storage(
+    kind: FieldKind,
+    value: &Value,
+) -> Result<(), &'static str> {
     match (kind, value) {
         (FieldKind::Set(_), Value::List(items)) => {
             for pair in items.windows(2) {
@@ -1057,7 +1063,7 @@ fn ensure_value_is_deterministic_for_storage(kind: FieldKind, value: &Value) -> 
                     continue;
                 };
                 if Value::canonical_cmp(left, right) != Ordering::Less {
-                    return Err(SET_CANONICAL_ORDER_ERROR.into());
+                    return Err(SET_CANONICAL_ORDER_ERROR);
                 }
             }
 
@@ -1065,10 +1071,10 @@ fn ensure_value_is_deterministic_for_storage(kind: FieldKind, value: &Value) -> 
         }
         (FieldKind::Map { .. }, Value::Map(entries)) => {
             Value::validate_map_entries(entries.as_slice())
-                .map_err(|_| MAP_ENTRY_CONTRACT_ERROR.to_owned())?;
+                .map_err(|_| MAP_ENTRY_CONTRACT_ERROR)?;
 
             if !Value::map_entries_are_strictly_canonical(entries.as_slice()) {
-                return Err(MAP_CANONICAL_ORDER_ERROR.into());
+                return Err(MAP_CANONICAL_ORDER_ERROR);
             }
 
             Ok(())
