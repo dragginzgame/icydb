@@ -20,7 +20,6 @@ use crate::db::data::structural_field::binary::{
     push_binary_list_len, push_binary_map_len, walk_binary_list_items, walk_binary_map_entries,
 };
 use crate::{error::InternalError, model::field::FieldKind, value::Value};
-use thiserror::Error as ThisError;
 
 use composite::{decode_composite_field_by_kind_bytes, validate_composite_field_by_kind_bytes};
 use leaf::{
@@ -100,8 +99,7 @@ pub(in crate::db) use value_storage::{
 /// and relation callers can map them into taxonomy-correct higher-level errors.
 ///
 
-#[derive(Clone, Debug, ThisError)]
-#[error("field decode error")]
+#[derive(Clone, Debug)]
 pub(in crate::db) struct FieldDecodeError;
 
 impl FieldDecodeError {

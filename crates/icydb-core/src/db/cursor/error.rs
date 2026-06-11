@@ -244,9 +244,7 @@ impl CursorPlanError {
     }
 
     /// Construct one anchor-primary-key decode failure payload error.
-    pub(in crate::db) fn index_range_anchor_primary_key_decode_failed(
-        _reason: impl std::fmt::Display,
-    ) -> Self {
+    pub(in crate::db) fn index_range_anchor_primary_key_decode_failed(_reason: impl Sized) -> Self {
         Self::invalid_continuation_cursor_payload(
             CursorPayloadErrorCode::INDEX_RANGE_ANCHOR_PRIMARY_KEY_DECODE_FAILED,
         )
@@ -255,7 +253,7 @@ impl CursorPlanError {
     /// Construct one boundary-primary-key decode failure payload error.
     #[cfg(test)]
     pub(in crate::db) fn index_range_boundary_primary_key_decode_failed(
-        _reason: impl std::fmt::Display,
+        _reason: impl Sized,
     ) -> Self {
         Self::invalid_continuation_cursor_payload(
             CursorPayloadErrorCode::BOUNDARY_PRIMARY_KEY_DECODE_FAILED,

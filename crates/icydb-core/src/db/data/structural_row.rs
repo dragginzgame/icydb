@@ -19,7 +19,6 @@ use crate::{
 };
 use std::borrow::Cow;
 use std::sync::Arc;
-use thiserror::Error as ThisError;
 
 type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
@@ -530,10 +529,15 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
 /// have already decoded successfully through the shared structural path.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db::data) enum StructuralRowDecodeError {
-    #[error(transparent)]
-    Deserialize(#[from] InternalError),
+    Deserialize(InternalError),
+}
+
+impl From<InternalError> for StructuralRowDecodeError {
+    fn from(err: InternalError) -> Self {
+        Self::Deserialize(err)
+    }
 }
 
 impl StructuralRowDecodeError {

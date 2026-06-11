@@ -281,7 +281,7 @@ pub(crate) fn decode_generated_structural_enum_payload_bytes(
 /// Hidden generated-code helper for persisted structured payload decode errors.
 #[doc(hidden)]
 pub(crate) fn generated_persisted_structured_payload_decode_failed(
-    detail: impl std::fmt::Display,
+    detail: impl Sized,
 ) -> InternalError {
     InternalError::persisted_row_decode_failed(detail)
 }

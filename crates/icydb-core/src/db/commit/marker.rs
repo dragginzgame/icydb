@@ -237,7 +237,7 @@ impl CommitMarker {
     }
 
     // Build the canonical row-op corruption for key decode failures.
-    fn row_op_key_decode_failed(_err: impl std::fmt::Display) -> InternalError {
+    fn row_op_key_decode_failed(_err: impl Sized) -> InternalError {
         InternalError::commit_corruption()
     }
 }

@@ -21,7 +21,6 @@ use crate::{
 };
 use ic_memory::stable_structures::storable::Bound;
 use std::borrow::Cow;
-use thiserror::Error as ThisError;
 
 ///
 /// DataRow
@@ -84,15 +83,19 @@ impl CanonicalRow {
 /// Construction / storage-boundary errors.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum RawRowError {
-    #[error("row exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})")]
     TooLarge { len: usize },
 }
 
 impl From<RawRowError> for InternalError {
-    fn from(_err: RawRowError) -> Self {
-        Self::store_unsupported()
+    fn from(err: RawRowError) -> Self {
+        match err {
+            RawRowError::TooLarge { len } => {
+                let _ = len;
+                Self::store_unsupported()
+            }
+        }
     }
 }
 
@@ -102,13 +105,9 @@ impl From<RawRowError> for InternalError {
 ///
 
 #[cfg(test)]
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum RowDecodeError {
-    #[error("row failed to deserialize: {source}")]
-    Deserialize {
-        #[source]
-        source: InternalError,
-    },
+    Deserialize,
 }
 
 ///
@@ -171,9 +170,14 @@ impl RawRow {
         // boundary errors without parsing free-form strings.
         let mut slots =
             StructuralSlotReader::from_raw_row_with_generated_model_for_test(self, E::MODEL)
-                .map_err(|source| RowDecodeError::Deserialize { source })?;
-        E::materialize_from_slots(&mut slots)
-            .map_err(|source| RowDecodeError::Deserialize { source })
+                .map_err(|source| {
+                    let _ = source;
+                    RowDecodeError::Deserialize
+                })?;
+        E::materialize_from_slots(&mut slots).map_err(|source| {
+            let _ = source;
+            RowDecodeError::Deserialize
+        })
     }
 }
 

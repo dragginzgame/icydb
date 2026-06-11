@@ -451,7 +451,7 @@ impl InternalError {
     pub(crate) fn mutation_map_field_entries_invalid(
         _entity_path: &str,
         _field_name: &str,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::executor_invariant()
     }
@@ -715,7 +715,7 @@ impl InternalError {
     }
 
     /// Construct the canonical persisted-row encode internal error.
-    pub(crate) fn persisted_row_encode_failed(_detail: impl fmt::Display) -> Self {
+    pub(crate) fn persisted_row_encode_failed(_detail: impl Sized) -> Self {
         Self::persisted_row_encode_internal()
     }
 
@@ -725,10 +725,7 @@ impl InternalError {
     }
 
     /// Construct the canonical persisted-row field encode internal error.
-    pub(crate) fn persisted_row_field_encode_failed(
-        field_name: &str,
-        _detail: impl fmt::Display,
-    ) -> Self {
+    pub(crate) fn persisted_row_field_encode_failed(field_name: &str, _detail: impl Sized) -> Self {
         Self::persisted_row_field_encode_internal(field_name)
     }
 
@@ -738,7 +735,7 @@ impl InternalError {
     }
 
     /// Construct the canonical bytes(field) value encode internal error.
-    pub(crate) fn bytes_field_value_encode_failed(_detail: impl fmt::Display) -> Self {
+    pub(crate) fn bytes_field_value_encode_failed(_detail: impl Sized) -> Self {
         Self::serialize_internal()
     }
 
@@ -854,7 +851,7 @@ impl InternalError {
     /// Construct the canonical index-scan key-decode corruption error.
     pub(crate) fn index_scan_key_corrupted_during(
         _context: &'static str,
-        _err: impl fmt::Display,
+        _err: impl Sized,
     ) -> Self {
         Self::index_corruption()
     }
@@ -878,7 +875,7 @@ impl InternalError {
     }
 
     /// Construct the canonical persisted-row decode corruption error.
-    pub(crate) fn persisted_row_decode_failed(_detail: impl fmt::Display) -> Self {
+    pub(crate) fn persisted_row_decode_failed(_detail: impl Sized) -> Self {
         Self::persisted_row_decode_corruption()
     }
 
@@ -888,10 +885,7 @@ impl InternalError {
     }
 
     /// Construct the canonical persisted-row field decode corruption error.
-    pub(crate) fn persisted_row_field_decode_failed(
-        field_name: &str,
-        _detail: impl fmt::Display,
-    ) -> Self {
+    pub(crate) fn persisted_row_field_decode_failed(field_name: &str, _detail: impl Sized) -> Self {
         Self::persisted_row_field_decode_corruption(field_name)
     }
 
@@ -904,7 +898,7 @@ impl InternalError {
     pub(crate) fn persisted_row_field_kind_decode_failed(
         field_name: &str,
         _field_kind: impl fmt::Debug,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::persisted_row_field_decode_corruption(field_name)
     }
@@ -955,7 +949,7 @@ impl InternalError {
     /// Construct the canonical persisted-row primary-key decode corruption error.
     pub(crate) fn persisted_row_primary_key_not_primary_key_encodable(
         _data_key: impl fmt::Debug,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::persisted_row_decode_corruption()
     }
@@ -985,7 +979,7 @@ impl InternalError {
         _source_path: &str,
         _field_name: &str,
         _target_path: &str,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::index_internal()
     }
@@ -996,7 +990,7 @@ impl InternalError {
         _field_name: &str,
         _target_path: &str,
         _index_key: impl fmt::Debug,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::index_corruption()
     }
@@ -1007,7 +1001,7 @@ impl InternalError {
         _field_name: &str,
         _target_path: &str,
         _store_path: &str,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::executor_internal()
     }
@@ -1018,7 +1012,7 @@ impl InternalError {
         _source_path: &str,
         _field_name: &str,
         _target_path: &str,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::identity_corruption()
     }
@@ -1041,7 +1035,7 @@ impl InternalError {
         _source_path: &str,
         _field_name: &str,
         _target_path: &str,
-        _detail: impl fmt::Display,
+        _detail: impl Sized,
     ) -> Self {
         Self::persisted_row_decode_corruption()
     }
@@ -1172,7 +1166,7 @@ impl InternalError {
 
     /// Construct the canonical commit-memory id registration failure.
     #[cfg_attr(test, expect(dead_code))]
-    pub(crate) fn commit_memory_id_registration_failed(_err: impl fmt::Display) -> Self {
+    pub(crate) fn commit_memory_id_registration_failed(_err: impl Sized) -> Self {
         Self::store_internal()
     }
 

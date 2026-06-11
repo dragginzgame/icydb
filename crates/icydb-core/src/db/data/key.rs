@@ -7,9 +7,9 @@
 
 use crate::{
     db::key_taxonomy::{
-        COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompactStoreKeyDecodeError, CompositePrimaryKeyValue,
-        CompositePrimaryKeyValueError, DataStoreKey, EncodedPrimaryKey, MAX_PRIMARY_KEY_FIELDS,
-        PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
+        COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompositePrimaryKeyValue, CompositePrimaryKeyValueError,
+        DataStoreKey, EncodedPrimaryKey, MAX_PRIMARY_KEY_FIELDS, PrimaryKeyComponent,
+        PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
     },
     error::InternalError,
     traits::{EntityKind, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError, Storable},
@@ -25,16 +25,14 @@ use std::{
     mem::size_of,
     ops::Bound as RangeBound,
 };
-use thiserror::Error as ThisError;
 
 ///
 /// DecodedDataStoreKeyEncodeError
 /// (serialize boundary)
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 enum DecodedDataStoreKeyEncodeError {
-    #[error("compact data key encoding failed for {key}: {source}")]
     CompactKeyEncoding {
         key: DecodedDataStoreKey,
         source: crate::db::key_taxonomy::CompactPrimaryKeyEncodeError,
@@ -42,8 +40,13 @@ enum DecodedDataStoreKeyEncodeError {
 }
 
 impl From<DecodedDataStoreKeyEncodeError> for InternalError {
-    fn from(_err: DecodedDataStoreKeyEncodeError) -> Self {
-        Self::serialize_unsupported()
+    fn from(err: DecodedDataStoreKeyEncodeError) -> Self {
+        match err {
+            DecodedDataStoreKeyEncodeError::CompactKeyEncoding { key, source } => {
+                let _ = (key, source);
+                Self::serialize_unsupported()
+            }
+        }
     }
 }
 
@@ -52,18 +55,15 @@ impl From<DecodedDataStoreKeyEncodeError> for InternalError {
 /// (decode / corruption boundary)
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum PrimaryKeyValueDecodeError {
-    #[error("invalid compact primary key encoding: {source}")]
-    InvalidCompactEncoding {
-        #[source]
-        source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError,
-    },
+    InvalidCompactEncoding,
 }
 
 impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for PrimaryKeyValueDecodeError {
     fn from(source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError) -> Self {
-        Self::InvalidCompactEncoding { source }
+        let _ = source;
+        Self::InvalidCompactEncoding
     }
 }
 
@@ -72,16 +72,18 @@ impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for PrimaryKeyV
 /// (decode / corruption boundary)
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::db) enum DecodedDataStoreKeyDecodeError {
-    #[error("invalid primary key")]
-    Key(#[from] PrimaryKeyValueDecodeError),
+    Key,
 
-    #[error("invalid data store key: {source}")]
-    StoreKey {
-        #[source]
-        source: CompactStoreKeyDecodeError,
-    },
+    StoreKey,
+}
+
+impl From<PrimaryKeyValueDecodeError> for DecodedDataStoreKeyDecodeError {
+    fn from(err: PrimaryKeyValueDecodeError) -> Self {
+        let _ = err;
+        Self::Key
+    }
 }
 
 ///
@@ -262,8 +264,10 @@ impl DecodedDataStoreKey {
     pub(in crate::db) fn try_from_raw(
         raw: &RawDataStoreKey,
     ) -> Result<Self, DecodedDataStoreKeyDecodeError> {
-        let decoded = DataStoreKey::try_from_raw_bytes(raw.as_bytes())
-            .map_err(|source| DecodedDataStoreKeyDecodeError::StoreKey { source })?;
+        let decoded = DataStoreKey::try_from_raw_bytes(raw.as_bytes()).map_err(|source| {
+            let _ = source;
+            DecodedDataStoreKeyDecodeError::StoreKey
+        })?;
         let entity = decoded.entity_tag();
         let key = decoded
             .primary_key()

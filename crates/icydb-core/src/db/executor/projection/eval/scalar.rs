@@ -20,7 +20,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::{borrow::Cow, cell::RefCell, fmt};
+use std::{borrow::Cow, cell::RefCell};
 
 ///
 /// ValueSlotReader
@@ -56,7 +56,7 @@ fn field_path_error(_field: &str, err: InternalError) -> ProjectionEvalError {
 
 // Convert low-level structural field decode failures into the persisted-row
 // decode taxonomy expected by projection callers.
-fn field_path_decode_error(field: &str, _err: impl fmt::Display) -> ProjectionEvalError {
+fn field_path_decode_error(field: &str, _err: impl Sized) -> ProjectionEvalError {
     field_path_error(
         field,
         InternalError::persisted_row_field_decode_corruption(field),
