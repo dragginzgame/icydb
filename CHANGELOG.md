@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.37` restores actionable visitor validation and sanitization feedback
+  after issue compaction by rendering built-in structured issues and preserving
+  custom sanitizer strings through generated visitor paths.
+
 - `0.180.36` compacts decimal parse errors and visitor
   validation/sanitization issues onto structured reason codes, removing
   stored/generated message strings while preserving bounded diagnostic context.

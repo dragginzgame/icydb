@@ -109,13 +109,13 @@ fn generate_sanitizers(
             let ctor = sanitizer.quote_constructor();
             match &seg {
                 None => quote! {
-                    if let Err(_msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
-                        ctx.issue(::icydb::visitor::Issue::SanitizerRejected);
+                    if let Err(msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
+                        ctx.issue(msg);
                     }
                 },
                 Some(seg) => quote! {
-                    if let Err(_msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
-                        ctx.issue_at(#seg, ::icydb::visitor::Issue::SanitizerRejected);
+                    if let Err(msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
+                        ctx.issue_at(#seg, msg);
                     }
                 },
             }

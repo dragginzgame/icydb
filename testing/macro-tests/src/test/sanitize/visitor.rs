@@ -66,6 +66,10 @@ mod tests {
             );
         }
 
+        assert_eq!(
+            issues.get("field").expect("field issue should exist")[0].to_string(),
+            "rejected"
+        );
         assert_eq!(issues.len(), 3);
     }
 

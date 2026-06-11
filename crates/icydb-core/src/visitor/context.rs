@@ -5,6 +5,7 @@
 
 use crate::{sanitize::SanitizeWriteContext, types::Decimal};
 use serde::Deserialize;
+use std::fmt;
 
 ///
 /// VisitorContext
@@ -23,12 +24,12 @@ pub trait VisitorContext {
 }
 
 impl dyn VisitorContext + '_ {
-    pub fn issue(&mut self, issue: Issue) {
-        self.add_issue(issue);
+    pub fn issue(&mut self, issue: impl Into<Issue>) {
+        self.add_issue(issue.into());
     }
 
-    pub fn issue_at(&mut self, seg: PathSegment, issue: Issue) {
-        self.add_issue_at(seg, issue);
+    pub fn issue_at(&mut self, seg: PathSegment, issue: impl Into<Issue>) {
+        self.add_issue_at(seg, issue.into());
     }
 }
 
@@ -63,7 +64,7 @@ impl VisitorContext for ScopedContext<'_> {
 /// Issue
 ///
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum Issue {
     UlidNil,
     Float32NonFinite,
@@ -130,6 +131,9 @@ pub enum Issue {
     Iso639LanguageCode,
     SanitizerRejected,
     UnspecifiedEnumVariant,
+    Custom {
+        message: String,
+    },
 }
 
 impl Issue {
@@ -164,13 +168,101 @@ impl Issue {
             Self::Iso639LanguageCode => IssueCode::Iso639LanguageCode,
             Self::SanitizerRejected => IssueCode::SanitizerRejected,
             Self::UnspecifiedEnumVariant => IssueCode::UnspecifiedEnumVariant,
+            Self::Custom { .. } => IssueCode::Custom,
+        }
+    }
+
+    #[must_use]
+    pub fn custom(message: impl Into<String>) -> Self {
+        Self::Custom {
+            message: message.into(),
         }
     }
 }
 
-impl std::fmt::Display for Issue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "visitor issue {}", self.code().raw())
+impl From<String> for Issue {
+    fn from(message: String) -> Self {
+        Self::Custom { message }
+    }
+}
+
+impl From<&str> for Issue {
+    fn from(message: &str) -> Self {
+        Self::Custom {
+            message: message.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for Issue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UlidNil => f.write_str("ulid must not be nil"),
+            Self::Float32NonFinite => f.write_str("Float32 must be finite"),
+            Self::Float64NonFinite => f.write_str("Float64 must be finite"),
+            Self::Utf8Invalid => f.write_str("bytes must be valid UTF-8"),
+            Self::LengthEqual { actual, expected } => {
+                write!(f, "length {actual} must equal {expected}")
+            }
+            Self::LengthMin { actual, min } => {
+                write!(f, "length {actual} must be at least {min}")
+            }
+            Self::LengthMax { actual, max } => {
+                write!(f, "length {actual} must be at most {max}")
+            }
+            Self::LengthRange { actual, min, max } => {
+                write!(f, "length {actual} must be between {min} and {max}")
+            }
+            Self::NumericNotRepresentableAsDecimal => {
+                f.write_str("numeric value cannot be represented as Decimal")
+            }
+            Self::NumericComparison {
+                actual,
+                op,
+                expected,
+            } => write!(
+                f,
+                "numeric value {actual} must be {} {expected}",
+                op.symbol()
+            ),
+            Self::NumericRange { actual, min, max } => {
+                write!(f, "numeric value {actual} must be between {min} and {max}")
+            }
+            Self::NumericMultipleOfZero => f.write_str("multipleOf target must be non-zero"),
+            Self::NumericMultipleOf { actual, target } => {
+                write!(f, "numeric value {actual} must be a multiple of {target}")
+            }
+            Self::DecimalScaleMax { actual, max } => {
+                write!(f, "decimal scale {actual} must be at most {max}")
+            }
+            Self::CollectionValueNotAllowed { allowed_count } => {
+                write!(f, "value must be one of {allowed_count} allowed values")
+            }
+            Self::Sha256Length { actual } => {
+                write!(f, "SHA-256 hex digest length {actual} must be 64")
+            }
+            Self::Sha256NonHex => {
+                f.write_str("SHA-256 digest must contain only hexadecimal characters")
+            }
+            Self::MimeSlashCount => f.write_str("MIME type must contain exactly one slash"),
+            Self::MimeInvalidChars => f.write_str("MIME type contains invalid token characters"),
+            Self::UrlScheme => f.write_str("URL must start with http:// or https://"),
+            Self::TextPattern { pattern } => write!(f, "text must be {}", pattern.label()),
+            Self::ColorHex { width } => {
+                write!(f, "hex color must contain {width} hexadecimal digits")
+            }
+            Self::PhoneMissingPlus => f.write_str("phone number must start with +"),
+            Self::PhoneDigitCount { digits } => {
+                write!(f, "phone number has {digits} digits; expected 7 to 15")
+            }
+            Self::Iso3166CountryCode => {
+                f.write_str("value must be an ISO 3166-1 alpha-2 country code")
+            }
+            Self::Iso639LanguageCode => f.write_str("value must be an ISO 639-1 language code"),
+            Self::SanitizerRejected => f.write_str("sanitizer rejected value"),
+            Self::UnspecifiedEnumVariant => f.write_str("unspecified enum variant is not valid"),
+            Self::Custom { message } => f.write_str(message),
+        }
     }
 }
 
@@ -205,6 +297,7 @@ pub enum IssueCode {
     Iso639LanguageCode = 26,
     SanitizerRejected = 27,
     UnspecifiedEnumVariant = 28,
+    Custom = 29,
 }
 
 impl IssueCode {
@@ -225,6 +318,20 @@ pub enum IssueComparisonOp {
     Ne,
 }
 
+impl IssueComparisonOp {
+    #[must_use]
+    pub const fn symbol(self) -> &'static str {
+        match self {
+            Self::Lt => "<",
+            Self::Gt => ">",
+            Self::Lte => "<=",
+            Self::Gte => ">=",
+            Self::Eq => "==",
+            Self::Ne => "!=",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[repr(u8)]
 pub enum IssueTextPattern {
@@ -242,6 +349,28 @@ pub enum IssueTextPattern {
     UpperCamel,
     UpperKebab,
     UpperSnake,
+}
+
+impl IssueTextPattern {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::AlphabeticUnderscore => "alphabetic or underscore",
+            Self::AlphanumericUnderscore => "alphanumeric or underscore",
+            Self::Ascii => "ASCII",
+            Self::Camel => "camel case",
+            Self::Kebab => "kebab case",
+            Self::Lower => "lower case",
+            Self::LowerUnderscore => "lowercase or underscore",
+            Self::Sentence => "sentence case",
+            Self::Snake => "snake case",
+            Self::Title => "title case",
+            Self::Upper => "upper case",
+            Self::UpperCamel => "upper camel case",
+            Self::UpperKebab => "upper kebab case",
+            Self::UpperSnake => "upper snake case",
+        }
+    }
 }
 
 ///
@@ -273,5 +402,49 @@ impl From<Option<&'static str>> for PathSegment {
             Some(s) if !s.is_empty() => Self::Field(s),
             _ => Self::Empty,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Issue, IssueCode, IssueComparisonOp, IssueTextPattern};
+
+    #[test]
+    fn custom_issue_preserves_message() {
+        let issue = Issue::from("pet name is reserved");
+
+        assert_eq!(issue.code(), IssueCode::Custom);
+        assert_eq!(issue.to_string(), "pet name is reserved");
+    }
+
+    #[test]
+    fn structured_issue_renders_context() {
+        let issue = Issue::LengthRange {
+            actual: 8,
+            min: 10,
+            max: 30,
+        };
+
+        assert_eq!(issue.to_string(), "length 8 must be between 10 and 30");
+    }
+
+    #[test]
+    fn numeric_issue_renders_operator_and_values() {
+        let issue = Issue::NumericComparison {
+            actual: "1".parse().expect("valid decimal"),
+            op: IssueComparisonOp::Gte,
+            expected: "2".parse().expect("valid decimal"),
+        };
+
+        assert_eq!(issue.to_string(), "numeric value 1 must be >= 2");
+    }
+
+    #[test]
+    fn text_pattern_issue_renders_pattern_name() {
+        let issue = Issue::TextPattern {
+            pattern: IssueTextPattern::UpperSnake,
+        };
+
+        assert_eq!(issue.to_string(), "text must be upper snake case");
     }
 }
