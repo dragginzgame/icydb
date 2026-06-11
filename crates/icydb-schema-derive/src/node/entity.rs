@@ -53,7 +53,7 @@ impl Entity {
             let value = name.value();
             EntityName::try_from_str(value.as_str())
                 .map_err(|err| {
-                    DarlingError::custom(format!("invalid entity name '{value}': {err}"))
+                    DarlingError::custom(format!("invalid entity name '{value}': {err:?}"))
                 })
                 .map_err(|err| err.with_span(name))?;
             Self::validate_entity_name_namespace(value.as_str())
@@ -65,7 +65,7 @@ impl Entity {
         // Fall back to the Rust struct identifier.
         let value = def_ident.to_string();
         EntityName::try_from_str(value.as_str())
-            .map_err(|err| DarlingError::custom(format!("invalid entity name '{value}': {err}")))
+            .map_err(|err| DarlingError::custom(format!("invalid entity name '{value}': {err:?}")))
             .map_err(|err| err.with_span(def_ident))?;
         Self::validate_entity_name_namespace(value.as_str())
             .map_err(|err| err.with_span(def_ident))?;
@@ -167,7 +167,7 @@ impl Entity {
     ) -> Result<(), DarlingError> {
         let entity = EntityName::try_from_str(entity_name)
             .map_err(|err| {
-                DarlingError::custom(format!("invalid entity name '{entity_name}': {err}"))
+                DarlingError::custom(format!("invalid entity name '{entity_name}': {err:?}"))
             })
             .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
         let segments = index.generated_name_segments();
@@ -178,7 +178,7 @@ impl Entity {
             IndexName::try_from_entity_fields(&entity, segment_refs.as_slice())
         }
         .map_err(|err| {
-            DarlingError::custom(format!("invalid index name for '{entity_name}': {err}"))
+            DarlingError::custom(format!("invalid index name for '{entity_name}': {err:?}"))
         })
         .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
         let index_name = index_name.as_str();

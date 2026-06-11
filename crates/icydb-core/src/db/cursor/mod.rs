@@ -22,7 +22,9 @@ use crate::{
     db::{
         access::ExecutionPathPayload,
         direction::Direction,
-        query::plan::{OrderSpec, validate_cursor_order_plan_shape},
+        query::plan::{
+            OrderSpec, validate::CursorOrderPlanShapeError, validate_cursor_order_plan_shape,
+        },
         schema::SchemaInfo,
     },
     traits::KeyValueCodec,
@@ -188,12 +190,7 @@ pub(in crate::db) fn revalidate_grouped_cursor(
 
 // Resolve cursor ordering for plan-surface decoding and executor revalidation.
 fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, CursorPlanError> {
-    let Some(order) = validated_cursor_order_internal(
-        order,
-        true,
-        CursorPlanError::cursor_requires_order_message(),
-    )?
-    else {
+    let Some(order) = validated_cursor_order_internal(order, true)? else {
         return Err(CursorPlanError::cursor_requires_order());
     };
 
@@ -207,19 +204,13 @@ fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, Curso
 pub(in crate::db) fn validate_grouped_cursor_order_plan(
     order: Option<&OrderSpec>,
 ) -> Result<(), CursorPlanError> {
-    validated_cursor_order_internal(
-        order,
-        false,
-        "grouped cursor pagination uses canonical group-key order when ORDER BY is omitted",
-    )
-    .map(|_| ())
+    validated_cursor_order_internal(order, false).map(|_| ())
 }
 
-fn validated_cursor_order_internal<'a>(
-    order: Option<&'a OrderSpec>,
+fn validated_cursor_order_internal(
+    order: Option<&OrderSpec>,
     require_explicit_order: bool,
-    missing_order_message: &'static str,
-) -> Result<Option<&'a OrderSpec>, CursorPlanError> {
+) -> Result<Option<&OrderSpec>, CursorPlanError> {
     validate_cursor_order_plan_shape(order, require_explicit_order)
-        .map_err(|err| err.to_cursor_plan_error(missing_order_message))
+        .map_err(CursorOrderPlanShapeError::to_cursor_plan_error)
 }

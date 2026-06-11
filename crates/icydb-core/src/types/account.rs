@@ -17,7 +17,6 @@ use std::{
     fmt::{self, Display},
     str::FromStr,
 };
-use thiserror::Error as ThisError;
 
 //
 // Account
@@ -35,13 +34,17 @@ pub struct Account {
 // Errors returned when encoding an account for persistence.
 //
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum AccountEncodeError {
-    #[error("account owner principal encoding failed: {0}")]
-    OwnerEncode(#[from] PrincipalEncodeError),
+    OwnerEncode(PrincipalEncodeError),
 
-    #[error("account owner principal exceeds max length: {len} bytes (limit {max})")]
     OwnerTooLarge { len: usize, max: usize },
+}
+
+impl From<PrincipalEncodeError> for AccountEncodeError {
+    fn from(err: PrincipalEncodeError) -> Self {
+        Self::OwnerEncode(err)
+    }
 }
 
 impl Account {

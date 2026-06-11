@@ -12,16 +12,14 @@ use crate::{
 use candid::{CandidType, Principal as WrappedPrincipal};
 use serde::Deserialize;
 use std::{fmt, str::FromStr};
-use thiserror::Error as ThisError;
 
 //
 // PrincipalError
 //
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PrincipalError {
-    #[error("{0}")]
-    Wrapped(String),
+    InvalidText,
 }
 
 //
@@ -30,9 +28,8 @@ pub enum PrincipalError {
 // Errors returned when decoding a principal from bytes.
 //
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PrincipalDecodeError {
-    #[error("principal exceeds max length: {len} bytes")]
     TooLarge { len: usize },
 }
 
@@ -42,9 +39,8 @@ pub enum PrincipalDecodeError {
 // Error returned when encoding a principal for persistence.
 //
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PrincipalEncodeError {
-    #[error("principal exceeds max length: {len} bytes (limit {max})")]
     TooLarge { len: usize, max: usize },
 }
 
@@ -68,8 +64,7 @@ impl Principal {
     }
 
     pub fn from_text(text: &str) -> Result<Self, PrincipalError> {
-        let inner = WrappedPrincipal::from_text(text)
-            .map_err(|e| PrincipalError::Wrapped(e.to_string()))?;
+        let inner = WrappedPrincipal::from_text(text).map_err(|_| PrincipalError::InvalidText)?;
 
         Ok(Self(inner))
     }
@@ -190,10 +185,9 @@ impl FromStr for Principal {
     type Err = PrincipalError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // Parses textual principals (e.g., "aaaaa-aa"). Returns a detailed error on failure.
         let this = WrappedPrincipal::from_str(s)
             .map(Self)
-            .map_err(|e| PrincipalError::Wrapped(e.to_string()))?;
+            .map_err(|_| PrincipalError::InvalidText)?;
 
         Ok(this)
     }

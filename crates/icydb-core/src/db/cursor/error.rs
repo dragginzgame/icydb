@@ -7,7 +7,6 @@ use crate::{
     db::cursor::{ContinuationSignature, CursorDecodeError, TokenWireError},
     error::InternalError,
 };
-use thiserror::Error as ThisError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CursorPayloadErrorCode(u8);
@@ -55,61 +54,43 @@ impl CursorSignaturePrefix {
 /// Cursor token and continuation boundary validation failures.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum CursorPlanError {
     /// Cursor token could not be decoded.
-    #[error("invalid continuation cursor")]
     InvalidContinuationCursor { reason: CursorDecodeError },
 
     /// Cursor token payload/semantics are invalid after token decode.
-    #[error("invalid continuation cursor payload")]
     InvalidContinuationCursorPayload {
         reason: CursorPayloadErrorCode,
         index: Option<usize>,
     },
 
     /// Cursor plan/runtime contract invariants were violated.
-    #[error("continuation cursor invariant violation")]
     ContinuationCursorInvariantViolation,
 
     /// Cursor token does not belong to this canonical query shape.
-    #[error("continuation cursor signature mismatch")]
     ContinuationCursorSignatureMismatch {
         expected: CursorSignaturePrefix,
         actual: CursorSignaturePrefix,
     },
 
     /// Cursor boundary width does not match canonical order width.
-    #[error("continuation cursor boundary arity mismatch")]
     ContinuationCursorBoundaryArityMismatch { expected: usize, found: usize },
 
     /// Cursor window offset does not match the current query window shape.
-    #[error("continuation cursor window mismatch")]
     ContinuationCursorWindowMismatch {
         expected_offset: u32,
         actual_offset: u32,
     },
 
     /// Cursor boundary value type mismatch for a non-primary-key ordered field.
-    #[error("continuation cursor boundary type mismatch")]
     ContinuationCursorBoundaryTypeMismatch { index: usize },
 
     /// Cursor primary-key boundary does not match the entity key type.
-    #[error("continuation cursor primary key type mismatch")]
     ContinuationCursorPrimaryKeyTypeMismatch { index: Option<usize> },
 }
 
 impl CursorPlanError {
-    /// Canonical policy text for missing cursor ORDER BY requirements.
-    pub(in crate::db) const fn cursor_requires_order_message() -> &'static str {
-        "cursor pagination requires an explicit ordering"
-    }
-
-    /// Canonical policy text for missing cursor LIMIT requirements.
-    pub(in crate::db) const fn cursor_requires_limit_message() -> &'static str {
-        "cursor pagination requires a limit"
-    }
-
     /// Construct one invalid cursor-token decode error.
     pub(in crate::db) const fn invalid_continuation_cursor(reason: CursorDecodeError) -> Self {
         Self::InvalidContinuationCursor { reason }

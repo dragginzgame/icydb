@@ -5,15 +5,13 @@
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::{ChaCha20Rng, rand_core::Rng};
 use std::cell::RefCell;
-use thiserror::Error as ThisError;
 
 thread_local! {
     static RNG: RefCell<Option<ChaCha20Rng>> = const { RefCell::new(None) };
 }
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub(in crate::types) enum RandomError {
-    #[error("randomness is not initialized")]
     NotInitialized,
 }
 

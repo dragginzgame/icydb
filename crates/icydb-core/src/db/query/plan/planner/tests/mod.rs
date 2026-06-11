@@ -465,7 +465,7 @@ fn assert_order_only_fallback_index_range(
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let planner_shape =
         plan_access_for_test_with_order(model, schema, None, Some(canonical_order(order)))
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
     assert_eq!(
         planner_shape,
@@ -495,7 +495,7 @@ fn assert_order_compatible_prefix_choice(
         Some(predicate),
         Some(canonical_order(order)),
     )
-    .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+    .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
     let AccessPlan::Path(path) = planner_shape else {
         panic!("{context} should lower to one index-prefix path");
@@ -538,7 +538,7 @@ fn assert_order_compatible_range_choice(
         Some(predicate),
         Some(canonical_order(order)),
     )
-    .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+    .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
     let AccessPlan::Path(path) = planner_shape else {
         panic!("{context} should lower to one index range");
@@ -570,7 +570,7 @@ fn assert_order_compatible_order_only_choice(
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let planner_shape =
         plan_access_for_test_with_order(model, schema, None, Some(canonical_order(order)))
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
 
     let AccessPlan::Path(path) = planner_shape else {
         panic!("{context} should lower to one index range");

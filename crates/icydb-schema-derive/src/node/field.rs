@@ -1021,7 +1021,7 @@ fn encode_timestamp_database_default_payload(default: &Arg) -> Result<Vec<u8>, S
 
 fn encode_principal_database_default_payload(value: &str) -> Result<Vec<u8>, String> {
     let value = icydb_core::types::Principal::from_str(value)
-        .map_err(|err| format!("default for primitive Principal is invalid: {err}"))?;
+        .map_err(|err| format!("default for primitive Principal is invalid: {err:?}"))?;
 
     encode_by_kind_database_default_payload(
         &value,
@@ -1043,7 +1043,7 @@ fn encode_subaccount_database_default_payload(value: &str) -> Result<Vec<u8>, St
 
 fn encode_ulid_database_default_payload(value: &str) -> Result<Vec<u8>, String> {
     let value = <icydb_core::types::Ulid as ::core::str::FromStr>::from_str(value)
-        .map_err(|err| format!("default for primitive Ulid is invalid: {err}"))?;
+        .map_err(|err| format!("default for primitive Ulid is invalid: {err:?}"))?;
 
     encode_by_kind_database_default_payload(
         &value,

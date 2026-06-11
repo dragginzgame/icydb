@@ -16,7 +16,6 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
-use thiserror::Error as ThisError;
 
 ///
 /// AccessPlanError
@@ -24,38 +23,30 @@ use thiserror::Error as ThisError;
 /// Access-path and key-shape validation failures.
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum AccessPlanError {
     /// Access plan references an index not declared on the entity.
-    #[error("index '{index}' not found on entity")]
     IndexNotFound { index: String },
 
     /// Index prefix exceeds the number of indexed fields.
-    #[error("index prefix length {prefix_len} exceeds index field count {field_len}")]
     IndexPrefixTooLong { prefix_len: usize, field_len: usize },
 
     /// Index prefix must include at least one value.
-    #[error("index prefix must include at least one value")]
     IndexPrefixEmpty,
 
     /// Index prefix literal does not match indexed field type.
-    #[error("index prefix value for field '{field}' is incompatible")]
     IndexPrefixValueMismatch { field: String },
 
     /// Primary key field exists but is not key-compatible.
-    #[error("primary key field '{field}' is not key-compatible")]
     PrimaryKeyNotKeyable { field: String },
 
     /// Supplied key does not match the primary key type.
-    #[error("key '{key:?}' is incompatible with primary key '{field}'")]
     PrimaryKeyMismatch { field: String, key: Value },
 
     /// Key range has invalid ordering.
-    #[error("key range start is greater than end")]
     InvalidKeyRange,
 
     /// Primary-key range scans are currently scalar-primary-key only.
-    #[error("primary-key range access is not supported for composite primary key '{fields}'")]
     CompositePrimaryKeyRangeUnsupported { fields: String },
 }
 

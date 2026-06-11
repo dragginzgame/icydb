@@ -31,7 +31,6 @@ use crate::{
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
-use thiserror::Error as ThisError;
 
 pub(in crate::db::query::plan) use index_select::{
     index_literal_matches_schema, sorted_index_contracts,
@@ -92,12 +91,10 @@ impl PlannedAccessSelection {
 /// PlannerError
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum PlannerError {
-    #[error("{0}")]
     Plan(Box<PlanError>),
 
-    #[error("{0}")]
     Internal(Box<InternalError>),
 }
 

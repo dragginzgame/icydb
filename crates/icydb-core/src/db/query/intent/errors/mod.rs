@@ -39,23 +39,23 @@ use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub enum QueryError {
-    #[error("{0}")]
+    #[error("query validation failed")]
     Validate(Box<ValidateError>),
 
-    #[error("{0}")]
+    #[error("query planning failed")]
     Plan(Box<PlanError>),
 
-    #[error("{0}")]
-    Intent(#[from] IntentError),
+    #[error("query intent failed")]
+    Intent(IntentError),
 
-    #[error("{0}")]
+    #[error("access requirement failed")]
     AccessRequirement(Box<AccessRequirementError>),
 
-    #[error("{0}")]
-    Response(#[from] ResponseError),
+    #[error("response cardinality failed")]
+    Response(ResponseError),
 
-    #[error("{0}")]
-    Execute(#[from] QueryExecutionError),
+    #[error("query execution failed")]
+    Execute(QueryExecutionError),
 }
 
 impl QueryError {
@@ -329,6 +329,24 @@ impl QueryError {
     }
 }
 
+impl From<ResponseError> for QueryError {
+    fn from(err: ResponseError) -> Self {
+        Self::Response(err)
+    }
+}
+
+impl From<IntentError> for QueryError {
+    fn from(err: IntentError) -> Self {
+        Self::Intent(err)
+    }
+}
+
+impl From<QueryExecutionError> for QueryError {
+    fn from(err: QueryExecutionError) -> Self {
+        Self::Execute(err)
+    }
+}
+
 impl From<AccessRequirementError> for QueryError {
     fn from(err: AccessRequirementError) -> Self {
         Self::AccessRequirement(Box::new(err))
@@ -347,25 +365,25 @@ impl From<ValidateError> for QueryError {
 
 #[derive(Debug, ThisError)]
 pub enum QueryExecutionError {
-    #[error("{0}")]
+    #[error("query execution corruption")]
     Corruption(InternalError),
 
-    #[error("{0}")]
+    #[error("query execution incompatible persisted format")]
     IncompatiblePersistedFormat(InternalError),
 
-    #[error("{0}")]
+    #[error("query execution invariant violation")]
     InvariantViolation(InternalError),
 
-    #[error("{0}")]
+    #[error("query execution conflict")]
     Conflict(InternalError),
 
-    #[error("{0}")]
+    #[error("query execution not found")]
     NotFound(InternalError),
 
-    #[error("{0}")]
+    #[error("query execution unsupported")]
     Unsupported(InternalError),
 
-    #[error("{0}")]
+    #[error("query execution internal error")]
     Internal(InternalError),
 }
 
@@ -430,31 +448,35 @@ impl From<PlanError> for QueryError {
 /// IntentError
 ///
 
-#[derive(Clone, Copy, Debug, ThisError)]
+#[derive(Clone, Copy, Debug)]
 pub enum IntentError {
-    #[error("{0}")]
-    PlanShape(#[from] PolicyPlanError),
+    PlanShape(PolicyPlanError),
 
-    #[error("by_ids() cannot be combined with predicates")]
     ByIdsWithPredicate,
 
-    #[error("only() cannot be combined with predicates")]
     OnlyWithPredicate,
 
-    #[error("multiple key access methods were used on the same query")]
     KeyAccessConflict,
 
-    #[error("{0}")]
-    InvalidPagingShape(#[from] PagingIntentError),
+    InvalidPagingShape(PagingIntentError),
 
-    #[error("grouped queries execute via execute()")]
     GroupedRequiresDirectExecute,
 
-    #[error("HAVING requires GROUP BY")]
     HavingRequiresGroupBy,
 
-    #[error("HAVING references an unknown grouped aggregate output")]
     HavingReferencesUnknownAggregate,
+}
+
+impl From<PolicyPlanError> for IntentError {
+    fn from(err: PolicyPlanError) -> Self {
+        Self::PlanShape(err)
+    }
+}
+
+impl From<PagingIntentError> for IntentError {
+    fn from(err: PagingIntentError) -> Self {
+        Self::InvalidPagingShape(err)
+    }
 }
 
 impl IntentError {
@@ -516,22 +538,13 @@ impl IntentError {
 /// fluent/execution boundary gates.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[expect(clippy::enum_variant_names)]
 pub enum PagingIntentError {
-    #[error(
-        "{message}",
-        message = CursorPlanError::cursor_requires_order_message()
-    )]
     CursorRequiresOrder,
 
-    #[error(
-        "{message}",
-        message = CursorPlanError::cursor_requires_limit_message()
-    )]
     CursorRequiresLimit,
 
-    #[error("cursor tokens can only be used with .page().execute()")]
     CursorRequiresPagedExecution,
 }
 

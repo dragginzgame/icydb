@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.180.md](docs/changelog/0.180.md)
 
+- `0.180.46` removes generated display/error implementations from planner,
+  policy, intent paging, and cursor-policy diagnostics while preserving typed
+  variants for compact query diagnostics and test assertions.
+
+- `0.180.45` removes additional generated display/error surfaces from scalar,
+  access, cursor, response, predicate, and query-wrapper diagnostics while
+  preserving structured variants and compact diagnostic mapping.
+
 - `0.180.44` removes more display-only diagnostic surfaces from primary-key,
   key-taxonomy, index-entry, and cursor decode paths while preserving compact
   structured variants.

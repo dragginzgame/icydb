@@ -20,14 +20,12 @@ use crate::{
 use candid::CandidType;
 use serde::{Deserialize, de::Deserializer};
 use std::{fmt, str::FromStr};
-use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
 
 /// Error returned when parsing a ULID from text fails.
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum UlidParseError {
     /// The input string is not a canonical ULID.
-    #[error("invalid ulid string")]
     InvalidString,
 }
 
@@ -35,9 +33,8 @@ pub enum UlidParseError {
 // UlidDecodeError
 //
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum UlidDecodeError {
-    #[error("invalid ulid length: {len} bytes")]
     InvalidSize { len: usize },
 }
 

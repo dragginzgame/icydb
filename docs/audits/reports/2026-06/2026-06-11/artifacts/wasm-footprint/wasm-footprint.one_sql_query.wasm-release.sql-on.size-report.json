@@ -1,0 +1,70 @@
+{
+  "canister": "one_sql_query",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": null,
+    "candid_export": "unavailable",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm",
+      "bytes": 2942575,
+      "sha256": "0fce085a788c48db4d589fc7b97f13c98f4665683b40a2b0dbb989031ef228a7"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-built.wasm.gz",
+      "bytes": 997047,
+      "sha256": "ebfc1919e5a86d9987e408e57ad09e8ee1a18ec7c01dc1b375efec632a1e9ed6"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm",
+      "bytes": 2745618,
+      "sha256": "2901ac12341e5b2462afef33975272742d9027c647c28fec5ee3ef0e15d5fee9"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_sql_query.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 952334,
+      "sha256": "32df16d2c13f8850f0a93d620aae1ed6bfa73f294fdd52d715d9ac90f49b91fb"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 6620,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 169492,
+      "exported_method_count": 1,
+      "exported_methods": [
+        "canister_query query_one_sql (func_6619)"
+      ]
+    },
+    "icp_shrunk": {
+      "function_count": 6620,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 169492,
+      "exported_method_count": 1,
+      "exported_methods": [
+        "canister_query query_one_sql (func_6604)"
+      ]
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_extended": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": [
+      "query_one_sql"
+    ]
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 196957,
+    "shrink_wasm_gz_bytes": 44713
+  }
+}

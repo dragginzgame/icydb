@@ -8,7 +8,6 @@ use crate::db::query::{
     intent::QueryError,
     plan::AccessPlannedQuery,
 };
-use thiserror::Error as ThisError;
 
 /// Required selected access path for fail-closed fluent query contracts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +33,7 @@ pub enum RequiredAccessPath {
 }
 
 impl RequiredAccessPath {
+    #[cfg(test)]
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::ByKey => "ByKey",
@@ -158,11 +158,7 @@ impl AccessRequirements {
 }
 
 /// Query access requirement failure with the selected decision preserved.
-#[derive(Debug, ThisError)]
-#[error(
-    "query access requirement failed: {violation}; selected={selected_label}",
-    selected_label = decision.selected.label
-)]
+#[derive(Debug)]
 pub struct AccessRequirementError {
     violation: AccessRequirementViolation,
     decision: ExplainAccessDecisionV1,
@@ -193,25 +189,21 @@ impl AccessRequirementError {
 }
 
 /// Specific fail-closed access requirement that was not satisfied.
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AccessRequirementViolation {
     /// A secondary-index route was required but not selected.
-    #[error("secondary index access required")]
     IndexRequired,
     /// One specific semantic index name was required but not selected.
-    #[error("index '{expected}' required")]
     NamedIndexRequired {
         /// Required semantic index name.
         expected: String,
     },
     /// One selected access path kind was required but not selected.
-    #[error("access path '{}' required", expected.code())]
     AccessPathRequired {
         /// Required selected access path.
         expected: RequiredAccessPath,
     },
     /// Residual predicate or scalar filter work was forbidden.
-    #[error("residual filter forbidden")]
     ResidualFilterForbidden,
 }
 

@@ -80,6 +80,6 @@ pub fn validate_generated_index_predicate_fields(
     predicate: &Predicate,
 ) -> Result<(), String> {
     let schema = SchemaInfo::from_field_models(fields);
-    reject_unsupported_query_features(predicate).map_err(|error| error.to_string())?;
+    reject_unsupported_query_features(predicate).map_err(|_| "unsupported query feature")?;
     validate_predicate(&schema, predicate).map_err(|error| error.to_string())
 }

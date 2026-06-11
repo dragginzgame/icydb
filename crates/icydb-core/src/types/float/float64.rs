@@ -18,18 +18,15 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
 };
-use thiserror::Error as ThisError;
 
 //
 // Float64DecodeError
 //
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum Float64DecodeError {
-    #[error("invalid float64 length: {len} bytes")]
     InvalidSize { len: usize },
 
-    #[error("non-finite float64 payload")]
     NonFinite,
 }
 

@@ -8,7 +8,6 @@ use crate::{
     value::Value,
 };
 use std::ops::{BitAnd, BitOr};
-use thiserror::Error as ThisError;
 
 #[cfg_attr(doc, doc = "Predicate")]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -569,9 +568,8 @@ impl CompareFieldsPredicate {
     doc,
     doc = "UnsupportedQueryFeature\n\nPolicy-level query features intentionally rejected by the engine."
 )]
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UnsupportedQueryFeature {
-    #[error("map field '{field}' is not queryable; use scalar/indexed fields or list entries")]
     MapPredicate { field: String },
 }
 

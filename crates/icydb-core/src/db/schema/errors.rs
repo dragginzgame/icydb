@@ -86,8 +86,8 @@ pub enum ValidateError {
     #[error("duplicate field '{field}'")]
     DuplicateField { field: String },
 
-    #[error("{0}")]
-    UnsupportedQueryFeature(#[from] UnsupportedQueryFeature),
+    #[error("unsupported query feature")]
+    UnsupportedQueryFeature(UnsupportedQueryFeature),
 
     #[error("primary key '{field}' not present in entity fields")]
     InvalidPrimaryKey { field: String },
@@ -157,6 +157,12 @@ pub enum ValidateError {
         field: String,
         reason: SchemaLiteralValidationReason,
     },
+}
+
+impl From<UnsupportedQueryFeature> for ValidateError {
+    fn from(err: UnsupportedQueryFeature) -> Self {
+        Self::UnsupportedQueryFeature(err)
+    }
 }
 
 impl ValidateError {

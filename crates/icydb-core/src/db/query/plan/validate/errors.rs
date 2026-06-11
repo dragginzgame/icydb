@@ -27,13 +27,13 @@ use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub enum PlanError {
-    #[error("{0}")]
+    #[error("query plan user validation failed")]
     User(Box<PlanUserError>),
 
-    #[error("{0}")]
+    #[error("query plan policy validation failed")]
     Policy(Box<PlanPolicyError>),
 
-    #[error("{0}")]
+    #[error("cursor validation failed")]
     Cursor(Box<CursorPlanError>),
 }
 
@@ -63,19 +63,19 @@ impl PlanError {
 
 #[derive(Debug, ThisError)]
 pub enum PlanUserError {
-    #[error("predicate validation failed: {0}")]
+    #[error("predicate validation failed")]
     PredicateInvalid(Box<ValidateError>),
 
-    #[error("{0}")]
+    #[error("order validation failed")]
     Order(Box<OrderPlanError>),
 
-    #[error("{0}")]
+    #[error("access validation failed")]
     Access(Box<AccessPlanError>),
 
-    #[error("{0}")]
+    #[error("group validation failed")]
     Group(Box<GroupPlanError>),
 
-    #[error("{0}")]
+    #[error("expression validation failed")]
     Expr(Box<ExprPlanError>),
 }
 
@@ -89,10 +89,10 @@ pub enum PlanUserError {
 
 #[derive(Debug, ThisError)]
 pub enum PlanPolicyError {
-    #[error("{0}")]
+    #[error("policy validation failed")]
     Policy(Box<PolicyPlanError>),
 
-    #[error("{0}")]
+    #[error("group policy validation failed")]
     Group(Box<GroupPlanError>),
 }
 
@@ -164,38 +164,27 @@ impl OrderPlanError {
 /// Plan-shape policy failures.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyPlanError {
     /// ORDER BY must specify at least one field.
-    #[error("order specification must include at least one field")]
     EmptyOrderSpec,
 
     /// Delete plans must not carry grouped query wrappers.
-    #[error("delete plans must not include GROUP BY or HAVING")]
     DeletePlanWithGrouping,
 
     /// Delete plans must not carry pagination.
-    #[error("delete plans must not include pagination")]
     DeletePlanWithPagination,
 
     /// Load plans must not carry delete limits.
-    #[error("load plans must not include delete limits")]
     LoadPlanWithDeleteLimit,
 
     /// Ordered delete windows require an explicit ordering.
-    #[error("delete LIMIT/OFFSET requires an explicit ordering")]
     DeleteWindowRequiresOrder,
 
     /// Pagination requires an explicit ordering.
-    #[error(
-        "Unordered pagination is not allowed.\nLIMIT or OFFSET without ORDER BY is non-deterministic.\nAdd order_term(...) to make the query stable."
-    )]
     UnorderedPagination,
 
     /// Expression ORDER BY currently requires access-satisfied ordering.
-    #[error(
-        "expression ORDER BY requires a matching index-backed access order for bounded execution"
-    )]
     ExpressionOrderRequiresIndexSatisfiedAccess,
 }
 
@@ -242,18 +231,10 @@ impl PolicyPlanError {
 /// Cursor pagination readiness errors shared by intent/fluent entry surfaces.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CursorPagingPolicyError {
-    #[error(
-        "{message}",
-        message = CursorPlanError::cursor_requires_order_message()
-    )]
     CursorRequiresOrder,
 
-    #[error(
-        "{message}",
-        message = CursorPlanError::cursor_requires_limit_message()
-    )]
     CursorRequiresLimit,
 }
 
@@ -935,12 +916,8 @@ impl CursorOrderPlanShapeError {
         Self::EmptyOrderSpec
     }
 
-    /// Map one cursor-order shape error into one cursor plan error using the
-    /// caller-owned missing-order contract message.
-    pub(in crate::db) const fn to_cursor_plan_error(
-        self,
-        _missing_order_message: &'static str,
-    ) -> CursorPlanError {
+    /// Map one cursor-order shape error into one cursor plan error.
+    pub(in crate::db) const fn to_cursor_plan_error(self) -> CursorPlanError {
         match self {
             Self::MissingExplicitOrder => CursorPlanError::continuation_cursor_invariant(),
             Self::EmptyOrderSpec => CursorPlanError::cursor_requires_non_empty_order(),

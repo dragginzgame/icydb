@@ -11,12 +11,10 @@ thread_local! {
     static GENERATOR: RefCell<Generator> = RefCell::new(Generator::default());
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub(super) enum UlidGenerationError {
-    #[error("monotonic error - overflow")]
     GeneratorOverflow,
 
-    #[error("randomness is not initialized")]
     RandomnessUnavailable,
 }
 

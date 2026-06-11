@@ -1,0 +1,70 @@
+{
+  "canister": "ten_complex",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": null,
+    "candid_export": "unavailable",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-built.wasm",
+      "bytes": 2411033,
+      "sha256": "e71be3527aaf9d9d7dcdbadd642277cd0e171f48fcd1a8e51b1e6bdced533244"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-built.wasm.gz",
+      "bytes": 770931,
+      "sha256": "da4ee1180b35be7438595ef1d4f65170fa0bca09a7fb368f4a6cd3615db86f80"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-shrunk.wasm",
+      "bytes": 2249568,
+      "sha256": "5b0b0f6e564bcf543ecad53638816e4115e972c6f81e8a22a8794ea280d89233"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 732258,
+      "sha256": "9715341b763d594e85d2a6818a1d523d2725bcb624446efc0050dbb96db3e26a"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 5470,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 124972,
+      "exported_method_count": 1,
+      "exported_methods": [
+        "canister_query query_ten_complex_fluent (func_5469)"
+      ]
+    },
+    "icp_shrunk": {
+      "function_count": 5470,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 124972,
+      "exported_method_count": 1,
+      "exported_methods": [
+        "canister_query query_ten_complex_fluent (func_5461)"
+      ]
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_extended": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": [
+      "query_ten_complex_fluent"
+    ]
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 161465,
+    "shrink_wasm_gz_bytes": 38673
+  }
+}

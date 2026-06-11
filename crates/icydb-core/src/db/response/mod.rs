@@ -12,7 +12,6 @@ mod paged;
 #[cfg(test)]
 use crate::value::Value;
 use crate::{prelude::*, traits::EntityValue, types::Id, value::OutputValue};
-use thiserror::Error as ThisError;
 
 mod private {
     ///
@@ -148,12 +147,10 @@ impl<E: EntityKind> ResponseRow for ProjectedRow<E> {}
 /// ResponseError
 ///
 
-#[derive(Debug, ThisError)]
+#[derive(Debug)]
 pub enum ResponseError {
-    #[error("expected exactly one row, found 0 (entity {entity})")]
     NotFound { entity: &'static str },
 
-    #[error("expected exactly one row, found {count} (entity {entity})")]
     NotUnique { entity: &'static str, count: u32 },
 }
 

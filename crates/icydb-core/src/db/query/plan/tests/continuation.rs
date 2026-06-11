@@ -90,10 +90,9 @@ fn grouped_cursor_contract_shares_policy_gate_for_token_and_window_paths() {
         &token_err,
         CursorPlanError::ContinuationCursorInvariantViolation
     );
-    assert_eq!(
-        token_err.to_string(),
-        window_err.to_string(),
-        "grouped token preparation and grouped paging window must project the same grouped cursor policy error",
+    std::assert_matches!(
+        &window_err,
+        CursorPlanError::ContinuationCursorInvariantViolation
     );
 }
 

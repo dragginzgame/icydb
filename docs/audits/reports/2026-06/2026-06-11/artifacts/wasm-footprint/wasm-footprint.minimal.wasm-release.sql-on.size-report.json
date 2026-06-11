@@ -1,0 +1,64 @@
+{
+  "canister": "minimal",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": null,
+    "candid_export": "unavailable",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm",
+      "bytes": 37369,
+      "sha256": "c3d8bf288e6f6972aad7324cac51987d8c1b4e3c8ed4753beda007d52edd3d08"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm.gz",
+      "bytes": 16364,
+      "sha256": "4c09813980d653671d63c94c888aea0272cc995a24f4a2a7b42ae28fb7c230ad"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm",
+      "bytes": 6516,
+      "sha256": "96a91a30873241fc7b27445257915d0237af04e9c65733597439e49eeb50bd97"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 4096,
+      "sha256": "ba44b70ac685ef75ae6ef51d581989efc00afc530281c559e6b1a93d9bccb33d"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 117,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 6416,
+      "exported_method_count": 0,
+      "exported_methods": []
+    },
+    "icp_shrunk": {
+      "function_count": 0,
+      "callback_count": 0,
+      "data_section_count": 3,
+      "data_section_bytes": 6416,
+      "exported_method_count": 0,
+      "exported_methods": []
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_extended": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": []
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 30853,
+    "shrink_wasm_gz_bytes": 12268
+  }
+}
