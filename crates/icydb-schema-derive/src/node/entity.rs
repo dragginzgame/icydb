@@ -46,15 +46,23 @@ impl Entity {
         fields
     }
 
+    fn entity_name_error_text(err: impl std::fmt::Debug) -> String {
+        let debug = format!("{err:?}");
+        match debug.as_str() {
+            "Empty" => "entity name must not be empty".to_string(),
+            "NonAscii" => "entity name must be ASCII".to_string(),
+            "Delimiter" => "entity name must not contain '|'".to_string(),
+            _ => debug,
+        }
+    }
+
     /// Validate and resolve the effective entity name used in index naming.
     fn validate_entity_name(&self, def_ident: &Ident) -> Result<String, DarlingError> {
         // Prefer explicit user-provided names.
         if let Some(name) = self.name.as_ref() {
             let value = name.value();
             EntityName::try_from_str(value.as_str())
-                .map_err(|err| {
-                    DarlingError::custom(format!("invalid entity name '{value}': {err:?}"))
-                })
+                .map_err(|err| Self::invalid_entity_name_error(value.as_str(), err))
                 .map_err(|err| err.with_span(name))?;
             Self::validate_entity_name_namespace(value.as_str())
                 .map_err(|err| err.with_span(name))?;
@@ -65,12 +73,19 @@ impl Entity {
         // Fall back to the Rust struct identifier.
         let value = def_ident.to_string();
         EntityName::try_from_str(value.as_str())
-            .map_err(|err| DarlingError::custom(format!("invalid entity name '{value}': {err:?}")))
+            .map_err(|err| Self::invalid_entity_name_error(value.as_str(), err))
             .map_err(|err| err.with_span(def_ident))?;
         Self::validate_entity_name_namespace(value.as_str())
             .map_err(|err| err.with_span(def_ident))?;
 
         Ok(value)
+    }
+
+    fn invalid_entity_name_error(value: &str, err: impl std::fmt::Debug) -> DarlingError {
+        DarlingError::custom(format!(
+            "invalid entity name '{value}': {}",
+            Self::entity_name_error_text(err)
+        ))
     }
 
     fn validate_entity_name_namespace(entity_name: &str) -> Result<(), DarlingError> {
@@ -166,9 +181,7 @@ impl Entity {
         def_ident: &Ident,
     ) -> Result<(), DarlingError> {
         let entity = EntityName::try_from_str(entity_name)
-            .map_err(|err| {
-                DarlingError::custom(format!("invalid entity name '{entity_name}': {err:?}"))
-            })
+            .map_err(|err| Self::invalid_entity_name_error(entity_name, err))
             .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
         let segments = index.generated_name_segments();
         let segment_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
