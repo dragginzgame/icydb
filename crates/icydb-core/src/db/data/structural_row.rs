@@ -542,7 +542,7 @@ impl From<InternalError> for StructuralRowDecodeError {
 
 impl StructuralRowDecodeError {
     // Collapse the local structural decode wrapper back into the internal taxonomy.
-    pub(in crate::db::data) fn into_internal_error(self) -> InternalError {
+    pub(in crate::db::data) const fn into_internal_error(self) -> InternalError {
         match self {
             Self::Deserialize(err) => err,
         }

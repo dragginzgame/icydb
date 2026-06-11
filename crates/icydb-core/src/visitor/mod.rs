@@ -18,10 +18,7 @@ use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
 
 // re-exports
-pub use context::{
-    Issue, IssueCode, IssueComparisonOp, IssueTextPattern, PathSegment, ScopedContext,
-    VisitorContext,
-};
+pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
 
 //
 // VisitorError

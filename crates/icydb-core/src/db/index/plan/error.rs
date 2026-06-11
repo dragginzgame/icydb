@@ -48,7 +48,7 @@ impl IndexPlanError {
 
     /// Consume this wrapper into the canonical internal error.
     #[must_use]
-    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+    pub(in crate::db) const fn into_internal_error(self) -> InternalError {
         self.error
     }
 }

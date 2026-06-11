@@ -41,6 +41,20 @@ pub enum AccountEncodeError {
     OwnerTooLarge { len: usize, max: usize },
 }
 
+//
+// AccountDecodeError
+//
+// Compact failure identity for stored-account decoding.
+//
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccountDecodeError {
+    InvalidSize,
+    InvalidPrincipalLength,
+    NonZeroPrincipalPadding,
+    NonZeroSubaccountWithoutFlag,
+}
+
 impl From<PrincipalEncodeError> for AccountEncodeError {
     fn from(err: PrincipalEncodeError) -> Self {
         Self::OwnerEncode(err)
@@ -158,16 +172,16 @@ impl Account {
         tag
     }
 
-    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, AccountDecodeError> {
         if bytes.len() != Self::STORED_SIZE as usize {
-            return Err("corrupted Account: invalid size");
+            return Err(AccountDecodeError::InvalidSize);
         }
 
         let tag = bytes[0];
         let has_subaccount = (tag & Self::TAG_SUBACCOUNT) != 0;
         let len = (tag & Self::LEN_MASK) as usize;
         if len > Self::PRINCIPAL_MAX_LEN {
-            return Err("corrupted Account: invalid principal length");
+            return Err(AccountDecodeError::InvalidPrincipalLength);
         }
 
         let principal_end = 1 + len;
@@ -176,7 +190,7 @@ impl Account {
 
         let padding = &bytes[principal_end..principal_region_end];
         if padding.iter().any(|&b| b != 0) {
-            return Err("corrupted Account: non-zero principal padding");
+            return Err(AccountDecodeError::NonZeroPrincipalPadding);
         }
 
         let sub_offset = principal_region_end;
@@ -187,7 +201,7 @@ impl Account {
             Some(Subaccount::from_array(sub))
         } else {
             if sub.iter().any(|&b| b != 0) {
-                return Err("corrupted Account: non-zero subaccount bytes without flag");
+                return Err(AccountDecodeError::NonZeroSubaccountWithoutFlag);
             }
             None
         };
@@ -311,7 +325,7 @@ impl SanitizeAuto for Account {}
 impl SanitizeCustom for Account {}
 
 impl TryFrom<&[u8]> for Account {
-    type Error = &'static str;
+    type Error = AccountDecodeError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)

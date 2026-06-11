@@ -14,13 +14,13 @@ impl Validator<str> for Sha256 {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         // length check
         if s.len() != 64 {
-            ctx.issue(Issue::Sha256Length { actual: s.len() });
+            ctx.issue(format!("SHA-256 hex digest length {} must be 64", s.len()));
             return;
         }
 
         // hex characters
         if !s.chars().all(|c| c.is_ascii_hexdigit()) {
-            ctx.issue(Issue::Sha256NonHex);
+            ctx.issue("SHA-256 digest must contain only hexadecimal characters");
         }
     }
 }

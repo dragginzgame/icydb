@@ -269,7 +269,7 @@ impl InternalError {
     pub(crate) fn index_expression_source_type_mismatch(
         _index_name: &str,
         _expression: impl Sized,
-        _expected: &str,
+        _expected: impl Sized,
         _source_label: &str,
     ) -> Self {
         Self::index_invariant()
@@ -1122,32 +1122,25 @@ impl InternalError {
     }
 
     /// Construct the canonical schema DDL publication race error.
-    pub(crate) fn schema_ddl_publication_race_lost(entity_path: &'static str) -> Self {
+    pub(crate) fn schema_ddl_publication_race_lost(_entity_path: &'static str) -> Self {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,
-            detail: Some(ErrorDetail::Store(
-                StoreError::SchemaDdlPublicationRaceLost {
-                    entity_path: entity_path.to_string(),
-                },
-            )),
+            detail: Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost)),
         }
     }
 
     /// Construct the canonical SQL DDL SET NOT NULL validation failure.
     #[cfg(feature = "sql")]
     pub(crate) fn schema_ddl_set_not_null_validation_failed(
-        entity_path: &'static str,
-        column_name: &str,
+        _entity_path: &'static str,
+        _column_name: &str,
     ) -> Self {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,
             detail: Some(ErrorDetail::Store(
-                StoreError::SchemaDdlSetNotNullValidationFailed {
-                    entity_path: entity_path.to_string(),
-                    column_name: column_name.to_string(),
-                },
+                StoreError::SchemaDdlSetNotNullValidationFailed,
             )),
         }
     }
@@ -1285,27 +1278,22 @@ impl InternalError {
         }
     }
 
-    pub fn store_not_found(key: impl Into<String>) -> Self {
-        let key = key.into();
-
+    pub fn store_not_found(_key: impl Sized) -> Self {
         Self {
             class: ErrorClass::NotFound,
             origin: ErrorOrigin::Store,
-            detail: Some(ErrorDetail::Store(StoreError::NotFound { key })),
+            detail: Some(ErrorDetail::Store(StoreError::NotFound)),
         }
     }
 
     /// Construct a standardized unsupported-entity-path error.
-    pub fn unsupported_entity_path(_path: impl Into<String>) -> Self {
+    pub fn unsupported_entity_path(_path: impl Sized) -> Self {
         Self::store_unsupported()
     }
 
     #[must_use]
     pub const fn is_not_found(&self) -> bool {
-        matches!(
-            self.detail,
-            Some(ErrorDetail::Store(StoreError::NotFound { .. }))
-        )
+        matches!(self.detail, Some(ErrorDetail::Store(StoreError::NotFound)))
     }
 
     /// Construct an index-plan corruption error with a canonical prefix.
@@ -1398,22 +1386,15 @@ pub enum ErrorDetail {
 ///
 
 pub enum StoreError {
-    NotFound {
-        key: String,
-    },
+    NotFound,
 
     Corrupt,
 
     InvariantViolation,
 
-    SchemaDdlPublicationRaceLost {
-        entity_path: String,
-    },
+    SchemaDdlPublicationRaceLost,
 
-    SchemaDdlSetNotNullValidationFailed {
-        entity_path: String,
-        column_name: String,
-    },
+    SchemaDdlSetNotNullValidationFailed,
 }
 
 ///
@@ -1594,11 +1575,10 @@ impl StoreError {
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
-            Self::NotFound { .. } => diagnostic_code::DiagnosticCode::StoreNotFound,
+            Self::NotFound => diagnostic_code::DiagnosticCode::StoreNotFound,
             Self::Corrupt => diagnostic_code::DiagnosticCode::StoreCorruption,
             Self::InvariantViolation => diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-            Self::SchemaDdlPublicationRaceLost { .. }
-            | Self::SchemaDdlSetNotNullValidationFailed { .. } => {
+            Self::SchemaDdlPublicationRaceLost | Self::SchemaDdlSetNotNullValidationFailed => {
                 diagnostic_code::DiagnosticCode::SchemaDdlAdmission
             }
         }
@@ -1608,17 +1588,17 @@ impl StoreError {
     #[must_use]
     pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         match self {
-            Self::SchemaDdlPublicationRaceLost { .. } => {
+            Self::SchemaDdlPublicationRaceLost => {
                 Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::PublicationRaceLost,
                 })
             }
-            Self::SchemaDdlSetNotNullValidationFailed { .. } => {
+            Self::SchemaDdlSetNotNullValidationFailed => {
                 Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
                     reason: diagnostic_code::SchemaDdlAdmissionCode::SetNotNullValidationFailed,
                 })
             }
-            Self::NotFound { .. } | Self::Corrupt | Self::InvariantViolation => None,
+            Self::NotFound | Self::Corrupt | Self::InvariantViolation => None,
         }
     }
 }

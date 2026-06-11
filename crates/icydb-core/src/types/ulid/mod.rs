@@ -15,7 +15,7 @@ use crate::{
     },
     types::GenerateKey,
     value::Value,
-    visitor::{Issue, VisitorContext},
+    visitor::VisitorContext,
 };
 use candid::CandidType;
 use serde::{Deserialize, de::Deserializer};
@@ -223,7 +223,7 @@ impl TryFrom<&[u8]> for Ulid {
 impl ValidateAuto for Ulid {
     fn validate_self(&self, ctx: &mut dyn VisitorContext) {
         if self.0 == WrappedUlid::nil() {
-            ctx.issue(Issue::UlidNil);
+            ctx.issue("ulid must not be nil");
         }
     }
 }

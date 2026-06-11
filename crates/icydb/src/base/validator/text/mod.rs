@@ -15,9 +15,7 @@ pub struct AlphaUscore;
 impl Validator<str> for AlphaUscore {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.chars().all(|c| c.is_alphabetic() || c == '_') {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::AlphabeticUnderscore,
-            });
+            ctx.issue("text must be alphabetic or underscore");
         }
     }
 }
@@ -32,9 +30,7 @@ pub struct AlphanumUscore;
 impl Validator<str> for AlphanumUscore {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::AlphanumericUnderscore,
-            });
+            ctx.issue("text must be alphanumeric or underscore");
         }
     }
 }
@@ -49,9 +45,7 @@ pub struct Ascii;
 impl Validator<str> for Ascii {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_ascii() {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Ascii,
-            });
+            ctx.issue("text must be ASCII");
         }
     }
 }

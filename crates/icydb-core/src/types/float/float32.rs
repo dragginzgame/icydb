@@ -9,7 +9,7 @@ use crate::{
     },
     types::Decimal,
     value::Value,
-    visitor::{Issue, VisitorContext},
+    visitor::VisitorContext,
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -189,7 +189,7 @@ impl ValidateAuto for Float32 {}
 impl ValidateCustom for Float32 {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
         if !self.0.is_finite() {
-            ctx.issue(Issue::Float32NonFinite);
+            ctx.issue("Float32 must be finite");
         }
     }
 }

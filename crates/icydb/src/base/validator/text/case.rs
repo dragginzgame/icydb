@@ -11,9 +11,7 @@ pub struct Camel;
 impl Validator<str> for Camel {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::Camel) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Camel,
-            });
+            ctx.issue(format!("'{s}' is not camelCase"));
         }
     }
 }
@@ -28,9 +26,7 @@ pub struct Kebab;
 impl Validator<str> for Kebab {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::Kebab) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Kebab,
-            });
+            ctx.issue(format!("'{s}' is not kebab-case"));
         }
     }
 }
@@ -45,9 +41,7 @@ pub struct Lower;
 impl Validator<str> for Lower {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::Lower) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Lower,
-            });
+            ctx.issue(format!("'{s}' is not lower case"));
         }
     }
 }
@@ -62,9 +56,7 @@ pub struct LowerUscore;
 impl Validator<str> for LowerUscore {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.chars().all(|c| c.is_lowercase() || c == '_') {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::LowerUnderscore,
-            });
+            ctx.issue(format!("'{s}' is not lower case with underscores"));
         }
     }
 }
@@ -79,9 +71,7 @@ pub struct Sentence;
 impl Validator<str> for Sentence {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::Sentence) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Sentence,
-            });
+            ctx.issue(format!("'{s}' is not Sentence case"));
         }
     }
 }
@@ -96,9 +86,7 @@ pub struct Snake;
 impl Validator<str> for Snake {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::Snake) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Snake,
-            });
+            ctx.issue(format!("'{s}' is not snake_case"));
         }
     }
 }
@@ -113,9 +101,7 @@ pub struct Title;
 impl Validator<str> for Title {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::Title) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Title,
-            });
+            ctx.issue(format!("'{s}' is not Title Case"));
         }
     }
 }
@@ -130,9 +116,7 @@ pub struct Upper;
 impl Validator<str> for Upper {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::Upper) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::Upper,
-            });
+            ctx.issue(format!("'{s}' is not UPPER CASE"));
         }
     }
 }
@@ -147,9 +131,7 @@ pub struct UpperCamel;
 impl Validator<str> for UpperCamel {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::UpperCamel) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::UpperCamel,
-            });
+            ctx.issue(format!("'{s}' is not UpperCamelCase"));
         }
     }
 }
@@ -164,9 +146,7 @@ pub struct UpperKebab;
 impl Validator<str> for UpperKebab {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::UpperKebab) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::UpperKebab,
-            });
+            ctx.issue(format!("'{s}' is not UPPER-KEBAB-CASE"));
         }
     }
 }
@@ -181,9 +161,7 @@ pub struct UpperSnake;
 impl Validator<str> for UpperSnake {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::UpperSnake) {
-            ctx.issue(Issue::TextPattern {
-                pattern: IssueTextPattern::UpperSnake,
-            });
+            ctx.issue(format!("'{s}' is not UPPER_SNAKE_CASE"));
         }
     }
 }

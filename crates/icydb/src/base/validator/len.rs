@@ -91,10 +91,7 @@ impl<T: HasLen + ?Sized> Validator<T> for Equal {
         let len = t.len();
 
         if len != self.target {
-            ctx.issue(Issue::LengthEqual {
-                actual: len,
-                expected: self.target,
-            });
+            ctx.issue(format!("length ({len}) is not equal to {}", self.target));
         }
     }
 }
@@ -121,10 +118,10 @@ impl<T: HasLen + ?Sized> Validator<T> for Min {
         let len = t.len();
 
         if len < self.target {
-            ctx.issue(Issue::LengthMin {
-                actual: len,
-                min: self.target,
-            });
+            ctx.issue(format!(
+                "length ({len}) is lower than minimum of {}",
+                self.target
+            ));
         }
     }
 }
@@ -151,10 +148,10 @@ impl<T: HasLen + ?Sized> Validator<T> for Max {
         let len = t.len();
 
         if len > self.target {
-            ctx.issue(Issue::LengthMax {
-                actual: len,
-                max: self.target,
-            });
+            ctx.issue(format!(
+                "length ({len}) is greater than maximum of {}",
+                self.target
+            ));
         }
     }
 }
@@ -183,11 +180,10 @@ impl<T: HasLen + ?Sized> Validator<T> for Range {
         let len = t.len();
 
         if len < self.min || len > self.max {
-            ctx.issue(Issue::LengthRange {
-                actual: len,
-                min: self.min,
-                max: self.max,
-            });
+            ctx.issue(format!(
+                "length ({len}) must be between {} and {} (inclusive)",
+                self.min, self.max
+            ));
         }
     }
 }
@@ -230,11 +226,8 @@ mod tests {
         v.validate("abcd", &mut ctx);
 
         assert_eq!(
-            ctx.issues.get("").expect("root issue should exist")[0],
-            Issue::LengthEqual {
-                actual: 4,
-                expected: 3,
-            }
+            ctx.issues.get("").expect("root issue should exist")[0].message(),
+            "length (4) is not equal to 3"
         );
     }
 
@@ -256,12 +249,8 @@ mod tests {
         v.validate("a", &mut ctx);
 
         assert_eq!(
-            ctx.issues.get("").expect("root issue should exist")[0],
-            Issue::LengthRange {
-                actual: 1,
-                min: 2,
-                max: 4,
-            }
+            ctx.issues.get("").expect("root issue should exist")[0].message(),
+            "length (1) must be between 2 and 4 (inclusive)"
         );
     }
 }

@@ -3,6 +3,7 @@ use crate::{
     design::prelude::*,
     traits::{NumericValue, Validator},
 };
+use std::any::type_name;
 
 /// Convert a numeric value into Decimal during *configuration* time.
 fn cast_decimal_cfg<N: NumericValue>(value: &N) -> Decimal {
@@ -12,7 +13,10 @@ fn cast_decimal_cfg<N: NumericValue>(value: &N) -> Decimal {
 /// Convert a numeric value into Decimal during *validation* time.
 fn cast_decimal_val<N: NumericValue>(value: &N, ctx: &mut dyn VisitorContext) -> Option<Decimal> {
     try_cast_decimal(value).or_else(|| {
-        ctx.issue(Issue::NumericNotRepresentableAsDecimal);
+        ctx.issue(format!(
+            "value of type {} cannot be represented as Decimal",
+            type_name::<N>()
+        ));
         None
     })
 }
@@ -22,7 +26,7 @@ fn cast_decimal_val<N: NumericValue>(value: &N, ctx: &mut dyn VisitorContext) ->
 // ============================================================================
 
 macro_rules! cmp_validator {
-    ($name:ident, $op:tt, $issue_op:expr) => {
+    ($name:ident, $op:tt, $msg:expr) => {
         #[validator]
         pub struct $name {
             target: Decimal,
@@ -41,23 +45,19 @@ macro_rules! cmp_validator {
                 let Some(v) = cast_decimal_val(value, ctx) else { return };
 
                 if !(v $op self.target) {
-                    ctx.issue(Issue::NumericComparison {
-                        actual: v,
-                        op: $issue_op,
-                        expected: self.target,
-                    });
+                    ctx.issue(format!($msg, v, self.target));
                 }
             }
         }
     };
 }
 
-cmp_validator!(Lt, <, IssueComparisonOp::Lt);
-cmp_validator!(Gt, >, IssueComparisonOp::Gt);
-cmp_validator!(Lte, <=, IssueComparisonOp::Lte);
-cmp_validator!(Gte, >=, IssueComparisonOp::Gte);
-cmp_validator!(Equal, ==, IssueComparisonOp::Eq);
-cmp_validator!(NotEqual, !=, IssueComparisonOp::Ne);
+cmp_validator!(Lt, <, "{} must be < {}");
+cmp_validator!(Gt, >, "{} must be > {}");
+cmp_validator!(Lte, <=, "{} must be <= {}");
+cmp_validator!(Gte, >=, "{} must be >= {}");
+cmp_validator!(Equal, ==, "{} must be == {}");
+cmp_validator!(NotEqual, !=, "{} must be != {}");
 
 ///
 /// Range
@@ -85,11 +85,7 @@ impl<N: NumericValue> Validator<N> for Range {
         };
 
         if v < self.min || v > self.max {
-            ctx.issue(Issue::NumericRange {
-                actual: v,
-                min: self.min,
-                max: self.max,
-            });
+            ctx.issue(format!("{v} must be between {} and {}", self.min, self.max));
         }
     }
 }
@@ -114,7 +110,7 @@ impl MultipleOf {
 impl<N: NumericValue> Validator<N> for MultipleOf {
     fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
         if self.target.is_zero() {
-            ctx.issue(Issue::NumericMultipleOfZero);
+            ctx.issue("multipleOf target must be non-zero".to_string());
             return;
         }
 
@@ -123,10 +119,7 @@ impl<N: NumericValue> Validator<N> for MultipleOf {
         };
 
         if !(v % self.target).is_zero() {
-            ctx.issue(Issue::NumericMultipleOf {
-                actual: v,
-                target: self.target,
-            });
+            ctx.issue(format!("{v} is not a multiple of {}", self.target));
         }
     }
 }

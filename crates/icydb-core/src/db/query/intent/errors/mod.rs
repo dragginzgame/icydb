@@ -278,9 +278,7 @@ impl QueryError {
     pub(in crate::db) fn from_sql_ddl_execution_error(err: InternalError) -> Self {
         if matches!(
             err.detail(),
-            Some(ErrorDetail::Store(
-                StoreError::SchemaDdlPublicationRaceLost { .. }
-            ))
+            Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost))
         ) {
             return Self::execute(InternalError::query_schema_ddl_admission(
                 SchemaDdlAdmissionError::PublicationRaceLost,
@@ -290,7 +288,7 @@ impl QueryError {
         if matches!(
             err.detail(),
             Some(ErrorDetail::Store(
-                StoreError::SchemaDdlSetNotNullValidationFailed { .. }
+                StoreError::SchemaDdlSetNotNullValidationFailed
             ))
         ) {
             return Self::execute(InternalError::query_schema_ddl_admission(

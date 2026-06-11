@@ -69,7 +69,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             SaveRule::RequirePresent => {
                 let old_row = ctx
                     .with_store(|store| store.get(&raw_key))?
-                    .ok_or_else(|| InternalError::store_not_found(data_key.to_string()))?;
+                    .ok_or_else(|| InternalError::store_not_found(data_key))?;
                 validate_existing_row(data_key, &old_row)?;
 
                 Ok(Some(old_row))

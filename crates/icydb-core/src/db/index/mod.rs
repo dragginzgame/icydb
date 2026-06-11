@@ -21,7 +21,8 @@ pub(in crate::db) use envelope::{
     validate_index_scan_continuation_advancement,
 };
 pub(in crate::db) use key::{
-    EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, derive_index_expression_value,
+    EncodedValue, IndexExpressionSourceClass, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
+    derive_index_expression_value,
 };
 #[cfg(test)]
 pub(in crate::db) use pk_equivalence::primary_key_matches_value;

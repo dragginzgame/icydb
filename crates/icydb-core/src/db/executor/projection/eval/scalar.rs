@@ -38,7 +38,7 @@ struct ValueSlotReader<'reader> {
 
 // Preserve reader-owned error taxonomy when the unified expression evaluator
 // reports failures back through projection/query execution boundaries.
-fn reader_error(err: InternalError) -> ProjectionEvalError {
+const fn reader_error(err: InternalError) -> ProjectionEvalError {
     ProjectionEvalError::ReaderFailed {
         class: err.class(),
         origin: err.origin(),
@@ -47,7 +47,7 @@ fn reader_error(err: InternalError) -> ProjectionEvalError {
 
 // Preserve persisted-row decode classifications for nested path traversal
 // while keeping storage decoding outside the compiled expression module.
-fn field_path_error(_field: &str, err: InternalError) -> ProjectionEvalError {
+const fn field_path_error(_field: &str, err: InternalError) -> ProjectionEvalError {
     ProjectionEvalError::FieldPathEvaluationFailed {
         class: err.class(),
         origin: err.origin(),

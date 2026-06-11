@@ -10,7 +10,7 @@ pub struct RgbHex;
 impl Validator<str> for RgbHex {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !is_hex_width(s, 6) {
-            ctx.issue(Issue::ColorHex { width: 6 });
+            ctx.issue("hex color must contain 6 hexadecimal digits");
         }
     }
 }
@@ -25,7 +25,7 @@ pub struct RgbaHex;
 impl Validator<str> for RgbaHex {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !is_hex_width(s, 8) {
-            ctx.issue(Issue::ColorHex { width: 8 });
+            ctx.issue("hex color must contain 8 hexadecimal digits");
         }
     }
 }

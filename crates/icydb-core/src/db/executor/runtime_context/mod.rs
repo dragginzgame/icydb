@@ -393,7 +393,7 @@ where
         self.with_store(|s| {
             let raw = key.to_raw()?;
             s.get(&raw)
-                .ok_or_else(|| InternalError::store_not_found(key.to_string()))
+                .ok_or_else(|| InternalError::store_not_found(key))
         })?
     }
 }

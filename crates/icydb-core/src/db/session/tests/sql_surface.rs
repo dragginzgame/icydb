@@ -5288,8 +5288,7 @@ fn execute_sql_ddl_publication_rechecks_bound_accepted_identity() {
     assert!(
         matches!(
             err.detail(),
-            Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost { entity_path }))
-                if entity_path == SessionSqlEntity::PATH
+            Some(ErrorDetail::Store(StoreError::SchemaDdlPublicationRaceLost))
         ),
         "stale DDL publication should report the structured race-lost detail",
     );

@@ -26,9 +26,10 @@ where
 {
     fn validate(&self, n: &T, ctx: &mut dyn VisitorContext) {
         if !self.values.contains(n) {
-            ctx.issue(Issue::CollectionValueNotAllowed {
-                allowed_count: self.values.len(),
-            });
+            ctx.issue(format!(
+                "value must be one of {} allowed values",
+                self.values.len()
+            ));
         }
     }
 }

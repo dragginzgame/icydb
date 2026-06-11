@@ -70,7 +70,7 @@ impl ValidateAutoFn for Enum {
                 let ident = v.effective_ident();
                 quote! {
                     Self::#ident => {
-                        ctx.issue(::icydb::visitor::Issue::UnspecifiedEnumVariant);
+                        ctx.issue("unspecified enum variant is not valid");
                     }
                 }
             })

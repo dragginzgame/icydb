@@ -32,7 +32,7 @@ pub const VALID_ENTRIES_3166_1A2: &[&str] = &[
 impl Validator<str> for Iso3166_1A2 {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !VALID_ENTRIES_3166_1A2.contains(&s) {
-            ctx.issue(Issue::Iso3166CountryCode);
+            ctx.issue("value must be an ISO 3166-1 alpha-2 country code");
         }
     }
 }
@@ -65,7 +65,7 @@ pub const VALID_ENTRIES_639_1: &[&str] = &[
 impl Validator<str> for Iso639_1 {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !VALID_ENTRIES_639_1.contains(&s) {
-            ctx.issue(Issue::Iso639LanguageCode);
+            ctx.issue("value must be an ISO 639-1 language code");
         }
     }
 }
