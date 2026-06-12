@@ -150,14 +150,6 @@ impl ConfigInitArgs {
         self.surfaces.fixtures()
     }
 
-    pub(crate) const fn update(&self) -> bool {
-        self.surfaces.update()
-    }
-
-    pub(crate) const fn update_policy(&self) -> Option<ConfigInitUpdatePolicy> {
-        self.surfaces.update_policy()
-    }
-
     pub(crate) fn update_config_value(&self) -> String {
         self.surfaces.update_config_value()
     }
@@ -190,18 +182,6 @@ impl ConfigInitSurfaceArgs {
 
     const fn fixtures(&self) -> bool {
         self.surface_enabled(self.fixtures)
-    }
-
-    const fn update(&self) -> bool {
-        self.surface_enabled(self.update) || self.update_policy.is_some()
-    }
-
-    const fn update_policy(&self) -> Option<ConfigInitUpdatePolicy> {
-        match self.update_policy {
-            Some(policy) => Some(policy),
-            None if self.surface_enabled(self.update) => Some(ConfigInitUpdatePolicy::PrimaryKey),
-            None => None,
-        }
     }
 
     fn update_config_value(&self) -> String {

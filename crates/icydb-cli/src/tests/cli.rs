@@ -9,8 +9,7 @@ use clap::Parser;
 
 use crate::{
     cli::{
-        CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitUpdatePolicy,
-        DEFAULT_ENVIRONMENT, SchemaCommand,
+        CanisterCommand, CliArgs, CliCommand, ConfigCommand, DEFAULT_ENVIRONMENT, SchemaCommand,
     },
     shell::test_support::sql_shell_config_inputs,
 };
@@ -344,7 +343,7 @@ fn cli_args_group_config_init_under_config_keyword() {
     assert!(args.readonly());
     assert!(args.ddl());
     assert!(args.fixtures());
-    assert!(args.update());
+    assert_eq!(args.update_config_value(), "true");
     assert!(args.metrics());
     assert!(args.metrics_extended());
     assert!(args.snapshot());
@@ -368,8 +367,6 @@ fn cli_args_config_init_update_policy_enables_bounded_update() {
         panic!("expected config init command");
     };
 
-    assert!(args.update());
-    assert_eq!(args.update_policy(), Some(ConfigInitUpdatePolicy::Bounded));
     assert_eq!(args.update_config_value(), "\"bounded\"");
 }
 
@@ -389,11 +386,6 @@ fn cli_args_config_init_update_policy_accepts_primary_key_alias() {
         panic!("expected config init command");
     };
 
-    assert!(args.update());
-    assert_eq!(
-        args.update_policy(),
-        Some(ConfigInitUpdatePolicy::PrimaryKey)
-    );
     assert_eq!(args.update_config_value(), "\"primary_key\"");
 }
 
@@ -416,7 +408,7 @@ fn cli_args_config_init_no_readonly_overrides_all() {
     assert!(!args.readonly());
     assert!(args.ddl());
     assert!(args.fixtures());
-    assert!(args.update());
+    assert_eq!(args.update_config_value(), "true");
     assert!(args.metrics());
     assert!(args.metrics_extended());
     assert!(args.snapshot());
