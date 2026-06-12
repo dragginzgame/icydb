@@ -3,7 +3,11 @@
 //! Does not own: ICP process command construction or observability decoding.
 //! Boundary: test-only assertions over config helpers and generated endpoint constants.
 
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use clap::Parser;
 
@@ -23,8 +27,7 @@ use crate::{
 
 #[test]
 fn config_init_writes_default_config_at_workspace_root() {
-    let root =
-        std::env::temp_dir().join(format!("icydb-cli-config-init-test-{}", std::process::id()));
+    let root = config_init_test_root("workspace");
     let workspace = root.join("workspace");
     let package = workspace.join("member");
     let canister = package.join("canisters").join("demo").join("rpg");
@@ -72,10 +75,7 @@ fn config_init_writes_default_config_at_workspace_root() {
 
 #[test]
 fn config_init_writes_bounded_update_policy() {
-    let root = std::env::temp_dir().join(format!(
-        "icydb-cli-config-init-bounded-test-{}",
-        std::process::id()
-    ));
+    let root = config_init_test_root("bounded");
     let workspace = root.join("workspace");
     let package = workspace.join("member");
     let canister = package.join("canisters").join("demo").join("rpg");
@@ -113,10 +113,7 @@ fn config_init_writes_bounded_update_policy() {
 
 #[test]
 fn config_init_writes_default_config_at_standalone_package_root() {
-    let root = std::env::temp_dir().join(format!(
-        "icydb-cli-config-init-standalone-test-{}",
-        std::process::id()
-    ));
+    let root = config_init_test_root("standalone");
     let package = root.join("package");
     let canister = package.join("canisters").join("demo").join("rpg");
     std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
@@ -146,10 +143,7 @@ fn config_init_writes_default_config_at_standalone_package_root() {
 
 #[test]
 fn config_init_preserves_non_cargo_directory_fallback() {
-    let root = std::env::temp_dir().join(format!(
-        "icydb-cli-config-init-non-cargo-test-{}",
-        std::process::id()
-    ));
+    let root = config_init_test_root("non-cargo");
     let start_dir = root.join("project").join("canisters").join("demo");
     std::fs::create_dir_all(start_dir.as_path()).expect("test directory should be created");
 
@@ -248,6 +242,21 @@ fn write_workspace_manifest(workspace: &Path) {
         "[workspace]\nmembers = [\"member\"]\nresolver = \"2\"\n",
     )
     .expect("workspace manifest should be written");
+}
+
+static CONFIG_INIT_TEST_ROOT_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn config_init_test_root(label: &str) -> PathBuf {
+    let counter = CONFIG_INIT_TEST_ROOT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after UNIX_EPOCH")
+        .as_nanos();
+
+    std::env::temp_dir().join(format!(
+        "icydb-cli-config-init-{label}-{}-{counter}-{nanos}",
+        std::process::id()
+    ))
 }
 
 fn write_package_manifest(package: &Path, name: &str, extra_package_fields: &str) {
