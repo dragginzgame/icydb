@@ -224,7 +224,6 @@ pub(super) struct PreparedScalarAggregateTerminal {
     input: ScalarAggregateInput,
     filter: Option<CompiledExpr>,
     distinct: bool,
-    empty_behavior: AggregateEmptyBehavior,
 }
 
 impl PreparedScalarAggregateTerminal {
@@ -241,7 +240,6 @@ impl PreparedScalarAggregateTerminal {
             input,
             filter,
             distinct,
-            empty_behavior: kind.empty_behavior(),
         }
     }
 
@@ -268,7 +266,6 @@ impl PreparedScalarAggregateTerminal {
             input,
             filter,
             distinct: self.distinct,
-            empty_behavior: self.empty_behavior,
         }
     }
 }
@@ -289,18 +286,6 @@ pub(super) enum ScalarAggregateTerminalKind {
     Avg,
     Min,
     Max,
-}
-
-impl ScalarAggregateTerminalKind {
-    // Keep empty-window behavior attached to the executor-owned terminal kind
-    // so callers cannot choose a reducer/finalizer combination that drifts
-    // from aggregate empty-window policy.
-    const fn empty_behavior(self) -> AggregateEmptyBehavior {
-        match self {
-            Self::CountRows | Self::CountValues => AggregateEmptyBehavior::Zero,
-            Self::Sum | Self::Avg | Self::Min | Self::Max => AggregateEmptyBehavior::Null,
-        }
-    }
 }
 
 ///
@@ -332,7 +317,6 @@ pub(super) struct InternedPreparedScalarAggregateTerminal {
     pub(super) input: InternedScalarAggregateInput,
     pub(super) filter: Option<usize>,
     pub(super) distinct: bool,
-    pub(super) empty_behavior: AggregateEmptyBehavior,
 }
 
 ///
@@ -361,20 +345,6 @@ impl InternedScalarAggregateInput {
             }
         }
     }
-}
-
-///
-/// AggregateEmptyBehavior
-///
-/// AggregateEmptyBehavior preserves the scalar aggregate finalization
-/// contract for empty or all-NULL input windows. COUNT terminals finalize to
-/// zero, while numeric and extrema terminals finalize to NULL.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum AggregateEmptyBehavior {
-    Zero,
-    Null,
 }
 
 ///

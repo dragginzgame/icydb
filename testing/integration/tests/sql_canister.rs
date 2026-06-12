@@ -185,6 +185,24 @@ fn expect_show_indexes(result: SqlQueryResult) -> Vec<String> {
     }
 }
 
+fn sql_test_user_id_by_name(fixture: &StandaloneCanisterFixture, name: &str) -> String {
+    let sql = format!("SELECT id FROM SqlTestUser WHERE name = '{name}'");
+    let output = expect_projection(
+        query_sql(fixture, sql.as_str()).expect("fixture id read should find the named user"),
+    );
+
+    assert_eq!(
+        output.row_count, 1,
+        "named SQL fixture user should be unique",
+    );
+    output
+        .rows
+        .first()
+        .and_then(|row| row.first())
+        .expect("named SQL fixture row should include id")
+        .clone()
+}
+
 fn assert_ddl_no_op(result: SqlQueryResult, expected_kind: &str, expected_target: &str) {
     let SqlQueryResult::Ddl {
         mutation_kind,
@@ -2893,6 +2911,171 @@ fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation(
 }
 
 #[test]
+fn sql_canister_update_endpoint_returns_primary_key_post_update_rows() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let returning = expect_projection(
+        update_sql(
+            &fixture,
+            format!("UPDATE SqlTestUser SET age = 34 WHERE id = '{alice_id}' RETURNING name, age")
+                .as_str(),
+        )
+        .expect("primary-key generated SQL update endpoint should admit RETURNING"),
+    );
+
+    assert_eq!(
+        returning,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "age".to_string()],
+            rows: vec![vec!["alice".to_string(), "34".to_string()]],
+            row_count: 1,
+        },
+        "primary-key generated UPDATE RETURNING should return the post-update row image",
+    );
+}
+
+#[test]
+fn sql_canister_update_endpoint_returns_primary_key_post_update_star_rows() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let returning = expect_projection(
+        update_sql(
+            &fixture,
+            format!("UPDATE SqlTestUser SET age = 35 WHERE id = '{alice_id}' RETURNING *").as_str(),
+        )
+        .expect("primary-key generated SQL update endpoint should admit RETURNING *"),
+    );
+
+    assert_eq!(returning.entity, "SqlTestUser");
+    assert_eq!(
+        returning.columns,
+        ["id", "name", "age", "rank", "created_at", "updated_at"],
+        "primary-key generated UPDATE RETURNING * should preserve schema column order",
+    );
+    assert_eq!(returning.row_count, 1);
+    let row = returning
+        .rows
+        .first()
+        .expect("primary-key generated UPDATE RETURNING * should return one row");
+    assert_eq!(
+        row.len(),
+        returning.columns.len(),
+        "primary-key generated UPDATE RETURNING * should return a complete row image",
+    );
+    assert_eq!(row[0], alice_id);
+    assert_eq!(row[1], "alice");
+    assert_eq!(
+        row[2], "35",
+        "primary-key generated UPDATE RETURNING * should expose the post-update value",
+    );
+    assert_eq!(
+        row[3], "28",
+        "primary-key generated UPDATE RETURNING * should preserve unchanged fields",
+    );
+}
+
+#[test]
+fn sql_canister_update_endpoint_rejects_computed_returning_without_mutation() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let err = update_sql(
+        &fixture,
+        format!("UPDATE SqlTestUser SET age = 34 WHERE id = '{alice_id}' RETURNING LOWER(name)")
+            .as_str(),
+    )
+    .expect_err("primary-key generated SQL update endpoint must reject computed RETURNING");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::SQL_FEATURE_UNSUPPORTED_FUNCTION_NAMESPACE,
+        "computed primary-key UPDATE RETURNING should preserve the specific unsupported SQL feature code",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "computed primary-key UPDATE RETURNING rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected primary-key UPDATE RETURNING must not mutate rows",
+    );
+}
+
+#[test]
+fn sql_canister_update_endpoint_rejects_invalid_returning_fields_without_mutation() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+
+    for (returning, expected_code) in [
+        ("missing", ErrorCode::SQL_WRITE_UNKNOWN_RETURNING_FIELD),
+        ("name, name", ErrorCode::SQL_WRITE_DUPLICATE_RETURNING_FIELD),
+    ] {
+        let err = update_sql(
+            &fixture,
+            format!(
+                "UPDATE SqlTestUser SET age = 34 WHERE id = '{alice_id}' RETURNING {returning}"
+            )
+            .as_str(),
+        )
+        .expect_err(
+            "primary-key generated SQL update endpoint must reject invalid RETURNING fields",
+        );
+
+        assert_eq!(
+            err.code(),
+            expected_code,
+            "invalid primary-key UPDATE RETURNING field list should preserve its compact SQL write code",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "invalid primary-key UPDATE RETURNING rejection should stay query-owned",
+        );
+    }
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected invalid primary-key UPDATE RETURNING field lists must not mutate rows",
+    );
+}
+
+#[test]
 fn sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_order() {
     let fixture = install_sql_bounded_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3018,6 +3201,58 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_rows() {
 }
 
 #[test]
+fn sql_canister_bounded_update_endpoint_returns_post_update_star_rows() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let targets = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT id, name, rank FROM SqlTestUser WHERE age >= 24 ORDER BY id ASC LIMIT 2",
+        )
+        .expect("pre-update target read should prove the bounded order"),
+    );
+    let returning = expect_projection(
+        update_sql(
+            &fixture,
+            "UPDATE SqlTestUser SET age = 36 \
+             WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING *",
+        )
+        .expect("bounded generated SQL update endpoint should admit bounded RETURNING *"),
+    );
+
+    assert_eq!(returning.entity, "SqlTestUser");
+    assert_eq!(
+        returning.columns,
+        ["id", "name", "age", "rank", "created_at", "updated_at"],
+        "bounded generated UPDATE RETURNING * should preserve schema column order",
+    );
+    assert_eq!(returning.row_count, 2);
+    assert_eq!(
+        returning.rows.len(),
+        targets.rows.len(),
+        "bounded generated UPDATE RETURNING * should return the frozen target window",
+    );
+    for (row, target) in returning.rows.iter().zip(targets.rows.iter()) {
+        assert_eq!(
+            row.len(),
+            returning.columns.len(),
+            "bounded generated UPDATE RETURNING * should return complete row images",
+        );
+        assert_eq!(row[0], target[0]);
+        assert_eq!(row[1], target[1]);
+        assert_eq!(
+            row[2], "36",
+            "bounded generated UPDATE RETURNING * should expose post-update values",
+        );
+        assert_eq!(
+            row[3], target[2],
+            "bounded generated UPDATE RETURNING * should preserve unchanged fields",
+        );
+    }
+}
+
+#[test]
 fn sql_canister_bounded_update_endpoint_rejects_computed_returning_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3056,6 +3291,57 @@ fn sql_canister_bounded_update_endpoint_rejects_computed_returning_without_mutat
     assert_eq!(
         after, before,
         "rejected bounded UPDATE RETURNING must not mutate rows",
+    );
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_rejects_invalid_returning_fields_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+
+    for (returning, expected_code) in [
+        ("missing", ErrorCode::SQL_WRITE_UNKNOWN_RETURNING_FIELD),
+        ("name, name", ErrorCode::SQL_WRITE_DUPLICATE_RETURNING_FIELD),
+    ] {
+        let err = update_sql(
+            &fixture,
+            format!(
+                "UPDATE SqlTestUser SET age = 33 \
+                 WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING {returning}"
+            )
+            .as_str(),
+        )
+        .expect_err("bounded generated SQL update endpoint must reject invalid RETURNING fields");
+
+        assert_eq!(
+            err.code(),
+            expected_code,
+            "invalid bounded UPDATE RETURNING field list should preserve its compact SQL write code",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "invalid bounded UPDATE RETURNING rejection should stay query-owned",
+        );
+    }
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected invalid bounded UPDATE RETURNING field lists must not mutate rows",
     );
 }
 

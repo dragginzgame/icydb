@@ -17,7 +17,7 @@ use std::ops::Bound;
 impl<E: EntityKind> PreparedExecutionPlan<E> {
     /// Render one canonical executor snapshot for test-only planner/executor
     /// contract checks.
-    pub(in crate::db) fn render_snapshot_canonical(&self) -> Result<String, InternalError>
+    pub(in crate::db::executor) fn render_snapshot_canonical(&self) -> Result<String, InternalError>
     where
         E: EntityValue,
     {

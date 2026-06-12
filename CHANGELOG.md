@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Adds live canister coverage for bounded generated `UPDATE RETURNING`, proving
-  returned rows are post-update images in the frozen bounded target order and
-  unsupported computed `RETURNING` rejects without mutation.
+- Adds live canister coverage for generated `UPDATE RETURNING`, proving
+  primary-key and bounded star projections return post-update rows while
+  invalid projections reject without mutation.
+- Removes redundant scalar aggregate terminal empty-result bookkeeping now
+  owned by shared reducer finalization.
 
 ## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
+
+- `0.181.8` adds live canister coverage for bounded generated
+  `UPDATE RETURNING`, proving returned rows are post-update images in frozen
+  target order and unsupported computed `RETURNING` rejects without mutation.
 
 - `0.181.7` adds explicit generated SQL update policy selection for bounded
   deterministic `UPDATE`, with config, generated-code, documentation, and live
