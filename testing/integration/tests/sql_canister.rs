@@ -65,6 +65,12 @@ fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryRes
         .expect("sql DDL canister call should decode")
 }
 
+fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
+    fixture
+        .update_call("__icydb_update", (sql.to_string(),))
+        .expect("sql update canister call should decode")
+}
+
 #[derive(Clone, Copy, Debug)]
 struct DdlSchemaVersion {
     current: u32,
@@ -2799,6 +2805,85 @@ fn sql_canister_ddl_endpoint_rejects_row_mutation_sql_without_row_mutation() {
             "rejected DDL endpoint {label} must not mutate rows",
         );
     }
+}
+
+#[test]
+fn sql_canister_update_endpoint_admits_primary_key_update_only() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let alice = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT id, age FROM SqlTestUser WHERE name = 'alice'",
+        )
+        .expect("pre-update read should find alice"),
+    );
+    let alice_id = alice
+        .rows
+        .first()
+        .and_then(|row| row.first())
+        .expect("alice row should include id")
+        .clone();
+    let result = update_sql(
+        &fixture,
+        format!("UPDATE SqlTestUser SET age = 32 WHERE id = '{alice_id}'").as_str(),
+    )
+    .expect("configured generated SQL update endpoint should admit primary-key UPDATE");
+
+    assert_eq!(
+        result,
+        SqlQueryResult::Count {
+            entity: "SqlTestUser".to_string(),
+            row_count: 1,
+        },
+    );
+    let after = expect_projection(
+        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
+            .expect("post-update read should find alice"),
+    );
+    assert_eq!(after.rows, vec![vec!["32".to_string()]]);
+}
+
+#[test]
+fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 32 WHERE name = 'alice'",
+    )
+    .expect_err("configured generated SQL update endpoint must reject non-PK UPDATE");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::RUNTIME_UNSUPPORTED,
+        "generated SQL update endpoint should preserve policy rejection code",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "generated SQL update endpoint policy rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected generated SQL update endpoint call must not mutate rows",
+    );
 }
 
 #[test]

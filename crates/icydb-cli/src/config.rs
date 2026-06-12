@@ -16,7 +16,7 @@ pub(crate) use surface::ConfigSurface;
 pub(crate) use surface::{
     ConfiguredEndpoint, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT,
     METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT,
-    SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT,
+    SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT,
 };
 
 use crate::{cli::ConfigArgs, icp::known_canisters};

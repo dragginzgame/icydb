@@ -180,12 +180,12 @@ pub use session::DbSession;
 pub use session::{
     DbSession, SqlAdminBulkUpdatePlan, SqlDdlExecutionStatus, SqlDdlMutationKind,
     SqlDdlPreparationReport, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
-    SqlSessionCurrentUpdatePlan, SqlStatementResult, SqlStatementSurface,
+    SqlSessionCurrentUpdatePlan, SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface,
     SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdateOrderPolicy,
     SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
     SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
     SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
-    sql_statement_entity_name, sql_statement_surface,
+    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{

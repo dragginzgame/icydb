@@ -1,8 +1,8 @@
 use std::{env, fs};
 
 use crate::{
-    CONFIG_FILE_NAME, ConfigBuildError, load_resolved_icydb_toml, parse::parse_icydb_toml,
-    resolve::resolve_config_path,
+    CONFIG_FILE_NAME, ConfigBuildError, GeneratedSqlUpdatePolicy, load_resolved_icydb_toml,
+    parse::parse_icydb_toml, resolve::resolve_config_path,
 };
 
 #[test]
@@ -12,6 +12,7 @@ fn absent_config_defaults_all_generated_surfaces_off() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
@@ -42,6 +43,7 @@ fn explicit_false_disables_metrics_default_surface() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
@@ -65,6 +67,7 @@ fn partial_config_entries_do_not_enable_metrics_without_explicit_flag() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
@@ -72,13 +75,14 @@ fn partial_config_entries_do_not_enable_metrics_without_explicit_flag() {
 }
 
 #[test]
-fn readonly_ddl_fixtures_metrics_snapshot_and_schema_config_validate() {
+fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
     let config = parse_icydb_toml(
         r"
             [canisters.demo_rpg.sql]
             readonly = true
             ddl = true
             fixtures = true
+            update = true
 
             [canisters.demo_rpg.metrics]
             enabled = true
@@ -97,10 +101,59 @@ fn readonly_ddl_fixtures_metrics_snapshot_and_schema_config_validate() {
     assert!(config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert_eq!(
+        config.canister_sql_update_policy("demo_rpg"),
+        Some(GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly),
+    );
     assert!(config.canister_metrics_enabled("demo_rpg"));
     assert!(config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(config.canister_snapshot_enabled("demo_rpg"));
     assert!(config.canister_schema_enabled("demo_rpg"));
+}
+
+#[test]
+fn invalid_sql_update_policy_fails_parse() {
+    let err = parse_icydb_toml(
+        r#"
+            [canisters.demo_rpg.sql]
+            update = "bulk"
+        "#,
+        &["demo_rpg"],
+    )
+    .expect_err("unknown generated SQL update policy must fail");
+
+    std::assert_matches!(err, ConfigBuildError::Parse { .. });
+}
+
+#[test]
+fn boolean_sql_update_policy_enables_primary_key_default() {
+    let config = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.sql]
+            update = true
+        ",
+        &["demo_rpg"],
+    )
+    .expect("boolean SQL update config should parse");
+
+    assert_eq!(
+        config.canister_sql_update_policy("demo_rpg"),
+        Some(GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly),
+    );
+}
+
+#[test]
+fn explicit_false_disables_sql_update_policy() {
+    let config = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.sql]
+            update = false
+        ",
+        &["demo_rpg"],
+    )
+    .expect("false SQL update config should parse");
+
+    assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
 }
 
 #[test]
@@ -262,5 +315,9 @@ fn load_resolved_config_reports_path_and_validated_config() {
     assert!(resolved.config().canister_sql_readonly_enabled("demo_rpg"));
     assert!(resolved.config().canister_sql_ddl_enabled("demo_rpg"));
     assert!(resolved.config().canister_sql_fixtures_enabled("demo_rpg"));
+    assert_eq!(
+        resolved.config().canister_sql_update_policy("demo_rpg"),
+        None
+    );
     fs::remove_dir_all(root).expect("test directory should be removed");
 }

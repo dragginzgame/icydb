@@ -18,7 +18,8 @@ use icydb::db::sql::SqlQueryResult;
 use crate::{
     cli::{SqlArgs, SqlShellFields},
     config::{
-        ConfiguredEndpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, require_configured_endpoint,
+        ConfiguredEndpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT,
+        require_configured_endpoint,
     },
     icp::require_created_canister,
     shell::render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
@@ -90,8 +91,8 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
         route::SqlShellCallKind::Query => {
             execute_sql_query(environment, canister, endpoint, &escaped_sql)
         }
-        route::SqlShellCallKind::Ddl => {
-            execute_sql_ddl(environment, canister, endpoint, &escaped_sql)
+        route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
+            execute_sql_update_call(environment, canister, endpoint, &escaped_sql)
         }
     }
 }
@@ -100,6 +101,7 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> ConfiguredEndpoint 
     match call_kind {
         route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
         route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
+        route::SqlShellCallKind::Update => SQL_UPDATE_ENDPOINT,
     }
 }
 
@@ -122,7 +124,7 @@ fn execute_sql_query(
     }
 }
 
-fn execute_sql_ddl(
+fn execute_sql_update_call(
     environment: &str,
     canister: &str,
     endpoint: ConfiguredEndpoint,

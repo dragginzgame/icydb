@@ -16,6 +16,12 @@ macro_rules! build_configured_canister {
             .with_sql_readonly_enabled(config.canister_sql_readonly_enabled($canister_name))
             .with_sql_ddl_enabled(config.canister_sql_ddl_enabled($canister_name))
             .with_sql_fixtures_enabled(config.canister_sql_fixtures_enabled($canister_name))
+            .with_sql_update_policy(match config.canister_sql_update_policy($canister_name) {
+                Some(icydb_config_build::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly) => {
+                    Some(icydb::build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)
+                }
+                None => None,
+            })
             .with_metrics_enabled(config.canister_metrics_enabled($canister_name))
             .with_metrics_extended_enabled(config.canister_metrics_extended_enabled($canister_name))
             .with_snapshot_enabled(config.canister_snapshot_enabled($canister_name))

@@ -5,6 +5,8 @@
 
 use std::{collections::BTreeSet, fmt::Write as _, path::Path};
 
+use icydb_config_build::GeneratedSqlUpdatePolicy;
+
 use crate::table::{ColumnAlign, append_indented_table};
 
 use super::ResolvedConfig;
@@ -145,8 +147,8 @@ fn canister_config_row(
             canister.sql_readonly(),
             canister.sql_ddl(),
             canister.sql_fixtures(),
-        )
-        .to_string(),
+            canister.sql_update_policy(),
+        ),
         metrics_surface_status(canister.metrics(), canister.metrics_extended()).to_string(),
         enabled_status(canister.snapshot()).to_string(),
         enabled_status(canister.schema()).to_string(),
@@ -188,16 +190,32 @@ const fn status_text(ok: bool) -> &'static str {
     if ok { "ok" } else { "mismatch" }
 }
 
-const fn sql_surface_status(readonly: bool, ddl: bool, fixtures: bool) -> &'static str {
-    match (readonly, ddl, fixtures) {
-        (true, true, true) => "readonly, ddl, fixtures",
-        (true, true, false) => "readonly, ddl",
-        (true, false, true) => "readonly, fixtures",
-        (true, false, false) => "readonly",
-        (false, true, true) => "ddl, fixtures",
-        (false, true, false) => "ddl",
-        (false, false, true) => "fixtures",
-        (false, false, false) => "off",
+fn sql_surface_status(
+    readonly: bool,
+    ddl: bool,
+    fixtures: bool,
+    update_policy: Option<GeneratedSqlUpdatePolicy>,
+) -> String {
+    let mut surfaces = Vec::new();
+    if readonly {
+        surfaces.push("readonly");
+    }
+    if ddl {
+        surfaces.push("ddl");
+    }
+    if fixtures {
+        surfaces.push("fixtures");
+    }
+    if let Some(policy) = update_policy {
+        surfaces.push(match policy {
+            GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly => "update:primary_key",
+        });
+    }
+
+    if surfaces.is_empty() {
+        "off".to_string()
+    } else {
+        surfaces.join(", ")
     }
 }
 

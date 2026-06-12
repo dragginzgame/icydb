@@ -10,7 +10,7 @@ use crate::{
     config::{
         ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT,
         METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT,
-        SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, init_config,
+        SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT, init_config,
         test_support::{
             config_surface_enabled_for_resolved, config_sync_issues,
             configured_endpoint_enabled_for_resolved, disabled_config_surface_message,
@@ -39,6 +39,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         "demo_rpg",
         "--ddl",
         "--fixtures",
+        "--update",
         "--metrics",
         "--metrics-extended",
         "--snapshot",
@@ -55,7 +56,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\nupdate = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -77,6 +78,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
             readonly = true
             ddl = true
             fixtures = true
+            update = true
 
             [canisters.demo_rpg.metrics]
             enabled = true
@@ -116,6 +118,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
     assert!(report.lines().any(|line| {
         line.contains("demo_rpg")
             && line.contains("readonly, ddl, fixtures")
+            && line.contains("update:primary_key")
             && line.contains("enabled, extended")
             && line.contains("ok")
     }));
@@ -167,6 +170,7 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
             readonly = true
             ddl = false
             fixtures = true
+            update = true
 
             [canisters.demo_rpg.metrics]
             enabled = true
@@ -197,6 +201,11 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
         &resolved,
         "demo_rpg",
         ConfigSurface::SqlFixtures,
+    ));
+    assert!(config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::SqlUpdate,
     ));
     assert!(config_surface_enabled_for_resolved(
         &resolved,
@@ -241,6 +250,7 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
             readonly = true
             ddl = false
             fixtures = true
+            update = true
 
             [canisters.demo_rpg.metrics]
             enabled = true
@@ -271,6 +281,11 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
         &resolved,
         "demo_rpg",
         FIXTURES_LOAD_ENDPOINT,
+    ));
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        SQL_UPDATE_ENDPOINT,
     ));
     assert!(configured_endpoint_enabled_for_resolved(
         &resolved,
@@ -343,4 +358,5 @@ fn configured_endpoint_methods_match_generated_endpoint_names() {
     assert_eq!(FIXTURES_LOAD_ENDPOINT.method(), "__icydb_fixtures_load");
     assert_eq!(SQL_QUERY_ENDPOINT.method(), "__icydb_query");
     assert_eq!(SQL_DDL_ENDPOINT.method(), "__icydb_ddl");
+    assert_eq!(SQL_UPDATE_ENDPOINT.method(), "__icydb_update");
 }

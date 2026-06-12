@@ -10,6 +10,7 @@ pub(crate) enum ConfigSurface {
     SqlReadonly,
     SqlDdl,
     SqlFixtures,
+    SqlUpdate,
     Metrics,
     MetricsExtended,
     Snapshot,
@@ -22,6 +23,7 @@ impl ConfigSurface {
             Self::SqlReadonly => "readonly SQL",
             Self::SqlDdl => "SQL DDL",
             Self::SqlFixtures => "SQL fixtures",
+            Self::SqlUpdate => "SQL update",
             Self::Metrics => "metrics",
             Self::MetricsExtended => "extended metrics",
             Self::Snapshot => "snapshot",
@@ -34,6 +36,7 @@ impl ConfigSurface {
             Self::SqlReadonly => "canisters.<name>.sql.readonly",
             Self::SqlDdl => "canisters.<name>.sql.ddl",
             Self::SqlFixtures => "canisters.<name>.sql.fixtures",
+            Self::SqlUpdate => "canisters.<name>.sql.update",
             Self::Metrics => "canisters.<name>.metrics.enabled",
             Self::MetricsExtended => "canisters.<name>.metrics.extended",
             Self::Snapshot => "canisters.<name>.snapshot.enabled",
@@ -65,6 +68,10 @@ pub(crate) const SQL_QUERY_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
 pub(crate) const SQL_DDL_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
     method: "__icydb_ddl",
     surface: ConfigSurface::SqlDdl,
+};
+pub(crate) const SQL_UPDATE_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_update",
+    surface: ConfigSurface::SqlUpdate,
 };
 pub(crate) const FIXTURES_LOAD_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
     method: "__icydb_fixtures_load",
@@ -122,6 +129,7 @@ pub(super) fn config_surface_enabled_for_resolved(
         ConfigSurface::SqlReadonly => config.canister_sql_readonly_enabled(canister),
         ConfigSurface::SqlDdl => config.canister_sql_ddl_enabled(canister),
         ConfigSurface::SqlFixtures => config.canister_sql_fixtures_enabled(canister),
+        ConfigSurface::SqlUpdate => config.canister_sql_update_policy(canister).is_some(),
         ConfigSurface::Metrics => config.canister_metrics_enabled(canister),
         ConfigSurface::MetricsExtended => config.canister_metrics_extended_enabled(canister),
         ConfigSurface::Snapshot => config.canister_snapshot_enabled(canister),

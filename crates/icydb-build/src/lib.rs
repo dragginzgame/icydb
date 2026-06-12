@@ -42,12 +42,20 @@ struct BuildSqlOptions {
     readonly_enabled: bool,
     ddl_enabled: bool,
     fixtures_enabled: bool,
+    update_policy: Option<BuildSqlUpdatePolicy>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct BuildMetricsOptions {
     enabled: bool,
     extended_enabled: bool,
+}
+
+/// Generated SQL update endpoint policy selected by actor codegen.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildSqlUpdatePolicy {
+    /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
+    PublicPrimaryKeyOnly,
 }
 
 impl BuildOptions {
@@ -71,6 +79,14 @@ impl BuildOptions {
     #[must_use]
     pub const fn with_sql_fixtures_enabled(mut self, enabled: bool) -> Self {
         self.sql.fixtures_enabled = enabled;
+
+        self
+    }
+
+    /// Build options with generated SQL update endpoint policy configured.
+    #[must_use]
+    pub const fn with_sql_update_policy(mut self, policy: Option<BuildSqlUpdatePolicy>) -> Self {
+        self.sql.update_policy = policy;
 
         self
     }
@@ -125,6 +141,18 @@ impl BuildOptions {
         self.sql.fixtures_enabled
     }
 
+    /// Return the generated SQL update endpoint policy, if explicitly enabled.
+    #[must_use]
+    pub const fn sql_update_policy(self) -> Option<BuildSqlUpdatePolicy> {
+        self.sql.update_policy
+    }
+
+    /// Return whether generated actor glue should export the SQL update endpoint.
+    #[must_use]
+    pub const fn sql_update_enabled(self) -> bool {
+        self.sql_update_policy().is_some()
+    }
+
     /// Return whether generated actor glue should export metrics report endpoints.
     #[must_use]
     pub const fn metrics_enabled(self) -> bool {
@@ -152,7 +180,10 @@ impl BuildOptions {
     /// Return whether any generated SQL endpoint surface is enabled.
     #[must_use]
     pub const fn sql_enabled(self) -> bool {
-        self.sql_readonly_enabled() || self.sql_ddl_enabled() || self.sql_fixtures_enabled()
+        self.sql_readonly_enabled()
+            || self.sql_ddl_enabled()
+            || self.sql_fixtures_enabled()
+            || self.sql_update_enabled()
     }
 }
 
@@ -317,6 +348,8 @@ mod tests {
         assert!(!options.sql_readonly_enabled());
         assert!(!options.sql_ddl_enabled());
         assert!(!options.sql_fixtures_enabled());
+        assert!(!options.sql_update_enabled());
+        assert_eq!(options.sql_update_policy(), None);
         assert!(!options.metrics_enabled());
         assert!(!options.metrics_extended_enabled());
         assert!(!options.snapshot_enabled());

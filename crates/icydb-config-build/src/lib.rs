@@ -12,7 +12,9 @@ mod resolve;
 
 pub use emit::emit_config_for_build_script;
 pub use error::ConfigBuildError;
-pub use model::{GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig};
+pub use model::{
+    GeneratedCanisterConfig, GeneratedIcydbConfig, GeneratedSqlUpdatePolicy, ResolvedIcydbConfig,
+};
 pub use parse::load_resolved_icydb_toml;
 
 const CONFIG_FILE_NAME: &str = "icydb.toml";

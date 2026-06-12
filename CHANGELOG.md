@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds generated SQL update endpoint plumbing, with `update = true` and
+  `icydb config init --update` opting a canister into `__icydb_update` through
+  the default public primary-key-only validated update policy, and routes CLI
+  shell `UPDATE` statements to that configured endpoint.
+
 ## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)

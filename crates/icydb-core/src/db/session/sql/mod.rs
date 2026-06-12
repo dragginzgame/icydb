@@ -91,6 +91,18 @@ pub enum SqlStatementSurface {
     Ddl,
 }
 
+/// Parsed SQL shell call route used by host tooling endpoint dispatch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub enum SqlStatementShellSurface {
+    /// SQL routed to the generated query endpoint.
+    Query,
+    /// SQL routed to the generated DDL endpoint.
+    Ddl,
+    /// SQL routed to the generated primary-key-policy update endpoint.
+    Update,
+}
+
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
 #[cfg(feature = "diagnostics")]
@@ -127,6 +139,15 @@ pub fn sql_statement_surface(sql: &str) -> Result<SqlStatementSurface, QueryErro
     Ok(sql_statement_surface_from_statement(&statement))
 }
 
+/// Return the generated endpoint route required by one shell SQL statement.
+#[doc(hidden)]
+pub fn sql_statement_shell_surface(sql: &str) -> Result<SqlStatementShellSurface, QueryError> {
+    let (statement, _) =
+        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+
+    Ok(sql_statement_shell_surface_from_statement(&statement))
+}
+
 const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlStatementSurface {
     match statement {
         SqlStatement::Ddl(_) => SqlStatementSurface::Ddl,
@@ -141,6 +162,25 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementSurface::Query,
+    }
+}
+
+const fn sql_statement_shell_surface_from_statement(
+    statement: &SqlStatement,
+) -> SqlStatementShellSurface {
+    match statement {
+        SqlStatement::Ddl(_) => SqlStatementShellSurface::Ddl,
+        SqlStatement::Update(_) => SqlStatementShellSurface::Update,
+        SqlStatement::Select(_)
+        | SqlStatement::Delete(_)
+        | SqlStatement::Insert(_)
+        | SqlStatement::Explain(_)
+        | SqlStatement::Describe(_)
+        | SqlStatement::ShowIndexes(_)
+        | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowEntities(_)
+        | SqlStatement::ShowStores(_)
+        | SqlStatement::ShowMemory(_) => SqlStatementShellSurface::Query,
     }
 }
 

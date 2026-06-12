@@ -57,12 +57,12 @@ pub use icydb_core::db::{
 #[doc(hidden)]
 pub use icydb_core::db::{
     SqlAdminBulkUpdatePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
-    SqlSessionCurrentUpdatePlan, SqlStatementSurface, SqlUpdateAssignmentPolicy,
-    SqlUpdateExposurePolicy, SqlUpdateOrderPolicy, SqlUpdatePolicyContext,
-    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateReturningBounds,
-    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
-    SqlValidatedUpdatePlan, classify_sql_update_policy, sql_statement_entity_name,
-    sql_statement_surface,
+    SqlSessionCurrentUpdatePlan, SqlStatementShellSurface, SqlStatementSurface,
+    SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy, SqlUpdateOrderPolicy,
+    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
+    SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
+    SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
+    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]

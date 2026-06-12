@@ -326,6 +326,7 @@ fn cli_args_group_config_init_under_config_keyword() {
         "demo_rpg",
         "--ddl",
         "--fixtures",
+        "--update",
         "--metrics",
         "--metrics-extended",
         "--snapshot",
@@ -342,6 +343,7 @@ fn cli_args_group_config_init_under_config_keyword() {
     assert!(args.readonly());
     assert!(args.ddl());
     assert!(args.fixtures());
+    assert!(args.update());
     assert!(args.metrics());
     assert!(args.metrics_extended());
     assert!(args.snapshot());
@@ -368,6 +370,7 @@ fn cli_args_config_init_no_readonly_overrides_all() {
     assert!(!args.readonly());
     assert!(args.ddl());
     assert!(args.fixtures());
+    assert!(args.update());
     assert!(args.metrics());
     assert!(args.metrics_extended());
     assert!(args.snapshot());

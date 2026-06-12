@@ -2,6 +2,7 @@
 readonly = true
 ddl = true
 fixtures = true
+update = true
 
 [canisters.test_sql.metrics]
 enabled = true

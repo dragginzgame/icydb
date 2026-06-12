@@ -296,7 +296,7 @@ fn candid_escape_string_escapes_sql_for_wire_arg() {
 }
 
 #[test]
-fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
+fn sql_shell_call_kind_routes_sql_to_configured_endpoint_family() {
     for sql in [
         "CREATE INDEX name_idx ON Character (name);",
         "  create   index name_idx ON Character (name)  ; ",
@@ -319,7 +319,6 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
         "SELECT * FROM Character",
         "SHOW INDEXES FROM Character",
         "INSERT INTO Character (id, name) VALUES (1, 'Ada')",
-        "UPDATE Character SET name = 'Ada' WHERE id = 1",
         "DELETE FROM Character WHERE id = 1",
     ] {
         assert_eq!(
@@ -327,6 +326,12 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
             SqlShellCallKind::Query,
         );
     }
+
+    assert_eq!(
+        sql_shell_call_kind("UPDATE Character SET name = 'Ada' WHERE id = 1")
+            .expect("SQL should parse"),
+        SqlShellCallKind::Update,
+    );
 }
 
 #[test]

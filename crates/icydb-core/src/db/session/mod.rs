@@ -59,11 +59,12 @@ pub(in crate::db) use response::sql_grouped_cursor_from_bytes;
 pub use sql::{
     SqlAdminBulkUpdatePlan, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
     SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlSessionCurrentUpdatePlan,
-    SqlStatementResult, SqlStatementSurface, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy,
-    SqlUpdateOrderPolicy, SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
-    SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
-    SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
-    sql_statement_entity_name, sql_statement_surface,
+    SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface, SqlUpdateAssignmentPolicy,
+    SqlUpdateExposurePolicy, SqlUpdateOrderPolicy, SqlUpdatePolicyContext,
+    SqlUpdatePolicyRejection, SqlUpdatePolicyReport, SqlUpdateReturningBounds,
+    SqlUpdateReturningPolicy, SqlUpdateStatementClassification, SqlUpdateWherePolicy,
+    SqlValidatedUpdatePlan, classify_sql_update_policy, sql_statement_entity_name,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{

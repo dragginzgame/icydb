@@ -56,6 +56,7 @@ fn render_default_config(args: &ConfigInitArgs) -> String {
 readonly = {readonly}
 ddl = {ddl}
 fixtures = {fixtures}
+update = {update}
 
 [canisters.{canister}.metrics]
 enabled = {metrics}
@@ -71,6 +72,7 @@ enabled = {schema}
         readonly = args.readonly(),
         ddl = args.ddl(),
         fixtures = args.fixtures(),
+        update = args.update(),
         metrics = args.metrics(),
         metrics_extended = args.metrics_extended(),
         snapshot = args.snapshot(),

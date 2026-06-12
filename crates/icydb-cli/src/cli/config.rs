@@ -96,6 +96,10 @@ struct ConfigInitSurfaceArgs {
     #[arg(long)]
     fixtures: bool,
 
+    /// Also generate the primary-key-only SQL update endpoint.
+    #[arg(long)]
+    update: bool,
+
     /// Also generate metrics report endpoint.
     #[arg(long)]
     metrics: bool,
@@ -142,6 +146,10 @@ impl ConfigInitArgs {
         self.surfaces.fixtures()
     }
 
+    pub(crate) const fn update(&self) -> bool {
+        self.surfaces.update()
+    }
+
     pub(crate) const fn metrics(&self) -> bool {
         self.surfaces.metrics()
     }
@@ -170,6 +178,10 @@ impl ConfigInitSurfaceArgs {
 
     const fn fixtures(&self) -> bool {
         self.surface_enabled(self.fixtures)
+    }
+
+    const fn update(&self) -> bool {
+        self.surface_enabled(self.update)
     }
 
     const fn metrics(&self) -> bool {

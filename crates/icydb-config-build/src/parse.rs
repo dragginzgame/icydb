@@ -9,7 +9,8 @@ use crate::{
     ConfigBuildError, GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig,
     model::{
         DEFAULT_METRICS_ENABLED, DEFAULT_METRICS_EXTENDED_ENABLED, DEFAULT_SCHEMA_ENABLED,
-        DEFAULT_SNAPSHOT_ENABLED, DEFAULT_SQL_READONLY_ENABLED, GeneratedCanisterMetricsConfig,
+        DEFAULT_SNAPSHOT_ENABLED, DEFAULT_SQL_DDL_ENABLED, DEFAULT_SQL_FIXTURES_ENABLED,
+        DEFAULT_SQL_READONLY_ENABLED, DEFAULT_SQL_UPDATE_POLICY, GeneratedCanisterMetricsConfig,
         GeneratedCanisterSqlConfig,
     },
     resolve::resolve_config_path,
@@ -141,8 +142,12 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
         GeneratedCanisterSqlConfig::new(
             sql.and_then(|sql| sql.readonly)
                 .unwrap_or(DEFAULT_SQL_READONLY_ENABLED),
-            sql.and_then(|sql| sql.ddl).unwrap_or(false),
-            sql.and_then(|sql| sql.fixtures).unwrap_or(false),
+            sql.and_then(|sql| sql.ddl)
+                .unwrap_or(DEFAULT_SQL_DDL_ENABLED),
+            sql.and_then(|sql| sql.fixtures)
+                .unwrap_or(DEFAULT_SQL_FIXTURES_ENABLED),
+            sql.and_then(|sql| sql.update)
+                .map_or(DEFAULT_SQL_UPDATE_POLICY, generated_sql_update_policy),
         ),
         GeneratedCanisterMetricsConfig::new(metrics_enabled, metrics_extended_enabled),
         raw_config
@@ -210,6 +215,17 @@ struct RawCanisterSqlConfig {
     readonly: Option<bool>,
     ddl: Option<bool>,
     fixtures: Option<bool>,
+    update: Option<bool>,
+}
+
+const fn generated_sql_update_policy(
+    enabled: bool,
+) -> Option<crate::model::GeneratedSqlUpdatePolicy> {
+    if enabled {
+        Some(crate::model::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Deserialize)]

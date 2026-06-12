@@ -14,7 +14,10 @@ use crate::{
             accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
             execute_sql_ddl_field_addition,
         },
-        session::sql::{SqlStatementSurface, sql_statement_entity_name, sql_statement_surface},
+        session::sql::{
+            SqlStatementShellSurface, SqlStatementSurface, sql_statement_entity_name,
+            sql_statement_shell_surface, sql_statement_surface,
+        },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
             ddl::{
@@ -2500,6 +2503,53 @@ fn sql_statement_surface_routes_row_mutation_to_query_rejection_surface() {
     ] {
         assert_eq!(
             sql_statement_surface(sql).expect(context),
+            expected,
+            "{context}",
+        );
+    }
+}
+
+#[test]
+fn sql_statement_shell_surface_routes_update_to_configured_update_endpoint() {
+    for (sql, expected, context) in [
+        (
+            "SELECT * FROM SessionSqlWriteEntity",
+            SqlStatementShellSurface::Query,
+            "SELECT should route to query endpoint",
+        ),
+        (
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            SqlStatementShellSurface::Query,
+            "INSERT should stay on query rejection until an INSERT policy exists",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+            SqlStatementShellSurface::Update,
+            "UPDATE should route to the configured update endpoint",
+        ),
+        (
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1",
+            SqlStatementShellSurface::Query,
+            "DELETE should stay on query rejection until a DELETE policy exists",
+        ),
+        (
+            "SHOW INDEXES FROM SessionSqlWriteEntity",
+            SqlStatementShellSurface::Query,
+            "introspection should route to query endpoint",
+        ),
+        (
+            "CREATE INDEX name_idx ON SessionSqlWriteEntity (name)",
+            SqlStatementShellSurface::Ddl,
+            "DDL should route to DDL endpoint",
+        ),
+        (
+            "ALTER TABLE SessionSqlWriteEntity ADD COLUMN nickname text",
+            SqlStatementShellSurface::Ddl,
+            "ALTER TABLE should route to DDL endpoint",
+        ),
+    ] {
+        assert_eq!(
+            sql_statement_shell_surface(sql).expect(context),
             expected,
             "{context}",
         );

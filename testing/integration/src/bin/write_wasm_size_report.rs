@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 const GENERATED_EXPORTS: &[&str] = &[
     "__icydb_query",
     "__icydb_ddl",
+    "__icydb_update",
     "__icydb_fixtures_reset",
     "__icydb_fixtures_load",
     "__icydb_metrics",
@@ -557,13 +558,13 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_surface_flags_unexpected_generated_sql_update_endpoint() {
+    fn endpoint_surface_reports_generated_sql_update_endpoint() {
         let build = endpoint_surface(&wasm_info(&[
             "canister_query __icydb_query",
             "canister_update __icydb_update",
         ]));
 
         assert!(build.generated_endpoint_surface.sql_update);
-        assert_eq!(build.custom_exports, vec!["__icydb_update".to_string()]);
+        assert!(build.custom_exports.is_empty());
     }
 }
