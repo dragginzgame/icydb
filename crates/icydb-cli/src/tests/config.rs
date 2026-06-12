@@ -118,7 +118,7 @@ fn config_init_writes_default_config_at_standalone_package_root() {
     let package = root.join("package");
     let canister = package.join("canisters").join("demo").join("rpg");
     std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
-    write_package_manifest(package.as_path(), "demo_standalone", "");
+    write_package_manifest(package.as_path(), "demo_standalone", "\n[workspace]\n");
 
     let args = CliArgs::try_parse_from([
         "icydb",
@@ -254,7 +254,7 @@ fn config_init_test_root(label: &str) -> PathBuf {
         .expect("system time should be after UNIX_EPOCH")
         .as_nanos();
 
-    std::env::temp_dir().join(format!(
+    PathBuf::from("/tmp").join(format!(
         "icydb-cli-config-init-{label}-{}-{counter}-{nanos}",
         std::process::id()
     ))
