@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.13` enforces configured public SQL `UPDATE RETURNING` response-byte
+  caps against rendered projection payloads after mutation after-images are
+  prepared but before commit publication.
+
 - `0.181.12` keeps public SQL `UPDATE RETURNING` aligned with accepted row
   projection visibility, including generated and managed fields, while
   narrowing a few parser, data, and grouped-aggregate cleanup boundaries.

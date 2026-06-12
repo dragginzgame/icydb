@@ -147,6 +147,29 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         write_context: SanitizeWriteContext,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<Vec<E>, InternalError> {
+        self.apply_internal_lowered_structural_mutation_batch_with_precommit(
+            mode,
+            rows,
+            write_context,
+            accepted_row_decode_contract,
+            |_| Ok(()),
+        )
+    }
+
+    // Apply one internally lowered structural batch after giving the caller a
+    // final chance to inspect validated after-images before commit publication.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn apply_internal_lowered_structural_mutation_batch_with_precommit<F>(
+        &self,
+        mode: MutationMode,
+        rows: Vec<(E::Key, StructuralPatch)>,
+        write_context: SanitizeWriteContext,
+        accepted_row_decode_contract: AcceptedRowDecodeContract,
+        precommit: F,
+    ) -> Result<Vec<E>, InternalError>
+    where
+        F: FnOnce(&[E]) -> Result<(), InternalError>,
+    {
         let items = rows
             .into_iter()
             .map(|(key, patch)| StructuralMutationBatchItem::internal_lowered(key, patch))
@@ -157,6 +180,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             items,
             write_context,
             accepted_row_decode_contract,
+            precommit,
         )
     }
 
@@ -164,13 +188,17 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // mutation items. Keeping the item type private prevents SQL/session code
     // from depending on mutation staging internals.
     #[cfg(feature = "sql")]
-    fn apply_internal_structural_mutation_batch(
+    fn apply_internal_structural_mutation_batch<F>(
         &self,
         mode: MutationMode,
         items: Vec<StructuralMutationBatchItem<E>>,
         write_context: SanitizeWriteContext,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
-    ) -> Result<Vec<E>, InternalError> {
+        precommit: F,
+    ) -> Result<Vec<E>, InternalError>
+    where
+        F: FnOnce(&[E]) -> Result<(), InternalError>,
+    {
         let mut span = Span::<E>::new(ExecKind::Save);
         let result = (|| {
             let ctx = mutation_write_context::<E>(&self.db)?;
@@ -208,6 +236,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 marker_row_ops.push(marker_row_op);
                 entities.push(entity);
             }
+
+            precommit(entities.as_slice())?;
 
             if marker_row_ops.is_empty() {
                 return Ok(entities);

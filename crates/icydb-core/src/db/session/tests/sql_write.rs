@@ -1404,7 +1404,7 @@ fn execute_validated_sql_public_primary_key_update_plan_mutates_one_row() {
 }
 
 #[test]
-fn public_pk_update_rejects_configured_returning_byte_cap_before_execution() {
+fn public_pk_update_rejects_oversized_returning_byte_cap_before_commit() {
     reset_session_sql_store();
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
@@ -1415,12 +1415,9 @@ fn public_pk_update_rejects_configured_returning_byte_cap_before_execution() {
     );
     let err = session
         .execute_validated_sql_public_primary_key_update::<SessionSqlWriteEntity>(&plan)
-        .expect_err("configured returning byte cap should reject before public primary-key UPDATE");
+        .expect_err("oversized RETURNING response should reject public primary-key UPDATE");
 
-    assert_runtime_unsupported_query_execution_diagnostic(
-        err,
-        "public primary-key UPDATE must not ignore configured RETURNING byte caps",
-    );
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
     assert_eq!(
         persisted_write_rows(&session),
         vec![
@@ -1428,6 +1425,49 @@ fn public_pk_update_rejects_configured_returning_byte_cap_before_execution() {
                 Value::Nat64(1),
                 Value::Text("Ada".to_string()),
                 Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(30),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn public_pk_update_allows_sized_returning_byte_cap() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
+
+    let plan = public_primary_key_update_plan_with_response_cap(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
+        Some(4096),
+    );
+    let result = session
+        .execute_validated_sql_public_primary_key_update::<SessionSqlWriteEntity>(&plan)
+        .expect("RETURNING response inside byte cap should execute");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("bounded RETURNING response should return projection payload");
+    };
+
+    assert_eq!(columns, ["id"]);
+    assert_eq!(rows, vec![vec![output(Value::Nat64(1))]]);
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
             ],
             vec![
                 Value::Nat64(2),
@@ -1845,7 +1885,7 @@ fn execute_validated_sql_public_bounded_update_plan_mutates_limited_rows() {
 }
 
 #[test]
-fn public_bounded_update_rejects_configured_returning_byte_cap_before_execution() {
+fn public_bounded_update_rejects_oversized_returning_byte_cap_before_commit() {
     reset_session_sql_store();
     let session = sql_session();
     seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
@@ -1856,12 +1896,9 @@ fn public_bounded_update_rejects_configured_returning_byte_cap_before_execution(
     );
     let err = session
         .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
-        .expect_err("configured returning byte cap should reject before public bounded UPDATE");
+        .expect_err("oversized RETURNING response should reject public bounded UPDATE");
 
-    assert_runtime_unsupported_query_execution_diagnostic(
-        err,
-        "public bounded UPDATE must not ignore configured RETURNING byte caps",
-    );
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
     assert_eq!(
         persisted_write_rows(&session),
         vec![
@@ -1874,6 +1911,57 @@ fn public_bounded_update_rejects_configured_returning_byte_cap_before_execution(
                 Value::Nat64(2),
                 Value::Text("Bea".to_string()),
                 Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(3),
+                Value::Text("Cid".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn public_bounded_update_allows_sized_returning_byte_cap() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+
+    let plan = public_bounded_update_plan_with_response_cap(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2 RETURNING id",
+        Some(4096),
+    );
+    let result = session
+        .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+        .expect("bounded RETURNING response inside byte cap should execute");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("bounded RETURNING response should return projection payload");
+    };
+
+    assert_eq!(columns, ["id"]);
+    assert_eq!(
+        rows,
+        vec![vec![output(Value::Nat64(1))], vec![output(Value::Nat64(2))],],
+    );
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(22),
             ],
             vec![
                 Value::Nat64(3),

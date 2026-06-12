@@ -40,7 +40,7 @@ pub(crate) use hash::with_test_hash_override;
 pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value, hash_value};
 pub use input::{InputValue, InputValueEnum};
 pub use map::{MapValueError, SchemaInvariantError};
-pub use output::{OutputValue, OutputValueEnum};
+pub use output::{OutputValue, OutputValueEnum, render_output_value_text};
 pub use tag::ValueTag;
 
 //

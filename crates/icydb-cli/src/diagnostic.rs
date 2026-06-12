@@ -404,6 +404,9 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         SqlWriteBoundaryCode::WriteOrderByUnsupportedShape => {
             "SQL write ORDER BY only supports direct field targets"
         }
+        SqlWriteBoundaryCode::ReturningResponseTooLarge => {
+            "UPDATE RETURNING response exceeds this endpoint's response-size budget"
+        }
     }
 }
 

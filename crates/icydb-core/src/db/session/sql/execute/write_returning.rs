@@ -16,10 +16,31 @@ use crate::{
         },
         sql::parser::SqlReturningProjection,
     },
+    error::InternalError,
     traits::EntityValue,
-    value::Value,
+    value::{OutputValue, Value, render_output_value_text},
 };
+use candid::{CandidType, Encode};
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
+
+#[derive(CandidType)]
+enum SqlReturningResponseSizeProbe {
+    Projection(SqlReturningProjectionSizeProbe),
+}
+
+#[derive(CandidType)]
+struct SqlReturningProjectionSizeProbe {
+    entity: String,
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    row_count: u32,
+}
+
+struct SqlReturningRenderedProjectionRows {
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    row_count: u32,
+}
 
 /// Shape one SQL INSERT/UPDATE mutation result after the write has already run.
 ///
@@ -100,6 +121,41 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fi
     sql_returning_field_selection(indices.as_slice()).map(|_| ())
 }
 
+/// Validate one public/generated SQL `UPDATE RETURNING` response-size budget
+/// against the already-prepared mutation after-images.
+///
+/// This must run after structural mutation validation has produced sanitized
+/// after-images but before the executor opens its commit window.
+pub(in crate::db::session::sql::execute) fn validate_sql_returning_response_byte_cap<E>(
+    entity_name: &str,
+    entities: &[E],
+    returning: Option<&SqlReturningProjection>,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    max_response_bytes: Option<u32>,
+) -> Result<(), InternalError>
+where
+    E: EntityValue,
+{
+    let (Some(returning), Some(max_response_bytes)) = (returning, max_response_bytes) else {
+        return Ok(());
+    };
+
+    let payload_len = encoded_sql_returning_projection_response_len(
+        entity_name,
+        entities,
+        returning,
+        descriptor,
+    )?;
+    let max_response_bytes = usize::try_from(max_response_bytes).unwrap_or(usize::MAX);
+    if payload_len > max_response_bytes {
+        return Err(InternalError::query_sql_write_boundary(
+            SqlWriteBoundaryCode::ReturningResponseTooLarge,
+        ));
+    }
+
+    Ok(())
+}
+
 // Materialize every field from one typed write result for `RETURNING *`.
 fn sql_returning_all_values<E>(entity: &E, field_count: usize) -> Result<Vec<Value>, QueryError>
 where
@@ -133,6 +189,88 @@ where
     }
 
     Ok(row)
+}
+
+fn encoded_sql_returning_projection_response_len<E>(
+    entity_name: &str,
+    entities: &[E],
+    returning: &SqlReturningProjection,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+) -> Result<usize, InternalError>
+where
+    E: EntityValue,
+{
+    let rendered = sql_returning_rendered_projection_rows(entities, returning, descriptor)?;
+    let payload = SqlReturningResponseSizeProbe::Projection(SqlReturningProjectionSizeProbe {
+        entity: entity_name.to_string(),
+        columns: rendered.columns,
+        rows: rendered.rows,
+        row_count: rendered.row_count,
+    });
+    let encoded = Encode!(&payload).map_err(|_| InternalError::query_executor_invariant())?;
+
+    Ok(encoded.len())
+}
+
+fn sql_returning_rendered_projection_rows<E>(
+    entities: &[E],
+    returning: &SqlReturningProjection,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+) -> Result<SqlReturningRenderedProjectionRows, InternalError>
+where
+    E: EntityValue,
+{
+    let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
+
+    match returning {
+        SqlReturningProjection::All => {
+            let columns = projection_labels_from_accepted_write_descriptor(descriptor);
+            let field_count = descriptor.required_slot_count();
+            let rows = entities
+                .iter()
+                .map(|entity| {
+                    sql_returning_all_values(entity, field_count)
+                        .map(render_sql_returning_value_row)
+                        .map_err(query_error_to_internal_invariant)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(SqlReturningRenderedProjectionRows {
+                columns,
+                rows,
+                row_count,
+            })
+        }
+        SqlReturningProjection::Fields(fields) => {
+            let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
+            let indices = sql_returning_field_indices(&all_columns, fields)
+                .map_err(query_error_to_internal_invariant)?;
+            let rows = entities
+                .iter()
+                .map(|entity| {
+                    sql_returning_selected_values(entity, indices.as_slice())
+                        .map(render_sql_returning_value_row)
+                        .map_err(query_error_to_internal_invariant)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(SqlReturningRenderedProjectionRows {
+                columns: fields.clone(),
+                rows,
+                row_count,
+            })
+        }
+    }
+}
+
+fn render_sql_returning_value_row(row: Vec<Value>) -> Vec<String> {
+    row.into_iter()
+        .map(|value| render_output_value_text(&OutputValue::from(value)))
+        .collect()
+}
+
+fn query_error_to_internal_invariant(_err: QueryError) -> InternalError {
+    InternalError::query_executor_invariant()
 }
 
 // Resolve a SQL RETURNING field list against the target entity columns once so

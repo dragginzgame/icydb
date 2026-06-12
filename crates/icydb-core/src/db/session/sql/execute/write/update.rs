@@ -18,6 +18,7 @@ use crate::{
             SqlValidatedUpdatePlan, classify_sql_update_policy,
             execute::write_returning::{
                 sql_write_statement_result, validate_sql_returning_projection_fields,
+                validate_sql_returning_response_byte_cap,
             },
         },
         sql::{
@@ -120,6 +121,17 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        self.execute_sql_update_statement_with_returning_bounds::<E>(statement, None)
+    }
+
+    fn execute_sql_update_statement_with_returning_bounds<E>(
+        &self,
+        statement: &SqlUpdateStatement,
+        returning_bounds: Option<SqlUpdateReturningBounds>,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         let schema = self
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
@@ -159,11 +171,20 @@ impl<C: CanisterKind> DbSession<C> {
                 accepted_schema_info,
                 accepted_schema_fingerprint,
                 |save| {
-                    save.apply_internal_lowered_structural_mutation_batch(
+                    save.apply_internal_lowered_structural_mutation_batch_with_precommit(
                         MutationMode::Update,
                         rows,
                         write_context,
                         mutation_row_decode_contract,
+                        |entities| {
+                            validate_sql_returning_response_byte_cap(
+                                E::MODEL.name(),
+                                entities,
+                                statement.returning.as_ref(),
+                                &descriptor,
+                                returning_bounds.and_then(|bounds| bounds.max_response_bytes),
+                            )
+                        },
                     )
                 },
                 std::convert::identity,
@@ -220,17 +241,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(plan)
     }
 
-    fn reject_configured_returning_response_byte_cap(
-        returning_bounds: SqlUpdateReturningBounds,
-        returning_requested: bool,
-    ) -> Result<(), QueryError> {
-        if returning_requested && returning_bounds.max_response_bytes.is_some() {
-            return Err(QueryError::unsupported_query());
-        }
-
-        Ok(())
-    }
-
     /// Execute a policy-validated public primary-key SQL `UPDATE` plan.
     ///
     /// This adapter intentionally accepts only the primary-key validated plan
@@ -245,12 +255,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Self::reject_configured_returning_response_byte_cap(
-            plan.returning_bounds,
-            plan.statement().returning.is_some(),
-        )?;
-
-        self.execute_sql_update_statement::<E>(plan.statement())
+        self.execute_sql_update_statement_with_returning_bounds::<E>(
+            plan.statement(),
+            Some(plan.returning_bounds),
+        )
     }
 
     /// Execute a policy-validated bounded deterministic SQL `UPDATE` plan.
@@ -262,12 +270,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Self::reject_configured_returning_response_byte_cap(
-            plan.returning_bounds,
-            plan.statement().returning.is_some(),
-        )?;
-
-        self.execute_sql_update_statement::<E>(plan.statement())
+        self.execute_sql_update_statement_with_returning_bounds::<E>(
+            plan.statement(),
+            Some(plan.returning_bounds),
+        )
     }
 
     /// Classify and execute one public primary-key-only SQL `UPDATE`.

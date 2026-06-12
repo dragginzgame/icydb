@@ -390,6 +390,7 @@ impl ErrorCode {
     pub const SQL_WRITE_DUPLICATE_RETURNING_FIELD: Self = Self(148);
     pub const SQL_WRITE_UPDATE_MISSING_WHERE_PREDICATE: Self = Self(149);
     pub const SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE: Self = Self(150);
+    pub const SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE: Self = Self(183);
     pub const QUERY_UNSUPPORTED_PROJECTION: Self = Self(151);
     pub const QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED: Self = Self(152);
     pub const QUERY_PROJECTION_NUMERIC_SCALE_ARGUMENTS: Self = Self(153);
@@ -485,7 +486,7 @@ impl ErrorCode {
             12 | 38..=102 | 166..=182 => DiagnosticCode::QueryUnsupportedSqlFeature,
             13 | 103..=113 => DiagnosticCode::QuerySqlSurfaceMismatch,
             14 | 114..=134 => DiagnosticCode::SchemaDdlAdmission,
-            135..=150 => DiagnosticCode::QuerySqlWriteBoundary,
+            135..=150 | 183 => DiagnosticCode::QuerySqlWriteBoundary,
             15 => DiagnosticCode::StoreNotFound,
             16 => DiagnosticCode::StoreCorruption,
             17 => DiagnosticCode::StoreInvariantViolation,
@@ -515,7 +516,7 @@ impl ErrorCode {
             38..=102 => Self::sql_feature_detail(self.raw()),
             103..=113 => Self::sql_surface_detail(self.raw()),
             114..=134 => Self::schema_ddl_detail(self.raw()),
-            136..=150 => Self::sql_write_boundary_detail(self.raw()),
+            136..=150 | 183 => Self::sql_write_boundary_detail(self.raw()),
             152..=162 => Self::query_projection_detail(self.raw()),
             164..=165 => Self::query_result_shape_detail(self.raw()),
             166..=182 => Self::sql_lowering_detail(self.raw()),
@@ -573,7 +574,12 @@ impl ErrorCode {
     }
 
     const fn from_sql_write_boundary(boundary: SqlWriteBoundaryCode) -> Self {
-        Self(Self::SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE.raw() + boundary as u16)
+        match boundary {
+            SqlWriteBoundaryCode::ReturningResponseTooLarge => {
+                Self::SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE
+            }
+            _ => Self(Self::SQL_WRITE_PRIMARY_KEY_LITERAL_SHAPE.raw() + boundary as u16),
+        }
     }
 
     const fn from_query_projection(reason: QueryProjectionCode) -> Self {
@@ -860,6 +866,9 @@ impl ErrorCode {
             }),
             150 => Some(DiagnosticDetail::SqlWriteBoundary {
                 boundary: SqlWriteBoundaryCode::WriteOrderByUnsupportedShape,
+            }),
+            183 => Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::ReturningResponseTooLarge,
             }),
             _ => None,
         }
@@ -1269,6 +1278,7 @@ pub enum SqlWriteBoundaryCode {
     DuplicateReturningField,
     UpdateMissingWherePredicate,
     WriteOrderByUnsupportedShape,
+    ReturningResponseTooLarge,
 }
 
 ///
@@ -1489,10 +1499,10 @@ fn fmt_compact_code(f: &mut fmt::Formatter<'_>, raw: u16) -> fmt::Result {
 mod tests {
     use super::{
         Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
-        QueryProjectionCode, SqlFeatureCode, SqlLoweringCode,
+        QueryProjectionCode, SqlFeatureCode, SqlLoweringCode, SqlWriteBoundaryCode,
     };
 
-    const ORDERED_ERROR_CODES: [ErrorCode; 182] = [
+    const ORDERED_ERROR_CODES: [ErrorCode; 183] = [
         ErrorCode::QUERY_VALIDATE,
         ErrorCode::QUERY_INTENT,
         ErrorCode::QUERY_PLAN,
@@ -1675,6 +1685,7 @@ mod tests {
         ErrorCode::SQL_LOWERING_WHERE_EXPRESSION_SHAPE,
         ErrorCode::SQL_LOWERING_PARAMETER_PLACEMENT,
         ErrorCode::SQL_LOWERING_SQL_DDL_EXECUTION_UNSUPPORTED,
+        ErrorCode::SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE,
     ];
 
     #[test]
@@ -1732,6 +1743,12 @@ mod tests {
             ErrorCode::SQL_LOWERING_DISTINCT_ORDER_BY_PROJECTION.diagnostic_detail(),
             Some(DiagnosticDetail::SqlLowering {
                 reason: SqlLoweringCode::DistinctOrderByProjection,
+            })
+        );
+        assert_eq!(
+            ErrorCode::SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE.diagnostic_detail(),
+            Some(DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::ReturningResponseTooLarge,
             })
         );
     }
