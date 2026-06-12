@@ -70,7 +70,10 @@ pub(in crate::db) use compiled::{
     CompiledSqlCommand, SqlCompiledCommandExecutionContext, SqlProjectionContract,
 };
 pub use result::SqlStatementResult;
-pub(in crate::db) use update_policy::DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES;
+#[cfg(test)]
+pub(in crate::db) use update_policy::{
+    DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
+};
 pub use update_policy::{
     SqlAdminBulkUpdatePlan, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
     SqlSessionCurrentUpdatePlan, SqlUpdateAssignmentPolicy, SqlUpdateExposurePolicy,

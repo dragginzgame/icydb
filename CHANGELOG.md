@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.16` centralizes the public bounded SQL `UPDATE` default limit and
+  keeps schema-derived generated/public update budgets on one policy context.
+
 - `0.181.15` gives schema-derived public/generated SQL `UPDATE RETURNING`
   endpoints a default response-byte budget enforced before commit, while
   cleaning up `icydb.toml` discovery and renaming the shared config crate to

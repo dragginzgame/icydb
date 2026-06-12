@@ -170,6 +170,38 @@ fn config_init_preserves_non_cargo_directory_fallback() {
 }
 
 #[test]
+fn config_init_reports_malformed_cargo_project_instead_of_fallback() {
+    let root = config_init_test_root("malformed-cargo");
+    let package = root.join("package");
+    let canister = package.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    std::fs::write(package.join("Cargo.toml"), "[package\n")
+        .expect("malformed package manifest should be written");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        canister.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    let err =
+        init_config_without_existing_config(args).expect_err("malformed Cargo project should fail");
+
+    assert!(err.contains("cargo metadata failed for config placement"));
+    assert!(!canister.join("icydb.toml").exists());
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
 fn config_init_refuses_existing_config_without_force() {
     let root = config_init_test_root("existing");
     let start_dir = root.join("canisters").join("demo");

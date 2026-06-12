@@ -1,6 +1,8 @@
 use super::*;
 use crate::{
-    db::session::sql::DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
+    db::session::sql::{
+        DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT, DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
+    },
     db::{
         MutationMode, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
         SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedUpdatePlan, StructuralPatch,
@@ -129,7 +131,7 @@ fn public_primary_key_update_plan_with_returning_caps(
             primary_key_fields: &["id"],
             generated_fields: &[],
             managed_fields: &[],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows,
             max_returning_response_bytes,
         },
@@ -166,7 +168,7 @@ fn public_bounded_update_plan_with_returning_caps(
             primary_key_fields: &["id"],
             generated_fields: &[],
             managed_fields: &[],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows,
             max_returning_response_bytes,
         },
@@ -2292,6 +2294,38 @@ fn execute_sql_public_bounded_update_derives_context_and_mutates_limited_rows() 
                 Value::Text("Cid".to_string()),
                 Value::Nat64(21),
             ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_public_bounded_update_rejects_limit_above_default_without_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21)]);
+    let excessive_limit = DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT
+        .checked_add(1)
+        .expect("test default public bounded update limit should fit u32");
+
+    let err = session
+        .execute_sql_public_bounded_update::<SessionSqlWriteEntity>(
+            format!(
+                "UPDATE SessionSqlWriteEntity SET age = 22 \
+                 WHERE age = 21 ORDER BY id ASC LIMIT {excessive_limit}"
+            )
+            .as_str(),
+        )
+        .expect_err("schema-derived public bounded UPDATE should reject excessive LIMIT");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "public bounded UPDATE should enforce the default maximum limit before execution",
+    );
+    assert_eq!(
+        persisted_write_ages(&session),
+        vec![
+            vec![Value::Nat64(1), Value::Nat64(21)],
+            vec![Value::Nat64(2), Value::Nat64(21)],
         ],
     );
 }

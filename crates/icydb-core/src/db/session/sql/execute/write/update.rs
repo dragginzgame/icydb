@@ -13,10 +13,9 @@ use crate::{
         query::intent::StructuralQuery,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
         session::sql::{
-            DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES, SqlPublicBoundedUpdatePlan,
-            SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult, SqlUpdateExposurePolicy,
-            SqlUpdatePolicyContext, SqlUpdateReturningBounds, SqlValidatedUpdatePlan,
-            classify_sql_update_policy,
+            SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
+            SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlUpdateReturningBounds,
+            SqlValidatedUpdatePlan, classify_sql_update_policy,
             execute::write_returning::{
                 sql_write_statement_result, validate_sql_returning_bounds,
                 validate_sql_returning_projection_fields,
@@ -227,14 +226,11 @@ impl<C: CanisterKind> DbSession<C> {
             .filter(|field| field.write_policy().write_management().is_some())
             .map(AcceptedRowLayoutRuntimeField::name)
             .collect::<Vec<_>>();
-        let context = SqlUpdatePolicyContext {
-            primary_key_fields: descriptor.primary_key_names(),
-            generated_fields: generated_fields.as_slice(),
-            managed_fields: managed_fields.as_slice(),
-            max_public_bounded_limit: 100,
-            max_returning_rows: None,
-            max_returning_response_bytes: Some(DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES),
-        };
+        let context = SqlUpdatePolicyContext::public_generated(
+            descriptor.primary_key_names(),
+            generated_fields.as_slice(),
+            managed_fields.as_slice(),
+        );
         let report = classify_sql_update_policy(sql, policy, context)?;
         let Some(plan) = report.plan else {
             return Err(QueryError::unsupported_query());

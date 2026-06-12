@@ -14,6 +14,10 @@ use crate::db::{
 };
 use std::collections::BTreeSet;
 
+/// Default generated/public bounded SQL `UPDATE` row target limit.
+#[doc(hidden)]
+pub(in crate::db) const DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT: u32 = 100;
+
 /// Default generated/public SQL `UPDATE RETURNING` projection payload budget.
 #[doc(hidden)]
 pub(in crate::db) const DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES: u32 = 1_048_576;
@@ -62,9 +66,26 @@ impl<'a> SqlUpdatePolicyContext<'a> {
             primary_key_fields,
             generated_fields: &[],
             managed_fields: &[],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows: None,
             max_returning_response_bytes: None,
+        }
+    }
+
+    /// Build the default context used by schema-derived public/generated update endpoints.
+    #[must_use]
+    pub(in crate::db) const fn public_generated(
+        primary_key_fields: &'a [&'a str],
+        generated_fields: &'a [&'a str],
+        managed_fields: &'a [&'a str],
+    ) -> Self {
+        Self {
+            primary_key_fields,
+            generated_fields,
+            managed_fields,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
+            max_returning_rows: None,
+            max_returning_response_bytes: Some(DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES),
         }
     }
 }
@@ -1124,7 +1145,7 @@ mod tests {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &[],
             managed_fields: &[],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows: None,
             max_returning_response_bytes: Some(4096),
         };
@@ -1163,7 +1184,7 @@ mod tests {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &[],
             managed_fields: &[],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows: Some(2),
             max_returning_response_bytes: None,
         };
@@ -1261,8 +1282,15 @@ mod tests {
 
     #[test]
     fn update_policy_public_bounded_rejects_excessive_limit() {
+        let excessive_limit = DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT
+            .checked_add(1)
+            .expect("test default public bounded update limit should fit u32");
         let report = classify(
-            "UPDATE Character SET active = false WHERE age = 21 ORDER BY id LIMIT 101",
+            format!(
+                "UPDATE Character SET active = false WHERE age = 21 ORDER BY id \
+                 LIMIT {excessive_limit}",
+            )
+            .as_str(),
             SqlUpdateExposurePolicy::PublicBoundedDeterministic,
         );
 
@@ -1307,7 +1335,7 @@ mod tests {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &["slug"],
             managed_fields: &["updated_at"],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows: None,
             max_returning_response_bytes: None,
         };
@@ -1343,7 +1371,7 @@ mod tests {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &["slug"],
             managed_fields: &["updated_at"],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows: None,
             max_returning_response_bytes: None,
         };
@@ -1381,7 +1409,7 @@ mod tests {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &["slug"],
             managed_fields: &[],
-            max_public_bounded_limit: 100,
+            max_public_bounded_limit: DEFAULT_PUBLIC_BOUNDED_UPDATE_LIMIT,
             max_returning_rows: None,
             max_returning_response_bytes: None,
         };

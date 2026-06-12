@@ -46,6 +46,10 @@ fn new_config_path(start_dir: &Path) -> Result<PathBuf, String> {
 }
 
 fn cargo_metadata_workspace_root(start_dir: &Path) -> Result<Option<PathBuf>, String> {
+    if !has_ancestor_cargo_manifest(start_dir) {
+        return Ok(None);
+    }
+
     let output = Command::new("cargo")
         .arg("metadata")
         .arg("--no-deps")
@@ -55,11 +59,7 @@ fn cargo_metadata_workspace_root(start_dir: &Path) -> Result<Option<PathBuf>, St
         .output()
         .map_err(|err| cargo_metadata_command_error(start_dir, err))?;
     if !output.status.success() {
-        return if cargo_metadata_not_found_project(output.stderr.as_slice()) {
-            Ok(None)
-        } else {
-            Err(cargo_metadata_status_error(start_dir, &output))
-        };
+        return Err(cargo_metadata_status_error(start_dir, &output));
     }
 
     serde_json::from_slice::<CargoMetadata>(output.stdout.as_slice())
@@ -72,9 +72,10 @@ fn cargo_metadata_workspace_root(start_dir: &Path) -> Result<Option<PathBuf>, St
         })
 }
 
-fn cargo_metadata_not_found_project(stderr: &[u8]) -> bool {
-    let stderr = String::from_utf8_lossy(stderr);
-    stderr.contains("could not find `Cargo.toml`")
+fn has_ancestor_cargo_manifest(start_dir: &Path) -> bool {
+    start_dir
+        .ancestors()
+        .any(|ancestor| ancestor.join("Cargo.toml").is_file())
 }
 
 fn cargo_metadata_command_error(start_dir: &Path, err: io::Error) -> String {
