@@ -68,14 +68,18 @@ fn config_init_writes_bounded_update_policy() {
         "icydb-cli-config-init-bounded-test-{}",
         std::process::id()
     ));
-    std::fs::create_dir_all(root.as_path()).expect("test directory should be created");
+    let workspace = root.join("workspace");
+    let canister = workspace.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    std::fs::write(workspace.join("Cargo.toml"), "[workspace]\n")
+        .expect("workspace manifest should be written");
 
     let args = CliArgs::try_parse_from([
         "icydb",
         "config",
         "init",
         "--start-dir",
-        root.to_str().expect("test path should be UTF-8"),
+        canister.to_str().expect("test path should be UTF-8"),
         "--canister",
         "demo_rpg",
         "--update-policy",
@@ -88,8 +92,8 @@ fn config_init_writes_bounded_update_policy() {
 
     init_config(args).expect("config init should succeed");
 
-    let config =
-        std::fs::read_to_string(root.join("icydb.toml")).expect("config file should be written");
+    let config = std::fs::read_to_string(workspace.join("icydb.toml"))
+        .expect("config file should be written");
     assert_eq!(
         config,
         "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
