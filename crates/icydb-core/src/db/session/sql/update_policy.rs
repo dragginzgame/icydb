@@ -325,9 +325,6 @@ pub enum SqlUpdatePolicyRejection {
     GeneratedFieldMutation,
     /// This policy rejects managed/internal field assignment.
     ManagedFieldMutation,
-    /// This policy rejects returning schema-owned fields without an explicit
-    /// public visibility rule.
-    SchemaOwnedReturningField,
     /// The `WHERE` clause did not prove complete primary-key equality.
     PrimaryKeyProofFailed,
     /// This policy requires explicit canonical primary-key ordering.
@@ -398,7 +395,7 @@ pub(in crate::db) fn classify_sql_update_statement_policy(
     };
 
     let classification = classify_update_statement(statement, context);
-    let rejection = update_policy_rejection(policy, statement, &classification, context);
+    let rejection = update_policy_rejection(policy, &classification, context);
     let plan = rejection
         .is_none()
         .then(|| validated_update_plan(statement, policy, &classification, context));
@@ -434,7 +431,6 @@ fn classify_update_statement(
 
 fn update_policy_rejection(
     policy: SqlUpdateExposurePolicy,
-    statement: &SqlUpdateStatement,
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Option<SqlUpdatePolicyRejection> {
@@ -466,45 +462,15 @@ fn update_policy_rejection(
                 return Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed);
             }
 
-            returning_visibility_rejection(policy, statement, context)
+            None
         }
         SqlUpdateExposurePolicy::PublicBoundedDeterministic => {
             bounded_policy_rejection(classification, context)
-                .or_else(|| returning_visibility_rejection(policy, statement, context))
         }
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies returned before shared checks")
         }
     }
-}
-
-fn returning_visibility_rejection(
-    policy: SqlUpdateExposurePolicy,
-    statement: &SqlUpdateStatement,
-    context: SqlUpdatePolicyContext<'_>,
-) -> Option<SqlUpdatePolicyRejection> {
-    match policy {
-        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly
-        | SqlUpdateExposurePolicy::PublicBoundedDeterministic => {}
-        SqlUpdateExposurePolicy::SessionWriteCurrent
-        | SqlUpdateExposurePolicy::AdminBulk
-        | SqlUpdateExposurePolicy::GeneratedQuery
-        | SqlUpdateExposurePolicy::GeneratedDdl => return None,
-    }
-
-    let returning = statement.returning.as_ref()?;
-
-    let references_schema_owned_field = match returning {
-        SqlReturningProjection::All => {
-            !context.generated_fields.is_empty() || !context.managed_fields.is_empty()
-        }
-        SqlReturningProjection::Fields(fields) => fields.iter().any(|field| {
-            contains_field(context.generated_fields, field)
-                || contains_field(context.managed_fields, field)
-        }),
-    };
-
-    references_schema_owned_field.then_some(SqlUpdatePolicyRejection::SchemaOwnedReturningField)
 }
 
 fn validated_update_plan(
@@ -1306,7 +1272,7 @@ mod tests {
     }
 
     #[test]
-    fn update_policy_rejects_schema_owned_returning_fields_on_public_surfaces() {
+    fn update_policy_allows_schema_owned_returning_fields_on_public_surfaces() {
         let context = SqlUpdatePolicyContext {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &["slug"],
@@ -1332,18 +1298,18 @@ mod tests {
 
         for (sql, policy) in cases {
             let report = classify_sql_update_policy(sql, policy, context)
-                .expect("schema-owned RETURNING rejection SQL should parse");
+                .expect("schema-owned RETURNING SQL should parse");
 
-            assert_eq!(
-                report.rejection,
-                Some(SqlUpdatePolicyRejection::SchemaOwnedReturningField),
+            assert!(
+                report.is_admitted(),
+                "public returning follows accepted row projection visibility",
             );
-            assert_no_plan(&report);
+            assert!(report.plan.is_some());
         }
     }
 
     #[test]
-    fn update_policy_preserves_shape_rejections_before_returning_visibility() {
+    fn update_policy_preserves_shape_rejections_with_schema_owned_returning_fields() {
         let context = SqlUpdatePolicyContext {
             primary_key_fields: PRIMARY_KEY,
             generated_fields: &["slug"],

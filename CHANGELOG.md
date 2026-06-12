@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
-- `0.181.12` makes public SQL `UPDATE RETURNING` visibility fail closed for
-  generated and managed schema-owned fields, while narrowing a few parser,
-  data, and grouped-aggregate cleanup boundaries.
+- `0.181.12` keeps public SQL `UPDATE RETURNING` aligned with accepted row
+  projection visibility, including generated and managed fields, while
+  narrowing a few parser, data, and grouped-aggregate cleanup boundaries.
 
 - `0.181.11` makes validated public SQL `UPDATE RETURNING` fail closed when
   configured response-byte caps are present, while trimming stale write and

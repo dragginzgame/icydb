@@ -22,7 +22,7 @@ use crate::{
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
-            parser::{SqlReturningProjection, SqlUpdateStatement},
+            parser::SqlUpdateStatement,
         },
     },
     metrics::sink::SqlWriteKind,
@@ -231,54 +231,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(())
     }
 
-    fn reject_public_returning_schema_owned_fields<E>(
-        &self,
-        returning: Option<&SqlReturningProjection>,
-    ) -> Result<(), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let Some(returning) = returning else {
-            return Ok(());
-        };
-        let schema = self
-            .ensure_accepted_schema_snapshot::<E>()
-            .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-
-        if Self::returning_references_schema_owned_fields(&descriptor, returning) {
-            return Err(QueryError::unsupported_query());
-        }
-
-        Ok(())
-    }
-
-    fn returning_references_schema_owned_fields(
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        returning: &SqlReturningProjection,
-    ) -> bool {
-        match returning {
-            SqlReturningProjection::All => descriptor
-                .fields()
-                .iter()
-                .any(Self::field_is_schema_owned_for_public_returning),
-            SqlReturningProjection::Fields(fields) => fields.iter().any(|returning_field| {
-                descriptor.fields().iter().any(|field| {
-                    field.name() == returning_field.as_str()
-                        && Self::field_is_schema_owned_for_public_returning(field)
-                })
-            }),
-        }
-    }
-
-    const fn field_is_schema_owned_for_public_returning(
-        field: &AcceptedRowLayoutRuntimeField<'_>,
-    ) -> bool {
-        let policy = field.write_policy();
-
-        policy.insert_generation().is_some() || policy.write_management().is_some()
-    }
-
     /// Execute a policy-validated public primary-key SQL `UPDATE` plan.
     ///
     /// This adapter intentionally accepts only the primary-key validated plan
@@ -297,7 +249,6 @@ impl<C: CanisterKind> DbSession<C> {
             plan.returning_bounds,
             plan.statement().returning.is_some(),
         )?;
-        self.reject_public_returning_schema_owned_fields::<E>(plan.statement().returning.as_ref())?;
 
         self.execute_sql_update_statement::<E>(plan.statement())
     }
@@ -315,7 +266,6 @@ impl<C: CanisterKind> DbSession<C> {
             plan.returning_bounds,
             plan.statement().returning.is_some(),
         )?;
-        self.reject_public_returning_schema_owned_fields::<E>(plan.statement().returning.as_ref())?;
 
         self.execute_sql_update_statement::<E>(plan.statement())
     }
