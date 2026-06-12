@@ -12,6 +12,8 @@ mod surface;
 
 pub(crate) use init::init_config;
 #[cfg(test)]
+pub(crate) use init::init_config_without_existing_config;
+#[cfg(test)]
 pub(crate) use surface::ConfigSurface;
 pub(crate) use surface::{
     ConfiguredEndpoint, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT,

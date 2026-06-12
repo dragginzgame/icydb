@@ -16,7 +16,8 @@ use crate::{
     config::{
         ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT,
         METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT,
-        SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT, init_config,
+        SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT,
+        init_config_without_existing_config,
         test_support::{
             config_surface_enabled_for_resolved, config_sync_issues,
             configured_endpoint_enabled_for_resolved, disabled_config_surface_message,
@@ -60,7 +61,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         panic!("expected config init command");
     };
 
-    init_config(args).expect("config init should succeed");
+    init_config_without_existing_config(args).expect("config init should succeed");
 
     let config = std::fs::read_to_string(workspace.join("icydb.toml"))
         .expect("config file should be written");
@@ -99,7 +100,7 @@ fn config_init_writes_bounded_update_policy() {
         panic!("expected config init command");
     };
 
-    init_config(args).expect("config init should succeed");
+    init_config_without_existing_config(args).expect("config init should succeed");
 
     let config = std::fs::read_to_string(workspace.join("icydb.toml"))
         .expect("config file should be written");
@@ -133,7 +134,7 @@ fn config_init_writes_default_config_at_standalone_package_root() {
         panic!("expected config init command");
     };
 
-    init_config(args).expect("config init should succeed");
+    init_config_without_existing_config(args).expect("config init should succeed");
 
     assert!(package.join("icydb.toml").is_file());
     assert!(!canister.join("icydb.toml").exists());
@@ -161,7 +162,7 @@ fn config_init_preserves_non_cargo_directory_fallback() {
         panic!("expected config init command");
     };
 
-    init_config(args).expect("config init should succeed");
+    init_config_without_existing_config(args).expect("config init should succeed");
 
     assert!(start_dir.join("icydb.toml").is_file());
 

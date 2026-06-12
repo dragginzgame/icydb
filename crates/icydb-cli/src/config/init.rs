@@ -17,6 +17,18 @@ use super::resolution::{CONFIG_FILE_NAME, resolve_start_dir};
 
 /// Create a default IcyDB config file at the repository/workspace config root.
 pub(crate) fn init_config(args: ConfigInitArgs) -> Result<(), String> {
+    init_config_with_existing_config_path(args, existing_config_path)
+}
+
+#[cfg(test)]
+pub(crate) fn init_config_without_existing_config(args: ConfigInitArgs) -> Result<(), String> {
+    init_config_with_existing_config_path(args, |_| Ok(None))
+}
+
+fn init_config_with_existing_config_path(
+    args: ConfigInitArgs,
+    existing_config_path: impl FnOnce(&Path) -> Result<Option<PathBuf>, String>,
+) -> Result<(), String> {
     let start_dir = resolve_start_dir(args.start_dir())?;
     let path = existing_config_path(start_dir.as_path())?
         .unwrap_or_else(|| init_config_path(start_dir.as_path()));
