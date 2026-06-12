@@ -8247,8 +8247,18 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     let scalar_repeat = assert_scalar_query_compile_cache_reuses_entry(&session);
     assert_scalar_compiled_select_executes_through_shared_query_plan(&session, &scalar_repeat);
 
+    assert_query_compile_cache_metadata_artifacts(&session);
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        11,
+        "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
+    );
+}
+
+fn assert_query_compile_cache_metadata_artifacts(session: &DbSession<SessionSqlCanister>) {
     assert_query_compile_cache_artifact(
-        &session,
+        session,
         "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
         "EXPLAIN",
         |compiled| {
@@ -8260,7 +8270,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 
     assert_query_compile_cache_artifact(
-        &session,
+        session,
         "DESCRIBE SessionSqlEntity",
         "DESCRIBE",
         |compiled| {
@@ -8272,7 +8282,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 
     assert_query_compile_cache_artifact(
-        &session,
+        session,
         "SHOW INDEXES FROM SessionSqlEntity",
         "SHOW INDEXES FROM",
         |compiled| {
@@ -8284,7 +8294,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 
     assert_query_compile_cache_artifact(
-        &session,
+        session,
         "SHOW COLUMNS SessionSqlEntity",
         "SHOW COLUMNS",
         |compiled| {
@@ -8295,7 +8305,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         },
     );
 
-    assert_query_compile_cache_artifact(&session, "SHOW ENTITIES", "SHOW ENTITIES", |compiled| {
+    assert_query_compile_cache_artifact(session, "SHOW ENTITIES", "SHOW ENTITIES", |compiled| {
         matches!(
             compiled,
             crate::db::session::sql::CompiledSqlCommand::ShowEntities {
@@ -8306,7 +8316,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     });
 
     assert_query_compile_cache_artifact(
-        &session,
+        session,
         "SHOW ENTITY SessionSqlEntity",
         "SHOW ENTITY",
         |compiled| {
@@ -8321,7 +8331,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 
     assert_query_compile_cache_artifact(
-        &session,
+        session,
         "SHOW ENTITIES VERBOSE",
         "SHOW ENTITIES VERBOSE",
         |compiled| {
@@ -8335,7 +8345,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         },
     );
 
-    assert_query_compile_cache_artifact(&session, "SHOW STORES", "SHOW STORES", |compiled| {
+    assert_query_compile_cache_artifact(session, "SHOW STORES", "SHOW STORES", |compiled| {
         matches!(
             compiled,
             crate::db::session::sql::CompiledSqlCommand::ShowStores { verbose: false }
@@ -8343,7 +8353,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     });
 
     assert_query_compile_cache_artifact(
-        &session,
+        session,
         "SHOW STORES VERBOSE",
         "SHOW STORES VERBOSE",
         |compiled| {
@@ -8354,18 +8364,12 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         },
     );
 
-    assert_query_compile_cache_artifact(&session, "SHOW MEMORY", "SHOW MEMORY", |compiled| {
+    assert_query_compile_cache_artifact(session, "SHOW MEMORY", "SHOW MEMORY", |compiled| {
         matches!(
             compiled,
             crate::db::session::sql::CompiledSqlCommand::ShowMemory
         )
     });
-
-    assert_eq!(
-        session.sql_compiled_command_cache_len(),
-        11,
-        "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
-    );
 }
 
 fn assert_scalar_query_compile_cache_reuses_entry(
