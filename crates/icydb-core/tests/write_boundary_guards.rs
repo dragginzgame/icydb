@@ -756,9 +756,10 @@ fn generated_sql_update_surface_stays_policy_validated() {
     assert!(
         public_update.contains("fn schema_derived_sql_update_plan<E>(")
             && public_update.contains("checked_accepted_write_descriptor::<E>(&schema)?")
-            && public_update.contains("primary_key_fields: descriptor.primary_key_names(),")
-            && public_update.contains("generated_fields: generated_fields.as_slice(),")
-            && public_update.contains("managed_fields: managed_fields.as_slice(),"),
+            && public_update.contains("SqlUpdatePolicyContext::public_generated(")
+            && public_update.contains("descriptor.primary_key_names(),")
+            && public_update.contains("generated_fields.as_slice(),")
+            && public_update.contains("managed_fields.as_slice(),"),
         "public generated-update helpers must derive policy context from accepted runtime schema descriptors",
     );
     assert!(
