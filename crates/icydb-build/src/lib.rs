@@ -59,7 +59,7 @@ impl BuildOptions {
         self
     }
 
-    /// Build options with generated SQL DDL/write endpoint emission configured.
+    /// Build options with generated SQL DDL endpoint emission configured.
     #[must_use]
     pub const fn with_sql_ddl_enabled(mut self, enabled: bool) -> Self {
         self.sql.ddl_enabled = enabled;
@@ -113,7 +113,7 @@ impl BuildOptions {
         self.sql.readonly_enabled
     }
 
-    /// Return whether generated actor glue should export SQL DDL/write endpoints.
+    /// Return whether generated actor glue should export the SQL DDL endpoint.
     #[must_use]
     pub const fn sql_ddl_enabled(self) -> bool {
         self.sql.ddl_enabled

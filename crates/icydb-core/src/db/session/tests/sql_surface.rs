@@ -14,6 +14,7 @@ use crate::{
             accepted_schema_cache_fingerprint_method_version, compiled_schema_proposal_for_model,
             execute_sql_ddl_field_addition,
         },
+        session::sql::{SqlStatementSurface, sql_statement_entity_name, sql_statement_surface},
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
             ddl::{
@@ -2456,6 +2457,85 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     assert_eq!(columns, vec!["name".to_string()]);
     assert_eq!(rows, vec![vec![output(Value::Text("Ada".to_string()))]]);
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn sql_statement_surface_routes_row_mutation_to_query_rejection_surface() {
+    for (sql, expected, context) in [
+        (
+            "SELECT * FROM SessionSqlWriteEntity",
+            SqlStatementSurface::Query,
+            "SELECT should route to generated query",
+        ),
+        (
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            SqlStatementSurface::Query,
+            "INSERT should route to generated query for rejection while no write endpoint exists",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+            SqlStatementSurface::Query,
+            "UPDATE should route to generated query for rejection while no write endpoint exists",
+        ),
+        (
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1",
+            SqlStatementSurface::Query,
+            "DELETE should route to generated query for rejection while no write endpoint exists",
+        ),
+        (
+            "SHOW INDEXES FROM SessionSqlWriteEntity",
+            SqlStatementSurface::Query,
+            "introspection should route to generated query",
+        ),
+        (
+            "CREATE INDEX name_idx ON SessionSqlWriteEntity (name)",
+            SqlStatementSurface::Ddl,
+            "DDL should route only to generated DDL",
+        ),
+        (
+            "ALTER TABLE SessionSqlWriteEntity ADD COLUMN nickname text",
+            SqlStatementSurface::Ddl,
+            "ALTER TABLE should route only to generated DDL",
+        ),
+    ] {
+        assert_eq!(
+            sql_statement_surface(sql).expect(context),
+            expected,
+            "{context}",
+        );
+    }
+}
+
+#[test]
+fn sql_statement_entity_name_preserves_row_mutation_target_without_write_surface() {
+    for (sql, expected_entity, context) in [
+        (
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            Some("SessionSqlWriteEntity"),
+            "INSERT target should stay visible for generated query rejection",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+            Some("SessionSqlWriteEntity"),
+            "UPDATE target should stay visible for generated query rejection",
+        ),
+        (
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1",
+            Some("SessionSqlWriteEntity"),
+            "DELETE target should stay visible for generated query rejection",
+        ),
+        (
+            "SHOW ENTITIES",
+            None,
+            "targetless introspection should stay targetless",
+        ),
+    ] {
+        assert_eq!(
+            sql_statement_entity_name(sql).expect(context).as_deref(),
+            expected_entity,
+            "{context}",
+        );
+    }
 }
 
 #[test]

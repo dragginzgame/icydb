@@ -2748,43 +2748,57 @@ fn sql_canister_query_endpoint_rejects_update_sql() {
 }
 
 #[test]
-fn sql_canister_ddl_endpoint_rejects_update_sql_without_row_mutation() {
+fn sql_canister_ddl_endpoint_rejects_row_mutation_sql_without_row_mutation() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
-    let before = expect_projection(
-        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
-            .expect("pre-rejection read should prove the UPDATE target exists"),
-    );
-    let err = ddl_sql(
-        &fixture,
-        "UPDATE SqlTestUser SET age = 22 WHERE name = 'alice'",
-    )
-    .expect_err("DDL endpoint must reject row UPDATE statements");
+    for (label, sql) in [
+        (
+            "INSERT",
+            "INSERT INTO SqlTestUser (name, age) VALUES ('zara', 50)",
+        ),
+        (
+            "UPDATE",
+            "UPDATE SqlTestUser SET age = 22 WHERE name = 'alice'",
+        ),
+        ("DELETE", "DELETE FROM SqlTestUser WHERE name = 'bob'"),
+    ] {
+        let before = expect_projection(
+            query_sql(
+                &fixture,
+                "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+            )
+            .expect("pre-rejection read should prove the row set exists"),
+        );
+        let err = ddl_sql(&fixture, sql).expect_err("DDL endpoint must reject row mutations");
 
-    assert_eq!(
-        err.diagnostic_code(),
-        DiagnosticCode::SchemaDdlAdmission,
-        "DDL endpoint UPDATE rejection should stay at the schema DDL admission boundary",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
-        "DDL endpoint UPDATE rejection should keep query-owned origin metadata",
-    );
-    assert_eq!(
-        err.code(),
-        ErrorCode::SCHEMA_DDL_VALIDATION_FAILED,
-        "DDL endpoint UPDATE rejection should preserve the NotDdl validation leaf code",
-    );
-    let after = expect_projection(
-        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
+        assert_eq!(
+            err.diagnostic_code(),
+            DiagnosticCode::SchemaDdlAdmission,
+            "DDL endpoint {label} rejection should stay at the schema DDL admission boundary",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "DDL endpoint {label} rejection should keep query-owned origin metadata",
+        );
+        assert_eq!(
+            err.code(),
+            ErrorCode::SCHEMA_DDL_VALIDATION_FAILED,
+            "DDL endpoint {label} rejection should preserve the NotDdl validation leaf code",
+        );
+        let after = expect_projection(
+            query_sql(
+                &fixture,
+                "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+            )
             .expect("post-rejection read should still execute"),
-    );
-    assert_eq!(
-        after, before,
-        "rejected DDL endpoint UPDATE must not mutate rows",
-    );
+        );
+        assert_eq!(
+            after, before,
+            "rejected DDL endpoint {label} must not mutate rows",
+        );
+    }
 }
 
 #[test]

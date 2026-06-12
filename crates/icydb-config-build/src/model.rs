@@ -62,7 +62,7 @@ impl GeneratedIcydbConfig {
         )
     }
 
-    /// Return whether SQL DDL/write endpoints should be generated for one canister.
+    /// Return whether the SQL DDL endpoint should be generated for one canister.
     #[must_use]
     pub fn canister_sql_ddl_enabled(&self, canister_name: &str) -> bool {
         self.canister_enabled(
@@ -168,7 +168,7 @@ impl GeneratedCanisterConfig {
         self.sql.readonly
     }
 
-    /// Return whether generated actor glue should export SQL DDL/write endpoints.
+    /// Return whether generated actor glue should export the SQL DDL endpoint.
     #[must_use]
     pub const fn sql_ddl(&self) -> bool {
         self.sql.ddl

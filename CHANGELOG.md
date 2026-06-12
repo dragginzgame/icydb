@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.4` locks generated SQL routing to query, DDL, and fixture surfaces
+  only, with route and wasm-report guards proving row-mutation SQL remains
+  policy-gated until an explicit generated write endpoint is introduced.
+
 - `0.181.3` adds typed-plan and accepted-schema-derived execution adapters for
   public primary-key and bounded deterministic SQL `UPDATE`, keeping
   generated/public-safe execution behind policy-specific validated plans.

@@ -96,6 +96,7 @@ struct Build {
 struct GeneratedEndpointSurface {
     sql_readonly: bool,
     sql_ddl: bool,
+    sql_update: bool,
     sql_fixtures: bool,
     metrics: bool,
     metrics_extended: bool,
@@ -378,6 +379,7 @@ fn endpoint_surface(info: &WasmInfo) -> Build {
     let generated_endpoint_surface = GeneratedEndpointSurface {
         sql_readonly: names.contains(&"__icydb_query"),
         sql_ddl: names.contains(&"__icydb_ddl"),
+        sql_update: names.contains(&"__icydb_update"),
         sql_fixtures: names.contains(&"__icydb_fixtures_reset")
             || names.contains(&"__icydb_fixtures_load"),
         metrics: names.contains(&"__icydb_metrics"),
@@ -467,6 +469,7 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
     let surface_rows = [
         ("sql_readonly", surface.sql_readonly),
         ("sql_ddl", surface.sql_ddl),
+        ("sql_update", surface.sql_update),
         ("sql_fixtures", surface.sql_fixtures),
         ("metrics", surface.metrics),
         ("metrics_extended", surface.metrics_extended),
@@ -517,4 +520,50 @@ fn append_step_summary(path: &Path, summary: &str) -> Result<(), String> {
         .map_err(|err| format!("failed to open step summary {}: {err}", path.display()))?;
     file.write_all(summary.as_bytes())
         .map_err(|err| format!("failed to write step summary {}: {err}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WasmInfo, endpoint_surface};
+
+    fn wasm_info(exported_methods: &[&str]) -> WasmInfo {
+        WasmInfo {
+            function_count: None,
+            callback_count: None,
+            data_section_count: None,
+            data_section_bytes: None,
+            exported_method_count: exported_methods.len(),
+            exported_methods: exported_methods
+                .iter()
+                .map(|export| (*export).to_string())
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn endpoint_surface_reports_absent_generated_sql_update_endpoint() {
+        let build = endpoint_surface(&wasm_info(&[
+            "canister_query __icydb_query",
+            "canister_update __icydb_ddl",
+            "canister_update __icydb_fixtures_reset",
+            "canister_update __icydb_fixtures_load",
+        ]));
+
+        assert!(build.generated_endpoint_surface.sql_readonly);
+        assert!(build.generated_endpoint_surface.sql_ddl);
+        assert!(build.generated_endpoint_surface.sql_fixtures);
+        assert!(!build.generated_endpoint_surface.sql_update);
+        assert!(build.custom_exports.is_empty());
+    }
+
+    #[test]
+    fn endpoint_surface_flags_unexpected_generated_sql_update_endpoint() {
+        let build = endpoint_surface(&wasm_info(&[
+            "canister_query __icydb_query",
+            "canister_update __icydb_update",
+        ]));
+
+        assert!(build.generated_endpoint_surface.sql_update);
+        assert_eq!(build.custom_exports, vec!["__icydb_update".to_string()]);
+    }
 }

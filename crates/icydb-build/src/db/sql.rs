@@ -329,3 +329,53 @@ fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
         db().execute_sql_query_with_perf_attribution::<#entity_ty>(sql)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use quote::quote;
+
+    use super::SqlSurfaceTokens;
+
+    fn compact_tokens(tokens: proc_macro2::TokenStream) -> String {
+        tokens
+            .to_string()
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect()
+    }
+
+    #[test]
+    fn generated_sql_surface_exports_only_query_ddl_and_fixture_endpoints() {
+        let surface = compact_tokens(super::sql_surface_endpoint_exports(true, true, true));
+
+        assert!(surface.contains("fn__icydb_query("));
+        assert!(surface.contains("fn__icydb_ddl("));
+        assert!(surface.contains("fn__icydb_fixtures_reset("));
+        assert!(surface.contains("fn__icydb_fixtures_load("));
+        assert!(
+            !surface.contains("__icydb_update"),
+            "generated SQL glue must not grow a row-mutation endpoint without an explicit policy gate",
+        );
+    }
+
+    #[test]
+    fn generated_sql_surface_never_calls_broad_session_update_executor() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SqlSurfaceTokens::empty(true, true, true);
+
+        surface_tokens.push_entity(&entity_ty);
+
+        let surface = compact_tokens(quote!(#surface_tokens));
+        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
+        assert!(surface.contains("execute_sql_ddl"));
+        assert!(
+            !surface.contains("execute_sql_update"),
+            "generated SQL glue must not route to broad session SQL UPDATE",
+        );
+        assert!(
+            !surface.contains("execute_sql_public_primary_key_update")
+                && !surface.contains("execute_sql_public_bounded_update"),
+            "generated SQL glue must select an explicit generated endpoint policy before consuming public UPDATE helpers",
+        );
+    }
+}

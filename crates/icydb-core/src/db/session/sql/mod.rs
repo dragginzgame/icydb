@@ -82,9 +82,12 @@ pub use update_policy::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub enum SqlStatementSurface {
-    /// SQL handled by the readonly query endpoint.
+    /// SQL routed to the generated query endpoint.
+    ///
+    /// Row-mutation statements route here for read-only surface rejection
+    /// until a generated write endpoint explicitly selects an update policy.
     Query,
-    /// SQL handled by the DDL/update endpoint.
+    /// SQL handled by the generated DDL endpoint.
     Ddl,
 }
 
