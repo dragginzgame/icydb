@@ -1,7 +1,7 @@
 .PHONY: help version tags patch minor major release-stage release-commit release-push \
         release-patch release-minor release-major release \
         test test-bump build check clippy fmt fmt-check clean install install-dev update-dev \
-        test-watch all ensure-clean security-check check-versioning \
+        fetch test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks \
         wasm-size-report wasm-audit-report \
         lint-workflows check-invariants \
@@ -65,6 +65,7 @@ help:
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
+	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
 	@echo "  clean            Clean build artifacts"
@@ -180,6 +181,9 @@ wasm-audit-report:
 #
 # Development commands
 #
+
+fetch:
+	$(CARGO_WORK_ENV) cargo fetch --locked
 
 build: ensure-clean ensure-hooks
 	$(CARGO_WORK_ENV) cargo build --release --workspace
