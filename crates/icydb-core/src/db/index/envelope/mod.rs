@@ -28,11 +28,7 @@ pub(in crate::db) fn key_within_envelope<K: Ord + Clone>(
 /// Shared directional strict-advancement comparator for continuation checks.
 /// `candidate` advances only when it is strictly after `anchor` under direction.
 #[must_use]
-pub(in crate::db) fn continuation_advanced<K: Ord>(
-    direction: Direction,
-    candidate: &K,
-    anchor: &K,
-) -> bool {
+fn continuation_advanced<K: Ord>(direction: Direction, candidate: &K, anchor: &K) -> bool {
     match direction {
         Direction::Asc => candidate > anchor,
         Direction::Desc => candidate < anchor,
@@ -41,7 +37,7 @@ pub(in crate::db) fn continuation_advanced<K: Ord>(
 
 /// Rewrite continuation bounds while cloning only retained bound edges.
 #[must_use]
-pub(in crate::db) fn resume_bounds_from_refs<K: Clone + Ord>(
+fn resume_bounds_from_refs<K: Clone + Ord>(
     direction: Direction,
     lower: &Bound<K>,
     upper: &Bound<K>,
@@ -74,7 +70,7 @@ pub(in crate::db) fn resume_bounds_from_refs<K: Clone + Ord>(
 }
 
 /// Validate continuation anchor containment against the original index-scan envelope.
-pub(in crate::db) fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
+fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
     anchor: Option<&K>,
     lower: &Bound<K>,
     upper: &Bound<K>,
