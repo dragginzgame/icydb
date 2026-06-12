@@ -111,7 +111,7 @@ syn = "2.0"
 thiserror = "2.0"
 # Temporary resolver guard for ic-agent 0.47.3 under rustc 1.96:
 # time 0.3.48 trips E0119 in ic-agent's nonce timestamp path.
-time = { version = "=0.3.41", default-features = false }
+time = { version = "=0.3.47", default-features = false }
 trybuild = "1.0"
 # removed std because it imports rand; serde feature doesn't compile with std
 ulid = { version = "1.2", default-features = false }

@@ -6,18 +6,19 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
+
+use serde::Deserialize;
 
 use crate::cli::ConfigInitArgs;
 
-use super::resolution::{
-    CONFIG_FILE_NAME, resolve_start_dir, resolved_config_path, workspace_root,
-};
+use super::resolution::{CONFIG_FILE_NAME, resolve_start_dir};
 
 /// Create a default IcyDB config file at the repository/workspace config root.
 pub(crate) fn init_config(args: ConfigInitArgs) -> Result<(), String> {
     let start_dir = resolve_start_dir(args.start_dir())?;
-    let path = resolved_config_path(start_dir.as_path())
+    let path = existing_config_path(start_dir.as_path())?
         .unwrap_or_else(|| init_config_path(start_dir.as_path()));
 
     if path.exists() && !args.force() {
@@ -37,9 +38,38 @@ pub(crate) fn init_config(args: ConfigInitArgs) -> Result<(), String> {
 }
 
 fn init_config_path(start_dir: &Path) -> PathBuf {
-    workspace_root(start_dir)
+    cargo_metadata_workspace_root(start_dir)
         .unwrap_or_else(|| start_dir.to_path_buf())
         .join(CONFIG_FILE_NAME)
+}
+
+fn existing_config_path(start_dir: &Path) -> Result<Option<PathBuf>, String> {
+    icydb_config_build::load_resolved_icydb_toml(start_dir, &[])
+        .map(|resolved| resolved.config_path().map(Path::to_path_buf))
+        .map_err(|err| err.to_string())
+}
+
+fn cargo_metadata_workspace_root(start_dir: &Path) -> Option<PathBuf> {
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--no-deps")
+        .arg("--format-version")
+        .arg("1")
+        .current_dir(start_dir)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    serde_json::from_slice::<CargoMetadata>(output.stdout.as_slice())
+        .ok()
+        .map(|metadata| metadata.workspace_root)
+}
+
+#[derive(Deserialize)]
+struct CargoMetadata {
+    workspace_root: PathBuf,
 }
 
 fn config_exists_message(path: &Path) -> String {

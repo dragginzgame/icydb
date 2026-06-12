@@ -3,6 +3,8 @@
 //! Does not own: ICP process command construction or observability decoding.
 //! Boundary: test-only assertions over config helpers and generated endpoint constants.
 
+use std::path::Path;
+
 use clap::Parser;
 
 use crate::{
@@ -24,10 +26,15 @@ fn config_init_writes_default_config_at_workspace_root() {
     let root =
         std::env::temp_dir().join(format!("icydb-cli-config-init-test-{}", std::process::id()));
     let workspace = root.join("workspace");
-    let canister = workspace.join("canisters").join("demo").join("rpg");
+    let package = workspace.join("member");
+    let canister = package.join("canisters").join("demo").join("rpg");
     std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
-    std::fs::write(workspace.join("Cargo.toml"), "[workspace]\n")
-        .expect("workspace manifest should be written");
+    write_workspace_manifest(workspace.as_path());
+    write_package_manifest(
+        package.as_path(),
+        "demo_member",
+        "# [workspace]\ndescription = \"mentions [workspace]\"\n",
+    );
 
     let args = CliArgs::try_parse_from([
         "icydb",
@@ -54,6 +61,7 @@ fn config_init_writes_default_config_at_workspace_root() {
 
     let config = std::fs::read_to_string(workspace.join("icydb.toml"))
         .expect("config file should be written");
+    assert!(!package.join("icydb.toml").exists());
     assert_eq!(
         config,
         "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\nupdate = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
@@ -69,10 +77,11 @@ fn config_init_writes_bounded_update_policy() {
         std::process::id()
     ));
     let workspace = root.join("workspace");
-    let canister = workspace.join("canisters").join("demo").join("rpg");
+    let package = workspace.join("member");
+    let canister = package.join("canisters").join("demo").join("rpg");
     std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
-    std::fs::write(workspace.join("Cargo.toml"), "[workspace]\n")
-        .expect("workspace manifest should be written");
+    write_workspace_manifest(workspace.as_path());
+    write_package_manifest(package.as_path(), "demo_member", "");
 
     let args = CliArgs::try_parse_from([
         "icydb",
@@ -98,6 +107,69 @@ fn config_init_writes_bounded_update_policy() {
         config,
         "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
     );
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn config_init_writes_default_config_at_standalone_package_root() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-config-init-standalone-test-{}",
+        std::process::id()
+    ));
+    let package = root.join("package");
+    let canister = package.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    write_package_manifest(package.as_path(), "demo_standalone", "");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        canister.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    init_config(args).expect("config init should succeed");
+
+    assert!(package.join("icydb.toml").is_file());
+    assert!(!canister.join("icydb.toml").exists());
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn config_init_preserves_non_cargo_directory_fallback() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-config-init-non-cargo-test-{}",
+        std::process::id()
+    ));
+    let start_dir = root.join("project").join("canisters").join("demo");
+    std::fs::create_dir_all(start_dir.as_path()).expect("test directory should be created");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        start_dir.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    init_config(args).expect("config init should succeed");
+
+    assert!(start_dir.join("icydb.toml").is_file());
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
@@ -168,6 +240,27 @@ fn config_report_marks_canister_settings_against_icp_environment() {
         line.contains("admin_rpg") && line.contains("update:bounded") && line.contains("ok")
     }));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+fn write_workspace_manifest(workspace: &Path) {
+    std::fs::write(
+        workspace.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"member\"]\nresolver = \"2\"\n",
+    )
+    .expect("workspace manifest should be written");
+}
+
+fn write_package_manifest(package: &Path, name: &str, extra_package_fields: &str) {
+    std::fs::create_dir_all(package.join("src")).expect("package src directory should be created");
+    std::fs::write(
+        package.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n{extra_package_fields}"
+        ),
+    )
+    .expect("package manifest should be written");
+    std::fs::write(package.join("src").join("lib.rs"), "")
+        .expect("package lib target should be written");
 }
 
 #[test]

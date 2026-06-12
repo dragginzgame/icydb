@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.14` enforces configured public SQL `UPDATE RETURNING` row-count
+  budgets before commit while preserving count-only public updates.
+
 - `0.181.13` enforces configured public SQL `UPDATE RETURNING` response-byte
   caps against rendered projection payloads after mutation after-images are
   prepared but before commit publication.

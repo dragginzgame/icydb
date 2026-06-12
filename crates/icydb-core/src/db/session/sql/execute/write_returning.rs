@@ -8,7 +8,7 @@ use crate::{
         PersistedRow, QueryError,
         schema::AcceptedRowLayoutRuntimeContract,
         session::sql::{
-            SqlStatementResult,
+            SqlStatementResult, SqlUpdateReturningBounds,
             projection::{
                 sql_projection_statement_result_from_fallible_value_rows,
                 sql_projection_statement_result_from_value_rows,
@@ -121,36 +121,50 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fi
     sql_returning_field_selection(indices.as_slice()).map(|_| ())
 }
 
-/// Validate one public/generated SQL `UPDATE RETURNING` response-size budget
+/// Validate one public/generated SQL `UPDATE RETURNING` row and response budget
 /// against the already-prepared mutation after-images.
 ///
 /// This must run after structural mutation validation has produced sanitized
 /// after-images but before the executor opens its commit window.
-pub(in crate::db::session::sql::execute) fn validate_sql_returning_response_byte_cap<E>(
+pub(in crate::db::session::sql::execute) fn validate_sql_returning_bounds<E>(
     entity_name: &str,
     entities: &[E],
     returning: Option<&SqlReturningProjection>,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    max_response_bytes: Option<u32>,
+    bounds: Option<SqlUpdateReturningBounds>,
 ) -> Result<(), InternalError>
 where
     E: EntityValue,
 {
-    let (Some(returning), Some(max_response_bytes)) = (returning, max_response_bytes) else {
+    let Some(returning) = returning else {
+        return Ok(());
+    };
+    let Some(bounds) = bounds else {
         return Ok(());
     };
 
-    let payload_len = encoded_sql_returning_projection_response_len(
-        entity_name,
-        entities,
-        returning,
-        descriptor,
-    )?;
-    let max_response_bytes = usize::try_from(max_response_bytes).unwrap_or(usize::MAX);
-    if payload_len > max_response_bytes {
-        return Err(InternalError::query_sql_write_boundary(
-            SqlWriteBoundaryCode::ReturningResponseTooLarge,
-        ));
+    if let Some(max_rows) = bounds.max_rows {
+        let max_rows = usize::try_from(max_rows).unwrap_or(usize::MAX);
+        if entities.len() > max_rows {
+            return Err(InternalError::query_sql_write_boundary(
+                SqlWriteBoundaryCode::ReturningRowsTooMany,
+            ));
+        }
+    }
+
+    if let Some(max_response_bytes) = bounds.max_response_bytes {
+        let payload_len = encoded_sql_returning_projection_response_len(
+            entity_name,
+            entities,
+            returning,
+            descriptor,
+        )?;
+        let max_response_bytes = usize::try_from(max_response_bytes).unwrap_or(usize::MAX);
+        if payload_len > max_response_bytes {
+            return Err(InternalError::query_sql_write_boundary(
+                SqlWriteBoundaryCode::ReturningResponseTooLarge,
+            ));
+        }
     }
 
     Ok(())

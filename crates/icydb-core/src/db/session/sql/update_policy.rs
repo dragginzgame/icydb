@@ -44,6 +44,8 @@ pub struct SqlUpdatePolicyContext<'a> {
     pub managed_fields: &'a [&'a str],
     /// Maximum admitted limit for the public bounded deterministic policy.
     pub max_public_bounded_limit: u32,
+    /// Optional returned-row cap carried by validated plans with `RETURNING`.
+    pub max_returning_rows: Option<u32>,
     /// Optional response-size cap carried by validated plans with `RETURNING`.
     pub max_returning_response_bytes: Option<u32>,
 }
@@ -57,6 +59,7 @@ impl<'a> SqlUpdatePolicyContext<'a> {
             generated_fields: &[],
             managed_fields: &[],
             max_public_bounded_limit: 100,
+            max_returning_rows: None,
             max_returning_response_bytes: None,
         }
     }
@@ -534,7 +537,7 @@ fn returning_bounds(
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlUpdateReturningBounds {
     let max_rows = if classification.returning_policy.is_requested() {
-        match policy {
+        let policy_max_rows = match policy {
             SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => Some(1),
             SqlUpdateExposurePolicy::PublicBoundedDeterministic => classification.limit,
             SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => {
@@ -543,7 +546,9 @@ fn returning_bounds(
             SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
                 unreachable!("generated policies never produce validated update plans")
             }
-        }
+        };
+
+        returning_row_bound(policy_max_rows, context.max_returning_rows)
     } else {
         None
     };
@@ -551,6 +556,22 @@ fn returning_bounds(
     SqlUpdateReturningBounds {
         max_rows,
         max_response_bytes: context.max_returning_response_bytes,
+    }
+}
+
+const fn returning_row_bound(
+    policy_max_rows: Option<u32>,
+    configured_max_rows: Option<u32>,
+) -> Option<u32> {
+    match (policy_max_rows, configured_max_rows) {
+        (Some(policy), Some(configured)) => Some(if policy < configured {
+            policy
+        } else {
+            configured
+        }),
+        (Some(policy), None) => Some(policy),
+        (None, Some(configured)) => Some(configured),
+        (None, None) => None,
     }
 }
 
@@ -1100,6 +1121,7 @@ mod tests {
             generated_fields: &[],
             managed_fields: &[],
             max_public_bounded_limit: 100,
+            max_returning_rows: None,
             max_returning_response_bytes: Some(4096),
         };
         let primary_key = classify_sql_update_policy(
@@ -1127,6 +1149,45 @@ mod tests {
             SqlUpdateReturningBounds {
                 max_rows: Some(10),
                 max_response_bytes: Some(4096),
+            },
+        );
+    }
+
+    #[test]
+    fn update_policy_validated_plans_lower_configured_returning_row_bound() {
+        let context = SqlUpdatePolicyContext {
+            primary_key_fields: PRIMARY_KEY,
+            generated_fields: &[],
+            managed_fields: &[],
+            max_public_bounded_limit: 100,
+            max_returning_rows: Some(2),
+            max_returning_response_bytes: None,
+        };
+        let primary_key = classify_sql_update_policy(
+            "UPDATE Character SET age = 22 WHERE id = 1 RETURNING id",
+            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+            context,
+        )
+        .expect("SQL should parse");
+        let bounded = classify_sql_update_policy(
+            "UPDATE Character SET active = false WHERE age = 21 ORDER BY id LIMIT 10 RETURNING id",
+            SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+            context,
+        )
+        .expect("SQL should parse");
+
+        assert_eq!(
+            expect_plan(&primary_key).returning_bounds(),
+            SqlUpdateReturningBounds {
+                max_rows: Some(1),
+                max_response_bytes: None,
+            },
+        );
+        assert_eq!(
+            expect_plan(&bounded).returning_bounds(),
+            SqlUpdateReturningBounds {
+                max_rows: Some(2),
+                max_response_bytes: None,
             },
         );
     }
@@ -1243,6 +1304,7 @@ mod tests {
             generated_fields: &["slug"],
             managed_fields: &["updated_at"],
             max_public_bounded_limit: 100,
+            max_returning_rows: None,
             max_returning_response_bytes: None,
         };
 
@@ -1278,6 +1340,7 @@ mod tests {
             generated_fields: &["slug"],
             managed_fields: &["updated_at"],
             max_public_bounded_limit: 100,
+            max_returning_rows: None,
             max_returning_response_bytes: None,
         };
         let cases = [
@@ -1315,6 +1378,7 @@ mod tests {
             generated_fields: &["slug"],
             managed_fields: &[],
             max_public_bounded_limit: 100,
+            max_returning_rows: None,
             max_returning_response_bytes: None,
         };
         let primary_key = classify_sql_update_policy(

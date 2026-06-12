@@ -407,6 +407,9 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         SqlWriteBoundaryCode::ReturningResponseTooLarge => {
             "UPDATE RETURNING response exceeds this endpoint's response-size budget"
         }
+        SqlWriteBoundaryCode::ReturningRowsTooMany => {
+            "UPDATE RETURNING emits more rows than this endpoint's row budget"
+        }
     }
 }
 

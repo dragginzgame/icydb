@@ -102,11 +102,19 @@ fn seed_write_entities(session: &DbSession<SessionSqlCanister>, rows: &[(u64, &s
 }
 
 fn public_primary_key_update_plan(sql: &str) -> SqlPublicPrimaryKeyUpdatePlan {
-    public_primary_key_update_plan_with_response_cap(sql, None)
+    public_primary_key_update_plan_with_returning_caps(sql, None, None)
 }
 
 fn public_primary_key_update_plan_with_response_cap(
     sql: &str,
+    max_returning_response_bytes: Option<u32>,
+) -> SqlPublicPrimaryKeyUpdatePlan {
+    public_primary_key_update_plan_with_returning_caps(sql, None, max_returning_response_bytes)
+}
+
+fn public_primary_key_update_plan_with_returning_caps(
+    sql: &str,
+    max_returning_rows: Option<u32>,
     max_returning_response_bytes: Option<u32>,
 ) -> SqlPublicPrimaryKeyUpdatePlan {
     let report = classify_sql_update_policy(
@@ -117,6 +125,7 @@ fn public_primary_key_update_plan_with_response_cap(
             generated_fields: &[],
             managed_fields: &[],
             max_public_bounded_limit: 100,
+            max_returning_rows,
             max_returning_response_bytes,
         },
     )
@@ -130,11 +139,19 @@ fn public_primary_key_update_plan_with_response_cap(
 }
 
 fn public_bounded_update_plan(sql: &str) -> SqlPublicBoundedUpdatePlan {
-    public_bounded_update_plan_with_response_cap(sql, None)
+    public_bounded_update_plan_with_returning_caps(sql, None, None)
 }
 
 fn public_bounded_update_plan_with_response_cap(
     sql: &str,
+    max_returning_response_bytes: Option<u32>,
+) -> SqlPublicBoundedUpdatePlan {
+    public_bounded_update_plan_with_returning_caps(sql, None, max_returning_response_bytes)
+}
+
+fn public_bounded_update_plan_with_returning_caps(
+    sql: &str,
+    max_returning_rows: Option<u32>,
     max_returning_response_bytes: Option<u32>,
 ) -> SqlPublicBoundedUpdatePlan {
     let report = classify_sql_update_policy(
@@ -145,6 +162,7 @@ fn public_bounded_update_plan_with_response_cap(
             generated_fields: &[],
             managed_fields: &[],
             max_public_bounded_limit: 100,
+            max_returning_rows,
             max_returning_response_bytes,
         },
     )
@@ -1479,6 +1497,39 @@ fn public_pk_update_allows_sized_returning_byte_cap() {
 }
 
 #[test]
+fn public_pk_update_rejects_returning_row_cap_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
+
+    let plan = public_primary_key_update_plan_with_returning_caps(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
+        Some(0),
+        None,
+    );
+    let err = session
+        .execute_validated_sql_public_primary_key_update::<SessionSqlWriteEntity>(&plan)
+        .expect_err("RETURNING row cap should reject public primary-key UPDATE");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningRowsTooMany);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(30),
+            ],
+        ],
+    );
+}
+
+#[test]
 fn public_pk_update_allows_configured_returning_byte_cap_without_returning() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1491,6 +1542,43 @@ fn public_pk_update_allows_configured_returning_byte_cap_without_returning() {
     let result = session
         .execute_validated_sql_public_primary_key_update::<SessionSqlWriteEntity>(&plan)
         .expect("configured returning byte cap should not reject count-only public UPDATE");
+
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("count-only public primary-key UPDATE should return count payload");
+    };
+
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(30),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn public_pk_update_allows_configured_returning_row_cap_without_returning() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
+
+    let plan = public_primary_key_update_plan_with_returning_caps(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+        Some(0),
+        None,
+    );
+    let result = session
+        .execute_validated_sql_public_primary_key_update::<SessionSqlWriteEntity>(&plan)
+        .expect("configured returning row cap should not reject count-only public UPDATE");
 
     let SqlStatementResult::Count { row_count } = result else {
         panic!("count-only public primary-key UPDATE should return count payload");
@@ -1973,6 +2061,44 @@ fn public_bounded_update_allows_sized_returning_byte_cap() {
 }
 
 #[test]
+fn public_bounded_update_rejects_returning_row_cap_before_commit() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+
+    let plan = public_bounded_update_plan_with_returning_caps(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2 RETURNING id",
+        Some(1),
+        None,
+    );
+    let err = session
+        .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+        .expect_err("RETURNING row cap should reject public bounded UPDATE");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningRowsTooMany);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(21),
+            ],
+            vec![
+                Value::Nat64(3),
+                Value::Text("Cid".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
 fn public_bounded_update_allows_configured_returning_byte_cap_without_returning() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1985,6 +2111,48 @@ fn public_bounded_update_allows_configured_returning_byte_cap_without_returning(
     let result = session
         .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
         .expect("configured returning byte cap should not reject count-only public bounded UPDATE");
+
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("count-only public bounded UPDATE should return count payload");
+    };
+
+    assert_eq!(row_count, 2);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Nat64(22),
+            ],
+            vec![
+                Value::Nat64(3),
+                Value::Text("Cid".to_string()),
+                Value::Nat64(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn public_bounded_update_allows_configured_returning_row_cap_without_returning() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 21), (3, "Cid", 21)]);
+
+    let plan = public_bounded_update_plan_with_returning_caps(
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 ORDER BY id ASC LIMIT 2",
+        Some(1),
+        None,
+    );
+    let result = session
+        .execute_validated_sql_public_bounded_update::<SessionSqlWriteEntity>(&plan)
+        .expect("configured returning row cap should not reject count-only public bounded UPDATE");
 
     let SqlStatementResult::Count { row_count } = result else {
         panic!("count-only public bounded UPDATE should return count payload");

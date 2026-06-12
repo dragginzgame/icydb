@@ -17,8 +17,8 @@ use crate::{
             SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlUpdateReturningBounds,
             SqlValidatedUpdatePlan, classify_sql_update_policy,
             execute::write_returning::{
-                sql_write_statement_result, validate_sql_returning_projection_fields,
-                validate_sql_returning_response_byte_cap,
+                sql_write_statement_result, validate_sql_returning_bounds,
+                validate_sql_returning_projection_fields,
             },
         },
         sql::{
@@ -177,12 +177,12 @@ impl<C: CanisterKind> DbSession<C> {
                         write_context,
                         mutation_row_decode_contract,
                         |entities| {
-                            validate_sql_returning_response_byte_cap(
+                            validate_sql_returning_bounds(
                                 E::MODEL.name(),
                                 entities,
                                 statement.returning.as_ref(),
                                 &descriptor,
-                                returning_bounds.and_then(|bounds| bounds.max_response_bytes),
+                                returning_bounds,
                             )
                         },
                     )
@@ -231,6 +231,7 @@ impl<C: CanisterKind> DbSession<C> {
             generated_fields: generated_fields.as_slice(),
             managed_fields: managed_fields.as_slice(),
             max_public_bounded_limit: 100,
+            max_returning_rows: None,
             max_returning_response_bytes: None,
         };
         let report = classify_sql_update_policy(sql, policy, context)?;
