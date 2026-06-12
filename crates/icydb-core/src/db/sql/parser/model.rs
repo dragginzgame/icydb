@@ -1251,12 +1251,14 @@ pub(crate) struct SqlShowColumnsStatement {
 ///
 /// SqlShowEntitiesStatement
 ///
-/// Canonical parsed `SHOW ENTITIES` statement.
-/// This lane carries no entity identifier and targets SQL helper introspection.
+/// Canonical parsed `SHOW ENTITIES` / `SHOW ENTITY <entity>` statement.
+/// This lane optionally carries one catalog filter but does not bind execution
+/// to a typed schema entity.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlShowEntitiesStatement {
+    pub(crate) entity: Option<String>,
     pub(crate) verbose: bool,
 }
 

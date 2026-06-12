@@ -165,6 +165,10 @@ pub(crate) mod test_support {
         super::input::is_shell_help_command(input)
     }
 
+    pub(crate) fn is_shell_exit_command(input: &str) -> bool {
+        super::input::is_shell_exit_command(input)
+    }
+
     pub(crate) fn interactive_start_message(environment: &str, canister: &str) -> String {
         super::interactive::interactive_start_message(environment, canister)
     }

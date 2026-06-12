@@ -749,8 +749,8 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::DescribeEntity => self.describe_entity_sql_statement_result::<E>(),
             CompiledSqlCommand::ShowIndexesEntity => self.show_indexes_sql_statement_result::<E>(),
             CompiledSqlCommand::ShowColumnsEntity => self.show_columns_sql_statement_result::<E>(),
-            CompiledSqlCommand::ShowEntities { verbose } => {
-                self.show_entities_sql_statement_result(*verbose)
+            CompiledSqlCommand::ShowEntities { entity, verbose } => {
+                self.show_entities_sql_statement_result(entity.as_deref(), *verbose)
             }
             CompiledSqlCommand::ShowStores { verbose } => {
                 Ok(self.show_stores_sql_statement_result(*verbose))

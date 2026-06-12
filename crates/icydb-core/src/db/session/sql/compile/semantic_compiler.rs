@@ -59,9 +59,10 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
             SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, entity_name),
             SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, entity_name),
-            SqlStatement::ShowEntities(statement) => {
-                Ok(Self::compile_show_entities(statement.verbose))
-            }
+            SqlStatement::ShowEntities(statement) => Ok(Self::compile_show_entities(
+                statement.entity.clone(),
+                statement.verbose,
+            )),
             SqlStatement::ShowStores(statement) => Ok(Self::compile_show_stores(statement.verbose)),
             SqlStatement::ShowMemory(_) => Ok(Self::compile_show_memory()),
         }
@@ -351,10 +352,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Compile SHOW ENTITIES without entity-bound preparation because the
-    // command is catalog-wide and historically reports no compile sub-stages.
-    fn compile_show_entities(verbose: bool) -> SqlCompileArtifacts {
+    // command is catalog-backed and historically reports no compile sub-stages.
+    fn compile_show_entities(entity: Option<String>, verbose: bool) -> SqlCompileArtifacts {
         SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowEntities { verbose },
+            CompiledSqlCommand::ShowEntities { entity, verbose },
             SqlQueryShape::metadata(),
             0,
             0,

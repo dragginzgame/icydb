@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.17` adds single-entity `SHOW ENTITY ...` introspection for catalog
+  storage/version lookup and expands live generated SQL update coverage for
+  default bounded rejection before mutation.
+
 - `0.181.16` centralizes the public bounded SQL `UPDATE` default limit and
   keeps schema-derived generated/public update budgets on one policy context.
 

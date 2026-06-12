@@ -2,10 +2,14 @@
 //! Small SQL canister used for lightweight SQL fixture smoke tests.
 //!
 
+use ic_cdk::update;
 use icydb::types::{Decimal, Float32, Float64, Timestamp, Ulid};
+use icydb::{db::MutationMode, value::InputValue};
 use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 
 icydb::start!();
+
+const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
 fn icydb_fixtures_load() -> Result<(), icydb::Error> {
@@ -43,6 +47,25 @@ fn sql_users() -> Vec<SqlTestUser> {
             updated_at: Timestamp::default(),
         },
     ]
+}
+
+/// Seed one runtime-built oversized unindexed payload for generated endpoint
+/// response-budget tests without embedding a megabyte literal in the wasm.
+#[update]
+fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
+    let alpha = db()
+        .load::<SqlTestNumericTypes>()
+        .filter_eq("label", "alpha")
+        .entity()?;
+    let group_name = "x".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
+    let patch = db().structural_patch::<SqlTestNumericTypes, _, _>([(
+        "group_name",
+        InputValue::from(group_name),
+    )])?;
+
+    db().mutate_structural::<SqlTestNumericTypes>(alpha.id, patch, MutationMode::Update)?;
+
+    Ok(())
 }
 
 /// Build one deterministic mixed numeric fixture batch for SQL type coverage.

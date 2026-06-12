@@ -50,6 +50,14 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
     reset_icydb_fixtures(fixture);
 }
 
+fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {
+    let result: Result<(), Error> = fixture
+        .update_call("seed_oversized_sql_group_name", ())
+        .expect("oversized SQL group-name seed call should decode");
+
+    result.expect("oversized SQL group-name seed should succeed");
+}
+
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     let response: Result<SqlQueryPerfResult, Error> = fixture
         .query_call("__icydb_query", (sql.to_string(),))
@@ -200,6 +208,24 @@ fn sql_test_user_id_by_name(fixture: &StandaloneCanisterFixture, name: &str) -> 
         .first()
         .and_then(|row| row.first())
         .expect("named SQL fixture row should include id")
+        .clone()
+}
+
+fn sql_test_numeric_type_id_by_label(fixture: &StandaloneCanisterFixture, label: &str) -> String {
+    let sql = format!("SELECT id FROM SqlTestNumericTypes WHERE label = '{label}'");
+    let output = expect_projection(
+        query_sql(fixture, sql.as_str()).expect("fixture id read should find the labeled row"),
+    );
+
+    assert_eq!(
+        output.row_count, 1,
+        "labeled numeric SQL fixture row should be unique",
+    );
+    output
+        .rows
+        .first()
+        .and_then(|row| row.first())
+        .expect("labeled numeric SQL fixture row should include id")
         .clone()
 }
 
@@ -2980,6 +3006,47 @@ fn sql_canister_update_endpoint_returns_primary_key_post_update_star_rows() {
 }
 
 #[test]
+fn sql_canister_update_endpoint_rejects_oversized_returning_response_without_mutation() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let alpha_id = sql_test_numeric_type_id_by_label(&fixture, "alpha");
+    seed_oversized_sql_group_name(&fixture);
+    let err = update_sql(
+        &fixture,
+        format!(
+            "UPDATE SqlTestNumericTypes SET int32_value = 37 \
+             WHERE id = '{alpha_id}' RETURNING group_name"
+        )
+        .as_str(),
+    )
+    .expect_err("primary-key generated UPDATE should reject oversized RETURNING response");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE,
+        "primary-key generated UPDATE should enforce the default RETURNING response budget",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "oversized primary-key UPDATE RETURNING rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            format!("SELECT int32_value FROM SqlTestNumericTypes WHERE id = '{alpha_id}'").as_str(),
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after.rows,
+        vec![vec!["35".to_string()]],
+        "oversized primary-key UPDATE RETURNING should reject before mutation",
+    );
+}
+
+#[test]
 fn sql_canister_update_endpoint_rejects_computed_returning_without_mutation() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3164,6 +3231,47 @@ fn sql_canister_bounded_update_endpoint_rejects_unordered_limit_without_mutation
 }
 
 #[test]
+fn sql_canister_bounded_update_endpoint_rejects_limit_above_default_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 101",
+    )
+    .expect_err("configured bounded SQL update endpoint must reject excessive LIMIT");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::RUNTIME_UNSUPPORTED,
+        "bounded generated SQL update endpoint should enforce the default row limit",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "bounded generated SQL update limit rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "bounded generated SQL update over the default row limit must not mutate rows",
+    );
+}
+
+#[test]
 fn sql_canister_bounded_update_endpoint_returns_post_update_rows() {
     let fixture = install_sql_bounded_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3250,6 +3358,49 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_star_rows() {
             "bounded generated UPDATE RETURNING * should preserve unchanged fields",
         );
     }
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_rejects_oversized_returning_response_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    seed_oversized_sql_group_name(&fixture);
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT id, int32_value FROM SqlTestNumericTypes ORDER BY id ASC",
+        )
+        .expect("pre-rejection read should still execute"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestNumericTypes SET int32_value = 37 \
+         WHERE nat32_value >= 100 ORDER BY id ASC LIMIT 2 RETURNING group_name",
+    )
+    .expect_err("bounded generated UPDATE should reject oversized RETURNING response");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE,
+        "bounded generated UPDATE should enforce the default RETURNING response budget",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "oversized bounded UPDATE RETURNING rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT id, int32_value FROM SqlTestNumericTypes ORDER BY id ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "oversized bounded UPDATE RETURNING should reject before mutation",
+    );
 }
 
 #[test]

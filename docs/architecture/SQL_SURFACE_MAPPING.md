@@ -286,6 +286,7 @@ SQL parsing still owns route metadata for:
 - `SHOW INDEXES`
 - `SHOW COLUMNS`
 - `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
+- `SHOW ENTITY <entity>` / `SHOW ENTITY <entity> VERBOSE`
 - `SHOW STORES` / `SHOW STORES VERBOSE`
 
 But the public operational helpers remain typed/session-owned:

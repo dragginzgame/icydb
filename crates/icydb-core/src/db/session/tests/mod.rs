@@ -2957,6 +2957,7 @@ enum SqlStatementPayloadKind {
     Describe,
     ShowIndexes,
     ShowColumns,
+    ShowEntities,
     ShowStores,
     ShowMemory,
 }
@@ -2976,6 +2977,7 @@ impl SqlStatementPayloadKind {
             Self::Describe => "DESCRIBE SQL requires a DESCRIBE statement",
             Self::ShowIndexes => "SHOW INDEXES FROM SQL requires a SHOW INDEXES FROM statement",
             Self::ShowColumns => "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
+            Self::ShowEntities => "SHOW ENTITIES SQL requires a SHOW ENTITIES statement",
             Self::ShowStores => "SHOW STORES SQL requires a SHOW STORES statement",
             Self::ShowMemory => "SHOW MEMORY SQL requires a SHOW MEMORY statement",
         }
@@ -3272,14 +3274,14 @@ fn statement_show_entities_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<Vec<EntityCatalogDescription>, QueryError> {
-    let statement = parse_sql_statement_for_tests(session, sql)?;
-    if !matches!(statement, SqlStatement::ShowEntities(_)) {
-        return Err(unsupported_sql_statement_query_error(
-            "SHOW ENTITIES SQL requires a SHOW ENTITIES statement",
-        ));
-    }
-
-    Ok(session.show_entities())
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)?,
+        SqlStatementPayloadKind::ShowEntities,
+        |result| match result {
+            SqlStatementResult::ShowEntities { entities, .. } => Some(entities),
+            _ => None,
+        },
+    )
 }
 
 fn statement_show_stores_sql(

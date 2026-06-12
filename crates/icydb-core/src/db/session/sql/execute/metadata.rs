@@ -4,9 +4,30 @@
 //! Boundary: keeps DESCRIBE/SHOW response envelopes out of the execution hub.
 
 use crate::{
-    db::{DbSession, PersistedRow, QueryError, session::sql::SqlStatementResult},
+    db::{
+        DbSession, EntityCatalogDescription, PersistedRow, QueryError,
+        session::sql::SqlStatementResult,
+    },
     traits::{CanisterKind, EntityValue},
 };
+
+fn filter_show_entity_catalog(
+    entities: Vec<EntityCatalogDescription>,
+    entity: &str,
+) -> Vec<EntityCatalogDescription> {
+    let has_exact_match = entities.iter().any(|entry| entry.entity_name() == entity);
+
+    entities
+        .into_iter()
+        .filter(|entry| {
+            if has_exact_match {
+                entry.entity_name() == entity
+            } else {
+                entry.entity_name().eq_ignore_ascii_case(entity)
+            }
+        })
+        .collect()
+}
 
 impl<C: CanisterKind> DbSession<C> {
     pub(super) fn describe_entity_sql_statement_result<E>(
@@ -44,9 +65,14 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(super) fn show_entities_sql_statement_result(
         &self,
+        entity: Option<&str>,
         verbose: bool,
     ) -> Result<SqlStatementResult, QueryError> {
         self.try_show_entities()
+            .map(|entities| match entity {
+                Some(entity) => filter_show_entity_catalog(entities, entity),
+                None => entities,
+            })
             .map(|entities| SqlStatementResult::ShowEntities { entities, verbose })
             .map_err(QueryError::execute)
     }

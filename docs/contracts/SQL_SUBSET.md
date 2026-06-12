@@ -120,14 +120,17 @@ Supported commands:
 - `SHOW INDEXES IN entity`
 - `SHOW COLUMNS entity`
 - `SHOW ENTITIES` / `SHOW ENTITIES VERBOSE`
+- `SHOW ENTITY entity` / `SHOW ENTITY entity VERBOSE`
 - `SHOW STORES` / `SHOW STORES VERBOSE`
 - `SHOW MEMORY`
 
 `SHOW ENTITIES` lists registered runtime entities with owning store, storage
-mode, compact schema counts, and `sv` schema version. `SHOW STORES` lists
-registered stores and their storage modes. `SHOW MEMORY` lists stable-memory
-tags, memory IDs, and their owning stores. The default shell rendering stays
-compact; `VERBOSE` exposes full entity and store paths for debugging.
+mode, compact schema counts, and `sv` schema version. `SHOW ENTITY` returns
+the same row shape filtered to one entity name, using exact matching first and
+case-insensitive matching as a fallback. `SHOW STORES` lists registered stores
+and their storage modes. `SHOW MEMORY` lists stable-memory tags, memory IDs,
+and their owning stores. The default shell rendering stays compact; `VERBOSE`
+exposes full entity and store paths for debugging.
 
 Storage modes have distinct contracts. `stable` is direct durable
 stable-memory storage. `heap` is volatile live storage with absent stable

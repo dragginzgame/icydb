@@ -31,10 +31,19 @@ enum ShellTopLevelInput {
 }
 
 pub(super) fn is_shell_help_command(input: &str) -> bool {
-    matches!(
-        input.trim().trim_end_matches(';').trim(),
-        "?" | "help" | "\\?" | "\\help"
-    )
+    let normalized = input
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_ascii_lowercase();
+
+    matches!(normalized.as_str(), "?" | "help" | "\\?" | "\\help")
+}
+
+pub(super) fn is_shell_exit_command(input: &str) -> bool {
+    let normalized = input.to_ascii_lowercase();
+
+    matches!(normalized.as_str(), "\\q" | "quit" | "exit")
 }
 
 pub(super) const fn shell_help_text() -> &'static str {
@@ -157,7 +166,7 @@ fn top_level_shell_input(line: &str) -> ShellTopLevelInput {
     if line.is_empty() {
         return ShellTopLevelInput::Blank;
     }
-    if matches!(line, "\\q" | "quit" | "exit") {
+    if is_shell_exit_command(line) {
         return ShellTopLevelInput::Exit;
     }
     if is_shell_help_command(line) {

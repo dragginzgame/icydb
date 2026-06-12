@@ -115,6 +115,15 @@ impl Parser {
         }
         if self.eat_keyword(Keyword::Entities) {
             return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement {
+                entity: None,
+                verbose: self.eat_keyword(Keyword::Verbose),
+            }));
+        }
+        if self.eat_identifier_keyword("ENTITY") {
+            let entity = self.expect_identifier()?;
+
+            return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement {
+                entity: Some(entity),
                 verbose: self.eat_keyword(Keyword::Verbose),
             }));
         }

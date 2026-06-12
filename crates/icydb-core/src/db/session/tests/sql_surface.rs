@@ -882,6 +882,74 @@ fn sql_catalog_surfaces_include_store_metadata() {
         "SHOW ENTITIES VERBOSE should carry full entity paths: {entities:?}",
     );
 
+    let SqlStatementResult::ShowEntities {
+        entities,
+        verbose: false,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITY JournaledSessionSqlEntity")
+        .expect("SHOW ENTITY should execute for journaled catalog")
+    else {
+        panic!("SHOW ENTITY should return entity catalog metadata");
+    };
+    assert_eq!(entities.len(), 1, "SHOW ENTITY should return one row");
+    assert_eq!(
+        entities[0].storage(),
+        "journaled",
+        "SHOW ENTITY should retain storage mode metadata",
+    );
+    assert_eq!(
+        entities[0].schema_version(),
+        1,
+        "SHOW ENTITY should expose the accepted schema version",
+    );
+
+    let SqlStatementResult::ShowEntities {
+        entities,
+        verbose: false,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITY journaledsessionsqlentity")
+        .expect("SHOW ENTITY should match catalog entity names case-insensitively")
+    else {
+        panic!("SHOW ENTITY should return entity catalog metadata");
+    };
+    assert_eq!(
+        entities.len(),
+        1,
+        "SHOW ENTITY should fall back to case-insensitive entity-name matching"
+    );
+    assert_eq!(
+        entities[0].entity_name(),
+        "JournaledSessionSqlEntity",
+        "SHOW ENTITY should return the canonical catalog entity name",
+    );
+
+    let SqlStatementResult::ShowEntities {
+        entities,
+        verbose: true,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>(
+            "SHOW ENTITY JournaledSessionSqlEntity VERBOSE",
+        )
+        .expect("SHOW ENTITY VERBOSE should execute for journaled catalog")
+    else {
+        panic!("SHOW ENTITY VERBOSE should return verbose entity catalog metadata");
+    };
+    assert_eq!(
+        entities.len(),
+        1,
+        "SHOW ENTITY VERBOSE should return one row"
+    );
+    assert_eq!(
+        entities[0].entity_path(),
+        JournaledSessionSqlEntity::PATH,
+        "SHOW ENTITY VERBOSE should carry the full entity path",
+    );
+    assert_eq!(
+        entities[0].storage(),
+        "journaled",
+        "SHOW ENTITY should retain storage mode metadata",
+    );
+
     let SqlStatementResult::ShowStores {
         stores,
         verbose: true,
@@ -8230,9 +8298,27 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     assert_query_compile_cache_artifact(&session, "SHOW ENTITIES", "SHOW ENTITIES", |compiled| {
         matches!(
             compiled,
-            crate::db::session::sql::CompiledSqlCommand::ShowEntities { verbose: false }
+            crate::db::session::sql::CompiledSqlCommand::ShowEntities {
+                entity: None,
+                verbose: false
+            }
         )
     });
+
+    assert_query_compile_cache_artifact(
+        &session,
+        "SHOW ENTITY SessionSqlEntity",
+        "SHOW ENTITY",
+        |compiled| {
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::ShowEntities {
+                    entity: Some(entity),
+                    verbose: false
+                } if entity == "SessionSqlEntity"
+            )
+        },
+    );
 
     assert_query_compile_cache_artifact(
         &session,
@@ -8241,7 +8327,10 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         |compiled| {
             matches!(
                 compiled,
-                crate::db::session::sql::CompiledSqlCommand::ShowEntities { verbose: true }
+                crate::db::session::sql::CompiledSqlCommand::ShowEntities {
+                    entity: None,
+                    verbose: true
+                }
             )
         },
     );
@@ -8274,7 +8363,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
 
     assert_eq!(
         session.sql_compiled_command_cache_len(),
-        10,
+        11,
         "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
     );
 }

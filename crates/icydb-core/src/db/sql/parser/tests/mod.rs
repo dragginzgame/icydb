@@ -1830,7 +1830,10 @@ fn parse_show_entities_statement() {
 
     assert_eq!(
         statement,
-        SqlStatement::ShowEntities(SqlShowEntitiesStatement { verbose: false })
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement {
+            entity: None,
+            verbose: false,
+        })
     );
 }
 
@@ -1841,7 +1844,37 @@ fn parse_show_entities_verbose_statement() {
 
     assert_eq!(
         statement,
-        SqlStatement::ShowEntities(SqlShowEntitiesStatement { verbose: true })
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement {
+            entity: None,
+            verbose: true,
+        })
+    );
+}
+
+#[test]
+fn parse_show_entity_statement() {
+    let statement = parse_sql("SHOW ENTITY Character").expect("show entity statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement {
+            entity: Some("Character".to_string()),
+            verbose: false,
+        })
+    );
+}
+
+#[test]
+fn parse_show_entity_verbose_statement() {
+    let statement = parse_sql("SHOW ENTITY Character VERBOSE")
+        .expect("show entity verbose statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement {
+            entity: Some("Character".to_string()),
+            verbose: true,
+        })
     );
 }
 

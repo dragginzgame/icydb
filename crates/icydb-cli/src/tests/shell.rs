@@ -11,10 +11,11 @@ use crate::{
     cli::DEFAULT_ENVIRONMENT,
     shell::test_support::{
         SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
-        finalize_successful_command_output, interactive_start_message, is_shell_help_command,
-        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
-        render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
-        shell_help_text, shell_perf_attribution, sql_error_with_recovery_hint, sql_shell_call_kind,
+        finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
+        is_shell_help_command, normalize_grouped_next_cursor_json, normalize_shell_statement_line,
+        parse_perf_result, render_grouped_shell_text, render_perf_suffix,
+        render_projection_shell_text, shell_help_text, shell_perf_attribution,
+        sql_error_with_recovery_hint, sql_shell_call_kind,
     },
 };
 
@@ -156,10 +157,22 @@ fn successful_command_output_keeps_one_blank_separator_line() {
 
 #[test]
 fn help_command_matches_supported_spellings() {
-    for input in ["?", "help", "\\?", "\\help", "help;", " ? "] {
+    for input in [
+        "?", "help", "HELP", "\\?", "\\help", "\\HELP", "help;", " ? ",
+    ] {
         assert!(
             is_shell_help_command(input),
             "input should be treated as shell help: {input:?}",
+        );
+    }
+}
+
+#[test]
+fn exit_command_matches_supported_spellings_case_insensitively() {
+    for input in ["\\q", "\\Q", "quit", "QUIT", "exit", "EXIT"] {
+        assert!(
+            is_shell_exit_command(input),
+            "input should be treated as shell exit: {input:?}",
         );
     }
 }
