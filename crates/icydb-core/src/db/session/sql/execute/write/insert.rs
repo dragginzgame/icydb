@@ -92,12 +92,6 @@ fn ensure_sql_insert_required_fields(
         .iter()
         .all(|field| primary_key_names.contains(field));
     if missing_only_primary_key_fields {
-        if primary_key_names.len() == 1 {
-            return Err(QueryError::sql_write_boundary(
-                SqlWriteBoundaryCode::MissingPrimaryKey,
-            ));
-        }
-
         return Err(QueryError::sql_write_boundary(
             SqlWriteBoundaryCode::MissingPrimaryKey,
         ));

@@ -86,13 +86,13 @@ pub(in crate::db::schema) use mutation::SchemaRebuildAction;
 pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
     MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
-    MutationPublicationStatus, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
-    SchemaFieldPathIndexRunnerFailure, SchemaFieldPathIndexRunnerReport,
-    SchemaMutationAcceptedSnapshotPublicationSink, SchemaMutationDeveloperReport,
-    SchemaMutationExecutionPlan, SchemaMutationRequest, SchemaMutationRunnerCapability,
-    SchemaMutationRunnerContract, SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
-    SchemaMutationRuntimeInvalidationSink, SchemaMutationSupportedExecutionPath,
-    SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
+    SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner, SchemaFieldPathIndexRunnerFailure,
+    SchemaFieldPathIndexRunnerReport, SchemaMutationAcceptedSnapshotPublicationSink,
+    SchemaMutationDeveloperReport, SchemaMutationExecutionPlan, SchemaMutationRequest,
+    SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaMutationRunnerInput,
+    SchemaMutationRuntimeEpoch, SchemaMutationRuntimeInvalidationSink,
+    SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
+    schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{

@@ -14,8 +14,8 @@ use crate::{
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
         session::sql::{
             SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
-            SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedUpdatePlan,
-            classify_sql_update_policy,
+            SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlUpdateReturningBounds,
+            SqlValidatedUpdatePlan, classify_sql_update_policy,
             execute::write_returning::{
                 sql_write_statement_result, validate_sql_returning_projection_fields,
             },
@@ -220,6 +220,17 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(plan)
     }
 
+    fn reject_configured_returning_response_byte_cap(
+        returning_bounds: SqlUpdateReturningBounds,
+        returning_requested: bool,
+    ) -> Result<(), QueryError> {
+        if returning_requested && returning_bounds.max_response_bytes.is_some() {
+            return Err(QueryError::unsupported_query());
+        }
+
+        Ok(())
+    }
+
     /// Execute a policy-validated public primary-key SQL `UPDATE` plan.
     ///
     /// This adapter intentionally accepts only the primary-key validated plan
@@ -234,6 +245,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        Self::reject_configured_returning_response_byte_cap(
+            plan.returning_bounds,
+            plan.statement().returning.is_some(),
+        )?;
+
         self.execute_sql_update_statement::<E>(plan.statement())
     }
 
@@ -246,6 +262,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        Self::reject_configured_returning_response_byte_cap(
+            plan.returning_bounds,
+            plan.statement().returning.is_some(),
+        )?;
+
         self.execute_sql_update_statement::<E>(plan.statement())
     }
 

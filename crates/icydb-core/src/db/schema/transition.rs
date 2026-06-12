@@ -7,7 +7,7 @@ mod admission;
 mod compatibility;
 
 use crate::db::schema::{
-    MutationPlan, MutationPublicationPreflight, MutationPublicationStatus, PersistedFieldSnapshot,
+    MutationPlan, MutationPublicationPreflight, PersistedFieldSnapshot,
     PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaMutationExecutionPlan,
     SchemaMutationRequest, SchemaMutationRunnerContract, SchemaMutationSupportedExecutionPath,
     SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
@@ -112,15 +112,6 @@ impl SchemaTransitionPlan {
         self.kind
     }
 
-    // Return the schema-owned runtime publication status for this transition.
-    #[expect(
-        dead_code,
-        reason = "0.152 keeps the raw publication status available for diagnostics while reconciliation uses preflight"
-    )]
-    pub(in crate::db::schema) fn publication_status(&self) -> MutationPublicationStatus {
-        self.mutation_plan.publication_status()
-    }
-
     // Return the schema-owned publication decision after runner preflight. In
     // 0.152 only `PublishableNow` may be stored; physical-work-ready plans still
     // require a later execution/validation phase before publication.
@@ -129,15 +120,6 @@ impl SchemaTransitionPlan {
         runner: &SchemaMutationRunnerContract,
     ) -> MutationPublicationPreflight {
         self.mutation_plan.publication_preflight(runner)
-    }
-
-    // Return the deterministic mutation-plan audit identity.
-    #[expect(
-        dead_code,
-        reason = "0.152 stages mutation audit identity before diagnostics expose it"
-    )]
-    pub(in crate::db::schema) fn mutation_fingerprint(&self) -> [u8; 16] {
-        self.mutation_plan.fingerprint()
     }
 
     // Admit the only developer-supported physical mutation path for this
