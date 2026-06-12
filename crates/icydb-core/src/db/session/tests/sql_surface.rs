@@ -813,6 +813,13 @@ fn sql_catalog_surfaces_include_store_metadata() {
     reset_journaled_session_sql_store();
     let session = journaled_sql_session();
 
+    assert_journaled_show_entities_compact_metadata(&session);
+    assert_journaled_show_stores_and_memory_metadata(&session);
+    assert_journaled_show_entity_metadata(&session);
+    assert_journaled_verbose_catalog_metadata(&session);
+}
+
+fn assert_journaled_show_entities_compact_metadata(session: &DbSession<SessionSqlCanister>) {
     let SqlStatementResult::ShowEntities {
         entities,
         verbose: false,
@@ -835,7 +842,9 @@ fn sql_catalog_surfaces_include_store_metadata() {
         }),
         "SHOW ENTITIES should include store, schema, and compact entity counts: {entities:?}",
     );
+}
 
+fn assert_journaled_show_stores_and_memory_metadata(session: &DbSession<SessionSqlCanister>) {
     let SqlStatementResult::ShowStores {
         stores,
         verbose: false,
@@ -865,23 +874,9 @@ fn sql_catalog_surfaces_include_store_metadata() {
         }),
         "SHOW MEMORY should include journaled stable-memory tags and owning stores: {memory:?}",
     );
+}
 
-    let SqlStatementResult::ShowEntities {
-        entities,
-        verbose: true,
-    } = session
-        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES VERBOSE")
-        .expect("SHOW ENTITIES VERBOSE should execute for journaled catalog")
-    else {
-        panic!("SHOW ENTITIES VERBOSE should return verbose entity catalog metadata");
-    };
-    assert!(
-        entities
-            .iter()
-            .any(|entry| entry.entity_path() == JournaledSessionSqlEntity::PATH),
-        "SHOW ENTITIES VERBOSE should carry full entity paths: {entities:?}",
-    );
-
+fn assert_journaled_show_entity_metadata(session: &DbSession<SessionSqlCanister>) {
     let SqlStatementResult::ShowEntities {
         entities,
         verbose: false,
@@ -921,6 +916,24 @@ fn sql_catalog_surfaces_include_store_metadata() {
         entities[0].entity_name(),
         "JournaledSessionSqlEntity",
         "SHOW ENTITY should return the canonical catalog entity name",
+    );
+}
+
+fn assert_journaled_verbose_catalog_metadata(session: &DbSession<SessionSqlCanister>) {
+    let SqlStatementResult::ShowEntities {
+        entities,
+        verbose: true,
+    } = session
+        .execute_sql_query::<JournaledSessionSqlEntity>("SHOW ENTITIES VERBOSE")
+        .expect("SHOW ENTITIES VERBOSE should execute for journaled catalog")
+    else {
+        panic!("SHOW ENTITIES VERBOSE should return verbose entity catalog metadata");
+    };
+    assert!(
+        entities
+            .iter()
+            .any(|entry| entry.entity_path() == JournaledSessionSqlEntity::PATH),
+        "SHOW ENTITIES VERBOSE should carry full entity paths: {entities:?}",
     );
 
     let SqlStatementResult::ShowEntities {
@@ -8257,6 +8270,14 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
 }
 
 fn assert_query_compile_cache_metadata_artifacts(session: &DbSession<SessionSqlCanister>) {
+    assert_query_compile_cache_explain_and_schema_artifacts(session);
+    assert_query_compile_cache_entity_catalog_artifacts(session);
+    assert_query_compile_cache_store_and_memory_artifacts(session);
+}
+
+fn assert_query_compile_cache_explain_and_schema_artifacts(
+    session: &DbSession<SessionSqlCanister>,
+) {
     assert_query_compile_cache_artifact(
         session,
         "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
@@ -8304,7 +8325,9 @@ fn assert_query_compile_cache_metadata_artifacts(session: &DbSession<SessionSqlC
             )
         },
     );
+}
 
+fn assert_query_compile_cache_entity_catalog_artifacts(session: &DbSession<SessionSqlCanister>) {
     assert_query_compile_cache_artifact(session, "SHOW ENTITIES", "SHOW ENTITIES", |compiled| {
         matches!(
             compiled,
@@ -8344,7 +8367,9 @@ fn assert_query_compile_cache_metadata_artifacts(session: &DbSession<SessionSqlC
             )
         },
     );
+}
 
+fn assert_query_compile_cache_store_and_memory_artifacts(session: &DbSession<SessionSqlCanister>) {
     assert_query_compile_cache_artifact(session, "SHOW STORES", "SHOW STORES", |compiled| {
         matches!(
             compiled,
