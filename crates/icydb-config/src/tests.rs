@@ -1,8 +1,9 @@
 use std::{env, fs};
 
 use crate::{
-    CONFIG_FILE_NAME, ConfigBuildError, GeneratedSqlUpdatePolicy, load_resolved_icydb_toml,
-    parse::parse_icydb_toml, resolve::resolve_config_path,
+    ConfigError, GeneratedSqlUpdatePolicy, ICYDB_CONFIG_FILE_NAME, load_resolved_icydb_toml,
+    parse::parse_icydb_toml,
+    resolve::{resolve_config_path, resolve_existing_icydb_toml},
 };
 
 #[test]
@@ -122,7 +123,7 @@ fn invalid_sql_update_policy_fails_parse() {
     )
     .expect_err("unknown generated SQL update policy must fail");
 
-    std::assert_matches!(err, ConfigBuildError::Parse { .. });
+    std::assert_matches!(err, ConfigError::Parse { .. });
 }
 
 #[test]
@@ -202,7 +203,7 @@ fn metrics_reset_config_field_fails_parse() {
     )
     .expect_err("metrics reset is bundled with metrics.enabled and no longer configurable");
 
-    std::assert_matches!(err, ConfigBuildError::Parse { .. });
+    std::assert_matches!(err, ConfigError::Parse { .. });
 }
 
 #[test]
@@ -216,7 +217,7 @@ fn unknown_top_level_section_fails_parse() {
     )
     .expect_err("unknown top-level sections should fail");
 
-    std::assert_matches!(err, ConfigBuildError::Parse { .. });
+    std::assert_matches!(err, ConfigError::Parse { .. });
 }
 
 #[test]
@@ -230,7 +231,7 @@ fn unknown_canister_field_fails_parse() {
     )
     .expect_err("unknown canister fields should fail");
 
-    std::assert_matches!(err, ConfigBuildError::Parse { .. });
+    std::assert_matches!(err, ConfigError::Parse { .. });
 }
 
 #[test]
@@ -246,8 +247,23 @@ fn unknown_generated_canister_fails_validation() {
 
     std::assert_matches!(
         err,
-        ConfigBuildError::UnknownCanister { canister, .. } if canister == "unknown"
+        ConfigError::UnknownCanister { canister, .. } if canister == "unknown"
     );
+}
+
+#[test]
+fn known_canister_validation_normalizes_config_names() {
+    let config = parse_icydb_toml(
+        r"
+            [canisters.demo-rpg.sql]
+            readonly = true
+        ",
+        &["demo_rpg"],
+    )
+    .expect("config canister name should resolve through normalized known canister names");
+
+    assert!(config.canister_sql_readonly_enabled("demo_rpg"));
+    assert!(!config.canisters().contains_key("demo-rpg"));
 }
 
 #[test]
@@ -264,17 +280,39 @@ fn ambiguous_canister_names_fail_validation() {
     )
     .expect_err("normalized duplicate canister names should fail");
 
-    std::assert_matches!(err, ConfigBuildError::AmbiguousCanisterName { .. });
+    std::assert_matches!(err, ConfigError::AmbiguousCanisterName { .. });
 }
 
 #[test]
-fn config_resolution_uses_nearest_ancestor_before_workspace_root() {
-    let root = env::temp_dir().join(format!("icydb-config-build-test-{}", std::process::id()));
+fn config_resolution_ignores_ancestor_directories_named_icydb_toml() {
+    let root = env::temp_dir().join(format!("icydb-config-dir-test-{}", std::process::id()));
+    let canister = root.join("canisters").join("demo").join("rpg");
+    fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    fs::create_dir_all(root.join("canisters").join("icydb.toml"))
+        .expect("directory named icydb.toml should be created");
+    let root_config = root.join("icydb.toml");
+    fs::write(
+        root_config.as_path(),
+        "[canisters.root.sql]\nreadonly = true\n",
+    )
+    .expect("root config should be written");
+
+    let resolved = resolve_config_path(canister.as_path());
+
+    assert_eq!(resolved.config_path(), Some(root_config.as_path()));
+    assert_eq!(
+        resolve_existing_icydb_toml(canister.as_path()),
+        Some(root_config)
+    );
+    fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn config_resolution_uses_nearest_ancestor_config() {
+    let root = env::temp_dir().join(format!("icydb-config-test-{}", std::process::id()));
     let workspace = root.join("workspace");
     let canister = workspace.join("canisters").join("demo").join("rpg");
     fs::create_dir_all(canister.as_path()).expect("test directory should be created");
-    fs::write(workspace.join("Cargo.toml"), "[workspace]\n")
-        .expect("workspace manifest should be written");
     fs::write(
         workspace.join("icydb.toml"),
         "[canisters.workspace.sql]\nreadonly = true\n",
@@ -290,47 +328,57 @@ fn config_resolution_uses_nearest_ancestor_before_workspace_root() {
     let resolved = resolve_config_path(canister.as_path());
 
     assert_eq!(resolved.config_path(), Some(demo_config.as_path()));
+    assert_eq!(
+        resolve_existing_icydb_toml(canister.as_path()),
+        Some(demo_config)
+    );
     fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
 #[test]
-fn workspace_root_detection_ignores_workspace_text_outside_toml_table() {
+fn config_resolution_walks_past_cargo_workspace_root() {
     let root = env::temp_dir().join(format!(
-        "icydb-config-build-workspace-test-{}",
+        "icydb-config-workspace-test-{}",
         std::process::id()
     ));
-    let parent = root.join("parent");
-    let canister = parent.join("canisters").join("demo").join("rpg");
+    let workspace = root.join("workspace");
+    let canister = workspace
+        .join("member")
+        .join("canisters")
+        .join("demo")
+        .join("rpg");
     fs::create_dir_all(canister.as_path()).expect("test directory should be created");
     fs::write(
-        parent.join("Cargo.toml"),
-        "# [workspace]\n[package]\nname = \"demo\"\n",
+        workspace.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"member\"]\n",
     )
-    .expect("manifest should be written");
+    .expect("workspace manifest should be written");
+    let root_config = root.join("icydb.toml");
     fs::write(
-        root.join("icydb.toml"),
+        root_config.as_path(),
         "[canisters.root.sql]\nreadonly = true\n",
     )
     .expect("root config should be written");
 
     let resolved = resolve_config_path(canister.as_path());
 
+    assert_eq!(resolved.config_path(), Some(root_config.as_path()));
     assert_eq!(
-        resolved.config_path(),
-        Some(root.join("icydb.toml").as_path())
+        resolve_existing_icydb_toml(canister.as_path()),
+        Some(root_config)
     );
     fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
 #[test]
 fn load_resolved_config_reports_path_and_validated_config() {
-    let root = env::temp_dir().join(format!(
-        "icydb-config-build-load-test-{}",
-        std::process::id()
-    ));
+    let root = env::temp_dir().join(format!("icydb-config-load-test-{}", std::process::id()));
     let canister = root.join("canisters").join("demo").join("rpg");
     fs::create_dir_all(canister.as_path()).expect("test directory should be created");
-    let config_path = root.join("canisters").join("demo").join(CONFIG_FILE_NAME);
+    let config_path = root
+        .join("canisters")
+        .join("demo")
+        .join(ICYDB_CONFIG_FILE_NAME);
     fs::write(
         config_path.as_path(),
         r"

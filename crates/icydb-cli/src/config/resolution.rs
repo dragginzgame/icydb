@@ -7,14 +7,18 @@ use std::path::{Path, PathBuf};
 
 use super::ResolvedConfig;
 
-pub(super) const CONFIG_FILE_NAME: &str = "icydb.toml";
-
 pub(super) fn load_resolved_config(
     start_dir: Option<&Path>,
+    known_canisters: &[String],
 ) -> Result<(PathBuf, ResolvedConfig), String> {
     let start_dir = resolve_start_dir(start_dir)?;
-    let resolved = icydb_config_build::load_resolved_icydb_toml(start_dir.as_path(), &[])
-        .map_err(|err| err.to_string())?;
+    let known_canisters = known_canisters
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let resolved =
+        icydb_config::load_resolved_icydb_toml(start_dir.as_path(), known_canisters.as_slice())
+            .map_err(|err| err.to_string())?;
 
     Ok((start_dir, resolved))
 }

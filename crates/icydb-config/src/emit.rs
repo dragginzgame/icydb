@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf};
 
 use crate::{
-    CONFIG_PATH_ENV, ConfigBuildError, GeneratedIcydbConfig, parse::load_icydb_toml,
+    CONFIG_PATH_ENV, ConfigError, GeneratedIcydbConfig, parse::load_icydb_toml,
     resolve::resolve_config_path,
 };
 
@@ -13,7 +13,7 @@ const CARGO_MANIFEST_DIR_ENV: &str = "CARGO_MANIFEST_DIR";
 /// 1. `ICYDB_CONFIG_PATH`
 /// 2. nearest `icydb.toml` found by walking up from the canister crate
 /// 3. absent config, treated as defaults
-pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigBuildError> {
+pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigError> {
     println!("cargo:rerun-if-env-changed={CONFIG_PATH_ENV}");
     let manifest_dir = manifest_dir()?;
     let resolved = resolve_config_path(manifest_dir.as_path());
@@ -28,11 +28,11 @@ pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigBuil
     }
 }
 
-fn manifest_dir() -> Result<PathBuf, ConfigBuildError> {
+fn manifest_dir() -> Result<PathBuf, ConfigError> {
     env::var_os(CARGO_MANIFEST_DIR_ENV)
         .map(PathBuf::from)
         .map_or_else(
-            || env::current_dir().map_err(|source| ConfigBuildError::CurrentDir { source }),
+            || env::current_dir().map_err(|source| ConfigError::CurrentDir { source }),
             Ok,
         )
 }

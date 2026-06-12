@@ -13,9 +13,10 @@ use crate::{
         query::intent::StructuralQuery,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
         session::sql::{
-            SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult,
-            SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlUpdateReturningBounds,
-            SqlValidatedUpdatePlan, classify_sql_update_policy,
+            DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES, SqlPublicBoundedUpdatePlan,
+            SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult, SqlUpdateExposurePolicy,
+            SqlUpdatePolicyContext, SqlUpdateReturningBounds, SqlValidatedUpdatePlan,
+            classify_sql_update_policy,
             execute::write_returning::{
                 sql_write_statement_result, validate_sql_returning_bounds,
                 validate_sql_returning_projection_fields,
@@ -232,7 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
             managed_fields: managed_fields.as_slice(),
             max_public_bounded_limit: 100,
             max_returning_rows: None,
-            max_returning_response_bytes: None,
+            max_returning_response_bytes: Some(DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES),
         };
         let report = classify_sql_update_policy(sql, policy, context)?;
         let Some(plan) = report.plan else {

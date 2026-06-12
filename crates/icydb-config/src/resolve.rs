@@ -4,11 +4,11 @@
 //! Boundary: returns discovery results without reading the resolved config file.
 
 use std::{
-    env, fs,
+    env,
     path::{Path, PathBuf},
 };
 
-use crate::{CONFIG_FILE_NAME, CONFIG_PATH_ENV};
+use crate::{CONFIG_PATH_ENV, ICYDB_CONFIG_FILE_NAME};
 
 pub(crate) struct ResolvedConfigPath {
     config_path: Option<PathBuf>,
@@ -37,10 +37,14 @@ pub(crate) fn resolve_config_path(manifest_dir: &Path) -> ResolvedConfigPath {
         };
     }
 
+    resolve_ancestor_config_path(manifest_dir)
+}
+
+pub(crate) fn resolve_ancestor_config_path(manifest_dir: &Path) -> ResolvedConfigPath {
     let candidate_paths = config_search_candidates(manifest_dir);
     let config_path = candidate_paths
         .iter()
-        .find(|candidate| candidate.exists())
+        .find(|candidate| candidate.is_file())
         .cloned();
 
     ResolvedConfigPath {
@@ -49,25 +53,20 @@ pub(crate) fn resolve_config_path(manifest_dir: &Path) -> ResolvedConfigPath {
     }
 }
 
+/// Locate an existing `icydb.toml` from one start directory.
+///
+/// This follows IcyDB directory discovery only: ancestor `icydb.toml` files up
+/// to the filesystem root. It intentionally ignores `ICYDB_CONFIG_PATH`.
+#[must_use]
+pub fn resolve_existing_icydb_toml(start_dir: impl AsRef<Path>) -> Option<PathBuf> {
+    resolve_ancestor_config_path(start_dir.as_ref()).into_config_path()
+}
+
 fn config_search_candidates(manifest_dir: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for ancestor in manifest_dir.ancestors() {
-        candidates.push(ancestor.join(CONFIG_FILE_NAME));
-        if is_workspace_root(ancestor) {
-            break;
-        }
+        candidates.push(ancestor.join(ICYDB_CONFIG_FILE_NAME));
     }
 
     candidates
-}
-
-fn is_workspace_root(path: &Path) -> bool {
-    let manifest = path.join("Cargo.toml");
-    let Ok(source) = fs::read_to_string(manifest) else {
-        return false;
-    };
-
-    source
-        .parse::<toml::Value>()
-        .is_ok_and(|manifest| manifest.get("workspace").is_some())
 }

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.15` gives schema-derived public/generated SQL `UPDATE RETURNING`
+  endpoints a default response-byte budget enforced before commit, while
+  cleaning up `icydb.toml` discovery and renaming the shared config crate to
+  `icydb-config`.
+
 - `0.181.14` enforces configured public SQL `UPDATE RETURNING` row-count
   budgets before commit while preserving count-only public updates.
 

@@ -12,6 +12,8 @@ mod surface;
 
 pub(crate) use init::init_config;
 #[cfg(test)]
+pub(crate) use init::init_config_with_existing_config_for_test;
+#[cfg(test)]
 pub(crate) use init::init_config_without_existing_config;
 #[cfg(test)]
 pub(crate) use surface::ConfigSurface;
@@ -25,7 +27,7 @@ use crate::{cli::ConfigArgs, icp::known_canisters};
 
 use resolution::load_resolved_config;
 
-type ResolvedConfig = icydb_config_build::ResolvedIcydbConfig;
+type ResolvedConfig = icydb_config::ResolvedIcydbConfig;
 
 struct ConfigContext {
     environment: Option<String>,
@@ -73,7 +75,7 @@ pub(crate) fn configured_endpoint_enabled(
     canister: &str,
     endpoint: ConfiguredEndpoint,
 ) -> Result<bool, String> {
-    let (_, resolved) = load_resolved_config(None)?;
+    let (_, resolved) = load_resolved_config(None, &[])?;
 
     Ok(surface::configured_endpoint_enabled_for_resolved(
         &resolved, canister, endpoint,
@@ -85,7 +87,7 @@ pub(crate) fn require_configured_endpoint(
     canister: &str,
     endpoint: ConfiguredEndpoint,
 ) -> Result<(), String> {
-    let (_, resolved) = load_resolved_config(None)?;
+    let (_, resolved) = load_resolved_config(None, &[])?;
 
     let surface = endpoint.surface();
     if surface::config_surface_enabled_for_resolved(&resolved, canister, surface) {
@@ -121,7 +123,7 @@ fn load_config_context(args: ConfigArgs) -> Result<ConfigContext, String> {
     } else {
         Vec::new()
     };
-    let (start_dir, resolved) = load_resolved_config(args.start_dir())?;
+    let (start_dir, resolved) = load_resolved_config(args.start_dir(), known_canisters.as_slice())?;
 
     Ok(ConfigContext {
         environment,
@@ -134,7 +136,7 @@ fn load_config_context(args: ConfigArgs) -> Result<ConfigContext, String> {
 #[cfg(test)]
 pub(crate) mod test_support {
     pub(crate) fn disabled_config_surface_message(
-        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        resolved: &icydb_config::ResolvedIcydbConfig,
         canister: &str,
         surface: super::ConfigSurface,
     ) -> String {
@@ -142,7 +144,7 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn config_surface_enabled_for_resolved(
-        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        resolved: &icydb_config::ResolvedIcydbConfig,
         canister: &str,
         surface: super::ConfigSurface,
     ) -> bool {
@@ -150,7 +152,7 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn configured_endpoint_enabled_for_resolved(
-        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        resolved: &icydb_config::ResolvedIcydbConfig,
         canister: &str,
         endpoint: super::ConfiguredEndpoint,
     ) -> bool {
@@ -161,7 +163,7 @@ pub(crate) mod test_support {
         start_dir: &std::path::Path,
         environment: Option<&str>,
         known_canisters: &[String],
-        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        resolved: &icydb_config::ResolvedIcydbConfig,
     ) -> String {
         super::report::render_config_report(start_dir, environment, known_canisters, resolved)
     }
@@ -169,7 +171,7 @@ pub(crate) mod test_support {
     pub(crate) fn config_sync_issues(
         environment: Option<&str>,
         known_canisters: &[String],
-        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        resolved: &icydb_config::ResolvedIcydbConfig,
     ) -> Vec<String> {
         super::report::config_sync_issues(environment, known_canisters, resolved)
     }

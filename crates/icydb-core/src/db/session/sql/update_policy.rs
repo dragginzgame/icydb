@@ -14,6 +14,10 @@ use crate::db::{
 };
 use std::collections::BTreeSet;
 
+/// Default generated/public SQL `UPDATE RETURNING` projection payload budget.
+#[doc(hidden)]
+pub(in crate::db) const DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES: u32 = 1_048_576;
+
 /// SQL `UPDATE` exposure policy selected by a caller before execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]

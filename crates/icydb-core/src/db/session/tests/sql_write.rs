@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    db::session::sql::DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES,
     db::{
         MutationMode, SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan,
         SqlUpdateExposurePolicy, SqlUpdatePolicyContext, SqlValidatedUpdatePlan, StructuralPatch,
@@ -99,6 +100,10 @@ fn seed_write_entities(session: &DbSession<SessionSqlCanister>, rows: &[(u64, &s
             })
             .expect("typed setup insert should succeed");
     }
+}
+
+fn oversized_public_update_returning_text() -> String {
+    "x".repeat(DEFAULT_PUBLIC_UPDATE_RETURNING_RESPONSE_BYTES as usize + 1)
 }
 
 fn public_primary_key_update_plan(sql: &str) -> SqlPublicPrimaryKeyUpdatePlan {
@@ -268,6 +273,14 @@ fn persisted_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Valu
         "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
     )
     .expect("post-write SQL projection should succeed")
+}
+
+fn persisted_write_ages(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
+    statement_projection_rows::<SessionSqlWriteEntity>(
+        session,
+        "SELECT id, age FROM SessionSqlWriteEntity ORDER BY id ASC",
+    )
+    .expect("post-write age SQL projection should succeed")
 }
 
 fn persisted_composite_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
@@ -1663,6 +1676,43 @@ fn execute_sql_public_primary_key_update_derives_context_and_mutates_one_row() {
 }
 
 #[test]
+fn execute_sql_public_primary_key_update_derives_default_returning_byte_cap() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let oversized_name = oversized_public_update_returning_text();
+    session
+        .insert_many_atomic([
+            SessionSqlWriteEntity {
+                id: 1,
+                name: oversized_name,
+                age: 21,
+            },
+            SessionSqlWriteEntity {
+                id: 2,
+                name: "Bea".to_string(),
+                age: 30,
+            },
+        ])
+        .expect("oversized public UPDATE fixture insert should succeed");
+
+    let err = session
+        .execute_sql_public_primary_key_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING name",
+        )
+        .expect_err("schema-derived public primary-key UPDATE should enforce response budget");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
+    assert_eq!(
+        persisted_write_ages(&session),
+        vec![
+            vec![Value::Nat64(1), Value::Nat64(21)],
+            vec![Value::Nat64(2), Value::Nat64(30)],
+        ],
+        "default public primary-key RETURNING byte cap should reject before mutation",
+    );
+}
+
+#[test]
 fn execute_sql_public_primary_key_update_rejects_non_pk_where_without_mutation() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2243,6 +2293,50 @@ fn execute_sql_public_bounded_update_derives_context_and_mutates_limited_rows() 
                 Value::Nat64(21),
             ],
         ],
+    );
+}
+
+#[test]
+fn execute_sql_public_bounded_update_derives_default_returning_byte_cap() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let oversized_name = oversized_public_update_returning_text();
+    session
+        .insert_many_atomic([
+            SessionSqlWriteEntity {
+                id: 1,
+                name: oversized_name,
+                age: 21,
+            },
+            SessionSqlWriteEntity {
+                id: 2,
+                name: "Bea".to_string(),
+                age: 21,
+            },
+            SessionSqlWriteEntity {
+                id: 3,
+                name: "Cid".to_string(),
+                age: 21,
+            },
+        ])
+        .expect("oversized bounded public UPDATE fixture insert should succeed");
+
+    let err = session
+        .execute_sql_public_bounded_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 \
+             WHERE age = 21 ORDER BY id ASC LIMIT 2 RETURNING name",
+        )
+        .expect_err("schema-derived public bounded UPDATE should enforce response budget");
+
+    assert_sql_write_boundary_detail(err, SqlWriteBoundaryCode::ReturningResponseTooLarge);
+    assert_eq!(
+        persisted_write_ages(&session),
+        vec![
+            vec![Value::Nat64(1), Value::Nat64(21)],
+            vec![Value::Nat64(2), Value::Nat64(21)],
+            vec![Value::Nat64(3), Value::Nat64(21)],
+        ],
+        "default public bounded RETURNING byte cap should reject before mutation",
     );
 }
 

@@ -11,16 +11,16 @@ macro_rules! build_configured_canister {
     ($canister_ty:ty, $canister_path:literal, $canister_name:literal) => {{
         let _ = std::any::TypeId::of::<$canister_ty>();
 
-        let config = icydb_config_build::emit_config_for_build_script()?;
+        let config = icydb_config::emit_config_for_build_script()?;
         let options = icydb::build::BuildOptions::default()
             .with_sql_readonly_enabled(config.canister_sql_readonly_enabled($canister_name))
             .with_sql_ddl_enabled(config.canister_sql_ddl_enabled($canister_name))
             .with_sql_fixtures_enabled(config.canister_sql_fixtures_enabled($canister_name))
             .with_sql_update_policy(match config.canister_sql_update_policy($canister_name) {
-                Some(icydb_config_build::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly) => {
+                Some(icydb_config::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly) => {
                     Some(icydb::build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)
                 }
-                Some(icydb_config_build::GeneratedSqlUpdatePolicy::PublicBoundedDeterministic) => {
+                Some(icydb_config::GeneratedSqlUpdatePolicy::PublicBoundedDeterministic) => {
                     Some(icydb::build::BuildSqlUpdatePolicy::PublicBoundedDeterministic)
                 }
                 None => None,

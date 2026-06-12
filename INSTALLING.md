@@ -25,7 +25,7 @@ maintenance uses the newer internal toolchain listed below.
 ## Generated Endpoint Config
 
 Local canisters load generated endpoint switches from `icydb.toml` through
-`icydb-config-build`. Generated canister glue uses fixed `__icydb_*`
+`icydb-config`. Generated canister glue uses fixed `__icydb_*`
 Rust/export names, and the CLI checks the config before calling endpoint
 families.
 

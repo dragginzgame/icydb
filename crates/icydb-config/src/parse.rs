@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    ConfigBuildError, GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig,
+    ConfigError, GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig,
     model::{
         DEFAULT_METRICS_ENABLED, DEFAULT_METRICS_EXTENDED_ENABLED, DEFAULT_SCHEMA_ENABLED,
         DEFAULT_SNAPSHOT_ENABLED, DEFAULT_SQL_DDL_ENABLED, DEFAULT_SQL_FIXTURES_ENABLED,
@@ -20,16 +20,16 @@ use crate::{
 pub(crate) fn parse_icydb_toml(
     source: &str,
     known_canisters: &[&str],
-) -> Result<GeneratedIcydbConfig, ConfigBuildError> {
+) -> Result<GeneratedIcydbConfig, ConfigError> {
     parse_icydb_toml_at(source, None, known_canisters)
 }
 
 pub(crate) fn load_icydb_toml(
     path: impl AsRef<Path>,
     known_canisters: &[&str],
-) -> Result<GeneratedIcydbConfig, ConfigBuildError> {
+) -> Result<GeneratedIcydbConfig, ConfigError> {
     let path = path.as_ref();
-    let source = fs::read_to_string(path).map_err(|source| ConfigBuildError::Read {
+    let source = fs::read_to_string(path).map_err(|source| ConfigError::Read {
         path: path.to_path_buf(),
         source,
     })?;
@@ -42,7 +42,7 @@ pub(crate) fn load_icydb_toml(
 pub fn load_resolved_icydb_toml(
     start_dir: impl AsRef<Path>,
     known_canisters: &[&str],
-) -> Result<ResolvedIcydbConfig, ConfigBuildError> {
+) -> Result<ResolvedIcydbConfig, ConfigError> {
     let resolved = resolve_config_path(start_dir.as_ref());
     let Some(path) = resolved.into_config_path() else {
         return Ok(ResolvedIcydbConfig::default());
@@ -56,10 +56,10 @@ fn parse_icydb_toml_at(
     source: &str,
     path: Option<&Path>,
     known_canisters: &[&str],
-) -> Result<GeneratedIcydbConfig, ConfigBuildError> {
+) -> Result<GeneratedIcydbConfig, ConfigError> {
     let path = path.unwrap_or_else(|| Path::new("<inline>"));
     let raw: RawIcydbProjectConfig =
-        toml::from_str(source).map_err(|source| ConfigBuildError::Parse {
+        toml::from_str(source).map_err(|source| ConfigError::Parse {
             path: path.to_path_buf(),
             source,
         })?;
@@ -71,7 +71,7 @@ fn validate_raw_config(
     raw: RawIcydbProjectConfig,
     path: &Path,
     known_canisters: &[&str],
-) -> Result<GeneratedIcydbConfig, ConfigBuildError> {
+) -> Result<GeneratedIcydbConfig, ConfigError> {
     let known_by_normalized = normalized_known_canisters(known_canisters)?;
     let canisters = validate_canisters(
         raw.canisters.unwrap_or_default(),
@@ -86,13 +86,13 @@ fn validate_canisters(
     raw_canisters: BTreeMap<String, RawCanisterConfig>,
     path: &Path,
     known_by_normalized: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, GeneratedCanisterConfig>, ConfigBuildError> {
+) -> Result<BTreeMap<String, GeneratedCanisterConfig>, ConfigError> {
     let mut normalized_seen = BTreeMap::new();
     let mut generated = BTreeMap::new();
 
     for (raw_name, raw_config) in raw_canisters {
         if raw_name.trim().is_empty() {
-            return Err(ConfigBuildError::EmptyCanisterName {
+            return Err(ConfigError::EmptyCanisterName {
                 path: path.to_path_buf(),
             });
         }
@@ -102,7 +102,7 @@ fn validate_canisters(
                 slot.insert(raw_name.clone());
             }
             Entry::Occupied(existing) => {
-                return Err(ConfigBuildError::AmbiguousCanisterName {
+                return Err(ConfigError::AmbiguousCanisterName {
                     path: path.to_path_buf(),
                     first: existing.get().clone(),
                     second: raw_name,
@@ -116,7 +116,7 @@ fn validate_canisters(
             known_by_normalized
                 .get(normalized.as_str())
                 .cloned()
-                .ok_or_else(|| ConfigBuildError::UnknownCanister {
+                .ok_or_else(|| ConfigError::UnknownCanister {
                     path: path.to_path_buf(),
                     canister: raw_name.clone(),
                 })?
@@ -167,7 +167,7 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
 
 fn normalized_known_canisters(
     known_canisters: &[&str],
-) -> Result<BTreeMap<String, String>, ConfigBuildError> {
+) -> Result<BTreeMap<String, String>, ConfigError> {
     let mut known_by_normalized = BTreeMap::new();
     for known in known_canisters {
         let normalized = normalize_canister_name(known);
@@ -176,7 +176,7 @@ fn normalized_known_canisters(
                 slot.insert((*known).to_string());
             }
             Entry::Occupied(existing) => {
-                return Err(ConfigBuildError::AmbiguousKnownCanister {
+                return Err(ConfigError::AmbiguousKnownCanister {
                     first: existing.get().clone(),
                     second: (*known).to_string(),
                 });

@@ -2,9 +2,9 @@ use std::{io, path::PathBuf};
 
 use thiserror::Error as ThisError;
 
-/// Build-script config loading error with path-aware diagnostics.
+/// Config loading error with path-aware diagnostics.
 #[derive(Debug, ThisError)]
-pub enum ConfigBuildError {
+pub enum ConfigError {
     #[error("failed to read IcyDB config at '{}': {source}", path.display())]
     Read { path: PathBuf, source: io::Error },
 

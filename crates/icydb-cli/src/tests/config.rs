@@ -17,7 +17,7 @@ use crate::{
         ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT,
         METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT,
         SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT,
-        init_config_without_existing_config,
+        init_config_with_existing_config_for_test, init_config_without_existing_config,
         test_support::{
             config_surface_enabled_for_resolved, config_sync_issues,
             configured_endpoint_enabled_for_resolved, disabled_config_surface_message,
@@ -170,6 +170,108 @@ fn config_init_preserves_non_cargo_directory_fallback() {
 }
 
 #[test]
+fn config_init_refuses_existing_config_without_force() {
+    let root = config_init_test_root("existing");
+    let start_dir = root.join("canisters").join("demo");
+    let existing_config = root.join("icydb.toml");
+    std::fs::create_dir_all(start_dir.as_path()).expect("test directory should be created");
+    std::fs::write(
+        existing_config.as_path(),
+        "[canisters.demo_rpg.sql]\nreadonly = true\n",
+    )
+    .expect("existing config should be written");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        start_dir.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    let err = init_config_with_existing_config_for_test(args, existing_config.clone())
+        .expect_err("existing config should prevent creating another config");
+
+    assert!(err.contains(existing_config.to_string_lossy().as_ref()));
+    assert!(err.contains("already exists"));
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn config_init_force_replaces_existing_config() {
+    let root = config_init_test_root("existing-force");
+    let start_dir = root.join("canisters").join("demo");
+    let existing_config = root.join("icydb.toml");
+    std::fs::create_dir_all(start_dir.as_path()).expect("test directory should be created");
+    std::fs::write(
+        existing_config.as_path(),
+        "[canisters.old.sql]\nreadonly = false\n",
+    )
+    .expect("existing config should be written");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        start_dir.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+        "--schema",
+        "--force",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    init_config_with_existing_config_for_test(args, existing_config.clone())
+        .expect("force config init should replace existing config");
+
+    let config = std::fs::read_to_string(existing_config).expect("config file should be readable");
+    assert!(config.contains("[canisters.demo_rpg.schema]"));
+    assert!(!config.contains("[canisters.old.sql]"));
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn config_init_rejects_canister_names_that_need_quoted_toml_keys() {
+    let root = config_init_test_root("invalid-canister-key");
+    let start_dir = root.join("project").join("canisters").join("demo");
+    std::fs::create_dir_all(start_dir.as_path()).expect("test directory should be created");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        start_dir.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo.rpg",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    let err = init_config_without_existing_config(args)
+        .expect_err("invalid bare TOML key canister name should fail");
+
+    assert!(err.contains("cannot be rendered as an icydb.toml bare key"));
+    assert!(!start_dir.join("icydb.toml").exists());
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
 fn config_report_marks_canister_settings_against_icp_environment() {
     let root = std::env::temp_dir().join(format!(
         "icydb-cli-config-report-test-{}",
@@ -202,11 +304,9 @@ fn config_report_marks_canister_settings_against_icp_environment() {
         "#,
     )
     .expect("config should be written");
-    let resolved = icydb_config_build::load_resolved_icydb_toml(
-        canister.as_path(),
-        &["demo_rpg", "admin_rpg"],
-    )
-    .expect("config should resolve");
+    let resolved =
+        icydb_config::load_resolved_icydb_toml(canister.as_path(), &["demo_rpg", "admin_rpg"])
+            .expect("config should resolve");
 
     let report = render_config_report(
         canister.as_path(),
@@ -289,7 +389,7 @@ fn config_check_reports_mismatched_canister_settings() {
         ",
     )
     .expect("config should be written");
-    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+    let resolved = icydb_config::load_resolved_icydb_toml(canister.as_path(), &[])
         .expect("config should resolve without known canister validation");
 
     let issues = config_sync_issues(Some("test"), &[String::from("demo_rpg")], &resolved);
@@ -335,7 +435,7 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
         "#,
     )
     .expect("config should be written");
-    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+    let resolved = icydb_config::load_resolved_icydb_toml(canister.as_path(), &[])
         .expect("config should resolve");
 
     assert!(config_surface_enabled_for_resolved(
@@ -423,7 +523,7 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
         "#,
     )
     .expect("config should be written");
-    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+    let resolved = icydb_config::load_resolved_icydb_toml(canister.as_path(), &[])
         .expect("config should resolve");
 
     assert!(configured_endpoint_enabled_for_resolved(
@@ -496,7 +596,7 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
         ",
     )
     .expect("config should be written");
-    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+    let resolved = icydb_config::load_resolved_icydb_toml(canister.as_path(), &[])
         .expect("config should resolve");
 
     let message = disabled_config_surface_message(&resolved, "demo_rpg", ConfigSurface::Metrics);

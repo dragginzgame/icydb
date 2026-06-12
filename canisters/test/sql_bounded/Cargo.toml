@@ -26,7 +26,7 @@ icydb-testing-test-sql-fixtures = { workspace = true }
 
 [build-dependencies]
 icydb = { path = "../../../crates/icydb", default-features = false }
-icydb-config-build = { workspace = true }
+icydb-config = { workspace = true }
 icydb-testing-test-sql-fixtures = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 

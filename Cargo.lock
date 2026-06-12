@@ -218,7 +218,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-audit-one-complex-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -240,7 +240,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -262,7 +262,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-audit-sql-perf-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -274,7 +274,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-audit-ten-complex-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -286,7 +286,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-audit-ten-simple-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -298,7 +298,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-demo-rpg-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -310,7 +310,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-test-sql-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -322,7 +322,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "icydb-testing-test-sql-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -1240,14 +1240,14 @@ dependencies = [
  "candid",
  "clap",
  "icydb",
- "icydb-config-build",
+ "icydb-config",
  "rustyline",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "icydb-config-build"
+name = "icydb-config"
 version = "0.181.14"
 dependencies = [
  "serde",

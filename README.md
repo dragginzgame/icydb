@@ -206,7 +206,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - `crates/icydb-core` - runtime, planner, executor, persisted rows, stores,
   SQL, schema catalog, and metrics internals.
 - `crates/icydb-build` - generated canister actor glue.
-- `crates/icydb-config-build` - host-side `icydb.toml` parsing for build
+- `crates/icydb-config` - host-side `icydb.toml` parsing for build
   scripts and CLI checks.
 - `crates/icydb-derive` - public derive helpers.
 - `crates/icydb-schema-derive` and `crates/icydb-schema` - schema macros and

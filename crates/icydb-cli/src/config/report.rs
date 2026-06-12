@@ -5,7 +5,7 @@
 
 use std::{collections::BTreeSet, fmt::Write as _, path::Path};
 
-use icydb_config_build::GeneratedSqlUpdatePolicy;
+use icydb_config::GeneratedSqlUpdatePolicy;
 
 use crate::table::{ColumnAlign, append_indented_table};
 
@@ -81,7 +81,7 @@ fn append_config_report_header(
 
 fn append_configured_canisters(
     report: &mut String,
-    config: &icydb_config_build::GeneratedIcydbConfig,
+    config: &icydb_config::GeneratedIcydbConfig,
     environment: Option<&str>,
     known: &BTreeSet<&str>,
 ) {
@@ -139,7 +139,7 @@ fn known_canister_set(known_canisters: &[String]) -> BTreeSet<&str> {
 
 fn canister_config_row(
     name: &str,
-    canister: icydb_config_build::GeneratedCanisterConfig,
+    canister: icydb_config::GeneratedCanisterConfig,
 ) -> CanisterConfigRow {
     [
         name.to_string(),
@@ -157,7 +157,7 @@ fn canister_config_row(
 
 fn checked_canister_config_row(
     name: &str,
-    canister: icydb_config_build::GeneratedCanisterConfig,
+    canister: icydb_config::GeneratedCanisterConfig,
     known: &BTreeSet<&str>,
 ) -> CheckedCanisterConfigRow {
     let icp_status = status_text(known.contains(name)).to_string();

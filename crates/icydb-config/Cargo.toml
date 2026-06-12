@@ -1,5 +1,5 @@
 [package]
-name = "icydb-config-build"
+name = "icydb-config"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
