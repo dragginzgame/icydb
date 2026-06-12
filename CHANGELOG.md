@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
 
+- `0.181.18` expands live generated SQL update endpoint rejection coverage for
+  v1 primary-key and bounded-policy shapes before mutation.
+
 - `0.181.17` adds single-entity `SHOW ENTITY ...` introspection for catalog
   storage/version lookup and expands live generated SQL update coverage for
   default bounded rejection before mutation.

@@ -2937,6 +2937,48 @@ fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation(
 }
 
 #[test]
+fn sql_canister_update_endpoint_rejects_primary_key_update_with_extra_guard_without_mutation() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let err = update_sql(
+        &fixture,
+        format!("UPDATE SqlTestUser SET age = 32 WHERE id = '{alice_id}' AND age = 31").as_str(),
+    )
+    .expect_err("configured generated SQL update endpoint must reject guarded PK UPDATE");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::RUNTIME_UNSUPPORTED,
+        "generated SQL update endpoint should reject extra guard predicates under the v1 PK policy",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "guarded primary-key UPDATE rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected guarded primary-key generated UPDATE must not mutate rows",
+    );
+}
+
+#[test]
 fn sql_canister_update_endpoint_returns_primary_key_post_update_rows() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3268,6 +3310,129 @@ fn sql_canister_bounded_update_endpoint_rejects_limit_above_default_without_muta
     assert_eq!(
         after, before,
         "bounded generated SQL update over the default row limit must not mutate rows",
+    );
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_rejects_non_primary_key_order_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY age ASC LIMIT 2",
+    )
+    .expect_err("configured bounded SQL update endpoint must reject non-PK ordering");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::RUNTIME_UNSUPPORTED,
+        "bounded generated SQL update endpoint should reject non-primary-key ordering",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "bounded generated SQL update non-primary-key ordering rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "bounded generated SQL update with non-primary-key ordering must not mutate rows",
+    );
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_rejects_desc_order_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id DESC LIMIT 2",
+    )
+    .expect_err("configured bounded SQL update endpoint must reject descending order");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::RUNTIME_UNSUPPORTED,
+        "bounded generated SQL update endpoint should reject descending primary-key order",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "bounded generated SQL update descending-order rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "bounded generated SQL update with descending order must not mutate rows",
+    );
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_rejects_offset_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 2 OFFSET 1",
+    )
+    .expect_err("configured bounded SQL update endpoint must reject OFFSET");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::RUNTIME_UNSUPPORTED,
+        "bounded generated SQL update endpoint should reject OFFSET",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "bounded generated SQL update OFFSET rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "bounded generated SQL update with OFFSET must not mutate rows",
     );
 }
 
