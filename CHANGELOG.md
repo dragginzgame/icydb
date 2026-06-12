@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Adds explicit generated SQL update policy selection for bounded deterministic
-  `UPDATE`, so `update = "bounded"` can route `__icydb_update` to the bounded
-  validated-plan executor while `update = true` remains primary-key-only, with
-  live canister coverage for the bounded generated update endpoint.
+- Adds live canister coverage for bounded generated `UPDATE RETURNING`, proving
+  returned rows are post-update images in the frozen bounded target order and
+  unsupported computed `RETURNING` rejects without mutation.
 
 ## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
+
+- `0.181.7` adds explicit generated SQL update policy selection for bounded
+  deterministic `UPDATE`, with config, generated-code, documentation, and live
+  canister coverage proving bounded update routing stays separate from the
+  primary-key-only policy.
 
 - `0.181.6` pins the workspace `time` dependency to the last IC-compatible
   `0.3.47` line, avoiding the `tracing-subscriber` coherence conflict exposed

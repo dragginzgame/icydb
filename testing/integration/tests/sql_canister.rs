@@ -2981,6 +2981,85 @@ fn sql_canister_bounded_update_endpoint_rejects_unordered_limit_without_mutation
 }
 
 #[test]
+fn sql_canister_bounded_update_endpoint_returns_post_update_rows() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let target_names = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE age >= 24 ORDER BY id ASC LIMIT 2",
+        )
+        .expect("pre-update target read should prove the bounded order"),
+    );
+    let returning = expect_projection(
+        update_sql(
+            &fixture,
+            "UPDATE SqlTestUser SET age = 33 \
+             WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING name, age",
+        )
+        .expect("bounded generated SQL update endpoint should admit bounded RETURNING"),
+    );
+
+    assert_eq!(
+        returning,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "age".to_string()],
+            rows: target_names
+                .rows
+                .iter()
+                .map(|row| vec![row[0].clone(), "33".to_string()])
+                .collect(),
+            row_count: 2,
+        },
+        "bounded generated UPDATE RETURNING should return post-update rows in the frozen target order",
+    );
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_rejects_computed_returning_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 33 \
+         WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING LOWER(name)",
+    )
+    .expect_err("bounded generated SQL update endpoint must reject computed RETURNING");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::SQL_FEATURE_UNSUPPORTED_FUNCTION_NAMESPACE,
+        "computed bounded UPDATE RETURNING should preserve the specific unsupported SQL feature code",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "computed bounded UPDATE RETURNING rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected bounded UPDATE RETURNING must not mutate rows",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_rejects_malformed_sql() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
