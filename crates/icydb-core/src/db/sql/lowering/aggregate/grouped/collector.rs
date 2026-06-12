@@ -24,7 +24,7 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
         return Err(SqlLoweringError::grouped_projection_requires_explicit_list());
     };
 
-    GroupedProjectionAggregateCollector::new(group_by_fields, model)?.collect_from_items(items)
+    GroupedProjectionAggregateCollector::new(group_by_fields, model).collect_from_items(items)
 }
 
 ///
@@ -45,20 +45,13 @@ struct GroupedProjectionAggregateCollector<'a> {
 impl<'a> GroupedProjectionAggregateCollector<'a> {
     // Build the grouped projection collector once so field-authority and
     // aggregate-ordering policy stay on one local owner.
-    fn new(
-        group_by_fields: &'a [String],
-        model: &'static EntityModel,
-    ) -> Result<Self, SqlLoweringError> {
-        if group_by_fields.is_empty() {
-            return Err(SqlLoweringError::unsupported_select_group_by());
-        }
-
-        Ok(Self {
+    fn new(group_by_fields: &'a [String], model: &'static EntityModel) -> Self {
+        Self {
             grouped_field_names: group_by_fields.iter().map(String::as_str).collect(),
             model,
             aggregate_calls: Vec::new(),
             seen_aggregate: false,
-        })
+        }
     }
 
     // Walk grouped projection items in SQL order so first-seen aggregate leaves

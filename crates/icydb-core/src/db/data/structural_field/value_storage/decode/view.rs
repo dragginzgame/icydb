@@ -61,36 +61,36 @@ impl<'a> ValueStorageView<'a> {
 
     /// Return whether this view contains a generic null value.
     #[inline]
-    pub(in crate::db) const fn is_null(&self) -> bool {
+    pub(in crate::db::data) const fn is_null(&self) -> bool {
         self.tag() == TAG_NULL
     }
 
     /// Return whether this view contains a generic bool value.
     #[inline]
-    pub(in crate::db) const fn is_bool(&self) -> bool {
+    pub(in crate::db::data) const fn is_bool(&self) -> bool {
         matches!(self.tag(), TAG_FALSE | TAG_TRUE)
     }
 
     /// Return whether this view contains a generic i64 value.
     #[inline]
-    pub(in crate::db) const fn is_i64(&self) -> bool {
+    pub(in crate::db::data) const fn is_i64(&self) -> bool {
         self.tag() == TAG_INT64
     }
 
     /// Return whether this view contains a generic u64 value.
     #[inline]
-    pub(in crate::db) const fn is_u64(&self) -> bool {
+    pub(in crate::db::data) const fn is_u64(&self) -> bool {
         self.tag() == TAG_NAT64
     }
 
     /// Return whether this view contains a generic text value.
     #[inline]
-    pub(in crate::db) const fn is_text(&self) -> bool {
+    pub(in crate::db::data) const fn is_text(&self) -> bool {
         self.tag() == TAG_TEXT
     }
 
     /// Decode one bool directly from the bounded value-storage slice.
-    pub(in crate::db) const fn as_bool(&self) -> Result<bool, FieldDecodeError> {
+    pub(in crate::db::data) const fn as_bool(&self) -> Result<bool, FieldDecodeError> {
         match self.tag() {
             TAG_FALSE => Ok(false),
             TAG_TRUE => Ok(true),
@@ -99,17 +99,17 @@ impl<'a> ValueStorageView<'a> {
     }
 
     /// Decode one i64 directly from the bounded value-storage slice.
-    pub(in crate::db) fn as_i64(&self) -> Result<i64, FieldDecodeError> {
+    pub(in crate::db::data) fn as_i64(&self) -> Result<i64, FieldDecodeError> {
         decode_binary_i64_scalar(self.as_bytes())
     }
 
     /// Decode one u64 directly from the bounded value-storage slice.
-    pub(in crate::db) fn as_u64(&self) -> Result<u64, FieldDecodeError> {
+    pub(in crate::db::data) fn as_u64(&self) -> Result<u64, FieldDecodeError> {
         decode_binary_u64_scalar(self.as_bytes())
     }
 
     /// Decode one borrowed string directly from the bounded value-storage slice.
-    pub(in crate::db) fn as_text(&self) -> Result<&'a str, FieldDecodeError> {
+    pub(in crate::db::data) fn as_text(&self) -> Result<&'a str, FieldDecodeError> {
         decode_binary_text_scalar(self.as_bytes())
     }
 

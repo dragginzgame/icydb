@@ -18,8 +18,6 @@ use crate::db::{
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
-pub(in crate::db) use crate::db::predicate::parser::expression::parse_predicate_from_cursor;
-
 /// Parse one SQL predicate expression.
 ///
 /// This is the core predicate parsing boundary used by schema/index contracts
@@ -27,7 +25,7 @@ pub(in crate::db) use crate::db::predicate::parser::expression::parse_predicate_
 pub(crate) fn parse_sql_predicate(sql: &str) -> Result<Predicate, SqlParseError> {
     let tokens = tokenize_sql(sql)?;
     let mut cursor = SqlTokenCursor::new(tokens);
-    let predicate = parse_predicate_from_cursor(&mut cursor)?;
+    let predicate = expression::parse_predicate_from_cursor(&mut cursor)?;
 
     if cursor.eat_semicolon() && !cursor.is_eof() {
         return Err(SqlParseError::unsupported_feature(

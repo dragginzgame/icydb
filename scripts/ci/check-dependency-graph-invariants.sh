@@ -16,6 +16,8 @@ BEGIN {
     sensitive_set[sensitive[idx]] = 1
   }
   banned_set["canic-cdk"] = 1
+  banned_set["ic-agent"] = 1
+  required_exact["time"] = "0.3.47"
 }
 
 function strip_value(line) {
@@ -38,6 +40,9 @@ function record_package() {
       version_count[name] += 1
       versions[name] = versions[name] " " version
     }
+  }
+  if (name in required_exact && version != required_exact[name]) {
+    exact_mismatch[name] = version
   }
 }
 
@@ -64,6 +69,10 @@ END {
   failed = 0
   for (crate in banned) {
     printf "banned dependency resolved: %s %s\n", crate, banned[crate] > "/dev/stderr"
+    failed = 1
+  }
+  for (crate in exact_mismatch) {
+    printf "pinned dependency drifted: %s resolved %s, expected %s\n", crate, exact_mismatch[crate], required_exact[crate] > "/dev/stderr"
     failed = 1
   }
   for (crate in version_count) {

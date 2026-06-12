@@ -325,6 +325,9 @@ pub enum SqlUpdatePolicyRejection {
     GeneratedFieldMutation,
     /// This policy rejects managed/internal field assignment.
     ManagedFieldMutation,
+    /// This policy rejects returning schema-owned fields without an explicit
+    /// public visibility rule.
+    SchemaOwnedReturningField,
     /// The `WHERE` clause did not prove complete primary-key equality.
     PrimaryKeyProofFailed,
     /// This policy requires explicit canonical primary-key ordering.
@@ -395,7 +398,7 @@ pub(in crate::db) fn classify_sql_update_statement_policy(
     };
 
     let classification = classify_update_statement(statement, context);
-    let rejection = update_policy_rejection(policy, &classification, context);
+    let rejection = update_policy_rejection(policy, statement, &classification, context);
     let plan = rejection
         .is_none()
         .then(|| validated_update_plan(statement, policy, &classification, context));
@@ -431,6 +434,7 @@ fn classify_update_statement(
 
 fn update_policy_rejection(
     policy: SqlUpdateExposurePolicy,
+    statement: &SqlUpdateStatement,
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Option<SqlUpdatePolicyRejection> {
@@ -458,19 +462,49 @@ fn update_policy_rejection(
     match policy {
         SqlUpdateExposurePolicy::SessionWriteCurrent | SqlUpdateExposurePolicy::AdminBulk => None,
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => {
-            if classification.where_policy.is_primary_key_equality() {
-                None
-            } else {
-                Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed)
+            if !classification.where_policy.is_primary_key_equality() {
+                return Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed);
             }
+
+            returning_visibility_rejection(policy, statement, context)
         }
         SqlUpdateExposurePolicy::PublicBoundedDeterministic => {
             bounded_policy_rejection(classification, context)
+                .or_else(|| returning_visibility_rejection(policy, statement, context))
         }
         SqlUpdateExposurePolicy::GeneratedQuery | SqlUpdateExposurePolicy::GeneratedDdl => {
             unreachable!("generated policies returned before shared checks")
         }
     }
+}
+
+fn returning_visibility_rejection(
+    policy: SqlUpdateExposurePolicy,
+    statement: &SqlUpdateStatement,
+    context: SqlUpdatePolicyContext<'_>,
+) -> Option<SqlUpdatePolicyRejection> {
+    match policy {
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly
+        | SqlUpdateExposurePolicy::PublicBoundedDeterministic => {}
+        SqlUpdateExposurePolicy::SessionWriteCurrent
+        | SqlUpdateExposurePolicy::AdminBulk
+        | SqlUpdateExposurePolicy::GeneratedQuery
+        | SqlUpdateExposurePolicy::GeneratedDdl => return None,
+    }
+
+    let returning = statement.returning.as_ref()?;
+
+    let references_schema_owned_field = match returning {
+        SqlReturningProjection::All => {
+            !context.generated_fields.is_empty() || !context.managed_fields.is_empty()
+        }
+        SqlReturningProjection::Fields(fields) => fields.iter().any(|field| {
+            contains_field(context.generated_fields, field)
+                || contains_field(context.managed_fields, field)
+        }),
+    };
+
+    references_schema_owned_field.then_some(SqlUpdatePolicyRejection::SchemaOwnedReturningField)
 }
 
 fn validated_update_plan(
@@ -1269,5 +1303,76 @@ mod tests {
         );
         assert_no_plan(&generated);
         assert_no_plan(&managed);
+    }
+
+    #[test]
+    fn update_policy_rejects_schema_owned_returning_fields_on_public_surfaces() {
+        let context = SqlUpdatePolicyContext {
+            primary_key_fields: PRIMARY_KEY,
+            generated_fields: &["slug"],
+            managed_fields: &["updated_at"],
+            max_public_bounded_limit: 100,
+            max_returning_response_bytes: None,
+        };
+        let cases = [
+            (
+                "UPDATE Character SET age = 22 WHERE id = 1 RETURNING *",
+                SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+            ),
+            (
+                "UPDATE Character SET age = 22 WHERE id = 1 RETURNING slug",
+                SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+            ),
+            (
+                "UPDATE Character SET active = false WHERE age = 21 ORDER BY id LIMIT 10 \
+                 RETURNING updated_at",
+                SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+            ),
+        ];
+
+        for (sql, policy) in cases {
+            let report = classify_sql_update_policy(sql, policy, context)
+                .expect("schema-owned RETURNING rejection SQL should parse");
+
+            assert_eq!(
+                report.rejection,
+                Some(SqlUpdatePolicyRejection::SchemaOwnedReturningField),
+            );
+            assert_no_plan(&report);
+        }
+    }
+
+    #[test]
+    fn update_policy_preserves_shape_rejections_before_returning_visibility() {
+        let context = SqlUpdatePolicyContext {
+            primary_key_fields: PRIMARY_KEY,
+            generated_fields: &["slug"],
+            managed_fields: &[],
+            max_public_bounded_limit: 100,
+            max_returning_response_bytes: None,
+        };
+        let primary_key = classify_sql_update_policy(
+            "UPDATE Character SET age = 22 WHERE age = 21 RETURNING *",
+            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+            context,
+        )
+        .expect("primary-key policy rejection SQL should parse");
+        let bounded = classify_sql_update_policy(
+            "UPDATE Character SET age = 22 WHERE age = 21 LIMIT 10 RETURNING *",
+            SqlUpdateExposurePolicy::PublicBoundedDeterministic,
+            context,
+        )
+        .expect("bounded policy rejection SQL should parse");
+
+        assert_eq!(
+            primary_key.rejection,
+            Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
+        );
+        assert_eq!(
+            bounded.rejection,
+            Some(SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder),
+        );
+        assert_no_plan(&primary_key);
+        assert_no_plan(&bounded);
     }
 }

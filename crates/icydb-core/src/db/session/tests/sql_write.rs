@@ -261,6 +261,22 @@ fn persisted_composite_write_rows(session: &DbSession<SessionSqlCanister>) -> Ve
     .expect("post-write composite SQL projection should succeed")
 }
 
+fn persisted_generated_timestamp_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
+    statement_projection_rows::<SessionSqlGeneratedTimestampEntity>(
+        session,
+        "SELECT id, created_on_insert, name FROM SessionSqlGeneratedTimestampEntity ORDER BY id ASC",
+    )
+    .expect("post-write generated timestamp projection should succeed")
+}
+
+fn persisted_managed_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
+    statement_projection_rows::<SessionSqlManagedWriteEntity>(
+        session,
+        "SELECT id, name, created_at, updated_at FROM SessionSqlManagedWriteEntity ORDER BY id ASC",
+    )
+    .expect("post-write managed timestamp projection should succeed")
+}
+
 // Execute one `SessionSqlWriteEntity` UPDATE statement and assert both the
 // returned count payload and the persisted ordered row surface stay stable.
 fn assert_write_update_count_and_rows(
@@ -1588,6 +1604,154 @@ fn execute_sql_public_primary_key_update_rejects_schema_owned_assignments_before
     assert_runtime_unsupported_query_execution_diagnostic(
         err,
         "managed-field assignment should be rejected by schema-derived public policy context",
+    );
+}
+
+#[test]
+fn execute_validated_sql_public_primary_key_update_rejects_schema_owned_returning_all() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+
+    let plan = public_primary_key_update_plan(
+        "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Bea' WHERE id = 1 RETURNING *",
+    );
+    let err = session
+        .execute_validated_sql_public_primary_key_update::<SessionSqlGeneratedTimestampEntity>(
+            &plan,
+        )
+        .expect_err("validated public UPDATE should reject schema-owned RETURNING *");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "validated public UPDATE should not expose schema-owned fields through RETURNING *",
+    );
+    assert_eq!(
+        persisted_generated_timestamp_rows(&session),
+        vec![vec![
+            Value::Nat64(1),
+            Value::Timestamp(Timestamp::from_nanos(1)),
+            Value::Text("Ada".to_string()),
+        ]],
+    );
+}
+
+#[test]
+fn execute_sql_public_primary_key_update_rejects_schema_owned_returning_field() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+
+    let err = session
+        .execute_sql_public_primary_key_update::<SessionSqlGeneratedTimestampEntity>(
+            "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Bea' WHERE id = 1 \
+             RETURNING created_on_insert",
+        )
+        .expect_err("schema-derived public UPDATE should reject generated RETURNING field");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "schema-derived public UPDATE should reject generated RETURNING fields before execution",
+    );
+    assert_eq!(
+        persisted_generated_timestamp_rows(&session),
+        vec![vec![
+            Value::Nat64(1),
+            Value::Timestamp(Timestamp::from_nanos(1)),
+            Value::Text("Ada".to_string()),
+        ]],
+    );
+}
+
+#[test]
+fn execute_sql_public_primary_key_update_allows_visible_returning_fields() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_generated_timestamp_entity(&session, 1, "Ada", 1);
+
+    let result = session
+        .execute_sql_public_primary_key_update::<SessionSqlGeneratedTimestampEntity>(
+            "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Bea' WHERE id = 1 \
+             RETURNING id, name",
+        )
+        .expect("schema-derived public UPDATE should return ordinary visible fields");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("visible field-list RETURNING should return projection payload");
+    };
+
+    assert_eq!(columns, ["id", "name"]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(1)),
+            output(Value::Text("Bea".to_string())),
+        ]],
+    );
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        persisted_generated_timestamp_rows(&session),
+        vec![vec![
+            Value::Nat64(1),
+            Value::Timestamp(Timestamp::from_nanos(1)),
+            Value::Text("Bea".to_string()),
+        ]],
+    );
+}
+
+#[test]
+fn execute_sql_public_bounded_update_rejects_managed_returning_all() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert_many_atomic([
+            SessionSqlManagedWriteEntity {
+                id: 1,
+                name: "Ada".to_string(),
+                created_at: Timestamp::from_nanos(1),
+                updated_at: Timestamp::from_nanos(1),
+            },
+            SessionSqlManagedWriteEntity {
+                id: 2,
+                name: "Bea".to_string(),
+                created_at: Timestamp::from_nanos(2),
+                updated_at: Timestamp::from_nanos(2),
+            },
+        ])
+        .expect("managed-field setup insert should succeed");
+
+    let err = session
+        .execute_sql_public_bounded_update::<SessionSqlManagedWriteEntity>(
+            "UPDATE SessionSqlManagedWriteEntity SET name = 'Cid' WHERE id > 0 \
+             ORDER BY id ASC LIMIT 2 RETURNING *",
+        )
+        .expect_err("schema-derived public bounded UPDATE should reject managed RETURNING *");
+
+    assert_runtime_unsupported_query_execution_diagnostic(
+        err,
+        "schema-derived bounded UPDATE should not expose managed fields through RETURNING *",
+    );
+    assert_eq!(
+        persisted_managed_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat64(1),
+                Value::Text("Ada".to_string()),
+                Value::Timestamp(Timestamp::from_nanos(1)),
+                Value::Timestamp(Timestamp::from_nanos(1)),
+            ],
+            vec![
+                Value::Nat64(2),
+                Value::Text("Bea".to_string()),
+                Value::Timestamp(Timestamp::from_nanos(2)),
+                Value::Timestamp(Timestamp::from_nanos(2)),
+            ],
+        ],
     );
 }
 
