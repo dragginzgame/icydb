@@ -20,6 +20,9 @@ macro_rules! build_configured_canister {
                 Some(icydb_config_build::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly) => {
                     Some(icydb::build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)
                 }
+                Some(icydb_config_build::GeneratedSqlUpdatePolicy::PublicBoundedDeterministic) => {
+                    Some(icydb::build::BuildSqlUpdatePolicy::PublicBoundedDeterministic)
+                }
                 None => None,
             })
             .with_metrics_enabled(config.canister_metrics_enabled($canister_name))

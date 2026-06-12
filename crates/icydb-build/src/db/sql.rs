@@ -372,6 +372,9 @@ fn sql_surface_update_dispatch_arm(
         BuildSqlUpdatePolicy::PublicPrimaryKeyOnly => {
             quote! { execute_sql_public_primary_key_update }
         }
+        BuildSqlUpdatePolicy::PublicBoundedDeterministic => {
+            quote! { execute_sql_public_bounded_update }
+        }
     };
 
     quote! {
@@ -489,6 +492,31 @@ mod tests {
         assert!(
             !surface.contains("execute_sql_public_bounded_update"),
             "first generated SQL update policy must not expose bounded multi-row UPDATE",
+        );
+    }
+
+    #[test]
+    fn generated_sql_update_surface_can_select_bounded_policy_without_broad_update() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SqlSurfaceTokens::empty(
+            true,
+            true,
+            true,
+            Some(BuildSqlUpdatePolicy::PublicBoundedDeterministic),
+        );
+
+        surface_tokens.push_entity(&entity_ty);
+
+        let surface = compact_tokens(quote!(#surface_tokens));
+        assert!(surface.contains("icydb_sql_surface_update_dispatch"));
+        assert!(surface.contains("execute_sql_public_bounded_update"));
+        assert!(
+            !surface.contains("execute_sql_update"),
+            "generated SQL update glue must not call broad session SQL UPDATE",
+        );
+        assert!(
+            !surface.contains("execute_sql_public_primary_key_update"),
+            "bounded generated SQL update policy must not silently select the primary-key-only helper",
         );
     }
 }

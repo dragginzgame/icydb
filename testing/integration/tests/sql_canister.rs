@@ -32,6 +32,12 @@ fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
     install_fixture_canister("sql")
 }
 
+fn install_sql_bounded_canister_fixture() -> StandaloneCanisterFixture {
+    // Reuse the SQL smoke canister code with the bounded generated update
+    // policy selected in icydb.toml.
+    install_fixture_canister("sql_bounded")
+}
+
 fn install_demo_rpg_canister_fixture() -> StandaloneCanisterFixture {
     // The demo RPG canister has one generated entity, making it a useful
     // boundary fixture for proving generated DDL still requires explicit targets.
@@ -2883,6 +2889,94 @@ fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation(
     assert_eq!(
         after, before,
         "rejected generated SQL update endpoint call must not mutate rows",
+    );
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_order() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-update read should prove the row set exists"),
+    );
+    let result = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 2",
+    )
+    .expect("configured bounded SQL update endpoint should admit explicit bounded UPDATE");
+
+    assert_eq!(
+        result,
+        SqlQueryResult::Count {
+            entity: "SqlTestUser".to_string(),
+            row_count: 2,
+        },
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-update read should still execute"),
+    );
+    assert_ne!(
+        after, before,
+        "admitted bounded generated SQL update should mutate the limited target set",
+    );
+    assert_eq!(
+        after
+            .rows
+            .iter()
+            .filter(|row| row.get(1).is_some_and(|age| age == "32"))
+            .count(),
+        2,
+        "bounded generated SQL update should mutate exactly the admitted LIMIT window",
+    );
+}
+
+#[test]
+fn sql_canister_bounded_update_endpoint_rejects_unordered_limit_without_mutation() {
+    let fixture = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("pre-rejection read should prove the row set exists"),
+    );
+    let err = update_sql(
+        &fixture,
+        "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 LIMIT 2",
+    )
+    .expect_err("configured bounded SQL update endpoint must reject implicit ordering");
+
+    assert_eq!(
+        err.code(),
+        ErrorCode::RUNTIME_UNSUPPORTED,
+        "bounded generated SQL update endpoint should preserve policy rejection code",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "bounded generated SQL update endpoint policy rejection should stay query-owned",
+    );
+    let after = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
+        )
+        .expect("post-rejection read should still execute"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected bounded generated SQL update endpoint call must not mutate rows",
     );
 }
 

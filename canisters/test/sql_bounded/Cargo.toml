@@ -1,0 +1,34 @@
+[package]
+name = "canister_test_sql_bounded"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = ["candid"]
+
+[lib]
+crate-type = ["cdylib"]
+path = "../sql/src/lib.rs"
+
+[features]
+default = ["sql", "diagnostics"]
+candid-export = []
+sql = ["icydb/sql"]
+diagnostics = ["icydb/diagnostics"]
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-test-sql-fixtures = { workspace = true }
+
+[build-dependencies]
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-config-build = { workspace = true }
+icydb-testing-test-sql-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
+
+[lints]
+workspace = true

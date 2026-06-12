@@ -26,7 +26,7 @@ pub(in crate::db) use model::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
     IntegrityTotals, SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
 };
-pub(crate) use model::{
+use model::{
     IndexStoreSnapshotStats, StoreSnapshotAllocationIdentity, StoreSnapshotSchemaMetadata,
 };
 pub(in crate::db) use storage_report::{storage_report, storage_report_default};

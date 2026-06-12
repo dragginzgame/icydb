@@ -1,0 +1,14 @@
+[canisters.test_sql_bounded.sql]
+readonly = true
+ddl = true
+fixtures = true
+update = "bounded"
+
+[canisters.test_sql_bounded.metrics]
+enabled = true
+
+[canisters.test_sql_bounded.snapshot]
+enabled = true
+
+[canisters.test_sql_bounded.schema]
+enabled = true

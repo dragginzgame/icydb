@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use clap::{ArgAction, Args, Subcommand, ValueHint};
+use clap::{ArgAction, Args, Subcommand, ValueEnum, ValueHint};
 
 use super::ICP_ENVIRONMENT_ENV;
 
@@ -100,6 +100,10 @@ struct ConfigInitSurfaceArgs {
     #[arg(long)]
     update: bool,
 
+    /// Generated SQL update endpoint policy to enable.
+    #[arg(long = "update-policy", value_enum, value_name = "POLICY")]
+    update_policy: Option<ConfigInitUpdatePolicy>,
+
     /// Also generate metrics report endpoint.
     #[arg(long)]
     metrics: bool,
@@ -150,6 +154,14 @@ impl ConfigInitArgs {
         self.surfaces.update()
     }
 
+    pub(crate) const fn update_policy(&self) -> Option<ConfigInitUpdatePolicy> {
+        self.surfaces.update_policy()
+    }
+
+    pub(crate) fn update_config_value(&self) -> String {
+        self.surfaces.update_config_value()
+    }
+
     pub(crate) const fn metrics(&self) -> bool {
         self.surfaces.metrics()
     }
@@ -181,7 +193,23 @@ impl ConfigInitSurfaceArgs {
     }
 
     const fn update(&self) -> bool {
-        self.surface_enabled(self.update)
+        self.surface_enabled(self.update) || self.update_policy.is_some()
+    }
+
+    const fn update_policy(&self) -> Option<ConfigInitUpdatePolicy> {
+        match self.update_policy {
+            Some(policy) => Some(policy),
+            None if self.surface_enabled(self.update) => Some(ConfigInitUpdatePolicy::PrimaryKey),
+            None => None,
+        }
+    }
+
+    fn update_config_value(&self) -> String {
+        match self.update_policy {
+            Some(policy) => format!("\"{}\"", policy.config_value()),
+            None if self.surface_enabled(self.update) => String::from("true"),
+            None => String::from("false"),
+        }
     }
 
     const fn metrics(&self) -> bool {
@@ -202,5 +230,23 @@ impl ConfigInitSurfaceArgs {
 
     const fn surface_enabled(&self, enabled: bool) -> bool {
         enabled || self.all
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum ConfigInitUpdatePolicy {
+    /// Public-safe at-most-one-row primary-key update policy.
+    #[value(name = "primary-key", alias = "primary_key")]
+    PrimaryKey,
+    /// Public-safe explicit primary-key-ordered bounded update policy.
+    Bounded,
+}
+
+impl ConfigInitUpdatePolicy {
+    pub(crate) const fn config_value(self) -> &'static str {
+        match self {
+            Self::PrimaryKey => "primary_key",
+            Self::Bounded => "bounded",
+        }
     }
 }

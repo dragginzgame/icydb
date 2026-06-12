@@ -50,6 +50,7 @@ fn config_exists_message(path: &Path) -> String {
 }
 
 fn render_default_config(args: &ConfigInitArgs) -> String {
+    let update = args.update_config_value();
     format!(
         "\
 [canisters.{canister}.sql]
@@ -72,7 +73,7 @@ enabled = {schema}
         readonly = args.readonly(),
         ddl = args.ddl(),
         fixtures = args.fixtures(),
-        update = args.update(),
+        update = update,
         metrics = args.metrics(),
         metrics_extended = args.metrics_extended(),
         snapshot = args.snapshot(),

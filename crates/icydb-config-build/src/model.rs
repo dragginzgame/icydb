@@ -254,6 +254,8 @@ impl GeneratedCanisterSqlConfig {
 pub enum GeneratedSqlUpdatePolicy {
     /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
     PublicPrimaryKeyOnly,
+    /// Expose only public-safe bounded deterministic `UPDATE` through `__icydb_update`.
+    PublicBoundedDeterministic,
 }
 
 /// Validated generated metrics endpoint switches for one canister.

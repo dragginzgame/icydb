@@ -209,6 +209,7 @@ fn sql_surface_status(
     if let Some(policy) = update_policy {
         surfaces.push(match policy {
             GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly => "update:primary_key",
+            GeneratedSqlUpdatePolicy::PublicBoundedDeterministic => "update:bounded",
         });
     }
 

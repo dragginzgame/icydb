@@ -92,10 +92,14 @@ lane:
 |---|---|---|---|
 | `__icydb_query` | yes | no | no |
 | `__icydb_ddl` | no | no | yes |
+| `__icydb_update` | no | `UPDATE` only, when explicitly configured | no |
 
-No generated SQL write endpoint is part of the current default generated
-surface. If one is added, it must choose an explicit `UPDATE` exposure policy
-rather than inheriting broad `execute_sql_update::<E>` behavior by default.
+No generated SQL write endpoint is part of the default generated surface.
+`__icydb_update` is emitted only when `icydb.toml` selects an explicit update
+policy: `update = true` or `update = "primary_key"` for public primary-key-only
+`UPDATE`, or `update = "bounded"` for public bounded deterministic `UPDATE`.
+Generated update dispatch must not inherit broad `execute_sql_update::<E>`
+behavior by default.
 
 ## What Is Already Stable
 
@@ -254,7 +258,7 @@ mutation capability.
 lane for `INSERT`, `UPDATE`, `DELETE`, and the narrow write `RETURNING`
 contract. Its broad `UPDATE` behavior is not the generated canister SQL
 contract: generated `__icydb_query` and `__icydb_ddl` reject row mutation SQL,
-and a future generated SQL write endpoint must pass through an explicit
+and generated `__icydb_update` must pass through its configured explicit
 surface policy before executing `UPDATE`.
 
 ## DDL Boundary

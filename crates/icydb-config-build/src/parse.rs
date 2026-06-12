@@ -146,8 +146,10 @@ fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCaniste
                 .unwrap_or(DEFAULT_SQL_DDL_ENABLED),
             sql.and_then(|sql| sql.fixtures)
                 .unwrap_or(DEFAULT_SQL_FIXTURES_ENABLED),
-            sql.and_then(|sql| sql.update)
-                .map_or(DEFAULT_SQL_UPDATE_POLICY, generated_sql_update_policy),
+            sql.and_then(|sql| sql.update.as_ref()).map_or(
+                DEFAULT_SQL_UPDATE_POLICY,
+                RawCanisterSqlUpdateConfig::generated_policy,
+            ),
         ),
         GeneratedCanisterMetricsConfig::new(metrics_enabled, metrics_extended_enabled),
         raw_config
@@ -215,16 +217,41 @@ struct RawCanisterSqlConfig {
     readonly: Option<bool>,
     ddl: Option<bool>,
     fixtures: Option<bool>,
-    update: Option<bool>,
+    update: Option<RawCanisterSqlUpdateConfig>,
 }
 
-const fn generated_sql_update_policy(
-    enabled: bool,
-) -> Option<crate::model::GeneratedSqlUpdatePolicy> {
-    if enabled {
-        Some(crate::model::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly)
-    } else {
-        None
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawCanisterSqlUpdateConfig {
+    Enabled(bool),
+    Policy(RawGeneratedSqlUpdatePolicy),
+}
+
+impl RawCanisterSqlUpdateConfig {
+    const fn generated_policy(&self) -> Option<crate::model::GeneratedSqlUpdatePolicy> {
+        match self {
+            Self::Enabled(true) => {
+                Some(crate::model::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly)
+            }
+            Self::Enabled(false) => None,
+            Self::Policy(policy) => Some(policy.generated_policy()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RawGeneratedSqlUpdatePolicy {
+    PrimaryKey,
+    Bounded,
+}
+
+impl RawGeneratedSqlUpdatePolicy {
+    const fn generated_policy(&self) -> crate::model::GeneratedSqlUpdatePolicy {
+        match self {
+            Self::PrimaryKey => crate::model::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly,
+            Self::Bounded => crate::model::GeneratedSqlUpdatePolicy::PublicBoundedDeterministic,
+        }
     }
 }
 

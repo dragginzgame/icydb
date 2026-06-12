@@ -9,7 +9,8 @@ use clap::Parser;
 
 use crate::{
     cli::{
-        CanisterCommand, CliArgs, CliCommand, ConfigCommand, DEFAULT_ENVIRONMENT, SchemaCommand,
+        CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitUpdatePolicy,
+        DEFAULT_ENVIRONMENT, SchemaCommand,
     },
     shell::test_support::sql_shell_config_inputs,
 };
@@ -349,6 +350,51 @@ fn cli_args_group_config_init_under_config_keyword() {
     assert!(args.snapshot());
     assert!(args.schema());
     assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
+}
+
+#[test]
+fn cli_args_config_init_update_policy_enables_bounded_update() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--canister",
+        "demo_rpg",
+        "--update-policy",
+        "bounded",
+    ])
+    .expect("config init should parse bounded update policy");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    assert!(args.update());
+    assert_eq!(args.update_policy(), Some(ConfigInitUpdatePolicy::Bounded));
+    assert_eq!(args.update_config_value(), "\"bounded\"");
+}
+
+#[test]
+fn cli_args_config_init_update_policy_accepts_primary_key_alias() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--canister",
+        "demo_rpg",
+        "--update-policy",
+        "primary_key",
+    ])
+    .expect("config init should parse primary-key update policy alias");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    assert!(args.update());
+    assert_eq!(
+        args.update_policy(),
+        Some(ConfigInitUpdatePolicy::PrimaryKey)
+    );
+    assert_eq!(args.update_config_value(), "\"primary_key\"");
 }
 
 #[test]

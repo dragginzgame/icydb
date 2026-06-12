@@ -63,6 +63,42 @@ fn config_init_writes_default_config_at_workspace_root() {
 }
 
 #[test]
+fn config_init_writes_bounded_update_policy() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-config-init-bounded-test-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(root.as_path()).expect("test directory should be created");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        root.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+        "--update-policy",
+        "bounded",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    init_config(args).expect("config init should succeed");
+
+    let config =
+        std::fs::read_to_string(root.join("icydb.toml")).expect("config file should be written");
+    assert_eq!(
+        config,
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
+    );
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
 fn config_report_marks_canister_settings_against_icp_environment() {
     let root = std::env::temp_dir().join(format!(
         "icydb-cli-config-report-test-{}",
@@ -73,7 +109,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
     let config_path = root.join("canisters").join("demo").join("icydb.toml");
     std::fs::write(
         config_path.as_path(),
-        r"
+        r#"
             [canisters.demo_rpg.sql]
             readonly = true
             ddl = true
@@ -89,16 +125,22 @@ fn config_report_marks_canister_settings_against_icp_environment() {
 
             [canisters.demo_rpg.schema]
             enabled = true
-        ",
+
+            [canisters.admin_rpg.sql]
+            update = "bounded"
+        "#,
     )
     .expect("config should be written");
-    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &["demo_rpg"])
-        .expect("config should resolve");
+    let resolved = icydb_config_build::load_resolved_icydb_toml(
+        canister.as_path(),
+        &["demo_rpg", "admin_rpg"],
+    )
+    .expect("config should resolve");
 
     let report = render_config_report(
         canister.as_path(),
         Some("demo"),
-        &[String::from("demo_rpg")],
+        &[String::from("demo_rpg"), String::from("admin_rpg")],
         &resolved,
     );
 
@@ -110,17 +152,16 @@ fn config_report_marks_canister_settings_against_icp_environment() {
             && line.contains("schema")
             && line.contains("ICP environment")
     }));
-    assert!(
-        report
-            .lines()
-            .any(|line| line.starts_with("  --------   -----------------------"))
-    );
+    assert!(report.lines().any(|line| line.starts_with("  --------")));
     assert!(report.lines().any(|line| {
         line.contains("demo_rpg")
             && line.contains("readonly, ddl, fixtures")
             && line.contains("update:primary_key")
             && line.contains("enabled, extended")
             && line.contains("ok")
+    }));
+    assert!(report.lines().any(|line| {
+        line.contains("admin_rpg") && line.contains("update:bounded") && line.contains("ok")
     }));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
@@ -165,7 +206,7 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
     std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
     std::fs::write(
         root.join("icydb.toml"),
-        r"
+        r#"
             [canisters.demo_rpg.sql]
             readonly = true
             ddl = false
@@ -181,7 +222,10 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
 
             [canisters.demo_rpg.schema]
             enabled = true
-        ",
+
+            [canisters.admin_rpg.sql]
+            update = "bounded"
+        "#,
     )
     .expect("config should be written");
     let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
@@ -205,6 +249,11 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
     assert!(config_surface_enabled_for_resolved(
         &resolved,
         "demo_rpg",
+        ConfigSurface::SqlUpdate,
+    ));
+    assert!(config_surface_enabled_for_resolved(
+        &resolved,
+        "admin_rpg",
         ConfigSurface::SqlUpdate,
     ));
     assert!(config_surface_enabled_for_resolved(
@@ -245,7 +294,7 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
     std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
     std::fs::write(
         root.join("icydb.toml"),
-        r"
+        r#"
             [canisters.demo_rpg.sql]
             readonly = true
             ddl = false
@@ -261,7 +310,10 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
 
             [canisters.demo_rpg.schema]
             enabled = true
-        ",
+
+            [canisters.admin_rpg.sql]
+            update = "bounded"
+        "#,
     )
     .expect("config should be written");
     let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
@@ -285,6 +337,11 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
     assert!(configured_endpoint_enabled_for_resolved(
         &resolved,
         "demo_rpg",
+        SQL_UPDATE_ENDPOINT,
+    ));
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "admin_rpg",
         SQL_UPDATE_ENDPOINT,
     ));
     assert!(configured_endpoint_enabled_for_resolved(

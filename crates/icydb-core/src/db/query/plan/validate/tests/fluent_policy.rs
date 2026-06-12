@@ -30,7 +30,7 @@ fn fluent_non_paged_grouped_shapes_pass() {
 }
 
 #[test]
-fn fluent_non_paged_prefers_cursor_error_when_both_violate() {
+fn fluent_non_paged_allows_grouped_direct_cursor_execution() {
     validate_fluent_non_paged_mode(true, true)
         .expect("grouped fluent mode should admit direct cursor execution");
 }

@@ -7,14 +7,22 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Adds generated SQL update endpoint plumbing, with `update = true` and
-  `icydb config init --update` opting a canister into `__icydb_update` through
-  the default public primary-key-only validated update policy, and routes CLI
-  shell `UPDATE` statements to that configured endpoint.
+- Adds explicit generated SQL update policy selection for bounded deterministic
+  `UPDATE`, so `update = "bounded"` can route `__icydb_update` to the bounded
+  validated-plan executor while `update = true` remains primary-key-only, with
+  live canister coverage for the bounded generated update endpoint.
 
 ## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
+
+- `0.181.6` pins the workspace `time` dependency to the last IC-compatible
+  `0.3.47` line, avoiding the `tracing-subscriber` coherence conflict exposed
+  by `time 0.3.48`.
+
+- `0.181.5` adds the generated SQL update endpoint, letting `update = true`
+  and `icydb config init --update` opt canisters into the default public
+  primary-key-only validated `UPDATE` policy.
 
 - `0.181.4` locks generated SQL routing to query, DDL, and fixture surfaces
   only, with route and wasm-report guards proving row-mutation SQL remains

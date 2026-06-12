@@ -11,7 +11,7 @@ mod sql;
 mod target;
 
 pub(crate) use canister::CanisterCommand;
-pub(crate) use config::{ConfigArgs, ConfigCommand, ConfigInitArgs};
+pub(crate) use config::{ConfigArgs, ConfigCommand, ConfigInitArgs, ConfigInitUpdatePolicy};
 pub(crate) use metrics::MetricsArgs;
 pub(crate) use schema::SchemaCommand;
 pub(crate) use sql::{SqlArgs, SqlShellFields};

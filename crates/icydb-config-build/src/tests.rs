@@ -143,6 +143,40 @@ fn boolean_sql_update_policy_enables_primary_key_default() {
 }
 
 #[test]
+fn named_primary_key_sql_update_policy_enables_primary_key_policy() {
+    let config = parse_icydb_toml(
+        r#"
+            [canisters.demo_rpg.sql]
+            update = "primary_key"
+        "#,
+        &["demo_rpg"],
+    )
+    .expect("named primary-key SQL update config should parse");
+
+    assert_eq!(
+        config.canister_sql_update_policy("demo_rpg"),
+        Some(GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly),
+    );
+}
+
+#[test]
+fn named_bounded_sql_update_policy_enables_bounded_policy() {
+    let config = parse_icydb_toml(
+        r#"
+            [canisters.demo_rpg.sql]
+            update = "bounded"
+        "#,
+        &["demo_rpg"],
+    )
+    .expect("named bounded SQL update config should parse");
+
+    assert_eq!(
+        config.canister_sql_update_policy("demo_rpg"),
+        Some(GeneratedSqlUpdatePolicy::PublicBoundedDeterministic),
+    );
+}
+
+#[test]
 fn explicit_false_disables_sql_update_policy() {
     let config = parse_icydb_toml(
         r"

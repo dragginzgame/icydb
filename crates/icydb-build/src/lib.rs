@@ -56,6 +56,8 @@ struct BuildMetricsOptions {
 pub enum BuildSqlUpdatePolicy {
     /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
     PublicPrimaryKeyOnly,
+    /// Expose only public-safe bounded deterministic `UPDATE` through `__icydb_update`.
+    PublicBoundedDeterministic,
 }
 
 impl BuildOptions {

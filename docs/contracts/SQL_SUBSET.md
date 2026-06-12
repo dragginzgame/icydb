@@ -253,8 +253,9 @@ Public SQL ownership is split deliberately:
 
 ### SQL `UPDATE` Availability By Surface
 
-`UPDATE` is an existing session/library write-lane capability, not a generated
-query or DDL endpoint capability.
+`UPDATE` is an existing session/library write-lane capability. Generated query
+and DDL endpoints still reject it; generated canister update exposure is a
+separate opt-in write endpoint with an explicit public-safe policy.
 
 Current boundary:
 
@@ -264,20 +265,20 @@ Current boundary:
   `UPDATE ... RETURNING` forms.
 - generated `__icydb_query` rejects row mutation SQL, including `UPDATE`.
 - generated `__icydb_ddl` rejects row mutation SQL, including `UPDATE`.
-- no generated SQL write endpoint is part of the current default generated
-  canister surface.
+- generated `__icydb_update` is not part of the default generated canister
+  surface; it is emitted only when the canister config selects an update policy.
+- `update = true` and `update = "primary_key"` select the public
+  primary-key-only policy.
+- `update = "bounded"` selects the public bounded deterministic policy, which
+  requires explicit primary-key ordering and a limit.
 
 Current `execute_sql_update::<E>(...)` support includes primary-key and
 non-primary-key predicates, explicit `ORDER BY`, `LIMIT`, and `OFFSET` where
 the reduced SQL write lane admits them. That broader session/library behavior
-does not define the policy for any future generated public SQL write endpoint.
-Any generated/public canister SQL write exposure must choose an explicit
-`UPDATE` policy before executing row mutation SQL.
-
-Future generated/public SQL write policy is expected to start stricter than
-the session/library lane: primary-key `UPDATE` first, then explicit bounded
-deterministic non-primary-key `UPDATE` only with canonical primary-key
-`ORDER BY` and `LIMIT`.
+does not define the policy for generated public SQL write endpoints. Generated
+`__icydb_update` dispatch must choose one configured `UPDATE` policy before
+executing row mutation SQL, and must not call the broad session/library
+`execute_sql_update::<E>(...)` lane directly.
 
 ## Blob Literals and Blob Values
 
@@ -514,7 +515,9 @@ Supported `RETURNING` forms are intentionally narrow:
 
 For `UPDATE`, `RETURNING` is available where the underlying SQL write surface
 admits the `UPDATE` shape. Generated query and DDL endpoints still reject
-`UPDATE` before `RETURNING` semantics apply.
+`UPDATE` before `RETURNING` semantics apply; generated `__icydb_update` admits
+`UPDATE RETURNING` only where the configured update policy admits the target
+selection shape.
 
 Unsupported `RETURNING` projection forms remain fail-closed:
 

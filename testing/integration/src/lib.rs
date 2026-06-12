@@ -30,6 +30,10 @@ const FIXTURE_CANISTERS: &[FixtureCanister] = &[
         package: "canister_test_sql",
     },
     FixtureCanister {
+        name: "sql_bounded",
+        package: "canister_test_sql_bounded",
+    },
+    FixtureCanister {
         name: "minimal",
         package: "canister_audit_minimal",
     },

@@ -248,13 +248,7 @@ impl IntoPrimaryKeyFieldIds for Vec<FieldId> {
 impl PersistedSchemaSnapshot {
     /// Build one persisted schema snapshot from already-validated pieces.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "owner-local tests build field-only snapshots while production now preserves accepted index contracts through new_with_indexes"
-        )
-    )]
+    #[cfg(test)]
     pub(in crate::db) fn new(
         version: SchemaVersion,
         entity_path: String,

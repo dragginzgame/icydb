@@ -157,7 +157,7 @@ pub struct IntegrityStoreSnapshot {
 impl IntegrityStoreSnapshot {
     /// Construct one empty store-level integrity snapshot.
     #[must_use]
-    pub(crate) fn new(path: String) -> Self {
+    pub(super) fn new(path: String) -> Self {
         Self {
             path,
             ..Self::default()
@@ -244,7 +244,7 @@ pub struct IntegrityReport {
 impl IntegrityReport {
     /// Construct one integrity report payload.
     #[must_use]
-    pub(crate) const fn new(stores: Vec<IntegrityStoreSnapshot>, totals: IntegrityTotals) -> Self {
+    pub(super) const fn new(stores: Vec<IntegrityStoreSnapshot>, totals: IntegrityTotals) -> Self {
         Self { stores, totals }
     }
 
@@ -264,7 +264,7 @@ impl IntegrityReport {
 impl StorageReport {
     /// Construct one storage report payload.
     #[must_use]
-    pub(crate) const fn new(
+    pub(super) const fn new(
         storage_data: Vec<DataStoreSnapshot>,
         storage_index: Vec<IndexStoreSnapshot>,
         schema_storage: Vec<SchemaStoreSnapshot>,
@@ -362,13 +362,13 @@ impl StoreSnapshotStorageMode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct StoreSnapshotAllocationIdentity {
+pub(super) struct StoreSnapshotAllocationIdentity {
     memory_id: u8,
     stable_key: String,
 }
 
 impl StoreSnapshotAllocationIdentity {
-    pub(crate) const fn new(memory_id: u8, stable_key: String) -> Self {
+    pub(super) const fn new(memory_id: u8, stable_key: String) -> Self {
         Self {
             memory_id,
             stable_key,
@@ -381,14 +381,14 @@ impl StoreSnapshotAllocationIdentity {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct StoreSnapshotSchemaMetadata {
+pub(super) struct StoreSnapshotSchemaMetadata {
     version: Option<u32>,
     fingerprint_method_version: Option<u8>,
     fingerprint: Option<String>,
 }
 
 impl StoreSnapshotSchemaMetadata {
-    pub(crate) const fn absent() -> Self {
+    pub(super) const fn absent() -> Self {
         Self {
             version: None,
             fingerprint_method_version: None,
@@ -396,7 +396,7 @@ impl StoreSnapshotSchemaMetadata {
         }
     }
 
-    pub(crate) const fn new(
+    pub(super) const fn new(
         schema_version: u32,
         schema_fingerprint_method_version: u8,
         schema_fingerprint: String,
@@ -422,7 +422,7 @@ impl StoreSnapshotSchemaMetadata {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct IndexStoreSnapshotStats {
+pub(super) struct IndexStoreSnapshotStats {
     entries: u64,
     user_entries: u64,
     system_entries: u64,
@@ -431,7 +431,7 @@ pub(crate) struct IndexStoreSnapshotStats {
 }
 
 impl IndexStoreSnapshotStats {
-    pub(crate) const fn new(
+    pub(super) const fn new(
         entries: u64,
         user_entries: u64,
         system_entries: u64,
@@ -451,7 +451,7 @@ impl IndexStoreSnapshotStats {
 impl SchemaStoreSnapshot {
     /// Construct one schema-store diagnostic row.
     #[must_use]
-    pub(crate) fn new(
+    pub(super) fn new(
         path: String,
         storage: StoreSnapshotStorageMode,
         capabilities: StoreRuntimeStorageCapabilities,
@@ -590,7 +590,7 @@ pub struct DataStoreSnapshot {
 impl DataStoreSnapshot {
     /// Construct one data-store snapshot row.
     #[must_use]
-    pub(crate) fn new(
+    pub(super) fn new(
         path: String,
         storage: StoreSnapshotStorageMode,
         capabilities: StoreRuntimeStorageCapabilities,
@@ -740,7 +740,7 @@ pub struct IndexStoreSnapshot {
 impl IndexStoreSnapshot {
     /// Construct one index-store snapshot row.
     #[must_use]
-    pub(crate) fn new(
+    pub(super) fn new(
         path: String,
         storage: StoreSnapshotStorageMode,
         capabilities: StoreRuntimeStorageCapabilities,
@@ -901,7 +901,7 @@ pub struct EntitySnapshot {
 impl EntitySnapshot {
     /// Construct one entity-storage snapshot row.
     #[must_use]
-    pub(crate) const fn new(store: String, path: String, entries: u64, memory_bytes: u64) -> Self {
+    pub(super) const fn new(store: String, path: String, entries: u64, memory_bytes: u64) -> Self {
         Self {
             store,
             path,
