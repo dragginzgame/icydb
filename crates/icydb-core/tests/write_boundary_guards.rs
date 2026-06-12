@@ -731,6 +731,55 @@ fn sql_ddl_preparation_reports_stay_out_of_ddl_hub() {
 }
 
 #[test]
+fn generated_sql_update_surface_stays_policy_validated() {
+    let generated_sql =
+        strip_cfg_test_items(&read_source("../../crates/icydb-build/src/db/sql.rs"));
+    let public_update = read_source("src/db/session/sql/execute/write/update.rs");
+
+    assert!(
+        generated_sql.contains("fn sql_surface_update_dispatch_arm(")
+            && generated_sql.contains("policy: BuildSqlUpdatePolicy,")
+            && generated_sql.contains("BuildSqlUpdatePolicy::PublicPrimaryKeyOnly")
+            && generated_sql.contains("quote! { execute_sql_public_primary_key_update }")
+            && generated_sql.contains("BuildSqlUpdatePolicy::PublicBoundedDeterministic")
+            && generated_sql.contains("quote! { execute_sql_public_bounded_update }")
+            && generated_sql.contains("update_policy.is_some().then(||")
+            && generated_sql.contains("fn __icydb_update(")
+            && generated_sql.contains("db().#executor::<#entity_ty>(sql)"),
+        "generated SQL update glue must expose __icydb_update only through explicit generated update policies",
+    );
+    assert!(
+        !generated_sql.contains("execute_sql_update::<")
+            && !generated_sql.contains("execute_sql_update("),
+        "generated SQL update glue must not call the broad session SQL update executor",
+    );
+    assert!(
+        public_update.contains("fn schema_derived_sql_update_plan<E>(")
+            && public_update.contains("checked_accepted_write_descriptor::<E>(&schema)?")
+            && public_update.contains("primary_key_fields: descriptor.primary_key_names(),")
+            && public_update.contains("generated_fields: generated_fields.as_slice(),")
+            && public_update.contains("managed_fields: managed_fields.as_slice(),"),
+        "public generated-update helpers must derive policy context from accepted runtime schema descriptors",
+    );
+    assert!(
+        public_update.contains("plan: &SqlPublicPrimaryKeyUpdatePlan,")
+            && public_update.contains("plan: &SqlPublicBoundedUpdatePlan,")
+            && public_update.contains("SqlUpdateExposurePolicy::PublicPrimaryKeyOnly")
+            && public_update.contains("SqlUpdateExposurePolicy::PublicBoundedDeterministic")
+            && public_update
+                .contains("let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = plan else")
+            && public_update.contains(
+                "let SqlValidatedUpdatePlan::PublicBoundedDeterministic(plan) = plan else",
+            )
+            && public_update
+                .contains("self.execute_validated_sql_public_primary_key_update::<E>(&plan)")
+            && public_update
+                .contains("self.execute_validated_sql_public_bounded_update::<E>(&plan)"),
+        "generated/public update entrypoints must consume policy-specific validated plans before execution",
+    );
+}
+
+#[test]
 fn sql_ddl_default_encoding_uses_schema_owned_field_codecs() {
     let ddl_field = read_source("src/db/sql/ddl/field.rs");
     let mutation = read_rust_sources_under("src/db/schema/mutation");

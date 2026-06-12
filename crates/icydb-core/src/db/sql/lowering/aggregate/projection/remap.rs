@@ -40,7 +40,7 @@ pub(in crate::db::sql::lowering::aggregate) fn intern_having_global_aggregate_te
 // expression while deduplicating onto the canonical executable terminal list.
 // Direct aggregate terminals report the first-seen terminal remap so the
 // terminal-remap contract stays stable for direct aggregate outputs.
-pub(in crate::db::sql::lowering::aggregate) fn collect_global_aggregate_terminals_from_expr(
+pub(super) fn collect_global_aggregate_terminals_from_expr(
     expr: &Expr,
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
 ) -> Result<Option<usize>, SqlLoweringError> {

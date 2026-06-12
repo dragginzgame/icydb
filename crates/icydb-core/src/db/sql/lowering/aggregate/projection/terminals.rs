@@ -22,7 +22,8 @@ use crate::db::{
 /// LoweredSqlGlobalAggregateTerminals
 ///
 /// Canonical global aggregate lowering result that keeps only unique
-/// executable terminals plus one remap back to original SQL projection order.
+/// executable terminals plus the canonical projection spec that preserves
+/// original SQL projection order.
 ///
 pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminals {
     pub(in crate::db::sql::lowering::aggregate) terminals: Vec<SqlGlobalAggregateTerminal>,

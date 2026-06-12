@@ -59,16 +59,14 @@ enum StagedSlotPayload {
 /// complete row image through the structural row boundary.
 ///
 
-pub(in crate::db::data::persisted_row) struct CompleteSerializedPatchWriter {
+pub(super) struct CompleteSerializedPatchWriter {
     model: &'static EntityModel,
     slots: Vec<StagedSlotPayload>,
 }
 
 impl CompleteSerializedPatchWriter {
     /// Build one empty serialized patch writer for one entity model.
-    pub(in crate::db::data::persisted_row) fn for_generated_model_for_test(
-        model: &'static EntityModel,
-    ) -> Self {
+    pub(super) fn for_generated_model_for_test(model: &'static EntityModel) -> Self {
         Self {
             model,
             slots: vec![StagedSlotPayload::Missing; model.fields().len()],
@@ -77,7 +75,7 @@ impl CompleteSerializedPatchWriter {
 
     /// Materialize one dense serialized slot image, erroring if the writer
     /// failed to emit any declared slot.
-    pub(in crate::db::data::persisted_row) fn finish_dense_slot_image(
+    pub(super) fn finish_dense_slot_image(
         self,
     ) -> Result<SerializedStructuralPatch, InternalError> {
         let slot_payloads = required_dense_slot_payloads(self.slots)?;

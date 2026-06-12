@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds a source-boundary guard for generated SQL update glue, proving
+  configured `__icydb_update` routes only through explicit policy helpers and
+  never through broad session `execute_sql_update`.
 - Adds live canister coverage for generated `UPDATE RETURNING`, proving
   primary-key and bounded star projections return post-update rows while
   invalid projections reject without mutation.
 - Removes redundant scalar aggregate terminal empty-result bookkeeping now
   owned by shared reducer finalization.
+- Tightens SQL global aggregate projection terminal collection to its
+  projection owner.
+- Narrows generated-model persisted-row complete patch writer visibility to
+  its persisted-row parent module.
 
 ## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
 
