@@ -87,6 +87,28 @@ fn lower_sql_where_expr_rejects_expression_only_shapes_on_strict_predicate_path(
 }
 
 #[test]
+fn lower_sql_where_expr_keeps_top_level_membership_compact() {
+    let expr = parse_where_expr("SELECT * FROM users WHERE age IN (10, 20, 10)");
+
+    let predicate =
+        lower_sql_where_expr(&expr).expect("strict top-level membership WHERE should lower");
+    let Predicate::Compare(compare) = predicate else {
+        panic!("top-level membership should lower to one compact compare predicate");
+    };
+
+    assert_eq!(compare.field(), "age");
+    assert_eq!(compare.op(), CompareOp::In);
+    let Value::List(values) = compare.value() else {
+        panic!("compact membership predicate should carry a list literal");
+    };
+    assert_eq!(
+        values.len(),
+        2,
+        "compact membership predicate should canonicalize duplicate members",
+    );
+}
+
+#[test]
 fn derive_where_predicate_subset_recovers_folded_constant_compare_shapes() {
     let expr = parse_where_expr(
         "SELECT * FROM users WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NULL",

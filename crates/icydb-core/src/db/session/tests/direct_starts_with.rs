@@ -221,6 +221,34 @@ fn execute_sql_not_like_prefix_matrix_matches_negated_prefix_rows() {
 }
 
 #[test]
+fn explain_sql_not_like_prefix_keeps_residual_filter_off_covering_route() {
+    let session = indexed_sql_session();
+    let descriptor = lower_select_query_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE name NOT LIKE 'S%' ORDER BY name ASC",
+    )
+    .expect("strict NOT LIKE prefix projection should lower")
+    .explain_execution()
+    .expect("strict NOT LIKE prefix projection should explain");
+
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "negated prefix predicates must not claim a pure covering route without a complement-scan contract",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::ResidualFilter)
+            .is_some(),
+        "negated prefix predicates must keep an executor residual filter",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .is_none(),
+        "negated prefix predicates must not emit covering rows before residual filtering",
+    );
+}
+
+#[test]
 fn execute_sql_ilike_prefix_matrix_matches_casefold_prefix_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

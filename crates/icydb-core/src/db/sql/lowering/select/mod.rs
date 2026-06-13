@@ -10,7 +10,8 @@ use crate::db::sql::lowering::{
         lower_grouped_aggregate_call,
     },
     predicate::{
-        lower_sql_scalar_where_bool_expr, lower_sql_where_bool_expr, lower_sql_where_expr,
+        derive_sql_where_expr_predicate_subset, lower_sql_scalar_where_bool_expr,
+        lower_sql_where_bool_expr, lower_sql_where_expr,
     },
 };
 #[cfg(test)]
@@ -69,11 +70,13 @@ pub(in crate::db::sql::lowering) struct LoweredSqlFilter {
 }
 
 impl LoweredSqlFilter {
-    // Build the normal SQL filter shape where the predicate subset is derived
-    // from the same normalized expression that remains visible at runtime.
-    fn from_visible_expr(expr: Expr) -> Self {
-        let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr);
-
+    // Build a SQL filter when the caller has already derived a predicate
+    // subset from parser-owned context and wants to avoid recomputing it from
+    // the visible expression tree.
+    const fn from_visible_expr_and_optional_predicate_subset(
+        expr: Expr,
+        predicate_subset: Option<Predicate>,
+    ) -> Self {
         Self {
             visible_expr: Some(expr),
             predicate_subset,
@@ -290,8 +293,14 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
             } else {
                 lower_sql_scalar_where_bool_expr(expr)?
             };
+            let predicate_subset = derive_sql_where_expr_predicate_subset(expr, &filter_expr);
 
-            Some(LoweredSqlFilter::from_visible_expr(filter_expr))
+            Some(
+                LoweredSqlFilter::from_visible_expr_and_optional_predicate_subset(
+                    filter_expr,
+                    predicate_subset,
+                ),
+            )
         }
         None => None,
     };

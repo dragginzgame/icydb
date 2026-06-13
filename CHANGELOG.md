@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Tightened SQL filter lowering by keeping top-level `IN` / `NOT IN`
+  membership predicates compact through the parser-owned handoff and added a
+  negated-prefix route guard to prevent unsafe covering-route regressions.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
