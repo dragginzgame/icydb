@@ -1,0 +1,29 @@
+[package]
+name = "canister_audit_default_empty"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = ["candid", "icydb-testing-audit-default-empty-fixtures"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+candid-export = []
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-audit-default-empty-fixtures = { workspace = true }
+
+[build-dependencies]
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-audit-default-empty-fixtures = { workspace = true }
+
+[lints]
+workspace = true

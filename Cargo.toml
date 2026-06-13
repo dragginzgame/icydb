@@ -1,14 +1,11 @@
 [workspace]
 members = [
-    "canisters/audit/minimal",
-    "canisters/audit/minimal_metrics",
-    "canisters/audit/one_complex",
-    "canisters/audit/one_fluent_query",
-    "canisters/audit/one_simple",
-    "canisters/audit/one_sql_query",
+    "canisters/audit/default_empty",
+    "canisters/audit/one_entity_fluent_execute",
+    "canisters/audit/one_entity_fluent_rows",
+    "canisters/audit/one_entity_sql_query",
     "canisters/audit/sql_perf",
-    "canisters/audit/ten_complex",
-    "canisters/audit/ten_simple",
+    "canisters/audit/ten_entity_fluent_rows",
     "canisters/demo/rpg",
     "canisters/test/sql",
     "canisters/test/sql_bounded",
@@ -23,11 +20,9 @@ members = [
     "crates/icydb-schema",
     "crates/icydb-schema-derive",
     "crates/icydb-utils",
-    "schema/audit/minimal",
-    "schema/audit/one_complex",
+    "schema/audit/default_empty",
     "schema/audit/one_simple",
     "schema/audit/sql_perf",
-    "schema/audit/ten_complex",
     "schema/audit/ten_simple",
     "schema/demo/rpg",
     "schema/test/fixtures",
@@ -83,11 +78,9 @@ icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "0.18
 icydb-primitives = { path = "crates/icydb-primitives", version = "0.182.0" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.182.0" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.182.0" }
-icydb-testing-audit-minimal-fixtures = { path = "schema/audit/minimal" }
-icydb-testing-audit-one-complex-fixtures = { path = "schema/audit/one_complex" }
+icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
 icydb-testing-audit-sql-perf-fixtures = { path = "schema/audit/sql_perf" }
-icydb-testing-audit-ten-complex-fixtures = { path = "schema/audit/ten_complex" }
 icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
 icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }

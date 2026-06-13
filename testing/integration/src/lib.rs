@@ -34,40 +34,28 @@ const FIXTURE_CANISTERS: &[FixtureCanister] = &[
         package: "canister_test_sql_bounded",
     },
     FixtureCanister {
-        name: "minimal",
-        package: "canister_audit_minimal",
+        name: "default_empty",
+        package: "canister_audit_default_empty",
     },
     FixtureCanister {
-        name: "minimal_metrics",
-        package: "canister_audit_minimal_metrics",
+        name: "one_entity_fluent_rows",
+        package: "canister_audit_one_entity_fluent_rows",
     },
     FixtureCanister {
-        name: "one_simple",
-        package: "canister_audit_one_simple",
+        name: "one_entity_fluent_execute",
+        package: "canister_audit_one_entity_fluent_execute",
     },
     FixtureCanister {
-        name: "one_sql_query",
-        package: "canister_audit_one_sql_query",
-    },
-    FixtureCanister {
-        name: "one_fluent_query",
-        package: "canister_audit_one_fluent_query",
+        name: "one_entity_sql_query",
+        package: "canister_audit_one_entity_sql_query",
     },
     FixtureCanister {
         name: "sql_perf",
         package: "canister_audit_sql_perf",
     },
     FixtureCanister {
-        name: "one_complex",
-        package: "canister_audit_one_complex",
-    },
-    FixtureCanister {
-        name: "ten_simple",
-        package: "canister_audit_ten_simple",
-    },
-    FixtureCanister {
-        name: "ten_complex",
-        package: "canister_audit_ten_complex",
+        name: "ten_entity_fluent_rows",
+        package: "canister_audit_ten_entity_fluent_rows",
     },
 ];
 

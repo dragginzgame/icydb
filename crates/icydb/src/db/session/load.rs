@@ -138,6 +138,14 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         self.page()?.execute()
     }
 
+    /// Execute as a scalar row load.
+    pub fn execute_rows(&self) -> Result<Response<E>, Error>
+    where
+        E: Entity,
+    {
+        Ok(Response::from_core(self.inner.execute_rows()?))
+    }
+
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, Error> {
         Ok(self.inner.plan_hash_hex()?)

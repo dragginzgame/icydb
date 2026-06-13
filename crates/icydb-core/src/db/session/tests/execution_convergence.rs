@@ -600,6 +600,43 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
 }
 
 #[test]
+fn fluent_rows_only_execution_rejects_grouped_plan_without_blocking_grouped_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("rows-only-group-a", 10),
+            ("rows-only-group-b", 10),
+            ("rows-only-group-c", 20),
+        ],
+    );
+
+    let grouped_query = session
+        .load::<SessionSqlEntity>()
+        .group_by("age")
+        .expect("rows-only grouped fixture should resolve group_by")
+        .aggregate(crate::db::count())
+        .order_term(crate::db::asc("age"))
+        .limit(1);
+
+    assert!(
+        grouped_query.execute_rows().is_err(),
+        "rows-only fluent execution should reject grouped plans before grouped executor dispatch",
+    );
+
+    let grouped = session
+        .execute_grouped(grouped_query.query(), None)
+        .expect("explicit grouped execution should still admit the same grouped query");
+    assert_eq!(
+        grouped.rows().len(),
+        1,
+        "explicit grouped execution should preserve the grouped page contract",
+    );
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "this convergence test keeps scalar and grouped trace-preservation checks in one response-finalization contract"

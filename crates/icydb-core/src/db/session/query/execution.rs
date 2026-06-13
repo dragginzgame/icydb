@@ -114,6 +114,31 @@ impl<C: CanisterKind> DbSession<C> {
             .and_then(LoadQueryResult::into_rows)
     }
 
+    /// Execute one scalar load query through a rows-only dispatch path.
+    ///
+    /// This keeps row-only fluent terminals from retaining grouped and delete
+    /// executor branches through the broad `LoadQueryResult` boundary.
+    pub fn execute_scalar_query_rows<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+
+        if plan.is_grouped() {
+            return Err(QueryError::invariant());
+        }
+
+        match plan.mode() {
+            QueryMode::Load(_) => self
+                .with_metrics(|| self.load_executor::<E>().execute(plan))
+                .map_err(QueryError::execute),
+            QueryMode::Delete(_) => Err(QueryError::unsupported_query()),
+        }
+    }
+
     // Execute one typed query through the unified row/grouped result surface so
     // higher layers do not need to branch on grouped shape themselves.
     #[doc(hidden)]

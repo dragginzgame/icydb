@@ -22,7 +22,9 @@ Measure and report:
 
 Default targets:
 
-- canisters: `minimal`, `one_simple`, `one_complex`, `ten_simple`, and `ten_complex`
+- canisters: `default_empty`, `one_entity_fluent_rows`,
+  `one_entity_fluent_execute`, `one_entity_sql_query`, and
+  `ten_entity_fluent_rows`
 - profile: `wasm-release`
 
 ---

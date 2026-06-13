@@ -192,39 +192,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_audit_minimal"
+name = "canister_audit_default_empty"
 version = "0.182.0"
 dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-testing-audit-minimal-fixtures",
+ "icydb-testing-audit-default-empty-fixtures",
 ]
 
 [[package]]
-name = "canister_audit_minimal_metrics"
-version = "0.182.0"
-dependencies = [
- "candid",
- "ic-cdk",
- "icydb",
- "icydb-testing-audit-minimal-fixtures",
-]
-
-[[package]]
-name = "canister_audit_one_complex"
-version = "0.182.0"
-dependencies = [
- "candid",
- "ic-cdk",
- "icydb",
- "icydb-config",
- "icydb-testing-audit-one-complex-fixtures",
- "icydb-testing-wasm-helpers",
-]
-
-[[package]]
-name = "canister_audit_one_fluent_query"
+name = "canister_audit_one_entity_fluent_execute"
 version = "0.182.0"
 dependencies = [
  "candid",
@@ -234,7 +212,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_audit_one_simple"
+name = "canister_audit_one_entity_fluent_rows"
 version = "0.182.0"
 dependencies = [
  "candid",
@@ -246,7 +224,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_audit_one_sql_query"
+name = "canister_audit_one_entity_sql_query"
 version = "0.182.0"
 dependencies = [
  "candid",
@@ -268,19 +246,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_audit_ten_complex"
-version = "0.182.0"
-dependencies = [
- "candid",
- "ic-cdk",
- "icydb",
- "icydb-config",
- "icydb-testing-audit-ten-complex-fixtures",
- "icydb-testing-wasm-helpers",
-]
-
-[[package]]
-name = "canister_audit_ten_simple"
+name = "canister_audit_ten_entity_fluent_rows"
 version = "0.182.0"
 dependencies = [
  "candid",
@@ -1344,16 +1310,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-testing-audit-minimal-fixtures"
-version = "0.182.0"
-dependencies = [
- "candid",
- "icydb",
- "icydb-testing-wasm-helpers",
-]
-
-[[package]]
-name = "icydb-testing-audit-one-complex-fixtures"
+name = "icydb-testing-audit-default-empty-fixtures"
 version = "0.182.0"
 dependencies = [
  "candid",
@@ -1372,15 +1329,6 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.182.0"
-dependencies = [
- "candid",
- "icydb",
- "icydb-testing-wasm-helpers",
-]
-
-[[package]]
-name = "icydb-testing-audit-ten-complex-fixtures"
 version = "0.182.0"
 dependencies = [
  "candid",

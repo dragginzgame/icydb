@@ -1,0 +1,31 @@
+[package]
+name = "canister_audit_one_entity_fluent_rows"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = ["candid", "icydb-testing-audit-one-simple-fixtures"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+candid-export = []
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-audit-one-simple-fixtures = { workspace = true }
+
+[build-dependencies]
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-config = { workspace = true }
+icydb-testing-audit-one-simple-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
+
+[lints]
+workspace = true

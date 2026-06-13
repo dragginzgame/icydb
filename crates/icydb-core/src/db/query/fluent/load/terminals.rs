@@ -259,6 +259,14 @@ where
         self.with_non_paged(DbSession::execute_query_result)
     }
 
+    /// Execute this query through the scalar rows-only session boundary.
+    pub fn execute_rows(&self) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.with_non_paged(DbSession::execute_scalar_query_rows)
+    }
+
     // Run one terminal operation through the canonical non-paged fluent policy
     // gate so execution and explain helpers cannot drift on readiness checks.
     fn with_non_paged<T>(
@@ -1053,7 +1061,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.into_rows()?.require_one()?;
+        self.execute_rows()?.require_one()?;
         Ok(())
     }
 
@@ -1062,7 +1070,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.into_rows()?.require_some()?;
+        self.execute_rows()?.require_some()?;
         Ok(())
     }
 }

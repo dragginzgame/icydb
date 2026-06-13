@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
 
+- `0.182.1` adds a scalar rows-only fluent execution path, moves row
+  materializers onto it, and renames the default wasm-footprint matrix around
+  measured surfaces while dropping metrics/complex variants from the default
+  run.
+
 - `0.182.0` starts the audit and optimisation line by setting wasm and
   SQL/fluent performance baselines, then applies the first accepted-catalog
   metadata execution cleanup and SQL execution hub split.
