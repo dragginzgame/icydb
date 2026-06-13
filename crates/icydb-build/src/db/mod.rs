@@ -25,10 +25,7 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
     let mut hook_inits = quote!();
     let mut sql_surface = builder.options.sql_enabled().then(|| {
         SqlSurfaceTokens::empty(
-            builder.options.sql_readonly_enabled(),
-            builder.options.sql_ddl_enabled(),
-            builder.options.sql_fixtures_enabled(),
-            builder.options.sql_introspection_enabled(),
+            builder.options.sql_surface_flags(),
             builder.options.sql_update_policy(),
         )
     });

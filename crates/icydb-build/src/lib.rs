@@ -39,12 +39,12 @@ pub struct BuildOptions {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct BuildSqlOptions {
-    readonly_enabled: bool,
-    ddl_enabled: bool,
-    fixtures_enabled: bool,
-    introspection_enabled: bool,
+    surfaces: BuildSqlSurfaceFlags,
     update_policy: Option<BuildSqlUpdatePolicy>,
 }
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BuildSqlSurfaceFlags(u8);
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct BuildMetricsOptions {
@@ -61,11 +61,72 @@ pub enum BuildSqlUpdatePolicy {
     PublicBoundedDeterministic,
 }
 
+impl BuildSqlSurfaceFlags {
+    const DDL: u8 = 1 << 1;
+    const FIXTURES: u8 = 1 << 2;
+    const INTROSPECTION: u8 = 1 << 3;
+    const READONLY: u8 = 1;
+
+    #[must_use]
+    pub(crate) const fn with_readonly_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::READONLY, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_ddl_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::DDL, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_fixtures_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::FIXTURES, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_introspection_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::INTROSPECTION, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn readonly_enabled(self) -> bool {
+        self.contains(Self::READONLY)
+    }
+
+    #[must_use]
+    pub(crate) const fn ddl_enabled(self) -> bool {
+        self.contains(Self::DDL)
+    }
+
+    #[must_use]
+    pub(crate) const fn fixtures_enabled(self) -> bool {
+        self.contains(Self::FIXTURES)
+    }
+
+    #[must_use]
+    pub(crate) const fn introspection_enabled(self) -> bool {
+        self.contains(Self::INTROSPECTION)
+    }
+
+    #[must_use]
+    const fn contains(self, flag: u8) -> bool {
+        self.0 & flag == flag
+    }
+
+    #[must_use]
+    const fn with_flag(self, flag: u8, enabled: bool) -> Self {
+        if enabled {
+            Self(self.0 | flag)
+        } else {
+            Self(self.0 & !flag)
+        }
+    }
+}
+
 impl BuildOptions {
     /// Build options with generated read-only SQL endpoint emission configured.
     #[must_use]
     pub const fn with_sql_readonly_enabled(mut self, enabled: bool) -> Self {
-        self.sql.readonly_enabled = enabled;
+        self.sql.surfaces = self.sql.surfaces.with_readonly_enabled(enabled);
 
         self
     }
@@ -73,7 +134,7 @@ impl BuildOptions {
     /// Build options with generated SQL DDL endpoint emission configured.
     #[must_use]
     pub const fn with_sql_ddl_enabled(mut self, enabled: bool) -> Self {
-        self.sql.ddl_enabled = enabled;
+        self.sql.surfaces = self.sql.surfaces.with_ddl_enabled(enabled);
 
         self
     }
@@ -81,7 +142,7 @@ impl BuildOptions {
     /// Build options with generated SQL fixture lifecycle endpoint emission configured.
     #[must_use]
     pub const fn with_sql_fixtures_enabled(mut self, enabled: bool) -> Self {
-        self.sql.fixtures_enabled = enabled;
+        self.sql.surfaces = self.sql.surfaces.with_fixtures_enabled(enabled);
 
         self
     }
@@ -89,7 +150,7 @@ impl BuildOptions {
     /// Build options with generated read-only SQL introspection configured.
     #[must_use]
     pub const fn with_sql_introspection_enabled(mut self, enabled: bool) -> Self {
-        self.sql.introspection_enabled = enabled;
+        self.sql.surfaces = self.sql.surfaces.with_introspection_enabled(enabled);
 
         self
     }
@@ -137,25 +198,30 @@ impl BuildOptions {
     /// Return whether generated actor glue should export the read-only SQL endpoint.
     #[must_use]
     pub const fn sql_readonly_enabled(self) -> bool {
-        self.sql.readonly_enabled
+        self.sql.surfaces.readonly_enabled()
     }
 
     /// Return whether generated actor glue should export the SQL DDL endpoint.
     #[must_use]
     pub const fn sql_ddl_enabled(self) -> bool {
-        self.sql.ddl_enabled
+        self.sql.surfaces.ddl_enabled()
     }
 
     /// Return whether generated actor glue should export SQL fixture lifecycle endpoints.
     #[must_use]
     pub const fn sql_fixtures_enabled(self) -> bool {
-        self.sql.fixtures_enabled
+        self.sql.surfaces.fixtures_enabled()
     }
 
     /// Return whether generated read-only SQL endpoints should admit introspection.
     #[must_use]
     pub const fn sql_introspection_enabled(self) -> bool {
-        self.sql.introspection_enabled
+        self.sql.surfaces.introspection_enabled()
+    }
+
+    #[must_use]
+    pub(crate) const fn sql_surface_flags(self) -> BuildSqlSurfaceFlags {
+        self.sql.surfaces
     }
 
     /// Return the generated SQL update endpoint policy, if explicitly enabled.

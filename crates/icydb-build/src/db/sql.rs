@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 
-use crate::BuildSqlUpdatePolicy;
+use crate::{BuildSqlSurfaceFlags, BuildSqlUpdatePolicy};
 
 ///
 /// SqlSurfaceTokens
@@ -11,10 +11,7 @@ use crate::BuildSqlUpdatePolicy;
 /// the runtime macro.
 ///
 pub(super) struct SqlSurfaceTokens {
-    readonly_enabled: bool,
-    ddl_enabled: bool,
-    fixtures_enabled: bool,
-    introspection_enabled: bool,
+    surfaces: BuildSqlSurfaceFlags,
     update_policy: Option<BuildSqlUpdatePolicy>,
     reset_statements: TokenStream,
     query_arms: TokenStream,
@@ -25,17 +22,11 @@ pub(super) struct SqlSurfaceTokens {
 
 impl SqlSurfaceTokens {
     pub(super) fn empty(
-        readonly_enabled: bool,
-        ddl_enabled: bool,
-        fixtures_enabled: bool,
-        introspection_enabled: bool,
+        surfaces: BuildSqlSurfaceFlags,
         update_policy: Option<BuildSqlUpdatePolicy>,
     ) -> Self {
         Self {
-            readonly_enabled,
-            ddl_enabled,
-            fixtures_enabled,
-            introspection_enabled,
+            surfaces,
             update_policy,
             reset_statements: quote!(),
             query_arms: quote!(),
@@ -63,7 +54,18 @@ impl SqlSurfaceTokens {
 
     fn readonly_dispatch_tokens(&self) -> TokenStream {
         let query_arms = &self.query_arms;
-        let introspection_enabled = self.introspection_enabled;
+        let introspection_guard = if self.surfaces.introspection_enabled() {
+            quote!()
+        } else {
+            quote! {
+                if dispatch.requires_introspection() {
+                    return Err(::icydb::Error::from_runtime_boundary(
+                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
+                        ::icydb::ErrorOrigin::Interface,
+                    ));
+                }
+            }
+        };
         let show_entities_dispatch = if self.show_entities_dispatch.is_empty() {
             empty_sql_surface_query_dispatch()
         } else {
@@ -83,12 +85,7 @@ impl SqlSurfaceTokens {
                 ::icydb::Error,
             > {
                 let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
-                if !#introspection_enabled && dispatch.requires_introspection() {
-                    return Err(::icydb::Error::from_runtime_boundary(
-                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
-                        ::icydb::ErrorOrigin::Interface,
-                    ));
-                }
+                #introspection_guard
 
                 match dispatch.entity_name() {
                     #query_arms
@@ -178,22 +175,21 @@ impl SqlSurfaceTokens {
 impl quote::ToTokens for SqlSurfaceTokens {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let controller_guard = sql_surface_controller_guard();
-        let perf_result = self.readonly_enabled.then(sql_surface_perf_result);
+        let readonly_enabled = self.surfaces.readonly_enabled();
+        let ddl_enabled = self.surfaces.ddl_enabled();
+        let fixtures_enabled = self.surfaces.fixtures_enabled();
+        let perf_result = readonly_enabled.then(sql_surface_perf_result);
         let readonly_dispatch = self
-            .readonly_enabled
+            .surfaces
+            .readonly_enabled()
             .then(|| self.readonly_dispatch_tokens());
-        let ddl_dispatch = self.ddl_enabled.then(|| self.ddl_dispatch_tokens());
+        let ddl_dispatch = ddl_enabled.then(|| self.ddl_dispatch_tokens());
         let update_dispatch = self
             .update_policy
             .is_some()
             .then(|| self.update_dispatch_tokens());
-        let endpoints = sql_surface_endpoint_exports(
-            self.readonly_enabled,
-            self.ddl_enabled,
-            self.fixtures_enabled,
-            self.update_policy,
-        );
-        let reset_helper = self.fixtures_enabled.then(|| self.reset_helper_tokens());
+        let endpoints = sql_surface_endpoint_exports(self.surfaces, self.update_policy);
+        let reset_helper = fixtures_enabled.then(|| self.reset_helper_tokens());
 
         tokens.extend(quote! {
             #controller_guard
@@ -269,12 +265,10 @@ fn sql_surface_perf_result() -> TokenStream {
 }
 
 fn sql_surface_endpoint_exports(
-    readonly_enabled: bool,
-    ddl_enabled: bool,
-    fixtures_enabled: bool,
+    surfaces: BuildSqlSurfaceFlags,
     update_policy: Option<BuildSqlUpdatePolicy>,
 ) -> TokenStream {
-    let query_endpoint = readonly_enabled.then(|| {
+    let query_endpoint = surfaces.readonly_enabled().then(|| {
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::ic_cdk::query]
@@ -293,7 +287,7 @@ fn sql_surface_endpoint_exports(
         }
     });
 
-    let ddl_endpoint = ddl_enabled.then(|| {
+    let ddl_endpoint = surfaces.ddl_enabled().then(|| {
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::ic_cdk::update]
@@ -305,7 +299,7 @@ fn sql_surface_endpoint_exports(
         }
     });
 
-    let fixture_endpoints = fixtures_enabled.then(|| {
+    let fixture_endpoints = surfaces.fixtures_enabled().then(|| {
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::ic_cdk::update]
@@ -428,7 +422,7 @@ fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
 mod tests {
     use quote::quote;
 
-    use crate::BuildSqlUpdatePolicy;
+    use crate::{BuildSqlSurfaceFlags, BuildSqlUpdatePolicy};
 
     use super::SqlSurfaceTokens;
 
@@ -440,9 +434,27 @@ mod tests {
             .collect()
     }
 
+    fn all_sql_surface_flags() -> BuildSqlSurfaceFlags {
+        BuildSqlSurfaceFlags::default()
+            .with_readonly_enabled(true)
+            .with_ddl_enabled(true)
+            .with_fixtures_enabled(true)
+            .with_introspection_enabled(true)
+    }
+
+    fn sql_surface_flags_without_introspection() -> BuildSqlSurfaceFlags {
+        BuildSqlSurfaceFlags::default()
+            .with_readonly_enabled(true)
+            .with_ddl_enabled(true)
+            .with_fixtures_enabled(true)
+    }
+
     #[test]
     fn generated_sql_surface_exports_only_query_ddl_and_fixture_endpoints() {
-        let surface = compact_tokens(super::sql_surface_endpoint_exports(true, true, true, None));
+        let surface = compact_tokens(super::sql_surface_endpoint_exports(
+            all_sql_surface_flags(),
+            None,
+        ));
 
         assert!(surface.contains("fn__icydb_query("));
         assert!(surface.contains("fn__icydb_ddl("));
@@ -457,7 +469,7 @@ mod tests {
     #[test]
     fn generated_sql_surface_never_calls_broad_session_update_executor() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
-        let mut surface_tokens = SqlSurfaceTokens::empty(true, true, true, true, None);
+        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
 
         surface_tokens.push_entity(&entity_ty);
 
@@ -478,7 +490,8 @@ mod tests {
     #[test]
     fn generated_sql_query_surface_can_reject_introspection() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
-        let mut surface_tokens = SqlSurfaceTokens::empty(true, true, true, false, None);
+        let mut surface_tokens =
+            SqlSurfaceTokens::empty(sql_surface_flags_without_introspection(), None);
 
         surface_tokens.push_entity(&entity_ty);
 
@@ -493,19 +506,14 @@ mod tests {
     fn generated_sql_update_surface_requires_explicit_primary_key_policy() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(
-            true,
-            true,
-            true,
-            true,
+            all_sql_surface_flags(),
             Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
         );
 
         surface_tokens.push_entity(&entity_ty);
 
         let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
-            true,
-            true,
-            true,
+            all_sql_surface_flags(),
             Some(BuildSqlUpdatePolicy::PublicPrimaryKeyOnly),
         ));
         let surface = compact_tokens(quote!(#surface_tokens));
@@ -526,10 +534,7 @@ mod tests {
     fn generated_sql_update_surface_can_select_bounded_policy_without_broad_update() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(
-            true,
-            true,
-            true,
-            true,
+            all_sql_surface_flags(),
             Some(BuildSqlUpdatePolicy::PublicBoundedDeterministic),
         );
 

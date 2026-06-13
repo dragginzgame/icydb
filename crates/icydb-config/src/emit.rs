@@ -31,11 +31,10 @@ pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigErro
 }
 
 fn build_target_from_env() -> GeneratedBuildTarget {
-    env::var(ICYDB_BUILD_TARGET_ENV)
-        .ok()
-        .as_deref()
-        .map(GeneratedBuildTarget::from_env_value)
-        .unwrap_or(GeneratedBuildTarget::Unknown)
+    env::var(ICYDB_BUILD_TARGET_ENV).ok().as_deref().map_or(
+        GeneratedBuildTarget::Unknown,
+        GeneratedBuildTarget::from_env_value,
+    )
 }
 
 fn manifest_dir() -> Result<PathBuf, ConfigError> {

@@ -105,8 +105,8 @@ impl GeneratedIcydbConfig {
         &self,
         canister_name: &str,
     ) -> GeneratedSqlIntrospectionPolicy {
-        self.canisters.get(canister_name).map_or(
-            GeneratedSqlIntrospectionPolicy::default(),
+        self.canisters.get(canister_name).map_or_else(
+            GeneratedSqlIntrospectionPolicy::default,
             GeneratedCanisterConfig::sql_introspection_policy,
         )
     }
@@ -170,7 +170,7 @@ impl GeneratedIcydbConfig {
         }
     }
 
-    pub(crate) fn with_build_target(mut self, build_target: GeneratedBuildTarget) -> Self {
+    pub(crate) const fn with_build_target(mut self, build_target: GeneratedBuildTarget) -> Self {
         self.build_target = build_target;
 
         self

@@ -117,7 +117,7 @@ pub struct SqlStatementDispatch {
 
 impl SqlStatementDispatch {
     #[must_use]
-    fn new(entity_name: Option<String>, requires_introspection: bool) -> Self {
+    const fn new(entity_name: Option<String>, requires_introspection: bool) -> Self {
         Self {
             entity_name,
             requires_introspection,
