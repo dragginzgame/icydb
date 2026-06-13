@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Tightened SQL filter lowering by keeping top-level `IN` / `NOT IN`
-  membership predicates compact through the parser-owned handoff and added a
-  negated-prefix route guard to prevent unsafe covering-route regressions.
-
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.4` keeps top-level SQL membership filters compact through lowering,
+  trims `IN` compile cost in the generated perf matrix, and adds a
+  negated-prefix covering-route guard.
 
 - `0.182.3` sharpens SQL perf audits, fixes local/release audit build targets,
   admits explicit primary-key suffix indexes into covering reads, and trims
