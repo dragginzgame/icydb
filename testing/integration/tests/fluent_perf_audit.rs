@@ -855,6 +855,7 @@ fn fluent_perf_scenarios() -> Vec<FluentPerfScenario> {
 }
 
 #[test]
+#[ignore = "manual PocketIC perf report; cache behavior stays in focused tests"]
 fn fluent_perf_audit_harness_reports_instruction_samples() {
     let fixture = install_sql_perf_canister_fixture();
     reset_sql_perf_fixtures(&fixture);

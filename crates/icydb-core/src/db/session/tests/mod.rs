@@ -1356,6 +1356,21 @@ struct CompositeIndexedSessionSqlEntity {
 }
 
 ///
+/// ExplicitPkSuffixIndexedSessionSqlEntity
+///
+/// Indexed SQL fixture mirroring generated/audit schemas that redundantly put
+/// the primary key at the end of a secondary index, such as `(bucket, id)`.
+///
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct ExplicitPkSuffixIndexedSessionSqlEntity {
+    id: Ulid,
+    bucket: u64,
+    label: String,
+}
+
+///
 /// ExpressionIndexedSessionSqlEntity
 ///
 /// Expression-indexed SQL session fixture used to lock `ORDER BY LOWER(field)`
@@ -1570,6 +1585,16 @@ static COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel
     &COMPOSITE_INDEXED_SESSION_SQL_INDEX_FIELDS,
     false,
 )];
+#[cfg(feature = "diagnostics")]
+static EXPLICIT_PK_SUFFIX_INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 2] = ["bucket", "id"];
+#[cfg(feature = "diagnostics")]
+static EXPLICIT_PK_SUFFIX_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::generated(
+        "bucket_id",
+        IndexedSessionSqlStore::PATH,
+        &EXPLICIT_PK_SUFFIX_INDEXED_SESSION_SQL_INDEX_FIELDS,
+        false,
+    )];
 static EXPRESSION_INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
 static EXPRESSION_INDEXED_SESSION_SQL_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
@@ -2296,6 +2321,23 @@ crate::test_entity! {
         crate::test_field! { note: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+}
+
+#[cfg(feature = "diagnostics")]
+crate::test_entity! {
+    ident = ExplicitPkSuffixIndexedSessionSqlEntity,
+    entity_name = "ExplicitPkSuffixIndexedSessionSqlEntity",
+    tag = EntityTag::new(0x104a),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { bucket: u64 => FieldKind::Nat64 },
+        crate::test_field! { label: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&EXPLICIT_PK_SUFFIX_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
 }
 
 crate::test_entity! {
@@ -3663,6 +3705,23 @@ fn seed_composite_indexed_session_sql_entities(
             note: format!("note-{code}-{serial}"),
         },
         "composite indexed SQL",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+fn seed_explicit_pk_suffix_indexed_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(u128, u64, &str)],
+) {
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, bucket, label)| ExplicitPkSuffixIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            bucket,
+            label: label.to_string(),
+        },
+        "explicit primary-key suffix indexed SQL",
     );
 }
 

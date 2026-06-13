@@ -1562,65 +1562,6 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
     scenarios
 }
 
-#[test]
-fn sql_perf_blob_payload_scenarios_are_registered() {
-    let blob_scenarios = sql_perf_scenarios()
-        .into_iter()
-        .filter(|scenario| scenario.surface.label() == "blob")
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        blob_scenarios.len(),
-        5,
-        "blob perf coverage should include byte-length, payload, and repeat scenarios",
-    );
-    assert!(
-        blob_scenarios
-            .iter()
-            .any(|scenario| scenario.sql.contains("OCTET_LENGTH(thumbnail)")),
-        "blob perf coverage should include byte-length-only projection",
-    );
-    assert!(
-        blob_scenarios
-            .iter()
-            .any(|scenario| scenario.sql.contains("thumbnail, chunk")),
-        "blob perf coverage should include full payload projection",
-    );
-    assert!(
-        blob_scenarios
-            .iter()
-            .any(|scenario| scenario.query_loop_count == 10),
-        "blob perf coverage should include a repeated warm-query scenario",
-    );
-}
-
-#[test]
-fn sql_perf_row_materialization_hotspot_scenarios_are_registered() {
-    let scenarios = sql_perf_scenarios();
-
-    assert!(
-        scenarios
-            .iter()
-            .any(|scenario| scenario.sql.contains("WHERE age > rank")
-                && scenario.sql.contains("ORDER BY LOWER(name)")),
-        "user perf coverage should include row-backed predicate plus expression-order hotspots",
-    );
-    assert!(
-        scenarios.iter().any(
-            |scenario| scenario.sql.contains("WHERE age IN (24, 31, 43)")
-                && scenario.sql.contains("ORDER BY age + rank")
-        ),
-        "user perf coverage should include IN predicates plus computed-order hotspots",
-    );
-    assert!(
-        scenarios.iter().any(|scenario| scenario
-            .sql
-            .contains("active = true AND LOWER(handle) LIKE 'br%'")
-            && scenario.sql.contains("ORDER BY LOWER(handle)")),
-        "account perf coverage should include filtered expression-index prefix hotspots",
-    );
-}
-
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
         "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Avg store.get() | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
@@ -2605,6 +2546,7 @@ fn assert_storage_total_and_fluent_limit_one_reports(fixture: &StandaloneCaniste
 }
 
 #[test]
+#[ignore = "manual PocketIC perf report; correctness/cache contracts stay in focused tests"]
 fn sql_perf_audit_harness_reports_instruction_samples() {
     let fixture = install_sql_perf_canister_fixture();
     let baseline = load_baseline_rows();

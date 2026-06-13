@@ -139,6 +139,7 @@ pub(in crate::db) struct CoveringReadExecutionPlan {
     pub(in crate::db) prefix_len: usize,
     pub(in crate::db) order_contract: CoveringProjectionOrder,
     pub(in crate::db) existing_row_mode: CoveringExistingRowMode,
+    pub(in crate::db) strict_predicate_compatible: bool,
 }
 
 /// Return whether one plan's residual predicate stays compatible with the
@@ -356,6 +357,7 @@ pub(in crate::db) fn covering_read_execution_plan_from_fields_with_primary_key_n
         return Some(covering_read_execution_plan(
             covering,
             CoveringExistingRowMode::ProvenByPlanner,
+            strict_predicate_compatible,
         ));
     }
 
@@ -369,7 +371,11 @@ pub(in crate::db) fn covering_read_execution_plan_from_fields_with_primary_key_n
             primary_key_names,
         )?;
 
-    Some(covering_read_execution_plan(covering, existing_row_mode))
+    Some(covering_read_execution_plan(
+        covering,
+        existing_row_mode,
+        strict_predicate_compatible,
+    ))
 }
 
 /// Derive one execution-grade scalar covering-read plan from accepted schema
@@ -386,12 +392,17 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
         return Some(covering_read_execution_plan(
             covering,
             CoveringExistingRowMode::ProvenByPlanner,
+            strict_predicate_compatible,
         ));
     }
 
     let (covering, existing_row_mode) = primary_store_covering_plan_with_schema_info(schema, plan)?;
 
-    Some(covering_read_execution_plan(covering, existing_row_mode))
+    Some(covering_read_execution_plan(
+        covering,
+        existing_row_mode,
+        strict_predicate_compatible,
+    ))
 }
 
 /// Derive one covering projection fact bundle from one access shape + scalar order
@@ -515,12 +526,14 @@ fn covering_projection_order_contract(
 fn covering_read_execution_plan(
     covering: CoveringReadPlan,
     existing_row_mode: CoveringExistingRowMode,
+    strict_predicate_compatible: bool,
 ) -> CoveringReadExecutionPlan {
     CoveringReadExecutionPlan {
         fields: covering.fields,
         prefix_len: covering.prefix_len,
         order_contract: covering.order_contract,
         existing_row_mode,
+        strict_predicate_compatible,
     }
 }
 

@@ -43,6 +43,13 @@ const SCALAR_ORDER_INDEX_MODEL: IndexModel = IndexModel::generated(
     &SCALAR_ORDER_INDEX_FIELDS,
     false,
 );
+const SCALAR_EXPLICIT_PK_INDEX_FIELDS: [&str; 2] = ["bucket", "id"];
+const SCALAR_EXPLICIT_PK_INDEX_MODEL: IndexModel = IndexModel::generated(
+    "order_term_tests::idx_bucket_id",
+    "order_term_tests::Store",
+    &SCALAR_EXPLICIT_PK_INDEX_FIELDS,
+    false,
+);
 
 fn field(name: &str) -> Expr {
     Expr::Field(FieldId::new(name))
@@ -310,6 +317,38 @@ fn deterministic_secondary_order_compatibility_classifies_suffix_and_none() {
         DeterministicSecondaryIndexOrderMatch::None,
     );
     assert!(!mismatch_compatibility.is_satisfied());
+}
+
+#[test]
+fn deterministic_secondary_order_compatibility_trims_explicit_primary_key_index_suffix() {
+    let order = OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("bucket", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    };
+    let contract = order
+        .deterministic_secondary_order_contract("id")
+        .expect("secondary order should preserve the terminal primary-key tie-break");
+
+    assert_eq!(contract.non_primary_key_terms(), ["bucket"]);
+    assert_eq!(contract.primary_key_terms(), ["id"]);
+    assert!(
+        deterministic_secondary_index_order_satisfied(
+            &contract,
+            &SCALAR_EXPLICIT_PK_INDEX_MODEL,
+            0,
+        ),
+        "an index that explicitly stores the primary key as its final component should satisfy the same deterministic order",
+    );
+    assert!(
+        deterministic_secondary_index_order_satisfied(
+            &contract,
+            &SCALAR_EXPLICIT_PK_INDEX_MODEL,
+            1,
+        ),
+        "equality-bound prefixes should still accept the full deterministic order when the remaining index suffix is only the primary key",
+    );
 }
 
 #[test]

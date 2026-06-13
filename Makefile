@@ -69,8 +69,8 @@ help:
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
 	@echo "  clean            Clean build artifacts"
-	@echo "  wasm-size-report Build and report wasm sizes for minimal + one/ten simple/complex audit canisters"
-	@echo "  wasm-audit-report Build wasm + write Twiggy audit reports for minimal + one/ten simple/complex under docs/audits/reports"
+	@echo "  wasm-size-report Build and report wasm sizes for default_empty + one/ten entity audit canisters"
+	@echo "  wasm-audit-report Build wasm + write Twiggy audit reports for default_empty + one/ten entity audit canisters"
 	@echo "  lint-workflows   Lint GitHub Actions workflows with pinned actionlint"
 	@echo ""
 	@echo "Utilities:"
@@ -83,7 +83,7 @@ help:
 	@echo "  make test        # Run tests"
 	@echo "  make build       # Build project"
 	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--sql-variants both\""
-	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--canister ten_complex\""
+	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--canister ten_entity_fluent_rows\""
 
 #
 # Installing

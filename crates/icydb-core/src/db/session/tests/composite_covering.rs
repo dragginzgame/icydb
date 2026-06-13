@@ -117,6 +117,203 @@ fn execute_sql_projection_index_coverable_multi_component_matches_entity_rows() 
     assert_eq!(entity_projected_rows, projected_rows);
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy)]
+struct ExplicitPkSuffixExpectedRow {
+    id: u128,
+    bucket: Option<u64>,
+}
+
+#[cfg(feature = "diagnostics")]
+impl ExplicitPkSuffixExpectedRow {
+    const fn id_only(id: u128) -> Self {
+        Self { id, bucket: None }
+    }
+
+    const fn id_bucket(id: u128, bucket: u64) -> Self {
+        Self {
+            id,
+            bucket: Some(bucket),
+        }
+    }
+
+    fn into_values(self) -> Vec<Value> {
+        let mut row = vec![Value::Ulid(Ulid::from_u128(self.id))];
+        if let Some(bucket) = self.bucket {
+            row.push(Value::Nat64(bucket));
+        }
+
+        row
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy)]
+struct ExplicitPkSuffixQueryCase {
+    context: &'static str,
+    sql: &'static str,
+    expected_root: ExplainExecutionNodeType,
+    expected_rows: &'static [ExplicitPkSuffixExpectedRow],
+}
+
+#[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_ASC: [ExplicitPkSuffixExpectedRow; 3] = [
+    ExplicitPkSuffixExpectedRow::id_only(9_405),
+    ExplicitPkSuffixExpectedRow::id_only(9_420),
+    ExplicitPkSuffixExpectedRow::id_only(9_430),
+];
+#[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_ASC_WITH_BUCKET: [ExplicitPkSuffixExpectedRow; 3] = [
+    ExplicitPkSuffixExpectedRow::id_bucket(9_405, 10),
+    ExplicitPkSuffixExpectedRow::id_bucket(9_420, 10),
+    ExplicitPkSuffixExpectedRow::id_bucket(9_430, 20),
+];
+#[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_EXPECTED_EQUALITY_ASC: [ExplicitPkSuffixExpectedRow; 2] = [
+    ExplicitPkSuffixExpectedRow::id_only(9_405),
+    ExplicitPkSuffixExpectedRow::id_only(9_420),
+];
+#[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_DESC: [ExplicitPkSuffixExpectedRow; 3] = [
+    ExplicitPkSuffixExpectedRow::id_only(9_410),
+    ExplicitPkSuffixExpectedRow::id_only(9_430),
+    ExplicitPkSuffixExpectedRow::id_only(9_420),
+];
+#[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_EXPECTED_RANGE_DESC: [ExplicitPkSuffixExpectedRow; 3] = [
+    ExplicitPkSuffixExpectedRow::id_only(9_430),
+    ExplicitPkSuffixExpectedRow::id_only(9_420),
+    ExplicitPkSuffixExpectedRow::id_only(9_405),
+];
+#[cfg(feature = "diagnostics")]
+const EXPLICIT_PK_SUFFIX_QUERY_CASES: [ExplicitPkSuffixQueryCase; 6] = [
+    ExplicitPkSuffixQueryCase {
+        context: "whole secondary order key-only",
+        sql: "SELECT id FROM ExplicitPkSuffixIndexedSessionSqlEntity ORDER BY bucket ASC, id ASC LIMIT 3",
+        expected_root: ExplainExecutionNodeType::IndexRangeScan,
+        expected_rows: &EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_ASC,
+    },
+    ExplicitPkSuffixQueryCase {
+        context: "whole secondary order pk plus index component",
+        sql: "SELECT id, bucket FROM ExplicitPkSuffixIndexedSessionSqlEntity ORDER BY bucket ASC, id ASC LIMIT 3",
+        expected_root: ExplainExecutionNodeType::IndexRangeScan,
+        expected_rows: &EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_ASC_WITH_BUCKET,
+    },
+    ExplicitPkSuffixQueryCase {
+        context: "equality bucket key-only",
+        sql: "SELECT id FROM ExplicitPkSuffixIndexedSessionSqlEntity WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 3",
+        expected_root: ExplainExecutionNodeType::IndexPrefixScan,
+        expected_rows: &EXPLICIT_PK_SUFFIX_EXPECTED_EQUALITY_ASC,
+    },
+    ExplicitPkSuffixQueryCase {
+        context: "bounded bucket range key-only",
+        sql: "SELECT id FROM ExplicitPkSuffixIndexedSessionSqlEntity WHERE bucket >= 10 AND bucket < 30 ORDER BY bucket ASC, id ASC LIMIT 3",
+        expected_root: ExplainExecutionNodeType::IndexRangeScan,
+        expected_rows: &EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_ASC,
+    },
+    ExplicitPkSuffixQueryCase {
+        context: "descending whole secondary order key-only",
+        sql: "SELECT id FROM ExplicitPkSuffixIndexedSessionSqlEntity ORDER BY bucket DESC, id DESC LIMIT 3",
+        expected_root: ExplainExecutionNodeType::IndexRangeScan,
+        expected_rows: &EXPLICIT_PK_SUFFIX_EXPECTED_WHOLE_DESC,
+    },
+    ExplicitPkSuffixQueryCase {
+        context: "descending bounded bucket range key-only",
+        sql: "SELECT id FROM ExplicitPkSuffixIndexedSessionSqlEntity WHERE bucket >= 10 AND bucket < 30 ORDER BY bucket DESC, id DESC LIMIT 3",
+        expected_root: ExplainExecutionNodeType::IndexRangeScan,
+        expected_rows: &EXPLICIT_PK_SUFFIX_EXPECTED_RANGE_DESC,
+    },
+];
+
+#[cfg(feature = "diagnostics")]
+fn expected_explicit_pk_suffix_rows(rows: &[ExplicitPkSuffixExpectedRow]) -> Vec<Vec<Value>> {
+    rows.iter()
+        .copied()
+        .map(ExplicitPkSuffixExpectedRow::into_values)
+        .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn assert_explicit_pk_suffix_query_avoids_store_gets(
+    session: &DbSession<SessionSqlCanister>,
+    case: ExplicitPkSuffixQueryCase,
+) {
+    let descriptor =
+        lower_select_query_for_tests::<ExplicitPkSuffixIndexedSessionSqlEntity>(session, case.sql)
+            .unwrap_or_else(|err| panic!("{} should lower: {err}", case.context))
+            .explain_execution()
+            .unwrap_or_else(|err| panic!("{} should explain_execution: {err}", case.context));
+    assert_eq!(
+        descriptor.node_type(),
+        case.expected_root,
+        "{} should stay on the explicit primary-key suffix secondary index",
+        case.context,
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "{} should use the covering-read route",
+        case.context,
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "{} should report access-satisfied ordering",
+        case.context,
+    );
+
+    let (_result, attribution) = session
+        .execute_sql_query_with_attribution::<ExplicitPkSuffixIndexedSessionSqlEntity>(case.sql)
+        .unwrap_or_else(|err| {
+            panic!(
+                "{} should execute as a covering query: {err:?}",
+                case.context
+            )
+        });
+    let projected_rows =
+        statement_projection_rows::<ExplicitPkSuffixIndexedSessionSqlEntity>(session, case.sql)
+            .unwrap_or_else(|err| panic!("{} should return projected rows: {err:?}", case.context));
+
+    assert_eq!(
+        projected_rows,
+        expected_explicit_pk_suffix_rows(case.expected_rows),
+        "{} row order drifted",
+        case.context,
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "{} should avoid row-store get() calls",
+        case.context,
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_explicit_primary_key_suffix_index_queries_avoid_store_gets() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed a deterministic audit-like dataset where the selected
+    // secondary index stores `(bucket, id)`, with `id` also serving as the
+    // primary-key tie-break.
+    seed_explicit_pk_suffix_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_430_u128, 20, "charlie"),
+            (9_410, 30, "delta"),
+            (9_420, 10, "bravo"),
+            (9_405, 10, "alpha"),
+        ],
+    );
+
+    for case in EXPLICIT_PK_SUFFIX_QUERY_CASES {
+        assert_explicit_pk_suffix_query_avoids_store_gets(&session, case);
+    }
+}
+
 #[test]
 fn execute_sql_projection_hybrid_covering_projection_mixes_covering_and_row_fields() {
     reset_indexed_session_sql_store();

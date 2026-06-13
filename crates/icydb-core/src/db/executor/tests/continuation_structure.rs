@@ -4,11 +4,11 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
+use crate::db::test_support::source_guard::{
+    collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
 };
+
+use std::{collections::BTreeMap, fs, path::Path};
 
 const EXECUTOR_FORBIDDEN_CONTINUATION_DEFINITION_FUNCTIONS: &[&str] = &[
     "continuation_advanced",
@@ -26,66 +26,6 @@ const CURSOR_SIGNATURE_VALIDATION_INTERNAL_TOKENS: &[&str] = &[
     "cursor::spine::",
     "cursor::validation::",
 ];
-
-// Walk one source tree and collect every Rust source path deterministically.
-fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
-    let entries = fs::read_dir(root)
-        .unwrap_or_else(|err| panic!("failed to read source directory {}: {err}", root.display()));
-
-    for entry in entries {
-        let entry = entry.unwrap_or_else(|err| {
-            panic!(
-                "failed to read source directory entry under {}: {err}",
-                root.display()
-            )
-        });
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rust_sources(path.as_path(), out);
-            continue;
-        }
-        if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
-        }
-    }
-}
-
-// Strip top-level `#[cfg(test)]` items from source text using a lightweight
-// brace-depth scanner so runtime-only guard scans ignore inline test modules.
-fn strip_cfg_test_items(source: &str) -> String {
-    let mut output = String::new();
-    let mut pending_cfg_test = false;
-    let mut skip_depth = 0usize;
-
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if skip_depth > 0 {
-            skip_depth = skip_depth
-                .saturating_add(line.matches('{').count())
-                .saturating_sub(line.matches('}').count());
-            continue;
-        }
-
-        if trimmed.starts_with("#[cfg(test)]") {
-            pending_cfg_test = true;
-            continue;
-        }
-        if pending_cfg_test {
-            let opens = line.matches('{').count();
-            let closes = line.matches('}').count();
-            if opens > 0 {
-                skip_depth = opens.saturating_sub(closes);
-            }
-            pending_cfg_test = false;
-            continue;
-        }
-
-        output.push_str(line);
-        output.push('\n');
-    }
-
-    output
-}
 
 // Match one function definition token for both generic and non-generic signatures.
 fn contains_function_definition(source: &str, function_name: &str) -> bool {
@@ -115,7 +55,7 @@ fn runtime_forbidden_continuation_definitions() -> BTreeMap<String, Vec<String>>
 
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-        let runtime_source = strip_cfg_test_items(source.as_str());
+        let runtime_source = runtime_source_without_test_items(source.as_str());
         let mut matched = Vec::new();
         for function_name in EXECUTOR_FORBIDDEN_CONTINUATION_DEFINITION_FUNCTIONS {
             if contains_function_definition(runtime_source.as_str(), function_name) {
@@ -126,16 +66,8 @@ fn runtime_forbidden_continuation_definitions() -> BTreeMap<String, Vec<String>>
             continue;
         }
 
-        let relative = source_path
-            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            })
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative =
+            relative_rust_source_path(Path::new(env!("CARGO_MANIFEST_DIR")), source_path.as_path());
         violations.insert(relative, matched);
     }
 
@@ -162,7 +94,7 @@ fn runtime_cursor_signature_validation_internal_references() -> BTreeMap<String,
 
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-        let runtime_source = strip_cfg_test_items(source.as_str());
+        let runtime_source = runtime_source_without_test_items(source.as_str());
         let matched = CURSOR_SIGNATURE_VALIDATION_INTERNAL_TOKENS
             .iter()
             .filter(|token| runtime_source.contains(**token))
@@ -172,16 +104,8 @@ fn runtime_cursor_signature_validation_internal_references() -> BTreeMap<String,
             continue;
         }
 
-        let relative = source_path
-            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            })
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative =
+            relative_rust_source_path(Path::new(env!("CARGO_MANIFEST_DIR")), source_path.as_path());
         references.insert(relative, matched);
     }
 

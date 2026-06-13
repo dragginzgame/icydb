@@ -92,8 +92,8 @@ jobs:
       - run: cargo fetch --locked
       - name: Install wasm reporting tools
         run: cargo install candid-extractor ic-wasm --locked
-      - name: Report minimal wasm size
-        run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister minimal
+      - name: Report default-empty wasm size
+        run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty
       - uses: actions/upload-artifact@v4
         with:
           name: wasm-size-report
@@ -117,19 +117,19 @@ jobs:
             . -> target
           cache-targets: "false"
       - run: cargo fetch --locked
-      - run: cargo build -p canister_audit_minimal --target wasm32-unknown-unknown --profile wasm-release --locked
+      - run: cargo build -p canister_audit_default_empty --target wasm32-unknown-unknown --profile wasm-release --locked
       - run: |
           mkdir -p artifacts
           target_dir="${CARGO_TARGET_DIR:-target}"
-          wasm="${target_dir}/wasm32-unknown-unknown/wasm-release/canister_audit_minimal.wasm"
+          wasm="${target_dir}/wasm32-unknown-unknown/wasm-release/canister_audit_default_empty.wasm"
           if [ ! -f "$wasm" ]; then
             echo "Expected wasm artifact missing: $wasm" >&2
             exit 1
           fi
-          cp "$wasm" artifacts/minimal.wasm
+          cp "$wasm" artifacts/default_empty.wasm
 
           cargo install candid-extractor --locked
-          did="artifacts/minimal.did"
+          did="artifacts/default_empty.did"
           if candid-extractor "$wasm" > "$did"; then
             echo "Extracted $did"
           else

@@ -34,6 +34,7 @@ use crate::{
                 SqlParseError, parse_sql,
             },
         },
+        test_support::source_guard::{collect_rust_sources, relative_rust_source_path},
     },
     model::field::{FieldKind, FieldStorageDecode, LeafCodec},
     model::index::{IndexExpression, IndexKeyItem, IndexModel},
@@ -43,11 +44,7 @@ use crate::{
 };
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, SqlFeatureCode};
 use serde::Deserialize;
-use std::{
-    fs,
-    ops::Bound,
-    path::{Path as FsPath, PathBuf},
-};
+use std::{fs, ops::Bound, path::Path as FsPath};
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 struct SqlLowerEntity {
@@ -6424,22 +6421,12 @@ fn sql_global_aggregate_terminal_runtime_mapping_stays_strategy_owned() {
     collect_rust_sources(aggregate_root.as_path(), &mut sources);
     sources.sort();
 
+    let source_root = FsPath::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut violations = Vec::new();
     for source_path in sources {
-        let relative = source_path
-            .strip_prefix(
-                FsPath::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("src")
-                    .as_path(),
-            )
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            });
-        if relative == FsPath::new("db/sql/lowering/aggregate/strategy.rs")
-            || relative == FsPath::new("db/sql/lowering/aggregate/terminal.rs")
+        let relative = relative_rust_source_path(source_root.as_path(), source_path.as_path());
+        if relative == "db/sql/lowering/aggregate/strategy.rs"
+            || relative == "db/sql/lowering/aggregate/terminal.rs"
         {
             continue;
         }
@@ -6450,7 +6437,7 @@ fn sql_global_aggregate_terminal_runtime_mapping_stays_strategy_owned() {
             || source.contains("StructuralAggregateTerminalKind")
             || source.contains("into_executor_terminal")
         {
-            violations.push(relative.display().to_string());
+            violations.push(relative);
         }
     }
 
@@ -6458,24 +6445,4 @@ fn sql_global_aggregate_terminal_runtime_mapping_stays_strategy_owned() {
         violations.is_empty(),
         "SQL global aggregate terminal runtime mapping must remain strategy-owned; unexpected references: {violations:?}",
     );
-}
-
-// Walk one source tree and collect every Rust source path deterministically.
-fn collect_rust_sources(root: &FsPath, out: &mut Vec<PathBuf>) {
-    let entries = fs::read_dir(root)
-        .unwrap_or_else(|err| panic!("failed to read source directory {}: {err}", root.display()));
-    for entry in entries {
-        let entry = entry.unwrap_or_else(|err| {
-            panic!(
-                "failed to read source directory entry under {}: {err}",
-                root.display()
-            )
-        });
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rust_sources(path.as_path(), out);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            out.push(path);
-        }
-    }
 }

@@ -46,7 +46,10 @@ pub(super) fn try_execute_covering_projection_rows_with_plan_for_canister<C>(
 where
     C: CanisterKind,
 {
-    if plan.has_residual_filter_expr() || plan.has_residual_filter_predicate() {
+    if plan.has_residual_filter_expr() {
+        return Ok(None);
+    }
+    if plan.has_residual_filter_predicate() && !covering.strict_predicate_compatible {
         return Ok(None);
     }
 

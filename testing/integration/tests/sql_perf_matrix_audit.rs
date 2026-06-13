@@ -10,8 +10,9 @@ use std::{
 use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
-    Error,
+    Error, ErrorOrigin,
     db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
+    diagnostic::{DiagnosticCode, ErrorClass},
 };
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::{Deserialize, Serialize};
@@ -160,7 +161,8 @@ struct MatrixFailure {
     family: String,
     sql: String,
     code: u16,
-    diagnostic_code: String,
+    diagnostic_code: u16,
+    diagnostic_label: &'static str,
     class: String,
     origin: String,
 }
@@ -936,6 +938,7 @@ fn sample_scenario(
 }
 
 fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFailure {
+    let diagnostic_code = err.diagnostic_code();
     MatrixFailure {
         key: scenario.key.clone(),
         source: scenario.source.label().to_string(),
@@ -943,9 +946,55 @@ fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFai
         family: scenario.family.clone(),
         sql: scenario.sql.clone(),
         code: err.code().raw(),
-        diagnostic_code: format!("{:?}", err.diagnostic_code()),
-        class: format!("{:?}", err.class()),
+        diagnostic_code: diagnostic_code.error_code().raw(),
+        diagnostic_label: diagnostic_label(diagnostic_code),
+        class: error_class_label(err.class()).to_string(),
         origin: format!("{:?}", err.origin()),
+    }
+}
+
+const fn diagnostic_label(code: DiagnosticCode) -> &'static str {
+    match code {
+        DiagnosticCode::QueryValidate => "QueryValidate",
+        DiagnosticCode::QueryIntent => "QueryIntent",
+        DiagnosticCode::QueryPlan => "QueryPlan",
+        DiagnosticCode::QueryAccessRequirement => "QueryAccessRequirement",
+        DiagnosticCode::QueryUnorderedPagination => "QueryUnorderedPagination",
+        DiagnosticCode::QueryInvalidContinuationCursor => "QueryInvalidContinuationCursor",
+        DiagnosticCode::QueryNotFound => "QueryNotFound",
+        DiagnosticCode::QueryNotUnique => "QueryNotUnique",
+        DiagnosticCode::QueryNumericOverflow => "QueryNumericOverflow",
+        DiagnosticCode::QueryNumericNotRepresentable => "QueryNumericNotRepresentable",
+        DiagnosticCode::QueryUnknownAggregateTargetField => "QueryUnknownAggregateTargetField",
+        DiagnosticCode::QueryUnsupportedProjection => "QueryUnsupportedProjection",
+        DiagnosticCode::QueryResultShapeMismatch => "QueryResultShapeMismatch",
+        DiagnosticCode::QueryUnsupportedSqlFeature => "QueryUnsupportedSqlFeature",
+        DiagnosticCode::QuerySqlSurfaceMismatch => "QuerySqlSurfaceMismatch",
+        DiagnosticCode::QuerySqlWriteBoundary => "QuerySqlWriteBoundary",
+        DiagnosticCode::SchemaDdlAdmission => "SchemaDdlAdmission",
+        DiagnosticCode::StoreNotFound => "StoreNotFound",
+        DiagnosticCode::StoreCorruption => "StoreCorruption",
+        DiagnosticCode::StoreInvariantViolation => "StoreInvariantViolation",
+        DiagnosticCode::RuntimeCorruption => "RuntimeCorruption",
+        DiagnosticCode::RuntimeIncompatiblePersistedFormat => "RuntimeIncompatiblePersistedFormat",
+        DiagnosticCode::RuntimeInvariantViolation => "RuntimeInvariantViolation",
+        DiagnosticCode::RuntimeConflict => "RuntimeConflict",
+        DiagnosticCode::RuntimeNotFound => "RuntimeNotFound",
+        DiagnosticCode::RuntimeUnsupported => "RuntimeUnsupported",
+        DiagnosticCode::RuntimeInternal => "RuntimeInternal",
+    }
+}
+
+const fn error_class_label(class: ErrorClass) -> &'static str {
+    match class {
+        ErrorClass::Query => "Query",
+        ErrorClass::Corruption => "Corruption",
+        ErrorClass::IncompatiblePersistedFormat => "IncompatiblePersistedFormat",
+        ErrorClass::NotFound => "NotFound",
+        ErrorClass::Internal => "Internal",
+        ErrorClass::Conflict => "Conflict",
+        ErrorClass::Unsupported => "Unsupported",
+        ErrorClass::InvariantViolation => "InvariantViolation",
     }
 }
 
@@ -1124,10 +1173,11 @@ fn append_failure_table(output: &mut String, failures: &[MatrixFailure]) {
     for failure in failures.iter().take(top_n()) {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} | {} | {} | `{}` |",
+            "| `{}` | {} | {} | {} ({}) | {} | {} | `{}` |",
             failure.key,
             failure.surface,
             failure.code,
+            failure.diagnostic_label,
             failure.diagnostic_code,
             failure.class,
             failure.origin,
@@ -1136,6 +1186,26 @@ fn append_failure_table(output: &mut String, failures: &[MatrixFailure]) {
         .expect("write to string should succeed");
     }
     writeln!(output).expect("write to string should succeed");
+}
+
+#[test]
+fn sql_perf_matrix_failures_use_stable_diagnostic_labels() {
+    let scenario = scenario(
+        "user.failure.query_plan",
+        MatrixSurface::User,
+        "failure.query_plan",
+        "SELECT id FROM PerfAuditUser ORDER BY unsupported_expression",
+    );
+    let failure = matrix_failure_from_error(
+        &scenario,
+        Error::from_code(DiagnosticCode::QueryPlan, ErrorOrigin::Query),
+    );
+
+    assert_eq!(failure.code, 3);
+    assert_eq!(failure.diagnostic_code, 3);
+    assert_eq!(failure.diagnostic_label, "QueryPlan");
+    assert_eq!(failure.class, "Query");
+    assert_eq!(failure.origin, "Query");
 }
 
 fn print_matrix_summary(report: &MatrixReport) {

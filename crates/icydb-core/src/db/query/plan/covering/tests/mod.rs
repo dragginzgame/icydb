@@ -25,6 +25,7 @@ use std::ops::Bound;
 
 const INDEX_FIELDS_GROUP_RANK: [&str; 2] = ["group", "rank"];
 const INDEX_FIELDS_GROUP_LABEL: [&str; 2] = ["group", "label"];
+const INDEX_FIELDS_GROUP_ID: [&str; 2] = ["group", "id"];
 const INDEX_KEY_ITEMS_GROUP_LOWER_LABEL: [IndexKeyItem; 2] = [
     IndexKeyItem::Field("group"),
     IndexKeyItem::Expression(IndexExpression::Lower("label")),
@@ -456,6 +457,46 @@ fn covering_read_plan_accepts_primary_key_projection() {
     );
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey { component_index: 0 }
+    );
+}
+
+#[test]
+fn covering_read_plan_accepts_explicit_primary_key_index_suffix_projection() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            crate::model::index::IndexModel::generated(
+                "idx_group_id",
+                "tests::Entity",
+                &INDEX_FIELDS_GROUP_ID,
+                false,
+            ),
+            Vec::new(),
+            Bound::Unbounded,
+            Bound::Unbounded,
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    let covering = covering_read_plan(&plan, "id", true).expect(
+        "index ranges with an explicit trailing primary-key component should derive covering reads",
+    );
+
+    assert_eq!(covering.prefix_len, 0);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+    assert_eq!(covering.fields.len(), 1);
     assert_eq!(
         covering.fields[0].source,
         super::CoveringReadFieldSource::PrimaryKey { component_index: 0 }

@@ -14,14 +14,14 @@ use crate::{
             global_distinct_group_spec_for_aggregate_identity,
             resolve_global_distinct_field_aggregate,
         },
+        test_support::source_guard::{
+            collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
+        },
     },
     traits::EntitySchema,
     value::Value,
 };
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 
 fn assert_global_distinct_builder_signature(
     builder: fn(
@@ -89,67 +89,6 @@ fn planner_distinct_resolution_requires_planner_visibility_boundary() {
     );
 }
 
-// Walk one source tree and collect every Rust source path deterministically.
-fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
-    let entries = fs::read_dir(root)
-        .unwrap_or_else(|err| panic!("failed to read source directory {}: {err}", root.display()));
-
-    for entry in entries {
-        let entry = entry.unwrap_or_else(|err| {
-            panic!(
-                "failed to read source directory entry under {}: {err}",
-                root.display()
-            )
-        });
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rust_sources(path.as_path(), out);
-            continue;
-        }
-        if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
-        }
-    }
-}
-
-// Strip top-level `#[cfg(test)]` items from source text so ownership checks
-// only reason about runtime paths.
-fn strip_cfg_test_items(source: &str) -> String {
-    let mut output = String::new();
-    let lines = source.lines();
-    let mut pending_cfg_test = false;
-    let mut skip_depth = 0usize;
-
-    for line in lines {
-        let trimmed = line.trim();
-        if skip_depth > 0 {
-            skip_depth = skip_depth
-                .saturating_add(line.matches('{').count())
-                .saturating_sub(line.matches('}').count());
-            continue;
-        }
-
-        if trimmed.starts_with("#[cfg(test)]") {
-            pending_cfg_test = true;
-            continue;
-        }
-        if pending_cfg_test {
-            let opens = line.matches('{').count();
-            let closes = line.matches('}').count();
-            if opens > 0 {
-                skip_depth = opens.saturating_sub(closes);
-            }
-            pending_cfg_test = false;
-            continue;
-        }
-
-        output.push_str(line);
-        output.push('\n');
-    }
-
-    output
-}
-
 #[test]
 fn planner_bool_expr_semantics_are_not_routed_through_predicate_runtime_paths() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -170,23 +109,14 @@ fn planner_bool_expr_semantics_are_not_routed_through_predicate_runtime_paths() 
             continue;
         }
 
-        let relative = source_path
-            .strip_prefix(crate_root)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            })
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative = relative_rust_source_path(crate_root, source_path.as_path());
         if relative.starts_with("src/db/predicate/") {
             continue;
         }
 
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-        let runtime_source = strip_cfg_test_items(source.as_str());
+        let runtime_source = runtime_source_without_test_items(source.as_str());
         for forbidden in [
             "predicate::canonicalize_grouped_having_bool_expr",
             "predicate::canonicalize_scalar_where_bool_expr",
@@ -279,19 +209,10 @@ fn planner_expr_canonicalize_does_not_depend_on_downstream_stages() {
     ];
     let mut forbidden_hits = Vec::new();
     for source_path in sources {
-        let relative = source_path
-            .strip_prefix(crate_root)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            })
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative = relative_rust_source_path(crate_root, source_path.as_path());
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-        let runtime_source = strip_cfg_test_items(source.as_str());
+        let runtime_source = runtime_source_without_test_items(source.as_str());
 
         forbidden_hits.extend(
             forbidden_patterns
@@ -314,7 +235,7 @@ fn planner_expr_truth_value_policy_does_not_depend_on_pipeline_stages() {
     let source_path = crate_root.join("src/db/query/plan/expr/truth_value.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-    let runtime_source = strip_cfg_test_items(source.as_str());
+    let runtime_source = runtime_source_without_test_items(source.as_str());
     let forbidden_patterns = [
         "canonicalize",
         "CanonicalExpr",
@@ -374,19 +295,10 @@ fn planner_expr_type_inference_does_not_call_predicate_compile() {
             continue;
         }
 
-        let relative = source_path
-            .strip_prefix(crate_root)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            })
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative = relative_rust_source_path(crate_root, source_path.as_path());
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-        let runtime_source = strip_cfg_test_items(source.as_str());
+        let runtime_source = runtime_source_without_test_items(source.as_str());
 
         forbidden_hits.extend(
             forbidden_patterns
@@ -409,7 +321,7 @@ fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
     let source_path = crate_root.join("src/db/query/plan/expr/predicate/compile.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-    let runtime_source = strip_cfg_test_items(source.as_str());
+    let runtime_source = runtime_source_without_test_items(source.as_str());
     let forbidden_patterns = [
         "TruthAdmission::",
         "TruthAdmission {",
@@ -475,7 +387,7 @@ fn planner_expr_projection_eval_does_not_canonicalize_or_import_predicates() {
     let source_path = crate_root.join("src/db/query/plan/expr/projection_eval.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-    let runtime_source = strip_cfg_test_items(source.as_str());
+    let runtime_source = runtime_source_without_test_items(source.as_str());
     let forbidden_patterns = [
         "CoercionId::",
         "CoercionSpec::",

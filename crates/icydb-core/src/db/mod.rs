@@ -35,6 +35,8 @@ pub(in crate::db) mod ordered_overlay;
 pub(in crate::db) mod relation;
 pub(in crate::db) mod sql_shared;
 #[cfg(test)]
+pub(in crate::db) mod test_support;
+#[cfg(test)]
 mod tests;
 
 use crate::{

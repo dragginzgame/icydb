@@ -29,6 +29,9 @@ use crate::{
 };
 use std::sync::{Arc, OnceLock};
 
+#[cfg(feature = "sql")]
+use crate::db::query::plan::covering_strict_predicate_compatible;
+
 ///
 /// ExecutionFamily
 ///
@@ -330,8 +333,19 @@ impl PreparedExecutionPlanCore {
         self.residents
             .projection_covering_read_execution_plan
             .get_or_init(|| {
+                let execution_preparation = ExecutionPreparation::from_covering_route_plan(
+                    &self.residents.plan,
+                    slot_map_for_model_plan(&self.residents.plan),
+                );
+                let strict_predicate_compatible = covering_strict_predicate_compatible(
+                    &self.residents.plan,
+                    execution_preparation
+                        .predicate_capability_profile()
+                        .map(crate::db::predicate::PredicateCapabilityProfile::index),
+                );
+
                 authority
-                    .covering_read_execution_plan(&self.residents.plan, true)
+                    .covering_read_execution_plan(&self.residents.plan, strict_predicate_compatible)
                     .map(Arc::new)
             })
             .clone()

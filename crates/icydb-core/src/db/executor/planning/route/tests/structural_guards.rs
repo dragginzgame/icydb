@@ -3,72 +3,11 @@
 //! Does not own: production route planning logic outside this test module.
 //! Boundary: verifies route-planner entry and assembly boundaries remain collapsed.
 
-use std::{
-    collections::BTreeSet,
-    fs,
-    path::{Path, PathBuf},
+use crate::db::test_support::source_guard::{
+    collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
 };
 
-// Walk one source tree and collect every Rust source path deterministically.
-fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
-    let entries = fs::read_dir(root)
-        .unwrap_or_else(|err| panic!("failed to read source directory {}: {err}", root.display()));
-
-    for entry in entries {
-        let entry = entry.unwrap_or_else(|err| {
-            panic!(
-                "failed to read source directory entry under {}: {err}",
-                root.display()
-            )
-        });
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rust_sources(path.as_path(), out);
-            continue;
-        }
-        if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
-        }
-    }
-}
-
-// Strip top-level `#[cfg(test)]` items from source text so structural checks
-// only reason about runtime route-planning paths.
-fn strip_cfg_test_items(source: &str) -> String {
-    let mut output = String::new();
-    let lines = source.lines();
-    let mut pending_cfg_test = false;
-    let mut skip_depth = 0usize;
-
-    for line in lines {
-        let trimmed = line.trim();
-        if skip_depth > 0 {
-            skip_depth = skip_depth
-                .saturating_add(line.matches('{').count())
-                .saturating_sub(line.matches('}').count());
-            continue;
-        }
-
-        if trimmed.starts_with("#[cfg(test)]") {
-            pending_cfg_test = true;
-            continue;
-        }
-        if pending_cfg_test {
-            let opens = line.matches('{').count();
-            let closes = line.matches('}').count();
-            if opens > 0 {
-                skip_depth = opens.saturating_sub(closes);
-            }
-            pending_cfg_test = false;
-            continue;
-        }
-
-        output.push_str(line);
-        output.push('\n');
-    }
-
-    output
-}
+use std::{collections::BTreeSet, fs, path::Path};
 
 #[test]
 fn route_planner_public_surface_has_single_route_builder() {
@@ -123,7 +62,7 @@ fn execution_route_plan_is_only_built_from_staged_planner() {
 
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-        let runtime_source = strip_cfg_test_items(source.as_str());
+        let runtime_source = runtime_source_without_test_items(source.as_str());
         let has_direct_constructor = runtime_source
             .lines()
             .any(|line| line.trim() == "ExecutionRoutePlan {");
@@ -131,16 +70,7 @@ fn execution_route_plan_is_only_built_from_staged_planner() {
             continue;
         }
 
-        let relative = source_path
-            .strip_prefix(crate_root)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            })
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative = relative_rust_source_path(crate_root, source_path.as_path());
         actual.insert(relative);
     }
 

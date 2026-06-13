@@ -73,16 +73,8 @@ fn runtime_scalar_plan_consistency_reads_stay_boundary_local() {
             continue;
         }
 
-        let relative = source_path
-            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to compute relative source path for {}: {err}",
-                    source_path.display()
-                )
-            })
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative =
+            relative_rust_source_path(Path::new(env!("CARGO_MANIFEST_DIR")), source_path.as_path());
         actual.insert(relative);
     }
 

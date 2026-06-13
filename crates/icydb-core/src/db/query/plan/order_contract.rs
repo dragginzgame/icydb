@@ -130,6 +130,7 @@ pub(in crate::db) enum GroupedIndexOrderMatch {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct DeterministicSecondaryOrderContract {
     non_primary_key_terms: Vec<String>,
+    primary_key_terms: Vec<String>,
     direction: OrderDirection,
 }
 
@@ -170,6 +171,10 @@ impl DeterministicSecondaryOrderContract {
                 .take(order.fields.len().saturating_sub(primary_key_names.len()))
                 .map(crate::db::query::plan::OrderTerm::rendered_label)
                 .collect(),
+            primary_key_terms: primary_key_names
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect(),
             direction,
         })
     }
@@ -184,6 +189,13 @@ impl DeterministicSecondaryOrderContract {
     #[must_use]
     pub(in crate::db) const fn non_primary_key_terms(&self) -> &[String] {
         self.non_primary_key_terms.as_slice()
+    }
+
+    /// Borrow the normalized primary-key ORDER BY suffix terms.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn primary_key_terms(&self) -> &[String] {
+        self.primary_key_terms.as_slice()
     }
 
     /// Return true when the normalized non-primary-key terms match one expected
@@ -209,6 +221,7 @@ impl DeterministicSecondaryOrderContract {
     where
         S: AsRef<str>,
     {
+        let index_fields = self.index_terms_without_explicit_primary_key_suffix(index_fields);
         if prefix_len > index_fields.len() {
             return false;
         }
@@ -224,6 +237,7 @@ impl DeterministicSecondaryOrderContract {
     where
         S: AsRef<str>,
     {
+        let index_fields = self.index_terms_without_explicit_primary_key_suffix(index_fields);
         self.matches_expected_non_primary_key_terms(index_fields.iter().map(AsRef::as_ref))
     }
 
@@ -246,6 +260,30 @@ impl DeterministicSecondaryOrderContract {
         }
 
         DeterministicSecondaryIndexOrderMatch::None
+    }
+
+    fn index_terms_without_explicit_primary_key_suffix<'a, S>(
+        &self,
+        index_fields: &'a [S],
+    ) -> &'a [S]
+    where
+        S: AsRef<str>,
+    {
+        let suffix_len = self.primary_key_terms.len();
+        if suffix_len == 0 || index_fields.len() < suffix_len {
+            return index_fields;
+        }
+
+        let suffix_start = index_fields.len() - suffix_len;
+        let suffix_matches = index_fields[suffix_start..]
+            .iter()
+            .map(AsRef::as_ref)
+            .eq(self.primary_key_terms.iter().map(String::as_str));
+        if suffix_matches {
+            &index_fields[..suffix_start]
+        } else {
+            index_fields
+        }
     }
 }
 

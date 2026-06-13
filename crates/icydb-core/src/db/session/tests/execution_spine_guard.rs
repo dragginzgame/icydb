@@ -1,7 +1,6 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use crate::db::test_support::source_guard::{collect_rust_sources, relative_rust_source_path};
+
+use std::{fs, path::Path};
 
 #[test]
 fn production_session_surfaces_do_not_direct_plan_outside_shared_cache() {
@@ -155,43 +154,4 @@ fn sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority() {
         "SQL DDL frontend code must route publication through schema-owned mutation runners and must not source index authority from generated metadata. Violations: {}",
         violations.join("; "),
     );
-}
-
-// Walk one source tree and collect Rust files deterministically for the
-// production-path guardrail above.
-fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
-    let entries = fs::read_dir(root)
-        .unwrap_or_else(|err| panic!("failed to read source directory {}: {err}", root.display()));
-
-    for entry in entries {
-        let entry = entry.unwrap_or_else(|err| {
-            panic!(
-                "failed to read source directory entry under {}: {err}",
-                root.display()
-            )
-        });
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rust_sources(path.as_path(), out);
-            continue;
-        }
-        if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
-        }
-    }
-}
-
-// Normalize paths relative to the crate root so assertion output is stable
-// across machines and path separators.
-fn relative_rust_source_path(manifest_root: &Path, source_path: &Path) -> String {
-    source_path
-        .strip_prefix(manifest_root)
-        .unwrap_or_else(|err| {
-            panic!(
-                "failed to compute relative source path for {}: {err}",
-                source_path.display()
-            )
-        })
-        .to_string_lossy()
-        .replace('\\', "/")
 }
