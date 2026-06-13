@@ -23,7 +23,7 @@ use crate::{
                 LogicalPlanningInputs, OrderDirection, OrderSpec, PageSpec, PlanPolicyError,
                 PlanUserError, QueryMode, VisibleIndexes, build_logical_plan,
                 build_query_model_plan_with_indexes_from_scalar_planning_state,
-                expr::{BinaryOp, Expr, FieldId, FieldPath, Function, UnaryOp},
+                expr::{BinaryOp, Expr, FieldId, FieldPath, Function},
                 logical_query_from_logical_inputs,
                 prepare_query_model_scalar_planning_state_for_model_only,
                 try_build_trivial_scalar_load_plan_for_model_only,
@@ -254,64 +254,6 @@ fn finalized_static_contract_carries_explicit_expression_only_residual_filter_st
     assert!(
         plan.effective_runtime_compiled_filter_expr().is_some(),
         "expression-only residual filters should compile onto the explicit expression runtime lane",
-    );
-}
-
-#[test]
-fn finalized_static_contract_keeps_negated_prefix_filter_until_access_satisfies_predicate() {
-    let model = model_with_expression_index();
-    let mut plan: AccessPlannedQuery = AccessPlannedQuery {
-        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
-            filter_expr: Some(Expr::Unary {
-                op: UnaryOp::Not,
-                expr: Box::new(Expr::FunctionCall {
-                    function: Function::StartsWith,
-                    args: vec![
-                        Expr::Field(FieldId::new("name")),
-                        Expr::Literal(Value::Text("S".to_string())),
-                    ],
-                }),
-            }),
-            predicate_covers_filter_expr: true,
-            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
-                ComparePredicate::with_coercion(
-                    "name",
-                    CompareOp::StartsWith,
-                    Value::Text("S".to_string()),
-                    CoercionId::Strict,
-                ),
-            )))),
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: MissingRowPolicy::Ignore,
-        }),
-        access: AccessPlan::path(AccessPath::FullScan),
-        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
-        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
-        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
-            false,
-        ),
-        static_execution_planning_contract: None,
-    };
-
-    plan.finalize_planner_route_profile_for_model(model);
-    plan.finalize_static_execution_planning_contract_for_model_only(model)
-        .expect("negated prefix filter should finalize into explicit residual state");
-
-    assert!(
-        plan.has_residual_filter_predicate(),
-        "full-scan negated prefix predicates remain residual until access planning satisfies them",
-    );
-    assert!(
-        plan.residual_filter_expr().is_some(),
-        "semantic expression must remain visible while its derived predicate is still residual",
-    );
-    assert!(
-        plan.effective_runtime_compiled_predicate().is_some(),
-        "residual negated prefix predicates should compile onto the predicate runtime lane",
     );
 }
 

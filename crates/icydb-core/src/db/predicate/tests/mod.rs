@@ -62,6 +62,24 @@ fn strict_scalar_compare_is_scalar_safe_and_indexable_when_indexed() {
 }
 
 #[test]
+fn negated_index_compare_requires_full_scan_until_complement_access_exists() {
+    let predicate = ExecutablePredicate::Not(Box::new(ExecutablePredicate::Compare(
+        ExecutableComparePredicate::field_literal(
+            Some(1),
+            CompareOp::StartsWith,
+            Value::Text("S".to_string()),
+            CoercionSpec::new(CoercionId::Strict),
+        ),
+    )));
+    let profile = classify_predicate_capabilities(
+        &predicate,
+        PredicateCapabilityContext::index_compile(&[1]),
+    );
+
+    assert_eq!(profile.index(), IndexPredicateCapability::RequiresFullScan);
+}
+
+#[test]
 fn scalar_text_contains_requires_full_scan() {
     let predicate = ExecutablePredicate::TextContainsCi {
         field_slot: Some(1),

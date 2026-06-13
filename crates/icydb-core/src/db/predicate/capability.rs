@@ -291,15 +291,9 @@ fn classify_index_capability_with_compare(
                 IndexPredicateCapability::RequiresFullScan
             }
         }
-        ExecutablePredicate::Not(inner) => {
-            if classify_index_capability_with_compare(inner, compare_is_fully_indexable)
-                == IndexPredicateCapability::FullyIndexable
-            {
-                IndexPredicateCapability::FullyIndexable
-            } else {
-                IndexPredicateCapability::RequiresFullScan
-            }
-        }
+        // A negated indexable child is still not index-covering-safe unless
+        // the access planner has an explicit complement-scan contract.
+        ExecutablePredicate::Not(_) => IndexPredicateCapability::RequiresFullScan,
         ExecutablePredicate::Compare(cmp) => {
             if compare_is_fully_indexable(cmp) {
                 IndexPredicateCapability::FullyIndexable
