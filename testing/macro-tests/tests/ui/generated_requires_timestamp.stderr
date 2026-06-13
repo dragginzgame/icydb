@@ -1,5 +1,5 @@
 error: generated(insert = "Timestamp::now") requires a primitive Timestamp field
-  --> tests/ui/generated_requires_timestamp.rs:24:21
+  --> tests/ui/generated_requires_timestamp.rs:25:21
    |
-24 |             ident = "name",
+25 |             ident = "name",
    |                     ^^^^^^

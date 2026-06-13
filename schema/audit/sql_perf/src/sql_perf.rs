@@ -12,10 +12,11 @@ define_fixture_canister!(
 define_fixture_store!(
     PerfAuditStore = "PERF_AUDIT_STORE",
     canister = "PerfAuditCanister",
-    storage(stable(
+    storage(journaled(
         data_memory_id = 180,
         index_memory_id = 181,
         schema_memory_id = 183,
+        journal_memory_id = 188,
     )),
 );
 
@@ -66,30 +67,11 @@ pub struct PerfAuditJournaledStore {}
 pub struct PerfAuditUser {}
 
 ///
-/// PerfAuditStableUser
-///
-/// Stable mirror of the primary-key user perf shape. It keeps the storage
-/// backend comparison matrix shape-matched with heap and journaled stores.
-///
-
-#[entity(
-    store = "PerfAuditStore",
-    version = 1,
-    pk(fields = ["id"]),
-    fields(
-        field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "name", value(item(prim = "Text", unbounded))),
-        field(ident = "age", value(item(prim = "Int32")))
-    )
-)]
-pub struct PerfAuditStableUser {}
-
-///
 /// PerfAuditHeapUser
 ///
 /// Heap mirror of the primary-key user perf shape. It exists only so the
-/// integration harness can sample live volatile heap traversal beside stable
-/// and journaled storage paths.
+/// integration harness can sample live volatile heap traversal beside the
+/// journaled durable storage path.
 ///
 
 #[entity(

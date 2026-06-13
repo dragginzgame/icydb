@@ -1,5 +1,5 @@
 error: generated(insert = ...) currently supports only Ulid::generate or Timestamp::now
-  --> tests/ui/generated_unsupported_path.rs:24:21
+  --> tests/ui/generated_unsupported_path.rs:25:21
    |
-24 |             ident = "token",
+25 |             ident = "token",
    |                     ^^^^^^^

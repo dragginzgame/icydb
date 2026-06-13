@@ -7,9 +7,12 @@ pub struct UiCanister {}
     ident = "UI_DATA_STORE",
     store_name = "ui_data",
     canister = "UiCanister",
-    storage(stable(
-        index_memory_id = 101,
-        schema_memory_id = 102,
+    storage(journaled(
+        data_memory_id = 100,
+        data_memory_id = 101,
+        index_memory_id = 102,
+        schema_memory_id = 103,
+        journal_memory_id = 109,
     ))
 )]
 pub struct UiDataStore {}

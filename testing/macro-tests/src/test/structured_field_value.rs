@@ -350,7 +350,7 @@ mod tests {
     ///
     /// StructuredAssetSelectionEntityHarness persists the asset-selection record
     /// through generated row slots so tests exercise the same materialization
-    /// path as application reads from stable storage.
+    /// path as application reads.
     ///
 
     #[entity(

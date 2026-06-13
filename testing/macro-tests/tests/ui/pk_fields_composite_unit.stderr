@@ -1,12 +1,12 @@
 error: primary key field 'singleton' cannot use Unit inside a composite primary key
-  --> tests/ui/pk_fields_composite_unit.rs:17:1
+  --> tests/ui/pk_fields_composite_unit.rs:18:1
    |
-17 | / #[entity(
-18 | |     store = "UiDataStore",
-19 | |     version = 1,
-20 | |     pk(fields = ["tenant_id", "singleton"]),
+18 | / #[entity(
+19 | |     store = "UiDataStore",
+20 | |     version = 1,
+21 | |     pk(fields = ["tenant_id", "singleton"]),
 ...  |
-25 | | )]
+26 | | )]
    | |__^
    |
    = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

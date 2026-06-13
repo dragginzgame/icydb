@@ -112,7 +112,7 @@ impl ValidateNode for Canister {
         // Check all Store nodes for this canister
         for (path, store) in schema.filter_nodes::<Store>(|node| node.canister() == canister_path) {
             match store.storage() {
-                StoreStorage::Stable(_) | StoreStorage::Journaled(_) => {
+                StoreStorage::Journaled(_) => {
                     assert_unique_memory_allocation(
                         store
                             .stable_data_allocation(self.memory_namespace())

@@ -1,4 +1,4 @@
-error: store(...) supports ident = ..., store_name = "...", canister = ..., and storage(stable(...)), storage(heap()), or storage(journaled(...))
+error: store(...) supports ident = ..., store_name = "...", canister = ..., and storage(heap()) or storage(journaled(...))
   --> tests/ui/store_storage_name_value.rs:10:5
    |
 10 |     storage = "stable"

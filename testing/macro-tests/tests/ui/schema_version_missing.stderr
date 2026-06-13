@@ -1,11 +1,11 @@
 error: Missing field `version`
-  --> tests/ui/schema_version_missing.rs:17:1
+  --> tests/ui/schema_version_missing.rs:18:1
    |
-17 | / #[entity(
-18 | |     store = "UiDataStore",
-19 | |     pk(fields = ["id"]),
-20 | |     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
-21 | | )]
+18 | / #[entity(
+19 | |     store = "UiDataStore",
+20 | |     pk(fields = ["id"]),
+21 | |     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
+22 | | )]
    | |__^
    |
    = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

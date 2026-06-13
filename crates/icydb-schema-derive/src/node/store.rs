@@ -21,40 +21,15 @@ pub struct Store {
 
 #[derive(Debug)]
 pub(crate) enum ParsedStoreStorage {
-    Stable(ParsedStoreStableMemoryConfig),
     Heap(ParsedStoreHeapConfig),
     Journaled(ParsedStoreJournaledMemoryConfig),
 }
 
 impl ParsedStoreStorage {
-    const fn stable(&self) -> Option<&ParsedStoreStableMemoryConfig> {
-        match self {
-            Self::Stable(stable) => Some(stable),
-            Self::Heap(_) | Self::Journaled(_) => None,
-        }
-    }
-
     const fn journaled(&self) -> Option<&ParsedStoreJournaledMemoryConfig> {
         match self {
             Self::Journaled(journaled) => Some(journaled),
-            Self::Stable(_) | Self::Heap(_) => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ParsedStoreStableMemoryConfig {
-    pub(crate) data: u8,
-    pub(crate) index: u8,
-    pub(crate) schema: u8,
-}
-
-impl ParsedStoreStableMemoryConfig {
-    const fn new(data_memory_id: u8, index_memory_id: u8, schema_memory_id: u8) -> Self {
-        Self {
-            data: data_memory_id,
-            index: index_memory_id,
-            schema: schema_memory_id,
+            Self::Heap(_) => None,
         }
     }
 }
@@ -128,7 +103,7 @@ impl FromMeta for Store {
 
                     if is_flat_memory_id_arg(&name_value.path) {
                         return Err(DarlingError::custom(
-                            "store memory ids must be declared inside storage(stable(...))",
+                            "store memory ids must be declared inside storage(journaled(...))",
                         )
                         .with_span(&name_value.path));
                     }
@@ -161,9 +136,7 @@ impl FromMeta for Store {
         let canister =
             canister.ok_or_else(|| DarlingError::custom("store(...) requires canister = ..."))?;
         let storage = storage.ok_or_else(|| {
-            DarlingError::custom(
-                "store(...) requires storage(stable(...)), storage(heap()), or storage(journaled(...))",
-            )
+            DarlingError::custom("store(...) requires storage(heap()) or storage(journaled(...))")
         })?;
 
         Ok(Self {
@@ -176,7 +149,7 @@ impl FromMeta for Store {
     }
 }
 
-const STORE_ARGS_MESSAGE: &str = "store(...) supports ident = ..., store_name = \"...\", canister = ..., and storage(stable(...)), storage(heap()), or storage(journaled(...))";
+const STORE_ARGS_MESSAGE: &str = "store(...) supports ident = ..., store_name = \"...\", canister = ..., and storage(heap()) or storage(journaled(...))";
 
 fn set_once<T>(
     slot: &mut Option<T>,
@@ -201,14 +174,17 @@ fn parse_store_storage(list: &syn::MetaList) -> Result<ParsedStoreStorage, Darli
     let items = NestedMeta::parse_meta_list(list.tokens.clone())?;
     let [item] = items.as_slice() else {
         return Err(DarlingError::custom(
-            "storage(...) requires exactly one storage mode: stable(...), heap(), or journaled(...)",
+            "storage(...) requires exactly one storage mode: heap() or journaled(...)",
         )
         .with_span(&list.path));
     };
 
     match item {
-        NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("stable") => Ok(
-            ParsedStoreStorage::Stable(parse_stable_memory_config(mode)?),
+        NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("stable") => Err(
+            DarlingError::custom(
+                "storage(stable(...)) was removed; use storage(journaled(...)) for durable stores or storage(heap()) for volatile fixtures",
+            )
+            .with_span(&mode.path),
         ),
         NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("heap") => {
             parse_heap_config(mode).map(ParsedStoreStorage::Heap)
@@ -225,15 +201,15 @@ fn parse_store_storage(list: &syn::MetaList) -> Result<ParsedStoreStorage, Darli
                 .with_span(path),
         ),
         NestedMeta::Meta(syn::Meta::List(mode)) => Err(DarlingError::custom(
-            "unknown store storage mode; expected storage(stable(...)), storage(heap()), or storage(journaled(...))",
+            "unknown store storage mode; expected storage(heap()) or storage(journaled(...))",
         )
         .with_span(&mode.path)),
         NestedMeta::Meta(syn::Meta::Path(path)) => Err(DarlingError::custom(
-            "unknown store storage mode; expected storage(stable(...)), storage(heap()), or storage(journaled(...))",
+            "unknown store storage mode; expected storage(heap()) or storage(journaled(...))",
         )
         .with_span(path)),
         _ => Err(DarlingError::custom(
-            "storage(...) requires exactly one storage mode: stable(...), heap(), or journaled(...)",
+            "storage(...) requires exactly one storage mode: heap() or journaled(...)",
         )),
     }
 }
@@ -355,89 +331,6 @@ fn parse_journaled_memory_config(
     ))
 }
 
-fn parse_stable_memory_config(
-    list: &syn::MetaList,
-) -> Result<ParsedStoreStableMemoryConfig, DarlingError> {
-    let items = NestedMeta::parse_meta_list(list.tokens.clone())?;
-    let mut data_memory_id = None;
-    let mut index_memory_id = None;
-    let mut schema_memory_id = None;
-
-    for item in items {
-        match item {
-            NestedMeta::Meta(syn::Meta::NameValue(name_value)) => {
-                if name_value.path.is_ident("data_memory_id") {
-                    set_once(
-                        &mut data_memory_id,
-                        u8::from_expr(&name_value.value)?,
-                        "storage(stable(...)) accepts only one data_memory_id = ... argument",
-                        &name_value.path,
-                    )?;
-                    continue;
-                }
-
-                if name_value.path.is_ident("index_memory_id") {
-                    set_once(
-                        &mut index_memory_id,
-                        u8::from_expr(&name_value.value)?,
-                        "storage(stable(...)) accepts only one index_memory_id = ... argument",
-                        &name_value.path,
-                    )?;
-                    continue;
-                }
-
-                if name_value.path.is_ident("schema_memory_id") {
-                    set_once(
-                        &mut schema_memory_id,
-                        u8::from_expr(&name_value.value)?,
-                        "storage(stable(...)) accepts only one schema_memory_id = ... argument",
-                        &name_value.path,
-                    )?;
-                    continue;
-                }
-
-                return Err(DarlingError::custom(
-                    "storage(stable(...)) supports data_memory_id, index_memory_id, and schema_memory_id",
-                )
-                .with_span(&name_value.path));
-            }
-            NestedMeta::Meta(syn::Meta::Path(path)) => {
-                return Err(DarlingError::custom(
-                    "storage(stable(...)) requires named memory id arguments",
-                )
-                .with_span(&path));
-            }
-            NestedMeta::Meta(syn::Meta::List(list)) => {
-                return Err(DarlingError::custom(
-                    "storage(stable(...)) does not support nested storage options",
-                )
-                .with_span(&list.path));
-            }
-            _ => {
-                return Err(DarlingError::custom(
-                    "storage(stable(...)) supports data_memory_id, index_memory_id, and schema_memory_id",
-                ));
-            }
-        }
-    }
-
-    let data_memory_id = data_memory_id.ok_or_else(|| {
-        DarlingError::custom("storage(stable(...)) requires data_memory_id = ...")
-    })?;
-    let index_memory_id = index_memory_id.ok_or_else(|| {
-        DarlingError::custom("storage(stable(...)) requires index_memory_id = ...")
-    })?;
-    let schema_memory_id = schema_memory_id.ok_or_else(|| {
-        DarlingError::custom("storage(stable(...)) requires schema_memory_id = ...")
-    })?;
-
-    Ok(ParsedStoreStableMemoryConfig::new(
-        data_memory_id,
-        index_memory_id,
-        schema_memory_id,
-    ))
-}
-
 impl HasDef for Store {
     fn def(&self) -> &Def {
         &self.def
@@ -458,26 +351,6 @@ impl ValidateNode for Store {
                 "store_name must use lowercase ASCII letters, digits, and underscores",
             )
             .with_span(&self.ident));
-        }
-        if let Some(stable) = self.storage.stable() {
-            if let Some(message) = app_memory_id_error("data_memory_id", stable.data) {
-                return Err(DarlingError::custom(message).with_span(&self.ident));
-            }
-            if let Some(message) = app_memory_id_error("index_memory_id", stable.index) {
-                return Err(DarlingError::custom(message).with_span(&self.ident));
-            }
-            if let Some(message) = app_memory_id_error("schema_memory_id", stable.schema) {
-                return Err(DarlingError::custom(message).with_span(&self.ident));
-            }
-            if let Some(message) = memory_id_reserved_error("data_memory_id", stable.data) {
-                return Err(DarlingError::custom(message).with_span(&self.ident));
-            }
-            if let Some(message) = memory_id_reserved_error("index_memory_id", stable.index) {
-                return Err(DarlingError::custom(message).with_span(&self.ident));
-            }
-            if let Some(message) = memory_id_reserved_error("schema_memory_id", stable.schema) {
-                return Err(DarlingError::custom(message).with_span(&self.ident));
-            }
         }
         if let Some(journaled) = self.storage.journaled() {
             for (label, memory_id) in [
@@ -538,25 +411,6 @@ impl HasSchemaPart for Store {
         let store_name = &self.name;
         let canister = quote_one(&self.canister, to_path);
         match self.storage {
-            ParsedStoreStorage::Stable(stable) => {
-                let data_memory_id = stable.data;
-                let index_memory_id = stable.index;
-                let schema_memory_id = stable.schema;
-
-                quote! {
-                    ::icydb::schema::node::Store::new_stable(
-                        #def,
-                        #ident,
-                        #store_name,
-                        #canister,
-                        ::icydb::schema::node::StoreStableMemoryConfig::new(
-                            #data_memory_id,
-                            #index_memory_id,
-                            #schema_memory_id,
-                        ),
-                    )
-                }
-            }
             ParsedStoreStorage::Heap(_) => {
                 quote! {
                     ::icydb::schema::node::Store::new_heap(
@@ -638,28 +492,6 @@ mod tests {
     }
 
     #[test]
-    fn from_list_accepts_nested_stable_storage() {
-        let store = parse_store(quote!(
-            ident = "USER_STORE",
-            store_name = "users",
-            canister = "AppCanister",
-            storage(stable(
-                data_memory_id = 10,
-                index_memory_id = 11,
-                schema_memory_id = 12,
-            ))
-        ))
-        .expect("nested stable storage should parse");
-        let stable = store.storage.stable().expect("stable storage config");
-
-        assert_eq!(store.ident.to_string(), "USER_STORE");
-        assert_eq!(store.name, "users");
-        assert_eq!(stable.data, 10);
-        assert_eq!(stable.index, 11);
-        assert_eq!(stable.schema, 12);
-    }
-
-    #[test]
     fn from_list_rejects_missing_storage() {
         let err = parse_store(quote!(
             ident = "USER_STORE",
@@ -669,7 +501,7 @@ mod tests {
         .expect_err("0.167 requires explicit store storage");
 
         assert!(
-            err.to_string().contains("storage(stable"),
+            err.to_string().contains("storage(heap())"),
             "unexpected error: {err}",
         );
     }
@@ -687,7 +519,7 @@ mod tests {
         .expect_err("flat memory ids should be a hard-cut parse error");
 
         assert!(
-            err.to_string().contains("storage(stable"),
+            err.to_string().contains("storage(journaled"),
             "unexpected error: {err}",
         );
     }

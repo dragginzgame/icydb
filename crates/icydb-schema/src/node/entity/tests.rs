@@ -48,22 +48,22 @@ fn relation_field(ident: &'static str, primitive: Primitive, target: &'static st
 }
 
 fn store(path: &'static str) -> Store {
-    Store::new_stable(
+    Store::new_journaled(
         Def::new("schema_entity_relation_edge", "Store"),
         "STORE",
         "schema_entity_relation_edge_store",
         path,
-        StoreStableMemoryConfig::new(110, 111, 112),
+        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
     )
 }
 
-fn stable_store_in_module(module: &'static str, ident: &'static str) -> Store {
-    Store::new_stable(
+fn durable_store_in_module(module: &'static str, ident: &'static str) -> Store {
+    Store::new_journaled(
         Def::new(module, ident),
         "STORE",
         "schema_entity_relation_edge_store",
         "schema_entity_relation_edge_store",
-        StoreStableMemoryConfig::new(120, 121, 122),
+        StoreJournaledMemoryConfig::new(120, 121, 122, 123),
     )
 }
 
@@ -181,14 +181,14 @@ fn entity_validation_rejects_zero_schema_version() {
 }
 
 #[test]
-fn entity_validation_rejects_stable_source_relation_field_to_heap_target() {
-    let module = "schema_entity_relation_field_stable_to_heap";
-    let source_store_path = "schema_entity_relation_field_stable_to_heap::StableStore";
-    let target_store_path = "schema_entity_relation_field_stable_to_heap::HeapStore";
-    let target_path = "schema_entity_relation_field_stable_to_heap::User";
-    schema_write().insert_node(SchemaNode::Store(stable_store_in_module(
+fn entity_validation_rejects_durable_source_relation_field_to_heap_target() {
+    let module = "schema_entity_relation_field_durable_to_heap";
+    let source_store_path = "schema_entity_relation_field_durable_to_heap::DurableStore";
+    let target_store_path = "schema_entity_relation_field_durable_to_heap::HeapStore";
+    let target_path = "schema_entity_relation_field_durable_to_heap::User";
+    schema_write().insert_node(SchemaNode::Store(durable_store_in_module(
         module,
-        "StableStore",
+        "DurableStore",
     )));
     schema_write().insert_node(SchemaNode::Store(heap_store_in_module(module, "HeapStore")));
     schema_write().insert_node(SchemaNode::Entity(entity_in_module(
@@ -217,7 +217,7 @@ fn entity_validation_rejects_stable_source_relation_field_to_heap_target() {
 
     let err = source
         .validate()
-        .expect_err("stable source relation into heap target should reject");
+        .expect_err("durable source relation into heap target should reject");
     assert_eq!(err.messages().len(), 1);
     assert!(err.children().is_empty());
 }
@@ -258,13 +258,13 @@ fn entity_validation_allows_heap_source_relation_field_to_heap_target() {
 }
 
 #[test]
-fn entity_validation_rejects_stable_source_relation_edge_to_heap_target() {
-    let module = "schema_entity_relation_edge_stable_to_heap";
-    let source_store_path = "schema_entity_relation_edge_stable_to_heap::StableStore";
-    let target_store_path = "schema_entity_relation_edge_stable_to_heap::HeapStore";
-    schema_write().insert_node(SchemaNode::Store(stable_store_in_module(
+fn entity_validation_rejects_durable_source_relation_edge_to_heap_target() {
+    let module = "schema_entity_relation_edge_durable_to_heap";
+    let source_store_path = "schema_entity_relation_edge_durable_to_heap::DurableStore";
+    let target_store_path = "schema_entity_relation_edge_durable_to_heap::HeapStore";
+    schema_write().insert_node(SchemaNode::Store(durable_store_in_module(
         module,
-        "StableStore",
+        "DurableStore",
     )));
     schema_write().insert_node(SchemaNode::Store(heap_store_in_module(module, "HeapStore")));
     let target_fields = Box::leak(
@@ -286,7 +286,7 @@ fn entity_validation_rejects_stable_source_relation_edge_to_heap_target() {
     let source_relations = Box::leak(
         vec![RelationEdge::new(
             "author",
-            "schema_entity_relation_edge_stable_to_heap::User",
+            "schema_entity_relation_edge_durable_to_heap::User",
             &["author_tenant_id", "author_id"],
         )]
         .into_boxed_slice(),
@@ -309,7 +309,7 @@ fn entity_validation_rejects_stable_source_relation_edge_to_heap_target() {
 
     let err = source
         .validate()
-        .expect_err("stable source relation edge into heap target should reject");
+        .expect_err("durable source relation edge into heap target should reject");
     assert_eq!(err.messages().len(), 1);
     assert!(err.children().is_empty());
 }
@@ -317,12 +317,12 @@ fn entity_validation_rejects_stable_source_relation_edge_to_heap_target() {
 #[test]
 fn entity_validation_reports_relation_edge_errors_under_relation_name() {
     let store_path = "schema_entity_relation_edge_error::Store";
-    schema_write().insert_node(SchemaNode::Store(Store::new_stable(
+    schema_write().insert_node(SchemaNode::Store(Store::new_journaled(
         Def::new("schema_entity_relation_edge_error", "Store"),
         "STORE",
         "schema_entity_relation_edge_error_store",
         store_path,
-        StoreStableMemoryConfig::new(113, 114, 115),
+        StoreJournaledMemoryConfig::new(113, 114, 115, 116),
     )));
     let target_fields = Box::leak(
         vec![

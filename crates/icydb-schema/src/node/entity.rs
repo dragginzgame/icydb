@@ -142,10 +142,18 @@ impl Entity {
             return;
         };
 
-        if source_store.is_stable_storage() && target_store.is_heap_storage() {
+        let source_capabilities = source_store.storage_capabilities();
+        let target_capabilities = target_store.storage_capabilities();
+        if matches!(
+            source_capabilities.relation_source(),
+            RelationSourceCapability::DurableSource
+        ) && matches!(
+            target_capabilities.relation_target(),
+            RelationTargetCapability::VolatileTarget
+        ) {
             err!(
                 errs,
-                "relation '{}' from stable store '{}' to heap target store '{}' is not supported in 0.169; stable stores cannot own referential integrity against volatile heap targets",
+                "relation '{}' from durable store '{}' to volatile target store '{}' is not supported; durable stores cannot own referential integrity against volatile heap targets",
                 relation_name,
                 self.store(),
                 target.store(),

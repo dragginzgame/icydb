@@ -34,7 +34,6 @@ enum MatrixSurface {
     Blob,
     HeapUser,
     JournaledUser,
-    StableUser,
     User,
 }
 
@@ -45,7 +44,6 @@ impl MatrixSurface {
             Self::Blob => "blob",
             Self::HeapUser => "heap_user",
             Self::JournaledUser => "journaled_user",
-            Self::StableUser => "stable_user",
             Self::User => "user",
         }
     }
@@ -56,7 +54,6 @@ impl MatrixSurface {
             Self::Blob => "PerfAuditBlob",
             Self::HeapUser => "PerfAuditHeapUser",
             Self::JournaledUser => "PerfAuditJournaledUser",
-            Self::StableUser => "PerfAuditStableUser",
             Self::User => "PerfAuditUser",
         }
     }
@@ -67,7 +64,6 @@ impl MatrixSurface {
             Self::Blob => "query_blob_with_perf",
             Self::HeapUser => "query_heap_user_with_perf",
             Self::JournaledUser => "query_journaled_user_with_perf",
-            Self::StableUser => "query_stable_user_with_perf",
             Self::User => "query_user_with_perf",
         }
     }
@@ -545,11 +541,7 @@ fn blob_orders() -> Vec<SqlFragment> {
 
 fn storage_backend_mirror_matrix() -> Vec<MatrixScenario> {
     let mut scenarios = Vec::new();
-    for surface in [
-        MatrixSurface::StableUser,
-        MatrixSurface::HeapUser,
-        MatrixSurface::JournaledUser,
-    ] {
+    for surface in [MatrixSurface::HeapUser, MatrixSurface::JournaledUser] {
         scenarios.extend(select_matrix(
             surface,
             &storage_mirror_projections(),
@@ -750,7 +742,7 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
                 &blob_orders(),
             )
         }
-        MatrixSurface::HeapUser | MatrixSurface::JournaledUser | MatrixSurface::StableUser => {
+        MatrixSurface::HeapUser | MatrixSurface::JournaledUser => {
             let predicate = random_storage_mirror_predicate(rng);
             random_select_scenario(
                 rng,
@@ -1273,77 +1265,55 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
 }
 
 fn append_storage_backend_comparison_table(output: &mut String, samples: &[MatrixSample]) {
-    let stable_samples =
-        storage_samples_by_suffix(samples, MatrixSurface::StableUser, "stable_user.");
     let heap_samples = storage_samples_by_suffix(samples, MatrixSurface::HeapUser, "heap_user.");
     let journaled_samples =
         storage_samples_by_suffix(samples, MatrixSurface::JournaledUser, "journaled_user.");
 
-    let mut rows = stable_samples
+    let mut rows = heap_samples
         .iter()
-        .filter_map(|(suffix, stable)| {
-            let stable = *stable;
-            let heap = *heap_samples.get(suffix)?;
+        .filter_map(|(suffix, heap)| {
+            let heap = *heap;
             let journaled = *journaled_samples.get(suffix)?;
 
-            Some((suffix.as_str(), stable, heap, journaled))
+            Some((suffix.as_str(), heap, journaled))
         })
         .collect::<Vec<_>>();
     if rows.is_empty() {
         return;
     }
 
-    rows.sort_by_key(|(_, stable, heap, journaled)| {
-        Reverse(
-            absolute_delta(
-                heap.total_local_instructions,
-                stable.total_local_instructions,
-            )
-            .max(absolute_delta(
-                journaled.total_local_instructions,
-                stable.total_local_instructions,
-            )),
-        )
+    rows.sort_by_key(|(_, heap, journaled)| {
+        Reverse(absolute_delta(
+            journaled.total_local_instructions,
+            heap.total_local_instructions,
+        ))
     });
     rows.truncate(top_n());
 
-    writeln!(output, "## Stable vs Heap vs Journaled Storage Mirror")
+    writeln!(output, "## Heap vs Journaled Storage Mirror")
         .expect("write to string should succeed");
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Stable Total | Heap Total | Heap Delta | Heap Ratio | Journaled Total | Journaled Delta | Journaled Ratio | Stable Store | Heap Store | Journaled Store | SQL |",
+        "| Scenario | Heap Total | Journaled Total | Journaled Delta | Journaled Ratio | Heap Store | Journaled Store | SQL |",
     )
     .expect("write to string should succeed");
-    writeln!(
-        output,
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
-    )
-    .expect("write to string should succeed");
-    for (suffix, stable, heap, journaled) in rows {
+    writeln!(output, "|---|---:|---:|---:|---:|---:|---:|---|")
+        .expect("write to string should succeed");
+    for (suffix, heap, journaled) in rows {
         writeln!(
             output,
-            "| `{suffix}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
-            stable.total_local_instructions,
+            "| `{suffix}` | {} | {} | {} | {} | {} | {} | `{}` |",
             heap.total_local_instructions,
-            signed_delta(
-                heap.total_local_instructions,
-                stable.total_local_instructions
-            ),
-            ratio_text(
-                heap.total_local_instructions,
-                stable.total_local_instructions
-            ),
             journaled.total_local_instructions,
             signed_delta(
                 journaled.total_local_instructions,
-                stable.total_local_instructions
+                heap.total_local_instructions
             ),
             ratio_text(
                 journaled.total_local_instructions,
-                stable.total_local_instructions
+                heap.total_local_instructions
             ),
-            stable.store_local_instructions,
             heap.store_local_instructions,
             journaled.store_local_instructions,
             journaled.sql.replace('|', "\\|"),
@@ -1505,12 +1475,6 @@ fn sql_perf_random_matrix_has_seeded_stable_shape() {
 #[test]
 fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
     let samples = vec![
-        storage_matrix_sample(
-            "stable_user.select.pk.all.pk_asc.limit1",
-            "stable_user",
-            100,
-            30,
-        ),
         storage_matrix_sample("heap_user.select.pk.all.pk_asc.limit1", "heap_user", 80, 10),
         storage_matrix_sample(
             "journaled_user.select.pk.all.pk_asc.limit1",
@@ -1534,7 +1498,7 @@ fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
     let markdown = matrix_markdown(&report);
 
     assert!(
-        markdown.contains("Stable vs Heap vs Journaled Storage Mirror"),
+        markdown.contains("Heap vs Journaled Storage Mirror"),
         "storage mirror report should include the comparison table",
     );
     assert!(
@@ -1542,8 +1506,8 @@ fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
         "storage mirror report should include heap totals",
     );
     assert!(
-        markdown.contains("| `select.pk.all.pk_asc.limit1` | 100 | 80 | -20 | 0.80x | 70 | -30 | 0.70x | 30 | 10 | 12 |"),
-        "storage mirror report should pair stable, heap, and journaled by scenario suffix",
+        markdown.contains("| `select.pk.all.pk_asc.limit1` | 80 | 70 | -10 | 0.87x | 10 | 12 |"),
+        "storage mirror report should pair heap and journaled by scenario suffix",
     );
 }
 
@@ -1553,7 +1517,7 @@ fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> Ma
         source: MatrixSource::Deterministic.label().to_string(),
         surface: surface.to_string(),
         family: "select.pk.all.pk_asc".to_string(),
-        sql: "SELECT id FROM PerfAuditStableUser ORDER BY id ASC LIMIT 1".to_string(),
+        sql: "SELECT id FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1".to_string(),
         compile_local_instructions: 1,
         execute_local_instructions: total.saturating_sub(1),
         planner_local_instructions: 0,
@@ -1572,7 +1536,7 @@ fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> Ma
         total_local_instructions: total,
         outcome: MatrixOutcome {
             result_kind: "projection",
-            entity: "PerfAuditStableUser".to_string(),
+            entity: "PerfAuditHeapUser".to_string(),
             row_count: 1,
         },
     }

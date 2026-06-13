@@ -14,16 +14,14 @@ fn insert_store(
     ident: &'static str,
     store_name: &'static str,
     canister_path: &'static str,
-    data_memory_id: u8,
-    index_memory_id: u8,
-    schema_memory_id: u8,
+    config: StoreJournaledMemoryConfig,
 ) {
-    schema_write().insert_node(SchemaNode::Store(Store::new_stable(
+    schema_write().insert_node(SchemaNode::Store(Store::new_journaled(
         Def::new(path_module, ident),
         ident,
         store_name,
         canister_path,
-        StoreStableMemoryConfig::new(data_memory_id, index_memory_id, schema_memory_id),
+        config,
     )));
 }
 
@@ -37,18 +35,14 @@ fn validate_rejects_memory_id_collision_between_stores() {
         "StoreA",
         "store_a",
         canister_path,
-        110,
-        111,
-        112,
+        StoreJournaledMemoryConfig::new(110, 111, 112, 115),
     );
     insert_store(
         "schema_store_collision",
         "StoreB",
         "store_b",
         canister_path,
-        113,
-        110,
-        114,
+        StoreJournaledMemoryConfig::new(113, 110, 114, 116),
     ); // collision
 
     let err = canister
@@ -72,18 +66,14 @@ fn validate_accepts_unique_memory_ids() {
         "StoreA",
         "store_a",
         canister_path,
-        130,
-        131,
-        132,
+        StoreJournaledMemoryConfig::new(130, 131, 132, 136),
     );
     insert_store(
         "schema_store_unique",
         "StoreB",
         "store_b",
         canister_path,
-        133,
-        134,
-        135,
+        StoreJournaledMemoryConfig::new(133, 134, 135, 137),
     );
 
     canister.validate().expect("unique memory IDs should pass");
@@ -113,19 +103,19 @@ fn validate_rejects_reserved_commit_memory_id() {
 
 #[test]
 fn store_allocation_identity_is_independent_of_schema_order() {
-    let first = Store::new_stable(
+    let first = Store::new_journaled(
         Def::new("schema_allocation_order", "Users"),
         "USERS",
         "users",
         "schema_allocation_order::Canister",
-        StoreStableMemoryConfig::new(110, 111, 112),
+        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
     );
-    let reordered = Store::new_stable(
+    let reordered = Store::new_journaled(
         Def::new("schema_allocation_order", "Users"),
         "USERS",
         "users",
         "schema_allocation_order::Canister",
-        StoreStableMemoryConfig::new(110, 111, 112),
+        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
     );
 
     assert!(
@@ -147,19 +137,19 @@ fn store_allocation_identity_is_independent_of_schema_order() {
 
 #[test]
 fn adding_store_does_not_change_existing_store_allocation() {
-    let existing = Store::new_stable(
+    let existing = Store::new_journaled(
         Def::new("schema_allocation_add", "Users"),
         "USERS",
         "users",
         "schema_allocation_add::Canister",
-        StoreStableMemoryConfig::new(110, 111, 112),
+        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
     );
-    let _new_store = Store::new_stable(
+    let _new_store = Store::new_journaled(
         Def::new("schema_allocation_add", "AuditEvents"),
         "AUDIT_EVENTS",
         "audit_events",
         "schema_allocation_add::Canister",
-        StoreStableMemoryConfig::new(120, 121, 122),
+        StoreJournaledMemoryConfig::new(120, 121, 122, 123),
     );
 
     assert_eq!(existing.stable_data_allocation("test_db").memory_id(), 110);
@@ -179,18 +169,14 @@ fn validate_rejects_same_stable_key_with_different_memory_id() {
         "StoreA",
         "users",
         canister_path,
-        110,
-        111,
-        112,
+        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
     );
     insert_store(
         "schema_store_key_collision",
         "StoreB",
         "users",
         canister_path,
-        120,
-        121,
-        122,
+        StoreJournaledMemoryConfig::new(120, 121, 122, 123),
     );
 
     let err = canister

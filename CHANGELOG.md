@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
 
+- `0.182.6` hard-cuts public direct stable storage, removes the stable SQL
+  perf mirror axis, and deletes stale compatibility/resurrection source-scan
+  tests.
+
 - `0.182.5` adds stable, heap, and journaled SQL storage mirror rows to the
   deterministic perf matrix, reports their instruction deltas, and keeps
   parser-owned membership predicates compact through SELECT lowering.

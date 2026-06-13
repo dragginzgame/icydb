@@ -1,4 +1,4 @@
-error: store(...) requires storage(stable(...)), storage(heap()), or storage(journaled(...))
+error: store(...) requires storage(heap()) or storage(journaled(...))
   --> tests/ui/store_missing_storage.rs:6:1
    |
  6 | / #[store(

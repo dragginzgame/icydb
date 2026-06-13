@@ -14,10 +14,11 @@ define_fixture_canister!(
 define_fixture_store!(
     OneSimpleStore = "ONE_SIMPLE_STORE",
     canister = "OneSimpleCanister",
-    storage(stable(
+    storage(journaled(
         data_memory_id = 100,
         index_memory_id = 101,
         schema_memory_id = 102,
+        journal_memory_id = 104,
     )),
 );
 

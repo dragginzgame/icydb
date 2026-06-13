@@ -1,7 +1,7 @@
 error[E0560]: struct `UiEntity_Create` has no field named `id`
-  --> tests/ui/insert_type_excludes_generated_field.rs:34:9
+  --> tests/ui/insert_type_excludes_generated_field.rs:35:9
    |
-34 |         id: Some(Ulid::generate()),
+35 |         id: Some(Ulid::generate()),
    |         ^^ `UiEntity_Create` does not have this field
    |
    = note: all struct fields are already assigned

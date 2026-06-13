@@ -1,7 +1,5 @@
 use crate::ActorBuilder;
-use icydb_schema::node::{
-    Store, StoreHeapConfig, StoreJournaledMemoryConfig, StoreStableMemoryConfig, StoreStorage,
-};
+use icydb_schema::node::{Store, StoreHeapConfig, StoreJournaledMemoryConfig, StoreStorage};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
@@ -83,86 +81,11 @@ fn store_registry_entry_tokens(
     TokenStream,
 ) {
     match store.storage() {
-        StoreStorage::Stable(config) => {
-            stable_store_registry_entry_tokens(store_path, store, memory_namespace, *config)
-        }
         StoreStorage::Heap(config) => heap_store_registry_entry_tokens(store_path, store, *config),
         StoreStorage::Journaled(config) => {
             journaled_store_registry_entry_tokens(store_path, store, memory_namespace, *config)
         }
     }
-}
-
-/// Render one stable store registry entry into data/index/schema cells plus registration.
-fn stable_store_registry_entry_tokens(
-    store_path: &str,
-    store: &Store,
-    memory_namespace: &str,
-    stable: StoreStableMemoryConfig,
-) -> (
-    TokenStream,
-    TokenStream,
-    TokenStream,
-    TokenStream,
-    TokenStream,
-) {
-    let data_cell_ident = format_ident!("{}_DATA", store.ident());
-    let index_cell_ident = format_ident!("{}_INDEX", store.ident());
-    let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
-    let data_allocation = store.stable_data_allocation(memory_namespace);
-    let index_allocation = store.stable_index_allocation(memory_namespace);
-    let schema_allocation = store.stable_schema_allocation(memory_namespace);
-    let data_memory_id = stable.data_memory_id();
-    let index_memory_id = stable.index_memory_id();
-    let schema_memory_id = stable.schema_memory_id();
-    let data_stable_key = data_allocation.stable_key();
-    let index_stable_key = index_allocation.stable_key();
-    let schema_stable_key = schema_allocation.stable_key();
-
-    let data_def = stable_store_cell_tokens(
-        &data_cell_ident,
-        quote!(::icydb::__macro::DataStore),
-        data_stable_key,
-        data_memory_id,
-    );
-    let index_def = stable_store_cell_tokens(
-        &index_cell_ident,
-        quote!(::icydb::__macro::IndexStore),
-        index_stable_key,
-        index_memory_id,
-    );
-    let schema_def = stable_store_cell_tokens(
-        &schema_cell_ident,
-        quote!(::icydb::__macro::SchemaStore),
-        schema_stable_key,
-        schema_memory_id,
-    );
-    let store_init = quote! {
-        reg.register_store(
-            #store_path,
-            &#data_cell_ident,
-            &#index_cell_ident,
-            &#schema_cell_ident,
-            ::icydb::__macro::StoreAllocationIdentities::new(
-                ::icydb::__macro::StoreAllocationIdentity::new(
-                    #data_memory_id,
-                    #data_stable_key,
-                ),
-                ::icydb::__macro::StoreAllocationIdentity::new(
-                    #index_memory_id,
-                    #index_stable_key,
-                ),
-                ::icydb::__macro::StoreAllocationIdentity::new(
-                    #schema_memory_id,
-                    #schema_stable_key,
-                ),
-            ),
-            ::icydb::__macro::StoreRuntimeStorageCapabilities::stable(),
-        )
-        .expect("store registration should succeed");
-    };
-
-    (quote!(), data_def, index_def, schema_def, store_init)
 }
 
 fn stable_store_cell_tokens(
@@ -452,16 +375,6 @@ mod tests {
     use super::*;
     use icydb_schema::node::Def;
 
-    fn stable_store() -> Store {
-        Store::new_stable(
-            Def::new("demo::schema", "DemoStore"),
-            "DEMO_STORE",
-            "demo",
-            "demo::schema::DemoCanister",
-            StoreStableMemoryConfig::new(10, 11, 12),
-        )
-    }
-
     fn heap_store() -> Store {
         Store::new_heap(
             Def::new("demo::schema", "ScratchStore"),
@@ -480,39 +393,6 @@ mod tests {
             "demo::schema::DemoCanister",
             StoreJournaledMemoryConfig::new(20, 21, 22, 23),
         )
-    }
-
-    #[test]
-    fn stable_store_wiring_uses_ic_memory_key_for_each_store_role() {
-        let store = stable_store();
-        let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens("demo::schema::DemoStore", &store, "demo");
-        let rendered = quote! {
-            #journal_def
-            #data_def
-            #index_def
-            #schema_def
-            #store_init
-        }
-        .to_string();
-
-        assert_eq!(rendered.matches("ic_memory_key").count(), 3);
-        assert_eq!(
-            rendered.matches("StoreAllocationIdentity :: new").count(),
-            3
-        );
-        assert!(rendered.contains("StoreRuntimeStorageCapabilities :: stable"));
-        for expected in ["id = 10u8", "id = 11u8", "id = 12u8"] {
-            assert!(
-                rendered.contains(expected),
-                "stable store wiring should render {expected}: {rendered}"
-            );
-        }
-        assert!(rendered.contains("icydb.demo.demo.data.v1"));
-        assert!(rendered.contains("icydb.demo.demo.index.v1"));
-        assert!(rendered.contains("icydb.demo.demo.schema.v1"));
-        assert!(!rendered.contains("init_journaled"));
-        assert!(!rendered.contains("heap"));
     }
 
     #[test]

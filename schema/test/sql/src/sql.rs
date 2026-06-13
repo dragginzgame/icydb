@@ -12,10 +12,11 @@ define_fixture_canister!(
 define_fixture_store!(
     SqlTestStore = "SQL_TEST_STORE",
     canister = "SqlTestCanister",
-    storage(stable(
+    storage(journaled(
         data_memory_id = 155,
         index_memory_id = 156,
         schema_memory_id = 158,
+        journal_memory_id = 159,
     )),
 );
 

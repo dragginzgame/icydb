@@ -1,4 +1,4 @@
-error: storage(...) requires exactly one storage mode: stable(...), heap(), or journaled(...)
+error: storage(...) requires exactly one storage mode: heap() or journaled(...)
   --> tests/ui/store_empty_storage.rs:10:5
    |
 10 |     storage()

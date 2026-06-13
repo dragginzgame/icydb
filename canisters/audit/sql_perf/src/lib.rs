@@ -22,7 +22,7 @@ use icydb::{
 };
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditHeapUser, PerfAuditJournaledUser,
-    PerfAuditStableUser, PerfAuditUser,
+    PerfAuditUser,
 };
 
 icydb::start!();
@@ -724,26 +724,6 @@ fn run_user_fluent_scenario_once(
 }
 
 #[cfg(feature = "sql")]
-fn run_stable_user_fluent_scenario_once(
-    session: &icydb::db::DbSession<PerfAuditCanister>,
-    scenario: &str,
-) -> Result<(FluentQueryPerfOutcome, QueryExecutionAttribution), icydb::Error> {
-    match scenario {
-        "stable_user.id.order_only.asc.limit1" => {
-            let query = session
-                .load::<PerfAuditStableUser>()
-                .order_asc("id")
-                .limit(1);
-            let (result, attribution) =
-                session.execute_query_result_with_attribution(query.query())?;
-
-            Ok((summarize_fluent_outcome(&result), attribution))
-        }
-        _ => Err(query_validate_error()),
-    }
-}
-
-#[cfg(feature = "sql")]
 fn run_account_fluent_scenario_once(
     session: &icydb::db::DbSession<PerfAuditCanister>,
     scenario: &str,
@@ -874,7 +854,6 @@ fn query_fluent_scenario_loop(
     for _ in 0..runs {
         let (outcome, attribution) = match surface {
             "user" => run_user_fluent_scenario_once(&session, scenario)?,
-            "stable_user" => run_stable_user_fluent_scenario_once(&session, scenario)?,
             "account" => run_account_fluent_scenario_once(&session, scenario)?,
             "heap_user" => run_heap_user_fluent_scenario_once(&session, scenario)?,
             "journaled_user" => run_journaled_user_fluent_scenario_once(&session, scenario)?,
@@ -1012,7 +991,6 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
     db().delete::<PerfAuditBlob>().execute()?;
     db().delete::<PerfAuditHeapUser>().execute()?;
     db().delete::<PerfAuditJournaledUser>().execute()?;
-    db().delete::<PerfAuditStableUser>().execute()?;
     db().delete::<PerfAuditUser>().execute()?;
 
     Ok(())
@@ -1023,7 +1001,6 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
 fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
     __icydb_fixtures_reset()?;
     db().insert_many_atomic(perf_audit_users())?;
-    db().insert_many_atomic(perf_audit_stable_users())?;
     db().insert_many_atomic(perf_audit_heap_users())?;
     db().insert_many_atomic(perf_audit_journaled_users())?;
     db().insert_many_atomic(perf_audit_blobs())?;
@@ -1068,7 +1045,7 @@ fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icy
     })
 }
 
-/// Execute the stable LIMIT 1 shape through the fluent query path and measure
+/// Execute the primary user LIMIT 1 shape through the fluent query path and measure
 /// only the top-level canister-local delta.
 #[cfg(feature = "sql")]
 #[query]
@@ -1108,89 +1085,6 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
 #[query]
 fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
     query_entity_with_perf_loop::<PerfAuditUser>(sql.as_str(), runs)
-}
-
-/// Execute one PerfAuditStableUser-only SQL query and attach one local
-/// instruction sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_stable_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditStableUser>(sql.as_str())?;
-
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
-    })
-}
-
-/// Execute one PerfAuditStableUser-only SQL query through the normal
-/// non-attributed path and measure only the top-level canister-local delta.
-#[cfg(feature = "sql")]
-#[query]
-fn query_stable_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_query::<PerfAuditStableUser>(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-
-    Ok(SqlTotalOnlyPerfResult {
-        result,
-        instructions,
-    })
-}
-
-/// Execute the stable-mirror LIMIT 1 shape through the fluent query path and
-/// measure only the top-level canister-local delta.
-#[cfg(feature = "sql")]
-#[query]
-fn query_stable_user_fluent_total_only_perf() -> Result<FluentTotalOnlyPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let response = db()
-        .load::<PerfAuditStableUser>()
-        .order_asc("id")
-        .limit(1)
-        .execute()?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-    let outcome = summarize_fluent_outcome(&response);
-
-    Ok(FluentTotalOnlyPerfResult {
-        row_count: outcome.row_count,
-        instructions,
-    })
-}
-
-/// Execute the stable-mirror LIMIT 1 shape through the fluent query path and
-/// attach the shared fluent query phase attribution.
-#[cfg(feature = "sql")]
-#[query]
-fn query_stable_user_fluent_with_perf() -> Result<FluentQueryPerfResult, icydb::Error> {
-    query_fluent_scenario_loop("stable_user", "stable_user.id.order_only.asc.limit1", 1)
-}
-
-/// Execute one PerfAuditStableUser-only SQL query through the update surface so
-/// the canister can persist any warmed in-heap query caches for later query
-/// calls.
-#[cfg(feature = "sql")]
-#[update]
-fn warm_stable_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) =
-        db().execute_sql_query_with_attribution::<PerfAuditStableUser>(sql.as_str())?;
-
-    Ok(SqlQueryPerfResult {
-        result,
-        attribution,
-    })
-}
-
-/// Execute the same PerfAuditStableUser-only SQL query repeatedly inside one
-/// canister query call and report the per-run average instruction sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_stable_user_loop_with_perf(
-    sql: String,
-    runs: u32,
-) -> Result<SqlQueryPerfResult, icydb::Error> {
-    query_entity_with_perf_loop::<PerfAuditStableUser>(sql.as_str(), runs)
 }
 
 #[cfg(feature = "sql")]
@@ -1295,18 +1189,6 @@ where
         write_then_read_back_local_instructions,
         read_back_rows,
     })
-}
-
-/// Measure the stable-mirror typed write path with the same entity shape used
-/// by the heap and journaled storage matrix rows.
-#[cfg(feature = "sql")]
-#[update]
-fn measure_stable_user_write_matrix_perf() -> Result<StorageWritePerfResult, icydb::Error> {
-    measure_storage_write_matrix::<PerfAuditStableUser, _>(
-        "stable write matrix",
-        20_000,
-        build_perf_audit_stable_user,
-    )
 }
 
 /// Measure the heap typed write path.
@@ -1714,24 +1596,6 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             updated_at: Timestamp::default(),
         },
     ]
-}
-
-fn build_perf_audit_stable_user(id: i32, name: &str, age: i32) -> PerfAuditStableUser {
-    PerfAuditStableUser {
-        id,
-        name: name.to_string(),
-        age,
-        created_at: Timestamp::default(),
-        updated_at: Timestamp::default(),
-    }
-}
-
-/// Build a larger deterministic stable fixture window used by the
-/// storage-backend instruction regression guard.
-fn perf_audit_stable_users() -> Vec<PerfAuditStableUser> {
-    (1..=512)
-        .map(|id| build_perf_audit_stable_user(id, &format!("stable-user-{id:04}"), 18 + (id % 47)))
-        .collect()
 }
 
 fn build_perf_audit_heap_user(id: i32, name: &str, age: i32) -> PerfAuditHeapUser {

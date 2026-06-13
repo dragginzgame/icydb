@@ -8,10 +8,11 @@ pub struct UiCanister {}
     store_name = "ui_data",
     canister = "UiCanister",
     storage(
-        stable(
+        journaled(
             data_memory_id = 100,
             index_memory_id = 101,
             schema_memory_id = 102,
+            journal_memory_id = 109,
         ),
         heap()
     )
