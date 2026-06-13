@@ -17,6 +17,7 @@ use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MATRIX_LIMIT: usize = 300;
+const DEFAULT_RANDOM_CASE_COUNT: usize = 300;
 const DEFAULT_TOP_N: usize = 20;
 const DEFAULT_RANDOM_SEED: u64 = 0x1cdb_0182_0000_0001;
 
@@ -70,6 +71,35 @@ impl MatrixSource {
         match self {
             Self::Deterministic => "deterministic",
             Self::Random => "random",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MatrixMode {
+    Deterministic,
+    Random,
+}
+
+impl MatrixMode {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Deterministic => "deterministic",
+            Self::Random => "random",
+        }
+    }
+
+    const fn title(self) -> &'static str {
+        match self {
+            Self::Deterministic => "SQL Perf Deterministic Matrix",
+            Self::Random => "SQL Perf Random Matrix",
+        }
+    }
+
+    const fn default_report_stem(self) -> &'static str {
+        match self {
+            Self::Deterministic => "sql_perf_deterministic_matrix",
+            Self::Random => "sql_perf_random_matrix",
         }
     }
 }
@@ -137,6 +167,7 @@ struct MatrixFailure {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct MatrixReport {
+    matrix_mode: String,
     generated_scenario_count: usize,
     executed_scenario_count: usize,
     failed_scenario_count: usize,
@@ -724,14 +755,11 @@ fn random_blob_predicate(rng: &mut Lcg) -> String {
     }
 }
 
-fn generated_matrix() -> Vec<MatrixScenario> {
-    let mut scenarios = deterministic_matrix();
-    let random_case_count = random_case_count();
-    if random_case_count > 0 {
-        scenarios.extend(random_matrix(random_seed(), random_case_count));
+fn generated_matrix(mode: MatrixMode) -> Vec<MatrixScenario> {
+    match mode {
+        MatrixMode::Deterministic => deterministic_matrix(),
+        MatrixMode::Random => random_matrix(random_seed(), random_case_count()),
     }
-
-    scenarios
 }
 
 fn matrix_limit(total: usize) -> usize {
@@ -745,8 +773,28 @@ fn matrix_limit(total: usize) -> usize {
     }
 }
 
+fn matrix_mode() -> MatrixMode {
+    match env::var("ICYDB_SQL_PERF_MATRIX_MODE") {
+        Ok(value) => match value.as_str() {
+            "deterministic" => MatrixMode::Deterministic,
+            "random" => MatrixMode::Random,
+            other => panic!(
+                "ICYDB_SQL_PERF_MATRIX_MODE should be 'deterministic' or 'random', got '{other}'"
+            ),
+        },
+        Err(_) => {
+            assert!(
+                env::var_os("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES").is_none()
+                    && env::var_os("ICYDB_SQL_PERF_MATRIX_SEED").is_none(),
+                "set ICYDB_SQL_PERF_MATRIX_MODE=random before using random matrix controls"
+            );
+            MatrixMode::Deterministic
+        }
+    }
+}
+
 fn random_case_count() -> usize {
-    env::var("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES").map_or(0, |value| {
+    env::var("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES").map_or(DEFAULT_RANDOM_CASE_COUNT, |value| {
         value
             .parse::<usize>()
             .expect("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES should be a positive integer")
@@ -906,15 +954,19 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn report_stem() -> PathBuf {
+fn report_stem(mode: MatrixMode) -> PathBuf {
     env::var("ICYDB_SQL_PERF_MATRIX_OUT").map_or_else(
-        |_| workspace_root().join("artifacts/perf-audit/sql_perf_generated_matrix"),
+        |_| {
+            workspace_root()
+                .join("artifacts/perf-audit")
+                .join(mode.default_report_stem())
+        },
         PathBuf::from,
     )
 }
 
 fn write_matrix_reports(report: &MatrixReport) {
-    let stem = report_stem();
+    let stem = report_stem(matrix_mode_from_report(report));
     if let Some(parent) = stem.parent() {
         fs::create_dir_all(parent)
             .unwrap_or_else(|err| panic!("matrix report directory should be created: {err}"));
@@ -934,8 +986,11 @@ fn write_matrix_reports(report: &MatrixReport) {
 
 fn matrix_markdown(report: &MatrixReport) -> String {
     let mut output = String::new();
-    writeln!(output, "# SQL Perf Generated Matrix").expect("write to string should succeed");
+    let mode = matrix_mode_from_report(report);
+    writeln!(output, "# {}", mode.title()).expect("write to string should succeed");
     writeln!(output).expect("write to string should succeed");
+    writeln!(output, "- matrix mode: {}", report.matrix_mode)
+        .expect("write to string should succeed");
     writeln!(
         output,
         "- generated scenarios: {}",
@@ -996,6 +1051,14 @@ fn matrix_markdown(report: &MatrixReport) -> String {
     append_failure_table(&mut output, &report.failures);
 
     output
+}
+
+fn matrix_mode_from_report(report: &MatrixReport) -> MatrixMode {
+    match report.matrix_mode.as_str() {
+        "deterministic" => MatrixMode::Deterministic,
+        "random" => MatrixMode::Random,
+        other => panic!("matrix report mode should be known, got '{other}'"),
+    }
 }
 
 fn ranked_by<F>(samples: &[MatrixSample], key: F) -> Vec<&MatrixSample>
@@ -1108,12 +1171,38 @@ fn sql_perf_generated_matrix_has_stable_shape() {
 }
 
 #[test]
+fn sql_perf_random_matrix_has_seeded_stable_shape() {
+    let random = random_matrix(DEFAULT_RANDOM_SEED, 20);
+    assert_eq!(random.len(), 20);
+    assert_eq!(
+        random.first().map(|scenario| scenario.key.as_str()),
+        Some("random.1cdb018200000001.0000.blob"),
+    );
+
+    let mut keys = HashSet::new();
+    for scenario in &random {
+        assert_eq!(scenario.source, MatrixSource::Random);
+        assert!(
+            keys.insert(scenario.key.as_str()),
+            "duplicate random scenario key '{}'",
+            scenario.key,
+        );
+        assert!(
+            scenario.sql.starts_with("SELECT"),
+            "random scenario '{}' should use supported SELECT syntax",
+            scenario.key,
+        );
+    }
+}
+
+#[test]
 #[ignore = "expensive PocketIC hotspot scan; run manually with --ignored --nocapture"]
 fn sql_perf_generated_matrix_reports_hotspots() {
     let fixture = install_sql_perf_canister_fixture();
     reset_icydb_fixtures(&fixture);
 
-    let scenarios = generated_matrix();
+    let mode = matrix_mode();
+    let scenarios = generated_matrix(mode);
     let generated_scenario_count = scenarios.len();
     let matrix_limit = matrix_limit(generated_scenario_count);
     let selected = scenarios.into_iter().take(matrix_limit).collect::<Vec<_>>();
@@ -1125,14 +1214,19 @@ fn sql_perf_generated_matrix_reports_hotspots() {
             Err(failure) => failures.push(*failure),
         }
     }
-    let random_case_count = random_case_count();
+    let random_case_count = if mode == MatrixMode::Random {
+        random_case_count()
+    } else {
+        0
+    };
 
     let report = MatrixReport {
+        matrix_mode: mode.label().to_string(),
         generated_scenario_count,
         executed_scenario_count: samples.len(),
         failed_scenario_count: failures.len(),
         matrix_limit,
-        random_seed: (random_case_count > 0).then(random_seed),
+        random_seed: (mode == MatrixMode::Random).then(random_seed),
         random_case_count,
         samples,
         failures,

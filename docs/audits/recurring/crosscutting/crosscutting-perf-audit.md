@@ -574,19 +574,32 @@ Focused follow-up attribution commands:
 * `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
 * `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_update_warm_persists_query_cache_across_calls -- --nocapture`
 
-Generated matrix hotspot command:
+Generated matrix deterministic hotspot command:
 
-* `ICYDB_SQL_PERF_MATRIX_LIMIT=all cargo test -p icydb-testing-integration --test sql_perf_matrix_audit sql_perf_generated_matrix_reports_hotspots -- --ignored --nocapture`
+* `ICYDB_SQL_PERF_MATRIX_MODE=deterministic ICYDB_SQL_PERF_MATRIX_LIMIT=all cargo test -p icydb-testing-integration --test sql_perf_matrix_audit sql_perf_generated_matrix_reports_hotspots -- --ignored --nocapture`
+
+Generated matrix seeded-random exploration command:
+
+* `ICYDB_SQL_PERF_MATRIX_MODE=random ICYDB_SQL_PERF_MATRIX_RANDOM_CASES=300 ICYDB_SQL_PERF_MATRIX_SEED=202606132 cargo test -p icydb-testing-integration --test sql_perf_matrix_audit sql_perf_generated_matrix_reports_hotspots -- --ignored --nocapture`
 
 Generated matrix controls:
 
+* `ICYDB_SQL_PERF_MATRIX_MODE` accepts `deterministic` or `random`; the
+  default is `deterministic`.
 * `ICYDB_SQL_PERF_MATRIX_LIMIT` accepts a positive integer or `all`; the
-  default executes the first 300 generated scenarios.
-* `ICYDB_SQL_PERF_MATRIX_RANDOM_CASES` adds seeded-random valid query shapes;
-  the default is `0`.
-* `ICYDB_SQL_PERF_MATRIX_SEED` selects the random matrix seed.
+  default executes the first 300 scenarios for the selected mode.
+* `ICYDB_SQL_PERF_MATRIX_RANDOM_CASES` selects the number of seeded-random
+  valid query shapes when `ICYDB_SQL_PERF_MATRIX_MODE=random`; the default is
+  `300`.
+* `ICYDB_SQL_PERF_MATRIX_SEED` selects the random matrix seed and is valid only
+  when `ICYDB_SQL_PERF_MATRIX_MODE=random`.
 * `ICYDB_SQL_PERF_MATRIX_TOP` controls ranked Markdown table length.
 * `ICYDB_SQL_PERF_MATRIX_OUT` overrides the report path stem.
+
+Do not combine deterministic baseline and random exploration in one report. If
+random controls are provided without `ICYDB_SQL_PERF_MATRIX_MODE=random`, the
+harness rejects the run instead of appending random scenarios to the
+deterministic matrix.
 
 When a recurring run emits raw captures or transformed rows, write them below
 `docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/perf-audit/`. Older

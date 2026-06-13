@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🔧 Changed
+
+- SQL performance matrix audits now run as either deterministic baseline or
+  seeded-random exploration, rejecting mixed reports instead of appending
+  random scenarios to the deterministic set.
+
+### 🩹 Fixed
+
+- Local PocketIC fixture builds now pass the local IcyDB build target into
+  generated canister build scripts, preserving SQL introspection for canister
+  tests while leaving staging/audit defaults unchanged.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)

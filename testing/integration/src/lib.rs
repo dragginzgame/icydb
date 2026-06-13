@@ -151,6 +151,27 @@ impl CanisterCandidExportMode {
     }
 }
 
+/// Target-sensitive generated-surface policy for fixture canister builds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanisterBuildTarget {
+    /// Preserve the caller's `ICYDB_BUILD_TARGET`, if any.
+    Inherit,
+    /// Local ICP/PocketIC fixture build.
+    Local,
+    /// Mainnet-oriented fixture build.
+    Ic,
+}
+
+impl CanisterBuildTarget {
+    const fn env_value(self) -> Option<&'static str> {
+        match self {
+            Self::Inherit => None,
+            Self::Local => Some("local"),
+            Self::Ic => Some("ic"),
+        }
+    }
+}
+
 /// Explicit build options for fixture canisters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CanisterBuildOptions {
@@ -160,6 +181,8 @@ pub struct CanisterBuildOptions {
     pub sql_mode: CanisterSqlMode,
     /// Whether generated Candid metadata export stays in the canister wasm.
     pub candid_export: CanisterCandidExportMode,
+    /// Build target used by target-sensitive generated surface policy.
+    pub build_target: CanisterBuildTarget,
 }
 
 impl Default for CanisterBuildOptions {
@@ -168,6 +191,7 @@ impl Default for CanisterBuildOptions {
             profile: CanisterWasmProfile::Debug,
             sql_mode: CanisterSqlMode::Enabled,
             candid_export: CanisterCandidExportMode::Auto,
+            build_target: CanisterBuildTarget::Inherit,
         }
     }
 }
@@ -313,6 +337,9 @@ fn build_canister_package(
     if options.candid_export.enabled_for_profile(options.profile) {
         cargo.args(["--features", "candid-export"]);
     }
+    if let Some(build_target) = options.build_target.env_value() {
+        cargo.env("ICYDB_BUILD_TARGET", build_target);
+    }
     if profile == "release" {
         cargo.arg("--release");
     } else if profile != "debug" {
@@ -350,8 +377,14 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
 /// with empty init args.
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
-    let wasm_path = build_canister(canister_name)
-        .unwrap_or_else(|err| panic!("{canister_name} canister should build: {err}"));
+    let wasm_path = build_canister_with_options(
+        canister_name,
+        CanisterBuildOptions {
+            build_target: CanisterBuildTarget::Local,
+            ..CanisterBuildOptions::default()
+        },
+    )
+    .unwrap_or_else(|err| panic!("{canister_name} canister should build: {err}"));
     let wasm = fs::read(&wasm_path).unwrap_or_else(|err| {
         panic!(
             "failed to read built {canister_name} canister wasm at {}: {err}",
