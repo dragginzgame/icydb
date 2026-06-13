@@ -43,7 +43,7 @@ use crate::{
         data::RawDataStoreKey,
         executor::Context,
         registry::StoreHandle,
-        schema::{PersistedFieldKind, ensure_accepted_schema_snapshot},
+        schema::{AcceptedSchemaSnapshot, PersistedFieldKind, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -455,6 +455,13 @@ impl<C: CanisterKind> Db<C> {
                 .as_str()
                 .to_string();
             let accepted = store.with_schema_mut(|schema_store| {
+                if let Some(snapshot) = schema_store.latest_persisted_snapshot(hooks.entity_tag)? {
+                    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+                    if accepted.entity_path() == hooks.entity_path {
+                        return Ok(accepted);
+                    }
+                }
+
                 ensure_accepted_schema_snapshot(
                     schema_store,
                     hooks.entity_tag,

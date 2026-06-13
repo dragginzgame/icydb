@@ -1,0 +1,65 @@
+{
+  "canister": "minimal",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": null,
+    "candid_export": "unavailable",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm",
+      "bytes": 37369,
+      "sha256": "08f310de8f5ac2a4eb202038eaf8cccdfa4a1b3d394d92886faf69e02b68c22e"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-built.wasm.gz",
+      "bytes": 16359,
+      "sha256": "6d268699f1eedf2de2066f6706d92c0c8146a3d0be8185bc4542371eadd99093"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm",
+      "bytes": 6516,
+      "sha256": "af556dfd34f9817413db62d74b56ca34baa79302df0181c1122b1e2c31873867"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/minimal.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 4095,
+      "sha256": "25bd9143fd60681c0c34d365d5ce91b603994976dcfea83f2c6168ea6da0f1d4"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 117,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 6416,
+      "exported_method_count": 0,
+      "exported_methods": []
+    },
+    "icp_shrunk": {
+      "function_count": 0,
+      "callback_count": 0,
+      "data_section_count": 3,
+      "data_section_bytes": 6416,
+      "exported_method_count": 0,
+      "exported_methods": []
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_update": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_extended": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": []
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 30853,
+    "shrink_wasm_gz_bytes": 12264
+  }
+}

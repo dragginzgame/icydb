@@ -152,7 +152,7 @@ pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
 ```
 
 With the default `sql` feature, the same entity can be queried or mutated
-through reduced single-entity SQL:
+through session/library reduced single-entity SQL:
 
 ```rust
 use icydb::prelude::*;
@@ -187,6 +187,12 @@ IcyDB supports a focused, canister-friendly SQL subset:
   scalar/numeric/text functions
 - field-path indexes, multi-field indexes, unique indexes, filtered indexes,
   and deterministic `LOWER`/`UPPER`/`TRIM` expression indexes
+
+Generated canister SQL endpoints are deliberately narrower than the
+session/library SQL APIs. `__icydb_query` is read-only, `__icydb_ddl` is for
+schema DDL, and `__icydb_update` is emitted only when `icydb.toml` selects an
+explicit primary-key or bounded update policy. The default generated canister
+surface does not expose SQL `UPDATE`.
 
 Out of scope by design: joins, subqueries, CTEs, quoted identifiers, window
 functions, cursor pagination in scalar SQL, and broad unbounded pattern

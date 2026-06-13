@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
+
+Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.0` starts the audit and optimisation line by setting wasm and
+  SQL/fluent performance baselines, then applies the first accepted-catalog
+  metadata execution cleanup and SQL execution hub split.
+
 ## [0.181.x] 🧭 - 2026-06-11 - Safe and Bounded SQL UPDATE
 
 Detailed notes: [docs/changelog/0.181.md](docs/changelog/0.181.md)
