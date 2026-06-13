@@ -774,22 +774,25 @@ fn matrix_limit(total: usize) -> usize {
 }
 
 fn matrix_mode() -> MatrixMode {
-    match env::var("ICYDB_SQL_PERF_MATRIX_MODE") {
-        Ok(value) => match value.as_str() {
-            "deterministic" => MatrixMode::Deterministic,
-            "random" => MatrixMode::Random,
-            other => panic!(
-                "ICYDB_SQL_PERF_MATRIX_MODE should be 'deterministic' or 'random', got '{other}'"
-            ),
-        },
-        Err(_) => {
-            assert!(
-                env::var_os("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES").is_none()
-                    && env::var_os("ICYDB_SQL_PERF_MATRIX_SEED").is_none(),
-                "set ICYDB_SQL_PERF_MATRIX_MODE=random before using random matrix controls"
-            );
-            MatrixMode::Deterministic
-        }
+    if let Ok(value) = env::var("ICYDB_SQL_PERF_MATRIX_MODE") {
+        return parse_matrix_mode(&value);
+    }
+
+    assert!(
+        env::var_os("ICYDB_SQL_PERF_MATRIX_RANDOM_CASES").is_none()
+            && env::var_os("ICYDB_SQL_PERF_MATRIX_SEED").is_none(),
+        "set ICYDB_SQL_PERF_MATRIX_MODE=random before using random matrix controls"
+    );
+    MatrixMode::Deterministic
+}
+
+fn parse_matrix_mode(value: &str) -> MatrixMode {
+    match value {
+        "deterministic" => MatrixMode::Deterministic,
+        "random" => MatrixMode::Random,
+        other => panic!(
+            "ICYDB_SQL_PERF_MATRIX_MODE should be 'deterministic' or 'random', got '{other}'"
+        ),
     }
 }
 
