@@ -184,7 +184,8 @@ pub mod __macro {
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{
-        LoweredSqlCommand, identifiers_tail_match, sql_statement_entity_name,
+        LoweredSqlCommand, identifiers_tail_match, sql_statement_dispatch,
+        sql_statement_entity_name,
     };
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{

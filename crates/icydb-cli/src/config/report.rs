@@ -5,7 +5,7 @@
 
 use std::{collections::BTreeSet, fmt::Write as _, path::Path};
 
-use icydb_config::GeneratedSqlUpdatePolicy;
+use icydb_config::{GeneratedSqlIntrospectionPolicy, GeneratedSqlUpdatePolicy};
 
 use crate::table::{ColumnAlign, append_indented_table};
 
@@ -147,6 +147,7 @@ fn canister_config_row(
             canister.sql_readonly(),
             canister.sql_ddl(),
             canister.sql_fixtures(),
+            canister.sql_introspection_policy(),
             canister.sql_update_policy(),
         ),
         metrics_surface_status(canister.metrics(), canister.metrics_extended()).to_string(),
@@ -194,11 +195,13 @@ fn sql_surface_status(
     readonly: bool,
     ddl: bool,
     fixtures: bool,
+    introspection_policy: GeneratedSqlIntrospectionPolicy,
     update_policy: Option<GeneratedSqlUpdatePolicy>,
 ) -> String {
     let mut surfaces = Vec::new();
     if readonly {
         surfaces.push("readonly");
+        surfaces.push(sql_introspection_status(introspection_policy));
     }
     if ddl {
         surfaces.push("ddl");
@@ -217,6 +220,15 @@ fn sql_surface_status(
         "off".to_string()
     } else {
         surfaces.join(", ")
+    }
+}
+
+const fn sql_introspection_status(policy: GeneratedSqlIntrospectionPolicy) -> &'static str {
+    match (policy.local(), policy.ic()) {
+        (true, true) => "introspection:local+ic",
+        (true, false) => "introspection:local",
+        (false, true) => "introspection:ic",
+        (false, false) => "introspection:off",
     }
 }
 

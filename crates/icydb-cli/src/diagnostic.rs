@@ -274,6 +274,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::RowProjectionFieldNotConfigured => {
             "requested projection field is not configured for this entity"
         }
+        RuntimeBoundaryCode::SqlIntrospectionDisabled => {
+            "SQL introspection is disabled for this canister build target"
+        }
     }
 }
 

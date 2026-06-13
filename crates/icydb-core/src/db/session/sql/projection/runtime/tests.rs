@@ -167,8 +167,8 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies_for_repea
         "repeated direct data-row fields should avoid the scalar fallback path",
     );
     assert_eq!(
-        metrics.data_rows_projected_slot_accesses, 2,
-        "repeated direct data-row fields should read only the repeated projected slot",
+        metrics.data_rows_projected_slot_accesses, 1,
+        "repeated direct data-row fields should decode the repeated projected slot once",
     );
     assert_eq!(
         metrics.data_rows_non_projected_slot_accesses, 0,

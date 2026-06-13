@@ -191,7 +191,9 @@ IcyDB supports a focused, canister-friendly SQL subset:
 Generated canister SQL endpoints are deliberately narrower than the
 session/library SQL APIs. `__icydb_query` is read-only, `__icydb_ddl` is for
 schema DDL, and `__icydb_update` is emitted only when `icydb.toml` selects an
-explicit primary-key or bounded update policy. The default generated canister
+explicit primary-key or bounded update policy. `__icydb_query` admits
+operational introspection (`EXPLAIN`, `DESCRIBE`, and `SHOW`) by build target:
+local builds default on, IC builds default off. The default generated canister
 surface does not expose SQL `UPDATE`.
 
 Out of scope by design: joins, subqueries, CTEs, quoted identifiers, window

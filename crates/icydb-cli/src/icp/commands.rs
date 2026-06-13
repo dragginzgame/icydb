@@ -16,10 +16,11 @@ use crate::{
         process::{
             canister_id, canister_is_installed, run_external_command, unreachable_network_hint,
         },
-        project::known_canisters,
+        project::{environment_targets_local, known_canisters},
     },
     table::{ColumnAlign, append_indented_table},
 };
+use icydb_config::{GeneratedBuildTarget, ICYDB_BUILD_TARGET_ENV};
 
 type CanisterListRow = [String; 3];
 
@@ -162,6 +163,7 @@ pub(super) fn deploy_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command.arg("deploy").arg(canister);
     append_environment_args(&mut command, environment);
+    append_build_target_env(&mut command, environment);
 
     command
 }
@@ -170,6 +172,7 @@ pub(super) fn build_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command.arg("build").arg(canister);
     append_environment_args(&mut command, environment);
+    append_build_target_env(&mut command, environment);
 
     command
 }
@@ -199,6 +202,21 @@ pub(super) fn parse_canister_cycles(status: &str) -> Option<u128> {
 
 fn append_environment_args(command: &mut Command, environment: &str) {
     command.arg("--environment").arg(environment);
+}
+
+fn append_build_target_env(command: &mut Command, environment: &str) {
+    command.env(
+        ICYDB_BUILD_TARGET_ENV,
+        build_target_for_environment(environment).env_value(),
+    );
+}
+
+fn build_target_for_environment(environment: &str) -> GeneratedBuildTarget {
+    if environment_targets_local(environment) {
+        GeneratedBuildTarget::Local
+    } else {
+        GeneratedBuildTarget::Ic
+    }
 }
 
 fn default_canister_wasm_path(canister: &str) -> PathBuf {

@@ -16,6 +16,10 @@ ddl = {ddl}
 fixtures = {fixtures}
 update = {update}
 
+[canisters.{canister}.sql.introspection]
+local = true
+ic = false
+
 [canisters.{canister}.metrics]
 enabled = {metrics}
 extended = {metrics_extended}

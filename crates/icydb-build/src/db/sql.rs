@@ -14,6 +14,7 @@ pub(super) struct SqlSurfaceTokens {
     readonly_enabled: bool,
     ddl_enabled: bool,
     fixtures_enabled: bool,
+    introspection_enabled: bool,
     update_policy: Option<BuildSqlUpdatePolicy>,
     reset_statements: TokenStream,
     query_arms: TokenStream,
@@ -27,12 +28,14 @@ impl SqlSurfaceTokens {
         readonly_enabled: bool,
         ddl_enabled: bool,
         fixtures_enabled: bool,
+        introspection_enabled: bool,
         update_policy: Option<BuildSqlUpdatePolicy>,
     ) -> Self {
         Self {
             readonly_enabled,
             ddl_enabled,
             fixtures_enabled,
+            introspection_enabled,
             update_policy,
             reset_statements: quote!(),
             query_arms: quote!(),
@@ -60,6 +63,7 @@ impl SqlSurfaceTokens {
 
     fn readonly_dispatch_tokens(&self) -> TokenStream {
         let query_arms = &self.query_arms;
+        let introspection_enabled = self.introspection_enabled;
         let show_entities_dispatch = if self.show_entities_dispatch.is_empty() {
             empty_sql_surface_query_dispatch()
         } else {
@@ -78,7 +82,15 @@ impl SqlSurfaceTokens {
                 ),
                 ::icydb::Error,
             > {
-                match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
+                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+                if !#introspection_enabled && dispatch.requires_introspection() {
+                    return Err(::icydb::Error::from_runtime_boundary(
+                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
+                        ::icydb::ErrorOrigin::Interface,
+                    ));
+                }
+
+                match dispatch.entity_name() {
                     #query_arms
                     None => #show_entities_dispatch,
                     Some(_entity) => Err(::icydb::Error::from_runtime_boundary(
@@ -445,7 +457,7 @@ mod tests {
     #[test]
     fn generated_sql_surface_never_calls_broad_session_update_executor() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
-        let mut surface_tokens = SqlSurfaceTokens::empty(true, true, true, None);
+        let mut surface_tokens = SqlSurfaceTokens::empty(true, true, true, true, None);
 
         surface_tokens.push_entity(&entity_ty);
 
@@ -464,9 +476,24 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_query_surface_can_reject_introspection() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SqlSurfaceTokens::empty(true, true, true, false, None);
+
+        surface_tokens.push_entity(&entity_ty);
+
+        let surface = compact_tokens(quote!(#surface_tokens));
+        assert!(surface.contains("sql_statement_dispatch"));
+        assert!(surface.contains("requires_introspection"));
+        assert!(surface.contains("SqlIntrospectionDisabled"));
+        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
+    }
+
+    #[test]
     fn generated_sql_update_surface_requires_explicit_primary_key_policy() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(
+            true,
             true,
             true,
             true,
@@ -499,6 +526,7 @@ mod tests {
     fn generated_sql_update_surface_can_select_bounded_policy_without_broad_update() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens = SqlSurfaceTokens::empty(
+            true,
             true,
             true,
             true,

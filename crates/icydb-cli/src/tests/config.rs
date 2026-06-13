@@ -68,7 +68,7 @@ fn config_init_writes_default_config_at_workspace_root() {
     assert!(!package.join("icydb.toml").exists());
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\nupdate = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\nupdate = true\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -106,7 +106,7 @@ fn config_init_writes_bounded_update_policy() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -358,7 +358,10 @@ fn config_report_marks_canister_settings_against_icp_environment() {
     assert!(report.lines().any(|line| line.starts_with("  --------")));
     assert!(report.lines().any(|line| {
         line.contains("demo_rpg")
-            && line.contains("readonly, ddl, fixtures")
+            && line.contains("readonly")
+            && line.contains("introspection:local")
+            && line.contains("ddl")
+            && line.contains("fixtures")
             && line.contains("update:primary_key")
             && line.contains("enabled, extended")
             && line.contains("ok")

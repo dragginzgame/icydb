@@ -88,11 +88,11 @@ Legend:
 Generated canister SQL endpoints are narrower than the session/library write
 lane:
 
-| generated endpoint | `SELECT` / explain / introspection | row mutation SQL | DDL |
-|---|---|---|---|
-| `__icydb_query` | yes | no | no |
-| `__icydb_ddl` | no | no | yes |
-| `__icydb_update` | no | `UPDATE` only, when explicitly configured | no |
+| generated endpoint | `SELECT` | explain / introspection | row mutation SQL | DDL |
+|---|---|---|---|---|
+| `__icydb_query` | yes | build-target policy | no | no |
+| `__icydb_ddl` | no | no | no | yes |
+| `__icydb_update` | no | no | `UPDATE` only, when explicitly configured | no |
 
 No generated SQL write endpoint is part of the default generated surface.
 `__icydb_update` is emitted only when `icydb.toml` selects an explicit update
@@ -100,6 +100,10 @@ policy: `update = true` or `update = "primary_key"` for public primary-key-only
 `UPDATE`, or `update = "bounded"` for public bounded deterministic `UPDATE`.
 Generated update dispatch must not inherit broad `execute_sql_update::<E>`
 behavior by default.
+
+Generated `__icydb_query` admits operational SQL introspection only when the
+build target policy allows it. The `[canisters.<name>.sql.introspection]`
+defaults are `local = true` and `ic = false`; unknown direct builds fail closed.
 
 ## What Is Already Stable
 

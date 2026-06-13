@@ -107,6 +107,36 @@ pub enum SqlStatementShellSurface {
     Update,
 }
 
+/// Parsed SQL dispatch facts used by generated query endpoint glue.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SqlStatementDispatch {
+    entity_name: Option<String>,
+    requires_introspection: bool,
+}
+
+impl SqlStatementDispatch {
+    #[must_use]
+    fn new(entity_name: Option<String>, requires_introspection: bool) -> Self {
+        Self {
+            entity_name,
+            requires_introspection,
+        }
+    }
+
+    /// Return the entity targeted by this statement, when the SQL family has one.
+    #[must_use]
+    pub fn entity_name(&self) -> Option<&str> {
+        self.entity_name.as_deref()
+    }
+
+    /// Return whether this statement belongs to the operational introspection family.
+    #[must_use]
+    pub const fn requires_introspection(&self) -> bool {
+        self.requires_introspection
+    }
+}
+
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
 #[cfg(feature = "diagnostics")]
@@ -152,6 +182,18 @@ pub fn sql_statement_shell_surface(sql: &str) -> Result<SqlStatementShellSurface
     Ok(sql_statement_shell_surface_from_statement(&statement))
 }
 
+/// Return generated query-endpoint routing facts for one reduced SQL statement.
+#[doc(hidden)]
+pub fn sql_statement_dispatch(sql: &str) -> Result<SqlStatementDispatch, QueryError> {
+    let (statement, _) =
+        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+
+    Ok(SqlStatementDispatch::new(
+        sql_statement_entity_name_from_statement(&statement).map(str::to_string),
+        sql_statement_requires_introspection_from_statement(&statement),
+    ))
+}
+
 const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlStatementSurface {
     match statement {
         SqlStatement::Ddl(_) => SqlStatementSurface::Ddl,
@@ -186,6 +228,19 @@ const fn sql_statement_shell_surface_from_statement(
         | SqlStatement::ShowStores(_)
         | SqlStatement::ShowMemory(_) => SqlStatementShellSurface::Query,
     }
+}
+
+const fn sql_statement_requires_introspection_from_statement(statement: &SqlStatement) -> bool {
+    matches!(
+        statement,
+        SqlStatement::Explain(_)
+            | SqlStatement::Describe(_)
+            | SqlStatement::ShowIndexes(_)
+            | SqlStatement::ShowColumns(_)
+            | SqlStatement::ShowEntities(_)
+            | SqlStatement::ShowStores(_)
+            | SqlStatement::ShowMemory(_)
+    )
 }
 
 const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> Option<&str> {

@@ -78,6 +78,12 @@ Authoritative current lanes:
   * `schema/audit/sql_perf`
   * covers SQL query, update, explain, repeat/cache, projection, grouped, and
     phase-attribution scenarios
+* generated SQL matrix lane:
+  * `testing/integration/tests/sql_perf_matrix_audit.rs`
+  * reuses the `sql_perf` audit canister, not demo canisters
+  * generates broad deterministic SQL query coverage plus optional seeded-random
+    cases for hotspot discovery
+  * emits ranked JSON/Markdown reports under `artifacts/perf-audit/` by default
 * typed/fluent lane:
   * `testing/integration/tests/fluent_perf_audit.rs`
   * covers fluent query/update, repeat/cache, direct-row, grouped, and finalize
@@ -567,6 +573,20 @@ Focused follow-up attribution commands:
 
 * `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
 * `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_update_warm_persists_query_cache_across_calls -- --nocapture`
+
+Generated matrix hotspot command:
+
+* `ICYDB_SQL_PERF_MATRIX_LIMIT=all cargo test -p icydb-testing-integration --test sql_perf_matrix_audit sql_perf_generated_matrix_reports_hotspots -- --ignored --nocapture`
+
+Generated matrix controls:
+
+* `ICYDB_SQL_PERF_MATRIX_LIMIT` accepts a positive integer or `all`; the
+  default executes the first 300 generated scenarios.
+* `ICYDB_SQL_PERF_MATRIX_RANDOM_CASES` adds seeded-random valid query shapes;
+  the default is `0`.
+* `ICYDB_SQL_PERF_MATRIX_SEED` selects the random matrix seed.
+* `ICYDB_SQL_PERF_MATRIX_TOP` controls ranked Markdown table length.
+* `ICYDB_SQL_PERF_MATRIX_OUT` overrides the report path stem.
 
 When a recurring run emits raw captures or transformed rows, write them below
 `docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/perf-audit/`. Older

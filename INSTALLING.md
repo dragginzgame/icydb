@@ -50,6 +50,10 @@ readonly = true
 ddl = true
 fixtures = true
 
+[canisters.demo_rpg.sql.introspection]
+local = true
+ic = false
+
 [canisters.demo_rpg.metrics]
 enabled = true
 extended = true
@@ -64,6 +68,9 @@ enabled = true
 Current generated surfaces:
 
 - `__icydb_query` for controller-gated read SQL
+  - `EXPLAIN`, `DESCRIBE`, and `SHOW` follow
+    `[canisters.<name>.sql.introspection]`; defaults are `local = true` and
+    `ic = false`
 - `__icydb_ddl` for supported accepted-catalog SQL DDL
 - `__icydb_fixtures_reset` and `__icydb_fixtures_load` for local fixture flows
 - `__icydb_snapshot` for storage inventory and stable allocation metadata

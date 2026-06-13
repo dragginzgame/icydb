@@ -1034,6 +1034,13 @@ fn user_field_predicate_scenarios() -> Vec<SqlPerfScenario> {
             "SELECT id, name FROM PerfAuditUser WHERE age > rank ORDER BY age ASC, id ASC LIMIT 3",
         ),
         scenario(
+            "user.field_compare.age_gt_rank.lower_order.limit3",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "field_compare_expression_order",
+            "SELECT id, name FROM PerfAuditUser WHERE age > rank ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
             "user.field_compare.age_eq_age_nat.limit3",
             SqlPerfSurface::User,
             "residual_mixed_field_compare",
@@ -1058,6 +1065,13 @@ fn user_membership_and_between_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_age_id",
             "in_membership",
             "SELECT id, age FROM PerfAuditUser WHERE age IN (24, 31, 43) ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.age.in.computed_order.limit3",
+            SqlPerfSurface::User,
+            "materialized_computed_order",
+            "in_membership_computed_order",
+            "SELECT id, age FROM PerfAuditUser WHERE age IN (24, 31, 43) ORDER BY age + rank ASC, id ASC LIMIT 3",
         ),
         scenario(
             "user.age.not_in.limit3",
@@ -1577,6 +1591,33 @@ fn sql_perf_blob_payload_scenarios_are_registered() {
             .iter()
             .any(|scenario| scenario.query_loop_count == 10),
         "blob perf coverage should include a repeated warm-query scenario",
+    );
+}
+
+#[test]
+fn sql_perf_row_materialization_hotspot_scenarios_are_registered() {
+    let scenarios = sql_perf_scenarios();
+
+    assert!(
+        scenarios
+            .iter()
+            .any(|scenario| scenario.sql.contains("WHERE age > rank")
+                && scenario.sql.contains("ORDER BY LOWER(name)")),
+        "user perf coverage should include row-backed predicate plus expression-order hotspots",
+    );
+    assert!(
+        scenarios.iter().any(
+            |scenario| scenario.sql.contains("WHERE age IN (24, 31, 43)")
+                && scenario.sql.contains("ORDER BY age + rank")
+        ),
+        "user perf coverage should include IN predicates plus computed-order hotspots",
+    );
+    assert!(
+        scenarios.iter().any(|scenario| scenario
+            .sql
+            .contains("active = true AND LOWER(handle) LIKE 'br%'")
+            && scenario.sql.contains("ORDER BY LOWER(handle)")),
+        "account perf coverage should include filtered expression-index prefix hotspots",
     );
 }
 

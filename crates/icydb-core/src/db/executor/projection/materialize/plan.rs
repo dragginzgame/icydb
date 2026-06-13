@@ -271,9 +271,9 @@ fn data_row_direct_projection_field_slots_from_projection(
     let direct_projection_slots = direct_projection_slots?;
     let mut field_slots = Vec::with_capacity(direct_projection_slots.len());
 
-    // Phase 1: preserve canonical output order exactly as declared, but allow
-    // duplicate source slots because raw-row decoding can borrow the same slot
-    // repeatedly without the retained-slot `take()` constraint.
+    // Phase 1: preserve canonical output order exactly as declared. Unlike
+    // retained-slot rows, raw data rows can repeat source slots and let the
+    // materializer reuse the decoded value within one output row.
     for (field, slot) in projection
         .fields()
         .zip(direct_projection_slots.iter().copied())

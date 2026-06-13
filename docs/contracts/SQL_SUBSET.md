@@ -132,6 +132,10 @@ and their storage modes. `SHOW MEMORY` lists stable-memory tags, memory IDs,
 and their owning stores. The default shell rendering stays compact; `VERBOSE`
 exposes full entity and store paths for debugging.
 
+Generated `__icydb_query` gates `EXPLAIN`, `DESCRIBE`, and `SHOW` by
+`[canisters.<name>.sql.introspection]`. The default policy is `local = true`
+and `ic = false`; direct builds with an unknown target fail closed.
+
 Storage modes have distinct contracts. `stable` is direct durable
 stable-memory storage. `heap` is volatile live storage with absent stable
 allocation identity and no row/index recovery. `journaled` is a durable

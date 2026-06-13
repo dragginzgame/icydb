@@ -28,6 +28,7 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
             builder.options.sql_readonly_enabled(),
             builder.options.sql_ddl_enabled(),
             builder.options.sql_fixtures_enabled(),
+            builder.options.sql_introspection_enabled(),
             builder.options.sql_update_policy(),
         )
     });

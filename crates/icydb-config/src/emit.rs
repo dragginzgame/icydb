@@ -1,8 +1,8 @@
 use std::{env, path::PathBuf};
 
 use crate::{
-    CONFIG_PATH_ENV, ConfigError, GeneratedIcydbConfig, parse::load_icydb_toml,
-    resolve::resolve_config_path,
+    CONFIG_PATH_ENV, ConfigError, GeneratedBuildTarget, GeneratedIcydbConfig,
+    ICYDB_BUILD_TARGET_ENV, parse::load_icydb_toml, resolve::resolve_config_path,
 };
 
 const CARGO_MANIFEST_DIR_ENV: &str = "CARGO_MANIFEST_DIR";
@@ -15,17 +15,27 @@ const CARGO_MANIFEST_DIR_ENV: &str = "CARGO_MANIFEST_DIR";
 /// 3. absent config, treated as defaults
 pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigError> {
     println!("cargo:rerun-if-env-changed={CONFIG_PATH_ENV}");
+    println!("cargo:rerun-if-env-changed={ICYDB_BUILD_TARGET_ENV}");
     let manifest_dir = manifest_dir()?;
     let resolved = resolve_config_path(manifest_dir.as_path());
+    let build_target = build_target_from_env();
     if let Some(path) = resolved.config_path() {
         println!("cargo:rerun-if-changed={}", path.display());
-        load_icydb_toml(path, &[])
+        load_icydb_toml(path, &[]).map(|config| config.with_build_target(build_target))
     } else {
         for candidate in resolved.candidate_paths() {
             println!("cargo:rerun-if-changed={}", candidate.display());
         }
-        Ok(GeneratedIcydbConfig::default())
+        Ok(GeneratedIcydbConfig::default().with_build_target(build_target))
     }
+}
+
+fn build_target_from_env() -> GeneratedBuildTarget {
+    env::var(ICYDB_BUILD_TARGET_ENV)
+        .ok()
+        .as_deref()
+        .map(GeneratedBuildTarget::from_env_value)
+        .unwrap_or(GeneratedBuildTarget::Unknown)
 }
 
 fn manifest_dir() -> Result<PathBuf, ConfigError> {

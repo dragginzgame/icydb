@@ -5,6 +5,8 @@
 
 use std::path::Path;
 
+use icydb_config::ICYDB_BUILD_TARGET_ENV;
+
 use crate::{
     config::{SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT},
     icp::test_support::{
@@ -232,6 +234,28 @@ fn lifecycle_commands_target_selected_environment() {
         assert_eq!(command.get_program().to_string_lossy(), "icp");
         assert_eq!(args, expected);
     }
+}
+
+#[test]
+fn lifecycle_build_commands_set_generated_build_target() {
+    for (command, expected) in [
+        (deploy_command("local", "demo_rpg"), "local"),
+        (build_command("local", "demo_rpg"), "local"),
+        (deploy_command("ic", "demo_rpg"), "ic"),
+        (build_command("demo", "demo_rpg"), "ic"),
+    ] {
+        assert_eq!(
+            command_env(&command, ICYDB_BUILD_TARGET_ENV).as_deref(),
+            Some(expected)
+        );
+    }
+}
+
+fn command_env(command: &std::process::Command, key: &str) -> Option<String> {
+    command
+        .get_envs()
+        .find(|(name, _)| name.to_string_lossy() == key)
+        .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
 }
 
 #[test]

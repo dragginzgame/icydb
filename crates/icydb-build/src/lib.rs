@@ -42,6 +42,7 @@ struct BuildSqlOptions {
     readonly_enabled: bool,
     ddl_enabled: bool,
     fixtures_enabled: bool,
+    introspection_enabled: bool,
     update_policy: Option<BuildSqlUpdatePolicy>,
 }
 
@@ -81,6 +82,14 @@ impl BuildOptions {
     #[must_use]
     pub const fn with_sql_fixtures_enabled(mut self, enabled: bool) -> Self {
         self.sql.fixtures_enabled = enabled;
+
+        self
+    }
+
+    /// Build options with generated read-only SQL introspection configured.
+    #[must_use]
+    pub const fn with_sql_introspection_enabled(mut self, enabled: bool) -> Self {
+        self.sql.introspection_enabled = enabled;
 
         self
     }
@@ -141,6 +150,12 @@ impl BuildOptions {
     #[must_use]
     pub const fn sql_fixtures_enabled(self) -> bool {
         self.sql.fixtures_enabled
+    }
+
+    /// Return whether generated read-only SQL endpoints should admit introspection.
+    #[must_use]
+    pub const fn sql_introspection_enabled(self) -> bool {
+        self.sql.introspection_enabled
     }
 
     /// Return the generated SQL update endpoint policy, if explicitly enabled.
@@ -350,6 +365,7 @@ mod tests {
         assert!(!options.sql_readonly_enabled());
         assert!(!options.sql_ddl_enabled());
         assert!(!options.sql_fixtures_enabled());
+        assert!(!options.sql_introspection_enabled());
         assert!(!options.sql_update_enabled());
         assert_eq!(options.sql_update_policy(), None);
         assert!(!options.metrics_enabled());

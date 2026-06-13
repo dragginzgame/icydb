@@ -392,6 +392,7 @@ impl ErrorCode {
     pub const SQL_WRITE_ORDER_BY_UNSUPPORTED_SHAPE: Self = Self(150);
     pub const SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE: Self = Self(183);
     pub const SQL_WRITE_RETURNING_ROWS_TOO_MANY: Self = Self(184);
+    pub const RUNTIME_BOUNDARY_SQL_INTROSPECTION_DISABLED: Self = Self(185);
     pub const QUERY_UNSUPPORTED_PROJECTION: Self = Self(151);
     pub const QUERY_PROJECTION_NUMERIC_LITERAL_REQUIRED: Self = Self(152);
     pub const QUERY_PROJECTION_NUMERIC_SCALE_ARGUMENTS: Self = Self(153);
@@ -496,7 +497,7 @@ impl ErrorCode {
             20 => DiagnosticCode::RuntimeInvariantViolation,
             21 => DiagnosticCode::RuntimeConflict,
             22 => DiagnosticCode::RuntimeNotFound,
-            23 | 25..=37 => DiagnosticCode::RuntimeUnsupported,
+            23 | 25..=37 | 185 => DiagnosticCode::RuntimeUnsupported,
             _ => DiagnosticCode::RuntimeInternal,
         }
     }
@@ -513,7 +514,7 @@ impl ErrorCode {
         match self.raw() {
             1..=8 => Self::query_kind_detail(self.raw()),
             18..=24 => Self::runtime_kind_detail(self.raw()),
-            25..=37 => Self::runtime_boundary_detail(self.raw()),
+            25..=37 | 185 => Self::runtime_boundary_detail(self.raw()),
             38..=102 => Self::sql_feature_detail(self.raw()),
             103..=113 => Self::sql_surface_detail(self.raw()),
             114..=134 => Self::schema_ddl_detail(self.raw()),
@@ -559,7 +560,14 @@ impl ErrorCode {
     }
 
     const fn from_runtime_boundary(boundary: RuntimeBoundaryCode) -> Self {
-        Self(Self::RUNTIME_BOUNDARY_SQL_SURFACE_CONTROLLER_REQUIRED.raw() + boundary as u16)
+        match boundary {
+            RuntimeBoundaryCode::SqlIntrospectionDisabled => {
+                Self::RUNTIME_BOUNDARY_SQL_INTROSPECTION_DISABLED
+            }
+            _ => {
+                Self(Self::RUNTIME_BOUNDARY_SQL_SURFACE_CONTROLLER_REQUIRED.raw() + boundary as u16)
+            }
+        }
     }
 
     const fn from_sql_feature(feature: SqlFeatureCode) -> Self {
@@ -693,6 +701,9 @@ impl ErrorCode {
             }),
             37 => Some(DiagnosticDetail::RuntimeBoundary {
                 boundary: RuntimeBoundaryCode::RowProjectionFieldNotConfigured,
+            }),
+            185 => Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::SqlIntrospectionDisabled,
             }),
             _ => None,
         }
@@ -1130,6 +1141,7 @@ pub enum RuntimeBoundaryCode {
     MutationResultIdRequired,
     MutationResultIdsRequired,
     RowProjectionFieldNotConfigured,
+    SqlIntrospectionDisabled,
 }
 
 ///
@@ -1508,7 +1520,7 @@ mod tests {
         QueryProjectionCode, SqlFeatureCode, SqlLoweringCode, SqlWriteBoundaryCode,
     };
 
-    const ORDERED_ERROR_CODES: [ErrorCode; 184] = [
+    const ORDERED_ERROR_CODES: [ErrorCode; 185] = [
         ErrorCode::QUERY_VALIDATE,
         ErrorCode::QUERY_INTENT,
         ErrorCode::QUERY_PLAN,
@@ -1693,6 +1705,7 @@ mod tests {
         ErrorCode::SQL_LOWERING_SQL_DDL_EXECUTION_UNSUPPORTED,
         ErrorCode::SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE,
         ErrorCode::SQL_WRITE_RETURNING_ROWS_TOO_MANY,
+        ErrorCode::RUNTIME_BOUNDARY_SQL_INTROSPECTION_DISABLED,
     ];
 
     #[test]

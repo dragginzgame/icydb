@@ -15,8 +15,8 @@ use crate::{
             execute_sql_ddl_field_addition,
         },
         session::sql::{
-            SqlStatementShellSurface, SqlStatementSurface, sql_statement_entity_name,
-            sql_statement_shell_surface, sql_statement_surface,
+            SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
+            sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
@@ -2664,6 +2664,69 @@ fn sql_statement_entity_name_preserves_row_mutation_target_without_write_surface
         assert_eq!(
             sql_statement_entity_name(sql).expect(context).as_deref(),
             expected_entity,
+            "{context}",
+        );
+    }
+}
+
+#[test]
+fn sql_statement_dispatch_marks_operational_introspection() {
+    for (sql, expected_entity, requires_introspection, context) in [
+        (
+            "SELECT * FROM SessionSqlWriteEntity",
+            Some("SessionSqlWriteEntity"),
+            false,
+            "ordinary SELECT should not require introspection",
+        ),
+        (
+            "EXPLAIN SELECT * FROM SessionSqlWriteEntity",
+            Some("SessionSqlWriteEntity"),
+            true,
+            "EXPLAIN should require introspection",
+        ),
+        (
+            "DESCRIBE SessionSqlWriteEntity",
+            Some("SessionSqlWriteEntity"),
+            true,
+            "DESCRIBE should require introspection",
+        ),
+        (
+            "SHOW INDEXES FROM SessionSqlWriteEntity",
+            Some("SessionSqlWriteEntity"),
+            true,
+            "SHOW INDEXES should require introspection",
+        ),
+        (
+            "SHOW COLUMNS SessionSqlWriteEntity",
+            Some("SessionSqlWriteEntity"),
+            true,
+            "SHOW COLUMNS should require introspection",
+        ),
+        (
+            "SHOW ENTITIES",
+            None,
+            true,
+            "SHOW ENTITIES should require introspection",
+        ),
+        (
+            "SHOW STORES",
+            None,
+            true,
+            "SHOW STORES should require introspection",
+        ),
+        (
+            "SHOW MEMORY",
+            None,
+            true,
+            "SHOW MEMORY should require introspection",
+        ),
+    ] {
+        let dispatch = sql_statement_dispatch(sql).expect(context);
+
+        assert_eq!(dispatch.entity_name(), expected_entity, "{context}");
+        assert_eq!(
+            dispatch.requires_introspection(),
+            requires_introspection,
             "{context}",
         );
     }

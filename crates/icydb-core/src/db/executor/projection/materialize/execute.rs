@@ -396,6 +396,8 @@ fn visit_direct_data_row_views(
     metrics: ProjectionMaterializationMetricsRecorder,
     mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
+    let cache_repeated_slots = direct_field_slots_have_repeated_source(field_slots);
+    let mut slot_cache = Vec::new();
     let mut shaped = Vec::with_capacity(field_slots.len());
 
     // Phase 1: open each structural row once, then decode only the declared
@@ -406,6 +408,8 @@ fn visit_direct_data_row_views(
             row,
             field_slots,
             metrics,
+            cache_repeated_slots,
+            &mut slot_cache,
             &mut shaped,
         )?;
         visit(RowView::Borrowed(shaped.as_slice()))?;
@@ -420,12 +424,16 @@ fn project_data_row_from_direct_field_slots(
     field_slots: &[(String, usize)],
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
+    let cache_repeated_slots = direct_field_slots_have_repeated_source(field_slots);
+    let mut slot_cache = Vec::new();
     let mut shaped = Vec::with_capacity(field_slots.len());
     project_data_row_from_direct_field_slots_into(
         &row_layout,
         row,
         field_slots,
         metrics,
+        cache_repeated_slots,
+        &mut slot_cache,
         &mut shaped,
     )?;
 
@@ -437,6 +445,8 @@ fn project_data_row_from_direct_field_slots_into(
     row: &DataRow,
     field_slots: &[(String, usize)],
     metrics: ProjectionMaterializationMetricsRecorder,
+    cache_repeated_slots: bool,
+    slot_cache: &mut Vec<Option<Value>>,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
     shaped.clear();
@@ -444,14 +454,40 @@ fn project_data_row_from_direct_field_slots_into(
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
     shaped.reserve(field_slots.len());
+    if cache_repeated_slots {
+        slot_cache.clear();
+        slot_cache.resize_with(row_fields.field_count(), || None);
+    }
 
     for (_field_name, slot) in field_slots {
-        metrics.record_data_rows_slot_access(true);
+        if cache_repeated_slots && let Some(Some(value)) = slot_cache.get(*slot) {
+            shaped.push(value.clone());
+            continue;
+        }
 
-        shaped.push(row_fields.required_direct_projection_value(*slot)?);
+        metrics.record_data_rows_slot_access(true);
+        let value = row_fields.required_direct_projection_value(*slot)?;
+        if cache_repeated_slots && let Some(entry) = slot_cache.get_mut(*slot) {
+            *entry = Some(value.clone());
+        }
+
+        shaped.push(value);
     }
 
     Ok(())
+}
+
+fn direct_field_slots_have_repeated_source(field_slots: &[(String, usize)]) -> bool {
+    for (index, (_field_name, slot)) in field_slots.iter().enumerate() {
+        if field_slots[index + 1..]
+            .iter()
+            .any(|(_field_name, other)| other == slot)
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn visit_scalar_data_row_views(

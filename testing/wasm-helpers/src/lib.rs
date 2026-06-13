@@ -16,6 +16,9 @@ macro_rules! build_configured_canister {
             .with_sql_readonly_enabled(config.canister_sql_readonly_enabled($canister_name))
             .with_sql_ddl_enabled(config.canister_sql_ddl_enabled($canister_name))
             .with_sql_fixtures_enabled(config.canister_sql_fixtures_enabled($canister_name))
+            .with_sql_introspection_enabled(
+                config.canister_sql_introspection_enabled($canister_name),
+            )
             .with_sql_update_policy(match config.canister_sql_update_policy($canister_name) {
                 Some(icydb_config::GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly) => {
                     Some(icydb::build::BuildSqlUpdatePolicy::PublicPrimaryKeyOnly)

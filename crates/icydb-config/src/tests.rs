@@ -1,7 +1,8 @@
 use std::{env, fs};
 
 use crate::{
-    ConfigError, GeneratedSqlUpdatePolicy, ICYDB_CONFIG_FILE_NAME, load_resolved_icydb_toml,
+    ConfigError, GeneratedBuildTarget, GeneratedSqlUpdatePolicy, ICYDB_CONFIG_FILE_NAME,
+    load_resolved_icydb_toml,
     parse::parse_icydb_toml,
     resolve::{resolve_config_path, resolve_existing_icydb_toml},
 };
@@ -13,6 +14,9 @@ fn absent_config_defaults_all_generated_surfaces_off() {
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(!config.canister_sql_introspection_enabled("demo_rpg"));
+    assert!(config.canister_sql_introspection_policy("demo_rpg").local());
+    assert!(!config.canister_sql_introspection_policy("demo_rpg").ic());
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
     assert!(!config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
@@ -102,6 +106,8 @@ fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
     assert!(config.canister_sql_readonly_enabled("demo_rpg"));
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(config.canister_sql_fixtures_enabled("demo_rpg"));
+    assert!(config.canister_sql_introspection_policy("demo_rpg").local());
+    assert!(!config.canister_sql_introspection_policy("demo_rpg").ic());
     assert_eq!(
         config.canister_sql_update_policy("demo_rpg"),
         Some(GeneratedSqlUpdatePolicy::PublicPrimaryKeyOnly),
@@ -110,6 +116,48 @@ fn readonly_ddl_fixtures_update_metrics_snapshot_and_schema_config_validate() {
     assert!(config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(config.canister_snapshot_enabled("demo_rpg"));
     assert!(config.canister_schema_enabled("demo_rpg"));
+}
+
+#[test]
+fn sql_introspection_policy_defaults_local_on_ic_off() {
+    let config = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.sql]
+            readonly = true
+        ",
+        &["demo_rpg"],
+    )
+    .expect("valid config should parse");
+    let policy = config.canister_sql_introspection_policy("demo_rpg");
+
+    assert!(policy.local());
+    assert!(!policy.ic());
+    assert!(policy.enabled_for(GeneratedBuildTarget::Local));
+    assert!(!policy.enabled_for(GeneratedBuildTarget::Ic));
+    assert!(!policy.enabled_for(GeneratedBuildTarget::Unknown));
+}
+
+#[test]
+fn sql_introspection_policy_accepts_independent_target_overrides() {
+    let config = parse_icydb_toml(
+        r"
+            [canisters.demo_rpg.sql]
+            readonly = true
+
+            [canisters.demo_rpg.sql.introspection]
+            local = false
+            ic = true
+        ",
+        &["demo_rpg"],
+    )
+    .expect("valid config should parse");
+    let policy = config.canister_sql_introspection_policy("demo_rpg");
+
+    assert!(!policy.local());
+    assert!(policy.ic());
+    assert!(!policy.enabled_for(GeneratedBuildTarget::Local));
+    assert!(policy.enabled_for(GeneratedBuildTarget::Ic));
+    assert!(!policy.enabled_for(GeneratedBuildTarget::Unknown));
 }
 
 #[test]
