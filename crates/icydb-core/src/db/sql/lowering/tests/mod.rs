@@ -752,6 +752,41 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
 }
 
 #[test]
+fn compile_sql_command_select_membership_uses_predicate_only_filter() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE age IN (10, 20, 10)",
+        "membership WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("membership WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        plan.scalar_plan().filter_expr.is_none(),
+        "top-level membership should not retain a separate visible filter expression",
+    );
+    assert!(
+        !plan.scalar_plan().predicate_covers_filter_expr,
+        "predicate-only membership has no visible filter expression to cover",
+    );
+    let Some(Predicate::Compare(compare)) = plan.scalar_plan().predicate.as_ref() else {
+        panic!("membership WHERE should lower to one compact compare predicate");
+    };
+
+    assert_eq!(compare.field(), "age");
+    assert_eq!(compare.op(), CompareOp::In);
+    let Value::List(values) = compare.value() else {
+        panic!("membership predicate should carry a list literal");
+    };
+    assert_eq!(
+        values.len(),
+        2,
+        "membership predicate should canonicalize duplicate literal values",
+    );
+}
+
+#[test]
 fn compile_sql_command_equivalent_compare_orderings_share_structural_cache_key() {
     assert_sql_lower_queries_share_structural_cache_key_for_sql(
         "SELECT * FROM SqlLowerEntity WHERE age >= 21 ORDER BY name ASC LIMIT 3",

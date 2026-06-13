@@ -45,6 +45,16 @@ pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_subset(
         .or_else(|| derive_normalized_bool_expr_predicate_subset(lowered_expr))
 }
 
+// Derive a fully-owned predicate for one parser-level SQL WHERE shape without
+// first lowering a visible expression. This is intentionally narrow: callers
+// may skip the visible filter only when parser context proves the predicate is
+// the complete semantic filter.
+pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_only_subset(
+    sql_expr: &SqlExpr,
+) -> Option<Predicate> {
+    derive_top_level_sql_membership_predicate_subset(sql_expr)
+}
+
 // Lower one parser-owned SQL boolean expression onto the shared planner-owned
 // WHERE boolean seam without compiling it into the runtime predicate layer.
 pub(in crate::db::sql::lowering) fn lower_sql_where_bool_expr(

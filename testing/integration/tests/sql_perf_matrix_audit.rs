@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     env,
     fmt::Write as _,
     fs,
@@ -32,6 +32,9 @@ struct SqlQueryPerfResult {
 enum MatrixSurface {
     Account,
     Blob,
+    HeapUser,
+    JournaledUser,
+    StableUser,
     User,
 }
 
@@ -40,6 +43,9 @@ impl MatrixSurface {
         match self {
             Self::Account => "account",
             Self::Blob => "blob",
+            Self::HeapUser => "heap_user",
+            Self::JournaledUser => "journaled_user",
+            Self::StableUser => "stable_user",
             Self::User => "user",
         }
     }
@@ -48,6 +54,9 @@ impl MatrixSurface {
         match self {
             Self::Account => "PerfAuditAccount",
             Self::Blob => "PerfAuditBlob",
+            Self::HeapUser => "PerfAuditHeapUser",
+            Self::JournaledUser => "PerfAuditJournaledUser",
+            Self::StableUser => "PerfAuditStableUser",
             Self::User => "PerfAuditUser",
         }
     }
@@ -56,6 +65,9 @@ impl MatrixSurface {
         match self {
             Self::Account => "query_account_with_perf",
             Self::Blob => "query_blob_with_perf",
+            Self::HeapUser => "query_heap_user_with_perf",
+            Self::JournaledUser => "query_journaled_user_with_perf",
+            Self::StableUser => "query_stable_user_with_perf",
             Self::User => "query_user_with_perf",
         }
     }
@@ -231,6 +243,7 @@ fn deterministic_matrix() -> Vec<MatrixScenario> {
         &blob_orders(),
         &[1, 3, 10],
     ));
+    scenarios.extend(storage_backend_mirror_matrix());
     scenarios.extend(aggregate_and_metadata_matrix());
 
     scenarios
@@ -530,6 +543,83 @@ fn blob_orders() -> Vec<SqlFragment> {
     ]
 }
 
+fn storage_backend_mirror_matrix() -> Vec<MatrixScenario> {
+    let mut scenarios = Vec::new();
+    for surface in [
+        MatrixSurface::StableUser,
+        MatrixSurface::HeapUser,
+        MatrixSurface::JournaledUser,
+    ] {
+        scenarios.extend(select_matrix(
+            surface,
+            &storage_mirror_projections(),
+            &storage_mirror_predicates(),
+            &storage_mirror_orders(),
+            &[1, 3, 10],
+        ));
+    }
+    scenarios
+}
+
+fn storage_mirror_projections() -> Vec<SqlFragment> {
+    vec![
+        SqlFragment {
+            key: "pk",
+            sql: "id",
+        },
+        SqlFragment {
+            key: "narrow",
+            sql: "id, name",
+        },
+        SqlFragment {
+            key: "wide",
+            sql: "id, name, age",
+        },
+    ]
+}
+
+fn storage_mirror_predicates() -> Vec<SqlFragment> {
+    vec![
+        SqlFragment {
+            key: "all",
+            sql: "",
+        },
+        SqlFragment {
+            key: "pk_range",
+            sql: "id >= 2",
+        },
+        SqlFragment {
+            key: "age_range",
+            sql: "age >= 24 AND age < 40",
+        },
+        SqlFragment {
+            key: "name_range",
+            sql: "name >= 'a'",
+        },
+    ]
+}
+
+fn storage_mirror_orders() -> Vec<SqlFragment> {
+    vec![
+        SqlFragment {
+            key: "pk_asc",
+            sql: "id ASC",
+        },
+        SqlFragment {
+            key: "pk_desc",
+            sql: "id DESC",
+        },
+        SqlFragment {
+            key: "age_asc",
+            sql: "age ASC, id ASC",
+        },
+        SqlFragment {
+            key: "name_asc",
+            sql: "name ASC, id ASC",
+        },
+    ]
+}
+
 fn aggregate_and_metadata_matrix() -> Vec<MatrixScenario> {
     vec![
         scenario(
@@ -660,6 +750,17 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
                 &blob_orders(),
             )
         }
+        MatrixSurface::HeapUser | MatrixSurface::JournaledUser | MatrixSurface::StableUser => {
+            let predicate = random_storage_mirror_predicate(rng);
+            random_select_scenario(
+                rng,
+                key,
+                surface,
+                &storage_mirror_projections(),
+                predicate,
+                &storage_mirror_orders(),
+            )
+        }
         MatrixSurface::User => {
             let predicate = random_user_predicate(rng);
             random_select_scenario(
@@ -699,6 +800,19 @@ fn random_select_scenario(
         surface,
         family: format!("random.{}.{}", projection.key, order.key),
         sql,
+    }
+}
+
+fn random_storage_mirror_predicate(rng: &mut Lcg) -> String {
+    match rng.index(4) {
+        0 => String::new(),
+        1 => format!("id >= {}", rng.choose(&[1, 2, 3, 4])),
+        2 => {
+            let low = *rng.choose(&[18, 24, 30, 35]);
+            let high = low + *rng.choose(&[5, 10, 20]);
+            format!("age >= {low} AND age < {high}")
+        }
+        _ => "name >= 'a'".to_string(),
     }
 }
 
@@ -1100,6 +1214,7 @@ fn matrix_markdown(report: &MatrixReport) -> String {
         "Top Store Gets",
         ranked_by(&report.samples, |sample| sample.store_get_calls),
     );
+    append_storage_backend_comparison_table(&mut output, &report.samples);
     append_failure_table(&mut output, &report.failures);
 
     output
@@ -1155,6 +1270,125 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
         .expect("write to string should succeed");
     }
     writeln!(output).expect("write to string should succeed");
+}
+
+fn append_storage_backend_comparison_table(output: &mut String, samples: &[MatrixSample]) {
+    let stable_samples =
+        storage_samples_by_suffix(samples, MatrixSurface::StableUser, "stable_user.");
+    let heap_samples = storage_samples_by_suffix(samples, MatrixSurface::HeapUser, "heap_user.");
+    let journaled_samples =
+        storage_samples_by_suffix(samples, MatrixSurface::JournaledUser, "journaled_user.");
+
+    let mut rows = stable_samples
+        .iter()
+        .filter_map(|(suffix, stable)| {
+            let stable = *stable;
+            let heap = *heap_samples.get(suffix)?;
+            let journaled = *journaled_samples.get(suffix)?;
+
+            Some((suffix.as_str(), stable, heap, journaled))
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return;
+    }
+
+    rows.sort_by_key(|(_, stable, heap, journaled)| {
+        Reverse(
+            absolute_delta(
+                heap.total_local_instructions,
+                stable.total_local_instructions,
+            )
+            .max(absolute_delta(
+                journaled.total_local_instructions,
+                stable.total_local_instructions,
+            )),
+        )
+    });
+    rows.truncate(top_n());
+
+    writeln!(output, "## Stable vs Heap vs Journaled Storage Mirror")
+        .expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Stable Total | Heap Total | Heap Delta | Heap Ratio | Journaled Total | Journaled Delta | Journaled Ratio | Stable Store | Heap Store | Journaled Store | SQL |",
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    )
+    .expect("write to string should succeed");
+    for (suffix, stable, heap, journaled) in rows {
+        writeln!(
+            output,
+            "| `{suffix}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            stable.total_local_instructions,
+            heap.total_local_instructions,
+            signed_delta(
+                heap.total_local_instructions,
+                stable.total_local_instructions
+            ),
+            ratio_text(
+                heap.total_local_instructions,
+                stable.total_local_instructions
+            ),
+            journaled.total_local_instructions,
+            signed_delta(
+                journaled.total_local_instructions,
+                stable.total_local_instructions
+            ),
+            ratio_text(
+                journaled.total_local_instructions,
+                stable.total_local_instructions
+            ),
+            stable.store_local_instructions,
+            heap.store_local_instructions,
+            journaled.store_local_instructions,
+            journaled.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn storage_samples_by_suffix<'a>(
+    samples: &'a [MatrixSample],
+    surface: MatrixSurface,
+    prefix: &str,
+) -> BTreeMap<String, &'a MatrixSample> {
+    samples
+        .iter()
+        .filter(|sample| sample.surface == surface.label())
+        .filter_map(|sample| {
+            sample
+                .key
+                .strip_prefix(prefix)
+                .map(|suffix| (suffix.to_string(), sample))
+        })
+        .collect()
+}
+
+const fn absolute_delta(value: u64, baseline: u64) -> u64 {
+    value.abs_diff(baseline)
+}
+
+fn signed_delta(value: u64, baseline: u64) -> String {
+    if value >= baseline {
+        format!("+{}", value - baseline)
+    } else {
+        format!("-{}", baseline - value)
+    }
+}
+
+fn ratio_text(value: u64, baseline: u64) -> String {
+    if baseline == 0 {
+        return "n/a".to_string();
+    }
+
+    let scaled = value.saturating_mul(100) / baseline;
+    format!("{}.{:02}x", scaled / 100, scaled % 100)
 }
 
 fn append_failure_table(output: &mut String, failures: &[MatrixFailure]) {
@@ -1265,6 +1499,82 @@ fn sql_perf_random_matrix_has_seeded_stable_shape() {
             "random scenario '{}' should use supported SELECT syntax",
             scenario.key,
         );
+    }
+}
+
+#[test]
+fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
+    let samples = vec![
+        storage_matrix_sample(
+            "stable_user.select.pk.all.pk_asc.limit1",
+            "stable_user",
+            100,
+            30,
+        ),
+        storage_matrix_sample("heap_user.select.pk.all.pk_asc.limit1", "heap_user", 80, 10),
+        storage_matrix_sample(
+            "journaled_user.select.pk.all.pk_asc.limit1",
+            "journaled_user",
+            70,
+            12,
+        ),
+    ];
+    let report = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        generated_scenario_count: samples.len(),
+        executed_scenario_count: samples.len(),
+        failed_scenario_count: 0,
+        matrix_limit: samples.len(),
+        random_seed: None,
+        random_case_count: 0,
+        samples,
+        failures: Vec::new(),
+    };
+
+    let markdown = matrix_markdown(&report);
+
+    assert!(
+        markdown.contains("Stable vs Heap vs Journaled Storage Mirror"),
+        "storage mirror report should include the comparison table",
+    );
+    assert!(
+        markdown.contains("Heap Total"),
+        "storage mirror report should include heap totals",
+    );
+    assert!(
+        markdown.contains("| `select.pk.all.pk_asc.limit1` | 100 | 80 | -20 | 0.80x | 70 | -30 | 0.70x | 30 | 10 | 12 |"),
+        "storage mirror report should pair stable, heap, and journaled by scenario suffix",
+    );
+}
+
+fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> MatrixSample {
+    MatrixSample {
+        key: key.to_string(),
+        source: MatrixSource::Deterministic.label().to_string(),
+        surface: surface.to_string(),
+        family: "select.pk.all.pk_asc".to_string(),
+        sql: "SELECT id FROM PerfAuditStableUser ORDER BY id ASC LIMIT 1".to_string(),
+        compile_local_instructions: 1,
+        execute_local_instructions: total.saturating_sub(1),
+        planner_local_instructions: 0,
+        store_local_instructions: store,
+        executor_local_instructions: total.saturating_sub(store),
+        grouped_stream_local_instructions: 0,
+        grouped_fold_local_instructions: 0,
+        grouped_finalize_local_instructions: 0,
+        pure_covering_decode_local_instructions: 0,
+        pure_covering_row_assembly_local_instructions: 0,
+        store_get_calls: 1,
+        sql_compiled_command_hits: 0,
+        sql_compiled_command_misses: 1,
+        shared_query_plan_hits: 0,
+        shared_query_plan_misses: 1,
+        total_local_instructions: total,
+        outcome: MatrixOutcome {
+            result_kind: "projection",
+            entity: "PerfAuditStableUser".to_string(),
+            row_count: 1,
+        },
     }
 }
 

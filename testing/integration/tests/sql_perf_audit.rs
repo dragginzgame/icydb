@@ -1900,6 +1900,69 @@ fn print_sql_limit_one_attribution(label: &str, perf: &SqlQueryPerfResult) {
     );
 }
 
+fn print_storage_read_comparison(
+    label: &str,
+    stable: &SqlQueryPerfResult,
+    journaled: &SqlQueryPerfResult,
+) {
+    println!(
+        "{label}: stable_total={} journaled_total={} total_delta={} total_ratio={} stable_compile={} journaled_compile={} compile_delta={} stable_execute={} journaled_execute={} execute_delta={} stable_store={} journaled_store={} store_delta={} stable_executor={} journaled_executor={} executor_delta={} stable_store_gets={} journaled_store_gets={}",
+        stable.attribution.total_local_instructions,
+        journaled.attribution.total_local_instructions,
+        signed_instruction_delta(
+            journaled.attribution.total_local_instructions,
+            stable.attribution.total_local_instructions,
+        ),
+        instruction_ratio_text(
+            journaled.attribution.total_local_instructions,
+            stable.attribution.total_local_instructions,
+        ),
+        stable.attribution.compile_local_instructions,
+        journaled.attribution.compile_local_instructions,
+        signed_instruction_delta(
+            journaled.attribution.compile_local_instructions,
+            stable.attribution.compile_local_instructions,
+        ),
+        stable.attribution.execute_local_instructions,
+        journaled.attribution.execute_local_instructions,
+        signed_instruction_delta(
+            journaled.attribution.execute_local_instructions,
+            stable.attribution.execute_local_instructions,
+        ),
+        stable.attribution.execution.store_local_instructions,
+        journaled.attribution.execution.store_local_instructions,
+        signed_instruction_delta(
+            journaled.attribution.execution.store_local_instructions,
+            stable.attribution.execution.store_local_instructions,
+        ),
+        stable.attribution.execution.executor_local_instructions,
+        journaled.attribution.execution.executor_local_instructions,
+        signed_instruction_delta(
+            journaled.attribution.execution.executor_local_instructions,
+            stable.attribution.execution.executor_local_instructions,
+        ),
+        stable.attribution.store_get_calls,
+        journaled.attribution.store_get_calls,
+    );
+}
+
+fn signed_instruction_delta(value: u64, baseline: u64) -> String {
+    if value >= baseline {
+        format!("+{}", value - baseline)
+    } else {
+        format!("-{}", baseline - value)
+    }
+}
+
+fn instruction_ratio_text(value: u64, baseline: u64) -> String {
+    if baseline == 0 {
+        return "n/a".to_string();
+    }
+
+    let scaled = value.saturating_mul(100) / baseline;
+    format!("{}.{:02}x", scaled / 100, scaled % 100)
+}
+
 fn print_cached_journaled_sql_limit_one_attribution(perf: &SqlQueryPerfResult) {
     let attribution = &perf.attribution;
     let compile = &attribution.compile;
@@ -1985,6 +2048,42 @@ fn assert_storage_primary_limit_one_stays_bounded(
         "{label} primary-key LIMIT 1 store phase should stay close to stable, stable={} {label}={}",
         stable.attribution.execution.store_local_instructions,
         perf.attribution.execution.store_local_instructions,
+    );
+}
+
+fn assert_journaled_primary_limit_one_tracks_stable(
+    stable: &SqlQueryPerfResult,
+    journaled: &SqlQueryPerfResult,
+) {
+    let stable_outcome = summarize_perf_outcome(&stable.result);
+    let journaled_outcome = summarize_perf_outcome(&journaled.result);
+
+    print_storage_read_comparison("stable vs journaled primary LIMIT 1", stable, journaled);
+    assert_eq!(
+        stable_outcome.row_count, journaled_outcome.row_count,
+        "stable and journaled primary LIMIT 1 should return the same row count",
+    );
+    assert!(
+        journaled.attribution.total_local_instructions
+            <= stable
+                .attribution
+                .total_local_instructions
+                .saturating_mul(4)
+                .saturating_add(1_000_000),
+        "journaled primary LIMIT 1 should stay in the stable comparison envelope, stable={} journaled={}",
+        stable.attribution.total_local_instructions,
+        journaled.attribution.total_local_instructions,
+    );
+    assert!(
+        journaled.attribution.execute_local_instructions
+            <= stable
+                .attribution
+                .execute_local_instructions
+                .saturating_mul(4)
+                .saturating_add(500_000),
+        "journaled primary LIMIT 1 execution should stay in the stable comparison envelope, stable={} journaled={}",
+        stable.attribution.execute_local_instructions,
+        journaled.attribution.execute_local_instructions,
     );
 }
 
@@ -2419,6 +2518,7 @@ fn assert_storage_cold_limit_one_reports(
     print_sql_limit_one_attribution("journaled limit1 attribution", &journaled);
     assert_storage_primary_limit_one_stays_bounded("heap", &stable, &heap);
     assert_storage_primary_limit_one_stays_bounded("journaled", &stable, &journaled);
+    assert_journaled_primary_limit_one_tracks_stable(&stable, &journaled);
 
     StorageLimitOneReadSamples {
         stable,
