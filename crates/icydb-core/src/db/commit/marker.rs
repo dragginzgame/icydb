@@ -19,6 +19,8 @@ use crate::{
     runtime::now_millis,
 };
 use ic_memory::stable_structures::Storable;
+#[cfg(test)]
+use std::cell::Cell;
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -42,7 +44,9 @@ pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_
 
 static COMMIT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(test)]
-static TEST_JOURNAL_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+thread_local! {
+    static TEST_JOURNAL_SEQUENCE: Cell<u64> = const { Cell::new(1) };
+}
 
 // Conservative upper bound to avoid rejecting valid commits when index entries
 // are large; still small enough to fit typical canister constraints.
@@ -257,18 +261,20 @@ impl CommitMarker {
 
 #[cfg(test)]
 pub(in crate::db) fn reset_test_journal_sequence() {
-    TEST_JOURNAL_SEQUENCE.store(1, Ordering::Relaxed);
+    TEST_JOURNAL_SEQUENCE.with(|sequence| sequence.set(1));
 }
 
 #[cfg(test)]
 fn next_test_journal_sequence() -> Result<JournalSequence, InternalError> {
-    let value = TEST_JOURNAL_SEQUENCE
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            current.checked_add(1)
-        })
-        .map_err(|_| InternalError::commit_id_generation_failed())?;
+    TEST_JOURNAL_SEQUENCE.with(|sequence| {
+        let value = sequence.get();
+        let next = value
+            .checked_add(1)
+            .ok_or_else(InternalError::commit_id_generation_failed)?;
+        sequence.set(next);
 
-    Ok(JournalSequence::new(value))
+        Ok(JournalSequence::new(value))
+    })
 }
 
 #[cfg(test)]
