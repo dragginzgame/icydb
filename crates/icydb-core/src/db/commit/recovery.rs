@@ -38,12 +38,14 @@ use crate::{
         },
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
-            SchemaStore, accepted_commit_schema_fingerprint, decode_persisted_schema_snapshot,
-            ensure_accepted_schema_snapshot, reconcile_runtime_schemas,
+            AcceptedSchemaSnapshot, SchemaStore, accepted_commit_schema_fingerprint,
+            decode_persisted_schema_snapshot, ensure_accepted_schema_snapshot,
+            reconcile_runtime_schemas,
         },
     },
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
+    types::EntityTag,
 };
 use std::{cell::RefCell, sync::OnceLock};
 
@@ -111,9 +113,8 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
-        if let Err(err) = publish_marker_bound_journal_batches(db, &marker) {
-            return Err(err.with_origin(ErrorOrigin::Recovery));
-        }
+        publish_marker_bound_journal_batches(db, &marker)
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
         // Phase 1: replay persisted row operations while marker authority is active.
         replay_commit_marker_row_ops(db, &marker.row_ops)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
@@ -452,8 +453,10 @@ fn validate_journal_batch_records<C: CanisterKind>(
                     primary_key,
                     schema_fingerprint,
                 )?;
-                validate_journal_row_put_prepare(
+                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+                validate_journal_row_put_preflight_if_needed(
                     db,
+                    expected_handle,
                     entity_path,
                     primary_key,
                     row_bytes,
@@ -472,6 +475,13 @@ fn validate_journal_batch_records<C: CanisterKind>(
                     entity_path,
                     primary_key,
                     schema_fingerprint,
+                )?;
+                validate_journal_row_delete_preflight_if_needed(
+                    db,
+                    expected_handle,
+                    entity_path,
+                    primary_key,
+                    *schema_fingerprint,
                 )?;
             }
             JournalRecord::SchemaPut {
@@ -493,17 +503,75 @@ fn validate_journal_batch_records<C: CanisterKind>(
     Ok(())
 }
 
-fn validate_journal_row_put_prepare<C: CanisterKind>(
+fn validate_journal_row_record<C: CanisterKind>(
     db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    schema_fingerprint: &[u8; 16],
+) -> Result<(), InternalError> {
+    let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
+        .map_err(|_| InternalError::store_corruption())?;
+    let accepted = match recovery_runtime_hook_for_entity_path(db, entity_path) {
+        Ok(hooks) => {
+            if hooks.store_path != expected_store_path
+                || decoded_key.entity_tag() != hooks.entity_tag
+            {
+                return Err(InternalError::store_corruption());
+            }
+            expected_handle.with_schema_mut(|schema_store| {
+                ensure_accepted_schema_snapshot(
+                    schema_store,
+                    hooks.entity_tag,
+                    hooks.entity_path,
+                    hooks.model,
+                )
+            })?
+        }
+        Err(err) => {
+            if db.has_runtime_hooks() {
+                return Err(err);
+            }
+            accepted_snapshot_for_no_hook_journal_row(
+                expected_handle,
+                decoded_key.entity_tag(),
+                entity_path,
+            )?
+        }
+    };
+    let expected_fingerprint = accepted_commit_schema_fingerprint(&accepted)?;
+    if &expected_fingerprint != schema_fingerprint {
+        return Err(InternalError::store_corruption());
+    }
+
+    Ok(())
+}
+
+// Generated-hook recovery can validate unapplied journal row effects through
+// normal commit preflight. Already-reflected effects must skip that path because
+// commit preflight is stateful against the current live projection.
+fn validate_journal_row_put_preflight_if_needed<C: CanisterKind>(
+    db: &Db<C>,
+    expected_handle: StoreHandle,
     entity_path: &str,
     primary_key: &RawDataStoreKey,
     row_bytes: &[u8],
     schema_fingerprint: [u8; 16],
 ) -> Result<(), InternalError> {
-    let hooks = db.runtime_hook_for_entity_path(entity_path)?;
-    let handle = db.store_handle(hooks.store_path)?;
-    let before =
-        handle.with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
+    if !db.has_runtime_hooks()
+        || expected_handle.with_data(|store| {
+            store
+                .get(primary_key)
+                .is_some_and(|row| row.as_bytes() == row_bytes)
+        })
+    {
+        return Ok(());
+    }
+
+    let hooks = recovery_runtime_hook_for_entity_path(db, entity_path)?;
+    let before = expected_handle
+        .with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
     let op = CommitRowOp::try_new_bytes(
         hooks.entity_path,
         primary_key.as_bytes(),
@@ -516,35 +584,28 @@ fn validate_journal_row_put_prepare<C: CanisterKind>(
     Ok(())
 }
 
-fn validate_journal_row_record<C: CanisterKind>(
+fn validate_journal_row_delete_preflight_if_needed<C: CanisterKind>(
     db: &Db<C>,
-    expected_store_path: &'static str,
     expected_handle: StoreHandle,
     entity_path: &str,
     primary_key: &RawDataStoreKey,
-    schema_fingerprint: &[u8; 16],
+    schema_fingerprint: [u8; 16],
 ) -> Result<(), InternalError> {
+    if !db.has_runtime_hooks() || !expected_handle.with_data(|store| store.contains(primary_key)) {
+        return Ok(());
+    }
+
     let hooks = recovery_runtime_hook_for_entity_path(db, entity_path)?;
-    if hooks.store_path != expected_store_path {
-        return Err(InternalError::store_corruption());
-    }
-    let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
-        .map_err(|_| InternalError::store_corruption())?;
-    if decoded_key.entity_tag() != hooks.entity_tag {
-        return Err(InternalError::store_corruption());
-    }
-    let accepted = expected_handle.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
-            schema_store,
-            hooks.entity_tag,
-            hooks.entity_path,
-            hooks.model,
-        )
-    })?;
-    let expected_fingerprint = accepted_commit_schema_fingerprint(&accepted)?;
-    if &expected_fingerprint != schema_fingerprint {
-        return Err(InternalError::store_corruption());
-    }
+    let before = expected_handle
+        .with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
+    let op = CommitRowOp::try_new_bytes(
+        hooks.entity_path,
+        primary_key.as_bytes(),
+        before,
+        None,
+        schema_fingerprint,
+    )?;
+    db.prepare_row_commit_op(&op)?;
 
     Ok(())
 }
@@ -581,20 +642,101 @@ fn journal_record_store_handle<C: CanisterKind>(
     db: &Db<C>,
     record: &JournalRecord,
 ) -> Result<(&'static str, StoreHandle), InternalError> {
-    let store_path = match record {
+    match record {
         JournalRecord::RowPut { entity_path, .. }
         | JournalRecord::RowDelete { entity_path, .. } => {
-            recovery_runtime_hook_for_entity_path(db, entity_path.as_str())?.store_path
+            journal_row_record_store_handle(db, entity_path.as_str(), record)
         }
-        JournalRecord::SchemaPut { store_path, .. } => store_path.as_str(),
-    };
+        JournalRecord::SchemaPut { store_path, .. } => {
+            registry_store_handle_for_path(db, store_path)
+        }
+    }
+}
 
+fn registry_store_handle_for_path<C: CanisterKind>(
+    db: &Db<C>,
+    store_path: &str,
+) -> Result<(&'static str, StoreHandle), InternalError> {
     db.with_store_registry(|registry| {
         registry
             .iter()
             .find(|(path, _)| *path == store_path)
             .ok_or_else(InternalError::store_corruption)
     })
+}
+
+// Typed fallback DBs do not carry generated runtime hooks. Resolve their journal
+// row store identity from accepted schema snapshots already owned by the
+// registered stores.
+fn journal_row_record_store_handle<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &str,
+    record: &JournalRecord,
+) -> Result<(&'static str, StoreHandle), InternalError> {
+    if let Ok(hooks) = recovery_runtime_hook_for_entity_path(db, entity_path) {
+        return registry_store_handle_for_path(db, hooks.store_path);
+    }
+    if db.has_runtime_hooks() {
+        return Err(InternalError::store_corruption());
+    }
+
+    let primary_key = match record {
+        JournalRecord::RowPut { primary_key, .. }
+        | JournalRecord::RowDelete { primary_key, .. } => primary_key,
+        JournalRecord::SchemaPut { .. } => return Err(InternalError::store_corruption()),
+    };
+    let decoded_key = DecodedDataStoreKey::try_from_raw(primary_key)
+        .map_err(|_| InternalError::store_corruption())?;
+
+    resolve_no_hook_journaled_store_for_entity(db, decoded_key.entity_tag(), entity_path)
+}
+
+fn resolve_no_hook_journaled_store_for_entity<C: CanisterKind>(
+    db: &Db<C>,
+    entity_tag: EntityTag,
+    entity_path: &str,
+) -> Result<(&'static str, StoreHandle), InternalError> {
+    let mut resolved = None::<(&'static str, StoreHandle)>;
+    db.with_store_registry(|registry| {
+        for (path, handle) in registry.iter() {
+            if handle.storage_capabilities().recovery()
+                != StoreRecoveryCapability::StableBasePlusJournalReplay
+            {
+                continue;
+            }
+            let Some(snapshot) = handle.with_schema_mut(|schema_store| {
+                schema_store.latest_persisted_snapshot(entity_tag)
+            })?
+            else {
+                continue;
+            };
+            if snapshot.entity_path() != entity_path {
+                return Err(InternalError::store_corruption());
+            }
+            if resolved.replace((path, handle)).is_some() {
+                return Err(InternalError::store_corruption());
+            }
+        }
+
+        Ok::<(), InternalError>(())
+    })?;
+
+    resolved.ok_or_else(InternalError::store_corruption)
+}
+
+fn accepted_snapshot_for_no_hook_journal_row(
+    expected_handle: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &str,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    let snapshot = expected_handle
+        .with_schema_mut(|schema_store| schema_store.latest_persisted_snapshot(entity_tag))?
+        .ok_or_else(InternalError::store_corruption)?;
+    if snapshot.entity_path() != entity_path {
+        return Err(InternalError::store_corruption());
+    }
+
+    AcceptedSchemaSnapshot::try_new(snapshot)
 }
 
 fn recovery_runtime_hook_for_entity_path<'a, C: CanisterKind>(
