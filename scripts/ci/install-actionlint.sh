@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-${ACTIONLINT_VERSION:-1.7.8}}"
+VERSION="${1:-${ACTIONLINT_VERSION:-1.7.12}}"
 INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
 
 platform() {

@@ -189,6 +189,7 @@ struct MatrixReport {
     executed_scenario_count: usize,
     failed_scenario_count: usize,
     matrix_limit: usize,
+    scenario_key_filter: Option<String>,
     random_seed: Option<u64>,
     random_case_count: usize,
     samples: Vec<MatrixSample>,
@@ -877,6 +878,48 @@ fn generated_matrix(mode: MatrixMode) -> Vec<MatrixScenario> {
     }
 }
 
+fn filter_matrix_scenarios(
+    scenarios: Vec<MatrixScenario>,
+    scenario_key_filter: Option<&str>,
+) -> Vec<MatrixScenario> {
+    let Some(filter) = scenario_key_filter else {
+        return scenarios;
+    };
+    let requested_keys = filter
+        .split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .collect::<Vec<_>>();
+    assert!(
+        !requested_keys.is_empty(),
+        "ICYDB_SQL_PERF_MATRIX_KEYS should contain one or more comma-separated scenario keys",
+    );
+
+    let requested = requested_keys.iter().copied().collect::<HashSet<_>>();
+    let mut found = HashSet::new();
+    let selected = scenarios
+        .into_iter()
+        .filter(|scenario| {
+            let keep = requested.contains(scenario.key.as_str());
+            if keep {
+                found.insert(scenario.key.clone());
+            }
+            keep
+        })
+        .collect::<Vec<_>>();
+    let missing = requested_keys
+        .into_iter()
+        .filter(|key| !found.contains(*key))
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "ICYDB_SQL_PERF_MATRIX_KEYS contained unknown scenario key(s): {}",
+        missing.join(", "),
+    );
+
+    selected
+}
+
 fn matrix_limit(total: usize) -> usize {
     match env::var("ICYDB_SQL_PERF_MATRIX_LIMIT") {
         Ok(value) if value == "all" => total,
@@ -933,6 +976,12 @@ fn top_n() -> usize {
             .parse::<usize>()
             .expect("ICYDB_SQL_PERF_MATRIX_TOP should be a positive integer")
     })
+}
+
+fn matrix_scenario_key_filter() -> Option<String> {
+    env::var("ICYDB_SQL_PERF_MATRIX_KEYS")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
@@ -1191,6 +1240,10 @@ fn matrix_markdown(report: &MatrixReport) -> String {
     .expect("write to string should succeed");
     writeln!(output, "- matrix limit: {}", report.matrix_limit)
         .expect("write to string should succeed");
+    if let Some(filter) = &report.scenario_key_filter {
+        writeln!(output, "- scenario key filter: {filter}")
+            .expect("write to string should succeed");
+    }
     if let Some(seed) = report.random_seed {
         writeln!(output, "- random seed: {seed}").expect("write to string should succeed");
         writeln!(output, "- random cases: {}", report.random_case_count)
@@ -1529,6 +1582,30 @@ fn sql_perf_generated_matrix_has_stable_shape() {
 }
 
 #[test]
+fn sql_perf_matrix_exact_key_filter_selects_known_scenarios() {
+    let deterministic = deterministic_matrix();
+    let selected = filter_matrix_scenarios(
+        deterministic,
+        Some(
+            "user.select.pk.all.pk_asc.limit1,\
+             journaled_user.select.wide.name_range.age_asc.limit10",
+        ),
+    );
+    let keys = selected
+        .iter()
+        .map(|scenario| scenario.key.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        keys,
+        vec![
+            "user.select.pk.all.pk_asc.limit1",
+            "journaled_user.select.wide.name_range.age_asc.limit10",
+        ],
+    );
+}
+
+#[test]
 fn sql_perf_random_matrix_has_seeded_stable_shape() {
     let random = random_matrix(DEFAULT_RANDOM_SEED, 20);
     assert_eq!(random.len(), 20);
@@ -1570,6 +1647,7 @@ fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
         executed_scenario_count: samples.len(),
         failed_scenario_count: 0,
         matrix_limit: samples.len(),
+        scenario_key_filter: None,
         random_seed: None,
         random_case_count: 0,
         samples,
@@ -1639,7 +1717,9 @@ fn sql_perf_generated_matrix_reports_hotspots() {
     let mode = matrix_mode();
     let scenarios = generated_matrix(mode);
     let generated_scenario_count = scenarios.len();
-    let matrix_limit = matrix_limit(generated_scenario_count);
+    let scenario_key_filter = matrix_scenario_key_filter();
+    let scenarios = filter_matrix_scenarios(scenarios, scenario_key_filter.as_deref());
+    let matrix_limit = matrix_limit(scenarios.len());
     let selected = scenarios.into_iter().take(matrix_limit).collect::<Vec<_>>();
     let mut samples = Vec::new();
     let mut failures = Vec::new();
@@ -1661,6 +1741,7 @@ fn sql_perf_generated_matrix_reports_hotspots() {
         executed_scenario_count: samples.len(),
         failed_scenario_count: failures.len(),
         matrix_limit,
+        scenario_key_filter,
         random_seed: (mode == MatrixMode::Random).then(random_seed),
         random_case_count,
         samples,

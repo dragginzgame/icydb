@@ -307,33 +307,19 @@ where
             .plan_core
             .get_or_init_initial_scalar_route_plan(prepared.authority.clone())?,
     );
-    let projection_requires_data_rows =
-        prepared
-            .prepared_projection_contract
-            .as_ref()
-            .is_some_and(|shape| {
-                shape
-                    .scalar_projection_exprs()
-                    .iter()
-                    .any(CompiledExpr::contains_field_path)
-            });
-    let bounded_direct_row_projection = prepared
-        .plan_core
-        .plan()
-        .direct_data_row_keep_cap()
-        .is_some();
-    let projection_should_return_data_rows =
-        projection_requires_data_rows || bounded_direct_row_projection;
+    let projection_requires_data_rows = prepared
+        .prepared_projection_contract
+        .as_ref()
+        .is_some_and(|shape| projection_contract_requires_data_rows(shape.as_ref()));
     let identity_projection_passthrough =
         prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints;
     let projection_runtime_mode = if identity_projection_passthrough {
         ScalarProjectionRuntimeMode::None
-    } else if projection_should_return_data_rows {
-        // SQL row-backed projection materializes the same projection directly
-        // from the returned data rows. Asking the scalar executor to run the
-        // shared validation pass first forces retained kernel rows and disables
-        // the direct raw-row path before the outer projection materializer can
-        // do the real work.
+    } else if projection_requires_data_rows {
+        // Nested field-path projection still needs raw persisted row bytes.
+        // Plain direct fields and scalar expressions can be evaluated from the
+        // retained-slot contract, which avoids carrying full data rows through
+        // ordered cursorless SQL pages.
         ScalarProjectionRuntimeMode::None
     } else {
         ScalarProjectionRuntimeMode::RetainSlotRows
@@ -375,6 +361,16 @@ where
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
 
     Ok(page)
+}
+
+#[cfg(feature = "sql")]
+fn projection_contract_requires_data_rows(
+    shape: &crate::db::executor::projection::PreparedProjectionContract,
+) -> bool {
+    shape
+        .scalar_projection_exprs()
+        .iter()
+        .any(CompiledExpr::contains_field_path)
 }
 
 /// Execute one prepared scalar plan with a caller-owned retained-slot layout and

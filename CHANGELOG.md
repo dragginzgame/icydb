@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Updates the pinned local actionlint installer target to 1.7.12 so
+  `make install-dev`, `make update-dev`, and workflow lint checks converge on
+  the same current binary.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.11` keeps ordinary ordered SQL projections on retained slot rows
+  when full raw rows are unnecessary and adds exact scenario-key filtering to
+  the SQL perf matrix.
 
 - `0.182.10` adds direct data-row subphase attribution to SQL perf-matrix
   reports and narrows SQL-only direct projection helpers out of non-SQL builds.

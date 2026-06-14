@@ -159,6 +159,79 @@ fn execute_sql_projection_repeated_direct_field_uses_retained_slot_rows() {
     );
 }
 
+#[test]
+fn execute_sql_projection_unindexed_ordered_direct_fields_use_retained_slot_rows() {
+    let session = seeded_projection_window_session();
+
+    let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT name, age FROM SessionSqlEntity \
+             WHERE name >= 'matrix' \
+             ORDER BY age DESC, id ASC \
+             LIMIT 2",
+        )
+        .expect("unindexed ordered direct projection should execute")
+    });
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("matrix-d".to_string()), Value::Nat64(40)],
+            vec![Value::Text("matrix-c".to_string()), Value::Nat64(30)],
+        ],
+        "unindexed ordered direct projection should preserve SQL order",
+    );
+    assert_eq!(
+        metrics.slot_rows_path_hits, 1,
+        "direct field projection should stay on retained slot rows",
+    );
+    assert_eq!(
+        metrics.data_rows_path_hits, 0,
+        "direct field projection should not carry full data rows",
+    );
+}
+
+#[test]
+fn execute_sql_projection_unindexed_ordered_scalar_expr_uses_retained_slot_rows() {
+    let session = seeded_projection_window_session();
+
+    let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT name, age + age AS doubled \
+             FROM SessionSqlEntity \
+             WHERE name >= 'matrix' \
+             ORDER BY age DESC, id ASC \
+             LIMIT 2",
+        )
+        .expect("unindexed ordered scalar projection should execute")
+    });
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Text("matrix-d".to_string()),
+                Value::Decimal(crate::types::Decimal::from_i128_with_scale(80, 0)),
+            ],
+            vec![
+                Value::Text("matrix-c".to_string()),
+                Value::Decimal(crate::types::Decimal::from_i128_with_scale(60, 0)),
+            ],
+        ],
+        "unindexed ordered scalar projection should preserve SQL order",
+    );
+    assert_eq!(
+        metrics.slot_rows_path_hits, 1,
+        "scalar projection should stay on retained slot rows",
+    );
+    assert_eq!(
+        metrics.data_rows_path_hits, 0,
+        "scalar projection should not carry full data rows",
+    );
+}
+
 // Seed the aggregate rows used by the bounded computed ORDER BY coverage in
 // this file.
 fn seed_projection_alias_order_aggregate_fixture(session: &DbSession<SessionSqlCanister>) {
