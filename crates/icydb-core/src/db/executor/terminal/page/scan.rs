@@ -48,6 +48,20 @@ pub(super) struct DirectDataRowScanResult {
     pub(super) rows_matched: usize,
 }
 
+///
+/// RowScanResult
+///
+/// RowScanResult is the shared scan collector payload for scalar row lanes.
+/// The concrete row type is lane-owned; scan accounting and skip/keep
+/// retention are identical for kernel rows and direct data rows.
+///
+
+struct RowScanResult<T> {
+    rows: Vec<T>,
+    rows_scanned: usize,
+    rows_matched: usize,
+}
+
 // Shared scalar load page-kernel orchestration boundary.
 // Typed wrappers provide scan/decode callbacks so this loop can remain
 // non-generic while preserving fail-closed continuation invariants.
@@ -117,7 +131,7 @@ fn execute_kernel_row_scan_inner(
             #[cfg(any(test, feature = "diagnostics"))]
             record_kernel_data_row_path_hit();
 
-            execute_scalar_page_read_loop(key_stream, scan_budget_hint, |key_stream| {
+            execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
                 scan_data_rows_only_into_kernel(
                     key_stream,
                     consistency,
@@ -237,7 +251,7 @@ fn execute_retained_kernel_scan(
     let retained_slot_layout =
         retained_slot_layout.ok_or_else(InternalError::query_executor_invariant)?;
 
-    execute_scalar_page_read_loop(key_stream, scan_budget_hint, |key_stream| {
+    execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
         scan_rows(key_stream, retained_slot_layout)
     })
 }
@@ -271,13 +285,11 @@ pub(super) fn execute_scalar_page_kernel_dyn(
 
 // Run one scalar read loop with one optional scan budget without re-checking
 // the same budget logic inside each specialized row reader.
-fn execute_scalar_page_read_loop(
+fn execute_scalar_read_loop<T>(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
-    mut scan_rows: impl FnMut(
-        &mut OrderedKeyStreamBox,
-    ) -> Result<(Vec<KernelRow>, usize), InternalError>,
-) -> Result<(Vec<KernelRow>, usize), InternalError> {
+    mut scan_rows: impl FnMut(&mut OrderedKeyStreamBox) -> Result<T, InternalError>,
+) -> Result<T, InternalError> {
     if let Some(scan_budget) = scan_budget_hint
         && !key_stream_budget_is_redundant(key_stream, scan_budget)
     {
@@ -290,39 +302,6 @@ fn execute_scalar_page_read_loop(
     scan_rows(key_stream)
 }
 
-// Run one direct data-row read loop with one optional scan budget without
-// paying the structural kernel-row envelope cost.
-fn execute_scalar_data_row_read_loop(
-    key_stream: &mut OrderedKeyStreamBox,
-    scan_budget_hint: Option<usize>,
-    row_keep_cap: Option<usize>,
-    row_skip_count: usize,
-    mut scan_rows: impl FnMut(
-        &mut OrderedKeyStreamBox,
-        Option<usize>,
-        usize,
-    ) -> Result<DirectDataRowScanResult, InternalError>,
-) -> Result<DirectDataRowScanResult, InternalError> {
-    if row_keep_cap == Some(0) {
-        return Ok(DirectDataRowScanResult {
-            rows: Vec::new(),
-            rows_scanned: 0,
-            rows_matched: 0,
-        });
-    }
-
-    if let Some(scan_budget) = scan_budget_hint
-        && !key_stream_budget_is_redundant(key_stream, scan_budget)
-    {
-        let inner = std::mem::replace(key_stream, OrderedKeyStreamBox::empty());
-        *key_stream = OrderedKeyStreamBox::budgeted(inner, scan_budget);
-
-        return scan_rows(key_stream, row_keep_cap, row_skip_count);
-    }
-
-    scan_rows(key_stream, row_keep_cap, row_skip_count)
-}
-
 // Scan one ordered key stream into kernel rows through one caller-selected
 // row reader while preserving the shared scanned-key accounting contract.
 fn scan_kernel_rows_with(
@@ -331,40 +310,70 @@ fn scan_kernel_rows_with(
     row_skip_count: usize,
     mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
+    let result = scan_rows_with(
+        key_stream,
+        row_keep_cap,
+        row_skip_count,
+        next_kernel_scan_key,
+        |key| read_kernel_scan_row(key, &mut read_row),
+    )?;
+
+    Ok((result.rows, result.rows_scanned))
+}
+
+// Scan one ordered key stream into caller-owned row payloads while preserving
+// the shared matched-row skip/keep accounting contract.
+fn scan_rows_with<T>(
+    key_stream: &mut OrderedKeyStreamBox,
+    row_keep_cap: Option<usize>,
+    row_skip_count: usize,
+    mut next_key: impl FnMut(
+        &mut OrderedKeyStreamBox,
+    ) -> Result<Option<DecodedDataStoreKey>, InternalError>,
+    mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<T>, InternalError>,
+) -> Result<RowScanResult<T>, InternalError> {
     let mut rows_scanned = 0usize;
-    let staged_capacity = kernel_row_staged_capacity(key_stream, row_keep_cap, row_skip_count);
+    let staged_capacity = staged_row_capacity(key_stream, row_keep_cap, row_skip_count);
     let mut rows = Vec::with_capacity(staged_capacity);
     let mut rows_matched = 0usize;
     let Some(row_keep_cap) = row_keep_cap else {
-        while let Some(key) = next_kernel_scan_key(key_stream)? {
+        while let Some(key) = next_key(key_stream)? {
             record_key_stream_yield();
 
             rows_scanned = rows_scanned.saturating_add(1);
-            let Some(row) = read_kernel_scan_row(key, &mut read_row)? else {
+            let Some(row) = read_row(key)? else {
                 continue;
             };
-            retain_kernel_row(row, row_skip_count, rows_matched, &mut rows);
+            retain_scanned_row(row, row_skip_count, rows_matched, &mut rows);
             rows_matched = rows_matched.saturating_add(1);
         }
 
-        return Ok((rows, rows_scanned));
+        return Ok(RowScanResult {
+            rows,
+            rows_scanned,
+            rows_matched,
+        });
     };
 
-    while let Some(key) = next_kernel_scan_key(key_stream)? {
+    while let Some(key) = next_key(key_stream)? {
         record_key_stream_yield();
 
         rows_scanned = rows_scanned.saturating_add(1);
-        let Some(row) = read_kernel_scan_row(key, &mut read_row)? else {
+        let Some(row) = read_row(key)? else {
             continue;
         };
-        retain_kernel_row(row, row_skip_count, rows_matched, &mut rows);
+        retain_scanned_row(row, row_skip_count, rows_matched, &mut rows);
         rows_matched = rows_matched.saturating_add(1);
         if rows_matched >= row_keep_cap {
             break;
         }
     }
 
-    Ok((rows, rows_scanned))
+    Ok(RowScanResult {
+        rows,
+        rows_scanned,
+        rows_matched,
+    })
 }
 
 fn next_kernel_scan_key(
@@ -396,9 +405,9 @@ fn read_kernel_scan_row(
     row
 }
 
-// Compute the retained kernel-row capacity after the caller has converted a
-// cursorless page offset into a scan-time skip.
-fn kernel_row_staged_capacity(
+// Compute the staged row capacity after the caller has converted a cursorless
+// page offset into a scan-time skip.
+fn staged_row_capacity(
     key_stream: &OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
@@ -412,14 +421,9 @@ fn kernel_row_staged_capacity(
         .unwrap_or(0)
 }
 
-// Retain one matched kernel row only after the caller-owned cursorless page
+// Retain one matched scan row only after the caller-owned cursorless page
 // offset has been satisfied.
-fn retain_kernel_row(
-    row: KernelRow,
-    row_skip_count: usize,
-    rows_matched: usize,
-    rows: &mut Vec<KernelRow>,
-) {
+fn retain_scanned_row<T>(row: T, row_skip_count: usize, rows_matched: usize, rows: &mut Vec<T>) {
     if rows_matched >= row_skip_count {
         rows.push(row);
     }
@@ -448,90 +452,49 @@ fn scan_data_rows_direct_with_reader(
     row_skip_count: usize,
     mut read_data_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
 ) -> Result<DirectDataRowScanResult, InternalError> {
-    let mut rows_scanned = 0usize;
-    let staged_capacity = direct_data_row_staged_capacity(key_stream, row_keep_cap, row_skip_count);
-    let mut data_rows = Vec::with_capacity(staged_capacity);
-    let mut rows_matched = 0usize;
-    let Some(row_keep_cap) = row_keep_cap else {
-        loop {
-            #[cfg(feature = "diagnostics")]
-            let ((key_stream_local_instructions, read_result), key_stream_micros) =
-                measure_execution_stats_phase(|| {
-                    measure_direct_data_row_phase(|| key_stream.next_key())
-                });
-            #[cfg(not(feature = "diagnostics"))]
-            let (read_result, key_stream_micros) =
-                measure_execution_stats_phase(|| key_stream.next_key());
-            record_key_stream_micros(key_stream_micros);
-            let Some(key) = read_result? else {
-                break;
-            };
-            #[cfg(feature = "diagnostics")]
-            record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
-            record_key_stream_yield();
-
-            rows_scanned = rows_scanned.saturating_add(1);
-            #[cfg(feature = "diagnostics")]
-            let (row_read_local_instructions, row_read_result) =
-                measure_direct_data_row_phase(|| read_data_row(key));
-            #[cfg(not(feature = "diagnostics"))]
-            let row_read_result = read_data_row(key);
-            #[cfg(feature = "diagnostics")]
-            record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
-            let Some(data_row) = row_read_result? else {
-                continue;
-            };
-            retain_direct_data_row(data_row, row_skip_count, rows_matched, &mut data_rows);
-            rows_matched = rows_matched.saturating_add(1);
-        }
-
-        return Ok(DirectDataRowScanResult {
-            rows: data_rows,
-            rows_scanned,
-            rows_matched,
-        });
-    };
-
-    loop {
-        #[cfg(feature = "diagnostics")]
-        let ((key_stream_local_instructions, read_result), key_stream_micros) =
-            measure_execution_stats_phase(|| {
-                measure_direct_data_row_phase(|| key_stream.next_key())
-            });
-        #[cfg(not(feature = "diagnostics"))]
-        let (read_result, key_stream_micros) =
-            measure_execution_stats_phase(|| key_stream.next_key());
-        record_key_stream_micros(key_stream_micros);
-        let Some(key) = read_result? else {
-            break;
-        };
-        #[cfg(feature = "diagnostics")]
-        record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
-        record_key_stream_yield();
-
-        rows_scanned = rows_scanned.saturating_add(1);
-        #[cfg(feature = "diagnostics")]
-        let (row_read_local_instructions, row_read_result) =
-            measure_direct_data_row_phase(|| read_data_row(key));
-        #[cfg(not(feature = "diagnostics"))]
-        let row_read_result = read_data_row(key);
-        #[cfg(feature = "diagnostics")]
-        record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
-        let Some(data_row) = row_read_result? else {
-            continue;
-        };
-        retain_direct_data_row(data_row, row_skip_count, rows_matched, &mut data_rows);
-        rows_matched = rows_matched.saturating_add(1);
-        if rows_matched >= row_keep_cap {
-            break;
-        }
-    }
+    let result = scan_rows_with(
+        key_stream,
+        row_keep_cap,
+        row_skip_count,
+        next_direct_data_row_scan_key,
+        |key| read_direct_data_row_scan_row(key, &mut read_data_row),
+    )?;
 
     Ok(DirectDataRowScanResult {
-        rows: data_rows,
-        rows_scanned,
-        rows_matched,
+        rows: result.rows,
+        rows_scanned: result.rows_scanned,
+        rows_matched: result.rows_matched,
     })
+}
+
+fn next_direct_data_row_scan_key(
+    key_stream: &mut OrderedKeyStreamBox,
+) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+    #[cfg(feature = "diagnostics")]
+    let ((key_stream_local_instructions, read_result), key_stream_micros) =
+        measure_execution_stats_phase(|| measure_direct_data_row_phase(|| key_stream.next_key()));
+    #[cfg(not(feature = "diagnostics"))]
+    let (read_result, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
+    record_key_stream_micros(key_stream_micros);
+    #[cfg(feature = "diagnostics")]
+    record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
+
+    read_result
+}
+
+fn read_direct_data_row_scan_row(
+    key: DecodedDataStoreKey,
+    read_data_row: &mut impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
+) -> Result<Option<DataRow>, InternalError> {
+    #[cfg(feature = "diagnostics")]
+    let (row_read_local_instructions, row_read_result) =
+        measure_direct_data_row_phase(|| read_data_row(key));
+    #[cfg(not(feature = "diagnostics"))]
+    let row_read_result = read_data_row(key);
+    #[cfg(feature = "diagnostics")]
+    record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
+
+    row_read_result
 }
 
 // Scan one ordered key stream directly into canonical data rows while
@@ -595,12 +558,16 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
 ) -> Result<DirectDataRowScanResult, InternalError> {
-    execute_scalar_data_row_read_loop(
-        key_stream,
-        scan_budget_hint,
-        row_keep_cap,
-        row_skip_count,
-        |key_stream, row_keep_cap, row_skip_count| match residual_filter_scan_mode {
+    if row_keep_cap == Some(0) {
+        return Ok(DirectDataRowScanResult {
+            rows: Vec::new(),
+            rows_scanned: 0,
+            rows_matched: 0,
+        });
+    }
+
+    execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
+        match residual_filter_scan_mode {
             ResidualFilterScanMode::Absent => scan_data_rows_direct(
                 key_stream,
                 consistency,
@@ -627,38 +594,8 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
             ResidualFilterScanMode::DeferredPostAccess => {
                 Err(InternalError::query_executor_invariant())
             }
-        },
-    )
-}
-
-// Compute the number of direct raw rows worth reserving after the caller's
-// cursorless page offset has already been converted into a scan-time skip.
-fn direct_data_row_staged_capacity(
-    key_stream: &OrderedKeyStreamBox,
-    row_keep_cap: Option<usize>,
-    row_skip_count: usize,
-) -> usize {
-    row_keep_cap
-        .map(|row_keep_cap| row_keep_cap.saturating_sub(row_skip_count))
-        .or_else(|| {
-            exact_output_key_count_hint(key_stream, row_keep_cap)
-                .map(|hint| hint.saturating_sub(row_skip_count))
-        })
-        .unwrap_or(0)
-}
-
-// Retain one matched direct raw row only after the cursorless page offset has
-// been satisfied. This lets route-satisfied direct scans avoid staging rows
-// that the final page window would immediately discard.
-fn retain_direct_data_row(
-    data_row: DataRow,
-    row_skip_count: usize,
-    rows_matched: usize,
-    data_rows: &mut Vec<DataRow>,
-) {
-    if rows_matched >= row_skip_count {
-        data_rows.push(data_row);
-    }
+        }
+    })
 }
 
 fn scan_data_rows_only_into_kernel(

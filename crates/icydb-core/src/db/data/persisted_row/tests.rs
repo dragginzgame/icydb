@@ -2734,6 +2734,40 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
 }
 
 #[test]
+fn sparse_indexed_slot_decode_materializes_relation_primary_key_from_authoritative_primary_key_value()
+ {
+    let token_id = Ulid::from_u128(93);
+    let token_id_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(
+            encode_slot_payload_from_table_and_bytes(
+                1,
+                &[(
+                    0_u32,
+                    u32::try_from(token_id_payload.len())
+                        .expect("relation primary-key slot length should fit in u32"),
+                )],
+                token_id_payload.as_slice(),
+            )
+            .expect("encode slot payload"),
+        )
+        .expect("serialize row payload"),
+    )
+    .expect("build raw row");
+
+    let decoded = super::decode_sparse_indexed_raw_row_with_contract(
+        &raw_row,
+        StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
+        &PrimaryKeyComponent::Ulid(token_id).into(),
+        &[0],
+    )
+    .expect("relation primary-key sparse indexed decode should succeed");
+
+    assert_eq!(decoded, vec![Some(Value::Ulid(token_id))]);
+}
+
+#[test]
 fn apply_serialized_structural_patch_to_raw_row_replays_preencoded_slots() {
     let name_payload =
         encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));

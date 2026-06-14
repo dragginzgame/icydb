@@ -130,6 +130,16 @@ impl<'a> DirectSparseRequiredRowField<'a> {
     // Decode the selected slot after sparse row-open and primary-key
     // validation have already succeeded.
     fn decode(&self, probe: &StructuralReadProbe) -> Result<Value, InternalError> {
+        if self.required_slot == self.contract.primary_key_slot() {
+            return decode_slot_with_contract(
+                &self.contract,
+                self.required_slot,
+                &[],
+                Some(self.expected_key),
+                probe,
+            );
+        }
+
         let Some(raw_value) = self.field_bytes.required_field() else {
             return self.contract.missing_slot_value(self.required_slot);
         };
@@ -286,12 +296,21 @@ fn decode_selected_slot_value(
     expected_key: &PrimaryKeyValue,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
+    let expected_primary_key_component =
+        expected_primary_key_component_for_slot(&contract, expected_key, slot)?;
+    if expected_primary_key_component.is_some() {
+        return decode_slot_with_contract(
+            &contract,
+            slot,
+            &[],
+            expected_primary_key_component,
+            probe,
+        );
+    }
+
     let Some(raw_value) = field_bytes.field(slot) else {
         return contract.missing_slot_value(slot);
     };
-
-    let expected_primary_key_component =
-        expected_primary_key_component_for_slot(&contract, expected_key, slot)?;
 
     decode_slot_with_contract(
         &contract,
