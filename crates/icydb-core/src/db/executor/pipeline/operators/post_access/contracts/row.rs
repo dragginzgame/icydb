@@ -15,6 +15,10 @@ impl<E> OrderReadableRow for (Id<E>, E)
 where
     E: EntityKind + EntityValue,
 {
+    fn read_order_slot_ref(&self, _slot: usize) -> Option<&Value> {
+        None
+    }
+
     fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
         self.1.get_value_by_index(slot).map(Cow::Owned)
     }
@@ -24,6 +28,10 @@ impl<E> OrderReadableRow for DeleteRow<E>
 where
     E: EntityKind + EntityValue,
 {
+    fn read_order_slot_ref(&self, _slot: usize) -> Option<&Value> {
+        None
+    }
+
     fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
         self.entity_ref().get_value_by_index(slot).map(Cow::Owned)
     }

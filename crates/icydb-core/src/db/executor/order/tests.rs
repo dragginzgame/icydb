@@ -22,6 +22,10 @@ impl TestRow {
 }
 
 impl OrderReadableRow for TestRow {
+    fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
+        self.slots.get(slot).and_then(Option::as_ref)
+    }
+
     fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
         self.slots
             .get(slot)
@@ -55,6 +59,11 @@ impl CountingRow {
 }
 
 impl OrderReadableRow for CountingRow {
+    fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
+        self.reads.set(self.reads.get().saturating_add(1));
+        self.slots.get(slot).and_then(Option::as_ref)
+    }
+
     fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
         self.reads.set(self.reads.get().saturating_add(1));
         self.slots

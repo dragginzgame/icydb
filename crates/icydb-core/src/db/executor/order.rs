@@ -30,6 +30,12 @@ const INLINE_ORDER_VALUE_CAPACITY: usize = 2;
 ///
 
 pub(in crate::db::executor) trait OrderReadableRow {
+    /// Borrow one slot value directly when the row owns stable decoded slots.
+    ///
+    /// This keeps direct-slot ordering from constructing `Cow` wrappers in
+    /// comparator hot loops.
+    fn read_order_slot_ref(&self, slot: usize) -> Option<&Value>;
+
     /// Read one slot value for structural ordering and predicate evaluation.
     /// Structural row paths may return borrowed values so shared order/cursor
     /// helpers do not clone already-decoded slots in comparator hot loops.
@@ -347,10 +353,17 @@ fn can_use_borrowed_direct_order_path<R>(rows: &[R], resolved_order: &ResolvedOr
 where
     R: OrderReadableRow,
 {
-    resolved_order.direct_field_slots().is_some()
+    resolved_order_uses_only_direct_fields(resolved_order)
         && rows
             .first()
             .is_some_and(OrderReadableRow::order_slots_are_borrowed)
+}
+
+fn resolved_order_uses_only_direct_fields(resolved_order: &ResolvedOrder) -> bool {
+    resolved_order
+        .fields()
+        .iter()
+        .all(|field| matches!(field.source(), ResolvedOrderValueSource::DirectField(_)))
 }
 
 // Apply direct-slot ordering by borrowing row values during comparisons instead
@@ -383,15 +396,24 @@ fn compare_borrowed_direct_orderable_rows<R>(
 where
     R: OrderReadableRow,
 {
-    compare_structural_order_slots(resolved_order, |_slot_index, field_index, direction| {
-        let left_slot = order_value_from_row(left, field_index);
-        let right_slot = order_value_from_row(right, field_index);
+    for field in resolved_order.fields() {
+        let ResolvedOrderValueSource::DirectField(slot) = field.source() else {
+            return Ordering::Equal;
+        };
 
-        apply_order_direction(
-            compare_order_values(left_slot.as_ref(), right_slot.as_ref()),
-            direction,
-        )
-    })
+        let ordering = apply_order_direction(
+            compare_cached_order_values(
+                left.read_order_slot_ref(*slot),
+                right.read_order_slot_ref(*slot),
+            ),
+            field.direction(),
+        );
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+
+    Ordering::Equal
 }
 
 // Cache one row's order values once so sort/select hot loops can compare
@@ -536,17 +558,6 @@ fn compare_cached_order_values(left: Option<&Value>, right: Option<&Value>) -> O
         (None, Some(_)) => Ordering::Less,
         (Some(_), None) => Ordering::Greater,
         (Some(left), Some(right)) => canonical_value_compare(left, right),
-    }
-}
-
-// Compare borrowed ordering values with the same missing/present semantics used
-// by cached owned order keys.
-fn compare_order_values(left: Option<&Cow<'_, Value>>, right: Option<&Cow<'_, Value>>) -> Ordering {
-    match (left, right) {
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Less,
-        (Some(_), None) => Ordering::Greater,
-        (Some(left), Some(right)) => canonical_value_compare(left.as_ref(), right.as_ref()),
     }
 }
 

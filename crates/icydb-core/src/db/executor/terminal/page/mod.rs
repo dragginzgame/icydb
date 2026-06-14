@@ -176,6 +176,10 @@ impl ProjectionValidationRow for KernelRow {
 }
 
 impl OrderReadableRow for KernelRow {
+    fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
+        self.slot_ref(slot)
+    }
+
     fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
         self.slot_ref(slot).map(Cow::Borrowed)
     }

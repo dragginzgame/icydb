@@ -113,6 +113,14 @@ mod tests {
     struct TestRow(Option<Value>);
 
     impl OrderReadableRow for TestRow {
+        fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
+            if slot != 0 {
+                return None;
+            }
+
+            self.0.as_ref()
+        }
+
         fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
             if slot != 0 {
                 return None;
