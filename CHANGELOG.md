@@ -7,16 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Aligns the live SQL subset contract with the direct-stable storage hard cut:
-  current storage modes are `heap` and durable `journaled`, with direct
-  `stable` storage no longer documented as supported.
-- Narrows prepared SQL projection direct-slot contracts to slot indexes instead
-  of cloned field-name/slot pairs, while preserving repeated direct-field
-  projection on retained-slot rows.
+- Moves SQL projection repeated direct-slot detection into the prepared
+  materialization contract so row projection paths reuse planner-derived slot
+  metadata, split unique/repeated direct projection loops, and clone repeated
+  output columns from already materialized values instead of schema-width
+  source caches.
 
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.8` narrows SQL projection direct-slot materialization contracts and
+  aligns the live SQL subset storage contract with the direct-stable hard cut.
 
 - `0.182.7` removes the remaining internal direct-stable runtime backend and
   stale stable-storage docs/parser affordances, leaving durable core stores on

@@ -49,6 +49,30 @@ fn repeated_direct_rank_projection_shape() -> PreparedProjectionContract {
     )
 }
 
+fn mixed_repeated_direct_projection_shape() -> PreparedProjectionContract {
+    PreparedProjectionContract::from_test_inputs(
+        ProjectionSpec::from_fields_for_test(vec![
+            ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new("rank")),
+                alias: None,
+            },
+            ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new("flag")),
+                alias: None,
+            },
+            ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new("rank")),
+                alias: None,
+            },
+        ]),
+        PreparedProjectionPlan::Scalar(Vec::new()),
+        false,
+        Some(vec![1, 2, 1]),
+        Some(vec![1, 2, 1]),
+        vec![false, true, true, false],
+    )
+}
+
 fn expect_projection_metrics<T>(f: impl FnOnce() -> T) -> (T, SqlProjectionMaterializationMetrics) {
     with_sql_projection_materialization_metrics(f)
 }
@@ -173,5 +197,49 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies_for_repea
     assert_eq!(
         metrics.data_rows_non_projected_slot_accesses, 0,
         "repeated direct data-row fields should avoid unrelated slot reads",
+    );
+}
+
+#[test]
+fn sql_projection_materialization_reuses_repeated_output_without_extra_slot_decode() {
+    let row_layout = projection_eval_row_layout_for_materialize_tests();
+    let page = StructuralCursorPage::new(
+        vec![projection_eval_data_row_for_materialize_tests(41, 19, true)],
+        None,
+    );
+    let prepared_projection = mixed_repeated_direct_projection_shape();
+
+    let (payload, metrics) = expect_projection_metrics(|| {
+        project(
+            row_layout,
+            &prepared_projection,
+            page,
+            projection_materialization_metrics_recorder(),
+        )
+    });
+    let payload = payload
+        .expect("mixed repeated data-row SQL projection materialization should succeed")
+        .into_value_rows();
+
+    assert_eq!(
+        payload,
+        vec![vec![Value::Int64(19), Value::Bool(true), Value::Int64(19)]],
+    );
+
+    assert_eq!(
+        metrics.data_rows_path_hits, 1,
+        "mixed repeated projection should stay on the raw-row path",
+    );
+    assert_eq!(
+        metrics.data_rows_scalar_fallback_hits, 0,
+        "mixed repeated direct projection should avoid the scalar fallback path",
+    );
+    assert_eq!(
+        metrics.data_rows_projected_slot_accesses, 2,
+        "mixed repeated projection should decode each unique projected source slot once",
+    );
+    assert_eq!(
+        metrics.data_rows_non_projected_slot_accesses, 0,
+        "mixed repeated projection should avoid unrelated slot reads",
     );
 }

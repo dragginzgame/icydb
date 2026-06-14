@@ -34,6 +34,69 @@ pub(in crate::db) enum PreparedProjectionPlan {
     Scalar(Vec<CompiledExpr>),
 }
 
+#[derive(Debug)]
+pub(in crate::db) struct PreparedDirectProjectionSlots {
+    projections: Vec<PreparedDirectProjectionSlot>,
+    has_repeated_source: bool,
+}
+
+#[derive(Debug)]
+pub(in crate::db) struct PreparedDirectProjectionSlot {
+    source_slot: usize,
+    previous_projection_index: Option<usize>,
+}
+
+impl PreparedDirectProjectionSlots {
+    #[must_use]
+    fn from_slots(slots: Vec<usize>) -> Self {
+        let mut projections: Vec<PreparedDirectProjectionSlot> = Vec::with_capacity(slots.len());
+        let mut has_repeated_source = false;
+
+        for source_slot in slots {
+            let previous_projection_index = projections
+                .iter()
+                .position(|projection| projection.source_slot == source_slot);
+            has_repeated_source |= previous_projection_index.is_some();
+            projections.push(PreparedDirectProjectionSlot {
+                source_slot,
+                previous_projection_index,
+            });
+        }
+
+        Self {
+            projections,
+            has_repeated_source,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn projections(&self) -> &[PreparedDirectProjectionSlot] {
+        self.projections.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn len(&self) -> usize {
+        self.projections.len()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn has_repeated_source(&self) -> bool {
+        self.has_repeated_source
+    }
+}
+
+impl PreparedDirectProjectionSlot {
+    #[must_use]
+    pub(in crate::db) const fn source_slot(&self) -> usize {
+        self.source_slot
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn previous_projection_index(&self) -> Option<usize> {
+        self.previous_projection_index
+    }
+}
+
 ///
 /// PreparedProjectionContract
 ///
@@ -49,11 +112,11 @@ pub(in crate::db) struct PreparedProjectionContract {
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
     #[cfg(any(test, feature = "sql"))]
-    retained_slot_direct_projection_slots: Option<Vec<usize>>,
+    retained_slot_direct_projection_slots: Option<PreparedDirectProjectionSlots>,
     #[cfg(any(test, feature = "sql"))]
     retained_slot_direct_octet_length_projection_slots: Vec<Option<usize>>,
     #[cfg(any(test, feature = "sql"))]
-    data_row_direct_projection_slots: Option<Vec<usize>>,
+    data_row_direct_projection_slots: Option<PreparedDirectProjectionSlots>,
     #[cfg(any(test, feature = "diagnostics"))]
     projected_slot_mask: Vec<bool>,
 }
@@ -85,8 +148,10 @@ impl PreparedProjectionContract {
 
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn retained_slot_direct_projection_slots(&self) -> Option<&[usize]> {
-        self.retained_slot_direct_projection_slots.as_deref()
+    pub(in crate::db) const fn retained_slot_direct_projection_slots(
+        &self,
+    ) -> Option<&PreparedDirectProjectionSlots> {
+        self.retained_slot_direct_projection_slots.as_ref()
     }
 
     #[must_use]
@@ -100,8 +165,10 @@ impl PreparedProjectionContract {
 
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn data_row_direct_projection_slots(&self) -> Option<&[usize]> {
-        self.data_row_direct_projection_slots.as_deref()
+    pub(in crate::db) const fn data_row_direct_projection_slots(
+        &self,
+    ) -> Option<&PreparedDirectProjectionSlots> {
+        self.data_row_direct_projection_slots.as_ref()
     }
 
     #[cfg(any(test, feature = "diagnostics"))]
@@ -113,7 +180,7 @@ impl PreparedProjectionContract {
     /// Build one projection contract directly from test-owned prepared inputs.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_test_inputs(
+    pub(in crate::db) fn from_test_inputs(
         projection: ProjectionSpec,
         prepared: PreparedProjectionPlan,
         projection_is_model_identity: bool,
@@ -125,9 +192,11 @@ impl PreparedProjectionContract {
             projection,
             prepared,
             projection_is_model_identity,
-            retained_slot_direct_projection_slots,
+            retained_slot_direct_projection_slots: retained_slot_direct_projection_slots
+                .map(PreparedDirectProjectionSlots::from_slots),
             retained_slot_direct_octet_length_projection_slots: Vec::new(),
-            data_row_direct_projection_slots,
+            data_row_direct_projection_slots: data_row_direct_projection_slots
+                .map(PreparedDirectProjectionSlots::from_slots),
             projected_slot_mask,
         }
     }
@@ -240,7 +309,7 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
 fn direct_projection_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
-) -> Option<Vec<usize>> {
+) -> Option<PreparedDirectProjectionSlots> {
     let direct_projection_slots = direct_projection_slots?;
     let mut slots = Vec::with_capacity(direct_projection_slots.len());
 
@@ -252,7 +321,7 @@ fn direct_projection_slots_from_projection(
         slots.push(slot);
     }
 
-    Some(slots)
+    Some(PreparedDirectProjectionSlots::from_slots(slots))
 }
 
 #[cfg(any(test, feature = "sql"))]
