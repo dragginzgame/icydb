@@ -336,8 +336,8 @@ fn direct_rank_projection_contract_for_materialize_test() -> PreparedProjectionC
         }]),
         PreparedProjectionPlan::Scalar(Vec::new()),
         false,
-        Some(vec![("rank".to_string(), 1)]),
-        Some(vec![("rank".to_string(), 1)]),
+        Some(vec![1]),
+        Some(vec![1]),
         vec![false, true, false, false, false],
     )
 }
@@ -357,8 +357,8 @@ fn repeated_direct_rank_projection_contract_for_materialize_test() -> PreparedPr
         ]),
         PreparedProjectionPlan::Scalar(Vec::new()),
         false,
-        Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
-        Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
+        Some(vec![1, 1]),
+        Some(vec![1, 1]),
         vec![false, true, false, false, false],
     )
 }
@@ -498,7 +498,7 @@ fn direct_slot_row_materialization_visits_borrowed_row_views() {
 
 #[cfg(feature = "sql")]
 #[test]
-fn direct_slot_row_materialization_preserves_missing_slot_failure() {
+fn direct_slot_row_materialization_supports_repeated_projection_slots() {
     const fn noop() {}
     const fn noop_slot_access(_projected_slot: bool) {}
 
@@ -520,11 +520,13 @@ fn direct_slot_row_materialization_preserves_missing_slot_failure() {
             None,
         ),
         metrics,
-    );
+    )
+    .expect("repeated direct retained-slot projection should succeed");
 
-    assert!(
-        result.is_err(),
-        "direct retained-slot projection should preserve take-slot missing-field behavior",
+    assert_eq!(
+        result.into_value_rows(),
+        vec![vec![Value::Int64(13), Value::Int64(13)]],
+        "direct retained-slot projection should clone repeated source slots into output order",
     );
 }
 

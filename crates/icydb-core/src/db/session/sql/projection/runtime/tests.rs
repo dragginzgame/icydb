@@ -23,8 +23,8 @@ fn direct_rank_projection_shape() -> PreparedProjectionContract {
         }]),
         PreparedProjectionPlan::Scalar(Vec::new()),
         false,
-        Some(vec![("rank".to_string(), 1)]),
-        Some(vec![("rank".to_string(), 1)]),
+        Some(vec![1]),
+        Some(vec![1]),
         vec![false, true, false, false],
     )
 }
@@ -44,7 +44,7 @@ fn repeated_direct_rank_projection_shape() -> PreparedProjectionContract {
         PreparedProjectionPlan::Scalar(Vec::new()),
         false,
         None,
-        Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
+        Some(vec![1, 1]),
         vec![false, true, false, false],
     )
 }

@@ -40,8 +40,8 @@ pub(super) fn project_slot_row(
     prepared_projection: &PreparedProjectionContract,
     row: RetainedSlotRow,
 ) -> Result<RowView<'static>, InternalError> {
-    if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
-        return project_slot_row_from_direct_field_slots(row, field_slots).map(RowView::Owned);
+    if let Some(slots) = prepared_projection.retained_slot_direct_projection_slots() {
+        return project_slot_row_from_direct_slots(row, slots).map(RowView::Owned);
     }
 
     project_slot_row_dense(prepared_projection, &row).map(RowView::Owned)
@@ -56,8 +56,8 @@ pub(super) fn visit_slot_row_views(
     rows: Vec<RetainedSlotRow>,
     visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
-    if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
-        return visit_direct_slot_row_views(rows, field_slots, visit);
+    if let Some(slots) = prepared_projection.retained_slot_direct_projection_slots() {
+        return visit_direct_slot_row_views(rows, slots, visit);
     }
 
     visit_scalar_slot_row_views(prepared_projection, rows, visit)
@@ -69,8 +69,8 @@ pub(super) fn project_data_row(
     row: &DataRow,
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<RowView<'static>, InternalError> {
-    if let Some(field_slots) = prepared_projection.data_row_direct_projection_field_slots() {
-        return project_data_row_from_direct_field_slots(row_layout, row, field_slots, metrics)
+    if let Some(slots) = prepared_projection.data_row_direct_projection_slots() {
+        return project_data_row_from_direct_slots(row_layout, row, slots, metrics)
             .map(RowView::Owned);
     }
 
@@ -102,8 +102,8 @@ pub(super) fn visit_data_row_views(
     metrics: ProjectionMaterializationMetricsRecorder,
     visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
-    if let Some(field_slots) = prepared_projection.data_row_direct_projection_field_slots() {
-        return visit_direct_data_row_views(row_layout, field_slots, rows, metrics, visit);
+    if let Some(slots) = prepared_projection.data_row_direct_projection_slots() {
+        return visit_direct_data_row_views(row_layout, slots, rows, metrics, visit);
     }
 
     let compiled_fields = prepared_projection.scalar_projection_exprs();
@@ -338,49 +338,55 @@ fn retained_slot_octet_length_value(value: &Value) -> Result<Value, InternalErro
 }
 
 // Visit one retained dense slot-row page through direct field-slot copies only.
-// The row is still consumed so duplicate projected slots preserve the existing
-// `take_slot` missing-field behavior.
+// Normal direct projections still move values from the retained row; repeated
+// source slots borrow and clone so SQL can project the same field more than once.
 fn visit_direct_slot_row_views(
     rows: Vec<RetainedSlotRow>,
-    field_slots: &[(String, usize)],
+    slots: &[usize],
     mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
-    let mut shaped = Vec::with_capacity(field_slots.len());
+    let cache_repeated_slots = direct_slots_have_repeated_source(slots);
+    let mut shaped = Vec::with_capacity(slots.len());
 
     // Phase 1: move only requested retained slots into the reusable projection
     // buffer. Retained rows do not expose an ordered contiguous projection
     // slice, so the structural boundary still owns the final row copy.
     for row in rows {
-        project_slot_row_from_direct_field_slots_into(row, field_slots, &mut shaped)?;
+        project_slot_row_from_direct_slots_into(row, slots, cache_repeated_slots, &mut shaped)?;
         visit(RowView::Borrowed(shaped.as_slice()))?;
     }
 
     Ok(())
 }
 
-fn project_slot_row_from_direct_field_slots(
+fn project_slot_row_from_direct_slots(
     row: RetainedSlotRow,
-    field_slots: &[(String, usize)],
+    slots: &[usize],
 ) -> Result<Vec<Value>, InternalError> {
-    let mut shaped = Vec::with_capacity(field_slots.len());
-    project_slot_row_from_direct_field_slots_into(row, field_slots, &mut shaped)?;
+    let cache_repeated_slots = direct_slots_have_repeated_source(slots);
+    let mut shaped = Vec::with_capacity(slots.len());
+    project_slot_row_from_direct_slots_into(row, slots, cache_repeated_slots, &mut shaped)?;
 
     Ok(shaped)
 }
 
-fn project_slot_row_from_direct_field_slots_into(
+fn project_slot_row_from_direct_slots_into(
     mut row: RetainedSlotRow,
-    field_slots: &[(String, usize)],
+    slots: &[usize],
+    cache_repeated_slots: bool,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
     shaped.clear();
-    shaped.reserve(field_slots.len());
+    shaped.reserve(slots.len());
 
-    for (_field_name, slot) in field_slots {
-        let value = row
-            .take_slot(*slot)
-            .ok_or_else(|| ProjectionEvalError::missing_slot_value(*slot))
-            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+    for slot in slots {
+        let value = if cache_repeated_slots {
+            row.slot_ref(*slot).cloned()
+        } else {
+            row.take_slot(*slot)
+        }
+        .ok_or_else(|| ProjectionEvalError::missing_slot_value(*slot))
+        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
         shaped.push(value);
     }
 
@@ -391,22 +397,22 @@ fn project_slot_row_from_direct_field_slots_into(
 // reusable projection buffer is consumed before the next row clears it.
 fn visit_direct_data_row_views(
     row_layout: RowLayout,
-    field_slots: &[(String, usize)],
+    slots: &[usize],
     rows: &[DataRow],
     metrics: ProjectionMaterializationMetricsRecorder,
     mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
-    let cache_repeated_slots = direct_field_slots_have_repeated_source(field_slots);
+    let cache_repeated_slots = direct_slots_have_repeated_source(slots);
     let mut slot_cache = Vec::new();
-    let mut shaped = Vec::with_capacity(field_slots.len());
+    let mut shaped = Vec::with_capacity(slots.len());
 
     // Phase 1: open each structural row once, then decode only the declared
     // direct field slots into the reusable output buffer.
     for row in rows {
-        project_data_row_from_direct_field_slots_into(
+        project_data_row_from_direct_slots_into(
             &row_layout,
             row,
-            field_slots,
+            slots,
             metrics,
             cache_repeated_slots,
             &mut slot_cache,
@@ -418,19 +424,19 @@ fn visit_direct_data_row_views(
     Ok(())
 }
 
-fn project_data_row_from_direct_field_slots(
+fn project_data_row_from_direct_slots(
     row_layout: RowLayout,
     row: &DataRow,
-    field_slots: &[(String, usize)],
+    slots: &[usize],
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
-    let cache_repeated_slots = direct_field_slots_have_repeated_source(field_slots);
+    let cache_repeated_slots = direct_slots_have_repeated_source(slots);
     let mut slot_cache = Vec::new();
-    let mut shaped = Vec::with_capacity(field_slots.len());
-    project_data_row_from_direct_field_slots_into(
+    let mut shaped = Vec::with_capacity(slots.len());
+    project_data_row_from_direct_slots_into(
         &row_layout,
         row,
-        field_slots,
+        slots,
         metrics,
         cache_repeated_slots,
         &mut slot_cache,
@@ -440,10 +446,10 @@ fn project_data_row_from_direct_field_slots(
     Ok(shaped)
 }
 
-fn project_data_row_from_direct_field_slots_into(
+fn project_data_row_from_direct_slots_into(
     row_layout: &RowLayout,
     row: &DataRow,
-    field_slots: &[(String, usize)],
+    slots: &[usize],
     metrics: ProjectionMaterializationMetricsRecorder,
     cache_repeated_slots: bool,
     slot_cache: &mut Vec<Option<Value>>,
@@ -453,13 +459,13 @@ fn project_data_row_from_direct_field_slots_into(
     let (data_key, raw_row) = row;
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
-    shaped.reserve(field_slots.len());
+    shaped.reserve(slots.len());
     if cache_repeated_slots {
         slot_cache.clear();
         slot_cache.resize_with(row_fields.field_count(), || None);
     }
 
-    for (_field_name, slot) in field_slots {
+    for slot in slots {
         if cache_repeated_slots && let Some(Some(value)) = slot_cache.get(*slot) {
             shaped.push(value.clone());
             continue;
@@ -477,12 +483,9 @@ fn project_data_row_from_direct_field_slots_into(
     Ok(())
 }
 
-fn direct_field_slots_have_repeated_source(field_slots: &[(String, usize)]) -> bool {
-    for (index, (_field_name, slot)) in field_slots.iter().enumerate() {
-        if field_slots[index + 1..]
-            .iter()
-            .any(|(_field_name, other)| other == slot)
-        {
+fn direct_slots_have_repeated_source(slots: &[usize]) -> bool {
+    for (index, slot) in slots.iter().enumerate() {
+        if slots[index + 1..].iter().any(|other| other == slot) {
             return true;
         }
     }

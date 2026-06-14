@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::session::sql::with_sql_projection_materialization_metrics;
 
 const SMALL_THUMBNAIL_BYTES: usize = 1_024;
 const MEDIUM_THUMBNAIL_BYTES: usize = 8_192;
@@ -486,13 +487,18 @@ fn sql_octet_length_reports_blob_byte_lengths() {
     let session = sql_session();
     seed_blob_rows(&session);
 
-    let rows = statement_projection_rows::<SessionSqlBlobEntity>(
-        &session,
-        "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
-         FROM SessionSqlBlobEntity \
-         ORDER BY label ASC",
-    )
-    .expect("OCTET_LENGTH should project blob byte lengths");
+    let ((rows, projection_metrics), lane_metrics) =
+        crate::db::with_scalar_materialization_lane_metrics(|| {
+            with_sql_projection_materialization_metrics(|| {
+                statement_projection_rows::<SessionSqlBlobEntity>(
+                    &session,
+                    "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
+                     FROM SessionSqlBlobEntity \
+                     ORDER BY label ASC",
+                )
+                .expect("OCTET_LENGTH should project blob byte lengths")
+            })
+        });
 
     assert_eq!(
         rows,
@@ -514,6 +520,22 @@ fn sql_octet_length_reports_blob_byte_lengths() {
             ],
         ],
         "OCTET_LENGTH(blob) should count bytes without returning the payload",
+    );
+    assert_eq!(
+        projection_metrics.slot_rows_path_hits, 1,
+        "OCTET_LENGTH(blob) projection should materialize from retained slot rows",
+    );
+    assert_eq!(
+        projection_metrics.data_rows_path_hits, 0,
+        "OCTET_LENGTH(blob) projection should not fall back to generic data-row projection",
+    );
+    assert_eq!(
+        lane_metrics.kernel_slots_only_path_hits, 1,
+        "OCTET_LENGTH(blob) projection should retain only requested scalar slots",
+    );
+    assert_eq!(
+        lane_metrics.kernel_full_row_retained_path_hits, 0,
+        "OCTET_LENGTH(blob) projection should not retain full blob rows",
     );
 }
 

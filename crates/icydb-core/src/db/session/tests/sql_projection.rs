@@ -129,6 +129,36 @@ fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled
     }
 }
 
+#[test]
+fn execute_sql_projection_repeated_direct_field_uses_retained_slot_rows() {
+    let session = seeded_projection_window_session();
+
+    let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT DISTINCT age, age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+        )
+        .expect("repeated direct field projection should execute")
+    });
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Nat64(10), Value::Nat64(10)],
+            vec![Value::Nat64(20), Value::Nat64(20)],
+        ],
+        "repeated direct field projection should preserve output order and duplicate values",
+    );
+    assert_eq!(
+        metrics.slot_rows_path_hits, 1,
+        "repeated direct field projection should stay on retained slot rows",
+    );
+    assert_eq!(
+        metrics.data_rows_path_hits, 0,
+        "repeated direct field projection should not fall back to generic data rows",
+    );
+}
+
 // Seed the aggregate rows used by the bounded computed ORDER BY coverage in
 // this file.
 fn seed_projection_alias_order_aggregate_fixture(session: &DbSession<SessionSqlCanister>) {

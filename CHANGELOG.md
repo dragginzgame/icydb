@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Aligns the live SQL subset contract with the direct-stable storage hard cut:
+  current storage modes are `heap` and durable `journaled`, with direct
+  `stable` storage no longer documented as supported.
+- Narrows prepared SQL projection direct-slot contracts to slot indexes instead
+  of cloned field-name/slot pairs, while preserving repeated direct-field
+  projection on retained-slot rows.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)

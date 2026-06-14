@@ -49,11 +49,11 @@ pub(in crate::db) struct PreparedProjectionContract {
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
     #[cfg(any(test, feature = "sql"))]
-    retained_slot_direct_projection_field_slots: Option<Vec<(String, usize)>>,
+    retained_slot_direct_projection_slots: Option<Vec<usize>>,
     #[cfg(any(test, feature = "sql"))]
     retained_slot_direct_octet_length_projection_slots: Vec<Option<usize>>,
     #[cfg(any(test, feature = "sql"))]
-    data_row_direct_projection_field_slots: Option<Vec<(String, usize)>>,
+    data_row_direct_projection_slots: Option<Vec<usize>>,
     #[cfg(any(test, feature = "diagnostics"))]
     projected_slot_mask: Vec<bool>,
 }
@@ -85,10 +85,8 @@ impl PreparedProjectionContract {
 
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn retained_slot_direct_projection_field_slots(
-        &self,
-    ) -> Option<&[(String, usize)]> {
-        self.retained_slot_direct_projection_field_slots.as_deref()
+    pub(in crate::db) fn retained_slot_direct_projection_slots(&self) -> Option<&[usize]> {
+        self.retained_slot_direct_projection_slots.as_deref()
     }
 
     #[must_use]
@@ -102,10 +100,8 @@ impl PreparedProjectionContract {
 
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn data_row_direct_projection_field_slots(
-        &self,
-    ) -> Option<&[(String, usize)]> {
-        self.data_row_direct_projection_field_slots.as_deref()
+    pub(in crate::db) fn data_row_direct_projection_slots(&self) -> Option<&[usize]> {
+        self.data_row_direct_projection_slots.as_deref()
     }
 
     #[cfg(any(test, feature = "diagnostics"))]
@@ -121,17 +117,17 @@ impl PreparedProjectionContract {
         projection: ProjectionSpec,
         prepared: PreparedProjectionPlan,
         projection_is_model_identity: bool,
-        retained_slot_direct_projection_field_slots: Option<Vec<(String, usize)>>,
-        data_row_direct_projection_field_slots: Option<Vec<(String, usize)>>,
+        retained_slot_direct_projection_slots: Option<Vec<usize>>,
+        data_row_direct_projection_slots: Option<Vec<usize>>,
         projected_slot_mask: Vec<bool>,
     ) -> Self {
         Self {
             projection,
             prepared,
             projection_is_model_identity,
-            retained_slot_direct_projection_field_slots,
+            retained_slot_direct_projection_slots,
             retained_slot_direct_octet_length_projection_slots: Vec::new(),
-            data_row_direct_projection_field_slots,
+            data_row_direct_projection_slots,
             projected_slot_mask,
         }
     }
@@ -182,11 +178,8 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
         )
         .to_vec();
     #[cfg(any(test, feature = "sql"))]
-    let retained_slot_direct_projection_field_slots =
-        retained_slot_direct_projection_field_slots_from_projection(
-            &projection,
-            plan.frozen_direct_projection_slots(),
-        );
+    let retained_slot_direct_projection_slots =
+        direct_projection_slots_from_projection(&projection, plan.frozen_direct_projection_slots());
     #[cfg(any(test, feature = "sql"))]
     let retained_slot_direct_octet_length_projection_slots =
         retained_slot_direct_octet_length_projection_slots_from_compiled(
@@ -194,11 +187,10 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
             &compiled_projection,
         );
     #[cfg(any(test, feature = "sql"))]
-    let data_row_direct_projection_field_slots =
-        data_row_direct_projection_field_slots_from_projection(
-            &projection,
-            plan.frozen_data_row_direct_projection_slots(),
-        );
+    let data_row_direct_projection_slots = direct_projection_slots_from_projection(
+        &projection,
+        plan.frozen_data_row_direct_projection_slots(),
+    );
     #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask =
         projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask());
@@ -211,11 +203,11 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
         prepared: PreparedProjectionPlan::Scalar(compiled_projection),
         projection_is_model_identity: plan.projection_is_model_identity(),
         #[cfg(any(test, feature = "sql"))]
-        retained_slot_direct_projection_field_slots,
+        retained_slot_direct_projection_slots,
         #[cfg(any(test, feature = "sql"))]
         retained_slot_direct_octet_length_projection_slots,
         #[cfg(any(test, feature = "sql"))]
-        data_row_direct_projection_field_slots,
+        data_row_direct_projection_slots,
         #[cfg(any(test, feature = "diagnostics"))]
         projected_slot_mask,
     }
@@ -245,44 +237,22 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
 // evaluating the expression itself. Nested path evaluation requires raw
 // persisted bytes and remains owned by the canonical projection executor.
 #[cfg(any(test, feature = "sql"))]
-fn retained_slot_direct_projection_field_slots_from_projection(
+fn direct_projection_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
-) -> Option<Vec<(String, usize)>> {
+) -> Option<Vec<usize>> {
     let direct_projection_slots = direct_projection_slots?;
-    let mut field_slots = Vec::with_capacity(direct_projection_slots.len());
+    let mut slots = Vec::with_capacity(direct_projection_slots.len());
 
     for (field, slot) in projection
         .fields()
         .zip(direct_projection_slots.iter().copied())
     {
-        let field_name = field.direct_field_name()?;
-        field_slots.push((field_name.to_string(), slot));
+        field.direct_field_name()?;
+        slots.push(slot);
     }
 
-    Some(field_slots)
-}
-
-#[cfg(any(test, feature = "sql"))]
-fn data_row_direct_projection_field_slots_from_projection(
-    projection: &ProjectionSpec,
-    direct_projection_slots: Option<&[usize]>,
-) -> Option<Vec<(String, usize)>> {
-    let direct_projection_slots = direct_projection_slots?;
-    let mut field_slots = Vec::with_capacity(direct_projection_slots.len());
-
-    // Phase 1: preserve canonical output order exactly as declared. Unlike
-    // retained-slot rows, raw data rows can repeat source slots and let the
-    // materializer reuse the decoded value within one output row.
-    for (field, slot) in projection
-        .fields()
-        .zip(direct_projection_slots.iter().copied())
-    {
-        let field_name = field.direct_field_name()?;
-        field_slots.push((field_name.to_string(), slot));
-    }
-
-    Some(field_slots)
+    Some(slots)
 }
 
 #[cfg(any(test, feature = "sql"))]

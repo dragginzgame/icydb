@@ -136,13 +136,13 @@ Generated `__icydb_query` gates `EXPLAIN`, `DESCRIBE`, and `SHOW` by
 `[canisters.<name>.sql.introspection]`. The default policy is `local = true`
 and `ic = false`; direct builds with an unknown target fail closed.
 
-Storage modes have distinct contracts. `stable` is direct durable
-stable-memory storage. `heap` is volatile live storage with absent stable
-allocation identity and no row/index recovery. `journaled` is a durable
-cached-stable store: live reads use Rust BTree projections, committed journal
-records are folded into canonical stable data/index/schema BTrees, and
-`SHOW MEMORY` reports the fourth journal-tail memory role separately from the
-three canonical stable roles.
+Storage modes have distinct contracts. `heap` is volatile live storage with
+absent stable allocation identity and no row/index recovery. `journaled` is
+the durable cached-stable store: live reads use Rust BTree projections,
+committed journal records are folded into canonical stable data/index/schema
+BTrees, and `SHOW MEMORY` reports the fourth journal-tail memory role
+separately from the three canonical stable roles. Direct `stable` storage is
+not a supported current storage mode.
 
 `SHOW INDEXES` includes index lifecycle and origin annotations. Generated
 entity-model indexes report `origin=generated`; indexes added through SQL DDL
