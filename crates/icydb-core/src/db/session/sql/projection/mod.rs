@@ -9,6 +9,8 @@ mod labels;
 mod payload;
 mod runtime;
 
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db::session::sql) use crate::db::session::sql::projection::runtime::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;
 #[cfg(all(test, feature = "sql", not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::runtime::with_sql_projection_materialization_metrics;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]

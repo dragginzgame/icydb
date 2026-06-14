@@ -17,7 +17,7 @@ use crate::db::executor::{
 #[cfg(feature = "sql")]
 use crate::{
     db::{
-        Db,
+        Db, DirectDataRowAttribution,
         executor::{
             SharedPreparedExecutionPlan, StructuralProjectionRequest,
             execute_structural_projection_result,
@@ -27,6 +27,10 @@ use crate::{
     traits::CanisterKind,
     value::Value,
 };
+
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+type SqlProjectionRowsWithDirectAttribution =
+    ((Vec<Vec<Value>>, u32), Option<DirectDataRowAttribution>);
 
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::runtime::materialize::{
@@ -94,4 +98,46 @@ where
     let projected = result.into_value_rows();
 
     Ok((projected, row_count))
+}
+
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+/// Execute one SQL scalar projection while collecting direct data-row subphase
+/// counters for perf-audit attribution.
+pub(in crate::db) fn execute_sql_projection_rows_for_canister_with_direct_data_row_attribution<C>(
+    db: &Db<C>,
+    debug: bool,
+    prepared_plan: SharedPreparedExecutionPlan,
+) -> Result<SqlProjectionRowsWithDirectAttribution, InternalError>
+where
+    C: CanisterKind,
+{
+    let (rows, direct_data_row) =
+        crate::db::executor::with_direct_data_row_phase_attribution(|| {
+            execute_sql_projection_rows_for_canister(db, debug, prepared_plan)
+        });
+    let rows = rows?;
+    let direct_data_row = DirectDataRowAttribution {
+        scan_local_instructions: direct_data_row.scan_local_instructions,
+        key_stream_local_instructions: direct_data_row.key_stream_local_instructions,
+        row_read_local_instructions: direct_data_row.row_read_local_instructions,
+        key_encode_local_instructions: direct_data_row.key_encode_local_instructions,
+        store_get_local_instructions: direct_data_row.store_get_local_instructions,
+        order_window_local_instructions: direct_data_row.order_window_local_instructions,
+        page_window_local_instructions: direct_data_row.page_window_local_instructions,
+    };
+    let direct_data_row =
+        direct_data_row_attribution_has_work(direct_data_row).then_some(direct_data_row);
+
+    Ok((rows, direct_data_row))
+}
+
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+const fn direct_data_row_attribution_has_work(attribution: DirectDataRowAttribution) -> bool {
+    attribution.scan_local_instructions != 0
+        || attribution.key_stream_local_instructions != 0
+        || attribution.row_read_local_instructions != 0
+        || attribution.key_encode_local_instructions != 0
+        || attribution.store_get_local_instructions != 0
+        || attribution.order_window_local_instructions != 0
+        || attribution.page_window_local_instructions != 0
 }

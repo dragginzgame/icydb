@@ -28,6 +28,8 @@ use crate::{
 use super::diagnostics::GroupedSqlDiagnosticsCollector;
 #[cfg(feature = "diagnostics")]
 use super::diagnostics::measure_execute_phase_with_physical_access;
+#[cfg(feature = "diagnostics")]
+use crate::db::session::sql::projection::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;
 
 impl<C: CanisterKind> DbSession<C> {
     // Convert one grouped executor result plus SQL projection labels into the
@@ -254,6 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
                     grouped_count: grouped_phase_attribution.grouped_count,
                     scalar_aggregate_terminal:
                         crate::db::executor::ScalarAggregateTerminalAttribution::none(),
+                    direct_data_row: None,
                 },
             ));
         }
@@ -263,14 +266,21 @@ impl<C: CanisterKind> DbSession<C> {
 
         let ((execute_local_instructions, store_local_instructions), payload) =
             measure_execute_phase_with_physical_access(move || {
-                self.execute_sql_projection_from_structural_prepared_plan(
+                let (columns, fixed_scales) = projection.into_components();
+                execute_sql_projection_rows_for_canister_with_direct_data_row_attribution(
+                    &self.db,
+                    self.debug,
                     prepared_plan,
-                    projection,
-                    SqlCacheAttribution::default(),
                 )
-                .map(|(payload, _)| payload)
+                .map(|((rows, row_count), direct_data_row)| {
+                    (
+                        SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
+                        direct_data_row,
+                    )
+                })
+                .map_err(QueryError::execute)
             });
-        let payload = payload?;
+        let (payload, direct_data_row) = payload?;
         let (response_finalization_local_instructions, statement_result) =
             measure_sql_stage(|| Ok::<_, QueryError>(payload.into_statement_result()));
         let statement_result = statement_result?;
@@ -291,6 +301,7 @@ impl<C: CanisterKind> DbSession<C> {
                 grouped_count: crate::db::executor::GroupedCountAttribution::none(),
                 scalar_aggregate_terminal:
                     crate::db::executor::ScalarAggregateTerminalAttribution::none(),
+                direct_data_row,
             },
         ))
     }

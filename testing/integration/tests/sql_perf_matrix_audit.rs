@@ -152,6 +152,13 @@ struct MatrixSample {
     grouped_finalize_local_instructions: u64,
     pure_covering_decode_local_instructions: u64,
     pure_covering_row_assembly_local_instructions: u64,
+    direct_data_row_scan_local_instructions: u64,
+    direct_data_row_key_stream_local_instructions: u64,
+    direct_data_row_row_read_local_instructions: u64,
+    direct_data_row_key_encode_local_instructions: u64,
+    direct_data_row_store_get_local_instructions: u64,
+    direct_data_row_order_window_local_instructions: u64,
+    direct_data_row_page_window_local_instructions: u64,
     store_get_calls: u64,
     sql_compiled_command_hits: u64,
     sql_compiled_command_misses: u64,
@@ -1010,6 +1017,7 @@ fn sample_scenario(
     let attribution = perf.attribution;
     let grouped = attribution.grouped;
     let pure_covering = attribution.pure_covering;
+    let direct_data_row = attribution.direct_data_row;
 
     Ok(MatrixSample {
         key: scenario.key.clone(),
@@ -1033,6 +1041,20 @@ fn sample_scenario(
         pure_covering_row_assembly_local_instructions: pure_covering.map_or(0, |pure_covering| {
             pure_covering.row_assembly_local_instructions
         }),
+        direct_data_row_scan_local_instructions: direct_data_row
+            .map_or(0, |direct| direct.scan_local_instructions),
+        direct_data_row_key_stream_local_instructions: direct_data_row
+            .map_or(0, |direct| direct.key_stream_local_instructions),
+        direct_data_row_row_read_local_instructions: direct_data_row
+            .map_or(0, |direct| direct.row_read_local_instructions),
+        direct_data_row_key_encode_local_instructions: direct_data_row
+            .map_or(0, |direct| direct.key_encode_local_instructions),
+        direct_data_row_store_get_local_instructions: direct_data_row
+            .map_or(0, |direct| direct.store_get_local_instructions),
+        direct_data_row_order_window_local_instructions: direct_data_row
+            .map_or(0, |direct| direct.order_window_local_instructions),
+        direct_data_row_page_window_local_instructions: direct_data_row
+            .map_or(0, |direct| direct.page_window_local_instructions),
         store_get_calls: attribution.store_get_calls,
         sql_compiled_command_hits: attribution.cache.sql_compiled_command_hits,
         sql_compiled_command_misses: attribution.cache.sql_compiled_command_misses,
@@ -1206,6 +1228,27 @@ fn matrix_markdown(report: &MatrixReport) -> String {
         "Top Store Gets",
         ranked_by(&report.samples, |sample| sample.store_get_calls),
     );
+    append_direct_data_row_table(
+        &mut output,
+        "Top Direct Data-Row Scan Instructions",
+        ranked_by(&report.samples, |sample| {
+            sample.direct_data_row_scan_local_instructions
+        }),
+    );
+    append_direct_data_row_table(
+        &mut output,
+        "Top Direct Data-Row Row-Read Instructions",
+        ranked_by(&report.samples, |sample| {
+            sample.direct_data_row_row_read_local_instructions
+        }),
+    );
+    append_direct_data_row_table(
+        &mut output,
+        "Top Direct Data-Row Order-Window Instructions",
+        ranked_by(&report.samples, |sample| {
+            sample.direct_data_row_order_window_local_instructions
+        }),
+    );
     append_storage_backend_comparison_table(&mut output, &report.samples);
     append_failure_table(&mut output, &report.failures);
 
@@ -1257,6 +1300,44 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
             sample.executor_local_instructions,
             sample.store_get_calls,
             sample.outcome.row_count,
+            sample.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_direct_data_row_table(output: &mut String, title: &str, samples: Vec<&MatrixSample>) {
+    let samples = samples
+        .into_iter()
+        .filter(|sample| sample.direct_data_row_scan_local_instructions > 0)
+        .collect::<Vec<_>>();
+    if samples.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Scan | Key Stream | Row Read | Key Encode | Store Get | Order Window | Page Window | SQL |"
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---:|---:|---:|---:|---:|---:|---:|---|")
+        .expect("write to string should succeed");
+    for sample in samples {
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            sample.key,
+            sample.surface,
+            sample.direct_data_row_scan_local_instructions,
+            sample.direct_data_row_key_stream_local_instructions,
+            sample.direct_data_row_row_read_local_instructions,
+            sample.direct_data_row_key_encode_local_instructions,
+            sample.direct_data_row_store_get_local_instructions,
+            sample.direct_data_row_order_window_local_instructions,
+            sample.direct_data_row_page_window_local_instructions,
             sample.sql.replace('|', "\\|"),
         )
         .expect("write to string should succeed");
@@ -1528,6 +1609,13 @@ fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> Ma
         grouped_finalize_local_instructions: 0,
         pure_covering_decode_local_instructions: 0,
         pure_covering_row_assembly_local_instructions: 0,
+        direct_data_row_scan_local_instructions: 0,
+        direct_data_row_key_stream_local_instructions: 0,
+        direct_data_row_row_read_local_instructions: 0,
+        direct_data_row_key_encode_local_instructions: 0,
+        direct_data_row_store_get_local_instructions: 0,
+        direct_data_row_order_window_local_instructions: 0,
+        direct_data_row_page_window_local_instructions: 0,
         store_get_calls: 1,
         sql_compiled_command_hits: 0,
         sql_compiled_command_misses: 1,

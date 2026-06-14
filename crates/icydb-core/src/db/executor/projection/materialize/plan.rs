@@ -35,17 +35,20 @@ pub(in crate::db) enum PreparedProjectionPlan {
 }
 
 #[derive(Debug)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct PreparedDirectProjectionSlots {
     projections: Vec<PreparedDirectProjectionSlot>,
     has_repeated_source: bool,
 }
 
 #[derive(Debug)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct PreparedDirectProjectionSlot {
     source_slot: usize,
     previous_projection_index: Option<usize>,
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl PreparedDirectProjectionSlots {
     #[must_use]
     fn from_slots(slots: Vec<usize>) -> Self {
@@ -85,6 +88,7 @@ impl PreparedDirectProjectionSlots {
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl PreparedDirectProjectionSlot {
     #[must_use]
     pub(in crate::db) const fn source_slot(&self) -> usize {

@@ -165,6 +165,8 @@ pub(in crate::db::executor) use stream::key::{
 };
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(feature = "diagnostics")]
+pub(in crate::db) use terminal::with_direct_data_row_phase_attribution;
+#[cfg(feature = "diagnostics")]
 pub use terminal::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use terminal::{

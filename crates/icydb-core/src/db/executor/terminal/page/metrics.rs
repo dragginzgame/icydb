@@ -42,14 +42,14 @@ pub struct ScalarMaterializationLaneMetrics {
 #[cfg(feature = "diagnostics")]
 #[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db::executor) struct DirectDataRowPhaseAttribution {
-    pub(in crate::db::executor) scan_local_instructions: u64,
-    pub(in crate::db::executor) key_stream_local_instructions: u64,
-    pub(in crate::db::executor) row_read_local_instructions: u64,
-    pub(in crate::db::executor) key_encode_local_instructions: u64,
-    pub(in crate::db::executor) store_get_local_instructions: u64,
-    pub(in crate::db::executor) order_window_local_instructions: u64,
-    pub(in crate::db::executor) page_window_local_instructions: u64,
+pub(in crate::db) struct DirectDataRowPhaseAttribution {
+    pub(in crate::db) scan_local_instructions: u64,
+    pub(in crate::db) key_stream_local_instructions: u64,
+    pub(in crate::db) row_read_local_instructions: u64,
+    pub(in crate::db) key_encode_local_instructions: u64,
+    pub(in crate::db) store_get_local_instructions: u64,
+    pub(in crate::db) order_window_local_instructions: u64,
+    pub(in crate::db) page_window_local_instructions: u64,
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
@@ -228,7 +228,7 @@ fn update_direct_data_row_phase_attribution(
 }
 
 #[cfg(feature = "diagnostics")]
-pub(in crate::db::executor) fn with_direct_data_row_phase_attribution<T>(
+pub(in crate::db) fn with_direct_data_row_phase_attribution<T>(
     f: impl FnOnce() -> T,
 ) -> (T, DirectDataRowPhaseAttribution) {
     let previous = DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {

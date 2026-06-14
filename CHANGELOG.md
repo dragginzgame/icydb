@@ -7,15 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Moves SQL projection repeated direct-slot detection into the prepared
-  materialization contract so row projection paths reuse planner-derived slot
-  metadata, split unique/repeated direct projection loops, and clone repeated
-  output columns from already materialized values instead of schema-width
-  source caches.
-
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.10` adds direct data-row subphase attribution to SQL perf-matrix
+  reports and narrows SQL-only direct projection helpers out of non-SQL builds.
+
+- `0.182.9` moves SQL projection repeated direct-slot handling into the
+  prepared materialization contract so repeated output columns reuse already
+  materialized values.
 
 - `0.182.8` narrows SQL projection direct-slot materialization contracts and
   aligns the live SQL subset storage contract with the direct-stable hard cut.
