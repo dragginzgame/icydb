@@ -5,7 +5,7 @@
 
 #[cfg(feature = "diagnostics")]
 use crate::db::{
-    DirectDataRowAttribution, GroupedExecutionAttribution,
+    DirectDataRowAttribution, GroupedExecutionAttribution, KernelRowAttribution,
     executor::{
         GroupedCountAttribution as ExecutorGroupedCountAttribution,
         ScalarAggregateTerminalAttribution,
@@ -147,6 +147,7 @@ pub struct SqlQueryExecutionAttribution {
     pub plan_lookup_local_instructions: u64,
     pub execution: SqlExecutionAttribution,
     pub direct_data_row: Option<DirectDataRowAttribution>,
+    pub kernel_row: Option<KernelRowAttribution>,
     pub grouped: Option<GroupedExecutionAttribution>,
     pub scalar_aggregate: Option<SqlScalarAggregateAttribution>,
     pub pure_covering: Option<SqlPureCoveringAttribution>,
@@ -178,6 +179,7 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub grouped_count: ExecutorGroupedCountAttribution,
     pub scalar_aggregate_terminal: ScalarAggregateTerminalAttribution,
     pub direct_data_row: Option<DirectDataRowAttribution>,
+    pub kernel_row: Option<KernelRowAttribution>,
 }
 
 #[cfg(feature = "diagnostics")]
@@ -200,6 +202,7 @@ impl SqlExecutePhaseAttribution {
             grouped_count: ExecutorGroupedCountAttribution::none(),
             scalar_aggregate_terminal: ScalarAggregateTerminalAttribution::none(),
             direct_data_row: None,
+            kernel_row: None,
         }
     }
 }

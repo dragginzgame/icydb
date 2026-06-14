@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   projections so accepted rows do not reopen the same raw row during
   projection/order materialization.
 
+- Adds retained/kernel row phase attribution to SQL perf-matrix reports so
+  scan, key-stream, row-read, ordering, and page-window costs are visible.
+
+- Drops scan-time filter-only slots from retained SQL projection rows when
+  projection, ordering, or cursor slots already keep the scan-time filter lane
+  available.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)

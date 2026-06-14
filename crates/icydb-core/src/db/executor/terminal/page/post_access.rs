@@ -14,6 +14,11 @@ use crate::{
     error::InternalError,
 };
 
+#[cfg(feature = "diagnostics")]
+use super::metrics::{
+    measure_kernel_row_phase, record_kernel_row_order_window_local_instructions,
+    record_kernel_row_page_window_local_instructions,
+};
 use super::plan::{PostAccessPredicateStrategy, PostAccessStrategy};
 
 // Run canonical post-access phases over kernel rows.
@@ -67,7 +72,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
                 if rows.iter().any(|row| !row.has_materialized_slots()) {
                     return Err(InternalError::query_executor_invariant());
                 }
-                apply_structural_order_window(
+                apply_measured_structural_order_window(
                     rows,
                     resolved_order,
                     ExecutionKernel::bounded_order_keep_count(plan, cursor),
@@ -99,7 +104,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
         } else {
             let resolved_order = cursor.map(|_| plan.require_resolved_order()).transpose()?;
 
-            apply_load_cursor_and_pagination_window(
+            apply_measured_load_cursor_and_pagination_window(
                 rows,
                 cursor
                     .zip(resolved_order)
@@ -123,6 +128,41 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     }
 
     Ok(rows_after_cursor)
+}
+
+fn apply_measured_structural_order_window(
+    rows: &mut Vec<KernelRow>,
+    resolved_order: &ResolvedOrder,
+    keep_count: Option<usize>,
+) {
+    #[cfg(feature = "diagnostics")]
+    let (order_window_local_instructions, ()) = measure_kernel_row_phase(|| {
+        apply_structural_order_window(rows, resolved_order, keep_count);
+    });
+    #[cfg(feature = "diagnostics")]
+    record_kernel_row_order_window_local_instructions(order_window_local_instructions);
+    #[cfg(not(feature = "diagnostics"))]
+    apply_structural_order_window(rows, resolved_order, keep_count);
+}
+
+fn apply_measured_load_cursor_and_pagination_window(
+    rows: &mut Vec<KernelRow>,
+    cursor: Option<(&ResolvedOrder, &CursorBoundary)>,
+    offset: u32,
+    limit: Option<u32>,
+) -> usize {
+    #[cfg(feature = "diagnostics")]
+    {
+        let (page_window_local_instructions, rows_after_cursor) = measure_kernel_row_phase(|| {
+            apply_load_cursor_and_pagination_window(rows, cursor, offset, limit)
+        });
+        record_kernel_row_page_window_local_instructions(page_window_local_instructions);
+
+        rows_after_cursor
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    apply_load_cursor_and_pagination_window(rows, cursor, offset, limit)
 }
 
 // Evaluate one planner-frozen residual scalar filter program against one

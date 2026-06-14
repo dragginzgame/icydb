@@ -159,6 +159,11 @@ struct MatrixSample {
     direct_data_row_store_get_local_instructions: u64,
     direct_data_row_order_window_local_instructions: u64,
     direct_data_row_page_window_local_instructions: u64,
+    kernel_row_scan_local_instructions: u64,
+    kernel_row_key_stream_local_instructions: u64,
+    kernel_row_row_read_local_instructions: u64,
+    kernel_row_order_window_local_instructions: u64,
+    kernel_row_page_window_local_instructions: u64,
     store_get_calls: u64,
     sql_compiled_command_hits: u64,
     sql_compiled_command_misses: u64,
@@ -1067,6 +1072,7 @@ fn sample_scenario(
     let grouped = attribution.grouped;
     let pure_covering = attribution.pure_covering;
     let direct_data_row = attribution.direct_data_row;
+    let kernel_row = attribution.kernel_row;
 
     Ok(MatrixSample {
         key: scenario.key.clone(),
@@ -1104,6 +1110,16 @@ fn sample_scenario(
             .map_or(0, |direct| direct.order_window_local_instructions),
         direct_data_row_page_window_local_instructions: direct_data_row
             .map_or(0, |direct| direct.page_window_local_instructions),
+        kernel_row_scan_local_instructions: kernel_row
+            .map_or(0, |kernel| kernel.scan_local_instructions),
+        kernel_row_key_stream_local_instructions: kernel_row
+            .map_or(0, |kernel| kernel.key_stream_local_instructions),
+        kernel_row_row_read_local_instructions: kernel_row
+            .map_or(0, |kernel| kernel.row_read_local_instructions),
+        kernel_row_order_window_local_instructions: kernel_row
+            .map_or(0, |kernel| kernel.order_window_local_instructions),
+        kernel_row_page_window_local_instructions: kernel_row
+            .map_or(0, |kernel| kernel.page_window_local_instructions),
         store_get_calls: attribution.store_get_calls,
         sql_compiled_command_hits: attribution.cache.sql_compiled_command_hits,
         sql_compiled_command_misses: attribution.cache.sql_compiled_command_misses,
@@ -1251,61 +1267,92 @@ fn matrix_markdown(report: &MatrixReport) -> String {
     }
     writeln!(output).expect("write to string should succeed");
 
-    append_ranked_table(
-        &mut output,
-        "Top Total Instructions",
-        ranked_by(&report.samples, |sample| sample.total_local_instructions),
-    );
-    append_ranked_table(
-        &mut output,
-        "Top Compile Instructions",
-        ranked_by(&report.samples, |sample| sample.compile_local_instructions),
-    );
-    append_ranked_table(
-        &mut output,
-        "Top Execute Instructions",
-        ranked_by(&report.samples, |sample| sample.execute_local_instructions),
-    );
-    append_ranked_table(
-        &mut output,
-        "Top Store Instructions",
-        ranked_by(&report.samples, |sample| sample.store_local_instructions),
-    );
-    append_ranked_table(
-        &mut output,
-        "Top Executor Instructions",
-        ranked_by(&report.samples, |sample| sample.executor_local_instructions),
-    );
-    append_ranked_table(
-        &mut output,
-        "Top Store Gets",
-        ranked_by(&report.samples, |sample| sample.store_get_calls),
-    );
-    append_direct_data_row_table(
-        &mut output,
-        "Top Direct Data-Row Scan Instructions",
-        ranked_by(&report.samples, |sample| {
-            sample.direct_data_row_scan_local_instructions
-        }),
-    );
-    append_direct_data_row_table(
-        &mut output,
-        "Top Direct Data-Row Row-Read Instructions",
-        ranked_by(&report.samples, |sample| {
-            sample.direct_data_row_row_read_local_instructions
-        }),
-    );
-    append_direct_data_row_table(
-        &mut output,
-        "Top Direct Data-Row Order-Window Instructions",
-        ranked_by(&report.samples, |sample| {
-            sample.direct_data_row_order_window_local_instructions
-        }),
-    );
+    append_instruction_hotspot_tables(&mut output, &report.samples);
     append_storage_backend_comparison_table(&mut output, &report.samples);
     append_failure_table(&mut output, &report.failures);
 
     output
+}
+
+fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
+    append_ranked_table(
+        output,
+        "Top Total Instructions",
+        ranked_by(samples, |sample| sample.total_local_instructions),
+    );
+    append_ranked_table(
+        output,
+        "Top Compile Instructions",
+        ranked_by(samples, |sample| sample.compile_local_instructions),
+    );
+    append_ranked_table(
+        output,
+        "Top Execute Instructions",
+        ranked_by(samples, |sample| sample.execute_local_instructions),
+    );
+    append_ranked_table(
+        output,
+        "Top Store Instructions",
+        ranked_by(samples, |sample| sample.store_local_instructions),
+    );
+    append_ranked_table(
+        output,
+        "Top Executor Instructions",
+        ranked_by(samples, |sample| sample.executor_local_instructions),
+    );
+    append_ranked_table(
+        output,
+        "Top Store Gets",
+        ranked_by(samples, |sample| sample.store_get_calls),
+    );
+    append_direct_data_row_hotspot_tables(output, samples);
+    append_kernel_row_hotspot_tables(output, samples);
+}
+
+fn append_direct_data_row_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
+    append_direct_data_row_table(
+        output,
+        "Top Direct Data-Row Scan Instructions",
+        ranked_by(samples, |sample| {
+            sample.direct_data_row_scan_local_instructions
+        }),
+    );
+    append_direct_data_row_table(
+        output,
+        "Top Direct Data-Row Row-Read Instructions",
+        ranked_by(samples, |sample| {
+            sample.direct_data_row_row_read_local_instructions
+        }),
+    );
+    append_direct_data_row_table(
+        output,
+        "Top Direct Data-Row Order-Window Instructions",
+        ranked_by(samples, |sample| {
+            sample.direct_data_row_order_window_local_instructions
+        }),
+    );
+}
+
+fn append_kernel_row_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
+    append_kernel_row_table(
+        output,
+        "Top Kernel Row Scan Instructions",
+        ranked_by(samples, |sample| sample.kernel_row_scan_local_instructions),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Kernel Row Row-Read Instructions",
+        ranked_by(samples, |sample| {
+            sample.kernel_row_row_read_local_instructions
+        }),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Kernel Row Order-Window Instructions",
+        ranked_by(samples, |sample| {
+            sample.kernel_row_order_window_local_instructions
+        }),
+    );
 }
 
 fn matrix_mode_from_report(report: &MatrixReport) -> MatrixMode {
@@ -1391,6 +1438,42 @@ fn append_direct_data_row_table(output: &mut String, title: &str, samples: Vec<&
             sample.direct_data_row_store_get_local_instructions,
             sample.direct_data_row_order_window_local_instructions,
             sample.direct_data_row_page_window_local_instructions,
+            sample.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_kernel_row_table(output: &mut String, title: &str, samples: Vec<&MatrixSample>) {
+    let samples = samples
+        .into_iter()
+        .filter(|sample| sample.kernel_row_scan_local_instructions > 0)
+        .collect::<Vec<_>>();
+    if samples.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Scan | Key Stream | Row Read | Order Window | Page Window | SQL |"
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---:|---:|---:|---:|---:|---|")
+        .expect("write to string should succeed");
+    for sample in samples {
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | {} | {} | `{}` |",
+            sample.key,
+            sample.surface,
+            sample.kernel_row_scan_local_instructions,
+            sample.kernel_row_key_stream_local_instructions,
+            sample.kernel_row_row_read_local_instructions,
+            sample.kernel_row_order_window_local_instructions,
+            sample.kernel_row_page_window_local_instructions,
             sample.sql.replace('|', "\\|"),
         )
         .expect("write to string should succeed");
@@ -1694,6 +1777,11 @@ fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> Ma
         direct_data_row_store_get_local_instructions: 0,
         direct_data_row_order_window_local_instructions: 0,
         direct_data_row_page_window_local_instructions: 0,
+        kernel_row_scan_local_instructions: 0,
+        kernel_row_key_stream_local_instructions: 0,
+        kernel_row_row_read_local_instructions: 0,
+        kernel_row_order_window_local_instructions: 0,
+        kernel_row_page_window_local_instructions: 0,
         store_get_calls: 1,
         sql_compiled_command_hits: 0,
         sql_compiled_command_misses: 1,

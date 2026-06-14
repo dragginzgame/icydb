@@ -575,6 +575,7 @@ impl<C: CanisterKind> DbSession<C> {
                         .response_finalization_local_instructions,
                 },
                 direct_data_row: execute_phase_attribution.direct_data_row,
+                kernel_row: execute_phase_attribution.kernel_row,
                 grouped,
                 scalar_aggregate: SqlScalarAggregateAttribution::from_executor(
                     execute_phase_attribution.scalar_aggregate_terminal,

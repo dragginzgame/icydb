@@ -35,6 +35,39 @@ pub struct DirectDataRowAttribution {
     pub page_window_local_instructions: u64,
 }
 
+// KernelRowAttribution
+//
+// Candid diagnostics payload for retained/data kernel-row execution counters.
+// The short field names are scoped by the `kernel_row` parent field on
+// `QueryExecutionAttribution`.
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct KernelRowAttribution {
+    pub scan_local_instructions: u64,
+    pub key_stream_local_instructions: u64,
+    pub row_read_local_instructions: u64,
+    pub order_window_local_instructions: u64,
+    pub page_window_local_instructions: u64,
+}
+
+impl KernelRowAttribution {
+    pub(in crate::db) fn from_scalar_phase(phase: ScalarExecutePhaseAttribution) -> Option<Self> {
+        let attribution = Self {
+            scan_local_instructions: phase.kernel_row_scan_local_instructions,
+            key_stream_local_instructions: phase.kernel_row_key_stream_local_instructions,
+            row_read_local_instructions: phase.kernel_row_row_read_local_instructions,
+            order_window_local_instructions: phase.kernel_row_order_window_local_instructions,
+            page_window_local_instructions: phase.kernel_row_page_window_local_instructions,
+        };
+
+        (attribution.scan_local_instructions != 0
+            || attribution.key_stream_local_instructions != 0
+            || attribution.row_read_local_instructions != 0
+            || attribution.order_window_local_instructions != 0
+            || attribution.page_window_local_instructions != 0)
+            .then_some(attribution)
+    }
+}
+
 // GroupedCountAttribution
 //
 // Candid diagnostics payload for grouped COUNT fold counters.
@@ -103,6 +136,7 @@ pub struct QueryExecutionAttribution {
     pub runtime_local_instructions: u64,
     pub finalize_local_instructions: u64,
     pub direct_data_row: Option<DirectDataRowAttribution>,
+    pub kernel_row: Option<KernelRowAttribution>,
     pub grouped: Option<GroupedExecutionAttribution>,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
@@ -132,6 +166,7 @@ struct QueryExecutePhaseAttribution {
     route_plan_local_instructions: u64,
     runtime_prepare_local_instructions: u64,
     direct_data_row: Option<DirectDataRowAttribution>,
+    kernel_row: Option<KernelRowAttribution>,
     grouped: Option<GroupedExecutionAttribution>,
 }
 
@@ -149,11 +184,12 @@ impl<C: CanisterKind> DbSession<C> {
             runtime_local_instructions: 0,
             finalize_local_instructions: 0,
             direct_data_row: None,
+            kernel_row: None,
             grouped: None,
         }
     }
 
-    const fn scalar_query_execute_phase_attribution(
+    fn scalar_query_execute_phase_attribution(
         phase: ScalarExecutePhaseAttribution,
         executor_invocation_local_instructions: u64,
     ) -> QueryExecutePhaseAttribution {
@@ -181,6 +217,7 @@ impl<C: CanisterKind> DbSession<C> {
                 page_window_local_instructions: phase
                     .direct_data_row_page_window_local_instructions,
             }),
+            kernel_row: KernelRowAttribution::from_scalar_phase(phase),
             grouped: None,
         }
     }
@@ -204,6 +241,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .saturating_add(phase.fold_local_instructions),
             finalize_local_instructions: phase.finalize_local_instructions,
             direct_data_row: None,
+            kernel_row: None,
             grouped: Some(GroupedExecutionAttribution {
                 stream_local_instructions: phase.stream_local_instructions,
                 fold_local_instructions: phase.fold_local_instructions,
@@ -273,6 +311,7 @@ impl<C: CanisterKind> DbSession<C> {
                 runtime_local_instructions: execute_phase_attribution.runtime_local_instructions,
                 finalize_local_instructions: execute_phase_attribution.finalize_local_instructions,
                 direct_data_row: execute_phase_attribution.direct_data_row,
+                kernel_row: execute_phase_attribution.kernel_row,
                 grouped: execute_phase_attribution.grouped,
                 response_decode_local_instructions,
                 execute_local_instructions,

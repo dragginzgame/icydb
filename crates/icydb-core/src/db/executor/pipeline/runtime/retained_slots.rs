@@ -72,6 +72,7 @@ fn compile_retained_slot_layout(
 ) -> Option<RetainedSlotLayout> {
     let row_layout = authority.row_layout_ref();
     let mut required_slots = RetainedSlotRequirements::new(row_layout.field_count());
+    let residual_filter_program = plan.effective_runtime_filter_program();
 
     // Phase 1: projection validation needs complete values for diagnostics.
     // Retained-slot projection materialization can keep exact
@@ -87,13 +88,7 @@ fn compile_retained_slot_layout(
     // Keep those slots attached to this runtime layout only.
     required_slots.mark_slots(extra_slots.iter().copied());
 
-    // Phase 2: residual filter semantics still run on retained slot rows
-    // before the outer projection materializer consumes them.
-    if let Some(filter_program) = plan.effective_runtime_filter_program() {
-        filter_program.mark_referenced_slots(required_slots.flags_mut());
-    }
-
-    // Phase 3: ordering slots are needed for in-memory ordering and also for
+    // Phase 2: ordering slots are needed for in-memory ordering and also for
     // cursor boundary assembly on route-ordered load paths.
     if plan.scalar_plan().order.as_ref().is_some()
         && let Some(order_slots) = plan.order_referenced_slots()
@@ -106,7 +101,7 @@ fn compile_retained_slot_layout(
         }
     }
 
-    // Phase 4: index-range cursor anchors need the complete index key item
+    // Phase 3: index-range cursor anchors need the complete index key item
     // slot set, not only the outward order slots. Model-identity projections
     // no longer force shared validation state, so keep these slots explicit
     // for cursor-emitting index-range paths.
@@ -115,6 +110,16 @@ fn compile_retained_slot_layout(
         && let Some(index_compile_targets) = plan.index_compile_targets()
     {
         required_slots.mark_index_compile_target_slots(index_compile_targets);
+    }
+
+    // Phase 4: scan-time residual filters read directly from the opened raw
+    // row. Only retain filter slots as a compatibility fallback when no later
+    // slot consumer would otherwise create a retained layout for the scan.
+    if let Some(filter_program) = residual_filter_program
+        && !retain_slot_rows
+        && required_slots.is_empty()
+    {
+        filter_program.mark_referenced_slots(required_slots.flags_mut());
     }
 
     let (required_slots, value_modes) = required_slots.into_slots_and_value_modes();
@@ -232,6 +237,15 @@ impl RetainedSlotRequirements {
         if let Some(octet_length) = self.octet_length_flags.get_mut(slot) {
             *octet_length = true;
         }
+    }
+
+    // Return whether the layout currently retains no slot values.
+    fn is_empty(&self) -> bool {
+        self.flags.iter().all(|required| !required)
+            && self
+                .octet_length_flags
+                .iter()
+                .all(|octet_length| !octet_length)
     }
 
     // Mark the slots needed to reconstruct index-range cursor anchors from the

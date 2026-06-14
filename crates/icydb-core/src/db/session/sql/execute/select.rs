@@ -257,6 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
                     scalar_aggregate_terminal:
                         crate::db::executor::ScalarAggregateTerminalAttribution::none(),
                     direct_data_row: None,
+                    kernel_row: None,
                 },
             ));
         }
@@ -272,15 +273,16 @@ impl<C: CanisterKind> DbSession<C> {
                     self.debug,
                     prepared_plan,
                 )
-                .map(|((rows, row_count), direct_data_row)| {
+                .map(|((rows, row_count), direct_data_row, kernel_row)| {
                     (
                         SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
                         direct_data_row,
+                        kernel_row,
                     )
                 })
                 .map_err(QueryError::execute)
             });
-        let (payload, direct_data_row) = payload?;
+        let (payload, direct_data_row, kernel_row) = payload?;
         let (response_finalization_local_instructions, statement_result) =
             measure_sql_stage(|| Ok::<_, QueryError>(payload.into_statement_result()));
         let statement_result = statement_result?;
@@ -302,6 +304,7 @@ impl<C: CanisterKind> DbSession<C> {
                 scalar_aggregate_terminal:
                     crate::db::executor::ScalarAggregateTerminalAttribution::none(),
                 direct_data_row,
+                kernel_row,
             },
         ))
     }

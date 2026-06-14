@@ -5,6 +5,8 @@ use std::cell::RefCell;
 
 #[cfg(feature = "diagnostics")]
 pub(super) use crate::db::diagnostics::measure_local_instruction_delta as measure_direct_data_row_phase;
+#[cfg(feature = "diagnostics")]
+pub(super) use crate::db::diagnostics::measure_local_instruction_delta as measure_kernel_row_phase;
 
 ///
 /// ScalarMaterializationLaneMetrics
@@ -52,6 +54,25 @@ pub(in crate::db) struct DirectDataRowPhaseAttribution {
     pub(in crate::db) page_window_local_instructions: u64,
 }
 
+///
+/// KernelRowPhaseAttribution
+///
+/// KernelRowPhaseAttribution isolates the retained/data kernel-row scalar lane
+/// into scan-local subphases. Direct raw-row lanes leave these counters at zero
+/// so perf tooling can distinguish the two executor families.
+///
+
+#[cfg(feature = "diagnostics")]
+#[expect(clippy::struct_field_names)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct KernelRowPhaseAttribution {
+    pub(in crate::db) scan_local_instructions: u64,
+    pub(in crate::db) key_stream_local_instructions: u64,
+    pub(in crate::db) row_read_local_instructions: u64,
+    pub(in crate::db) order_window_local_instructions: u64,
+    pub(in crate::db) page_window_local_instructions: u64,
+}
+
 #[cfg(any(test, feature = "diagnostics"))]
 std::thread_local! {
     static SCALAR_MATERIALIZATION_LANE_METRICS: RefCell<Option<ScalarMaterializationLaneMetrics>> = const {
@@ -68,6 +89,19 @@ std::thread_local! {
             row_read_local_instructions: 0,
             key_encode_local_instructions: 0,
             store_get_local_instructions: 0,
+            order_window_local_instructions: 0,
+            page_window_local_instructions: 0,
+        })
+    };
+}
+
+#[cfg(feature = "diagnostics")]
+std::thread_local! {
+    static KERNEL_ROW_PHASE_ATTRIBUTION: Cell<KernelRowPhaseAttribution> = const {
+        Cell::new(KernelRowPhaseAttribution {
+            scan_local_instructions: 0,
+            key_stream_local_instructions: 0,
+            row_read_local_instructions: 0,
             order_window_local_instructions: 0,
             page_window_local_instructions: 0,
         })
@@ -209,6 +243,46 @@ pub(super) fn record_direct_data_row_page_window_local_instructions(delta: u64) 
     });
 }
 
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_kernel_row_scan_local_instructions(delta: u64) {
+    update_kernel_row_phase_attribution(delta, |current, delta| {
+        current.scan_local_instructions = current.scan_local_instructions.saturating_add(delta);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_kernel_row_key_stream_local_instructions(delta: u64) {
+    update_kernel_row_phase_attribution(delta, |current, delta| {
+        current.key_stream_local_instructions =
+            current.key_stream_local_instructions.saturating_add(delta);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_kernel_row_row_read_local_instructions(delta: u64) {
+    update_kernel_row_phase_attribution(delta, |current, delta| {
+        current.row_read_local_instructions =
+            current.row_read_local_instructions.saturating_add(delta);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_kernel_row_order_window_local_instructions(delta: u64) {
+    update_kernel_row_phase_attribution(delta, |current, delta| {
+        current.order_window_local_instructions = current
+            .order_window_local_instructions
+            .saturating_add(delta);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_kernel_row_page_window_local_instructions(delta: u64) {
+    update_kernel_row_phase_attribution(delta, |current, delta| {
+        current.page_window_local_instructions =
+            current.page_window_local_instructions.saturating_add(delta);
+    });
+}
+
 // Apply one direct-row phase counter update through the shared thread-local
 // capture slot so individual bucket recorders only own bucket selection.
 #[cfg(feature = "diagnostics")]
@@ -221,6 +295,24 @@ fn update_direct_data_row_phase_attribution(
     }
 
     DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let mut current = attribution.get();
+        update(&mut current, delta);
+        attribution.set(current);
+    });
+}
+
+// Apply one kernel-row phase counter update through the shared thread-local
+// capture slot so individual bucket recorders only own bucket selection.
+#[cfg(feature = "diagnostics")]
+fn update_kernel_row_phase_attribution(
+    delta: u64,
+    update: impl FnOnce(&mut KernelRowPhaseAttribution, u64),
+) {
+    if delta == 0 {
+        return;
+    }
+
+    KERNEL_ROW_PHASE_ATTRIBUTION.with(|attribution| {
         let mut current = attribution.get();
         update(&mut current, delta);
         attribution.set(current);
@@ -240,6 +332,28 @@ pub(in crate::db) fn with_direct_data_row_phase_attribution<T>(
 
     let result = f();
     let captured = DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let captured = attribution.get();
+        attribution.set(previous);
+
+        captured
+    });
+
+    (result, captured)
+}
+
+#[cfg(feature = "diagnostics")]
+pub(in crate::db) fn with_kernel_row_phase_attribution<T>(
+    f: impl FnOnce() -> T,
+) -> (T, KernelRowPhaseAttribution) {
+    let previous = KERNEL_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let previous = attribution.get();
+        attribution.set(KernelRowPhaseAttribution::default());
+
+        previous
+    });
+
+    let result = f();
+    let captured = KERNEL_ROW_PHASE_ATTRIBUTION.with(|attribution| {
         let captured = attribution.get();
         attribution.set(previous);
 

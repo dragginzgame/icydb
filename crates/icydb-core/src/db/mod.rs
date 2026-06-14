@@ -193,7 +193,7 @@ pub use session::{
 #[cfg(feature = "diagnostics")]
 pub use session::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    QueryExecutionAttribution,
+    KernelRowAttribution, QueryExecutionAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{

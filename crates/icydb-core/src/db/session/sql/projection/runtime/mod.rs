@@ -14,10 +14,12 @@ mod tests;
 use crate::db::executor::{
     CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
 };
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+use crate::db::{DirectDataRowAttribution, KernelRowAttribution};
 #[cfg(feature = "sql")]
 use crate::{
     db::{
-        Db, DirectDataRowAttribution,
+        Db,
         executor::{
             SharedPreparedExecutionPlan, StructuralProjectionRequest,
             execute_structural_projection_result,
@@ -29,8 +31,11 @@ use crate::{
 };
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
-type SqlProjectionRowsWithDirectAttribution =
-    ((Vec<Vec<Value>>, u32), Option<DirectDataRowAttribution>);
+type SqlProjectionRowsWithDirectAttribution = (
+    (Vec<Vec<Value>>, u32),
+    Option<DirectDataRowAttribution>,
+    Option<KernelRowAttribution>,
+);
 
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::runtime::materialize::{
@@ -111,9 +116,11 @@ pub(in crate::db) fn execute_sql_projection_rows_for_canister_with_direct_data_r
 where
     C: CanisterKind,
 {
-    let (rows, direct_data_row) =
-        crate::db::executor::with_direct_data_row_phase_attribution(|| {
-            execute_sql_projection_rows_for_canister(db, debug, prepared_plan)
+    let ((rows, direct_data_row), kernel_row) =
+        crate::db::executor::with_kernel_row_phase_attribution(|| {
+            crate::db::executor::with_direct_data_row_phase_attribution(|| {
+                execute_sql_projection_rows_for_canister(db, debug, prepared_plan)
+            })
         });
     let rows = rows?;
     let direct_data_row = DirectDataRowAttribution {
@@ -127,8 +134,16 @@ where
     };
     let direct_data_row =
         direct_data_row_attribution_has_work(direct_data_row).then_some(direct_data_row);
+    let kernel_row = KernelRowAttribution {
+        scan_local_instructions: kernel_row.scan_local_instructions,
+        key_stream_local_instructions: kernel_row.key_stream_local_instructions,
+        row_read_local_instructions: kernel_row.row_read_local_instructions,
+        order_window_local_instructions: kernel_row.order_window_local_instructions,
+        page_window_local_instructions: kernel_row.page_window_local_instructions,
+    };
+    let kernel_row = kernel_row_attribution_has_work(kernel_row).then_some(kernel_row);
 
-    Ok((rows, direct_data_row))
+    Ok((rows, direct_data_row, kernel_row))
 }
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -138,6 +153,15 @@ const fn direct_data_row_attribution_has_work(attribution: DirectDataRowAttribut
         || attribution.row_read_local_instructions != 0
         || attribution.key_encode_local_instructions != 0
         || attribution.store_get_local_instructions != 0
+        || attribution.order_window_local_instructions != 0
+        || attribution.page_window_local_instructions != 0
+}
+
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+const fn kernel_row_attribution_has_work(attribution: KernelRowAttribution) -> bool {
+    attribution.scan_local_instructions != 0
+        || attribution.key_stream_local_instructions != 0
+        || attribution.row_read_local_instructions != 0
         || attribution.order_window_local_instructions != 0
         || attribution.page_window_local_instructions != 0
 }

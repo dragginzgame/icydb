@@ -24,7 +24,7 @@ pub(in crate::db) use cache::{
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    QueryExecutionAttribution,
+    KernelRowAttribution, QueryExecutionAttribution,
 };
 pub(in crate::db::session) use execution::query_error_from_executor_plan_error;
 #[cfg(feature = "diagnostics")]

@@ -49,7 +49,7 @@ use std::{
 #[cfg(feature = "diagnostics")]
 pub use query::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    QueryExecutionAttribution,
+    KernelRowAttribution, QueryExecutionAttribution,
 };
 pub(in crate::db) use response::finalize_scalar_paged_execution;
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;

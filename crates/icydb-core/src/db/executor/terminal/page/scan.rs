@@ -22,6 +22,11 @@ use super::metrics::{
     measure_direct_data_row_phase, record_direct_data_row_key_stream_local_instructions,
     record_direct_data_row_row_read_local_instructions,
 };
+#[cfg(feature = "diagnostics")]
+use super::metrics::{
+    measure_kernel_row_phase, record_kernel_row_key_stream_local_instructions,
+    record_kernel_row_row_read_local_instructions, record_kernel_row_scan_local_instructions,
+};
 #[cfg(any(test, feature = "diagnostics"))]
 use super::metrics::{
     record_kernel_data_row_path_hit, record_kernel_full_row_retained_path_hit,
@@ -76,8 +81,23 @@ pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
     pub(in crate::db::executor) row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
 
-#[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn execute_kernel_row_scan(
+    request: KernelRowScanRequest<'_, '_>,
+) -> Result<(Vec<KernelRow>, usize), InternalError> {
+    #[cfg(feature = "diagnostics")]
+    {
+        let (scan_local_instructions, result) =
+            measure_kernel_row_phase(|| execute_kernel_row_scan_inner(request));
+        record_kernel_row_scan_local_instructions(scan_local_instructions);
+        result
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    execute_kernel_row_scan_inner(request)
+}
+
+#[expect(clippy::too_many_lines)]
+fn execute_kernel_row_scan_inner(
     request: KernelRowScanRequest<'_, '_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let KernelRowScanRequest {
@@ -316,17 +336,11 @@ fn scan_kernel_rows_with(
     let mut rows = Vec::with_capacity(staged_capacity);
     let mut rows_matched = 0usize;
     let Some(row_keep_cap) = row_keep_cap else {
-        loop {
-            let (next_key, key_stream_micros) =
-                measure_execution_stats_phase(|| key_stream.next_key());
-            record_key_stream_micros(key_stream_micros);
-            let Some(key) = next_key? else {
-                break;
-            };
+        while let Some(key) = next_kernel_scan_key(key_stream)? {
             record_key_stream_yield();
 
             rows_scanned = rows_scanned.saturating_add(1);
-            let Some(row) = read_row(key)? else {
+            let Some(row) = read_kernel_scan_row(key, &mut read_row)? else {
                 continue;
             };
             retain_kernel_row(row, row_skip_count, rows_matched, &mut rows);
@@ -336,16 +350,11 @@ fn scan_kernel_rows_with(
         return Ok((rows, rows_scanned));
     };
 
-    loop {
-        let (next_key, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
-        record_key_stream_micros(key_stream_micros);
-        let Some(key) = next_key? else {
-            break;
-        };
+    while let Some(key) = next_kernel_scan_key(key_stream)? {
         record_key_stream_yield();
 
         rows_scanned = rows_scanned.saturating_add(1);
-        let Some(row) = read_row(key)? else {
+        let Some(row) = read_kernel_scan_row(key, &mut read_row)? else {
             continue;
         };
         retain_kernel_row(row, row_skip_count, rows_matched, &mut rows);
@@ -356,6 +365,35 @@ fn scan_kernel_rows_with(
     }
 
     Ok((rows, rows_scanned))
+}
+
+fn next_kernel_scan_key(
+    key_stream: &mut OrderedKeyStreamBox,
+) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+    #[cfg(feature = "diagnostics")]
+    let ((key_stream_local_instructions, next_key), key_stream_micros) =
+        measure_execution_stats_phase(|| measure_kernel_row_phase(|| key_stream.next_key()));
+    #[cfg(not(feature = "diagnostics"))]
+    let (next_key, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
+    record_key_stream_micros(key_stream_micros);
+    #[cfg(feature = "diagnostics")]
+    record_kernel_row_key_stream_local_instructions(key_stream_local_instructions);
+
+    next_key
+}
+
+fn read_kernel_scan_row(
+    key: DecodedDataStoreKey,
+    read_row: &mut impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
+) -> Result<Option<KernelRow>, InternalError> {
+    #[cfg(feature = "diagnostics")]
+    let (row_read_local_instructions, row) = measure_kernel_row_phase(|| read_row(key));
+    #[cfg(not(feature = "diagnostics"))]
+    let row = read_row(key);
+    #[cfg(feature = "diagnostics")]
+    record_kernel_row_row_read_local_instructions(row_read_local_instructions);
+
+    row
 }
 
 // Compute the retained kernel-row capacity after the caller has converted a
