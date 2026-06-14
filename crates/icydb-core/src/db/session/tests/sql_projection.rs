@@ -1,5 +1,7 @@
 use super::*;
-use crate::db::session::sql::with_sql_projection_materialization_metrics;
+use crate::db::{
+    data::with_structural_read_metrics, session::sql::with_sql_projection_materialization_metrics,
+};
 
 // Seed the shared text-function projection fixture used by the computed
 // projection tests in this file.
@@ -163,17 +165,23 @@ fn execute_sql_projection_repeated_direct_field_uses_retained_slot_rows() {
 fn execute_sql_projection_unindexed_ordered_direct_fields_use_retained_slot_rows() {
     let session = seeded_projection_window_session();
 
-    let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
-        statement_projection_rows::<SessionSqlEntity>(
-            &session,
-            "SELECT name, age FROM SessionSqlEntity \
-             WHERE name >= 'matrix' \
-             ORDER BY age DESC, id ASC \
-             LIMIT 2",
-        )
-        .expect("unindexed ordered direct projection should execute")
+    let ((rows, metrics), read_metrics) = with_structural_read_metrics(|| {
+        with_sql_projection_materialization_metrics(|| {
+            statement_projection_rows::<SessionSqlEntity>(
+                &session,
+                "SELECT name, age FROM SessionSqlEntity \
+                 WHERE name >= 'matrix' \
+                 ORDER BY age DESC, id ASC \
+                 LIMIT 2",
+            )
+            .expect("unindexed ordered direct projection should execute")
+        })
     });
 
+    assert_eq!(
+        read_metrics.rows_opened, 4,
+        "filtered retained scan should open each scanned row once",
+    );
     assert_eq!(
         rows,
         vec![
@@ -189,6 +197,44 @@ fn execute_sql_projection_unindexed_ordered_direct_fields_use_retained_slot_rows
     assert_eq!(
         metrics.data_rows_path_hits, 0,
         "direct field projection should not carry full data rows",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_retained_rows_open_once_with_rejections() {
+    let session = seeded_projection_window_session();
+
+    let ((rows, metrics), read_metrics) = with_structural_read_metrics(|| {
+        with_sql_projection_materialization_metrics(|| {
+            statement_projection_rows::<SessionSqlEntity>(
+                &session,
+                "SELECT name, age FROM SessionSqlEntity \
+                 WHERE age >= 30 \
+                 ORDER BY age DESC, id ASC",
+            )
+            .expect("filtered retained projection should execute")
+        })
+    });
+
+    assert_eq!(
+        read_metrics.rows_opened, 4,
+        "filtered retained scan should avoid a second row open for accepted rows",
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("matrix-d".to_string()), Value::Nat64(40)],
+            vec![Value::Text("matrix-c".to_string()), Value::Nat64(30)],
+        ],
+        "filtered retained projection should keep accepted rows only",
+    );
+    assert_eq!(
+        metrics.slot_rows_path_hits, 1,
+        "filtered direct projection should stay on retained slot rows",
+    );
+    assert_eq!(
+        metrics.data_rows_path_hits, 0,
+        "filtered direct projection should not carry full data rows",
     );
 }
 

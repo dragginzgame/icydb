@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   `make install-dev`, `make update-dev`, and workflow lint checks converge on
   the same current binary.
 
+- Reuses the scan-time structural row reader for filtered retained-slot SQL
+  projections so accepted rows do not reopen the same raw row during
+  projection/order materialization.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)

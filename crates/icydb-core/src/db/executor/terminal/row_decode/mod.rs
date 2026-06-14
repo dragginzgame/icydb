@@ -321,6 +321,31 @@ impl RowDecoder {
             retained_slot_layout,
         )
     }
+
+    /// Decode one compact retained-slot value buffer from an already-opened
+    /// structural slot reader. Filtered retained scans use this after
+    /// scan-time predicate evaluation so accepted rows do not reopen the same
+    /// raw row just to build retained projection/order slots.
+    pub(in crate::db::executor) fn decode_indexed_slot_values_from_reader(
+        row_fields: &StructuralSlotReader<'_>,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Vec<Option<Value>>, InternalError> {
+        let required_slots = retained_slot_layout.required_slots();
+        let value_modes = retained_slot_layout.value_modes();
+        let mut values = Vec::with_capacity(retained_slot_layout.retained_value_count());
+
+        for (&slot, mode) in required_slots.iter().zip(value_modes) {
+            let value = match mode {
+                RetainedSlotValueMode::Normal => row_fields.required_value_by_contract(slot)?,
+                RetainedSlotValueMode::ScalarOctetLength => {
+                    decode_scalar_octet_length_value(row_fields, slot)?
+                }
+            };
+            values.push(Some(value));
+        }
+
+        Ok(values)
+    }
 }
 
 // Decode retained slots that mix normal value materialization with specialized

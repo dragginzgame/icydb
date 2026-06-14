@@ -164,19 +164,19 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
-        if !self.raw_row_matches_filter_program(&row, filter_program)? {
-            return Ok(None);
-        }
-        let retained_values = RowDecoder::decode_indexed_slot_values_from_data_key(
-            &self.row_layout,
+        let Some(retained_slots) = self.retained_slots_from_filtered_row(
             &key,
             &row,
+            filter_program,
             retained_slot_layout,
-        )?;
+        )?
+        else {
+            return Ok(None);
+        };
 
         Ok(Some(KernelRow::new_with_retained_slots(
             (key, row),
-            RetainedSlotRow::from_indexed_values(retained_slot_layout, retained_values),
+            retained_slots,
         )))
     }
 
@@ -212,18 +212,33 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, key)? else {
             return Ok(None);
         };
-        if !self.raw_row_matches_filter_program(&row, filter_program)? {
+        let Some(retained_slots) =
+            self.retained_slots_from_filtered_row(key, &row, filter_program, retained_slot_layout)?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(KernelRow::new_slot_only(retained_slots)))
+    }
+
+    // Evaluate the residual filter and decode retained slots from one opened
+    // row reader so accepted rows do not pay a second structural decode.
+    fn retained_slots_from_filtered_row(
+        &self,
+        key: &DecodedDataStoreKey,
+        row: &RawRow,
+        filter_program: &EffectiveRuntimeFilterProgram,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Option<RetainedSlotRow>, InternalError> {
+        let row_fields = self.row_layout.open_raw_row_with_contract(row)?;
+        if !eval_effective_runtime_filter_program_with_slot_reader(filter_program, &row_fields)? {
             return Ok(None);
         }
-        let retained_values = RowDecoder::decode_indexed_slot_values_from_data_key(
-            &self.row_layout,
-            key,
-            &row,
-            retained_slot_layout,
-        )?;
+        row_fields.validate_primary_key(key)?;
 
-        Ok(Some(KernelRow::new_slot_only(
-            RetainedSlotRow::from_indexed_values(retained_slot_layout, retained_values),
+        Ok(Some(RetainedSlotRow::from_indexed_values(
+            retained_slot_layout,
+            RowDecoder::decode_indexed_slot_values_from_reader(&row_fields, retained_slot_layout)?,
         )))
     }
 
