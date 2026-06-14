@@ -7,24 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Updates the pinned local actionlint installer target to 1.7.12 so
-  `make install-dev`, `make update-dev`, and workflow lint checks converge on
-  the same current binary.
-
-- Reuses the scan-time structural row reader for filtered retained-slot SQL
-  projections so accepted rows do not reopen the same raw row during
-  projection/order materialization.
-
-- Adds retained/kernel row phase attribution to SQL perf-matrix reports so
-  scan, key-stream, row-read, ordering, and page-window costs are visible.
-
-- Drops scan-time filter-only slots from retained SQL projection rows when
-  projection, ordering, or cursor slots already keep the scan-time filter lane
-  available.
-
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.14` adds retained/kernel row phase attribution to SQL perf-matrix
+  reports and trims scan-time filter-only retained slots from SQL projection
+  rows.
+
+- `0.182.13` keeps retained-row ordering and post-access filter guards on
+  borrowed slot values so ordered SQL projections avoid unnecessary value
+  cloning.
+
+- `0.182.12` reuses the scan-time structural row reader for filtered
+  retained-slot SQL projections so accepted rows do not reopen raw row bytes.
 
 - `0.182.11` keeps ordinary ordered SQL projections on retained slot rows
   when full raw rows are unnecessary and adds exact scenario-key filtering to
