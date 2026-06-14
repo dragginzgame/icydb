@@ -46,10 +46,8 @@ impl StoreRegistry {
     /// Register a `Store` path to its row/index/schema store triplet with an
     /// explicit allocation identity decision.
     ///
-    /// Generated stable-store wiring supplies stable allocation identities.
-    /// Tests and future non-stable stores must pass
-    /// [`StoreAllocationIdentities::absent`] explicitly when allocation
-    /// identities are intentionally unavailable.
+    /// Heap stores must pass [`StoreAllocationIdentities::absent`] explicitly
+    /// because allocation identities are intentionally unavailable.
     pub fn register_store(
         &mut self,
         name: &'static str,
@@ -60,7 +58,7 @@ impl StoreRegistry {
         capabilities: StoreRuntimeStorageCapabilities,
     ) -> Result<(), InternalError> {
         self.validate_register_store_shape(name, data, index, schema, allocations, capabilities)?;
-        if capabilities.storage_mode() == StoreRuntimeStorageMode::Journaled {
+        if capabilities.storage_mode() != StoreRuntimeStorageMode::Heap {
             return Err(StoreRegistryError::StoreAllocationCapabilityMismatch.into());
         }
 

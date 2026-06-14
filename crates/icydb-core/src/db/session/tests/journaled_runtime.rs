@@ -401,7 +401,7 @@ fn journaled_session_recovery_rejects_mismatched_marker_bound_journal_tail_batch
     let err = ensure_recovered(&JOURNALED_SESSION_SQL_DB)
         .expect_err("recovery should reject marker payload that conflicts with journal tail bytes");
     assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         crate::db::commit::commit_marker_present().expect("commit marker check should succeed"),
         "failed journal publication must keep the marker persisted for retry",
@@ -427,7 +427,7 @@ fn journaled_session_recovery_rejects_mismatched_marker_bound_journal_tail_batch
 }
 
 #[test]
-fn stable_source_strong_relation_to_journaled_target_uses_durable_capabilities() {
+fn durable_source_strong_relation_to_journaled_target_uses_durable_capabilities() {
     reset_mixed_journaled_relation_stores();
     let session = mixed_journaled_relation_sql_session();
     session
@@ -439,30 +439,30 @@ fn stable_source_strong_relation_to_journaled_target_uses_durable_capabilities()
         .expect("journaled relation target should seed while live");
 
     let (result, classes) = capture_mutation_commit_classes(
-        StableSessionSqlSourceToJournaledTargetEntity::PATH,
+        DurableSessionSqlSourceToJournaledTargetEntity::PATH,
         || {
-            session.insert(StableSessionSqlSourceToJournaledTargetEntity {
+            session.insert(DurableSessionSqlSourceToJournaledTargetEntity {
                 id: 10,
                 target_id: 1,
             })
         },
     );
-    result.expect("stable source strong relation to journaled target should validate as durable");
+    result.expect("durable source strong relation to journaled target should validate as durable");
     assert_eq!(
         classes,
         vec![MutationCommitClass::DurableOnly],
-        "journaled durable targets must not make stable-source relation writes live-only or mixed",
+        "journaled durable targets must not make durable-source relation writes live-only or mixed",
     );
 
     let persisted = session
-        .load::<StableSessionSqlSourceToJournaledTargetEntity>()
+        .load::<DurableSessionSqlSourceToJournaledTargetEntity>()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
-        .expect("stable-source journaled-target relation load should succeed")
+        .expect("durable-source journaled-target relation load should succeed")
         .entities();
     assert_eq!(
         persisted,
-        vec![StableSessionSqlSourceToJournaledTargetEntity {
+        vec![DurableSessionSqlSourceToJournaledTargetEntity {
             id: 10,
             target_id: 1,
         }],

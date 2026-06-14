@@ -1,5 +1,5 @@
 //! Module: data::store
-//! Responsibility: stable-or-heap row storage behind the data-store boundary.
+//! Responsibility: journaled-or-heap row storage behind the data-store boundary.
 //! Does not own: key/row validation policy beyond type boundaries.
 //! Boundary: commit/executor call into this layer after prevalidation.
 
@@ -36,7 +36,7 @@ fn record_data_store_get_call() {
 ///
 /// DataStore
 ///
-/// Thin persistence wrapper over one stable or heap BTreeMap.
+/// Thin persistence wrapper over one journaled or heap BTreeMap.
 ///
 /// Invariant: callers provide already-validated `RawDataStoreKey` and canonical row bytes.
 /// This type intentionally does not enforce commit-phase ordering.
@@ -47,7 +47,6 @@ pub struct DataStore {
 }
 
 enum DataStoreBackend {
-    Stable(StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>),
     Heap(HeapBTreeMap<RawDataStoreKey, RawRow>),
     Journaled {
         canonical: StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
@@ -70,14 +69,6 @@ impl StoreVisit {
 }
 
 impl DataStore {
-    /// Initialize a data store with the provided backing memory.
-    #[must_use]
-    pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        Self {
-            backend: DataStoreBackend::Stable(StableBTreeMap::init(memory)),
-        }
-    }
-
     /// Initialize a volatile heap-backed data store.
     #[must_use]
     pub const fn init_heap() -> Self {
@@ -115,7 +106,6 @@ impl DataStore {
             None
         };
         match &mut self.backend {
-            DataStoreBackend::Stable(map) => map.insert(key, row),
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
                 live, tombstones, ..
@@ -140,7 +130,6 @@ impl DataStore {
             None
         };
         match &mut self.backend {
-            DataStoreBackend::Stable(map) => map.insert(key, row),
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
                 live, tombstones, ..
@@ -160,7 +149,6 @@ impl DataStore {
             None
         };
         match &mut self.backend {
-            DataStoreBackend::Stable(map) => map.remove(key),
             DataStoreBackend::Heap(map) => map.remove(key),
             DataStoreBackend::Journaled {
                 live, tombstones, ..
@@ -272,7 +260,6 @@ impl DataStore {
         record_data_store_get_call();
 
         match &self.backend {
-            DataStoreBackend::Stable(map) => map.get(key),
             DataStoreBackend::Heap(map) => map.get(key).cloned(),
             DataStoreBackend::Journaled { .. } => Self::journaled_get_raw(&self.backend, key),
         }
@@ -282,7 +269,6 @@ impl DataStore {
     #[must_use]
     pub(in crate::db) fn contains(&self, key: &RawDataStoreKey) -> bool {
         match &self.backend {
-            DataStoreBackend::Stable(map) => map.contains_key(key),
             DataStoreBackend::Heap(map) => map.contains_key(key),
             DataStoreBackend::Journaled { .. } => {
                 Self::journaled_get_raw(&self.backend, key).is_some()
@@ -294,18 +280,15 @@ impl DataStore {
     #[cfg(test)]
     pub(in crate::db) fn clear(&mut self) {
         match &mut self.backend {
-            DataStoreBackend::Stable(map) => map.clear_new(),
             DataStoreBackend::Heap(map) => map.clear(),
             DataStoreBackend::Journaled {
                 canonical,
                 live,
                 tombstones,
             } => {
+                canonical.clear_new();
                 live.clear();
                 tombstones.clear();
-                for entry in canonical.iter() {
-                    tombstones.insert(entry.key().clone());
-                }
             }
         }
     }
@@ -314,7 +297,6 @@ impl DataStore {
     #[must_use]
     pub(in crate::db) fn len(&self) -> u64 {
         match &self.backend {
-            DataStoreBackend::Stable(map) => map.len(),
             DataStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
             DataStoreBackend::Journaled { .. } => {
                 let mut count = 0_u64;
@@ -332,7 +314,6 @@ impl DataStore {
     #[cfg(test)]
     pub(in crate::db) fn is_empty(&self) -> bool {
         match &self.backend {
-            DataStoreBackend::Stable(map) => map.is_empty(),
             DataStoreBackend::Heap(map) => map.is_empty(),
             DataStoreBackend::Journaled { .. } => {
                 let mut empty = true;
@@ -351,13 +332,6 @@ impl DataStore {
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
         match &self.backend {
-            DataStoreBackend::Stable(map) => {
-                for entry in map.iter() {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
-                        break;
-                    }
-                }
-            }
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map {
                     if visitor(key, row)?.should_stop() {
@@ -386,13 +360,6 @@ impl DataStore {
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
         match &self.backend {
-            DataStoreBackend::Stable(map) => {
-                for entry in map.iter().rev() {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
-                        break;
-                    }
-                }
-            }
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map.iter().rev() {
                     if visitor(key, row)?.should_stop() {
@@ -423,13 +390,6 @@ impl DataStore {
     ) -> Result<(), E> {
         let bounds = Self::owned_range_bounds(&key_range);
         match &self.backend {
-            DataStoreBackend::Stable(map) => {
-                for entry in map.range((bounds.0.clone(), bounds.1)) {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
-                        break;
-                    }
-                }
-            }
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map.range((bounds.0.clone(), bounds.1)) {
                     if visitor(key, row)?.should_stop() {
@@ -455,13 +415,6 @@ impl DataStore {
     ) -> Result<(), E> {
         let bounds = Self::owned_range_bounds(&key_range);
         match &self.backend {
-            DataStoreBackend::Stable(map) => {
-                for entry in map.range((bounds.0.clone(), bounds.1)).rev() {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
-                        break;
-                    }
-                }
-            }
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map.range((bounds.0.clone(), bounds.1)).rev() {
                     if visitor(key, row)?.should_stop() {
@@ -510,9 +463,7 @@ impl DataStore {
     #[must_use]
     pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
         match &self.backend {
-            DataStoreBackend::Stable(map) | DataStoreBackend::Journaled { canonical: map, .. } => {
-                map.len()
-            }
+            DataStoreBackend::Journaled { canonical: map, .. } => map.len(),
             DataStoreBackend::Heap(_) => 0,
         }
     }

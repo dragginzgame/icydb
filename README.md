@@ -76,10 +76,11 @@ pub struct AppCanister {}
     ident = "APP_STORE",
     store_name = "main",
     canister = "AppCanister",
-    storage(stable(
+    storage(journaled(
         data_memory_id = 100,
         index_memory_id = 101,
         schema_memory_id = 102,
+        journal_memory_id = 104,
     ))
 )]
 pub struct AppStore {}
@@ -109,21 +110,18 @@ and `index(field = "name")`. Composite keys use ordered field lists such as
 
 Stores choose one explicit storage contract:
 
-- `storage(stable(...))`: durable stable-memory BTrees for data, index, and
-  schema roles. This is the direct stable backend.
+- `storage(journaled(...))`: durable journaled cached-stable storage. Reads use
+  live Rust BTree projections, writes publish marker-bound journal batches, and
+  recovery folds committed journal records into canonical stable data, index,
+  and schema BTrees.
 - `storage(heap())`: volatile Rust `BTreeMap` storage. It is useful for live
   in-process state and tests, but rows and indexes are not recovered across
   upgrade/reinitialization.
-- `storage(journaled(...))`: journaled cached-stable storage. Reads use live
-  Rust BTree projections, writes publish marker-bound journal batches, and fold
-  applies committed journal records into canonical stable data/index/schema
-  BTrees.
 
 Journaled stores use four memory IDs: `data_memory_id`, `index_memory_id`,
 `schema_memory_id`, and `journal_memory_id`. The first three are the canonical
-stable source-of-truth roles; the fourth is the durable journal tail. Journaled
-storage is durable, but it is not the same contract as direct `stable(...)`
-storage, and it does not make `heap()` durable.
+stable source-of-truth roles; the fourth is the durable journal tail. `heap()`
+storage is never durable.
 
 ## Query From Rust
 

@@ -4,6 +4,7 @@ use crate::{
         Db, EntityRuntimeHooks,
         data::{CanonicalRow, DataStore, DecodedDataStoreKey, StructuralRowContract},
         index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore},
+        journal::JournalTailStore,
         registry::StoreRegistry,
         schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
@@ -144,20 +145,23 @@ const ADDITIVE_NULLABLE_ENTITY_TAG: EntityTag = EntityTag::new(0x6164_6469_7469_
 
 thread_local! {
     static RECONCILE_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(252)));
+        RefCell::new(DataStore::init_journaled(test_memory(252)));
     static RECONCILE_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(253)));
+        RefCell::new(IndexStore::init_journaled(test_memory(253)));
     static RECONCILE_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(254)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(254)));
+    static RECONCILE_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(255)));
     static RECONCILE_STORE_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry
-            .register_store(
+            .register_journaled_store(
                 SchemaReconcileTestStore::PATH,
                 &RECONCILE_DATA_STORE,
                 &RECONCILE_INDEX_STORE,
                 &RECONCILE_SCHEMA_STORE,
-                crate::db::StoreAllocationIdentities::new(
+                &RECONCILE_JOURNAL_STORE,
+                crate::db::StoreAllocationIdentities::new_journaled(
                     crate::db::StoreAllocationIdentity::new(
                         252,
                         "icydb.test.reconcile.data.v1",
@@ -170,8 +174,12 @@ thread_local! {
                         254,
                         "icydb.test.reconcile.schema.v1",
                     ),
+                    crate::db::StoreAllocationIdentity::new(
+                        255,
+                        "icydb.test.reconcile.journal.v1",
+                    ),
                 ),
-                crate::db::StoreRuntimeStorageCapabilities::stable(),
+                crate::db::StoreRuntimeStorageCapabilities::journaled(),
             )
             .expect("schema reconcile test store should register");
         registry
@@ -425,7 +433,7 @@ fn reconcile_runtime_schemas_accepts_existing_matching_snapshot() {
 
 #[test]
 fn ensure_accepted_schema_snapshot_accepts_append_only_nullable_field() {
-    let mut schema_store = SchemaStore::init(test_memory(243));
+    let mut schema_store = SchemaStore::init_journaled(test_memory(243));
     metrics_reset_all();
 
     let proposal = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_SCHEMA_MODEL);
@@ -566,7 +574,7 @@ fn valid_version_bump_still_rejects_unsupported_field_contract_transition() {
 
 #[test]
 fn ensure_accepted_schema_snapshot_publishes_metadata_only_index_rename() {
-    let mut schema_store = SchemaStore::init(test_memory(240));
+    let mut schema_store = SchemaStore::init_journaled(test_memory(240));
     let stored = indexed_schema_snapshot_with_renamed_index("IndexedSchemaEntity|name");
     schema_store
         .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored)
@@ -591,7 +599,7 @@ fn ensure_accepted_schema_snapshot_publishes_metadata_only_index_rename() {
 
 #[test]
 fn ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename() {
-    let mut schema_store = SchemaStore::init(test_memory(239));
+    let mut schema_store = SchemaStore::init_journaled(test_memory(239));
     let stored = indexed_schema_snapshot_with_renamed_index_and_extra_indexes(
         "IndexedSchemaEntity|name",
         vec![indexed_schema_ddl_extra_index()],
@@ -1211,7 +1219,7 @@ fn field_path_startup_publication_decision_rejects_physical_store_drift_without_
 
 #[test]
 fn ensure_accepted_schema_snapshot_rejects_field_path_index_addition_without_runtime_store() {
-    let mut schema_store = SchemaStore::init(test_memory(244));
+    let mut schema_store = SchemaStore::init_journaled(test_memory(244));
     metrics_reset_all();
 
     let stored_without_index = indexed_schema_snapshot_without_indexes();
@@ -1237,7 +1245,7 @@ fn ensure_accepted_schema_snapshot_rejects_field_path_index_addition_without_run
 
 #[test]
 fn ensure_accepted_schema_snapshot_records_nested_leaf_footprint() {
-    let mut schema_store = SchemaStore::init(test_memory(241));
+    let mut schema_store = SchemaStore::init_journaled(test_memory(241));
     metrics_reset_all();
 
     let accepted = super::ensure_accepted_schema_snapshot(
@@ -1270,7 +1278,7 @@ fn ensure_accepted_schema_snapshot_records_nested_leaf_footprint() {
 
 #[test]
 fn ensure_accepted_schema_snapshot_rejects_nested_leaf_drift_as_field_contract() {
-    let mut schema_store = SchemaStore::init(test_memory(242));
+    let mut schema_store = SchemaStore::init_journaled(test_memory(242));
     metrics_reset_all();
 
     let proposal = compiled_schema_proposal_for_model(&NESTED_SCHEMA_MODEL);

@@ -116,14 +116,14 @@ fn heap_snapshot_counts(
     )
 }
 
-fn mixed_relation_stable_index_entries() -> u64 {
+fn mixed_relation_durable_index_entries() -> u64 {
     MIXED_HEAP_RELATION_DB
         .with_store_registry(|registry| {
             registry
                 .try_get_store(SessionSqlStore::PATH)
                 .map(|store| store.with_index(IndexStore::len))
         })
-        .expect("mixed relation stable store should be registered")
+        .expect("mixed relation durable store should be registered")
 }
 
 #[test]
@@ -234,19 +234,19 @@ fn heap_backed_session_reinit_loses_rows_and_indexes_but_reconciles_live_schema(
 }
 
 #[test]
-fn stable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
+fn durable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
     reset_mixed_heap_relation_stores();
     let session = mixed_heap_relation_sql_session();
     seed_heap_session_entities(&session);
 
     let (result, classes) =
-        capture_mutation_commit_classes(StableSessionSqlSourceToHeapTargetEntity::PATH, || {
-            session.insert(StableSessionSqlSourceToHeapTargetEntity {
+        capture_mutation_commit_classes(DurableSessionSqlSourceToHeapTargetEntity::PATH, || {
+            session.insert(DurableSessionSqlSourceToHeapTargetEntity {
                 id: 10,
                 target_id: 1,
             })
         });
-    let err = result.expect_err("stable source strong relation to heap target should fail closed");
+    let err = result.expect_err("durable source strong relation to heap target should fail closed");
     assert_eq!(err.class(), ErrorClass::Unsupported);
     assert_eq!(
         classes,
@@ -255,46 +255,48 @@ fn stable_source_strong_relation_to_heap_target_rejects_at_runtime_boundary() {
     );
 
     let persisted = session
-        .load::<StableSessionSqlSourceToHeapTargetEntity>()
+        .load::<DurableSessionSqlSourceToHeapTargetEntity>()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
-        .expect("post-rejection stable-source load should succeed")
+        .expect("post-rejection durable-source load should succeed")
         .entities();
     assert_eq!(
         persisted,
-        Vec::<StableSessionSqlSourceToHeapTargetEntity>::new(),
-        "stable-source relation rejection must not persist the row",
+        Vec::<DurableSessionSqlSourceToHeapTargetEntity>::new(),
+        "durable-source relation rejection must not persist the row",
     );
 }
 
 #[test]
-fn stable_source_weak_relation_to_heap_target_remains_non_enforcing() {
+fn durable_source_weak_relation_to_heap_target_remains_non_enforcing() {
     reset_mixed_heap_relation_stores();
     let session = mixed_heap_relation_sql_session();
 
-    let (result, classes) =
-        capture_mutation_commit_classes(StableSessionSqlWeakSourceToHeapTargetEntity::PATH, || {
-            session.insert(StableSessionSqlWeakSourceToHeapTargetEntity {
+    let (result, classes) = capture_mutation_commit_classes(
+        DurableSessionSqlWeakSourceToHeapTargetEntity::PATH,
+        || {
+            session.insert(DurableSessionSqlWeakSourceToHeapTargetEntity {
                 id: 11,
                 target_id: 9_999,
             })
-        });
-    result.expect("weak stable-source relation to heap target should not take strong policy");
+        },
+    );
+    result.expect("weak durable-source relation to heap target should not take strong policy");
     assert_eq!(
         classes,
         vec![MutationCommitClass::DurableOnly],
-        "a non-enforcing heap target reference must not make the stable source write live-only or mixed",
+        "a non-enforcing heap target reference must not make the durable source write live-only or mixed",
     );
 
     let persisted = session
-        .load::<StableSessionSqlWeakSourceToHeapTargetEntity>()
+        .load::<DurableSessionSqlWeakSourceToHeapTargetEntity>()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
-        .expect("weak stable-source relation load should succeed")
+        .expect("weak durable-source relation load should succeed")
         .entities();
     assert_eq!(
         persisted,
-        vec![StableSessionSqlWeakSourceToHeapTargetEntity {
+        vec![DurableSessionSqlWeakSourceToHeapTargetEntity {
             id: 11,
             target_id: 9_999,
         }],
@@ -341,16 +343,16 @@ fn heap_source_strong_relation_to_heap_target_keeps_live_validation_semantics() 
 fn public_writes_emit_durable_live_and_mixed_commit_classifications() {
     reset_session_sql_store();
     let session = sql_session();
-    let (stable_result, stable_classes) =
+    let (durable_result, durable_classes) =
         capture_mutation_commit_classes(SessionSqlWriteEntity::PATH, || {
             session.insert(SessionSqlWriteEntity {
                 id: 170_200,
-                name: "stable".to_string(),
+                name: "durable".to_string(),
                 age: 41,
             })
         });
-    stable_result.expect("stable public insert should succeed");
-    assert_eq!(stable_classes, vec![MutationCommitClass::DurableOnly]);
+    durable_result.expect("durable public insert should succeed");
+    assert_eq!(durable_classes, vec![MutationCommitClass::DurableOnly]);
 
     reset_heap_session_sql_store();
     let session = heap_sql_session();
@@ -372,15 +374,15 @@ fn public_writes_emit_durable_live_and_mixed_commit_classifications() {
             id: 170_202,
             parent: None,
         })
-        .expect("stable relation target should seed");
+        .expect("durable relation target should seed");
     let (mixed_result, mixed_classes) =
-        capture_mutation_commit_classes(HeapSessionSqlSourceToStableTargetEntity::PATH, || {
-            session.insert(HeapSessionSqlSourceToStableTargetEntity {
+        capture_mutation_commit_classes(HeapSessionSqlSourceToDurableTargetEntity::PATH, || {
+            session.insert(HeapSessionSqlSourceToDurableTargetEntity {
                 id: 170_203,
                 target_id: 170_202,
             })
         });
-    mixed_result.expect("heap source to stable target should validate while live");
+    mixed_result.expect("heap source to durable target should validate while live");
     assert_eq!(
         mixed_classes,
         vec![MutationCommitClass::MixedDurableAndLive]
@@ -388,18 +390,18 @@ fn public_writes_emit_durable_live_and_mixed_commit_classifications() {
 }
 
 #[test]
-fn failed_heap_source_to_stable_target_write_leaves_no_heap_side_effects() {
+fn failed_heap_source_to_durable_target_write_leaves_no_heap_side_effects() {
     reset_mixed_heap_relation_stores();
     let session = mixed_heap_relation_sql_session();
 
     let (result, classes) =
-        capture_mutation_commit_classes(HeapSessionSqlSourceToStableTargetEntity::PATH, || {
-            session.insert(HeapSessionSqlSourceToStableTargetEntity {
+        capture_mutation_commit_classes(HeapSessionSqlSourceToDurableTargetEntity::PATH, || {
+            session.insert(HeapSessionSqlSourceToDurableTargetEntity {
                 id: 170_204,
                 target_id: 170_205,
             })
         });
-    result.expect_err("missing stable target should reject before heap write apply");
+    result.expect_err("missing durable target should reject before heap write apply");
     assert_eq!(
         classes,
         Vec::<MutationCommitClass>::new(),
@@ -407,20 +409,20 @@ fn failed_heap_source_to_stable_target_write_leaves_no_heap_side_effects() {
     );
 
     let persisted = session
-        .load::<HeapSessionSqlSourceToStableTargetEntity>()
+        .load::<HeapSessionSqlSourceToDurableTargetEntity>()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("heap source load after failed write should succeed")
         .entities();
     assert_eq!(
         persisted,
-        Vec::<HeapSessionSqlSourceToStableTargetEntity>::new(),
+        Vec::<HeapSessionSqlSourceToDurableTargetEntity>::new(),
         "failed mixed write must not leave heap source side effects"
     );
 }
 
 #[test]
-fn mixed_heap_source_reinit_recovery_purges_stable_reverse_index_state() {
+fn mixed_heap_source_reinit_recovery_purges_durable_reverse_index_state() {
     reset_mixed_heap_relation_stores();
     let session = mixed_heap_relation_sql_session();
     let target_id = 171_300;
@@ -431,24 +433,24 @@ fn mixed_heap_source_reinit_recovery_purges_stable_reverse_index_state() {
             id: target_id,
             parent: None,
         })
-        .expect("stable target seed should succeed");
-    let stable_index_baseline = mixed_relation_stable_index_entries();
+        .expect("durable target seed should succeed");
+    let durable_index_baseline = mixed_relation_durable_index_entries();
     let (result, classes) =
-        capture_mutation_commit_classes(HeapSessionSqlSourceToStableTargetEntity::PATH, || {
-            session.insert(HeapSessionSqlSourceToStableTargetEntity {
+        capture_mutation_commit_classes(HeapSessionSqlSourceToDurableTargetEntity::PATH, || {
+            session.insert(HeapSessionSqlSourceToDurableTargetEntity {
                 id: source_id,
                 target_id,
             })
         });
-    result.expect("heap source to stable target should validate while live");
+    result.expect("heap source to durable target should validate while live");
     assert_eq!(
         classes,
         vec![MutationCommitClass::MixedDurableAndLive],
-        "successful heap-source to stable-target write should remain classified as mixed",
+        "successful heap-source to durable-target write should remain classified as mixed",
     );
     assert!(
-        mixed_relation_stable_index_entries() > stable_index_baseline,
-        "live mixed write should maintain stable reverse-index state while the heap source exists",
+        mixed_relation_durable_index_entries() > durable_index_baseline,
+        "live mixed write should maintain durable reverse-index state while the heap source exists",
     );
 
     reinitialize_heap_session_sql_store();
@@ -459,20 +461,20 @@ fn mixed_heap_source_reinit_recovery_purges_stable_reverse_index_state() {
     let session = mixed_heap_relation_sql_session();
 
     let heap_sources = session
-        .load::<HeapSessionSqlSourceToStableTargetEntity>()
+        .load::<HeapSessionSqlSourceToDurableTargetEntity>()
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("heap source load after reinit should succeed")
         .entities();
     assert_eq!(
         heap_sources,
-        Vec::<HeapSessionSqlSourceToStableTargetEntity>::new(),
+        Vec::<HeapSessionSqlSourceToDurableTargetEntity>::new(),
         "heap source rows must not be recovered after heap store reinit",
     );
     let delete_sql = format!("DELETE FROM SessionSqlSelfRelationEntity WHERE id = {target_id}");
     let delete = session
         .execute_sql_update::<SessionSqlSelfRelationEntity>(delete_sql.as_str())
-        .expect("stable target should be deletable after volatile relation state is purged");
+        .expect("durable target should be deletable after volatile relation state is purged");
     let SqlStatementResult::Count { row_count } = delete else {
         panic!("DELETE without RETURNING should emit a count payload");
     };

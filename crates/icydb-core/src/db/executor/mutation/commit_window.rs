@@ -1207,10 +1207,9 @@ pub(in crate::db::executor) fn affected_store_handles_for_prepared_row_ops<C: Ca
 }
 
 // Project durable recovery payloads into one marker-bound commit payload.
-// Stable stores keep row-op replay authority. Journaled stores embed logical
-// journal records in the marker so journal publication can happen before live
-// projections are updated. Heap stores remain live-only and absent from
-// durable recovery payloads.
+// Journaled stores embed logical journal records in the marker so journal
+// publication can happen before live projections are updated. Heap stores
+// remain live-only and absent from durable recovery payloads.
 fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
     db: &Db<C>,
     row_ops: &[CommitRowOp],
@@ -1227,7 +1226,6 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
             .map(|(_, handle)| handle)
             .collect::<Vec<StoreHandle>>()
     });
-    let mut recovery_row_ops = Vec::new();
     let mut journal_records = Vec::<(StoreHandle, Vec<JournalRecord>)>::new();
 
     for (row_op, prepared_row_op) in row_ops.iter().zip(prepared_row_ops) {
@@ -1237,7 +1235,6 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
             .ok_or_else(InternalError::executor_invariant)?;
 
         match handle.storage_capabilities().recovery() {
-            StoreRecoveryCapability::StableCommitReplay => recovery_row_ops.push(row_op.clone()),
             StoreRecoveryCapability::StableBasePlusJournalReplay => {
                 let record = journal_record_for_row_op(row_op)?;
                 push_journal_record(&mut journal_records, *handle, record);
@@ -1262,7 +1259,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         });
     }
 
-    let marker = CommitMarker::from_parts(marker_id, recovery_row_ops, marker_batches)?;
+    let marker = CommitMarker::from_parts(marker_id, Vec::new(), marker_batches)?;
 
     Ok(CommitWindowPayload {
         marker,

@@ -18,9 +18,9 @@
 
 use crate::{
     db::{
-        Db,
+        Db, EntityRuntimeHooks,
         commit::{
-            CommitMarker,
+            CommitMarker, CommitRowOp,
             memory::configure_commit_memory_id,
             rebuild::rebuild_secondary_indexes_from_rows,
             replay::replay_commit_marker_row_ops,
@@ -111,7 +111,9 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
-        publish_marker_bound_journal_batches(db, &marker)?;
+        if let Err(err) = publish_marker_bound_journal_batches(db, &marker) {
+            return Err(err.with_origin(ErrorOrigin::Recovery));
+        }
         // Phase 1: replay persisted row operations while marker authority is active.
         replay_commit_marker_row_ops(db, &marker.row_ops)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
@@ -119,23 +121,31 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
 
     // Phase 2: fold committed journal-tail records into the canonical stable
     // base, then use the fold watermark as the replay boundary.
-    fold_journaled_tails(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    if let Err(err) = fold_journaled_tails(db) {
+        return Err(err.with_origin(ErrorOrigin::Recovery));
+    }
 
     // Phase 3: rebuild journaled live projections from durable base + any
     // committed tail that remains above the fold watermark.
-    rebuild_journaled_live_projections(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    if let Err(err) = rebuild_journaled_live_projections(db) {
+        return Err(err.with_origin(ErrorOrigin::Recovery));
+    }
 
     // Phase 4: rebuild secondary indexes from authoritative data rows.
-    rebuild_secondary_indexes_from_rows(db)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    if let Err(err) = rebuild_secondary_indexes_from_rows(db) {
+        return Err(err.with_origin(ErrorOrigin::Recovery));
+    }
 
     // Phase 5: fold rebuilt journaled index materializations into canonical
     // index storage. Indexes are derived state, not independent journal truth.
-    fold_journaled_index_materialized_views(db)
-        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    if let Err(err) = fold_journaled_index_materialized_views(db) {
+        return Err(err.with_origin(ErrorOrigin::Recovery));
+    }
 
     // Phase 6: enforce post-recovery integrity before clearing marker authority.
-    validate_recovery_integrity(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
+    if let Err(err) = validate_recovery_integrity(db) {
+        return Err(err.with_origin(ErrorOrigin::Recovery));
+    }
 
     // Phase 7: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
@@ -261,6 +271,7 @@ fn replay_journal_batch<C: CanisterKind>(
     if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
         return Err(InternalError::store_corruption());
     }
+    validate_journal_batch_records(db, expected_store_path, expected_handle, batch)?;
 
     for record in batch.records() {
         replay_journal_record(db, expected_store_path, expected_handle, record)?;
@@ -279,6 +290,7 @@ fn fold_journal_batch<C: CanisterKind>(
     if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
         return Err(InternalError::store_corruption());
     }
+    validate_journal_batch_records(db, expected_store_path, expected_handle, batch)?;
 
     for record in batch.records() {
         fold_journal_record(db, expected_store_path, expected_handle, record)?;
@@ -418,6 +430,92 @@ fn fold_journal_record<C: CanisterKind>(
     }
 }
 
+fn validate_journal_batch_records<C: CanisterKind>(
+    db: &Db<C>,
+    expected_store_path: &'static str,
+    expected_handle: StoreHandle,
+    batch: &JournalBatch,
+) -> Result<(), InternalError> {
+    for record in batch.records() {
+        match record {
+            JournalRecord::RowPut {
+                entity_path,
+                primary_key,
+                row_bytes,
+                schema_fingerprint,
+            } => {
+                validate_journal_row_record(
+                    db,
+                    expected_store_path,
+                    expected_handle,
+                    entity_path,
+                    primary_key,
+                    schema_fingerprint,
+                )?;
+                validate_journal_row_put_prepare(
+                    db,
+                    entity_path,
+                    primary_key,
+                    row_bytes,
+                    *schema_fingerprint,
+                )?;
+            }
+            JournalRecord::RowDelete {
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            } => {
+                validate_journal_row_record(
+                    db,
+                    expected_store_path,
+                    expected_handle,
+                    entity_path,
+                    primary_key,
+                    schema_fingerprint,
+                )?;
+            }
+            JournalRecord::SchemaPut {
+                store_path,
+                schema_snapshot_bytes,
+            } => {
+                if store_path != expected_store_path {
+                    return Err(InternalError::store_corruption());
+                }
+                let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
+                let hooks = db.runtime_hook_for_entity_path(snapshot.entity_path())?;
+                if hooks.store_path != expected_store_path {
+                    return Err(InternalError::store_corruption());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_journal_row_put_prepare<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &str,
+    primary_key: &RawDataStoreKey,
+    row_bytes: &[u8],
+    schema_fingerprint: [u8; 16],
+) -> Result<(), InternalError> {
+    let hooks = db.runtime_hook_for_entity_path(entity_path)?;
+    let handle = db.store_handle(hooks.store_path)?;
+    let before =
+        handle.with_data(|store| store.get(primary_key).map(|row| row.as_bytes().to_vec()));
+    let op = CommitRowOp::try_new_bytes(
+        hooks.entity_path,
+        primary_key.as_bytes(),
+        before,
+        Some(row_bytes.to_vec()),
+        schema_fingerprint,
+    )?;
+    db.prepare_row_commit_op(&op)?;
+
+    Ok(())
+}
+
 fn validate_journal_row_record<C: CanisterKind>(
     db: &Db<C>,
     expected_store_path: &'static str,
@@ -426,7 +524,7 @@ fn validate_journal_row_record<C: CanisterKind>(
     primary_key: &RawDataStoreKey,
     schema_fingerprint: &[u8; 16],
 ) -> Result<(), InternalError> {
-    let hooks = db.runtime_hook_for_entity_path(entity_path)?;
+    let hooks = recovery_runtime_hook_for_entity_path(db, entity_path)?;
     if hooks.store_path != expected_store_path {
         return Err(InternalError::store_corruption());
     }
@@ -486,8 +584,7 @@ fn journal_record_store_handle<C: CanisterKind>(
     let store_path = match record {
         JournalRecord::RowPut { entity_path, .. }
         | JournalRecord::RowDelete { entity_path, .. } => {
-            db.runtime_hook_for_entity_path(entity_path.as_str())?
-                .store_path
+            recovery_runtime_hook_for_entity_path(db, entity_path.as_str())?.store_path
         }
         JournalRecord::SchemaPut { store_path, .. } => store_path.as_str(),
     };
@@ -498,6 +595,14 @@ fn journal_record_store_handle<C: CanisterKind>(
             .find(|(path, _)| *path == store_path)
             .ok_or_else(InternalError::store_corruption)
     })
+}
+
+fn recovery_runtime_hook_for_entity_path<'a, C: CanisterKind>(
+    db: &'a Db<C>,
+    entity_path: &str,
+) -> Result<&'a EntityRuntimeHooks<C>, InternalError> {
+    db.runtime_hook_for_entity_path(entity_path)
+        .map_err(|_| InternalError::store_corruption())
 }
 
 // Reconcile generated entity metadata with the schema store once per generated

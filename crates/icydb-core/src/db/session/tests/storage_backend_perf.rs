@@ -19,7 +19,7 @@ struct StorageBackendTiming {
 }
 
 // Run one ignored native timing report over the same indexed row shape on the
-// stable and journaled session stores. The timings are informational only;
+// heap and journaled session stores. The timings are informational only;
 // correctness assertions only prove that each backend did the work.
 #[test]
 #[ignore = "native timing report: run explicitly with --ignored --nocapture"]
@@ -37,12 +37,12 @@ fn storage_backend_timing_report() {
     );
     println!();
 
-    let stable = measure_storage_backend::<StoragePerfStableEntity>(
-        "stable",
-        reset_session_sql_store,
-        sql_session(),
-        "StoragePerfStableEntity",
-        |id| StoragePerfStableEntity {
+    let heap = measure_storage_backend::<HeapSessionSqlEntity>(
+        "heap",
+        reset_heap_session_sql_store,
+        heap_sql_session(),
+        "HeapSessionSqlEntity",
+        |id| HeapSessionSqlEntity {
             id,
             name: perf_name(id),
             age: perf_age(id),
@@ -61,12 +61,12 @@ fn storage_backend_timing_report() {
     );
 
     println!();
-    println!("Stable backend audit");
-    print_timing(stable, stable, "stable");
+    println!("Heap backend audit");
+    print_timing(heap, heap, "heap");
 
     println!();
     println!("Journaled backend audit");
-    print_timing(journaled, stable, "stable");
+    print_timing(journaled, heap, "heap");
 }
 
 fn measure_storage_backend<E>(

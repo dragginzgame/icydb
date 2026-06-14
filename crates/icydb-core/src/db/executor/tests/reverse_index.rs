@@ -5,8 +5,9 @@
 
 use super::support::*;
 use crate::db::{
-    commit::CommitSchemaFingerprint,
+    commit::{CommitRowOp, CommitSchemaFingerprint},
     data::{DataStore, DecodedDataStoreKey},
+    journal::{JournalBatch, JournalRecord},
     schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
 };
 
@@ -36,6 +37,47 @@ fn relation_source_accepted_commit_schema_fingerprint() -> CommitSchemaFingerpri
 
     accepted_commit_schema_fingerprint(&accepted)
         .expect("relation source accepted commit fingerprint should derive")
+}
+
+fn relation_source_recovery_marker(row_ops: Vec<CommitRowOp>) -> crate::db::commit::CommitMarker {
+    let marker_id =
+        crate::db::commit::generate_commit_id().expect("relation recovery marker id should build");
+    let records = row_ops
+        .iter()
+        .map(relation_source_journal_record_for_row_op)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("relation recovery journal records should build");
+    let source_store = REL_DB
+        .with_store_registry(|reg| reg.try_get_store(RelationSourceStore::PATH))
+        .expect("relation source store should resolve");
+    let sequence = source_store
+        .journal_tail_store()
+        .expect("relation source store should have a journal tail")
+        .with_borrow(crate::db::journal::JournalTailStore::next_append_sequence)
+        .expect("relation source journal sequence should allocate");
+    let batch = JournalBatch::new(marker_id, marker_id, sequence, records)
+        .expect("relation recovery journal batch should build");
+
+    crate::db::commit::CommitMarker::from_parts(marker_id, Vec::new(), vec![batch])
+        .expect("relation recovery marker should build")
+}
+
+fn relation_source_journal_record_for_row_op(
+    row_op: &CommitRowOp,
+) -> Result<JournalRecord, crate::error::InternalError> {
+    match row_op.after.as_ref() {
+        Some(after) => JournalRecord::row_put(
+            row_op.entity_path.as_ref(),
+            row_op.key.clone(),
+            after.clone(),
+            row_op.schema_fingerprint,
+        ),
+        None => JournalRecord::row_delete(
+            row_op.entity_path.as_ref(),
+            row_op.key.clone(),
+            row_op.schema_fingerprint,
+        ),
+    }
 }
 
 fn assert_relation_delete_blocked_diagnostic(err: &crate::error::InternalError, context: &str) {
@@ -848,14 +890,13 @@ fn recovery_replays_reverse_relation_index_mutations() {
         .as_bytes()
         .to_vec();
 
-    let marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
+    let marker = relation_source_recovery_marker(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
         raw_key,
         None,
         Some(row_bytes),
         relation_source_accepted_commit_schema_fingerprint(),
-    )])
-    .expect("commit marker creation should succeed");
+    )]);
 
     begin_commit(marker).expect("begin_commit should persist marker");
     assert!(
@@ -937,7 +978,14 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         })
         .expect("orphan source save should succeed");
 
-    // Phase 2: simulate stale reverse-index drift by removing one source row directly.
+    // Fold the seeded rows and reverse indexes first, so the stale-entry setup
+    // below mutates durable data truth rather than only the live projection.
+    let seed_marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(seed_marker).expect("begin_commit should persist seed marker");
+    ensure_recovered(&REL_DB).expect("seed recovery rebuild should succeed");
+
+    // Phase 2: simulate stale reverse-index drift by removing one source row
+    // from durable row truth while leaving derived reverse-index state behind.
     let orphan_source_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_orphan)
         .expect("orphan source key should build")
         .to_raw()
@@ -945,11 +993,14 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
     REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationSourceStore::PATH).map(|store| {
-                let removed =
-                    store.with_data_mut(|data_store| data_store.remove(&orphan_source_key));
+                let removed = store.with_data_mut(|data_store| {
+                    data_store
+                        .fold_recovered_journal_delete(&orphan_source_key)
+                        .expect("canonical orphan source row removal should succeed")
+                });
                 assert!(
                     removed.is_some(),
-                    "orphan source row should exist before direct data-store removal",
+                    "orphan source row should exist before canonical data-store removal",
                 );
             })
         })
@@ -1134,14 +1185,14 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     });
 
     // Phase 1: replay first save marker.
-    let first_save_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
-        RelationSourceEntity::PATH,
-        first_source_key.clone(),
-        None,
-        Some(first_source_row_bytes.clone()),
-        relation_source_accepted_commit_schema_fingerprint(),
-    )])
-    .expect("first save marker creation should succeed");
+    let first_save_marker =
+        relation_source_recovery_marker(vec![crate::db::commit::CommitRowOp::new(
+            RelationSourceEntity::PATH,
+            first_source_key.clone(),
+            None,
+            Some(first_source_row_bytes.clone()),
+            relation_source_accepted_commit_schema_fingerprint(),
+        )]);
     begin_commit(first_save_marker).expect("begin_commit should persist marker");
     ensure_recovered(&REL_DB).expect("first save recovery replay should succeed");
 
@@ -1157,14 +1208,14 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     );
 
     // Phase 2: replay second save marker targeting the same target key.
-    let second_save_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
-        RelationSourceEntity::PATH,
-        second_source_key,
-        None,
-        Some(second_source_row_bytes),
-        relation_source_accepted_commit_schema_fingerprint(),
-    )])
-    .expect("second save marker creation should succeed");
+    let second_save_marker =
+        relation_source_recovery_marker(vec![crate::db::commit::CommitRowOp::new(
+            RelationSourceEntity::PATH,
+            second_source_key,
+            None,
+            Some(second_source_row_bytes),
+            relation_source_accepted_commit_schema_fingerprint(),
+        )]);
     begin_commit(second_save_marker).expect("begin_commit should persist marker");
     ensure_recovered(&REL_DB).expect("second save recovery replay should succeed");
 
@@ -1180,14 +1231,14 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     );
 
     // Phase 3: replay delete marker for one source row.
-    let delete_a_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
-        RelationSourceEntity::PATH,
-        first_source_key,
-        Some(first_source_row_bytes),
-        None,
-        relation_source_accepted_commit_schema_fingerprint(),
-    )])
-    .expect("delete marker creation should succeed");
+    let delete_a_marker =
+        relation_source_recovery_marker(vec![crate::db::commit::CommitRowOp::new(
+            RelationSourceEntity::PATH,
+            first_source_key,
+            Some(first_source_row_bytes),
+            None,
+            relation_source_accepted_commit_schema_fingerprint(),
+        )]);
     begin_commit(delete_a_marker).expect("begin_commit should persist marker");
     ensure_recovered(&REL_DB).expect("delete recovery replay should succeed");
 
@@ -1280,14 +1331,13 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         target: target_b,
     });
 
-    let marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
+    let marker = relation_source_recovery_marker(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
         source_key,
         Some(before_row_bytes),
         Some(after_row_bytes),
         relation_source_accepted_commit_schema_fingerprint(),
-    )])
-    .expect("commit marker creation should succeed");
+    )]);
     begin_commit(marker).expect("begin_commit should persist marker");
     ensure_recovered(&REL_DB).expect("recovery replay should succeed");
 
@@ -1378,7 +1428,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         .to_raw()
         .expect("mismatched target key should encode");
 
-    let marker = CommitMarker::new(vec![
+    let marker = relation_source_recovery_marker(vec![
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_key,
@@ -1393,8 +1443,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
             Some(vec![1]),
             relation_source_accepted_commit_schema_fingerprint(),
         ),
-    ])
-    .expect("commit marker creation should succeed");
+    ]);
     crate::db::commit::persist_raw_commit_marker_for_tests(&marker)
         .expect("raw corrupt marker fixture should persist");
 
@@ -1553,7 +1602,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         target: target_a,
     });
 
-    let marker = CommitMarker::new(vec![
+    let marker = relation_source_recovery_marker(vec![
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_1_key,
@@ -1568,8 +1617,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
             Some(source_2_same_row_bytes),
             relation_source_accepted_commit_schema_fingerprint(),
         ),
-    ])
-    .expect("commit marker creation should succeed");
+    ]);
     begin_commit(marker).expect("begin_commit should persist marker");
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),

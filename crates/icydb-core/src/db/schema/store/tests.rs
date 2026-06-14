@@ -77,7 +77,7 @@ fn raw_schema_snapshot_round_trips_identity_header_for_typed_snapshot() {
 
 #[test]
 fn schema_store_persists_raw_snapshots_by_entity_version_key() {
-    let mut store = SchemaStore::init(test_memory(251));
+    let mut store = SchemaStore::init_journaled(test_memory(251));
     let key = RawSchemaKey::from_entity_version(EntityTag::new(17), SchemaVersion::initial());
 
     assert!(store.is_empty());
@@ -101,7 +101,7 @@ fn schema_store_persists_raw_snapshots_by_entity_version_key() {
 
 #[test]
 fn schema_store_loads_latest_snapshot_for_entity() {
-    let mut store = SchemaStore::init(test_memory(252));
+    let mut store = SchemaStore::init_journaled(test_memory(252));
     let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
     let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
     let other_entity = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
@@ -127,7 +127,7 @@ fn schema_store_loads_latest_snapshot_for_entity() {
 
 #[test]
 fn schema_store_entity_footprint_counts_raw_snapshots_without_decoding() {
-    let mut store = SchemaStore::init(test_memory(242));
+    let mut store = SchemaStore::init_journaled(test_memory(242));
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(71), SchemaVersion::initial()),
         RawSchemaSnapshot::from_bytes(vec![1, 2, 3]),
@@ -150,7 +150,7 @@ fn schema_store_entity_footprint_counts_raw_snapshots_without_decoding() {
 
 #[test]
 fn schema_store_visit_raw_snapshots_preserves_key_order() {
-    let mut store = SchemaStore::init(test_memory(235));
+    let mut store = SchemaStore::init_journaled(test_memory(235));
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(3), SchemaVersion::new(2)),
         RawSchemaSnapshot::from_bytes(vec![32]),
@@ -179,7 +179,7 @@ fn schema_store_visit_raw_snapshots_preserves_key_order() {
 
 #[test]
 fn schema_store_visit_raw_snapshots_can_stop_without_error() {
-    let mut store = SchemaStore::init(test_memory(234));
+    let mut store = SchemaStore::init_journaled(test_memory(234));
     store.insert_raw_snapshot(
         RawSchemaKey::from_entity_version(EntityTag::new(2), SchemaVersion::new(1)),
         RawSchemaSnapshot::from_bytes(vec![21]),
@@ -461,7 +461,7 @@ fn journaled_schema_store_latest_snapshot_skips_tombstoned_latest_version() {
 
 #[test]
 fn schema_store_catalog_metadata_is_absent_without_accepted_snapshots() {
-    let store = SchemaStore::init(test_memory(241));
+    let store = SchemaStore::init_journaled(test_memory(241));
 
     assert_eq!(
         store
@@ -473,7 +473,7 @@ fn schema_store_catalog_metadata_is_absent_without_accepted_snapshots() {
 
 #[test]
 fn schema_store_latest_catalog_identity_uses_version_neutral_header_without_decoding() {
-    let mut store = SchemaStore::init(test_memory(239));
+    let mut store = SchemaStore::init_journaled(test_memory(239));
     let entity = EntityTag::new(80);
     let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Versioned");
     let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Versioned");
@@ -510,7 +510,7 @@ fn schema_store_latest_catalog_identity_uses_version_neutral_header_without_deco
 
 #[test]
 fn schema_store_catalog_metadata_uses_latest_persisted_snapshots() {
-    let mut store = SchemaStore::init(test_memory(240));
+    let mut store = SchemaStore::init_journaled(test_memory(240));
     let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
     let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
     let other = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
@@ -558,13 +558,13 @@ fn schema_store_catalog_metadata_is_independent_of_insertion_order() {
     let first = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "First");
     let second = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Second");
 
-    let mut left = SchemaStore::init(test_memory(239));
+    let mut left = SchemaStore::init_journaled(test_memory(239));
     left.insert_persisted_snapshot(EntityTag::new(91), &first)
         .expect("first schema snapshot should encode");
     left.insert_persisted_snapshot(EntityTag::new(92), &second)
         .expect("second schema snapshot should encode");
 
-    let mut right = SchemaStore::init(test_memory(238));
+    let mut right = SchemaStore::init_journaled(test_memory(238));
     right
         .insert_persisted_snapshot(EntityTag::new(92), &second)
         .expect("second schema snapshot should encode");
@@ -592,7 +592,7 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
         "payload_idx",
     );
 
-    let mut base = SchemaStore::init(test_memory(237));
+    let mut base = SchemaStore::init_journaled(test_memory(237));
     base.insert_persisted_snapshot(EntityTag::new(93), &without_index)
         .expect("base schema snapshot should encode");
     let base_metadata = base
@@ -600,7 +600,7 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
         .expect("base allocation metadata should derive")
         .expect("base allocation metadata should be present");
 
-    let mut indexed = SchemaStore::init(test_memory(236));
+    let mut indexed = SchemaStore::init_journaled(test_memory(236));
     indexed
         .insert_persisted_snapshot(EntityTag::new(93), &with_index)
         .expect("indexed schema snapshot should encode");
@@ -652,7 +652,7 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
 
 #[test]
 fn schema_store_rejects_mismatched_snapshot_and_layout_versions() {
-    let mut store = SchemaStore::init(test_memory(253));
+    let mut store = SchemaStore::init_journaled(test_memory(253));
     let invalid = persisted_schema_snapshot_with_layout_version_for_test(
         SchemaVersion::new(2),
         SchemaVersion::initial(),
@@ -672,7 +672,7 @@ fn schema_store_rejects_mismatched_snapshot_and_layout_versions() {
 
 #[test]
 fn schema_store_rejects_typed_snapshot_with_zero_schema_version() {
-    let mut store = SchemaStore::init(test_memory(254));
+    let mut store = SchemaStore::init_journaled(test_memory(254));
     let invalid = persisted_schema_snapshot_for_test(SchemaVersion::new(0), "ZeroSchemaVersion");
 
     let err = store
@@ -688,7 +688,7 @@ fn schema_store_rejects_typed_snapshot_with_zero_schema_version() {
 
 #[test]
 fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
-    let mut store = SchemaStore::init(test_memory(232));
+    let mut store = SchemaStore::init_journaled(test_memory(232));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "InvalidSlots");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -718,7 +718,7 @@ fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
 
 #[test]
 fn schema_store_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
-    let mut store = SchemaStore::init(test_memory(246));
+    let mut store = SchemaStore::init_journaled(test_memory(246));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "DuplicateLayoutSlot");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -748,7 +748,7 @@ fn schema_store_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
 
 #[test]
 fn schema_store_rejects_typed_snapshot_with_missing_primary_key_field() {
-    let mut store = SchemaStore::init(test_memory(248));
+    let mut store = SchemaStore::init_journaled(test_memory(248));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "MissingPk");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -772,7 +772,7 @@ fn schema_store_rejects_typed_snapshot_with_missing_primary_key_field() {
 
 #[test]
 fn schema_store_does_not_fallback_when_latest_snapshot_is_corrupt() {
-    let mut store = SchemaStore::init(test_memory(249));
+    let mut store = SchemaStore::init_journaled(test_memory(249));
     let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
     let corrupt_key = RawSchemaKey::from_entity_version(EntityTag::new(45), SchemaVersion::new(3));
 
@@ -794,7 +794,7 @@ fn schema_store_does_not_fallback_when_latest_snapshot_is_corrupt() {
 
 #[test]
 fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
-    let mut store = SchemaStore::init(test_memory(250));
+    let mut store = SchemaStore::init_journaled(test_memory(250));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "RawInvalidSlots");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -829,7 +829,7 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
 
 #[test]
 fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
-    let mut store = SchemaStore::init(test_memory(247));
+    let mut store = SchemaStore::init_journaled(test_memory(247));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "RawMissingPk");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -858,7 +858,7 @@ fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
 
 #[test]
 fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
-    let mut store = SchemaStore::init(test_memory(245));
+    let mut store = SchemaStore::init_journaled(test_memory(245));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "DuplicateFieldName");
     let mut fields = base.fields().to_vec();
     let duplicate = PersistedFieldSnapshot::new(
@@ -900,7 +900,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
 
 #[test]
 fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
-    let mut store = SchemaStore::init(test_memory(244));
+    let mut store = SchemaStore::init_journaled(test_memory(244));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "EmptyNestedLeaf");
     let mut fields = base.fields().to_vec();
     let invalid_field = PersistedFieldSnapshot::new(
@@ -943,7 +943,7 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
 
 #[test]
 fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
-    let mut store = SchemaStore::init(test_memory(243));
+    let mut store = SchemaStore::init_journaled(test_memory(243));
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "DuplicateNestedLeaf");
     let mut fields = base.fields().to_vec();
     let duplicate_leaves = vec![

@@ -11,6 +11,7 @@ pub(in crate::db::executor::tests) use crate::{
         commit::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered,
             init_commit_store_for_tests, prepare_row_commit_for_entity_with_structural_readers,
+            reset_commit_marker_test_journal_sequence,
         },
         data::DataStore,
         executor::{
@@ -18,6 +19,7 @@ pub(in crate::db::executor::tests) use crate::{
             ScalarTerminalBoundaryRequest,
         },
         index::IndexStore,
+        journal::JournalTailStore,
         predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
@@ -131,24 +133,28 @@ crate::test_store! {
 
 thread_local! {
     pub(in crate::db::executor::tests) static TEST_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(0)));
+        RefCell::new(DataStore::init_journaled(test_memory(0)));
     pub(in crate::db::executor::tests) static TEST_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(1)));
+        RefCell::new(IndexStore::init_journaled(test_memory(1)));
     pub(in crate::db::executor::tests) static TEST_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(2)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(2)));
+    pub(in crate::db::executor::tests) static TEST_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(3)));
     pub(in crate::db::executor::tests) static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(
+        reg.register_journaled_store(
             TestDataStore::PATH,
             &TEST_DATA_STORE,
             &TEST_INDEX_STORE,
             &TEST_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::new(
+            &TEST_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
                 crate::db::StoreAllocationIdentity::new(0, "icydb.test.executor.data.v1"),
                 crate::db::StoreAllocationIdentity::new(1, "icydb.test.executor.index.v1"),
                 crate::db::StoreAllocationIdentity::new(2, "icydb.test.executor.schema.v1"),
+                crate::db::StoreAllocationIdentity::new(3, "icydb.test.executor.journal.v1"),
             ),
-            crate::db::StoreRuntimeStorageCapabilities::stable(),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
         )
             .expect("test store registration should succeed");
         reg
@@ -366,6 +372,8 @@ pub(in crate::db::executor::tests) fn reset_store() {
     ensure_recovered(&DB).expect("write-side recovery should succeed");
     TEST_DATA_STORE.with(|store| store.borrow_mut().clear());
     TEST_INDEX_STORE.with(|store| store.borrow_mut().clear());
+    TEST_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    reset_commit_marker_test_journal_sequence();
 }
 
 crate::test_canister! {
@@ -388,25 +396,30 @@ crate::test_store! {
 
 thread_local! {
     pub(in crate::db::executor::tests) static REL_SOURCE_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(40)));
+        RefCell::new(DataStore::init_journaled(test_memory(40)));
     pub(in crate::db::executor::tests) static REL_TARGET_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(41)));
+        RefCell::new(DataStore::init_journaled(test_memory(41)));
     pub(in crate::db::executor::tests) static REL_SOURCE_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(42)));
+        RefCell::new(IndexStore::init_journaled(test_memory(42)));
     pub(in crate::db::executor::tests) static REL_TARGET_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(43)));
+        RefCell::new(IndexStore::init_journaled(test_memory(43)));
     pub(in crate::db::executor::tests) static REL_SOURCE_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(44)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(44)));
     pub(in crate::db::executor::tests) static REL_TARGET_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(45)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(45)));
+    pub(in crate::db::executor::tests) static REL_SOURCE_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(46)));
+    pub(in crate::db::executor::tests) static REL_TARGET_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(47)));
     pub(in crate::db::executor::tests) static REL_STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(
+        reg.register_journaled_store(
             RelationSourceStore::PATH,
             &REL_SOURCE_DATA_STORE,
             &REL_SOURCE_INDEX_STORE,
             &REL_SOURCE_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::new(
+            &REL_SOURCE_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
                 crate::db::StoreAllocationIdentity::new(
                     40,
                     "icydb.test.relation_source.data.v1",
@@ -419,16 +432,21 @@ thread_local! {
                     44,
                     "icydb.test.relation_source.schema.v1",
                 ),
+                crate::db::StoreAllocationIdentity::new(
+                    46,
+                    "icydb.test.relation_source.journal.v1",
+                ),
             ),
-            crate::db::StoreRuntimeStorageCapabilities::stable(),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
         )
         .expect("relation source store registration should succeed");
-        reg.register_store(
+        reg.register_journaled_store(
             RelationTargetStore::PATH,
             &REL_TARGET_DATA_STORE,
             &REL_TARGET_INDEX_STORE,
             &REL_TARGET_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::new(
+            &REL_TARGET_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
                 crate::db::StoreAllocationIdentity::new(
                     41,
                     "icydb.test.relation_target.data.v1",
@@ -441,8 +459,12 @@ thread_local! {
                     45,
                     "icydb.test.relation_target.schema.v1",
                 ),
+                crate::db::StoreAllocationIdentity::new(
+                    47,
+                    "icydb.test.relation_target.journal.v1",
+                ),
             ),
-            crate::db::StoreRuntimeStorageCapabilities::stable(),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
         )
         .expect("relation target store registration should succeed");
         reg
@@ -1033,13 +1055,20 @@ pub(in crate::db::executor::tests) fn reset_relation_stores() {
             .map(|store| {
                 store.with_data_mut(DataStore::clear);
                 store.with_index_mut(IndexStore::clear);
+                if let Some(journal_store) = store.journal_tail_store() {
+                    journal_store.with_borrow_mut(JournalTailStore::clear);
+                }
             })
             .expect("relation source store access should succeed");
         reg.try_get_store(RelationTargetStore::PATH)
             .map(|store| {
                 store.with_data_mut(DataStore::clear);
                 store.with_index_mut(IndexStore::clear);
+                if let Some(journal_store) = store.journal_tail_store() {
+                    journal_store.with_borrow_mut(JournalTailStore::clear);
+                }
             })
             .expect("relation target store access should succeed");
     });
+    reset_commit_marker_test_journal_sequence();
 }

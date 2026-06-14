@@ -10,6 +10,7 @@ use crate::{
         commit::{
             CommitRowOp, commit_marker_present, ensure_recovered, init_commit_store_for_tests,
             prepare_row_commit_for_entity_with_structural_readers,
+            reset_commit_marker_test_journal_sequence,
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, RawRow, StructuralPatch,
@@ -23,6 +24,7 @@ use crate::{
             },
         },
         index::IndexStore,
+        journal::JournalTailStore,
         predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
@@ -95,43 +97,51 @@ const UNIQUE_INDEX_STORE_PATH: &str = SourceStore::PATH;
 
 thread_local! {
     static SOURCE_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(0)));
+        RefCell::new(DataStore::init_journaled(test_memory(0)));
     static TARGET_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(1)));
+        RefCell::new(DataStore::init_journaled(test_memory(1)));
     static UNIQUE_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(2)));
+        RefCell::new(IndexStore::init_journaled(test_memory(2)));
     static TARGET_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(3)));
+        RefCell::new(IndexStore::init_journaled(test_memory(3)));
     static SOURCE_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(4)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(4)));
     static TARGET_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(5)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(5)));
+    static SOURCE_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(6)));
+    static TARGET_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(7)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(
+        reg.register_journaled_store(
             SourceStore::PATH,
             &SOURCE_DATA_STORE,
             &UNIQUE_INDEX_STORE,
             &SOURCE_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::new(
+            &SOURCE_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
                 crate::db::StoreAllocationIdentity::new(0, "icydb.test.mutation.source.data.v1"),
                 crate::db::StoreAllocationIdentity::new(2, "icydb.test.mutation.source.index.v1"),
                 crate::db::StoreAllocationIdentity::new(4, "icydb.test.mutation.source.schema.v1"),
+                crate::db::StoreAllocationIdentity::new(6, "icydb.test.mutation.source.journal.v1"),
             ),
-            crate::db::StoreRuntimeStorageCapabilities::stable(),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
         )
             .expect("source store registration should succeed");
-        reg.register_store(
+        reg.register_journaled_store(
             TargetStore::PATH,
             &TARGET_DATA_STORE,
             &TARGET_INDEX_STORE,
             &TARGET_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::new(
+            &TARGET_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
                 crate::db::StoreAllocationIdentity::new(1, "icydb.test.mutation.target.data.v1"),
                 crate::db::StoreAllocationIdentity::new(3, "icydb.test.mutation.target.index.v1"),
                 crate::db::StoreAllocationIdentity::new(5, "icydb.test.mutation.target.schema.v1"),
+                crate::db::StoreAllocationIdentity::new(7, "icydb.test.mutation.target.journal.v1"),
             ),
-            crate::db::StoreRuntimeStorageCapabilities::stable(),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
         )
             .expect("target store registration should succeed");
         reg
@@ -166,6 +176,9 @@ fn reset_store() {
     with_data_store_mut(TargetStore::PATH, DataStore::clear);
     with_index_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear);
     with_index_store_mut(TargetStore::PATH, IndexStore::clear);
+    SOURCE_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    TARGET_JOURNAL_STORE.with_borrow_mut(JournalTailStore::clear);
+    reset_commit_marker_test_journal_sequence();
 }
 
 ///

@@ -3,6 +3,8 @@
 //! Does not own: marker storage backend, commit-window lifecycle, or recovery orchestration.
 //! Boundary: commit::{prepare,recovery,store} -> commit::marker (one-way).
 
+#[cfg(test)]
+use crate::db::journal::{JournalRecord, JournalSequence};
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
@@ -39,6 +41,8 @@ pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
 
 static COMMIT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(test)]
+static TEST_JOURNAL_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 // Conservative upper bound to avoid rejecting valid commits when index entries
 // are large; still small enough to fit typical canister constraints.
@@ -183,8 +187,17 @@ impl CommitMarker {
     #[cfg(test)]
     pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = generate_commit_id()?;
+        if row_ops.is_empty() {
+            return Self::from_parts(id, row_ops, Vec::new());
+        }
 
-        Self::from_parts(id, row_ops, Vec::new())
+        let records = row_ops
+            .iter()
+            .map(journal_record_from_row_op_for_test)
+            .collect::<Result<Vec<_>, _>>()?;
+        let batch = JournalBatch::new(id, id, next_test_journal_sequence()?, records)?;
+
+        Self::from_parts(id, Vec::new(), vec![batch])
     }
 
     /// Construct one marker from already-derived durable payload parts.
@@ -239,6 +252,41 @@ impl CommitMarker {
     // Build the canonical row-op corruption for key decode failures.
     fn row_op_key_decode_failed(_err: impl Sized) -> InternalError {
         InternalError::commit_corruption()
+    }
+}
+
+#[cfg(test)]
+pub(in crate::db) fn reset_test_journal_sequence() {
+    TEST_JOURNAL_SEQUENCE.store(1, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+fn next_test_journal_sequence() -> Result<JournalSequence, InternalError> {
+    let value = TEST_JOURNAL_SEQUENCE
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| InternalError::commit_id_generation_failed())?;
+
+    Ok(JournalSequence::new(value))
+}
+
+#[cfg(test)]
+fn journal_record_from_row_op_for_test(
+    row_op: &CommitRowOp,
+) -> Result<JournalRecord, InternalError> {
+    match row_op.after.as_ref() {
+        Some(after) => JournalRecord::row_put(
+            row_op.entity_path.as_ref(),
+            row_op.key.clone(),
+            after.clone(),
+            row_op.schema_fingerprint,
+        ),
+        None => JournalRecord::row_delete(
+            row_op.entity_path.as_ref(),
+            row_op.key.clone(),
+            row_op.schema_fingerprint,
+        ),
     }
 }
 

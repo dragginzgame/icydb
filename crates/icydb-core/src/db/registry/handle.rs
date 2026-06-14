@@ -32,10 +32,8 @@ pub struct StoreHandle {
 /// Policy code should branch on capability axes instead of this display value.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreRuntimeStorageMode {
-    /// Durable stable-memory storage.
-    #[default]
-    Stable,
     /// Volatile in-process heap storage.
+    #[default]
     Heap,
     /// Journaled cached-stable durable storage.
     Journaled,
@@ -46,7 +44,6 @@ impl StoreRuntimeStorageMode {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Stable => "stable",
             Self::Heap => "heap",
             Self::Journaled => "journaled",
         }
@@ -98,11 +95,9 @@ impl StoreDurability {
 /// Store recovery capability.
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreRecoveryCapability {
-    /// Store contents can be recovered through stable commit replay.
-    #[default]
-    StableCommitReplay,
     /// Store contents can be recovered from canonical stable BTrees plus a
     /// committed journal tail.
+    #[default]
     StableBasePlusJournalReplay,
     /// Store contents are not recovered.
     None,
@@ -113,7 +108,6 @@ impl StoreRecoveryCapability {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::StableCommitReplay => "stable-replay",
             Self::StableBasePlusJournalReplay => "stable-base-plus-journal-replay",
             Self::None => "none",
         }
@@ -144,12 +138,10 @@ impl StoreCommitParticipation {
 /// Store schema metadata persistence class.
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreSchemaMetadataCapability {
-    /// Schema metadata has durable accepted-history semantics.
-    #[default]
-    DurableAcceptedHistory,
     /// Schema metadata is rebuilt live and is not durable history.
     LiveRebuiltMetadata,
     /// Schema metadata is canonical stable history plus committed journal tail.
+    #[default]
     CanonicalStableHistoryPlusJournalTail,
 }
 
@@ -158,7 +150,6 @@ impl StoreSchemaMetadataCapability {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::DurableAcceptedHistory => "durable-accepted-history",
             Self::LiveRebuiltMetadata => "live-rebuilt-metadata",
             Self::CanonicalStableHistoryPlusJournalTail => {
                 "canonical-stable-history-plus-journal-tail"
@@ -212,22 +203,6 @@ pub struct StoreRuntimeStorageCapabilities {
 }
 
 impl StoreRuntimeStorageCapabilities {
-    /// Capability descriptor for stable-memory stores.
-    #[must_use]
-    pub const fn stable() -> Self {
-        Self {
-            storage_mode: StoreRuntimeStorageMode::Stable,
-            allocation_identity: StoreAllocationIdentityCapability::Present,
-            durability: StoreDurability::Durable,
-            recovery: StoreRecoveryCapability::StableCommitReplay,
-            commit_participation: StoreCommitParticipation::Durable,
-            schema_metadata: StoreSchemaMetadataCapability::DurableAcceptedHistory,
-            relation_source: StoreRelationSourceCapability::DurableSource,
-            relation_target: StoreRelationTargetCapability::DurableTarget,
-            live_validation: StoreLiveValidationCapability::Supported,
-        }
-    }
-
     /// Capability descriptor for heap stores.
     #[must_use]
     pub const fn heap() -> Self {
@@ -377,21 +352,6 @@ impl StoreAllocationIdentities {
         }
     }
 
-    /// Build one allocation identity bundle.
-    #[must_use]
-    pub const fn new(
-        data: StoreAllocationIdentity,
-        index: StoreAllocationIdentity,
-        schema: StoreAllocationIdentity,
-    ) -> Self {
-        Self {
-            data: Some(data),
-            index: Some(index),
-            schema: Some(schema),
-            journal: None,
-        }
-    }
-
     /// Build one journaled cached-stable allocation identity bundle.
     #[must_use]
     pub const fn new_journaled(
@@ -453,12 +413,6 @@ impl StoreAllocationIdentities {
         capabilities: StoreRuntimeStorageCapabilities,
     ) -> bool {
         match capabilities.storage_mode() {
-            StoreRuntimeStorageMode::Stable => {
-                self.data.is_some()
-                    && self.index.is_some()
-                    && self.schema.is_some()
-                    && self.journal.is_none()
-            }
             StoreRuntimeStorageMode::Heap => {
                 self.data.is_none()
                     && self.index.is_none()

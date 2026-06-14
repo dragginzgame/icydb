@@ -43,6 +43,8 @@ const TEST_COMMIT_STABLE_KEY: &str = "icydb.test.commit.v1";
 pub(in crate::db) use guard::{
     CommitApplyGuard, CommitGuard, begin_commit, begin_single_row_commit, finish_commit,
 };
+#[cfg(test)]
+pub(in crate::db) use marker::reset_test_journal_sequence as reset_commit_marker_test_journal_sequence;
 pub(in crate::db) use marker::{
     CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
     generate_commit_id,

@@ -180,12 +180,6 @@ fn parse_store_storage(list: &syn::MetaList) -> Result<ParsedStoreStorage, Darli
     };
 
     match item {
-        NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("stable") => Err(
-            DarlingError::custom(
-                "storage(stable(...)) was removed; use storage(journaled(...)) for durable stores or storage(heap()) for volatile fixtures",
-            )
-            .with_span(&mode.path),
-        ),
         NestedMeta::Meta(syn::Meta::List(mode)) if mode.path.is_ident("heap") => {
             parse_heap_config(mode).map(ParsedStoreStorage::Heap)
         }

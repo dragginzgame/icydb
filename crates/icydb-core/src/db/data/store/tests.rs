@@ -22,7 +22,7 @@ fn raw_row(value: u8) -> RawRow {
 }
 
 fn seed_store(memory_id: u8, entries: &[(u64, u64, u8)]) -> DataStore {
-    let mut store = DataStore::init(test_memory(memory_id));
+    let mut store = DataStore::init_journaled(test_memory(memory_id));
     for (entity, id, row) in entries {
         store.insert_raw_for_test(raw_key(*entity, *id), raw_row(*row));
     }

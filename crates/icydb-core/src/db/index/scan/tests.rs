@@ -10,7 +10,7 @@ use std::{borrow::Cow, ops::Bound};
 
 #[test]
 fn visit_raw_entries_in_range_preserves_directional_store_order() {
-    let mut index_store = IndexStore::init(test_memory(91));
+    let mut index_store = IndexStore::init_journaled(test_memory(91));
     for value in [1_u8, 2, 3] {
         let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
         let raw_entry = IndexEntryValue::presence();
@@ -48,7 +48,7 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
 
 #[test]
 fn visit_entries_preserves_store_order_and_supports_early_stop() {
-    let mut index_store = IndexStore::init(test_memory(92));
+    let mut index_store = IndexStore::init_journaled(test_memory(92));
     for value in [3_u8, 1, 2] {
         let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
         let raw_entry = IndexEntryValue::presence();

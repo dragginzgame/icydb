@@ -40,26 +40,6 @@ impl PreparedRowCommitOp {
             data_value,
         }
     }
-
-    /// Capture only row-store state needed to roll back this prepared row op.
-    ///
-    /// Recovery replay applies row mutations only and rebuilds indexes in a
-    /// dedicated phase, so replay rollback snapshots should remain row-scoped.
-    #[must_use]
-    pub(crate) fn snapshot_row_only_rollback(&self) -> Self {
-        // Recovery row-replay rollback does not touch index stores; rebuild owns those.
-        let data_value = self
-            .data_store
-            .with_borrow(|store| store.get(&self.data_key))
-            .map(canonical_row_from_stored_raw_row);
-
-        Self {
-            index_ops: Vec::new(),
-            data_store: self.data_store,
-            data_key: self.data_key.clone(),
-            data_value,
-        }
-    }
 }
 
 /// Apply prepared-row rollback operations in reverse write order.

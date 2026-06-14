@@ -7,6 +7,7 @@ use crate::{
     db::{
         data::{DataStore, DecodedDataStoreKey, RawRow},
         index::IndexStore,
+        journal::JournalTailStore,
         key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         predicate::MissingRowPolicy,
         registry::StoreHandle,
@@ -20,11 +21,13 @@ use std::cell::RefCell;
 
 thread_local! {
     static TEST_RUNTIME_CONTEXT_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(171)));
+        RefCell::new(DataStore::init_journaled(test_memory(171)));
     static TEST_RUNTIME_CONTEXT_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(172)));
+        RefCell::new(IndexStore::init_journaled(test_memory(172)));
     static TEST_RUNTIME_CONTEXT_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(173)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(173)));
+    static TEST_RUNTIME_CONTEXT_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(174)));
 }
 
 fn test_key() -> DecodedDataStoreKey {
@@ -57,16 +60,18 @@ fn reset_test_store() {
 }
 
 fn test_store_handle() -> StoreHandle {
-    StoreHandle::new(
+    StoreHandle::new_journaled(
         &TEST_RUNTIME_CONTEXT_DATA_STORE,
         &TEST_RUNTIME_CONTEXT_INDEX_STORE,
         &TEST_RUNTIME_CONTEXT_SCHEMA_STORE,
-        crate::db::StoreAllocationIdentities::new(
+        &TEST_RUNTIME_CONTEXT_JOURNAL_STORE,
+        crate::db::StoreAllocationIdentities::new_journaled(
             crate::db::StoreAllocationIdentity::new(171, "icydb.test.runtime_context.data.v1"),
             crate::db::StoreAllocationIdentity::new(172, "icydb.test.runtime_context.index.v1"),
             crate::db::StoreAllocationIdentity::new(173, "icydb.test.runtime_context.schema.v1"),
+            crate::db::StoreAllocationIdentity::new(174, "icydb.test.runtime_context.journal.v1"),
         ),
-        crate::db::StoreRuntimeStorageCapabilities::stable(),
+        crate::db::StoreRuntimeStorageCapabilities::journaled(),
     )
 }
 

@@ -102,8 +102,7 @@ fn sorted_store_handles(db: &Db<impl CanisterKind>) -> Vec<(&'static str, StoreH
     stores.retain(|(_, handle)| {
         matches!(
             handle.storage_capabilities().recovery(),
-            StoreRecoveryCapability::StableCommitReplay
-                | StoreRecoveryCapability::StableBasePlusJournalReplay
+            StoreRecoveryCapability::StableBasePlusJournalReplay
         )
     });
     // StoreRegistry iteration is HashMap-backed and intentionally unordered.

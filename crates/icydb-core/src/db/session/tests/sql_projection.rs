@@ -79,11 +79,11 @@ fn sql_primary_order_limit_one_projection_scans_one_row_for_stable_and_journaled
             &session,
             "SELECT name FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
         )
-        .expect("stable primary-order projection should execute")
+        .expect("durable primary-order projection should execute")
     });
     assert_eq!(
         stable_scanned, 1,
-        "stable primary-key ORDER BY LIMIT 1 should retain the bounded scan path",
+        "durable primary-key ORDER BY LIMIT 1 should retain the bounded scan path",
     );
 
     reset_journaled_session_sql_store();

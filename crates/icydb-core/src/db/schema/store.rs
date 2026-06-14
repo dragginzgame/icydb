@@ -547,7 +547,7 @@ impl SchemaStoreFootprint {
 ///
 /// SchemaStore
 ///
-/// Thin persistence wrapper over one stable or heap schema metadata BTreeMap.
+/// Thin persistence wrapper over one journaled or heap schema metadata BTreeMap.
 /// Startup reconciliation writes and validates encoded schema snapshots here
 /// before row/index operations proceed.
 ///
@@ -557,7 +557,6 @@ pub struct SchemaStore {
 }
 
 enum SchemaStoreBackend {
-    Stable(StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>),
     Heap(StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>),
     Journaled {
         canonical:
@@ -585,14 +584,6 @@ impl SchemaStoreVisit {
 }
 
 impl SchemaStore {
-    /// Initialize the schema store with the provided backing memory.
-    #[must_use]
-    pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        Self {
-            backend: SchemaStoreBackend::Stable(StableBTreeMap::init(memory)),
-        }
-    }
-
     /// Initialize a volatile heap-backed schema store.
     #[must_use]
     pub const fn init_heap() -> Self {
@@ -812,7 +803,6 @@ impl SchemaStore {
             None
         };
         match &mut self.backend {
-            SchemaStoreBackend::Stable(map) => map.insert(key, snapshot),
             SchemaStoreBackend::Heap(map) => map.insert(key, snapshot),
             SchemaStoreBackend::Journaled {
                 live, tombstones, ..
@@ -829,7 +819,6 @@ impl SchemaStore {
     #[cfg(test)]
     fn get_raw_snapshot(&self, key: &RawSchemaKey) -> Option<RawSchemaSnapshot> {
         match &self.backend {
-            SchemaStoreBackend::Stable(map) => map.get(key),
             SchemaStoreBackend::Heap(map) => map.get(key).cloned(),
             SchemaStoreBackend::Journaled { .. } => self.get_raw_snapshot_for_backend(key),
         }
@@ -840,7 +829,6 @@ impl SchemaStore {
     #[cfg(test)]
     fn contains_raw_snapshot(&self, key: &RawSchemaKey) -> bool {
         match &self.backend {
-            SchemaStoreBackend::Stable(map) => map.contains_key(key),
             SchemaStoreBackend::Heap(map) => map.contains_key(key),
             SchemaStoreBackend::Journaled { .. } => {
                 self.get_raw_snapshot_for_backend(key).is_some()
@@ -853,7 +841,6 @@ impl SchemaStore {
     #[cfg(test)]
     pub(in crate::db) fn len(&self) -> u64 {
         match &self.backend {
-            SchemaStoreBackend::Stable(map) => map.len(),
             SchemaStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
             SchemaStoreBackend::Journaled { .. } => {
                 let mut count = 0_u64;
@@ -871,7 +858,6 @@ impl SchemaStore {
     #[cfg(test)]
     pub(in crate::db) fn is_empty(&self) -> bool {
         match &self.backend {
-            SchemaStoreBackend::Stable(map) => map.is_empty(),
             SchemaStoreBackend::Heap(map) => map.is_empty(),
             SchemaStoreBackend::Journaled { .. } => {
                 let mut empty = true;
@@ -888,7 +874,6 @@ impl SchemaStore {
     #[cfg(test)]
     pub(in crate::db) fn clear(&mut self) {
         match &mut self.backend {
-            SchemaStoreBackend::Stable(map) => map.clear_new(),
             SchemaStoreBackend::Heap(map) => map.clear(),
             SchemaStoreBackend::Journaled {
                 canonical,
@@ -938,14 +923,6 @@ impl SchemaStore {
         visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
         match &self.backend {
-            SchemaStoreBackend::Stable(map) => {
-                let mut visitor = visitor;
-                for entry in map.iter() {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
-                        break;
-                    }
-                }
-            }
             SchemaStoreBackend::Heap(map) => {
                 let mut visitor = visitor;
                 for (key, snapshot) in map {
@@ -975,8 +952,7 @@ impl SchemaStore {
     #[must_use]
     pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
         match &self.backend {
-            SchemaStoreBackend::Stable(map)
-            | SchemaStoreBackend::Journaled { canonical: map, .. } => map.len(),
+            SchemaStoreBackend::Journaled { canonical: map, .. } => map.len(),
             SchemaStoreBackend::Heap(_) => 0,
         }
     }
@@ -1008,10 +984,6 @@ impl SchemaStore {
     ) -> Option<(SchemaVersion, RawSchemaSnapshot)> {
         let bounds = RawSchemaKey::entity_range_bounds(entity);
         match &self.backend {
-            SchemaStoreBackend::Stable(map) => map
-                .range((bounds.0, bounds.1))
-                .next_back()
-                .map(|entry| (SchemaVersion::new(entry.key().version()), entry.value())),
             SchemaStoreBackend::Heap(map) => map
                 .range((bounds.0, bounds.1))
                 .next_back()

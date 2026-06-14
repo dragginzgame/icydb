@@ -14,6 +14,7 @@ use crate::{
             ExecutionOptimization, stream::access::TraversalRuntime,
         },
         index::IndexStore,
+        journal::JournalTailStore,
         registry::StoreRegistry,
         schema::SchemaStore,
     },
@@ -59,19 +60,22 @@ crate::test_entity! {
 
 thread_local! {
     static FAST_STREAM_INVARIANT_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(170)));
+        RefCell::new(DataStore::init_journaled(test_memory(170)));
     static FAST_STREAM_INVARIANT_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(171)));
+        RefCell::new(IndexStore::init_journaled(test_memory(171)));
     static FAST_STREAM_INVARIANT_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(172)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(172)));
+    static FAST_STREAM_INVARIANT_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(173)));
     static FAST_STREAM_INVARIANT_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(
+        reg.register_journaled_store(
             FastStreamInvariantStore::PATH,
             &FAST_STREAM_INVARIANT_DATA_STORE,
             &FAST_STREAM_INVARIANT_INDEX_STORE,
             &FAST_STREAM_INVARIANT_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::new(
+            &FAST_STREAM_INVARIANT_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
                 crate::db::StoreAllocationIdentity::new(
                     170,
                     "icydb.test.fast_stream.data.v1",
@@ -84,8 +88,12 @@ thread_local! {
                     172,
                     "icydb.test.fast_stream.schema.v1",
                 ),
+                crate::db::StoreAllocationIdentity::new(
+                    173,
+                    "icydb.test.fast_stream.journal.v1",
+                ),
             ),
-            crate::db::StoreRuntimeStorageCapabilities::stable(),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
         )
         .expect("fast-stream invariant test store registration should succeed");
         reg

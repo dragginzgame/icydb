@@ -343,9 +343,8 @@ pub struct SchemaStoreSnapshot {
 /// identity, stable-key generation, or durable row/index/schema storage ABI.
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum StoreSnapshotStorageMode {
-    #[default]
-    Stable,
     Heap,
+    #[default]
     Journaled,
 }
 
@@ -354,7 +353,6 @@ impl StoreSnapshotStorageMode {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Stable => "stable",
             Self::Heap => "heap",
             Self::Journaled => "journaled",
         }

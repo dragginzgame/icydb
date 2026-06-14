@@ -316,7 +316,7 @@ fn extra_staged_name_index_entry() -> super::SchemaFieldPathIndexStagedEntry {
 }
 
 fn initialized_index_store(memory_id: u8) -> IndexStore {
-    let mut store = IndexStore::init(test_memory(memory_id));
+    let mut store = IndexStore::init_journaled(test_memory(memory_id));
     store.clear();
     store
 }

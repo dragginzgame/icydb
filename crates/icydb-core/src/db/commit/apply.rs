@@ -36,18 +36,4 @@ impl PreparedRowCommitOp {
             }
         });
     }
-
-    /// Apply only the prepared row-store mutation.
-    ///
-    /// Recovery replay uses this path so row-store durability remains
-    /// authoritative while secondary indexes are rebuilt in a dedicated phase.
-    pub(crate) fn apply_row_only(self) {
-        self.data_store.with_borrow_mut(|store| {
-            if let Some(value) = self.data_value {
-                store.insert(self.data_key, value);
-            } else {
-                store.remove(&self.data_key);
-            }
-        });
-    }
 }

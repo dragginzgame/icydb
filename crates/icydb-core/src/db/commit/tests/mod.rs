@@ -18,7 +18,7 @@ use crate::{
                 encode_single_row_commit_marker_payload,
             },
             prepare_row_commit_for_entity_with_structural_readers,
-            rollback_prepared_row_ops_reverse, store,
+            reset_commit_marker_test_journal_sequence, rollback_prepared_row_ops_reverse, store,
         },
         data::{
             CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
@@ -26,6 +26,7 @@ use crate::{
         },
         executor::SaveExecutor,
         index::{IndexEntryValue, IndexKey, IndexStore, IndexStoreVisit},
+        journal::JournalTailStore,
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
@@ -632,11 +633,13 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
 ];
 
 thread_local! {
-    static RECOVERY_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(19)));
+    static RECOVERY_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(19)));
     static RECOVERY_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(20)));
+        RefCell::new(IndexStore::init_journaled(test_memory(20)));
     static RECOVERY_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(21)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(21)));
+    static RECOVERY_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(22)));
     static HEAP_RECOVERY_DATA_STORE: RefCell<DataStore> =
         const { RefCell::new(DataStore::init_heap()) };
     static HEAP_RECOVERY_INDEX_STORE: RefCell<IndexStore> =
@@ -645,17 +648,19 @@ thread_local! {
         const { RefCell::new(SchemaStore::init_heap()) };
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(
+        reg.register_journaled_store(
             RecoveryTestDataStore::PATH,
             &RECOVERY_DATA_STORE,
             &RECOVERY_INDEX_STORE,
             &RECOVERY_SCHEMA_STORE,
-            crate::db::StoreAllocationIdentities::new(
+            &RECOVERY_JOURNAL_STORE,
+            crate::db::StoreAllocationIdentities::new_journaled(
                 crate::db::StoreAllocationIdentity::new(19, "icydb.test.recovery.data.v1"),
                 crate::db::StoreAllocationIdentity::new(20, "icydb.test.recovery.index.v1"),
                 crate::db::StoreAllocationIdentity::new(21, "icydb.test.recovery.schema.v1"),
+                crate::db::StoreAllocationIdentity::new(22, "icydb.test.recovery.journal.v1"),
             ),
-            crate::db::StoreRuntimeStorageCapabilities::stable(),
+            crate::db::StoreRuntimeStorageCapabilities::journaled(),
         )
             .expect("test store registration should succeed");
         reg.register_store(
@@ -755,7 +760,11 @@ fn reset_recovery_state() {
         store.with_data_mut(DataStore::clear);
         store.with_index_mut(IndexStore::clear);
         store.with_schema_mut(SchemaStore::clear);
+        if let Some(journal_store) = store.journal_tail_store() {
+            journal_store.with_borrow_mut(JournalTailStore::clear);
+        }
     });
+    reset_commit_marker_test_journal_sequence();
     with_heap_recovery_store(|store| {
         store.with_data_mut(DataStore::clear);
         store.with_index_mut(IndexStore::clear);
@@ -772,6 +781,16 @@ fn row_op_for_path_with_schema(
 ) -> CommitRowOp {
     CommitRowOp::try_new_bytes(path, &data_key, before, after, schema_fingerprint)
         .expect("recovery test row op key bytes should decode")
+}
+
+fn seed_canonical_data_row_for_recovery(
+    data_store: &mut DataStore,
+    key: RawDataStoreKey,
+    row: RawRow,
+) {
+    data_store
+        .fold_recovered_journal_put(key, row)
+        .expect("canonical recovery row seed should succeed");
 }
 
 fn row_op_for_path(
@@ -2205,7 +2224,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
     let err = ensure_recovered(&DB).expect_err(
         "recovery should fail when a later marker op has an unsupported entity path during replay",
     );
-    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
@@ -2253,7 +2272,7 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
 
     let err =
         ensure_recovered(&DB).expect_err("recovery should reject unsupported entity path markers");
-    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
@@ -2383,7 +2402,7 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
 
     let err = ensure_recovered(&DB)
         .expect_err("recovery should reject mismatched commit schema fingerprint");
-    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
@@ -3173,13 +3192,17 @@ fn recovery_ignores_live_only_heap_marker_rows_and_indexes() {
         .expect("heap recovery data key should encode");
     let row = canonical_row_bytes(&entity);
 
-    let marker = CommitMarker::new(vec![row_op_for_path(
-        HeapRecoveryIndexedEntity::PATH,
-        data_key.as_bytes().to_vec(),
-        None,
-        Some(row),
-    )])
-    .expect("heap marker creation should succeed");
+    let marker = CommitMarker::from_parts(
+        [0x77; 16],
+        vec![row_op_for_path(
+            HeapRecoveryIndexedEntity::PATH,
+            data_key.as_bytes().to_vec(),
+            None,
+            Some(row),
+        )],
+        Vec::new(),
+    )
+    .expect("heap row-op marker creation should succeed");
     begin_commit(marker).expect("heap marker should persist through the generic commit gate");
 
     ensure_recovered(&DB).expect("recovery should skip live-only heap marker rows");
@@ -3313,11 +3336,13 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 first_key,
                 RawRow::try_new(first_row).expect("first row raw construction should succeed"),
             );
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 second_key,
                 RawRow::try_new(second_row).expect("second row raw construction should succeed"),
             );
@@ -3410,8 +3435,8 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
     // state, then force startup recovery through the empty-marker rebuild gate.
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(first_key, first_row);
-            data_store.insert_raw_for_test(second_key, second_row);
+            seed_canonical_data_row_for_recovery(data_store, first_key, first_row);
+            seed_canonical_data_row_for_recovery(data_store, second_key, second_row);
         });
         store.with_index_mut(|index_store| {
             index_store.insert(stale_key, stale_entry);
@@ -3500,7 +3525,7 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
     // entry, then persist a marker that updates the row to current layout.
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(data_key.clone(), old_raw_row);
+            seed_canonical_data_row_for_recovery(data_store, data_key.clone(), old_raw_row);
         });
         store.with_index_mut(|index_store| {
             index_store.insert(old_index_key, old_entry);
@@ -3581,11 +3606,13 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
     // Phase 1: seed authoritative rows and intentionally stale conditional index state.
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 active_key,
                 RawRow::try_new(active_row).expect("active raw row construction should succeed"),
             );
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 inactive_key,
                 RawRow::try_new(inactive_row)
                     .expect("inactive raw row construction should succeed"),
@@ -3673,12 +3700,14 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
     // Phase 1: seed authoritative rows and intentionally stale expression-index state.
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 first_key,
                 RawRow::try_new(first_row)
                     .expect("first expression raw row construction should succeed"),
             );
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 second_key,
                 RawRow::try_new(second_row)
                     .expect("second expression raw row construction should succeed"),
@@ -3740,7 +3769,8 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 raw_key.clone(),
                 RawRow::try_new(future_version_row)
                     .expect("future-version row should fit raw row bounds"),
@@ -3812,7 +3842,8 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
                 .expect("changed schema snapshot should encode");
         });
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 raw_key.clone(),
                 RawRow::try_new(future_version_row)
                     .expect("future-version row should fit raw row bounds"),
@@ -3874,7 +3905,8 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         .expect("bad data key should encode");
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(
+            seed_canonical_data_row_for_recovery(
+                data_store,
                 bad_key,
                 RawRow::try_new(vec![0xFF, 0x00, 0xAA]).expect("bad row raw construction"),
             );

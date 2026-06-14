@@ -1,5 +1,5 @@
 //! Module: index::store
-//! Responsibility: stable-or-heap index-entry storage behind the index-store boundary.
+//! Responsibility: journaled-or-heap index-entry storage behind the index-store boundary.
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 
@@ -71,7 +71,7 @@ impl IndexState {
 ///
 /// IndexStore
 ///
-/// Thin persistence wrapper over one stable or heap BTreeMap.
+/// Thin persistence wrapper over one journaled or heap BTreeMap.
 ///
 /// Invariant: callers provide already-validated `RawIndexStoreKey`/`IndexEntryValue`.
 ///
@@ -83,7 +83,6 @@ pub struct IndexStore {
 }
 
 pub(super) enum IndexStoreBackend {
-    Stable(StableBTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>),
     Heap(HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>),
     Journaled {
         canonical:
@@ -107,17 +106,6 @@ impl IndexStoreVisit {
 }
 
 impl IndexStore {
-    #[must_use]
-    pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        Self {
-            backend: IndexStoreBackend::Stable(StableBTreeMap::init(memory)),
-            generation: 0,
-            // Existing stores default to Ready until one explicit build/drop
-            // lifecycle is introduced.
-            state: IndexState::Ready,
-        }
-    }
-
     /// Initialize a volatile heap-backed index store.
     #[must_use]
     pub const fn init_heap() -> Self {
@@ -152,13 +140,6 @@ impl IndexStore {
         mut visitor: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<IndexStoreVisit, E>,
     ) -> Result<(), E> {
         match &self.backend {
-            IndexStoreBackend::Stable(map) => {
-                for entry in map.iter() {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
-                        return Ok(());
-                    }
-                }
-            }
             IndexStoreBackend::Heap(map) => {
                 for (key, value) in map {
                     if visitor(key, value)?.should_stop() {
@@ -182,7 +163,6 @@ impl IndexStore {
 
     pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         match &self.backend {
-            IndexStoreBackend::Stable(map) => map.get(key),
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
             IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key),
         }
@@ -190,7 +170,6 @@ impl IndexStore {
 
     pub fn len(&self) -> u64 {
         match &self.backend {
-            IndexStoreBackend::Stable(map) => map.len(),
             IndexStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
             IndexStoreBackend::Journaled { .. } => {
                 let mut count = 0_u64;
@@ -205,7 +184,6 @@ impl IndexStore {
 
     pub fn is_empty(&self) -> bool {
         match &self.backend {
-            IndexStoreBackend::Stable(map) => map.is_empty(),
             IndexStoreBackend::Heap(map) => map.is_empty(),
             IndexStoreBackend::Journaled { .. } => {
                 let mut empty = true;
@@ -256,7 +234,6 @@ impl IndexStore {
             None
         };
         let previous = match &mut self.backend {
-            IndexStoreBackend::Stable(map) => map.insert(key, entry),
             IndexStoreBackend::Heap(map) => map.insert(key, entry),
             IndexStoreBackend::Journaled {
                 live, tombstones, ..
@@ -277,7 +254,6 @@ impl IndexStore {
             None
         };
         let previous = match &mut self.backend {
-            IndexStoreBackend::Stable(map) => map.remove(key),
             IndexStoreBackend::Heap(map) => map.remove(key),
             IndexStoreBackend::Journaled {
                 live, tombstones, ..
@@ -293,7 +269,6 @@ impl IndexStore {
 
     pub fn clear(&mut self) {
         match &mut self.backend {
-            IndexStoreBackend::Stable(map) => map.clear_new(),
             IndexStoreBackend::Heap(map) => map.clear(),
             IndexStoreBackend::Journaled {
                 canonical,
@@ -354,8 +329,7 @@ impl IndexStore {
     #[must_use]
     pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
         match &self.backend {
-            IndexStoreBackend::Stable(map)
-            | IndexStoreBackend::Journaled { canonical: map, .. } => map.len(),
+            IndexStoreBackend::Journaled { canonical: map, .. } => map.len(),
             IndexStoreBackend::Heap(_) => 0,
         }
     }

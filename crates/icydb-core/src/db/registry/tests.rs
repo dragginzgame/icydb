@@ -20,11 +20,11 @@ const STORE_PATH: &str = "store_registry_tests::Store";
 const ALIAS_STORE_PATH: &str = "store_registry_tests::StoreAlias";
 
 thread_local! {
-    static TEST_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(151)));
+    static TEST_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(151)));
     static TEST_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(152)));
+        RefCell::new(IndexStore::init_journaled(test_memory(152)));
     static TEST_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init(test_memory(153)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(153)));
     static TEST_JOURNAL_STORE: RefCell<JournalTailStore> =
         RefCell::new(JournalTailStore::init(test_memory(154)));
     static TEST_HEAP_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
@@ -100,70 +100,6 @@ fn register_store_with_absent_allocation_identities_binds_store_handles() {
     assert_eq!(
         capabilities.schema_metadata(),
         StoreSchemaMetadataCapability::LiveRebuiltMetadata
-    );
-}
-
-#[test]
-fn register_store_with_stable_allocation_identities_binds_metadata() {
-    let mut registry = StoreRegistry::new();
-    registry
-        .register_store(
-            STORE_PATH,
-            &TEST_DATA_STORE,
-            &TEST_INDEX_STORE,
-            &TEST_SCHEMA_STORE,
-            StoreAllocationIdentities::new(
-                StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
-                StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
-                StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
-            ),
-            StoreRuntimeStorageCapabilities::stable(),
-        )
-        .expect("test store registration with allocation identities should succeed");
-
-    let handle = registry
-        .try_get_store(STORE_PATH)
-        .expect("registered store path should resolve");
-
-    assert_eq!(
-        handle.data_allocation(),
-        Some(StoreAllocationIdentity::new(
-            151,
-            "icydb.test.store.data.v1"
-        ))
-    );
-    assert_eq!(
-        handle.index_allocation(),
-        Some(StoreAllocationIdentity::new(
-            152,
-            "icydb.test.store.index.v1"
-        ))
-    );
-    assert_eq!(
-        handle.schema_allocation(),
-        Some(StoreAllocationIdentity::new(
-            153,
-            "icydb.test.store.schema.v1"
-        ))
-    );
-    let capabilities = handle.storage_capabilities();
-    assert_eq!(capabilities.storage_mode(), StoreRuntimeStorageMode::Stable);
-    assert_eq!(
-        capabilities.allocation_identity(),
-        StoreAllocationIdentityCapability::Present
-    );
-    assert_eq!(capabilities.durability(), StoreDurability::Durable);
-    assert_eq!(
-        capabilities.commit_participation(),
-        StoreCommitParticipation::Durable
-    );
-    assert_eq!(
-        capabilities.recovery(),
-        StoreRecoveryCapability::StableCommitReplay
-    );
-    assert_eq!(
-        capabilities.schema_metadata(),
-        StoreSchemaMetadataCapability::DurableAcceptedHistory
     );
 }
 
@@ -262,9 +198,9 @@ fn register_store_rejects_allocation_capability_mismatch() {
             &TEST_INDEX_STORE,
             &TEST_SCHEMA_STORE,
             StoreAllocationIdentities::absent(),
-            StoreRuntimeStorageCapabilities::stable(),
+            StoreRuntimeStorageCapabilities::journaled(),
         )
-        .expect_err("stable capabilities require explicit allocation identities");
+        .expect_err("journaled capabilities require explicit allocation identities");
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -284,11 +220,7 @@ fn register_store_rejects_journaled_capabilities_without_journal_allocation_iden
             &TEST_DATA_STORE,
             &TEST_INDEX_STORE,
             &TEST_SCHEMA_STORE,
-            StoreAllocationIdentities::new(
-                StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
-                StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
-                StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
-            ),
+            StoreAllocationIdentities::absent(),
             StoreRuntimeStorageCapabilities::journaled(),
         )
         .expect_err("journaled capabilities require explicit journal allocation identity");
@@ -323,34 +255,6 @@ fn register_store_rejects_journaled_capabilities_without_journal_tail_store() {
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-}
-
-#[test]
-fn register_store_rejects_stable_capabilities_with_journal_allocation_identity() {
-    let mut registry = StoreRegistry::new();
-    let err = registry
-        .register_store(
-            STORE_PATH,
-            &TEST_DATA_STORE,
-            &TEST_INDEX_STORE,
-            &TEST_SCHEMA_STORE,
-            StoreAllocationIdentities::new_journaled(
-                StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
-                StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
-                StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
-                StoreAllocationIdentity::new(154, "icydb.test.store.journal.v1"),
-            ),
-            StoreRuntimeStorageCapabilities::stable(),
-        )
-        .expect_err("stable capabilities must not accept journal allocation identity");
-
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Store);
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-        "stable/journal allocation mismatch should stay store-invariant classified",
-    );
 }
 
 #[test]
