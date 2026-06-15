@@ -119,6 +119,19 @@ pub struct SqlPureCoveringAttribution {
     pub row_assembly_local_instructions: u64,
 }
 
+// SqlOutputBlobAttribution
+//
+// Candid diagnostics payload for SQL projection payload size. Raw bytes count
+// the blob bytes projected into SQL output values; rendered hex bytes count the
+// blob-specific `0x...` text that public SQL row rendering will emit.
+#[cfg(feature = "diagnostics")]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlOutputBlobAttribution {
+    pub projected_values: u64,
+    pub projected_bytes: u64,
+    pub rendered_hex_bytes: u64,
+}
+
 // SqlQueryCacheAttribution
 //
 // Candid diagnostics payload for SQL compiled-command and shared query-plan
@@ -151,6 +164,7 @@ pub struct SqlQueryExecutionAttribution {
     pub grouped: Option<GroupedExecutionAttribution>,
     pub scalar_aggregate: Option<SqlScalarAggregateAttribution>,
     pub pure_covering: Option<SqlPureCoveringAttribution>,
+    pub output_blob: SqlOutputBlobAttribution,
     pub store_get_calls: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,

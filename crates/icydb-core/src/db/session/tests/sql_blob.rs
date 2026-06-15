@@ -537,6 +537,52 @@ fn sql_octet_length_reports_blob_byte_lengths() {
         lane_metrics.kernel_full_row_retained_path_hits, 0,
         "OCTET_LENGTH(blob) projection should not retain full blob rows",
     );
+
+    let (_, attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlBlobEntity>(
+            "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
+             FROM SessionSqlBlobEntity \
+             ORDER BY label ASC",
+        )
+        .expect("OCTET_LENGTH attribution query should succeed");
+    assert_eq!(
+        attribution.output_blob.projected_bytes, 0,
+        "OCTET_LENGTH(blob) should not report projected blob payload bytes",
+    );
+    assert_eq!(
+        attribution.output_blob.rendered_hex_bytes, 0,
+        "OCTET_LENGTH(blob) should not report blob hex response bytes",
+    );
+}
+
+#[test]
+fn sql_blob_projection_attribution_reports_payload_bytes() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_blob_rows(&session);
+
+    let (_, attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlBlobEntity>(
+            "SELECT label, thumbnail, chunk \
+             FROM SessionSqlBlobEntity \
+             WHERE label = 'hero-thumb-a'",
+        )
+        .expect("blob payload attribution query should succeed");
+    let expected_payload_bytes = (SMALL_THUMBNAIL_BYTES + LARGE_CHUNK_BYTES) as u64;
+
+    assert_eq!(
+        attribution.output_blob.projected_values, 2,
+        "blob payload projection should report both projected blob values",
+    );
+    assert_eq!(
+        attribution.output_blob.projected_bytes, expected_payload_bytes,
+        "blob payload projection should report raw projected blob bytes",
+    );
+    assert_eq!(
+        attribution.output_blob.rendered_hex_bytes,
+        expected_payload_bytes.saturating_mul(2).saturating_add(4),
+        "blob payload projection should report the expected SQL hex response bytes",
+    );
 }
 
 #[test]

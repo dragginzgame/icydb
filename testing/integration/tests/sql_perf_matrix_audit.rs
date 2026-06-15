@@ -165,6 +165,9 @@ struct MatrixSample {
     kernel_row_order_window_local_instructions: u64,
     kernel_row_page_window_local_instructions: u64,
     data_store_get_calls: u64,
+    output_blob_values: u64,
+    output_blob_bytes: u64,
+    output_blob_hex_bytes: u64,
     sql_compiled_command_hits: u64,
     sql_compiled_command_misses: u64,
     shared_query_plan_hits: u64,
@@ -1121,6 +1124,9 @@ fn sample_scenario(
         kernel_row_page_window_local_instructions: kernel_row
             .map_or(0, |kernel| kernel.page_window_local_instructions),
         data_store_get_calls: attribution.store_get_calls,
+        output_blob_values: attribution.output_blob.projected_values,
+        output_blob_bytes: attribution.output_blob.projected_bytes,
+        output_blob_hex_bytes: attribution.output_blob.rendered_hex_bytes,
         sql_compiled_command_hits: attribution.cache.sql_compiled_command_hits,
         sql_compiled_command_misses: attribution.cache.sql_compiled_command_misses,
         shared_query_plan_hits: attribution.cache.shared_query_plan_hits,
@@ -1304,6 +1310,11 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
         output,
         "Top Data Store Gets",
         ranked_by(samples, |sample| sample.data_store_get_calls),
+    );
+    append_blob_output_table(
+        output,
+        "Top Blob Output Bytes",
+        ranked_by(samples, |sample| sample.output_blob_bytes),
     );
     append_pure_covering_hotspot_tables(output, samples);
     append_direct_data_row_hotspot_tables(output, samples);
@@ -1514,6 +1525,42 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
             sample.store_local_instructions,
             sample.executor_local_instructions,
             sample.data_store_get_calls,
+            sample.outcome.row_count,
+            sample.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_blob_output_table(output: &mut String, title: &str, samples: Vec<&MatrixSample>) {
+    let samples = samples
+        .into_iter()
+        .filter(|sample| sample.output_blob_bytes > 0)
+        .collect::<Vec<_>>();
+    if samples.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Blob Values | Blob Bytes | Blob Hex Bytes | Total | Rows | SQL |"
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---:|---:|---:|---:|---:|---|")
+        .expect("write to string should succeed");
+    for sample in samples {
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | {} | {} | `{}` |",
+            sample.key,
+            sample.surface,
+            sample.output_blob_values,
+            sample.output_blob_bytes,
+            sample.output_blob_hex_bytes,
+            sample.total_local_instructions,
             sample.outcome.row_count,
             sample.sql.replace('|', "\\|"),
         )
@@ -2091,6 +2138,9 @@ fn report_matrix_sample(
         kernel_row_order_window_local_instructions: 0,
         kernel_row_page_window_local_instructions: 0,
         data_store_get_calls: 1,
+        output_blob_values: 0,
+        output_blob_bytes: 0,
+        output_blob_hex_bytes: 0,
         sql_compiled_command_hits: 0,
         sql_compiled_command_misses: 1,
         shared_query_plan_hits: 0,

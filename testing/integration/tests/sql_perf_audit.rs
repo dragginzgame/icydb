@@ -134,6 +134,9 @@ struct SqlPerfScenarioSample {
     avg_grouped_count_existing_group_update_local_instructions: u64,
     avg_grouped_count_new_group_insert_local_instructions: u64,
     avg_data_store_get_calls: u64,
+    avg_output_blob_values: u64,
+    avg_output_blob_bytes: u64,
+    avg_output_blob_hex_bytes: u64,
     avg_sql_compiled_command_cache_hits: u64,
     avg_sql_compiled_command_cache_misses: u64,
     avg_shared_query_plan_cache_hits: u64,
@@ -513,6 +516,9 @@ struct SqlPerfRawSamples {
     grouped_finalize_samples: Vec<u64>,
     grouped_count: GroupedCountRawSamples,
     data_store_get_call_samples: Vec<u64>,
+    output_blob_value_samples: Vec<u64>,
+    output_blob_byte_samples: Vec<u64>,
+    output_blob_hex_byte_samples: Vec<u64>,
     sql_compiled_command_cache_hit_samples: Vec<u64>,
     sql_compiled_command_cache_miss_samples: Vec<u64>,
     shared_query_plan_cache_hit_samples: Vec<u64>,
@@ -531,6 +537,9 @@ impl SqlPerfRawSamples {
             grouped_finalize_samples: Vec::with_capacity(sample_count),
             grouped_count: GroupedCountRawSamples::with_capacity(sample_count),
             data_store_get_call_samples: Vec::with_capacity(sample_count),
+            output_blob_value_samples: Vec::with_capacity(sample_count),
+            output_blob_byte_samples: Vec::with_capacity(sample_count),
+            output_blob_hex_byte_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_hit_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_miss_samples: Vec::with_capacity(sample_count),
             shared_query_plan_cache_hit_samples: Vec::with_capacity(sample_count),
@@ -555,6 +564,12 @@ impl SqlPerfRawSamples {
         self.grouped_count.record(&sample.attribution);
         self.data_store_get_call_samples
             .push(sample.attribution.store_get_calls);
+        self.output_blob_value_samples
+            .push(sample.attribution.output_blob.projected_values);
+        self.output_blob_byte_samples
+            .push(sample.attribution.output_blob.projected_bytes);
+        self.output_blob_hex_byte_samples
+            .push(sample.attribution.output_blob.rendered_hex_bytes);
         self.sql_compiled_command_cache_hit_samples
             .push(sample.attribution.cache.sql_compiled_command_hits);
         self.sql_compiled_command_cache_miss_samples
@@ -593,6 +608,9 @@ fn build_sql_perf_scenario_sample(
     let avg_grouped_count_new_group_insert_local_instructions =
         grouped_count.new_group_insert_local_instructions;
     let avg_data_store_get_calls = average_u64(&raw.data_store_get_call_samples);
+    let avg_output_blob_values = average_u64(&raw.output_blob_value_samples);
+    let avg_output_blob_bytes = average_u64(&raw.output_blob_byte_samples);
+    let avg_output_blob_hex_bytes = average_u64(&raw.output_blob_hex_byte_samples);
     let avg_sql_compiled_command_cache_hits =
         average_u64(&raw.sql_compiled_command_cache_hit_samples);
     let avg_sql_compiled_command_cache_misses =
@@ -643,6 +661,9 @@ fn build_sql_perf_scenario_sample(
         avg_grouped_count_existing_group_update_local_instructions,
         avg_grouped_count_new_group_insert_local_instructions,
         avg_data_store_get_calls,
+        avg_output_blob_values,
+        avg_output_blob_bytes,
+        avg_output_blob_hex_bytes,
         avg_sql_compiled_command_cache_hits,
         avg_sql_compiled_command_cache_misses,
         avg_shared_query_plan_cache_hits,
@@ -1564,10 +1585,10 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
-        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Avg data_store.get() | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
+        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Avg data_store.get() | Blob Values | Blob Bytes | Blob Hex Bytes | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
     );
     println!(
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     );
 
     for sample in samples {
@@ -1580,7 +1601,7 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
         );
 
         println!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.scenario_key,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
@@ -1597,6 +1618,9 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
             sample.avg_grouped_count_existing_group_update_local_instructions,
             sample.avg_grouped_count_new_group_insert_local_instructions,
             sample.avg_data_store_get_calls,
+            sample.avg_output_blob_values,
+            sample.avg_output_blob_bytes,
+            sample.avg_output_blob_hex_bytes,
             sample.avg_sql_compiled_command_cache_hits,
             sample.avg_sql_compiled_command_cache_misses,
             sample.avg_shared_query_plan_cache_hits,

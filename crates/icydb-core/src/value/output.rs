@@ -82,7 +82,37 @@ impl OutputValueEnum {
 
 impl From<Value> for OutputValue {
     fn from(value: Value) -> Self {
-        Self::from(&value)
+        match value {
+            Value::Account(value) => Self::Account(value),
+            Value::Blob(value) => Self::Blob(value),
+            Value::Bool(value) => Self::Bool(value),
+            Value::Date(value) => Self::Date(value),
+            Value::Decimal(value) => Self::Decimal(value),
+            Value::Duration(value) => Self::Duration(value),
+            Value::Enum(value) => Self::Enum(OutputValueEnum::from(value)),
+            Value::Float32(value) => Self::Float32(value),
+            Value::Float64(value) => Self::Float64(value),
+            Value::Int64(value) => Self::Int64(value),
+            Value::Int128(value) => Self::Int128(value),
+            Value::IntBig(value) => Self::IntBig(value),
+            Value::List(items) => Self::List(items.into_iter().map(Self::from).collect()),
+            Value::Map(entries) => Self::Map(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (Self::from(key), Self::from(value)))
+                    .collect(),
+            ),
+            Value::Null => Self::Null,
+            Value::Principal(value) => Self::Principal(value),
+            Value::Subaccount(value) => Self::Subaccount(value),
+            Value::Text(value) => Self::Text(value),
+            Value::Timestamp(value) => Self::Timestamp(value),
+            Value::Nat64(value) => Self::Nat64(value),
+            Value::Nat128(value) => Self::Nat128(value),
+            Value::NatBig(value) => Self::NatBig(value),
+            Value::Ulid(value) => Self::Ulid(value),
+            Value::Unit => Self::Unit,
+        }
     }
 }
 
@@ -124,7 +154,17 @@ impl From<&Value> for OutputValue {
 
 impl From<ValueEnum> for OutputValueEnum {
     fn from(value: ValueEnum) -> Self {
-        Self::from(&value)
+        let ValueEnum {
+            variant,
+            path,
+            payload,
+        } = value;
+
+        Self {
+            variant,
+            path,
+            payload: payload.map(|payload| Box::new(OutputValue::from(*payload))),
+        }
     }
 }
 
@@ -272,6 +312,22 @@ mod tests {
                     OutputValue::Bool(true),
                 )]),
             ]),
+        );
+    }
+
+    #[test]
+    fn output_value_from_owned_blob_moves_payload_without_clone() {
+        let bytes = vec![0x10, 0x20, 0x30];
+        let original_ptr = bytes.as_ptr();
+
+        let OutputValue::Blob(output) = OutputValue::from(Value::Blob(bytes)) else {
+            panic!("owned blob conversion should preserve the blob variant");
+        };
+
+        assert_eq!(
+            output.as_ptr(),
+            original_ptr,
+            "owned output conversion should move blob bytes instead of cloning them",
         );
     }
 

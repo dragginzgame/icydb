@@ -68,8 +68,9 @@ pub use icydb_core::db::{
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use icydb_core::db::{
-    SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
-    SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
+    SqlCompileAttribution, SqlExecutionAttribution, SqlOutputBlobAttribution,
+    SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
+    SqlScalarAggregateAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]

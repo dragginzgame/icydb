@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Clarifies SQL perf-audit store-get reporting as `data_store.get` row-store
   access so pure covering reads are not confused with index traversal cost.
+- Moves owned SQL output-value conversion without cloning blob payloads and
+  adds blob payload/hex-size attribution to SQL perf audits.
 
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
