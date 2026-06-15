@@ -7,16 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-### 🧹 Cleanup
-
-- Centralizes branch-aware index route shape facts behind one access spec so
-  planner and executor code stop re-deriving branch slots from loose fields.
-- Reuses lazy branch-head merging for SQL covering branch reads so covered and
-  hybrid projections avoid per-branch page materialization.
-
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.1` hardens branch-aware route ownership and moves SQL covering branch
+  reads onto lazy branch-head merging so covered and hybrid projections avoid
+  per-branch page materialization.
 
 - `0.183.0` adds branch-aware composite-prefix SQL routing for fixed-prefix
   plus small-`IN` page queries ordered by primary key, avoiding full scans,
