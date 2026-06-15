@@ -13,7 +13,7 @@ Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
 - `0.183.1` hardens branch-aware route ownership and moves SQL covering branch
   reads onto lazy branch-head merging so covered and hybrid projections avoid
-  per-branch page materialization.
+  per-branch page materialization without regressing the target page query.
 
 - `0.183.0` adds branch-aware composite-prefix SQL routing for fixed-prefix
   plus small-`IN` page queries ordered by primary key, avoiding full scans,

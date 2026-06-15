@@ -1,0 +1,65 @@
+{
+  "canister": "default_empty",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": null,
+    "candid_export": "unavailable",
+    "icp_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/default_empty.wasm-release.icp-built.wasm",
+      "bytes": 37635,
+      "sha256": "a9891a4be52ba1a572401319cf1d8d8e9c315dfa7e0d77d0b1ad972536517d14"
+    },
+    "icp_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/default_empty.wasm-release.icp-built.wasm.gz",
+      "bytes": 16452,
+      "sha256": "cff55946ce8de94bd5a6985455987286a605ac2ba6497143eb0b5973c7cb0210"
+    },
+    "icp_built_wasm_gz_emitted": null,
+    "icp_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/default_empty.wasm-release.icp-shrunk.wasm",
+      "bytes": 6648,
+      "sha256": "b81b64c7f6a6b17d198e95cb91625a7e61d5f5f7995603842d7653aa02a84d50"
+    },
+    "icp_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/default_empty.wasm-release.icp-shrunk.wasm.gz",
+      "bytes": 4108,
+      "sha256": "1abfdc4885524ed65781fa74fc0628eb52c439b83cc1bf4ea6ec9660cef9da41"
+    }
+  },
+  "analysis": {
+    "icp_built": {
+      "function_count": 118,
+      "callback_count": 1,
+      "data_section_count": 3,
+      "data_section_bytes": 6548,
+      "exported_method_count": 0,
+      "exported_methods": []
+    },
+    "icp_shrunk": {
+      "function_count": 0,
+      "callback_count": 0,
+      "data_section_count": 3,
+      "data_section_bytes": 6548,
+      "exported_method_count": 0,
+      "exported_methods": []
+    }
+  },
+  "build": {
+    "generated_endpoint_surface": {
+      "sql_readonly": false,
+      "sql_ddl": false,
+      "sql_update": false,
+      "sql_fixtures": false,
+      "metrics": false,
+      "metrics_extended": false,
+      "snapshot": false,
+      "schema": false
+    },
+    "custom_exports": []
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 30987,
+    "shrink_wasm_gz_bytes": 12344
+  }
+}

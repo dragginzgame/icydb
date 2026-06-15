@@ -34,7 +34,7 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
-const COVERING_BRANCH_HEAD_CHUNK_ENTRIES: usize = 1;
+const COVERING_BRANCH_HEAD_CHUNK_ENTRIES: usize = 2;
 
 pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
 
