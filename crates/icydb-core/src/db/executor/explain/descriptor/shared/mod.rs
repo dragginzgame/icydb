@@ -278,8 +278,8 @@ pub(in crate::db::executor::explain::descriptor) fn route_diagnostic_line_debug(
 
 fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
     match access_strategy {
-        Some(ExplainAccessRoute::IndexPrefix { prefix_len, .. })
-        | Some(ExplainAccessRoute::IndexRange { prefix_len, .. }) => Some(*prefix_len),
+        Some(ExplainAccessRoute::IndexPrefix { prefix_len, .. }) => Some(*prefix_len),
+        Some(ExplainAccessRoute::IndexRange { prefix_len, .. }) => Some(*prefix_len),
         Some(ExplainAccessRoute::IndexBranchSet { fixed_values, .. }) => {
             Some(fixed_values.len().saturating_add(1))
         }
@@ -289,10 +289,8 @@ fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usi
 
 fn access_prefix_values(access_strategy: Option<&ExplainAccessRoute>) -> Option<Vec<Value>> {
     match access_strategy {
-        Some(
-            ExplainAccessRoute::IndexPrefix { values, .. }
-            | ExplainAccessRoute::IndexMultiLookup { values, .. },
-        ) => Some(values.clone()),
+        Some(ExplainAccessRoute::IndexPrefix { values, .. }) => Some(values.clone()),
+        Some(ExplainAccessRoute::IndexMultiLookup { values, .. }) => Some(values.clone()),
         Some(ExplainAccessRoute::IndexBranchSet {
             fixed_values,
             branch_values,
