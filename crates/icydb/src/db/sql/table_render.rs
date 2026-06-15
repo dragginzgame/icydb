@@ -414,7 +414,7 @@ fn render_catalog_path_tail(path: &str) -> &str {
 pub fn render_projection_lines(_entity: &str, projection: &SqlProjectionRows) -> Vec<String> {
     let rows = render_projection_rows(projection.rows());
 
-    render_projection_table(
+    render_projection_display_rows_lines(
         projection.columns(),
         rows.as_slice(),
         projection.row_count(),
@@ -425,14 +425,17 @@ pub fn render_projection_lines(_entity: &str, projection: &SqlProjectionRows) ->
 pub(in crate::db::sql) fn render_query_rows_lines(projection: &SqlQueryRowsOutput) -> Vec<String> {
     let rows = render_projection_rows(projection.rows.as_slice());
 
-    render_projection_table(
+    render_projection_display_rows_lines(
         projection.columns.as_slice(),
         rows.as_slice(),
         projection.row_count,
     )
 }
 
-fn render_projection_table(
+/// Render one SQL projection payload whose values were already converted to
+/// display text by the caller.
+#[must_use]
+pub fn render_projection_display_rows_lines(
     columns: &[String],
     rows: &[Vec<String>],
     row_count: u32,

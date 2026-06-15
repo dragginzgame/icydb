@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use icydb::db::sql::{
     SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_grouped_lines,
+    render_projection_display_rows_lines,
 };
 
 use crate::shell::perf::{
@@ -69,14 +70,18 @@ fn render_shell_text(
 }
 
 pub(super) fn render_projection_shell_text(
-    mut rows: SqlQueryRowsOutput,
+    rows: SqlQueryRowsOutput,
     attribution: Option<ShellPerfAttribution>,
     render_attribution: Option<ShellLocalRenderAttribution>,
 ) -> String {
-    uppercase_null_cells(rows.rows.as_mut_slice());
+    let mut rendered_rows = rows.rendered_rows();
+    uppercase_null_cells(rendered_rows.as_mut_slice());
 
-    let mut lines =
-        icydb::db::sql::render_projection_lines(rows.entity.as_str(), &rows.as_projection_rows());
+    let mut lines = render_projection_display_rows_lines(
+        rows.columns.as_slice(),
+        rendered_rows.as_slice(),
+        rows.row_count,
+    );
 
     render_shell_lines(&mut lines, attribution, render_attribution)
 }

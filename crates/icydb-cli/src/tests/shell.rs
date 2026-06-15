@@ -4,7 +4,10 @@
 //! Boundary: test-only assertions over shell helpers and decoded SQL payload text.
 
 use candid::{Decode, Encode};
-use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput};
+use icydb::{
+    db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
+    value::OutputValue,
+};
 use serde_json::json;
 
 use crate::{
@@ -55,7 +58,7 @@ fn parse_perf_result_defaults_optional_instruction_fields() {
             "Projection": {
                 "entity": "Character",
                 "columns": ["name"],
-                "rows": [["Ada"]],
+                "rows": [[{"Text": "Ada"}]],
                 "row_count": 1
             }
         },
@@ -407,7 +410,7 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
         SqlQueryRowsOutput {
             entity: "Character".to_string(),
             columns: vec!["name".to_string()],
-            rows: vec![vec!["alice".to_string()]],
+            rows: vec![vec![OutputValue::Text("alice".to_string())]],
             row_count: 1,
         },
         None,
@@ -425,7 +428,7 @@ fn projection_shell_text_renders_null_cells_as_sql_null() {
         SqlQueryRowsOutput {
             entity: "Character".to_string(),
             columns: vec!["nickname".to_string()],
-            rows: vec![vec!["null".to_string()]],
+            rows: vec![vec![OutputValue::Null]],
             row_count: 1,
         },
         None,
