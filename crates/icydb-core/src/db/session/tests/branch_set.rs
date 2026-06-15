@@ -401,8 +401,7 @@ fn session_branch_set_sql_key_only_projection_is_covered_and_bounded() {
     );
     assert!(
         attribution.index_store_entry_reads <= 8,
-        "two branch streams should read at most limit + 1 entries per branch, got {:?}",
-        attribution,
+        "two branch streams should read at most limit + 1 entries per branch, got {attribution:?}",
     );
     assert_eq!(
         attribution.scalar_aggregate, None,
@@ -424,13 +423,11 @@ fn session_branch_set_sql_noncovered_projection_hydrates_only_bounded_page_rows(
 
     assert!(
         (BRANCH_LIMIT as u64..=BRANCH_FETCH).contains(&attribution.store_get_calls),
-        "non-covered branch projection should hydrate only returned rows plus lookahead, got {:?}",
-        attribution,
+        "non-covered branch projection should hydrate only returned rows plus lookahead, got {attribution:?}",
     );
     assert!(
         attribution.index_store_entry_reads <= 8,
-        "non-covered projection should keep index traversal bounded by branch fetch, got {:?}",
-        attribution,
+        "non-covered projection should keep index traversal bounded by branch fetch, got {attribution:?}",
     );
     assert_eq!(
         attribution.scalar_aggregate, None,
