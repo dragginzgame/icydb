@@ -549,6 +549,10 @@ fn blob_orders() -> Vec<SqlFragment> {
             sql: "bucket ASC, id ASC",
         },
         SqlFragment {
+            key: "bucket_label_asc",
+            sql: "bucket ASC, label ASC, id ASC",
+        },
+        SqlFragment {
             key: "label_asc",
             sql: "label ASC, id ASC",
         },

@@ -109,16 +109,16 @@ pub struct PerfAuditJournaledUser {}
 ///
 /// PerfAuditBlob
 ///
-/// Blob-shaped perf fixture with scalar metadata indexes beside thumbnail and
-/// chunk payloads so SQL perf scenarios can compare payload-returning queries
-/// with byte-length-only projections.
+/// Blob-shaped perf fixture with a scalar metadata covering index beside
+/// thumbnail and chunk payloads so SQL perf scenarios can compare metadata-only,
+/// byte-length-only, and payload-returning projections.
 ///
 
 #[entity(
     store = "PerfAuditStore",
-    version = 1,
+    version = 2,
     pk(fields = ["id"]),
-    index(fields = ["bucket", "id"]),
+    index(fields = ["bucket", "label", "id"]),
     index(fields = ["label"]),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),

@@ -1393,37 +1393,37 @@ fn blob_payload_scenarios() -> Vec<SqlPerfScenario> {
         scenario(
             "blob.bucket.lengths.asc.limit3",
             SqlPerfSurface::Blob,
-            "secondary_bucket_id",
+            "secondary_bucket_label_id",
             "blob_byte_length_projection",
-            "SELECT id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 3",
+            "SELECT id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, label ASC, id ASC LIMIT 3",
         ),
         scenario(
             "blob.bucket.thumbnail_payload.asc.limit3",
             SqlPerfSurface::Blob,
-            "secondary_bucket_id",
+            "secondary_bucket_label_id",
             "blob_thumbnail_payload_projection",
-            "SELECT id, label, thumbnail FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 3",
+            "SELECT id, label, thumbnail FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, label ASC, id ASC LIMIT 3",
         ),
         scenario(
             "blob.bucket.chunk_payload.asc.limit2",
             SqlPerfSurface::Blob,
-            "secondary_bucket_id",
+            "secondary_bucket_label_id",
             "blob_chunk_payload_projection",
-            "SELECT id, label, chunk FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 2",
+            "SELECT id, label, chunk FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, label ASC, id ASC LIMIT 2",
         ),
         scenario(
             "blob.bucket.full_payload.asc.limit2",
             SqlPerfSurface::Blob,
-            "secondary_bucket_id",
+            "secondary_bucket_label_id",
             "blob_full_payload_projection",
-            "SELECT id, label, thumbnail, chunk FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 2",
+            "SELECT id, label, thumbnail, chunk FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, label ASC, id ASC LIMIT 2",
         ),
         repeat_scenario(
             "repeat.blob.bucket.lengths.asc.limit3.runs10",
             SqlPerfSurface::Blob,
-            "secondary_bucket_id",
+            "secondary_bucket_label_id",
             "blob_byte_length_repeat",
-            "SELECT id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 3",
+            "SELECT id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, label ASC, id ASC LIMIT 3",
             10,
         ),
     ]
@@ -2691,6 +2691,52 @@ fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
             "membership scenario '{scenario_key}' should keep parse subphases exhaustive",
         );
     }
+}
+
+#[test]
+fn sql_perf_blob_metadata_query_stays_on_covering_index() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let explain = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Blob,
+        "EXPLAIN EXECUTION SELECT id, label, bucket \
+         FROM PerfAuditBlob \
+         WHERE bucket = 10 \
+         ORDER BY bucket ASC, label ASC, id ASC \
+         LIMIT 3",
+        1,
+    )
+    .expect("blob scalar metadata EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain { explain, .. } = explain.result else {
+        panic!("blob scalar metadata EXPLAIN EXECUTION should return explain output");
+    };
+
+    let perf = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Blob,
+        "SELECT id, label, bucket \
+         FROM PerfAuditBlob \
+         WHERE bucket = 10 \
+         ORDER BY bucket ASC, label ASC, id ASC \
+         LIMIT 3",
+        1,
+    )
+    .expect("blob scalar metadata query should succeed");
+
+    assert_eq!(
+        perf.attribution.store_get_calls, 0,
+        "blob scalar metadata query should stay on the covering index and avoid row-store get() calls: {explain}",
+    );
+    assert!(
+        perf.attribution.pure_covering.is_some(),
+        "blob scalar metadata query should report the pure covering attribution lane",
+    );
+    assert_eq!(
+        perf.attribution.output_blob.projected_bytes, 0,
+        "blob scalar metadata query should not project blob payload bytes",
+    );
 }
 
 #[test]
