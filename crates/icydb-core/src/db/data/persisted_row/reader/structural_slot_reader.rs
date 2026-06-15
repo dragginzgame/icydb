@@ -451,6 +451,15 @@ impl<'a> StructuralSlotReader<'a> {
                     )
                 })?)
             }
+            FieldKind::Blob { .. } if view.is_blob() => {
+                ScalarValueRef::Blob(view.as_blob().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
             FieldKind::Int64 if view.is_i64() => {
                 ScalarValueRef::Int(view.as_i64().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
@@ -495,6 +504,15 @@ impl<'a> StructuralSlotReader<'a> {
         let value = match field.kind() {
             PersistedFieldKind::Bool if view.is_bool() => {
                 ScalarValueRef::Bool(view.as_bool().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.field_name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            PersistedFieldKind::Blob { .. } if view.is_blob() => {
+                ScalarValueRef::Blob(view.as_blob().map_err(|err| {
                     InternalError::persisted_row_field_kind_decode_failed(
                         field.field_name(),
                         field.kind(),

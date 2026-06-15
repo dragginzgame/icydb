@@ -6,14 +6,16 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
-        TAG_FALSE, TAG_INT64, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE, parse_binary_head,
+        TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE,
+        parse_binary_head,
     },
     value_storage::{
         decode::{
             ValueStorageSlice,
             scalar::{
-                decode_binary_i64_scalar, decode_binary_text_payload_bytes_if_text,
-                decode_binary_text_scalar, decode_binary_u64_scalar,
+                decode_binary_blob_scalar, decode_binary_i64_scalar,
+                decode_binary_text_payload_bytes_if_text, decode_binary_text_scalar,
+                decode_binary_u64_scalar,
             },
         },
         skip::skip_value_storage_binary_value,
@@ -89,6 +91,12 @@ impl<'a> ValueStorageView<'a> {
         self.tag() == TAG_TEXT
     }
 
+    /// Return whether this view contains a generic blob value.
+    #[inline]
+    pub(in crate::db::data) const fn is_blob(&self) -> bool {
+        self.tag() == TAG_BYTES
+    }
+
     /// Decode one bool directly from the bounded value-storage slice.
     pub(in crate::db::data) const fn as_bool(&self) -> Result<bool, FieldDecodeError> {
         match self.tag() {
@@ -111,6 +119,11 @@ impl<'a> ValueStorageView<'a> {
     /// Decode one borrowed string directly from the bounded value-storage slice.
     pub(in crate::db::data) fn as_text(&self) -> Result<&'a str, FieldDecodeError> {
         decode_binary_text_scalar(self.as_bytes())
+    }
+
+    /// Decode one borrowed blob directly from the bounded value-storage slice.
+    pub(in crate::db::data) fn as_blob(&self) -> Result<&'a [u8], FieldDecodeError> {
+        decode_binary_blob_scalar(self.as_bytes())
     }
 
     /// Return the value slice for one text-keyed map entry using byte equality.

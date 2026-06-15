@@ -581,6 +581,13 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
         vec![Some(Value::Nat64(5)), Some(Value::Nat64(4))],
         "retained scalar byte-length slots should store lengths instead of text/blob payloads",
     );
+
+    let retained_row =
+        RowDecoder::decode_retained_slots_from_data_key(&row_layout, &key, &row, &layout)
+            .expect("retained scalar length row decode should succeed");
+
+    assert_eq!(retained_row.slot_ref(1), Some(&Value::Nat64(5)));
+    assert_eq!(retained_row.slot_ref(3), Some(&Value::Nat64(4)));
 }
 
 #[test]

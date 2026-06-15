@@ -255,6 +255,16 @@ impl RowDecoder {
         row: &RawRow,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<RetainedSlotRow, InternalError> {
+        if retained_slot_layout.has_value_mode_overrides() {
+            let row_fields = layout.open_raw_row_with_contract(row)?;
+            row_fields.validate_primary_key(data_key)?;
+
+            return Ok(RetainedSlotRow::from_indexed_values(
+                retained_slot_layout,
+                Self::decode_indexed_slot_values_from_reader(&row_fields, retained_slot_layout)?,
+            ));
+        }
+
         Ok(RetainedSlotRow::from_indexed_values(
             retained_slot_layout,
             Self::decode_indexed_slot_values_from_data_key(

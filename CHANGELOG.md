@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Adds borrowed value-storage blob scalar views and reuses opened retained-row
+  readers for blob/text byte-length slots, trimming `OCTET_LENGTH(...)` paths
+  without materializing owned blob payloads.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.20` publishes the 0.182.19 blob covering-index audit state without
+  additional runtime behavior changes.
+
+- `0.182.19` adds blob metadata covering-index audit coverage so scalar blob
+  metadata reads avoid row-store hydration while payload and byte-length paths
+  remain separately measured.
 
 - `0.182.18` hard-cuts facade SQL projection payloads to typed output values,
   removes the dead string-projection lane, and renders blob hex only on

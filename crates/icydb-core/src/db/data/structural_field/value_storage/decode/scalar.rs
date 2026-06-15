@@ -100,6 +100,16 @@ pub(super) fn decode_binary_text_scalar(raw_bytes: &[u8]) -> Result<&str, FieldD
     Ok(value)
 }
 
+// Decode one top-level blob scalar without allocating owned bytes.
+pub(super) fn decode_binary_blob_scalar(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new());
+    };
+    let (value, _) = decode_binary_blob_from_parsed(raw_bytes, tag, len, payload_start, true)?;
+
+    Ok(value)
+}
+
 // Borrow the payload bytes for one top-level text scalar without validating
 // UTF-8. This is only for byte-key comparisons where the caller already owns a
 // valid UTF-8 query segment and only needs exact byte equality.

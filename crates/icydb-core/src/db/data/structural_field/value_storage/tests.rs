@@ -1,7 +1,7 @@
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,
-        binary::{TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT},
+        binary::{TAG_BYTES, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT},
         value_storage::{
             decode::{
                 ValueStorageView, decode_enum, decode_structural_value_storage_bytes,
@@ -28,6 +28,15 @@ fn push_text_value(out: &mut Vec<u8>, value: &str) {
         u32::try_from(value.len()).expect("test text length fits"),
     );
     out.extend_from_slice(value.as_bytes());
+}
+
+fn push_blob_value(out: &mut Vec<u8>, value: &[u8]) {
+    push_len_prefixed_head(
+        out,
+        TAG_BYTES,
+        u32::try_from(value.len()).expect("test blob length fits"),
+    );
+    out.extend_from_slice(value);
 }
 
 fn push_i64_value(out: &mut Vec<u8>, value: i64) {
@@ -233,6 +242,18 @@ fn binary_value_storage_view_resolves_text_keyed_map_child_without_materializing
     assert_eq!(name.as_text().expect("name should be text"), "Ada");
     assert_eq!(rank.as_i64().expect("rank should be i64"), 7);
     assert!(missing.is_none());
+}
+
+#[test]
+fn binary_value_storage_view_borrows_blob_payload_without_materializing() {
+    let bytes = [0x10, 0x20, 0x30, 0x40];
+    let mut encoded = Vec::new();
+    push_blob_value(&mut encoded, bytes.as_slice());
+
+    let view = ValueStorageView::from_raw_validated(&encoded).expect("blob view should validate");
+
+    assert!(view.is_blob());
+    assert_eq!(view.as_blob().expect("blob payload should borrow"), bytes);
 }
 
 #[test]
