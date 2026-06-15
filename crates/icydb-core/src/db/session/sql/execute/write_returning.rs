@@ -18,7 +18,7 @@ use crate::{
     },
     error::InternalError,
     traits::EntityValue,
-    value::{OutputValue, Value, render_output_value_text},
+    value::{OutputValue, Value},
 };
 use candid::{CandidType, Encode};
 use icydb_diagnostic_code::SqlWriteBoundaryCode;
@@ -32,13 +32,13 @@ enum SqlReturningResponseSizeProbe {
 struct SqlReturningProjectionSizeProbe {
     entity: String,
     columns: Vec<String>,
-    rows: Vec<Vec<String>>,
+    rows: Vec<Vec<OutputValue>>,
     row_count: u32,
 }
 
-struct SqlReturningRenderedProjectionRows {
+struct SqlReturningProjectionRows {
     columns: Vec<String>,
-    rows: Vec<Vec<String>>,
+    rows: Vec<Vec<OutputValue>>,
     row_count: u32,
 }
 
@@ -214,23 +214,23 @@ fn encoded_sql_returning_projection_response_len<E>(
 where
     E: EntityValue,
 {
-    let rendered = sql_returning_rendered_projection_rows(entities, returning, descriptor)?;
+    let projected = sql_returning_projection_rows(entities, returning, descriptor)?;
     let payload = SqlReturningResponseSizeProbe::Projection(SqlReturningProjectionSizeProbe {
         entity: entity_name.to_string(),
-        columns: rendered.columns,
-        rows: rendered.rows,
-        row_count: rendered.row_count,
+        columns: projected.columns,
+        rows: projected.rows,
+        row_count: projected.row_count,
     });
     let encoded = Encode!(&payload).map_err(|_| InternalError::query_executor_invariant())?;
 
     Ok(encoded.len())
 }
 
-fn sql_returning_rendered_projection_rows<E>(
+fn sql_returning_projection_rows<E>(
     entities: &[E],
     returning: &SqlReturningProjection,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-) -> Result<SqlReturningRenderedProjectionRows, InternalError>
+) -> Result<SqlReturningProjectionRows, InternalError>
 where
     E: EntityValue,
 {
@@ -244,12 +244,12 @@ where
                 .iter()
                 .map(|entity| {
                     sql_returning_all_values(entity, field_count)
-                        .map(render_sql_returning_value_row)
+                        .map(sql_returning_output_value_row)
                         .map_err(query_error_to_internal_invariant)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(SqlReturningRenderedProjectionRows {
+            Ok(SqlReturningProjectionRows {
                 columns,
                 rows,
                 row_count,
@@ -263,12 +263,12 @@ where
                 .iter()
                 .map(|entity| {
                     sql_returning_selected_values(entity, indices.as_slice())
-                        .map(render_sql_returning_value_row)
+                        .map(sql_returning_output_value_row)
                         .map_err(query_error_to_internal_invariant)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(SqlReturningRenderedProjectionRows {
+            Ok(SqlReturningProjectionRows {
                 columns: fields.clone(),
                 rows,
                 row_count,
@@ -277,10 +277,8 @@ where
     }
 }
 
-fn render_sql_returning_value_row(row: Vec<Value>) -> Vec<String> {
-    row.into_iter()
-        .map(|value| render_output_value_text(&OutputValue::from(value)))
-        .collect()
+fn sql_returning_output_value_row(row: Vec<Value>) -> Vec<OutputValue> {
+    row.into_iter().map(OutputValue::from).collect()
 }
 
 fn query_error_to_internal_invariant(_err: QueryError) -> InternalError {

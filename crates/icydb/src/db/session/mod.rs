@@ -11,7 +11,7 @@ use crate::{
         EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
         MemoryCatalogDescription, StorageReport, StoreCatalogDescription,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::{ProjectionRows, QueryResponse, RowProjectionOutput, render_output_value_text},
+        response::{ProjectionRows, QueryResponse, RowProjectionOutput},
     },
     diagnostic::RuntimeBoundaryCode,
     error::{Error, ErrorOrigin},
@@ -467,18 +467,17 @@ impl<C: CanisterKind> DbSession<C> {
         let (columns, indices) = Self::projection_selection::<E>(selected_fields)?;
         let mut rows = Vec::with_capacity(entities.len());
 
-        // Phase 2: render the selected entity slots into stable row text
-        // rows so every row-producing write surface converges on the same
-        // outward payload family.
+        // Phase 2: move selected entity slots into the typed output payload so
+        // row-producing write surfaces do not pre-render blob fields as text.
         for entity in entities {
-            let mut rendered = Vec::with_capacity(indices.len());
+            let mut row = Vec::with_capacity(indices.len());
             for index in &indices {
                 let value = entity.get_value_by_index(*index).ok_or_else(|| {
                     Error::from_error_code(ErrorCode::RUNTIME_INTERNAL, ErrorOrigin::Query)
                 })?;
-                rendered.push(render_output_value_text(&OutputValue::from(value)));
+                row.push(OutputValue::from(value));
             }
-            rows.push(rendered);
+            rows.push(row);
         }
 
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);

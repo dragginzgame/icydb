@@ -165,6 +165,35 @@ fn expect_projection(result: SqlQueryResult) -> SqlQueryRowsOutput {
     }
 }
 
+fn first_projected_text(output: &SqlQueryRowsOutput) -> String {
+    output
+        .rendered_rows()
+        .into_iter()
+        .next()
+        .and_then(|row| row.into_iter().next())
+        .expect("projection should include a first text cell")
+}
+
+fn assert_projection_rendered(
+    output: &SqlQueryRowsOutput,
+    entity: &str,
+    columns: &[&str],
+    rows: &[&[&str]],
+    row_count: u32,
+    message: &str,
+) {
+    assert_eq!(output.entity, entity, "{message}");
+    assert_eq!(output.columns, columns, "{message}");
+    assert_eq!(output.rendered_rows(), string_rows(rows), "{message}");
+    assert_eq!(output.row_count, row_count, "{message}");
+}
+
+fn string_rows(rows: &[&[&str]]) -> Vec<Vec<String>> {
+    rows.iter()
+        .map(|row| row.iter().map(|value| (*value).to_string()).collect())
+        .collect()
+}
+
 fn expect_grouped(result: SqlQueryResult) -> SqlGroupedRowsOutput {
     match result {
         SqlQueryResult::Grouped(rows) => rows,
@@ -203,12 +232,7 @@ fn sql_test_user_id_by_name(fixture: &StandaloneCanisterFixture, name: &str) -> 
         output.row_count, 1,
         "named SQL fixture user should be unique",
     );
-    output
-        .rows
-        .first()
-        .and_then(|row| row.first())
-        .expect("named SQL fixture row should include id")
-        .clone()
+    first_projected_text(&output)
 }
 
 fn sql_test_numeric_type_id_by_label(fixture: &StandaloneCanisterFixture, label: &str) -> String {
@@ -221,12 +245,7 @@ fn sql_test_numeric_type_id_by_label(fixture: &StandaloneCanisterFixture, label:
         output.row_count, 1,
         "labeled numeric SQL fixture row should be unique",
     );
-    output
-        .rows
-        .first()
-        .and_then(|row| row.first())
-        .expect("labeled numeric SQL fixture row should include id")
-        .clone()
+    first_projected_text(&output)
 }
 
 fn assert_ddl_no_op(result: SqlQueryResult, expected_kind: &str, expected_target: &str) {
@@ -1288,14 +1307,12 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
         )
         .expect("indexed read should succeed after DDL"),
     );
-    assert_eq!(
-        rows,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec!["bob".to_string()], vec!["alice".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &rows,
+        "SqlTestUser",
+        &["name"],
+        &[&["bob"], &["alice"]],
+        2,
         "post-DDL indexed read should observe the accepted-after index without changing row semantics",
     );
 }
@@ -1776,14 +1793,12 @@ fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
         )
         .expect("scalar SQL query should succeed"),
     );
-    assert_eq!(
-        scalar,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec!["bob".to_string()], vec!["alice".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &scalar,
+        "SqlTestUser",
+        &["name"],
+        &[&["bob"], &["alice"]],
+        2,
         "query(sql) should preserve ordered scalar projection payloads",
     );
 
@@ -1825,18 +1840,12 @@ fn sql_canister_query_endpoint_executes_global_post_aggregate_value_queries() {
         .expect("global post-aggregate SQL query should succeed"),
     );
 
-    assert_eq!(
-        post_aggregate,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec![
-                "avg_rounded".to_string(),
-                "count_plus_one".to_string(),
-                "spread".to_string(),
-            ],
-            rows: vec![vec!["32.67".to_string(), "4".to_string(), "19".to_string(),]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &post_aggregate,
+        "SqlTestUser",
+        &["avg_rounded", "count_plus_one", "spread"],
+        &[&["32.67", "4", "19"]],
+        1,
         "query(sql) should preserve the real reduced values for global post-aggregate projection expressions at the live canister boundary",
     );
 }
@@ -1853,14 +1862,12 @@ fn sql_canister_query_endpoint_executes_global_aggregate_having_queries() {
         )
         .expect("global aggregate HAVING SQL query should succeed"),
     );
-    assert_eq!(
-        matched,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["COUNT(*)".to_string()],
-            rows: vec![vec!["3".to_string()]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &matched,
+        "SqlTestUser",
+        &["COUNT(*)"],
+        &[&["3"]],
+        1,
         "query(sql) should keep the implicit aggregate row when global HAVING matches",
     );
 
@@ -1871,14 +1878,12 @@ fn sql_canister_query_endpoint_executes_global_aggregate_having_queries() {
         )
         .expect("global aggregate HAVING should still return projection payload when filtered"),
     );
-    assert_eq!(
-        filtered,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["avg_rounded".to_string()],
-            rows: vec![],
-            row_count: 0,
-        },
+    assert_projection_rendered(
+        &filtered,
+        "SqlTestUser",
+        &["avg_rounded"],
+        &[],
+        0,
         "query(sql) should filter away the implicit aggregate row while preserving the projection shape when global HAVING fails",
     );
 }
@@ -2072,14 +2077,12 @@ fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
         )
         .expect("scalar arithmetic SQL query should succeed"),
     );
-    assert_eq!(
-        arithmetic,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["age - 1".to_string()],
-            rows: vec![vec!["23".to_string()], vec!["30".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &arithmetic,
+        "SqlTestUser",
+        &["age - 1"],
+        &[&["23"], &["30"]],
+        2,
         "query(sql) should preserve scalar arithmetic projection payloads at the live canister boundary",
     );
 
@@ -2090,14 +2093,12 @@ fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
         )
         .expect("scalar ROUND SQL query should succeed"),
     );
-    assert_eq!(
-        rounded,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["ROUND(age / 3, 2)".to_string()],
-            rows: vec![vec!["8.00".to_string()], vec!["10.33".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &rounded,
+        "SqlTestUser",
+        &["ROUND(age / 3, 2)"],
+        &[&["8.00"], &["10.33"]],
+        2,
         "query(sql) should preserve scalar ROUND projection payloads at the live canister boundary",
     );
 }
@@ -2114,14 +2115,12 @@ fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
         )
         .expect("chained scalar precedence SQL query should succeed"),
     );
-    assert_eq!(
-        precedence,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["value".to_string()],
-            rows: vec![vec!["26".to_string()], vec!["33".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &precedence,
+        "SqlTestUser",
+        &["value"],
+        &[&["26"], &["33"]],
+        2,
         "query(sql) should preserve multiplication precedence inside chained scalar arithmetic at the live canister boundary",
     );
 
@@ -2132,14 +2131,12 @@ fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
         )
         .expect("chained scalar associativity SQL query should succeed"),
     );
-    assert_eq!(
-        associativity,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["value".to_string()],
-            rows: vec![vec!["21".to_string()], vec!["28".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &associativity,
+        "SqlTestUser",
+        &["value"],
+        &[&["21"], &["28"]],
+        2,
         "query(sql) should preserve left-associative subtraction inside chained scalar arithmetic at the live canister boundary",
     );
 
@@ -2150,14 +2147,12 @@ fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
         )
         .expect("parenthesized scalar ROUND SQL query should succeed"),
     );
-    assert_eq!(
-        parenthesized,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["value".to_string()],
-            rows: vec![vec!["24.50".to_string()], vec!["29.50".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &parenthesized,
+        "SqlTestUser",
+        &["value"],
+        &[&["24.50"], &["29.50"]],
+        2,
         "query(sql) should preserve parenthesized scalar arithmetic before ROUND at the live canister boundary",
     );
 }
@@ -2174,14 +2169,12 @@ fn sql_canister_query_endpoint_executes_chained_global_aggregate_expression_quer
         )
         .expect("chained global aggregate expression SQL query should succeed"),
     );
-    assert_eq!(
-        result,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["avg_shifted".to_string(), "avg_balanced".to_string()],
-            rows: vec![vec!["34.67".to_string(), "32.67".to_string()]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &result,
+        "SqlTestUser",
+        &["avg_shifted", "avg_balanced"],
+        &[&["34.67", "32.67"]],
+        1,
         "query(sql) should preserve chained aggregate-input and parenthesized global post-aggregate values at the live canister boundary",
     );
 }
@@ -2198,14 +2191,12 @@ fn sql_canister_query_endpoint_executes_round_field_to_field_arithmetic_projecti
         )
         .expect("ROUND(field + field) SQL query should succeed"),
     );
-    assert_eq!(
-        rounded,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["total".to_string()],
-            rows: vec![vec!["49.00".to_string()], vec!["59.00".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &rounded,
+        "SqlTestUser",
+        &["total"],
+        &[&["49.00"], &["59.00"]],
+        2,
         "query(sql) should preserve ROUND(field + field) projection payloads at the live canister boundary",
     );
 }
@@ -2222,14 +2213,12 @@ fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_que
         )
         .expect("field-to-field arithmetic SQL query should succeed"),
     );
-    assert_eq!(
-        arithmetic,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["total".to_string()],
-            rows: vec![vec!["49".to_string()], vec!["59".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &arithmetic,
+        "SqlTestUser",
+        &["total"],
+        &[&["49"], &["59"]],
+        2,
         "query(sql) should preserve field-to-field arithmetic projection payloads at the live canister boundary",
     );
 }
@@ -2249,32 +2238,17 @@ fn sql_canister_numeric_type_endpoint_executes_small_width_numeric_projection_qu
         )
         .expect("mixed small-width numeric SQL query should succeed"),
     );
-    assert_eq!(
-        small_width,
-        SqlQueryRowsOutput {
-            entity: "SqlTestNumericTypes".to_string(),
-            columns: vec![
-                "label".to_string(),
-                "nat16_value + 1".to_string(),
-                "nat8_value + nat16_value".to_string(),
-                "int8_value - 1".to_string(),
-            ],
-            rows: vec![
-                vec![
-                    "alpha".to_string(),
-                    "4".to_string(),
-                    "17".to_string(),
-                    "-2".to_string(),
-                ],
-                vec![
-                    "beta".to_string(),
-                    "8".to_string(),
-                    "23".to_string(),
-                    "1".to_string(),
-                ],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &small_width,
+        "SqlTestNumericTypes",
+        &[
+            "label",
+            "nat16_value + 1",
+            "nat8_value + nat16_value",
+            "int8_value - 1",
+        ],
+        &[&["alpha", "4", "17", "-2"], &["beta", "8", "23", "1"]],
+        2,
         "query(sql) should preserve Int8/Nat8/Nat16 arithmetic at the schema/test SQL canister boundary",
     );
 }
@@ -2294,32 +2268,20 @@ fn sql_canister_numeric_type_endpoint_executes_wide_integer_projection_queries()
         )
         .expect("mixed wide numeric SQL query should succeed"),
     );
-    assert_eq!(
-        wide_width,
-        SqlQueryRowsOutput {
-            entity: "SqlTestNumericTypes".to_string(),
-            columns: vec![
-                "label".to_string(),
-                "int16_value + int32_value".to_string(),
-                "int64_value + nat64_value".to_string(),
-                "nat32_value + nat64_value".to_string(),
-            ],
-            rows: vec![
-                vec![
-                    "beta".to_string(),
-                    "63".to_string(),
-                    "18000".to_string(),
-                    "9300".to_string(),
-                ],
-                vec![
-                    "alpha".to_string(),
-                    "33".to_string(),
-                    "500".to_string(),
-                    "1120".to_string(),
-                ],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &wide_width,
+        "SqlTestNumericTypes",
+        &[
+            "label",
+            "int16_value + int32_value",
+            "int64_value + nat64_value",
+            "nat32_value + nat64_value",
+        ],
+        &[
+            &["beta", "63", "18000", "9300"],
+            &["alpha", "33", "500", "1120"],
+        ],
+        2,
         "query(sql) should preserve Int16/Int32/Int64 and Nat32/Nat64 arithmetic at the schema/test SQL canister boundary",
     );
 }
@@ -2339,35 +2301,21 @@ fn sql_canister_numeric_type_endpoint_executes_decimal_float_projection_queries(
         )
         .expect("decimal and float numeric SQL query should succeed"),
     );
-    assert_eq!(
-        decimal_float,
-        SqlQueryRowsOutput {
-            entity: "SqlTestNumericTypes".to_string(),
-            columns: vec![
-                "label".to_string(),
-                "ROUND(decimal_value * 100, 2)".to_string(),
-                "TRUNC(decimal_value / 3, 2)".to_string(),
-                "float64_value / 2".to_string(),
-                "ROUND(float32_value + float64_value, 2)".to_string(),
-            ],
-            rows: vec![
-                vec![
-                    "beta".to_string(),
-                    "25.00".to_string(),
-                    "0.08".to_string(),
-                    "0.125".to_string(),
-                    "0.50".to_string(),
-                ],
-                vec![
-                    "alpha".to_string(),
-                    "15.00".to_string(),
-                    "0.05".to_string(),
-                    "0.25".to_string(),
-                    "1.25".to_string(),
-                ],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &decimal_float,
+        "SqlTestNumericTypes",
+        &[
+            "label",
+            "ROUND(decimal_value * 100, 2)",
+            "TRUNC(decimal_value / 3, 2)",
+            "float64_value / 2",
+            "ROUND(float32_value + float64_value, 2)",
+        ],
+        &[
+            &["beta", "25.00", "0.08", "0.125", "0.50"],
+            &["alpha", "15.00", "0.05", "0.25", "1.25"],
+        ],
+        2,
         "query(sql) should preserve Decimal/Float32/Float64 arithmetic at the schema/test SQL canister boundary",
     );
 }
@@ -2385,26 +2333,18 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries()
         )
         .expect("global mixed numeric aggregate SQL query should succeed"),
     );
-    assert_eq!(
-        global,
-        SqlQueryRowsOutput {
-            entity: "SqlTestNumericTypes".to_string(),
-            columns: vec![
-                "COUNT(*)".to_string(),
-                "SUM(nat16_value)".to_string(),
-                "AVG(int32_value)".to_string(),
-                "MIN(int16_value)".to_string(),
-                "MAX(nat64_value)".to_string(),
-            ],
-            rows: vec![vec![
-                "2".to_string(),
-                "10".to_string(),
-                "46.5".to_string(),
-                "-2".to_string(),
-                "9000".to_string(),
-            ]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &global,
+        "SqlTestNumericTypes",
+        &[
+            "COUNT(*)",
+            "SUM(nat16_value)",
+            "AVG(int32_value)",
+            "MIN(int16_value)",
+            "MAX(nat64_value)",
+        ],
+        &[&["2", "10", "46.5", "-2", "9000"]],
+        1,
         "query(sql) should preserve mixed numeric global aggregates at the schema/test SQL canister boundary",
     );
 
@@ -2525,14 +2465,12 @@ fn sql_canister_query_endpoint_executes_singleton_global_output_order_alias_quer
         )
         .expect("singleton global aggregate output ORDER BY alias SQL query should succeed"),
     );
-    assert_eq!(
-        ordered,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["avg_rounded".to_string()],
-            rows: vec![vec!["32.67".to_string()]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &ordered,
+        "SqlTestUser",
+        &["avg_rounded"],
+        &[&["32.67"]],
+        1,
         "query(sql) should treat singleton global aggregate output ordering as an inert no-op while still returning the correct value",
     );
 }
@@ -2564,43 +2502,28 @@ fn sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries()
         .expect("ORDER BY ROUND alias SQL query should succeed"),
     );
 
-    assert_eq!(
-        arithmetic,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string(), "next_age".to_string()],
-            rows: vec![
-                vec!["bob".to_string(), "25".to_string()],
-                vec!["alice".to_string(), "32".to_string()],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &arithmetic,
+        "SqlTestUser",
+        &["name", "next_age"],
+        &[&["bob", "25"], &["alice", "32"]],
+        2,
         "query(sql) should preserve arithmetic alias ordering at the live canister boundary",
     );
-    assert_eq!(
-        field_to_field,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string(), "total".to_string()],
-            rows: vec![
-                vec!["bob".to_string(), "49".to_string()],
-                vec!["alice".to_string(), "59".to_string()],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &field_to_field,
+        "SqlTestUser",
+        &["name", "total"],
+        &[&["bob", "49"], &["alice", "59"]],
+        2,
         "query(sql) should preserve field-to-field arithmetic alias ordering at the live canister boundary",
     );
-    assert_eq!(
-        rounded,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string(), "rounded_age".to_string()],
-            rows: vec![
-                vec!["charlie".to_string(), "14.33".to_string()],
-                vec!["alice".to_string(), "10.33".to_string()],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &rounded,
+        "SqlTestUser",
+        &["name", "rounded_age"],
+        &[&["charlie", "14.33"], &["alice", "10.33"]],
+        2,
         "query(sql) should preserve ROUND alias ordering at the live canister boundary",
     );
 }
@@ -2625,30 +2548,20 @@ fn sql_canister_query_endpoint_executes_direct_bounded_numeric_order_queries() {
         .expect("direct ORDER BY ROUND SQL query should succeed"),
     );
 
-    assert_eq!(
-        arithmetic,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string(), "age".to_string()],
-            rows: vec![
-                vec!["bob".to_string(), "24".to_string()],
-                vec!["alice".to_string(), "31".to_string()],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &arithmetic,
+        "SqlTestUser",
+        &["name", "age"],
+        &[&["bob", "24"], &["alice", "31"]],
+        2,
         "query(sql) should preserve direct arithmetic ordering at the live canister boundary",
     );
-    assert_eq!(
-        rounded,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string(), "age".to_string()],
-            rows: vec![
-                vec!["charlie".to_string(), "43".to_string()],
-                vec!["alice".to_string(), "31".to_string()],
-            ],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &rounded,
+        "SqlTestUser",
+        &["name", "age"],
+        &[&["charlie", "43"], &["alice", "31"]],
+        2,
         "query(sql) should preserve direct ROUND ordering at the live canister boundary",
     );
 }
@@ -2665,14 +2578,12 @@ fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
         )
         .expect("field-to-field predicate SQL query should succeed"),
     );
-    assert_eq!(
-        filtered,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec!["alice".to_string()]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &filtered,
+        "SqlTestUser",
+        &["name"],
+        &[&["alice"]],
+        1,
         "query(sql) should preserve field-to-field predicate filtering at the live canister boundary",
     );
 
@@ -2683,14 +2594,12 @@ fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
         )
         .expect("mixed literal and field-to-field predicate SQL query should succeed"),
     );
-    assert_eq!(
-        mixed,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec!["alice".to_string()]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &mixed,
+        "SqlTestUser",
+        &["name"],
+        &[&["alice"]],
+        1,
         "query(sql) should preserve correct residual filtering when a literal predicate and a field-to-field predicate are combined at the live canister boundary",
     );
 }
@@ -2707,14 +2616,12 @@ fn sql_canister_query_endpoint_executes_not_between_queries() {
         )
         .expect("NOT BETWEEN SQL query should succeed"),
     );
-    assert_eq!(
-        filtered,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec!["bob".to_string()], vec!["charlie".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &filtered,
+        "SqlTestUser",
+        &["name"],
+        &[&["bob"], &["charlie"]],
+        2,
         "query(sql) should preserve NOT BETWEEN filtering at the live canister boundary",
     );
 }
@@ -2731,14 +2638,12 @@ fn sql_canister_query_endpoint_executes_not_like_prefix_queries() {
         )
         .expect("NOT LIKE SQL query should succeed"),
     );
-    assert_eq!(
-        filtered,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec!["bob".to_string()], vec!["charlie".to_string()]],
-            row_count: 2,
-        },
+    assert_projection_rendered(
+        &filtered,
+        "SqlTestUser",
+        &["name"],
+        &[&["bob"], &["charlie"]],
+        2,
         "query(sql) should preserve bounded NOT LIKE prefix filtering at the live canister boundary",
     );
 }
@@ -2869,12 +2774,7 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
         )
         .expect("pre-update read should find alice"),
     );
-    let alice_id = alice
-        .rows
-        .first()
-        .and_then(|row| row.first())
-        .expect("alice row should include id")
-        .clone();
+    let alice_id = first_projected_text(&alice);
     let result = update_sql(
         &fixture,
         format!("UPDATE SqlTestUser SET age = 32 WHERE id = '{alice_id}'").as_str(),
@@ -2892,7 +2792,7 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
         query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
             .expect("post-update read should find alice"),
     );
-    assert_eq!(after.rows, vec![vec!["32".to_string()]]);
+    assert_eq!(after.rendered_rows(), string_rows(&[&["32"]]));
 }
 
 #[test]
@@ -2993,14 +2893,12 @@ fn sql_canister_update_endpoint_returns_primary_key_post_update_rows() {
         .expect("primary-key generated SQL update endpoint should admit RETURNING"),
     );
 
-    assert_eq!(
-        returning,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string(), "age".to_string()],
-            rows: vec![vec!["alice".to_string(), "34".to_string()]],
-            row_count: 1,
-        },
+    assert_projection_rendered(
+        &returning,
+        "SqlTestUser",
+        &["name", "age"],
+        &[&["alice", "34"]],
+        1,
         "primary-key generated UPDATE RETURNING should return the post-update row image",
     );
 }
@@ -3026,8 +2924,8 @@ fn sql_canister_update_endpoint_returns_primary_key_post_update_star_rows() {
         "primary-key generated UPDATE RETURNING * should preserve schema column order",
     );
     assert_eq!(returning.row_count, 1);
-    let row = returning
-        .rows
+    let rows = returning.rendered_rows();
+    let row = rows
         .first()
         .expect("primary-key generated UPDATE RETURNING * should return one row");
     assert_eq!(
@@ -3082,8 +2980,8 @@ fn sql_canister_update_endpoint_rejects_oversized_returning_response_without_mut
         .expect("post-rejection read should still execute"),
     );
     assert_eq!(
-        after.rows,
-        vec![vec!["35".to_string()]],
+        after.rendered_rows(),
+        string_rows(&[&["35"]]),
         "oversized primary-key UPDATE RETURNING should reject before mutation",
     );
 }
@@ -3222,8 +3120,8 @@ fn sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_orde
     );
     assert_eq!(
         after
-            .rows
-            .iter()
+            .rendered_rows()
+            .into_iter()
             .filter(|row| row.get(1).is_some_and(|age| age == "32"))
             .count(),
         2,
@@ -3457,18 +3355,16 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_rows() {
         .expect("bounded generated SQL update endpoint should admit bounded RETURNING"),
     );
 
+    let expected_rows = target_names
+        .rendered_rows()
+        .into_iter()
+        .map(|row| vec![row[0].clone(), "33".to_string()])
+        .collect::<Vec<_>>();
+    assert_eq!(returning.entity, "SqlTestUser");
+    assert_eq!(returning.columns, ["name", "age"]);
+    assert_eq!(returning.rendered_rows(), expected_rows);
     assert_eq!(
-        returning,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string(), "age".to_string()],
-            rows: target_names
-                .rows
-                .iter()
-                .map(|row| vec![row[0].clone(), "33".to_string()])
-                .collect(),
-            row_count: 2,
-        },
+        returning.row_count, 2,
         "bounded generated UPDATE RETURNING should return post-update rows in the frozen target order",
     );
 }
@@ -3506,7 +3402,9 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_star_rows() {
         targets.rows.len(),
         "bounded generated UPDATE RETURNING * should return the frozen target window",
     );
-    for (row, target) in returning.rows.iter().zip(targets.rows.iter()) {
+    let returning_rows = returning.rendered_rows();
+    let target_rows = targets.rendered_rows();
+    for (row, target) in returning_rows.iter().zip(target_rows.iter()) {
         assert_eq!(
             row.len(),
             returning.columns.len(),

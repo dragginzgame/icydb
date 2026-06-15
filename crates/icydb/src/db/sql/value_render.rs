@@ -1,25 +1,50 @@
 use crate::{db::response::render_output_value_text, value::OutputValue};
 use icydb_core::types::Decimal;
 
-pub(in crate::db::sql) fn render_projection_rows(
+pub(in crate::db::sql) fn sql_projection_output_rows(
     columns: &[String],
     fixed_scales: &[Option<u32>],
     rows: Vec<Vec<OutputValue>>,
-) -> Vec<Vec<String>> {
+) -> Vec<Vec<OutputValue>> {
     rows.into_iter()
         .map(|row| {
             row.into_iter()
                 .enumerate()
                 .map(|(index, value)| {
-                    render_projection_value_text(
+                    sql_projection_output_value(
                         columns.get(index),
                         fixed_scales.get(index).copied().flatten(),
-                        &value,
+                        value,
                     )
                 })
-                .collect::<Vec<_>>()
+                .collect()
         })
         .collect()
+}
+
+pub(in crate::db::sql) fn render_projection_rows(rows: &[Vec<OutputValue>]) -> Vec<Vec<String>> {
+    rows.iter()
+        .map(|row| row.iter().map(render_output_value_text).collect::<Vec<_>>())
+        .collect()
+}
+
+fn sql_projection_output_value(
+    column: Option<&String>,
+    fixed_scale: Option<u32>,
+    value: OutputValue,
+) -> OutputValue {
+    let Some(scale) =
+        fixed_scale.or_else(|| column.and_then(|label| round_projection_scale(label.as_str())))
+    else {
+        return value;
+    };
+
+    match value {
+        OutputValue::Decimal(decimal) => {
+            OutputValue::Text(render_decimal_with_fixed_scale(&decimal, scale))
+        }
+        other => other,
+    }
 }
 
 pub(in crate::db::sql) fn render_projection_value_text(

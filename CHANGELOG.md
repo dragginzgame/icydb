@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Clarifies SQL perf-audit store-get reporting as `data_store.get` row-store
-  access so pure covering reads are not confused with index traversal cost.
-- Moves owned SQL output-value conversion without cloning blob payloads and
-  adds blob payload/hex-size attribution to SQL perf audits.
-
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.18` hard-cuts facade SQL projection payloads to typed output values,
+  removes the dead string-projection lane, and renders blob hex only on
+  explicit display paths.
+
+- `0.182.17` trims blob projection overhead by moving owned SQL output values
+  without extra blob clones and adds blob payload attribution to the SQL perf
+  audits.
 
 - `0.182.16` separates SQL perf-matrix hotspot reports by fixture class and
   keeps matching expression-index projections on pure covering reads.

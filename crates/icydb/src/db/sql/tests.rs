@@ -1,5 +1,6 @@
+use candid::Encode;
 use icydb_core::db::{GroupedRow, SqlStatementResult};
-use icydb_core::types::Decimal;
+use icydb_core::types::{Decimal, Float32, Float64};
 
 use crate::__macro::Value;
 use crate::db::sql::{
@@ -13,6 +14,11 @@ use crate::db::{
     EntityRelationCardinality, EntityRelationDescription, EntityRelationStrength,
     EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
 };
+use crate::value::OutputValue;
+
+fn text(value: &str) -> OutputValue {
+    OutputValue::Text(value.to_string())
+}
 
 #[test]
 fn render_describe_lines_output_contract_vector_is_stable() {
@@ -306,7 +312,7 @@ fn sql_query_result_projection_render_lines_output_contract_vector_is_stable() {
     let projection = SqlQueryRowsOutput {
         entity: "User".to_string(),
         columns: vec!["name".to_string()],
-        rows: vec![vec!["alice".to_string()]],
+        rows: vec![vec![text("alice")]],
         row_count: 1,
     };
     let result = SqlQueryResult::Projection(projection);
@@ -419,11 +425,12 @@ fn sql_query_result_from_statement_preserves_count_entity_and_row_count() {
 }
 
 #[test]
-fn sql_query_result_from_statement_preserves_projection_text_rows() {
+fn sql_query_result_from_statement_preserves_text_projection_values() {
     let result = sql_query_result_from_statement(
-        SqlStatementResult::ProjectionText {
+        SqlStatementResult::Projection {
             columns: vec!["lower(name)".to_string()],
-            rows: vec![vec!["alice".to_string()], vec!["bob".to_string()]],
+            fixed_scales: vec![None],
+            rows: vec![vec![text("alice")], vec![text("bob")]],
             row_count: 2,
         },
         "User".to_string(),
@@ -434,10 +441,123 @@ fn sql_query_result_from_statement_preserves_projection_text_rows() {
         SqlQueryResult::Projection(SqlQueryRowsOutput {
             entity: "User".to_string(),
             columns: vec!["lower(name)".to_string()],
-            rows: vec![vec!["alice".to_string()], vec!["bob".to_string()]],
+            rows: vec![vec![text("alice")], vec![text("bob")]],
             row_count: 2,
         }),
-        "public SQL packaging must preserve text projection payloads verbatim",
+        "public SQL packaging must preserve text projection values as semantic output values",
+    );
+}
+
+#[test]
+fn sql_query_result_from_statement_keeps_blob_projection_typed_until_rendering() {
+    let result = sql_query_result_from_statement(
+        SqlStatementResult::Projection {
+            columns: vec!["thumbnail".to_string()],
+            fixed_scales: vec![None],
+            rows: vec![vec![OutputValue::Blob(vec![0xab, 0xcd])]],
+            row_count: 1,
+        },
+        "Blob".to_string(),
+    );
+
+    let SqlQueryResult::Projection(rows) = result else {
+        panic!("blob projection should remain a projection payload");
+    };
+    assert_eq!(
+        rows.rows,
+        vec![vec![OutputValue::Blob(vec![0xab, 0xcd])]],
+        "SQL projection packaging should not pre-render blob payloads as hex text",
+    );
+    assert_eq!(
+        rows.rendered_rows(),
+        vec![vec!["0xabcd".to_string()]],
+        "display rendering should still expose the stable hex representation when explicitly requested",
+    );
+}
+
+#[test]
+fn sql_query_result_blob_projection_candid_payload_stays_binary_not_hex() {
+    let blob = vec![0xab; 4_096];
+    let typed = SqlQueryResult::Projection(SqlQueryRowsOutput {
+        entity: "Blob".to_string(),
+        columns: vec!["thumbnail".to_string()],
+        rows: vec![vec![OutputValue::Blob(blob.clone())]],
+        row_count: 1,
+    });
+    let rendered = SqlQueryResult::Projection(SqlQueryRowsOutput {
+        entity: "Blob".to_string(),
+        columns: vec!["thumbnail".to_string()],
+        rows: vec![vec![text(
+            format!("0x{}", "ab".repeat(blob.len())).as_str(),
+        )]],
+        row_count: 1,
+    });
+
+    let typed_len = Encode!(&typed)
+        .expect("typed blob projection should encode")
+        .len();
+    let rendered_len = Encode!(&rendered)
+        .expect("rendered blob projection should encode")
+        .len();
+
+    assert!(
+        rendered_len.saturating_sub(typed_len) >= blob.len(),
+        "binary blob projections should avoid the old hex-text payload expansion: typed={typed_len}, rendered={rendered_len}"
+    );
+}
+
+#[test]
+fn sql_query_result_from_statement_preserves_semantic_projection_value_variants() {
+    let float32 = Float32::try_new(1.25).expect("finite f32");
+    let float64 = Float64::try_new(2.5).expect("finite f64");
+    let decimal = Decimal::new(1234, 2);
+    let result = sql_query_result_from_statement(
+        SqlStatementResult::Projection {
+            columns: vec![
+                "nat_value".to_string(),
+                "int_value".to_string(),
+                "decimal_value".to_string(),
+                "float32_value".to_string(),
+                "float64_value".to_string(),
+                "optional_value".to_string(),
+            ],
+            fixed_scales: vec![None, None, None, None, None, None],
+            rows: vec![vec![
+                Value::Nat64(7).into(),
+                Value::Int64(-3).into(),
+                Value::Decimal(decimal).into(),
+                Value::Float32(float32).into(),
+                Value::Float64(float64).into(),
+                Value::Null.into(),
+            ]],
+            row_count: 1,
+        },
+        "Scalar".to_string(),
+    );
+
+    assert_eq!(
+        result,
+        SqlQueryResult::Projection(SqlQueryRowsOutput {
+            entity: "Scalar".to_string(),
+            columns: vec![
+                "nat_value".to_string(),
+                "int_value".to_string(),
+                "decimal_value".to_string(),
+                "float32_value".to_string(),
+                "float64_value".to_string(),
+                "optional_value".to_string(),
+            ],
+            rows: vec![vec![
+                OutputValue::Nat64(7),
+                OutputValue::Int64(-3),
+                OutputValue::Decimal(decimal),
+                OutputValue::Float32(float32),
+                OutputValue::Float64(float64),
+                OutputValue::Null,
+            ]],
+            row_count: 1,
+        }),
+        "public SQL projection packaging should preserve semantic output value variants until explicit display rendering",
     );
 }
 
@@ -468,8 +588,14 @@ fn sql_query_result_from_statement_preserves_scalar_arithmetic_and_round_project
             entity: "User".to_string(),
             columns: vec!["age - 1".to_string(), "ROUND(age / 3, 2)".to_string()],
             rows: vec![
-                vec!["23".to_string(), "8.00".to_string()],
-                vec!["30".to_string(), "10.33".to_string()],
+                vec![
+                    OutputValue::Decimal(Decimal::from_i128(23).expect("23 decimal")),
+                    text("8.00"),
+                ],
+                vec![
+                    OutputValue::Decimal(Decimal::from_i128(30).expect("30 decimal")),
+                    text("10.33"),
+                ],
             ],
             row_count: 2,
         }),
@@ -494,7 +620,7 @@ fn sql_query_result_from_statement_preserves_fixed_scale_for_zero_round_projecti
         SqlQueryResult::Projection(SqlQueryRowsOutput {
             entity: "User".to_string(),
             columns: vec!["ROUND(age / 10, 3)".to_string()],
-            rows: vec![vec!["0.000".to_string()]],
+            rows: vec![vec![text("0.000")]],
             row_count: 1,
         }),
         "public SQL packaging must keep ROUND projection scale even for zero values",
@@ -520,7 +646,7 @@ fn sql_query_result_from_statement_preserves_fixed_scale_for_aliased_round_proje
         SqlQueryResult::Projection(SqlQueryRowsOutput {
             entity: "User".to_string(),
             columns: vec!["dextrisma".to_string()],
-            rows: vec![vec!["16.000".to_string()]],
+            rows: vec![vec![text("16.000")]],
             row_count: 1,
         }),
         "public SQL packaging must preserve aliased ROUND projection scale even when the outward label no longer exposes ROUND(..., scale)",

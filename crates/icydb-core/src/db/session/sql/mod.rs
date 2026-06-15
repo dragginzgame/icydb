@@ -159,8 +159,7 @@ fn sql_output_blob_attribution(result: &SqlStatementResult) -> SqlOutputBlobAttr
                 }
             }
         }
-        SqlStatementResult::ProjectionText { .. }
-        | SqlStatementResult::Count { .. }
+        SqlStatementResult::Count { .. }
         | SqlStatementResult::Explain(_)
         | SqlStatementResult::Describe(_)
         | SqlStatementResult::ShowIndexes(_)

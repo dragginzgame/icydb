@@ -1,6 +1,6 @@
 use crate::db::sql::{
     SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput,
-    value_render::{render_projection_rows, render_projection_value_text},
+    value_render::{render_projection_value_text, sql_projection_output_rows},
 };
 use icydb_core::db::{GroupedRow, SqlStatementResult};
 
@@ -21,21 +21,14 @@ pub(crate) fn sql_query_result_from_statement(
         } => {
             // Preserve projection-local display contracts such as
             // `ROUND(..., scale)` before packaging the outward shell rows.
-            let rows = render_projection_rows(columns.as_slice(), fixed_scales.as_slice(), rows);
+            let rows =
+                sql_projection_output_rows(columns.as_slice(), fixed_scales.as_slice(), rows);
 
             SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
                 entity_name,
                 SqlProjectionRows::new(columns, rows, row_count),
             ))
         }
-        SqlStatementResult::ProjectionText {
-            columns,
-            rows,
-            row_count,
-        } => SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
-            entity_name,
-            SqlProjectionRows::new(columns, rows, row_count),
-        )),
         SqlStatementResult::Grouped {
             columns,
             fixed_scales,

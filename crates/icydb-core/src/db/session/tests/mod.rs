@@ -3052,7 +3052,6 @@ where
         SqlStatementPayloadKind::ProjectionColumns,
         |result| match result {
             SqlStatementResult::Projection { columns, .. }
-            | SqlStatementResult::ProjectionText { columns, .. }
             | SqlStatementResult::Grouped { columns, .. } => Some(columns),
             _ => None,
         },

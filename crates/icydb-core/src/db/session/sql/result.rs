@@ -24,11 +24,6 @@ pub enum SqlStatementResult {
         rows: Vec<Vec<OutputValue>>,
         row_count: u32,
     },
-    ProjectionText {
-        columns: Vec<String>,
-        rows: Vec<Vec<String>>,
-        row_count: u32,
-    },
     Grouped {
         columns: Vec<String>,
         fixed_scales: Vec<Option<u32>>,

@@ -1,4 +1,5 @@
 use candid::CandidType;
+use icydb_core::value::OutputValue;
 use serde::Deserialize;
 
 pub use icydb_core::value::render_output_value_text;
@@ -6,21 +7,21 @@ pub use icydb_core::value::render_output_value_text;
 ///
 /// ProjectionRows
 ///
-/// Render-ready projected row values shared by fluent write-returning helpers
-/// and SQL endpoint responses.
+/// Typed projected row values shared by fluent write-returning helpers and SQL
+/// endpoint responses.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectionRows {
     columns: Vec<String>,
-    rows: Vec<Vec<String>>,
+    rows: Vec<Vec<OutputValue>>,
     row_count: u32,
 }
 
 impl ProjectionRows {
     /// Construct one projection row payload.
     #[must_use]
-    pub const fn new(columns: Vec<String>, rows: Vec<Vec<String>>, row_count: u32) -> Self {
+    pub const fn new(columns: Vec<String>, rows: Vec<Vec<OutputValue>>, row_count: u32) -> Self {
         Self {
             columns,
             rows,
@@ -34,10 +35,17 @@ impl ProjectionRows {
         self.columns.as_slice()
     }
 
-    /// Borrow rendered row values.
+    /// Borrow typed row values.
     #[must_use]
-    pub const fn rows(&self) -> &[Vec<String>] {
+    pub const fn rows(&self) -> &[Vec<OutputValue>] {
         self.rows.as_slice()
+    }
+
+    /// Render row values into the legacy display strings used by shell output
+    /// and tests that intentionally assert presentation.
+    #[must_use]
+    pub fn rendered_rows(&self) -> Vec<Vec<String>> {
+        render_rows(self.rows.as_slice())
     }
 
     /// Return projected row count.
@@ -46,9 +54,9 @@ impl ProjectionRows {
         self.row_count
     }
 
-    /// Consume and return projection columns, rendered rows, and row count.
+    /// Consume and return projection columns, typed rows, and row count.
     #[must_use]
-    pub fn into_columns_rows_and_count(self) -> (Vec<String>, Vec<Vec<String>>, u32) {
+    pub fn into_columns_rows_and_count(self) -> (Vec<String>, Vec<Vec<OutputValue>>, u32) {
         (self.columns, self.rows, self.row_count)
     }
 }
@@ -64,7 +72,7 @@ impl ProjectionRows {
 pub struct RowProjectionOutput {
     pub entity: String,
     pub columns: Vec<String>,
-    pub rows: Vec<Vec<String>>,
+    pub rows: Vec<Vec<OutputValue>>,
     pub row_count: u32,
 }
 
@@ -87,4 +95,16 @@ impl RowProjectionOutput {
     pub fn as_projection_rows(&self) -> ProjectionRows {
         ProjectionRows::new(self.columns.clone(), self.rows.clone(), self.row_count)
     }
+
+    /// Render row values into stable display strings.
+    #[must_use]
+    pub fn rendered_rows(&self) -> Vec<Vec<String>> {
+        render_rows(self.rows.as_slice())
+    }
+}
+
+fn render_rows(rows: &[Vec<OutputValue>]) -> Vec<Vec<String>> {
+    rows.iter()
+        .map(|row| row.iter().map(render_output_value_text).collect())
+        .collect()
 }

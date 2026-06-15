@@ -1,7 +1,10 @@
 use crate::db::{
     EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
     MemoryCatalogDescription, StoreCatalogDescription,
-    sql::{SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryRowsOutput},
+    sql::{
+        SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryRowsOutput,
+        value_render::render_projection_rows,
+    },
 };
 
 #[cfg_attr(
@@ -409,18 +412,22 @@ fn render_catalog_path_tail(path: &str) -> &str {
 )]
 #[must_use]
 pub fn render_projection_lines(_entity: &str, projection: &SqlProjectionRows) -> Vec<String> {
+    let rows = render_projection_rows(projection.rows());
+
     render_projection_table(
         projection.columns(),
-        projection.rows(),
+        rows.as_slice(),
         projection.row_count(),
     )
 }
 
 #[must_use]
 pub(in crate::db::sql) fn render_query_rows_lines(projection: &SqlQueryRowsOutput) -> Vec<String> {
+    let rows = render_projection_rows(projection.rows.as_slice());
+
     render_projection_table(
         projection.columns.as_slice(),
-        projection.rows.as_slice(),
+        rows.as_slice(),
         projection.row_count,
     )
 }
