@@ -4,6 +4,8 @@ const BRANCH_COLLECTION: &str = "01KV5N439P0000000000000000";
 const OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 const BRANCH_LIMIT: usize = 3;
 const BRANCH_FETCH: u64 = 4;
+#[cfg(feature = "diagnostics")]
+const BRANCH_HEAD_MERGE_READ_CAP: u64 = BRANCH_FETCH + 1;
 
 fn branch_target_sql(select: &str, limit: usize) -> String {
     format!(
@@ -400,8 +402,8 @@ fn session_branch_set_sql_key_only_projection_is_covered_and_bounded() {
         "key-only branch projection should be satisfied from the composite index",
     );
     assert!(
-        attribution.index_store_entry_reads <= 8,
-        "two branch streams should read at most limit + 1 entries per branch, got {attribution:?}",
+        attribution.index_store_entry_reads <= BRANCH_HEAD_MERGE_READ_CAP,
+        "covered branch stream should pull branch heads lazily, got {attribution:?}",
     );
     assert_eq!(
         attribution.scalar_aggregate, None,
@@ -426,8 +428,8 @@ fn session_branch_set_sql_noncovered_projection_hydrates_only_bounded_page_rows(
         "non-covered branch projection should hydrate only returned rows plus lookahead, got {attribution:?}",
     );
     assert!(
-        attribution.index_store_entry_reads <= 8,
-        "non-covered projection should keep index traversal bounded by branch fetch, got {attribution:?}",
+        attribution.index_store_entry_reads <= BRANCH_HEAD_MERGE_READ_CAP,
+        "non-covered branch stream should pull branch heads lazily, got {attribution:?}",
     );
     assert_eq!(
         attribution.scalar_aggregate, None,

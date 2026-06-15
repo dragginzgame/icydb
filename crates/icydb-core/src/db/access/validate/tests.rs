@@ -34,6 +34,37 @@ static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_mo
     &EMPTY_INDEXES,
 );
 
+static BRANCH_SET_FIELDS: [FieldModel; 4] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("collection_id", FieldKind::Text { max_len: None }),
+    FieldModel::generated("stage", FieldKind::Text { max_len: None }),
+    FieldModel::generated("title", FieldKind::Text { max_len: None }),
+];
+static BRANCH_SET_INDEX_FIELDS: [&str; 3] = ["collection_id", "stage", "id"];
+static BRANCH_SET_INDEXES: [IndexModel; 1] = [IndexModel::generated(
+    "collection_stage_id_idx",
+    "access::validate::tests::BranchSetEntity",
+    &BRANCH_SET_INDEX_FIELDS,
+    false,
+)];
+static BRANCH_SET_INDEX_REFS: [&IndexModel; 1] = [&BRANCH_SET_INDEXES[0]];
+static BRANCH_SET_MODEL: EntityModel = entity_model_from_static(
+    "access::validate::tests::BranchSetEntity",
+    "BranchSetEntity",
+    &BRANCH_SET_FIELDS[0],
+    0,
+    &BRANCH_SET_FIELDS,
+    &BRANCH_SET_INDEX_REFS,
+);
+
+fn branch_set_access_plan(branch_values: Vec<Value>) -> AccessPlan<Value> {
+    AccessPlan::index_branch_set_from_contract(
+        SemanticIndexAccessContract::model_only_from_generated_index(BRANCH_SET_INDEXES[0]),
+        vec![Value::Text("01KV5N439P0000000000000000".to_string())],
+        branch_values,
+    )
+}
+
 #[test]
 fn validate_pk_literal_keeps_scalar_key_validation() {
     let schema = SchemaInfo::cached_for_generated_entity_model(&SCALAR_MODEL);
@@ -49,6 +80,49 @@ fn validate_pk_literal_keeps_scalar_key_validation() {
     .expect_err("scalar primary-key validation should reject list literals");
 
     std::assert_matches!(err, AccessPlanError::PrimaryKeyMismatch { .. });
+}
+
+#[test]
+fn validate_index_branch_set_accepts_canonical_primary_key_suffix_route() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&BRANCH_SET_MODEL);
+    let access = branch_set_access_plan(vec![
+        Value::Text("Draft".to_string()),
+        Value::Text("Review".to_string()),
+    ]);
+
+    validate_access_structure_model(schema, &BRANCH_SET_MODEL, &access)
+        .expect("canonical branch-set route should validate");
+    validate_access_runtime_invariants_with_schema(schema, &access)
+        .expect("runtime branch-set invariants should validate");
+}
+
+#[test]
+fn validate_index_branch_set_rejects_over_cap_branch_values() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&BRANCH_SET_MODEL);
+    let access = branch_set_access_plan(
+        (0..=MAX_INDEX_BRANCH_SET_VALUES)
+            .map(|index| Value::Text(format!("Stage{index:02}")))
+            .collect(),
+    );
+
+    let err = validate_access_structure_model(schema, &BRANCH_SET_MODEL, &access)
+        .expect_err("branch-set route above the cap should reject");
+
+    std::assert_matches!(err, AccessPlanError::IndexBranchSetTooLarge { .. });
+}
+
+#[test]
+fn validate_index_branch_set_rejects_uncanonical_branch_values() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&BRANCH_SET_MODEL);
+    let access = branch_set_access_plan(vec![
+        Value::Text("Review".to_string()),
+        Value::Text("Draft".to_string()),
+    ]);
+
+    let err = validate_access_structure_model(schema, &BRANCH_SET_MODEL, &access)
+        .expect_err("branch-set route should require canonical branch values");
+
+    std::assert_matches!(err, AccessPlanError::IndexBranchSetNotCanonical);
 }
 
 #[test]

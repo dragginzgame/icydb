@@ -453,13 +453,12 @@ fn access_preserves_required_order(
             false,
         );
     }
-    if let Some((index, fixed_values, _branch_values)) = access.as_index_branch_set_contract_path()
-    {
+    if let Some(spec) = access.as_index_branch_set_spec_path() {
         return selected_index_contract_satisfies_secondary_order(
             schema,
             Some(order),
-            index,
-            fixed_values.len().saturating_add(1),
+            spec.index(),
+            spec.branch_prefix_len(),
             false,
         );
     }
@@ -509,19 +508,17 @@ fn selected_index_branch_set_guarantees_compare(
     selected_path: &AccessPath<Value>,
     cmp: &crate::db::predicate::ComparePredicate,
 ) -> bool {
-    let Some((index, fixed_values, branch_values)) = selected_path.as_index_branch_set_contract()
-    else {
+    let Some(spec) = selected_path.as_index_branch_set_spec() else {
         return false;
     };
     if cmp.op == crate::db::predicate::CompareOp::Eq {
-        return index_prefix_guarantees_eq_compare(schema, index, fixed_values, cmp);
+        return index_prefix_guarantees_eq_compare(schema, spec.index(), spec.fixed_values(), cmp);
     }
 
     if cmp.op != crate::db::predicate::CompareOp::In {
         return false;
     }
-    let branch_slot = fixed_values.len();
-    let Some(branch_field) = index.key_field_at(branch_slot) else {
+    let Some(branch_field) = spec.branch_field() else {
         return false;
     };
     if cmp.field() != branch_field {
@@ -533,7 +530,7 @@ fn selected_index_branch_set_guarantees_compare(
     let mut values = values.clone();
     crate::value::canonicalize_value_set(&mut values);
 
-    values == branch_values
+    values == spec.branch_values()
 }
 
 // Selected index prefix and selected index range both carry an equality prefix

@@ -848,22 +848,17 @@ fn planner_branch_set_recognizes_fixed_prefix_in_branch_primary_key_order() {
     let AccessPlan::Path(path) = &plan else {
         panic!("target branch predicate should lower to one explicit access path");
     };
-    let AccessPath::IndexBranchSet {
-        index,
-        fixed_values,
-        branch_values,
-    } = path.as_ref()
-    else {
+    let AccessPath::IndexBranchSet { spec } = path.as_ref() else {
         panic!("target branch predicate should lower to a branch-aware index route");
     };
 
-    assert_eq!(index.name(), "collection_stage_id_idx");
+    assert_eq!(spec.index_ref().name(), "collection_stage_id_idx");
     assert_eq!(
-        fixed_values,
+        spec.fixed_values(),
         &[Value::Text("01KV5N439P0000000000000000".to_string())]
     );
     assert_eq!(
-        branch_values,
+        spec.branch_values(),
         &[
             Value::Text("Draft".to_string()),
             Value::Text("Review".to_string()),

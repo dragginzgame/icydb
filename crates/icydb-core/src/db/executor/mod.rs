@@ -156,7 +156,7 @@ pub(in crate::db::executor) use runtime_context::{
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
 pub(in crate::db::executor) use stream::access::{
-    ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
+    ACCESS_SCAN_CHUNK_ENTRIES, ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
 };
 pub(in crate::db::executor) use stream::key::{
     KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,

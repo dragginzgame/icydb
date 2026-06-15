@@ -13,8 +13,8 @@
 
 use crate::{
     db::access::{
-        AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemsRef,
-        SemanticIndexRangeSpec,
+        AccessPath, AccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract,
+        SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
     },
     model::index::IndexKeyItemsRef,
     value::{Value, canonicalize_value_set},
@@ -212,11 +212,8 @@ impl AccessPath<Value> {
 
                 Self::IndexMultiLookup { index, values }
             }
-            Self::IndexBranchSet {
-                index,
-                fixed_values,
-                mut branch_values,
-            } => {
+            Self::IndexBranchSet { spec } => {
+                let (index, fixed_values, mut branch_values) = spec.into_parts();
                 canonicalize_value_set(&mut branch_values);
                 if let Some(branch_value) = single_canonical_value(branch_values.as_slice()) {
                     let mut values = fixed_values;
@@ -225,9 +222,11 @@ impl AccessPath<Value> {
                 }
 
                 Self::IndexBranchSet {
-                    index,
-                    fixed_values,
-                    branch_values,
+                    spec: IndexBranchSetSpec::from_primary_key_asc_contract(
+                        index,
+                        fixed_values,
+                        branch_values,
+                    ),
                 }
             }
             other => other,
@@ -287,23 +286,15 @@ impl AccessPath<Value> {
                 right_values,
             ),
             (
-                Self::IndexBranchSet {
-                    index: left_index,
-                    fixed_values: left_fixed_values,
-                    branch_values: left_branch_values,
-                },
-                Self::IndexBranchSet {
-                    index: right_index,
-                    fixed_values: right_fixed_values,
-                    branch_values: right_branch_values,
-                },
+                Self::IndexBranchSet { spec: left_spec },
+                Self::IndexBranchSet { spec: right_spec },
             ) => Self::canonical_cmp_index_branch_set(
-                left_index,
-                left_fixed_values,
-                left_branch_values,
-                right_index,
-                right_fixed_values,
-                right_branch_values,
+                left_spec.index_ref(),
+                left_spec.fixed_values(),
+                left_spec.branch_values(),
+                right_spec.index_ref(),
+                right_spec.fixed_values(),
+                right_spec.branch_values(),
             ),
             (Self::IndexRange { spec: left_spec }, Self::IndexRange { spec: right_spec }) => {
                 Self::canonical_cmp_index_range(left_spec, right_spec)

@@ -5,15 +5,17 @@
 
 use crate::{
     db::{
-        access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
+        access::{
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
+        },
         cursor::IndexScanContinuationInput,
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
-            IndexScan, read_row_presence_with_consistency_from_data_store,
+            IndexScan, KeyOrderComparator, read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
-        index::IndexEntryExistenceWitness,
+        index::{IndexEntryExistenceWitness, RawIndexStoreKey},
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
@@ -23,7 +25,7 @@ use crate::{
     types::Ulid,
     value::{Value, ValueTag},
 };
-use std::sync::Arc;
+use std::{ops::Bound, sync::Arc};
 
 const COVERING_BOOL_PAYLOAD_LEN: usize = 1;
 const COVERING_U64_PAYLOAD_LEN: usize = 8;
@@ -32,6 +34,7 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
+const COVERING_BRANCH_HEAD_CHUNK_ENTRIES: usize = 1;
 
 pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
 
@@ -40,6 +43,12 @@ pub(in crate::db::executor) type CoveringProjectionComponentRows = Vec<(
     IndexEntryExistenceWitness,
     CoveringComponentValues,
 )>;
+
+type CoveringProjectionComponentRow = (
+    DecodedDataStoreKey,
+    IndexEntryExistenceWitness,
+    CoveringComponentValues,
+);
 
 // Build the canonical executor-owned covering mode for fast paths that still
 // must verify row presence before trusting secondary/index-backed payloads.
@@ -134,9 +143,11 @@ where
     Err(InternalError::query_executor_invariant())
 }
 
-// Resolve a branch/multi-prefix covering projection by reading only the bounded
-// page window from each prefix, then applying the same primary-key order and
-// duplicate suppression contract as the dynamic key stream merge.
+// Resolve a branch/multi-prefix covering projection as merged component
+// streams. This keeps the covering lane aligned with scalar branch execution:
+// each prefix owns its range cursor, merge order is primary-key comparator
+// driven, duplicate keys are suppressed, and collection stops at the requested
+// output limit.
 fn resolve_covering_projection_components_for_prefix_set<F>(
     entity_tag: EntityTag,
     index_prefix_specs: &[LoweredIndexPrefixSpec],
@@ -148,29 +159,33 @@ fn resolve_covering_projection_components_for_prefix_set<F>(
 where
     F: FnMut(&str) -> Result<StoreHandle, InternalError>,
 {
-    let continuation = IndexScanContinuationInput::new(None, direction);
-    let mut rows = CoveringProjectionComponentRows::new();
+    if limit == 0 || index_prefix_specs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let component_indices: Arc<[usize]> = Arc::from(component_indices.to_vec());
+    let mut streams = Vec::with_capacity(index_prefix_specs.len());
     for spec in index_prefix_specs {
         let scan_contract = spec.scan_contract();
-        rows.extend(resolve_covering_projection_components_for_index_bounds(
+        streams.push(CoveringComponentStreamBox::prefix(
             resolve_store_for_index(scan_contract.store_path())?,
             entity_tag,
             scan_contract,
-            (spec.lower(), spec.upper()),
-            continuation,
-            limit,
-            component_indices,
-        )?);
+            spec.lower().clone(),
+            spec.upper().clone(),
+            direction,
+            Some(limit),
+            Arc::clone(&component_indices),
+        ));
     }
 
-    match direction {
-        Direction::Asc => rows.sort_by(|left, right| left.0.cmp(&right.0)),
-        Direction::Desc => rows.sort_by(|left, right| right.0.cmp(&left.0)),
+    let comparator = KeyOrderComparator::from_direction(direction);
+    let mut stream = streams.remove(0);
+    for next in streams {
+        stream = CoveringComponentStreamBox::merge(stream, next, comparator);
     }
-    rows.dedup_by(|left, right| left.0 == right.0);
-    rows.truncate(limit);
 
-    Ok(rows)
+    stream.collect_limit(limit)
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.
@@ -197,6 +212,299 @@ fn resolve_covering_projection_components_for_index_bounds(
         component_indices,
         None,
     )
+}
+
+enum CoveringComponentStreamBox {
+    Prefix(Box<CoveringPrefixComponentStream>),
+    Merge(Box<MergeCoveringComponentStream>),
+}
+
+impl CoveringComponentStreamBox {
+    #[expect(clippy::too_many_arguments)]
+    fn prefix(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        index: LoweredIndexScanContract,
+        lower: Bound<LoweredKey>,
+        upper: Bound<LoweredKey>,
+        direction: Direction,
+        limit: Option<usize>,
+        component_indices: Arc<[usize]>,
+    ) -> Self {
+        Self::Prefix(Box::new(CoveringPrefixComponentStream::new(
+            store,
+            entity_tag,
+            index,
+            lower,
+            upper,
+            direction,
+            limit,
+            component_indices,
+        )))
+    }
+
+    fn merge(left: Self, right: Self, comparator: KeyOrderComparator) -> Self {
+        Self::Merge(Box::new(MergeCoveringComponentStream::new(
+            left, right, comparator,
+        )))
+    }
+
+    fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {
+        match self {
+            Self::Prefix(stream) => stream.next_row(),
+            Self::Merge(stream) => stream.next_row(),
+        }
+    }
+
+    fn collect_limit(
+        &mut self,
+        limit: usize,
+    ) -> Result<CoveringProjectionComponentRows, InternalError> {
+        let mut rows = Vec::with_capacity(limit.min(32));
+        while rows.len() < limit {
+            let Some(row) = self.next_row()? else {
+                break;
+            };
+            rows.push(row);
+        }
+
+        Ok(rows)
+    }
+}
+
+struct CoveringPrefixComponentStream {
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    index: LoweredIndexScanContract,
+    lower: Bound<LoweredKey>,
+    upper: Bound<LoweredKey>,
+    direction: Direction,
+    anchor: Option<RawIndexStoreKey>,
+    remaining: Option<usize>,
+    component_indices: Arc<[usize]>,
+    buffer: CoveringProjectionComponentRows,
+    buffer_pos: usize,
+    exhausted: bool,
+}
+
+impl CoveringPrefixComponentStream {
+    #[expect(clippy::too_many_arguments)]
+    const fn new(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        index: LoweredIndexScanContract,
+        lower: Bound<LoweredKey>,
+        upper: Bound<LoweredKey>,
+        direction: Direction,
+        limit: Option<usize>,
+        component_indices: Arc<[usize]>,
+    ) -> Self {
+        Self {
+            store,
+            entity_tag,
+            index,
+            lower,
+            upper,
+            direction,
+            anchor: None,
+            remaining: limit,
+            component_indices,
+            buffer: Vec::new(),
+            buffer_pos: 0,
+            exhausted: false,
+        }
+    }
+
+    const fn next_output_limit(&self) -> Option<usize> {
+        self.remaining
+    }
+
+    fn load_next_chunk(&mut self) -> Result<(), InternalError> {
+        if self.exhausted || matches!(self.remaining, Some(0)) {
+            self.exhausted = true;
+            return Ok(());
+        }
+
+        let continuation = IndexScanContinuationInput::new(self.anchor.as_ref(), self.direction);
+        let chunk = IndexScan::components_chunk_structural(
+            self.store,
+            self.entity_tag,
+            &self.index,
+            &self.lower,
+            &self.upper,
+            continuation,
+            COVERING_BRANCH_HEAD_CHUNK_ENTRIES,
+            self.next_output_limit()
+                .map(|limit| limit.min(COVERING_BRANCH_HEAD_CHUNK_ENTRIES)),
+            &self.component_indices,
+            None,
+        )?;
+        let (rows, last_raw_key) = chunk.into_component_rows_and_resume_anchor();
+        let emitted = rows.len();
+        self.buffer = rows;
+        self.buffer_pos = 0;
+
+        if let Some(raw_key) = last_raw_key {
+            self.anchor = Some(raw_key);
+        } else {
+            self.exhausted = true;
+        }
+
+        if let Some(remaining) = self.remaining.as_mut() {
+            *remaining = remaining.saturating_sub(emitted);
+            if *remaining == 0 {
+                self.exhausted = true;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {
+        while self.buffer_pos == self.buffer.len() && !self.exhausted {
+            self.load_next_chunk()?;
+        }
+        if self.buffer_pos == self.buffer.len() {
+            return Ok(None);
+        }
+
+        let row = self.buffer[self.buffer_pos].clone();
+        self.buffer_pos += 1;
+
+        Ok(Some(row))
+    }
+}
+
+struct CoveringComponentStreamSideState {
+    row: Option<CoveringProjectionComponentRow>,
+    done: bool,
+    last_key: Option<DecodedDataStoreKey>,
+    comparator: KeyOrderComparator,
+}
+
+impl CoveringComponentStreamSideState {
+    const fn new(comparator: KeyOrderComparator) -> Self {
+        Self {
+            row: None,
+            done: false,
+            last_key: None,
+            comparator,
+        }
+    }
+
+    fn ensure_row(&mut self, stream: &mut CoveringComponentStreamBox) -> Result<(), InternalError> {
+        if self.done || self.row.is_some() {
+            return Ok(());
+        }
+
+        match stream.next_row()? {
+            Some(row) => self.push_row(row)?,
+            None => self.done = true,
+        }
+
+        Ok(())
+    }
+
+    fn push_row(&mut self, row: CoveringProjectionComponentRow) -> Result<(), InternalError> {
+        self.validate_monotonicity(&row.0)?;
+        self.row = Some(row);
+
+        Ok(())
+    }
+
+    fn validate_monotonicity(&self, current: &DecodedDataStoreKey) -> Result<(), InternalError> {
+        let Some(previous) = self.last_key.as_ref() else {
+            return Ok(());
+        };
+        if previous.entity_tag() != current.entity_tag() {
+            return Err(InternalError::query_executor_invariant());
+        }
+        if self.comparator.compare_data_keys(previous, current).is_gt() {
+            return Err(InternalError::query_executor_invariant());
+        }
+
+        Ok(())
+    }
+
+    fn take_row(&mut self) -> Option<CoveringProjectionComponentRow> {
+        let row = self.row.take()?;
+        self.last_key = Some(row.0.clone());
+
+        Some(row)
+    }
+
+    fn clear_row(&mut self) {
+        if let Some(row) = self.row.take() {
+            self.last_key = Some(row.0);
+        }
+    }
+}
+
+struct MergeCoveringComponentStream {
+    left: CoveringComponentStreamBox,
+    right: CoveringComponentStreamBox,
+    left_state: CoveringComponentStreamSideState,
+    right_state: CoveringComponentStreamSideState,
+    comparator: KeyOrderComparator,
+    last_emitted: Option<DecodedDataStoreKey>,
+}
+
+impl MergeCoveringComponentStream {
+    const fn new(
+        left: CoveringComponentStreamBox,
+        right: CoveringComponentStreamBox,
+        comparator: KeyOrderComparator,
+    ) -> Self {
+        Self {
+            left,
+            right,
+            left_state: CoveringComponentStreamSideState::new(comparator),
+            right_state: CoveringComponentStreamSideState::new(comparator),
+            comparator,
+            last_emitted: None,
+        }
+    }
+
+    fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {
+        loop {
+            self.left_state.ensure_row(&mut self.left)?;
+            self.right_state.ensure_row(&mut self.right)?;
+
+            if self.left_state.row.is_none() && self.right_state.row.is_none() {
+                return Ok(None);
+            }
+
+            let next = match (self.left_state.row.as_ref(), self.right_state.row.as_ref()) {
+                (Some(left), Some(right)) => {
+                    if left.0 == right.0 {
+                        self.right_state.clear_row();
+                        self.left_state.take_row()
+                    } else if self.comparator.compare_data_keys(&left.0, &right.0).is_lt() {
+                        self.left_state.take_row()
+                    } else {
+                        self.right_state.take_row()
+                    }
+                }
+                (Some(_), None) => self.left_state.take_row(),
+                (None, Some(_)) => self.right_state.take_row(),
+                (None, None) => None,
+            };
+
+            let Some(next) = next else {
+                return Ok(None);
+            };
+            if self
+                .last_emitted
+                .as_ref()
+                .is_some_and(|last| last == &next.0)
+            {
+                continue;
+            }
+
+            self.last_emitted = Some(next.0.clone());
+            return Ok(Some(next));
+        }
+    }
 }
 
 // Map one raw covering projection stream under the existing-row contract and

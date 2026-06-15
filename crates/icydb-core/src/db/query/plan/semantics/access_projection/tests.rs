@@ -66,6 +66,7 @@ impl AccessPlanProjection<u64> for AccessPlanEventProjection {
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
+        _ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         self.events.push("index_branch_set");
         self.seen_index = Some((
@@ -238,6 +239,7 @@ impl AccessPlanProjection<Value> for ExplainAccessEventProjection {
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
+        _ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         self.events.push("index_branch_set");
         self.seen_index = Some((

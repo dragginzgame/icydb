@@ -5,7 +5,8 @@
 
 use crate::{
     db::access::{
-        AccessPath, ExecutableAccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec,
+        AccessPath, ExecutableAccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract,
+        SemanticIndexRangeSpec,
     },
     traits::KeyValueCodec,
     value::Value,
@@ -76,9 +77,11 @@ impl<K> AccessPlan<K> {
         branch_values: Vec<Value>,
     ) -> Self {
         Self::path(AccessPath::IndexBranchSet {
-            index,
-            fixed_values,
-            branch_values,
+            spec: IndexBranchSetSpec::from_primary_key_asc_contract(
+                index,
+                fixed_values,
+                branch_values,
+            ),
         })
     }
 
@@ -182,14 +185,12 @@ impl<K> AccessPlan<K> {
             .and_then(|path| path.as_index_prefix_contract())
     }
 
-    /// Borrow branch-aware composite prefix details when this is a single
+    /// Borrow branch-aware composite prefix spec when this is a single
     /// `IndexBranchSet` path.
     #[must_use]
-    pub(in crate::db) fn as_index_branch_set_contract_path(
-        &self,
-    ) -> Option<(SemanticIndexAccessContract, &[Value], &[Value])> {
+    pub(in crate::db) fn as_index_branch_set_spec_path(&self) -> Option<&IndexBranchSetSpec> {
         self.as_path()
-            .and_then(|path| path.as_index_branch_set_contract())
+            .and_then(AccessPath::as_index_branch_set_spec)
     }
 
     /// Borrow index-range access details when this is a single IndexRange path.

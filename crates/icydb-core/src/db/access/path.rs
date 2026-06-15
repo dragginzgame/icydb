@@ -37,6 +37,9 @@ pub(in crate::db) enum AccessPathKind {
     FullScan,
 }
 
+/// Conservative cap for branch-aware composite prefix access routes.
+pub(in crate::db) const MAX_INDEX_BRANCH_SET_VALUES: usize = 8;
+
 ///
 /// SemanticIndexAccessContract
 ///
@@ -533,6 +536,129 @@ impl SemanticIndexRangeSpec {
 }
 
 ///
+/// IndexBranchSetSpec
+///
+/// Branch-aware composite-prefix access request for one secondary index.
+/// Stores fixed equality prefix values plus the exact value set for the next
+/// prefix slot, and owns the derived slot/prefix helpers so callers do not
+/// reconstruct the branch proof from loose vector lengths.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct IndexBranchSetSpec {
+    index: SemanticIndexAccessContract,
+    fixed_values: Vec<Value>,
+    branch_values: Vec<Value>,
+    ordered_suffix: IndexBranchSetOrderedSuffix,
+}
+
+/// Ordered suffix proven by the planner for a branch-set route.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum IndexBranchSetOrderedSuffix {
+    /// All branch streams share the primary-key suffix in ascending order.
+    PrimaryKeyAsc,
+}
+
+impl IndexBranchSetSpec {
+    /// Construct a branch-set request from one reduced access contract after
+    /// the planner has proven a shared ascending primary-key suffix.
+    #[must_use]
+    pub(crate) const fn from_primary_key_asc_contract(
+        index: SemanticIndexAccessContract,
+        fixed_values: Vec<Value>,
+        branch_values: Vec<Value>,
+    ) -> Self {
+        Self {
+            index,
+            fixed_values,
+            branch_values,
+            ordered_suffix: IndexBranchSetOrderedSuffix::PrimaryKeyAsc,
+        }
+    }
+
+    /// Borrow the selected index contract.
+    #[must_use]
+    pub(in crate::db) const fn index_ref(&self) -> &SemanticIndexAccessContract {
+        &self.index
+    }
+
+    /// Clone the selected index contract for APIs that own access contracts.
+    #[must_use]
+    pub(in crate::db) fn index(&self) -> SemanticIndexAccessContract {
+        self.index.clone()
+    }
+
+    /// Borrow equality-bound leading prefix values.
+    #[must_use]
+    pub(in crate::db) const fn fixed_values(&self) -> &[Value] {
+        self.fixed_values.as_slice()
+    }
+
+    /// Borrow the exact branch value set for the next prefix slot.
+    #[must_use]
+    pub(in crate::db) const fn branch_values(&self) -> &[Value] {
+        self.branch_values.as_slice()
+    }
+
+    /// Return the ordered suffix proof carried by this branch route.
+    #[must_use]
+    pub(in crate::db) const fn ordered_suffix(&self) -> IndexBranchSetOrderedSuffix {
+        self.ordered_suffix
+    }
+
+    /// Return the branch slot in the selected index.
+    #[must_use]
+    pub(in crate::db) const fn branch_slot(&self) -> usize {
+        self.fixed_values.len()
+    }
+
+    /// Return the consumed prefix length after including the branch slot.
+    #[must_use]
+    pub(in crate::db) const fn branch_prefix_len(&self) -> usize {
+        self.fixed_values.len().saturating_add(1)
+    }
+
+    /// Return the number of exact branch values.
+    #[must_use]
+    pub(in crate::db) const fn branch_count(&self) -> usize {
+        self.branch_values.len()
+    }
+
+    /// Return whether this branch set has no branches.
+    #[must_use]
+    pub(in crate::db) const fn is_empty(&self) -> bool {
+        self.branch_values.is_empty()
+    }
+
+    /// Borrow the branch index key item, if the selected index has one.
+    #[must_use]
+    pub(in crate::db) fn branch_key_item(&self) -> Option<SemanticIndexKeyItemRef<'_>> {
+        self.index.key_item_at(self.branch_slot())
+    }
+
+    /// Borrow the branch index field, if the selected index has one.
+    #[must_use]
+    pub(in crate::db) fn branch_field(&self) -> Option<&str> {
+        self.branch_key_item().map(SemanticIndexKeyItemRef::field)
+    }
+
+    /// Build the concrete prefix values for one branch scan.
+    #[must_use]
+    pub(in crate::db) fn branch_prefix_values(&self, branch_value: &Value) -> Vec<Value> {
+        let mut values = Vec::with_capacity(self.branch_prefix_len());
+        values.extend_from_slice(self.fixed_values());
+        values.push(branch_value.clone());
+        values
+    }
+
+    /// Consume the spec into its raw storage parts for canonicalization.
+    #[must_use]
+    pub(crate) fn into_parts(self) -> (SemanticIndexAccessContract, Vec<Value>, Vec<Value>) {
+        (self.index, self.fixed_values, self.branch_values)
+    }
+}
+
+///
 /// AccessPath
 /// Concrete runtime access path selected by query planning.
 ///
@@ -580,11 +706,7 @@ pub(crate) enum AccessPath<K> {
     /// - `branch_values` are canonicalized as a small set (sorted, deduplicated)
     /// - each lowered branch scans `fixed_values + branch_value` as one prefix
     /// - the planner only selects this path when the suffix order is preserved
-    IndexBranchSet {
-        index: SemanticIndexAccessContract,
-        fixed_values: Vec<Value>,
-        branch_values: Vec<Value>,
-    },
+    IndexBranchSet { spec: IndexBranchSetSpec },
 
     /// Index scan using an equality prefix plus one bounded range component.
     ///
@@ -701,22 +823,12 @@ impl<K> AccessPath<K> {
         }
     }
 
-    /// Borrow branch-aware composite prefix details when this path is
+    /// Borrow branch-aware composite prefix spec when this path is
     /// `IndexBranchSet`.
     #[must_use]
-    pub(in crate::db) fn as_index_branch_set_contract(
-        &self,
-    ) -> Option<(SemanticIndexAccessContract, &[Value], &[Value])> {
+    pub(in crate::db) const fn as_index_branch_set_spec(&self) -> Option<&IndexBranchSetSpec> {
         match self {
-            Self::IndexBranchSet {
-                index,
-                fixed_values,
-                branch_values,
-            } => Some((
-                index.clone(),
-                fixed_values.as_slice(),
-                branch_values.as_slice(),
-            )),
+            Self::IndexBranchSet { spec } => Some(spec),
             _ => None,
         }
     }
@@ -734,9 +846,10 @@ impl<K> AccessPath<K> {
     #[must_use]
     pub(in crate::db) fn selected_index_contract(&self) -> Option<SemanticIndexAccessContract> {
         match self {
-            Self::IndexPrefix { index, .. }
-            | Self::IndexMultiLookup { index, .. }
-            | Self::IndexBranchSet { index, .. } => Some(index.clone()),
+            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => {
+                Some(index.clone())
+            }
+            Self::IndexBranchSet { spec } => Some(spec.index()),
             Self::IndexRange { spec } => Some(spec.index()),
             Self::ByKey(_) | Self::ByKeys(_) | Self::KeyRange { .. } | Self::FullScan => None,
         }
@@ -793,15 +906,7 @@ impl<K> AccessPath<K> {
             Self::IndexMultiLookup { index, values } => {
                 Ok(AccessPath::IndexMultiLookup { index, values })
             }
-            Self::IndexBranchSet {
-                index,
-                fixed_values,
-                branch_values,
-            } => Ok(AccessPath::IndexBranchSet {
-                index,
-                fixed_values,
-                branch_values,
-            }),
+            Self::IndexBranchSet { spec } => Ok(AccessPath::IndexBranchSet { spec }),
             Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
             Self::FullScan => Ok(AccessPath::FullScan),
         }

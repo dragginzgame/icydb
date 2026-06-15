@@ -36,6 +36,8 @@ pub(in crate::db::executor) type IndexComponentRows = Vec<(
     IndexComponentValues,
 )>;
 
+pub(in crate::db::executor) const ACCESS_SCAN_CHUNK_ENTRIES: usize = 64;
+
 ///
 /// PrimaryScan
 ///
@@ -92,6 +94,36 @@ impl IndexDecodedKeyScanChunk {
         self,
     ) -> (Vec<DecodedDataStoreKey>, Option<RawIndexStoreKey>) {
         (self.keys, self.last_raw_key)
+    }
+}
+
+///
+/// IndexComponentScanChunk
+///
+/// Executor-owned result of one bounded raw-index component chunk.
+/// It carries decoded covering component rows plus the last raw index key
+/// visited so callers can resume without keeping an index-store iterator
+/// borrow live across pulls.
+///
+
+pub(in crate::db::executor) struct IndexComponentScanChunk {
+    rows: IndexComponentRows,
+    last_raw_key: Option<RawIndexStoreKey>,
+}
+
+impl IndexComponentScanChunk {
+    /// Construct one chunk from decoded rows and the last scanned raw index key.
+    #[must_use]
+    const fn new(rows: IndexComponentRows, last_raw_key: Option<RawIndexStoreKey>) -> Self {
+        Self { rows, last_raw_key }
+    }
+
+    /// Consume this chunk into decoded component rows and resume anchor.
+    #[must_use]
+    pub(in crate::db::executor) fn into_component_rows_and_resume_anchor(
+        self,
+    ) -> (IndexComponentRows, Option<RawIndexStoreKey>) {
+        (self.rows, self.last_raw_key)
     }
 }
 
@@ -213,6 +245,34 @@ impl IndexScan {
         )
     }
 
+    /// Resolve one bounded lowered-index component chunk through structural store authority.
+    #[expect(clippy::too_many_arguments)]
+    pub(in crate::db::executor) fn components_chunk_structural(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        index: &LoweredIndexScanContract,
+        lower: &Bound<LoweredKey>,
+        upper: &Bound<LoweredKey>,
+        continuation: IndexScanContinuationInput<'_>,
+        max_entries: usize,
+        output_limit: Option<usize>,
+        component_indices: &[usize],
+        predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<IndexComponentScanChunk, InternalError> {
+        Self::resolve_component_chunk(
+            store,
+            entity_tag,
+            index,
+            lower,
+            upper,
+            continuation,
+            max_entries,
+            output_limit,
+            component_indices,
+            predicate_execution,
+        )
+    }
+
     // Resolve one index range via store registry and index-store iterator boundary.
     fn resolve_data_values_in_raw_range_limited(
         store: StoreHandle,
@@ -313,6 +373,66 @@ impl IndexScan {
         let chunk = IndexDecodedKeyScanChunk::new(keys, last_raw_key);
 
         Ok(chunk)
+    }
+
+    // Resolve one index range component chunk via store registry and index-store iterator boundary.
+    #[expect(clippy::too_many_arguments)]
+    fn resolve_component_chunk(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        index: &LoweredIndexScanContract,
+        lower: &Bound<LoweredKey>,
+        upper: &Bound<LoweredKey>,
+        continuation: IndexScanContinuationInput<'_>,
+        max_entries: usize,
+        output_limit: Option<usize>,
+        component_indices: &[usize],
+        predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<IndexComponentScanChunk, InternalError> {
+        if max_entries == 0 || matches!(output_limit, Some(0)) {
+            return Ok(IndexComponentScanChunk::new(Vec::new(), None));
+        }
+
+        let continuation =
+            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let bounds = continuation.scan_bounds((lower, upper))?;
+        let mut rows = Vec::with_capacity(max_entries.min(Self::LIMITED_SCAN_PREALLOC_CAP));
+        let mut last_raw_key = None;
+        let mut scanned_entries = 0usize;
+
+        store.with_index(|index_store| {
+            index_store.visit_raw_entries_in_range(
+                (&bounds.0, &bounds.1),
+                continuation.direction(),
+                |raw_key, value| {
+                    match Self::accept_scan_key(&continuation, raw_key)? {
+                        LoopAction::Skip => return Ok(false),
+                        LoopAction::Emit => {}
+                        LoopAction::Stop => return Ok(true),
+                    }
+                    last_raw_key = Some(raw_key.clone());
+                    scanned_entries = scanned_entries.saturating_add(1);
+
+                    if Self::decode_index_entry_and_push_with_components(
+                        entity_tag,
+                        index,
+                        raw_key,
+                        value,
+                        &mut rows,
+                        output_limit,
+                        component_indices,
+                        "component stream",
+                        predicate_execution,
+                    )? {
+                        return Ok(true);
+                    }
+
+                    Ok(scanned_entries == max_entries)
+                },
+            )
+        })?;
+
+        Ok(IndexComponentScanChunk::new(rows, last_raw_key))
     }
 
     // Apply executor-owned continuation advancement checks for one raw index key.

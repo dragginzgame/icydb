@@ -10,8 +10,9 @@ use crate::{
         data::{DecodedDataStoreKey, RawDataStoreKey, StoreVisit},
         direction::Direction,
         executor::{
-            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
-            OrderedKeyStreamBox, PrimaryScan, ordered_key_stream_from_materialized_keys,
+            ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
+            ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
@@ -25,8 +26,6 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
-
-const PHYSICAL_SCAN_CHUNK_ENTRIES: usize = 64;
 
 ///
 /// KeyOrderState
@@ -411,8 +410,8 @@ impl PrimaryRangeKeyStream {
     // Return the maximum number of keys to read during the next store borrow.
     fn next_chunk_limit(&self) -> usize {
         self.remaining
-            .unwrap_or(PHYSICAL_SCAN_CHUNK_ENTRIES)
-            .min(PHYSICAL_SCAN_CHUNK_ENTRIES)
+            .unwrap_or(ACCESS_SCAN_CHUNK_ENTRIES)
+            .min(ACCESS_SCAN_CHUNK_ENTRIES)
     }
 
     // Re-enter the data store for one bounded range chunk.
@@ -641,7 +640,7 @@ impl IndexRangeKeyStream {
             &self.lower,
             &self.upper,
             continuation,
-            PHYSICAL_SCAN_CHUNK_ENTRIES,
+            ACCESS_SCAN_CHUNK_ENTRIES,
             self.next_output_limit(),
         )?;
         let (keys, last_raw_key) = chunk.into_decoded_keys_and_resume_anchor();

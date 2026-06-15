@@ -79,6 +79,7 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
         index_fields: &[String],
         fixed_values: &[Value],
         _branch_values: &[Value],
+        _ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         let prefix_len = fixed_values.len().saturating_add(1);
         (

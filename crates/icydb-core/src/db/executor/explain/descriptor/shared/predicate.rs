@@ -177,6 +177,7 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         index_fields: &[String],
         fixed_values: &[Value],
         branch_values: &[Value],
+        _ordered_suffix: crate::db::access::IndexBranchSetOrderedSuffix,
     ) -> Self::Output {
         let mut parts = Vec::new();
         if let Some(prefix) = prefix_predicate_text(index_fields, fixed_values, fixed_values.len())

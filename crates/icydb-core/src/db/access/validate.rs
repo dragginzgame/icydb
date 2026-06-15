@@ -6,7 +6,8 @@
 use crate::{
     db::{
         access::{
-            AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
+            AccessPath, AccessPlan, IndexBranchSetOrderedSuffix, IndexBranchSetSpec,
+            MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
             SemanticIndexRangeSpec,
         },
         schema::{SchemaInfo, literal_matches_type},
@@ -33,6 +34,12 @@ pub enum AccessPlanError {
 
     /// Index prefix must include at least one value.
     IndexPrefixEmpty,
+
+    /// Index branch set exceeds the conservative route cap.
+    IndexBranchSetTooLarge { branch_count: usize, max: usize },
+
+    /// Index branch set values must already be canonicalized.
+    IndexBranchSetNotCanonical,
 
     /// Index prefix literal does not match indexed field type.
     IndexPrefixValueMismatch { field: String },
@@ -258,31 +265,36 @@ fn validate_index_multi_lookup(
 fn validate_index_branch_set(
     schema: &SchemaInfo,
     model: &EntityModel,
-    index: SemanticIndexAccessContract,
-    fixed_values: &[Value],
-    branch_values: &[Value],
+    spec: &IndexBranchSetSpec,
 ) -> Result<(), AccessPlanError> {
-    if branch_values.is_empty() {
+    if spec.is_empty() {
         return Err(AccessPlanError::IndexPrefixEmpty);
     }
-    let prefix_len = fixed_values.len().saturating_add(1);
+    if spec.branch_count() > MAX_INDEX_BRANCH_SET_VALUES {
+        return Err(AccessPlanError::IndexBranchSetTooLarge {
+            branch_count: spec.branch_count(),
+            max: MAX_INDEX_BRANCH_SET_VALUES,
+        });
+    }
+    if !values_are_canonical_set(spec.branch_values()) {
+        return Err(AccessPlanError::IndexBranchSetNotCanonical);
+    }
+    match spec.ordered_suffix() {
+        IndexBranchSetOrderedSuffix::PrimaryKeyAsc => {}
+    }
+    let prefix_len = spec.branch_prefix_len();
+    let index = spec.index();
     validate_index_prefix_shape(&index, prefix_len)?;
 
-    let mut prefix_values = fixed_values.to_vec();
-    let branch_slot = fixed_values.len();
-    let Some(branch_field) = index
-        .key_item_at(branch_slot)
-        .map(SemanticIndexKeyItemRef::field)
-    else {
+    let Some(branch_field) = spec.branch_field() else {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len,
             field_len: index.key_arity(),
         });
     };
 
-    for branch_value in branch_values {
-        prefix_values.truncate(fixed_values.len());
-        prefix_values.push(branch_value.clone());
+    for branch_value in spec.branch_values() {
+        let prefix_values = spec.branch_prefix_values(branch_value);
         validate_index_prefix(schema, model, index.clone(), prefix_values.as_slice())?;
     }
 
@@ -293,6 +305,12 @@ fn validate_index_branch_set(
     }
 
     Ok(())
+}
+
+fn values_are_canonical_set(values: &[Value]) -> bool {
+    values
+        .windows(2)
+        .all(|pair| Value::canonical_cmp(&pair[0], &pair[1]).is_lt())
 }
 
 /// Validate that an index range path is valid for execution.
@@ -498,13 +516,7 @@ impl AccessPath<Value> {
             Self::IndexMultiLookup { index, values } => {
                 validate_index_multi_lookup(schema, model, index.clone(), values)
             }
-            Self::IndexBranchSet {
-                index,
-                fixed_values,
-                branch_values,
-            } => {
-                validate_index_branch_set(schema, model, index.clone(), fixed_values, branch_values)
-            }
+            Self::IndexBranchSet { spec } => validate_index_branch_set(schema, model, spec),
             Self::IndexRange { spec } => validate_index_range(schema, model, spec),
             Self::FullScan => Ok(()),
         }
@@ -534,16 +546,21 @@ impl AccessPath<Value> {
                 }
                 validate_index_prefix_shape(index, 1)
             }
-            Self::IndexBranchSet {
-                index,
-                fixed_values,
-                branch_values,
-            } => {
-                validate_index_reference_with_schema(schema, index)?;
-                if branch_values.is_empty() {
+            Self::IndexBranchSet { spec } => {
+                validate_index_reference_with_schema(schema, spec.index_ref())?;
+                if spec.is_empty() {
                     return Err(AccessPlanError::IndexPrefixEmpty);
                 }
-                validate_index_prefix_shape(index, fixed_values.len().saturating_add(1))
+                if spec.branch_count() > MAX_INDEX_BRANCH_SET_VALUES {
+                    return Err(AccessPlanError::IndexBranchSetTooLarge {
+                        branch_count: spec.branch_count(),
+                        max: MAX_INDEX_BRANCH_SET_VALUES,
+                    });
+                }
+                if !values_are_canonical_set(spec.branch_values()) {
+                    return Err(AccessPlanError::IndexBranchSetNotCanonical);
+                }
+                validate_index_prefix_shape(spec.index_ref(), spec.branch_prefix_len())
             }
             Self::IndexRange { spec } => validate_index_range_runtime(schema, spec),
         }

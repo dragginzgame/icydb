@@ -85,12 +85,14 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
             equalities: access_bound_equalities(index, values),
             branch_in: None,
         }
-    } else if let Some((index, fixed_values, branch_values)) =
-        access_path.as_index_branch_set_contract()
-    {
+    } else if let Some(spec) = access_path.as_index_branch_set_spec() {
         AccessBoundClauses {
-            equalities: access_bound_equalities(index.clone(), fixed_values),
-            branch_in: access_bound_branch_in(index, fixed_values.len(), branch_values),
+            equalities: access_bound_equalities(spec.index(), spec.fixed_values()),
+            branch_in: access_bound_branch_in(
+                spec.index(),
+                spec.branch_slot(),
+                spec.branch_values(),
+            ),
         }
     } else if let Some(spec) = access_path.as_index_range() {
         AccessBoundClauses {

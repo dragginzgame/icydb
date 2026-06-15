@@ -9,7 +9,7 @@ use crate::db::predicate::Predicate;
 use crate::db::predicate::predicate_fingerprint;
 use crate::{
     db::{
-        access::{AccessPath, AccessPathKind, AccessPlan},
+        access::{AccessPath, AccessPathKind, AccessPlan, IndexBranchSetOrderedSuffix},
         predicate::MissingRowPolicy,
         query::{
             builder::{
@@ -112,6 +112,7 @@ enum AccessPathCacheKey {
     },
     IndexBranchSet {
         index: String,
+        ordered_suffix: &'static str,
         fixed_values: Vec<ValueCacheKey>,
         branch_values: Vec<ValueCacheKey>,
     },
@@ -487,12 +488,13 @@ impl AccessPathCacheKey {
                     values: Self::value_list_cache_key(values),
                 },
             ),
-            AccessPathKind::IndexBranchSet => path.as_index_branch_set_contract().map_or_else(
+            AccessPathKind::IndexBranchSet => path.as_index_branch_set_spec().map_or_else(
                 || Self::invalid_access_path_projection(kind),
-                |(index, fixed_values, branch_values)| Self::IndexBranchSet {
-                    index: index.name().to_string(),
-                    fixed_values: Self::value_list_cache_key(fixed_values),
-                    branch_values: Self::value_list_cache_key(branch_values),
+                |spec| Self::IndexBranchSet {
+                    index: spec.index_ref().name().to_string(),
+                    ordered_suffix: branch_set_ordered_suffix_cache_label(spec.ordered_suffix()),
+                    fixed_values: Self::value_list_cache_key(spec.fixed_values()),
+                    branch_values: Self::value_list_cache_key(spec.branch_values()),
                 },
             ),
             AccessPathKind::IndexRange => path.as_index_range().map_or_else(
@@ -524,6 +526,14 @@ impl AccessPathCacheKey {
         );
 
         Self::FullScan
+    }
+}
+
+const fn branch_set_ordered_suffix_cache_label(
+    ordered_suffix: IndexBranchSetOrderedSuffix,
+) -> &'static str {
+    match ordered_suffix {
+        IndexBranchSetOrderedSuffix::PrimaryKeyAsc => "primary_key_asc",
     }
 }
 

@@ -67,13 +67,13 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
                 value_count: values.len(),
             };
         }
-        if let Some((index, fixed_values, branch_values)) = path.as_index_branch_set_contract() {
+        if let Some(spec) = path.as_index_branch_set_spec() {
             return Self::IndexBranchSet {
                 index: IndexShapeDetails::from_access_contract(
-                    index,
-                    fixed_values.len().saturating_add(1),
+                    spec.index(),
+                    spec.branch_prefix_len(),
                 ),
-                branch_count: branch_values.len(),
+                branch_count: spec.branch_count(),
             };
         }
         if let Some(spec) = path.as_index_range() {

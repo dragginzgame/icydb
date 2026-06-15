@@ -6,8 +6,8 @@
 use crate::{
     db::{
         access::{
-            AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
-            SemanticIndexKeyItemsRef,
+            AccessPlan, MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract,
+            SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef,
         },
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
@@ -24,8 +24,6 @@ use crate::{
     model::{entity::EntityModel, index::IndexKeyItemsRef},
     value::{Value, canonicalize_value_set},
 };
-
-pub(in crate::db::query::plan) const MAX_INDEX_BRANCH_SET_VALUES: usize = 8;
 
 fn leading_index_prefix_lookup_value(
     index_contract: &SemanticIndexAccessContract,
