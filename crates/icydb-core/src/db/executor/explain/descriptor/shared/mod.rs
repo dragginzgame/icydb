@@ -277,32 +277,43 @@ pub(in crate::db::executor::explain::descriptor) fn route_diagnostic_line_debug(
 }
 
 fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
-    match access_strategy {
-        Some(ExplainAccessRoute::IndexPrefix { prefix_len, .. }) => Some(*prefix_len),
-        Some(ExplainAccessRoute::IndexRange { prefix_len, .. }) => Some(*prefix_len),
-        Some(ExplainAccessRoute::IndexBranchSet { fixed_values, .. }) => {
-            Some(fixed_values.len().saturating_add(1))
-        }
-        _ => None,
+    let access_strategy = access_strategy?;
+    if let ExplainAccessRoute::IndexPrefix { prefix_len, .. } = access_strategy {
+        return Some(*prefix_len);
     }
+    if let ExplainAccessRoute::IndexRange { prefix_len, .. } = access_strategy {
+        return Some(*prefix_len);
+    }
+    if let ExplainAccessRoute::IndexBranchSet { fixed_values, .. } = access_strategy {
+        return Some(fixed_values.len().saturating_add(1));
+    }
+
+    None
 }
 
 fn access_prefix_values(access_strategy: Option<&ExplainAccessRoute>) -> Option<Vec<Value>> {
-    match access_strategy {
-        Some(ExplainAccessRoute::IndexPrefix { values, .. }) => Some(values.clone()),
-        Some(ExplainAccessRoute::IndexMultiLookup { values, .. }) => Some(values.clone()),
-        Some(ExplainAccessRoute::IndexBranchSet {
-            fixed_values,
-            branch_values,
-            ..
-        }) => {
-            let mut values = fixed_values.clone();
-            values.extend_from_slice(branch_values);
-            Some(values)
-        }
-        Some(ExplainAccessRoute::IndexRange { prefix, .. }) => Some(prefix.clone()),
-        _ => None,
+    let access_strategy = access_strategy?;
+    if let ExplainAccessRoute::IndexPrefix { values, .. } = access_strategy {
+        return Some(values.clone());
     }
+    if let ExplainAccessRoute::IndexMultiLookup { values, .. } = access_strategy {
+        return Some(values.clone());
+    }
+    if let ExplainAccessRoute::IndexBranchSet {
+        fixed_values,
+        branch_values,
+        ..
+    } = access_strategy
+    {
+        let mut values = fixed_values.clone();
+        values.extend_from_slice(branch_values);
+        return Some(values);
+    }
+    if let ExplainAccessRoute::IndexRange { prefix, .. } = access_strategy {
+        return Some(prefix.clone());
+    }
+
+    None
 }
 
 fn scan_fetch_pushdown(route_plan: &ExecutionRoutePlan) -> Option<usize> {
