@@ -106,15 +106,30 @@ fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
 }
 
 fn lower_label_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
-    crate::db::query::plan::OrderTerm::new(
-        crate::db::query::plan::expr::Expr::FunctionCall {
-            function: crate::db::query::plan::expr::Function::Lower,
-            args: vec![crate::db::query::plan::expr::Expr::Field(FieldId::new(
-                "label",
-            ))],
-        },
-        direction,
-    )
+    crate::db::query::plan::OrderTerm::new(lower_label_expr(), direction)
+}
+
+fn lower_label_expr() -> crate::db::query::plan::expr::Expr {
+    crate::db::query::plan::expr::Expr::FunctionCall {
+        function: crate::db::query::plan::expr::Function::Lower,
+        args: vec![crate::db::query::plan::expr::Expr::Field(FieldId::new(
+            "label",
+        ))],
+    }
+}
+
+fn lower_label_projection_field() -> crate::db::query::plan::expr::ProjectionField {
+    crate::db::query::plan::expr::ProjectionField::Scalar {
+        expr: lower_label_expr(),
+        alias: None,
+    }
+}
+
+fn direct_projection_field(field: &str) -> crate::db::query::plan::expr::ProjectionField {
+    crate::db::query::plan::expr::ProjectionField::Scalar {
+        expr: crate::db::query::plan::expr::Expr::Field(FieldId::new(field)),
+        alias: None,
+    }
 }
 
 #[test]
@@ -508,17 +523,18 @@ fn covering_projection_source_resolves_ordered_composite_primary_key_components(
     let primary_key_names = ["tenant_id", "local_id"];
     let context = super::CoveringProjectionSourceContext {
         coverable_component_fields: &[],
+        coverable_component_exprs: &[],
         prefix_values: &[],
         primary_key_names: &primary_key_names,
         source_policy: super::CoveringProjectionFieldSourcePolicy::StrictCovering,
     };
 
     assert_eq!(
-        super::covering_projection_field_source("tenant_id", context),
+        super::covering_projection_field_source(&direct_projection_field("tenant_id"), context),
         Some(super::CoveringReadFieldSource::PrimaryKey { component_index: 0 }),
     );
     assert_eq!(
-        super::covering_projection_field_source("local_id", context),
+        super::covering_projection_field_source(&direct_projection_field("local_id"), context),
         Some(super::CoveringReadFieldSource::PrimaryKey { component_index: 1 }),
     );
 }
@@ -589,6 +605,58 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
     assert_eq!(
         covering.fields[1].source,
         super::CoveringReadFieldSource::Constant(Value::Nat64(7))
+    );
+}
+
+#[test]
+fn covering_read_plan_accepts_matching_expression_projection_on_expression_suffix_order() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                crate::model::index::IndexModel::generated_with_key_items(
+                    "idx_expr",
+                    "tests::Entity",
+                    &INDEX_FIELDS_GROUP_LABEL,
+                    &INDEX_KEY_ITEMS_GROUP_LOWER_LABEL,
+                    false,
+                ),
+            ),
+            values: vec![Value::Nat64(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Exprs(vec![
+        crate::db::query::plan::expr::ProjectionField::Scalar {
+            expr: crate::db::query::plan::expr::Expr::Field(FieldId::new("id")),
+            alias: None,
+        },
+        lower_label_projection_field(),
+    ]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            lower_label_order_term(OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    let covering = covering_read_plan(&plan, "id", true)
+        .expect("matching expression-index projection should derive one covering-read plan");
+
+    assert_eq!(covering.prefix_len, 1);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+    assert_eq!(covering.fields.len(), 2);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey { component_index: 0 }
+    );
+    assert_eq!(covering.fields[1].field_slot.field(), "LOWER(label)");
+    assert_eq!(
+        covering.fields[1].source,
+        super::CoveringReadFieldSource::IndexExpressionComponent { component_index: 1 }
     );
 }
 

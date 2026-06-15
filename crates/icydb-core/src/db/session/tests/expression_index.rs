@@ -284,6 +284,63 @@ fn execute_sql_projection_expression_order_key_only_covering_query_avoids_store_
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_expression_order_projected_expression_uses_pure_covering() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_expression_order_fixture(
+        &session,
+        &[
+            (9_273_u128, "sam", 10),
+            (9_274, "Alex", 20),
+            (9_271, "bob", 30),
+            (9_272, "zoe", 40),
+        ],
+    );
+
+    let sql = "SELECT id, LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
+    let explain = statement_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+    )
+    .expect("expression-order expression projection EXPLAIN EXECUTION should succeed");
+    assert!(
+        explain.contains("proj_materialization=Text(\"covering_read\")"),
+        "matching expression-index projection should explain as covering_read: {explain}",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<ExpressionIndexedSessionSqlEntity>(sql)
+        .expect("expression-order expression projection covering query should execute");
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("expression-order expression projection should return projection rows");
+    };
+    let projected_rows = rows
+        .into_iter()
+        .map(|row| row.into_iter().map(runtime_output).collect())
+        .collect::<Vec<Vec<Value>>>();
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Ulid(Ulid::from_u128(9_274)),
+                Value::Text("alex".to_string()),
+            ],
+            vec![
+                Value::Ulid(Ulid::from_u128(9_271)),
+                Value::Text("bob".to_string()),
+            ],
+        ],
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "matching expression-index projection should avoid row-store get() calls",
+    );
+}
+
 #[test]
 fn expression_index_query_miss_reuses_authority_schema_info() {
     reset_indexed_session_sql_store();

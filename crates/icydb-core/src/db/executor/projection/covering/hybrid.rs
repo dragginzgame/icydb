@@ -280,7 +280,8 @@ fn project_hybrid_covering_row(
 
     for field in fields {
         let value = match &field.source {
-            CoveringReadFieldSource::IndexComponent { component_index } => {
+            CoveringReadFieldSource::IndexComponent { component_index }
+            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
                 metrics.record_hybrid_index_field_access();
 
                 take_or_clone_last_covering_value(
@@ -312,8 +313,14 @@ fn project_hybrid_covering_row(
 fn covering_index_component_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize, usize> {
     let mut counts = BTreeMap::new();
     for field in fields {
-        let CoveringReadFieldSource::IndexComponent { component_index } = &field.source else {
-            continue;
+        let component_index = match &field.source {
+            CoveringReadFieldSource::IndexComponent { component_index }
+            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
+                component_index
+            }
+            CoveringReadFieldSource::PrimaryKey { .. }
+            | CoveringReadFieldSource::Constant(_)
+            | CoveringReadFieldSource::RowField => continue,
         };
         *counts.entry(*component_index).or_insert(0) += 1;
     }

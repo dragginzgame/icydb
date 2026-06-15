@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Shares scalar scan skip/keep accounting between retained kernel rows and
-  direct data-row lanes so SQL row-scan execution has one executor-owned
-  retention loop, and avoids redundant raw primary-key slot lookups after
-  sparse row-open validation.
+- Splits SQL perf-matrix hotspot reports so ordinary indexed/main fixtures,
+  pure-covering costs, and intentional heap/journaled unindexed storage mirror
+  baselines are ranked separately, and lets matching expression-index
+  projections stay on pure covering reads.
 
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.15` consolidates scalar scan retention accounting across retained
+  kernel and direct data-row lanes while trimming redundant sparse primary-key
+  slot lookup work.
 
 - `0.182.14` adds retained/kernel row phase attribution to SQL perf-matrix
   reports and trims scan-time filter-only retained slots from SQL projection

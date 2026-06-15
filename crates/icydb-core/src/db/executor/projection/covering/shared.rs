@@ -12,8 +12,14 @@ pub(super) fn covering_projection_component_indices(fields: &[CoveringReadField]
     let mut component_indices = Vec::with_capacity(fields.len());
 
     for field in fields {
-        let CoveringReadFieldSource::IndexComponent { component_index } = &field.source else {
-            continue;
+        let component_index = match &field.source {
+            CoveringReadFieldSource::IndexComponent { component_index }
+            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
+                component_index
+            }
+            CoveringReadFieldSource::PrimaryKey { .. }
+            | CoveringReadFieldSource::Constant(_)
+            | CoveringReadFieldSource::RowField => continue,
         };
         if component_indices.contains(component_index) {
             continue;
@@ -39,7 +45,8 @@ pub(super) fn project_covering_row_from_decoded_values(
 
     for field in fields {
         let value = match &field.source {
-            CoveringReadFieldSource::IndexComponent { component_index } => {
+            CoveringReadFieldSource::IndexComponent { component_index }
+            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
                 let Some(position) = component_indices
                     .iter()
                     .position(|candidate| candidate == component_index)
@@ -83,7 +90,8 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
 
     for field in fields {
         let value = match &field.source {
-            CoveringReadFieldSource::IndexComponent { component_index } => {
+            CoveringReadFieldSource::IndexComponent { component_index }
+            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
                 let Some(position) = component_indices
                     .iter()
                     .position(|candidate| candidate == component_index)
@@ -129,6 +137,9 @@ pub(super) fn project_covering_row_from_single_decoded_value(
                 &field.source,
                 CoveringReadFieldSource::IndexComponent {
                     component_index: field_component_index
+                }
+                    | CoveringReadFieldSource::IndexExpressionComponent {
+                    component_index: field_component_index
                 } if *field_component_index == component_index
             )
         })
@@ -137,6 +148,9 @@ pub(super) fn project_covering_row_from_single_decoded_value(
     for field in fields {
         let value = match &field.source {
             CoveringReadFieldSource::IndexComponent {
+                component_index: field_component_index,
+            }
+            | CoveringReadFieldSource::IndexExpressionComponent {
                 component_index: field_component_index,
             } => {
                 if *field_component_index != component_index {
@@ -178,8 +192,14 @@ fn covering_component_position_use_counts(
     let mut counts = vec![0; component_indices.len()];
 
     for field in fields {
-        let CoveringReadFieldSource::IndexComponent { component_index } = &field.source else {
-            continue;
+        let component_index = match &field.source {
+            CoveringReadFieldSource::IndexComponent { component_index }
+            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
+                component_index
+            }
+            CoveringReadFieldSource::PrimaryKey { .. }
+            | CoveringReadFieldSource::Constant(_)
+            | CoveringReadFieldSource::RowField => continue,
         };
         if let Some(position) = component_indices
             .iter()

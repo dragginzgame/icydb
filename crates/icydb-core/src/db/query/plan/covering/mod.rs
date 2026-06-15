@@ -18,7 +18,9 @@ use crate::db::{
     predicate::IndexPredicateCapability,
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch, FieldSlot, OrderDirection,
-        OrderSpec, expr::ProjectionSpec, index_key_item_order_terms,
+        OrderSpec,
+        expr::{Expr, FieldId, Function, ProjectionSpec},
+        index_key_item_order_terms,
     },
     schema::SchemaInfo,
 };
@@ -67,6 +69,7 @@ pub(in crate::db) struct CoveringProjectionFacts {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum CoveringReadFieldSource {
     IndexComponent { component_index: usize },
+    IndexExpressionComponent { component_index: usize },
     PrimaryKey { component_index: usize },
     Constant(Value),
     RowField,
@@ -573,6 +576,7 @@ fn primary_store_covering_plan(
     )?;
     let source_context = CoveringProjectionSourceContext {
         coverable_component_fields: &[],
+        coverable_component_exprs: &[],
         prefix_values: &[],
         primary_key_names,
         source_policy: CoveringProjectionFieldSourcePolicy::StrictCovering,
@@ -657,6 +661,7 @@ fn constant_covering_projection_value_from_prefix(
 struct IndexCoveringAccessFacts<'a> {
     order_terms: Vec<String>,
     coverable_component_fields: Vec<Option<String>>,
+    coverable_component_exprs: Vec<Option<Expr>>,
     prefix_values: &'a [Value],
     prefix_len: usize,
     path_kind_is_range: bool,
@@ -667,7 +672,8 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
     if let Some((index, values)) = access.as_index_prefix_contract_path() {
         return Some(IndexCoveringAccessFacts {
             order_terms: index_key_item_order_terms(index.key_items()),
-            coverable_component_fields: coverable_component_fields_for_contract(index),
+            coverable_component_fields: coverable_component_fields_for_contract(&index),
+            coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: values,
             prefix_len: values.len(),
             path_kind_is_range: false,
@@ -677,7 +683,8 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
         let index = spec.index();
         return Some(IndexCoveringAccessFacts {
             order_terms: index_key_item_order_terms(index.key_items()),
-            coverable_component_fields: coverable_component_fields_for_contract(index),
+            coverable_component_fields: coverable_component_fields_for_contract(&index),
+            coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: spec.prefix_values(),
             prefix_len: spec.prefix_values().len(),
             path_kind_is_range: true,
@@ -748,6 +755,7 @@ fn covering_index_projection_plan(
     // explicit row-backed field when requested.
     let source_context = CoveringProjectionSourceContext {
         coverable_component_fields: index_facts.coverable_component_fields.as_slice(),
+        coverable_component_exprs: index_facts.coverable_component_exprs.as_slice(),
         prefix_values: index_facts.prefix_values,
         primary_key_names,
         source_policy,
@@ -891,6 +899,7 @@ enum CoveringProjectionFieldSourcePolicy {
 #[derive(Clone, Copy)]
 struct CoveringProjectionSourceContext<'a> {
     coverable_component_fields: &'a [Option<String>],
+    coverable_component_exprs: &'a [Option<Expr>],
     prefix_values: &'a [Value],
     primary_key_names: &'a [&'a str],
     source_policy: CoveringProjectionFieldSourcePolicy,
@@ -907,13 +916,31 @@ fn covering_projection_fields_from_projection(
     let mut projection_fields = Vec::with_capacity(projection.len());
 
     for projection_field in projection.fields() {
-        let field_name = projection_field.direct_field_name()?;
-        let field_slot = resolve_field_slot(field_name)?;
-        let source = covering_projection_field_source(field_name, source_context)?;
+        let field_name = projection_field.direct_field_name();
+        let field_slot = field_name.map_or_else(
+            || Some(expression_projection_field_slot(projection_field)),
+            &mut *resolve_field_slot,
+        )?;
+        let source = covering_projection_field_source(projection_field, source_context)?;
         projection_fields.push(CoveringReadField { field_slot, source });
     }
 
     Some(projection_fields)
+}
+
+fn expression_projection_field_slot(
+    projection_field: &crate::db::query::plan::expr::ProjectionField,
+) -> FieldSlot {
+    FieldSlot {
+        // Expression components are decoded from index key payloads; this slot
+        // exists only to carry the stable output label through explain/projection.
+        index: usize::MAX,
+        field:
+            crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label(
+                projection_field.expr(),
+            ),
+        kind: None,
+    }
 }
 
 // Resolve one covering field against generated field-table authority without
@@ -948,9 +975,24 @@ fn resolve_covering_field_slot_with_schema(
 // policy. Pure covering stays fail-closed on uncovered fields, while hybrid
 // covering explicitly falls back to sparse row reads.
 fn covering_projection_field_source(
-    field_name: &str,
+    projection_field: &crate::db::query::plan::expr::ProjectionField,
     source_context: CoveringProjectionSourceContext<'_>,
 ) -> Option<CoveringReadFieldSource> {
+    let Some(field_name) = projection_field.direct_field_name() else {
+        return source_context
+            .coverable_component_exprs
+            .iter()
+            .position(|expr| {
+                expr.as_ref()
+                    .is_some_and(|expr| expr == projection_field.expr())
+            })
+            .map(
+                |component_index| CoveringReadFieldSource::IndexExpressionComponent {
+                    component_index,
+                },
+            );
+    };
+
     if let Some(component_index) = source_context
         .primary_key_names
         .iter()
@@ -994,7 +1036,7 @@ fn primary_key_names_from_schema(schema: &SchemaInfo) -> Option<Vec<&str>> {
 // covering reads do not claim the original field can be reconstructed from the
 // derived component bytes.
 fn coverable_component_fields_for_contract(
-    index: SemanticIndexAccessContract,
+    index: &SemanticIndexAccessContract,
 ) -> Vec<Option<String>> {
     match index.key_items() {
         SemanticIndexKeyItemsRef::Fields(fields) => {
@@ -1024,5 +1066,104 @@ fn coverable_component_fields_for_contract(
                 })
                 .collect()
         }
+    }
+}
+
+// Project one component-expression layout for derived index outputs. This is
+// intentionally separate from raw-field recoverability so `LOWER(name)` can be
+// covered without claiming that `name` itself is stored in the index component.
+fn coverable_component_exprs_for_contract(
+    index: &SemanticIndexAccessContract,
+) -> Vec<Option<Expr>> {
+    match index.key_items() {
+        SemanticIndexKeyItemsRef::Fields(fields) => fields.iter().map(|_| None).collect(),
+        SemanticIndexKeyItemsRef::Accepted(items) => items
+            .iter()
+            .map(|item| match item.as_ref() {
+                SemanticIndexKeyItemRef::Field(_) => None,
+                SemanticIndexKeyItemRef::Expression(expression) => {
+                    expression_projection_expr_for_static_index_expression(expression)
+                }
+                SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+                    expression_projection_expr_for_accepted_index_expression(expression)
+                }
+            })
+            .collect(),
+        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Fields(fields)) => {
+            fields.iter().map(|_| None).collect()
+        }
+        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Items(items)) => {
+            items
+                .iter()
+                .map(|item| match SemanticIndexKeyItemRef::from(*item) {
+                    SemanticIndexKeyItemRef::Field(_) => None,
+                    SemanticIndexKeyItemRef::Expression(expression) => {
+                        expression_projection_expr_for_static_index_expression(expression)
+                    }
+                    SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+                        expression_projection_expr_for_accepted_index_expression(expression)
+                    }
+                })
+                .collect()
+        }
+    }
+}
+
+fn expression_projection_expr_for_static_index_expression(
+    expression: crate::model::index::IndexExpression,
+) -> Option<Expr> {
+    use crate::model::index::IndexExpression;
+
+    match expression {
+        IndexExpression::Lower(field) => Some(unary_field_function_expr(Function::Lower, field)),
+        IndexExpression::Upper(field) => Some(unary_field_function_expr(Function::Upper, field)),
+        IndexExpression::Trim(field) => Some(unary_field_function_expr(Function::Trim, field)),
+        IndexExpression::LowerTrim(field) => Some(Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![unary_field_function_expr(Function::Trim, field)],
+        }),
+        IndexExpression::Date(_)
+        | IndexExpression::Year(_)
+        | IndexExpression::Month(_)
+        | IndexExpression::Day(_) => None,
+    }
+}
+
+fn expression_projection_expr_for_accepted_index_expression(
+    expression: &crate::db::access::SemanticIndexExpression,
+) -> Option<Expr> {
+    use crate::db::schema::PersistedIndexExpressionOp;
+
+    match expression.op() {
+        PersistedIndexExpressionOp::Lower => Some(unary_field_function_expr(
+            Function::Lower,
+            expression.field(),
+        )),
+        PersistedIndexExpressionOp::Upper => Some(unary_field_function_expr(
+            Function::Upper,
+            expression.field(),
+        )),
+        PersistedIndexExpressionOp::Trim => Some(unary_field_function_expr(
+            Function::Trim,
+            expression.field(),
+        )),
+        PersistedIndexExpressionOp::LowerTrim => Some(Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![unary_field_function_expr(
+                Function::Trim,
+                expression.field(),
+            )],
+        }),
+        PersistedIndexExpressionOp::Date
+        | PersistedIndexExpressionOp::Year
+        | PersistedIndexExpressionOp::Month
+        | PersistedIndexExpressionOp::Day => None,
+    }
+}
+
+fn unary_field_function_expr(function: Function, field: &str) -> Expr {
+    Expr::FunctionCall {
+        function,
+        args: vec![Expr::Field(FieldId::new(field.to_string()))],
     }
 }

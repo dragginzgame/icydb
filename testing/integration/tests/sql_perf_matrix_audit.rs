@@ -1305,8 +1305,29 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
         "Top Store Gets",
         ranked_by(samples, |sample| sample.store_get_calls),
     );
+    append_pure_covering_hotspot_tables(output, samples);
     append_direct_data_row_hotspot_tables(output, samples);
     append_kernel_row_hotspot_tables(output, samples);
+    append_main_fixture_hotspot_tables(output, samples);
+}
+
+fn append_pure_covering_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
+    append_pure_covering_table(
+        output,
+        "Top Pure Covering Decode Instructions",
+        ranked_by(samples, |sample| {
+            sample.pure_covering_decode_local_instructions
+        }),
+        |sample| sample.pure_covering_decode_local_instructions,
+    );
+    append_pure_covering_table(
+        output,
+        "Top Pure Covering Row Assembly Instructions",
+        ranked_by(samples, |sample| {
+            sample.pure_covering_row_assembly_local_instructions
+        }),
+        |sample| sample.pure_covering_row_assembly_local_instructions,
+    );
 }
 
 fn append_direct_data_row_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
@@ -1355,6 +1376,82 @@ fn append_kernel_row_hotspot_tables(output: &mut String, samples: &[MatrixSample
     );
 }
 
+fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
+    if !samples
+        .iter()
+        .any(|sample| !sample_is_storage_mirror(sample))
+    {
+        return;
+    }
+
+    append_ranked_table(
+        output,
+        "Top Main Fixture Total Instructions",
+        ranked_main_fixture_by(samples, |sample| sample.total_local_instructions),
+    );
+    append_ranked_table(
+        output,
+        "Top Main Fixture Store Gets",
+        ranked_main_fixture_by(samples, |sample| sample.store_get_calls),
+    );
+    append_pure_covering_table(
+        output,
+        "Top Main Fixture Pure Covering Decode Instructions",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.pure_covering_decode_local_instructions
+        }),
+        |sample| sample.pure_covering_decode_local_instructions,
+    );
+    append_pure_covering_table(
+        output,
+        "Top Main Fixture Pure Covering Row Assembly Instructions",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.pure_covering_row_assembly_local_instructions
+        }),
+        |sample| sample.pure_covering_row_assembly_local_instructions,
+    );
+    append_direct_data_row_table(
+        output,
+        "Top Main Fixture Direct Data-Row Scan Instructions",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.direct_data_row_scan_local_instructions
+        }),
+    );
+    append_direct_data_row_table(
+        output,
+        "Top Main Fixture Direct Data-Row Row-Read Instructions",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.direct_data_row_row_read_local_instructions
+        }),
+    );
+    append_direct_data_row_table(
+        output,
+        "Top Main Fixture Direct Data-Row Order-Window Instructions",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.direct_data_row_order_window_local_instructions
+        }),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Main Fixture Kernel Row Scan Instructions",
+        ranked_main_fixture_by(samples, |sample| sample.kernel_row_scan_local_instructions),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Main Fixture Kernel Row Row-Read Instructions",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.kernel_row_row_read_local_instructions
+        }),
+    );
+    append_kernel_row_table(
+        output,
+        "Top Main Fixture Kernel Row Order-Window Instructions",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.kernel_row_order_window_local_instructions
+        }),
+    );
+}
+
 fn matrix_mode_from_report(report: &MatrixReport) -> MatrixMode {
     match report.matrix_mode.as_str() {
         "deterministic" => MatrixMode::Deterministic,
@@ -1371,6 +1468,24 @@ where
     ranked.sort_by_key(|sample| Reverse(key(sample)));
     ranked.truncate(top_n());
     ranked
+}
+
+fn ranked_main_fixture_by<F>(samples: &[MatrixSample], key: F) -> Vec<&MatrixSample>
+where
+    F: Fn(&MatrixSample) -> u64,
+{
+    let mut ranked = samples
+        .iter()
+        .filter(|sample| !sample_is_storage_mirror(sample))
+        .collect::<Vec<_>>();
+    ranked.sort_by_key(|sample| Reverse(key(sample)));
+    ranked.truncate(top_n());
+    ranked
+}
+
+fn sample_is_storage_mirror(sample: &MatrixSample) -> bool {
+    sample.surface == MatrixSurface::HeapUser.label()
+        || sample.surface == MatrixSurface::JournaledUser.label()
 }
 
 fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSample>) {
@@ -1400,6 +1515,46 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
             sample.executor_local_instructions,
             sample.store_get_calls,
             sample.outcome.row_count,
+            sample.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_pure_covering_table<F>(
+    output: &mut String,
+    title: &str,
+    samples: Vec<&MatrixSample>,
+    metric: F,
+) where
+    F: Fn(&MatrixSample) -> u64,
+{
+    let samples = samples
+        .into_iter()
+        .filter(|sample| metric(sample) > 0)
+        .collect::<Vec<_>>();
+    if samples.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Decode | Row Assembly | Total | SQL |"
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---:|---:|---:|---|").expect("write to string should succeed");
+    for sample in samples {
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | `{}` |",
+            sample.key,
+            sample.surface,
+            sample.pure_covering_decode_local_instructions,
+            sample.pure_covering_row_assembly_local_instructions,
+            sample.total_local_instructions,
             sample.sql.replace('|', "\\|"),
         )
         .expect("write to string should succeed");
@@ -1507,7 +1662,12 @@ fn append_storage_backend_comparison_table(output: &mut String, samples: &[Matri
     });
     rows.truncate(top_n());
 
-    writeln!(output, "## Heap vs Journaled Storage Mirror")
+    writeln!(output, "## Heap vs Journaled Unindexed Storage Mirror")
+        .expect("write to string should succeed");
+    writeln!(
+        output,
+        "Mirror entities expose only the primary-key index; field predicate/order scenarios are intentional unindexed scan baselines."
+    )
         .expect("write to string should succeed");
     writeln!(output).expect("write to string should succeed");
     writeln!(
@@ -1740,8 +1900,12 @@ fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
     let markdown = matrix_markdown(&report);
 
     assert!(
-        markdown.contains("Heap vs Journaled Storage Mirror"),
+        markdown.contains("Heap vs Journaled Unindexed Storage Mirror"),
         "storage mirror report should include the comparison table",
+    );
+    assert!(
+        markdown.contains("intentional unindexed scan baselines"),
+        "storage mirror report should label field predicate/order cases as unindexed baselines",
     );
     assert!(
         markdown.contains("Heap Total"),
@@ -1753,13 +1917,157 @@ fn sql_perf_matrix_storage_backend_comparison_pairs_all_storage_mirrors() {
     );
 }
 
+#[test]
+fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
+    let samples = vec![
+        storage_matrix_sample(
+            "heap_user.select.pk.all.pk_asc.limit1",
+            "heap_user",
+            800,
+            100,
+        ),
+        storage_matrix_sample(
+            "journaled_user.select.pk.all.pk_asc.limit1",
+            "journaled_user",
+            700,
+            120,
+        ),
+        main_fixture_sample_with_kernel_scan(
+            "user.select.pk.all.pk_asc.limit1",
+            "user",
+            90,
+            5,
+            "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+        ),
+    ];
+    let report = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        generated_scenario_count: samples.len(),
+        executed_scenario_count: samples.len(),
+        failed_scenario_count: 0,
+        matrix_limit: samples.len(),
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples,
+        failures: Vec::new(),
+    };
+
+    let markdown = matrix_markdown(&report);
+    let main_fixture_total_section = markdown
+        .split("## Top Main Fixture Total Instructions")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("main fixture total hotspot section should render");
+
+    assert!(
+        main_fixture_total_section.contains("user.select.pk.all.pk_asc.limit1"),
+        "main fixture hotspot section should keep ordinary fixture scenarios",
+    );
+    assert!(
+        !main_fixture_total_section.contains("heap_user"),
+        "main fixture hotspot section should exclude heap storage mirror baselines",
+    );
+    assert!(
+        !main_fixture_total_section.contains("journaled_user"),
+        "main fixture hotspot section should exclude journaled storage mirror baselines",
+    );
+
+    let main_fixture_kernel_section = markdown
+        .split("## Top Main Fixture Kernel Row Scan Instructions")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("main fixture kernel-row hotspot section should render");
+
+    assert!(
+        main_fixture_kernel_section.contains("user.select.pk.all.pk_asc.limit1"),
+        "main fixture kernel-row hotspot section should keep ordinary fixture scenarios",
+    );
+    assert!(
+        !main_fixture_kernel_section.contains("heap_user"),
+        "main fixture kernel-row hotspot section should exclude heap storage mirror baselines",
+    );
+    assert!(
+        !main_fixture_kernel_section.contains("journaled_user"),
+        "main fixture kernel-row hotspot section should exclude journaled storage mirror baselines",
+    );
+}
+
+#[test]
+fn sql_perf_matrix_reports_pure_covering_hotspots() {
+    let samples = vec![main_fixture_sample_with_pure_covering(
+        "user.select.pk.id_only.pk_asc.limit1",
+        "user",
+        120,
+        75,
+        35,
+        "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+    )];
+    let report = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        generated_scenario_count: samples.len(),
+        executed_scenario_count: samples.len(),
+        failed_scenario_count: 0,
+        matrix_limit: samples.len(),
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples,
+        failures: Vec::new(),
+    };
+
+    let markdown = matrix_markdown(&report);
+    let pure_covering_decode_section = markdown
+        .split("## Top Pure Covering Decode Instructions")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("pure covering decode hotspot section should render");
+
+    assert!(
+        pure_covering_decode_section.contains("user.select.pk.id_only.pk_asc.limit1"),
+        "pure covering decode section should include scenarios with decode attribution",
+    );
+    assert!(
+        pure_covering_decode_section
+            .contains("| `user.select.pk.id_only.pk_asc.limit1` | user | 75 | 35 | 120 |"),
+        "pure covering decode section should expose decode, row assembly, and total costs",
+    );
+
+    let main_fixture_row_assembly_section = markdown
+        .split("## Top Main Fixture Pure Covering Row Assembly Instructions")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("main fixture pure covering row assembly section should render");
+
+    assert!(
+        main_fixture_row_assembly_section.contains("user.select.pk.id_only.pk_asc.limit1"),
+        "main fixture pure covering section should include ordinary fixture scenarios",
+    );
+}
+
 fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> MatrixSample {
+    report_matrix_sample(
+        key,
+        surface,
+        total,
+        store,
+        "SELECT id FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1",
+    )
+}
+
+fn report_matrix_sample(
+    key: &str,
+    surface: &str,
+    total: u64,
+    store: u64,
+    sql: &str,
+) -> MatrixSample {
     MatrixSample {
         key: key.to_string(),
         source: MatrixSource::Deterministic.label().to_string(),
         surface: surface.to_string(),
         family: "select.pk.all.pk_asc".to_string(),
-        sql: "SELECT id FROM PerfAuditHeapUser ORDER BY id ASC LIMIT 1".to_string(),
+        sql: sql.to_string(),
         compile_local_instructions: 1,
         execute_local_instructions: total.saturating_sub(1),
         planner_local_instructions: 0,
@@ -1794,6 +2102,33 @@ fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> Ma
             row_count: 1,
         },
     }
+}
+
+fn main_fixture_sample_with_kernel_scan(
+    key: &str,
+    surface: &str,
+    total: u64,
+    store: u64,
+    sql: &str,
+) -> MatrixSample {
+    let mut sample = report_matrix_sample(key, surface, total, store, sql);
+    sample.kernel_row_scan_local_instructions = total;
+    sample.kernel_row_row_read_local_instructions = store;
+    sample
+}
+
+fn main_fixture_sample_with_pure_covering(
+    key: &str,
+    surface: &str,
+    total: u64,
+    decode: u64,
+    row_assembly: u64,
+    sql: &str,
+) -> MatrixSample {
+    let mut sample = report_matrix_sample(key, surface, total, 0, sql);
+    sample.pure_covering_decode_local_instructions = decode;
+    sample.pure_covering_row_assembly_local_instructions = row_assembly;
+    sample
 }
 
 #[test]
