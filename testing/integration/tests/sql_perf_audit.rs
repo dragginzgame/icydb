@@ -1344,6 +1344,13 @@ fn account_tier_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             "SELECT id, tier FROM PerfAuditAccount WHERE active = true AND tier IN ('gold', 'silver') ORDER BY tier ASC, handle ASC, id ASC LIMIT 3",
         ),
         scenario(
+            "account.tier.in.order_id.limit3",
+            SqlPerfSurface::Account,
+            "filtered_tier_handle_active_only",
+            "production_shape_membership_id_order",
+            "SELECT id, tier FROM PerfAuditAccount WHERE active = true AND tier IN ('gold', 'silver') ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
             "account.tier.not_in.limit3",
             SqlPerfSurface::Account,
             "residual_not_in",
@@ -1384,6 +1391,13 @@ fn account_tier_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             "aggregate_count",
             "count",
             "SELECT COUNT(*) FROM PerfAuditAccount WHERE active = true",
+        ),
+        scenario(
+            "account.count.active_tier_in",
+            SqlPerfSurface::Account,
+            "aggregate_count",
+            "production_shape_count",
+            "SELECT COUNT(*) FROM PerfAuditAccount WHERE active = true AND tier IN ('gold', 'silver')",
         ),
         scenario(
             "account.describe",
