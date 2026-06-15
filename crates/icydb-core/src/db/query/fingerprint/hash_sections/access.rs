@@ -5,9 +5,10 @@ use crate::{
             explain::ExplainAccessPath,
             fingerprint::hash_sections::{
                 ACCESS_TAG_BY_KEY, ACCESS_TAG_BY_KEYS, ACCESS_TAG_FULL_SCAN,
-                ACCESS_TAG_INDEX_MULTI_LOOKUP, ACCESS_TAG_INDEX_PREFIX, ACCESS_TAG_INDEX_RANGE,
-                ACCESS_TAG_INTERSECTION, ACCESS_TAG_KEY_RANGE, ACCESS_TAG_UNION, write_str,
-                write_tag, write_u32, write_value, write_value_bound,
+                ACCESS_TAG_INDEX_BRANCH_SET, ACCESS_TAG_INDEX_MULTI_LOOKUP,
+                ACCESS_TAG_INDEX_PREFIX, ACCESS_TAG_INDEX_RANGE, ACCESS_TAG_INTERSECTION,
+                ACCESS_TAG_KEY_RANGE, ACCESS_TAG_UNION, write_str, write_tag, write_u32,
+                write_value, write_value_bound,
             },
             plan::{AccessPlanProjection, project_access_plan, project_explain_access_path},
         },
@@ -113,6 +114,18 @@ where
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
         write_values(self.hasher, values);
+    }
+
+    fn index_branch_set(
+        &mut self,
+        name: &str,
+        fields: &[String],
+        fixed_values: &[Value],
+        branch_values: &[Value],
+    ) -> Self::Output {
+        write_access_fields(self.hasher, ACCESS_TAG_INDEX_BRANCH_SET, name, fields);
+        write_values(self.hasher, fixed_values);
+        write_values(self.hasher, branch_values);
     }
 
     fn index_range(

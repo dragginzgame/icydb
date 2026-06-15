@@ -125,10 +125,11 @@ pub(super) fn evaluate_fast_path(
     route_plan: &ExecutionPlan,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
+    let secondary_fast_path_spec_supported = inputs.stream_bindings().index_prefix_specs.len() <= 1;
     // Guard fast-path spec arity up front so plan/runtime traversal drift
     // cannot silently consume the wrong spec in release builds.
     ensure_load_fast_path_spec_arity(
-        route_plan.secondary_fast_path_eligible(),
+        route_plan.secondary_fast_path_eligible() && secondary_fast_path_spec_supported,
         inputs.stream_bindings().index_prefix_specs.len(),
         route_plan.index_range_limit_fast_path_enabled(),
         inputs.stream_bindings().index_range_specs.len(),
@@ -137,8 +138,9 @@ pub(super) fn evaluate_fast_path(
     let fast = try_first_verified_fast_path_hit(
         route_plan.fast_path_order(),
         |route| {
-            Ok(route_plan
-                .load_fast_path_route_eligible(route)
+            Ok((route_plan.load_fast_path_route_eligible(route)
+                && (!matches!(route, FastPathOrder::SecondaryPrefix)
+                    || secondary_fast_path_spec_supported))
                 .then_some(route))
         },
         |verified_route| {

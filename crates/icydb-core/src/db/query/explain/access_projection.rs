@@ -77,6 +77,21 @@ where
         }
     }
 
+    fn index_branch_set(
+        &mut self,
+        index_name: &str,
+        index_fields: &[String],
+        fixed_values: &[Value],
+        branch_values: &[Value],
+    ) -> Self::Output {
+        ExplainAccessPath::IndexBranchSet {
+            name: index_name.to_string(),
+            fields: index_fields.to_vec(),
+            fixed_values: fixed_values.to_vec(),
+            branch_values: branch_values.to_vec(),
+        }
+    }
+
     fn index_range(
         &mut self,
         index_name: &str,
@@ -197,6 +212,37 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
         object.field_str("name", index_name);
         object.field_str_slice("fields", index_fields);
         object.field_debug_slice("values", values);
+        object.finish();
+
+        out
+    }
+
+    fn index_branch_set(
+        &mut self,
+        index_name: &str,
+        index_fields: &[String],
+        fixed_values: &[Value],
+        branch_values: &[Value],
+    ) -> Self::Output {
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "IndexBranchSet");
+        object.field_str("name", index_name);
+        object.field_str_slice("fields", index_fields);
+        object.field_debug_slice("fixed_values", fixed_values);
+        object.field_debug_slice("branch_values", branch_values);
+        if self.include_detail {
+            object.field_u64("fixed_prefix_len", fixed_values.len() as u64);
+            object.field_u64("branch_count", branch_values.len() as u64);
+            match index_fields.get(fixed_values.len()) {
+                Some(branch_field) => object.field_str("branch_field", branch_field),
+                None => object.field_null("branch_field"),
+            }
+            object.field_str_slice(
+                "bound_fields",
+                bounded_prefix_fields(index_fields, fixed_values.len().saturating_add(1)),
+            );
+        }
         object.finish();
 
         out

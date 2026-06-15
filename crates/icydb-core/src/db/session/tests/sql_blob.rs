@@ -538,23 +538,27 @@ fn sql_octet_length_reports_blob_byte_lengths() {
         "OCTET_LENGTH(blob) projection should not retain full blob rows",
     );
 
-    let (_, attribution) = session
-        .execute_sql_query_with_attribution::<SessionSqlBlobEntity>(
-            "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
-             FROM SessionSqlBlobEntity \
-             ORDER BY label ASC",
-        )
-        .expect("OCTET_LENGTH attribution query should succeed");
-    assert_eq!(
-        attribution.output_blob.projected_bytes, 0,
-        "OCTET_LENGTH(blob) should not report projected blob payload bytes",
-    );
-    assert_eq!(
-        attribution.output_blob.rendered_hex_bytes, 0,
-        "OCTET_LENGTH(blob) should not report blob hex response bytes",
-    );
+    #[cfg(feature = "diagnostics")]
+    {
+        let (_, attribution) = session
+            .execute_sql_query_with_attribution::<SessionSqlBlobEntity>(
+                "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
+                 FROM SessionSqlBlobEntity \
+                 ORDER BY label ASC",
+            )
+            .expect("OCTET_LENGTH attribution query should succeed");
+        assert_eq!(
+            attribution.output_blob.projected_bytes, 0,
+            "OCTET_LENGTH(blob) should not report projected blob payload bytes",
+        );
+        assert_eq!(
+            attribution.output_blob.rendered_hex_bytes, 0,
+            "OCTET_LENGTH(blob) should not report blob hex response bytes",
+        );
+    }
 }
 
+#[cfg(feature = "diagnostics")]
 #[test]
 fn sql_blob_projection_attribution_reports_payload_bytes() {
     reset_session_sql_store();

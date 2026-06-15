@@ -254,6 +254,47 @@ fn validate_index_multi_lookup(
     Ok(())
 }
 
+/// Validate that an index branch-set path is valid for execution.
+fn validate_index_branch_set(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    index: SemanticIndexAccessContract,
+    fixed_values: &[Value],
+    branch_values: &[Value],
+) -> Result<(), AccessPlanError> {
+    if branch_values.is_empty() {
+        return Err(AccessPlanError::IndexPrefixEmpty);
+    }
+    let prefix_len = fixed_values.len().saturating_add(1);
+    validate_index_prefix_shape(&index, prefix_len)?;
+
+    let mut prefix_values = fixed_values.to_vec();
+    let branch_slot = fixed_values.len();
+    let Some(branch_field) = index
+        .key_item_at(branch_slot)
+        .map(SemanticIndexKeyItemRef::field)
+    else {
+        return Err(AccessPlanError::IndexPrefixTooLong {
+            prefix_len,
+            field_len: index.key_arity(),
+        });
+    };
+
+    for branch_value in branch_values {
+        prefix_values.truncate(fixed_values.len());
+        prefix_values.push(branch_value.clone());
+        validate_index_prefix(schema, model, index.clone(), prefix_values.as_slice())?;
+    }
+
+    if schema.field(branch_field).is_none() {
+        return Err(AccessPlanError::IndexPrefixValueMismatch {
+            field: branch_field.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 /// Validate that an index range path is valid for execution.
 fn validate_index_range(
     schema: &SchemaInfo,
@@ -457,6 +498,13 @@ impl AccessPath<Value> {
             Self::IndexMultiLookup { index, values } => {
                 validate_index_multi_lookup(schema, model, index.clone(), values)
             }
+            Self::IndexBranchSet {
+                index,
+                fixed_values,
+                branch_values,
+            } => {
+                validate_index_branch_set(schema, model, index.clone(), fixed_values, branch_values)
+            }
             Self::IndexRange { spec } => validate_index_range(schema, model, spec),
             Self::FullScan => Ok(()),
         }
@@ -485,6 +533,17 @@ impl AccessPath<Value> {
                     return Err(AccessPlanError::IndexPrefixEmpty);
                 }
                 validate_index_prefix_shape(index, 1)
+            }
+            Self::IndexBranchSet {
+                index,
+                fixed_values,
+                branch_values,
+            } => {
+                validate_index_reference_with_schema(schema, index)?;
+                if branch_values.is_empty() {
+                    return Err(AccessPlanError::IndexPrefixEmpty);
+                }
+                validate_index_prefix_shape(index, fixed_values.len().saturating_add(1))
             }
             Self::IndexRange { spec } => validate_index_range_runtime(schema, spec),
         }

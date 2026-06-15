@@ -42,6 +42,7 @@ fn execution_access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPa
             AccessPathKind::KeyRange => ExecutionAccessPathVariant::KeyRange,
             AccessPathKind::IndexPrefix => ExecutionAccessPathVariant::IndexPrefix,
             AccessPathKind::IndexMultiLookup => ExecutionAccessPathVariant::IndexMultiLookup,
+            AccessPathKind::IndexBranchSet => ExecutionAccessPathVariant::IndexBranchSet,
             AccessPathKind::IndexRange => ExecutionAccessPathVariant::IndexRange,
             AccessPathKind::FullScan => ExecutionAccessPathVariant::FullScan,
         },

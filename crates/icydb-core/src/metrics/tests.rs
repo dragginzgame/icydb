@@ -337,6 +337,7 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "plan_by_key",
         "plan_by_keys",
         "plan_key_range",
+        "plan_index_branch_set",
         "plan_index_prefix",
         "plan_index_multi_lookup",
         "plan_index_range",
@@ -1059,6 +1060,7 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         plan_by_key: 34,
         plan_by_keys: 35,
         plan_key_range: 36,
+        plan_index_branch_set: 191,
         plan_index_prefix: 37,
         plan_index_multi_lookup: 38,
         plan_index_range: 39,
@@ -1201,6 +1203,7 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "plan_by_key",
         "plan_by_keys",
         "plan_key_range",
+        "plan_index_branch_set",
         "plan_index_prefix",
         "plan_index_multi_lookup",
         "plan_index_range",
@@ -1369,6 +1372,7 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.plan_by_key(), 34);
     assert_eq!(summary.plan_by_keys(), 35);
     assert_eq!(summary.plan_key_range(), 36);
+    assert_eq!(summary.plan_index_branch_set(), 191);
     assert_eq!(summary.plan_index_prefix(), 37);
     assert_eq!(summary.plan_index_multi_lookup(), 38);
     assert_eq!(summary.plan_index_range(), 39);

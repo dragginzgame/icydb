@@ -171,6 +171,7 @@ const fn explain_node_type_for_trace_variant(
         ExecutionAccessPathVariant::ByKey => ExplainExecutionNodeType::ByKeyLookup,
         ExecutionAccessPathVariant::ByKeys => ExplainExecutionNodeType::ByKeysLookup,
         ExecutionAccessPathVariant::KeyRange => ExplainExecutionNodeType::PrimaryKeyRangeScan,
+        ExecutionAccessPathVariant::IndexBranchSet => ExplainExecutionNodeType::IndexBranchSet,
         ExecutionAccessPathVariant::IndexPrefix => ExplainExecutionNodeType::IndexPrefixScan,
         ExecutionAccessPathVariant::IndexMultiLookup => ExplainExecutionNodeType::IndexMultiLookup,
         ExecutionAccessPathVariant::IndexRange => ExplainExecutionNodeType::IndexRangeScan,

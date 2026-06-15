@@ -39,6 +39,7 @@ pub(in crate::db) use index_select::{
     residual_query_predicate_after_access_path_bounds,
     residual_query_predicate_after_filtered_access_contract,
 };
+pub(in crate::db::query::plan) use prefix::MAX_INDEX_BRANCH_SET_VALUES;
 pub(in crate::db::query::plan) use ranking::{
     AccessCandidateScore, AndFamilyCandidateScore, AndFamilyPriorityClass,
     access_candidate_score_from_index_contract, access_candidate_score_outranks,

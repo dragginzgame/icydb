@@ -57,6 +57,7 @@ fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
             AccessPathKind::KeyRange => PlanKind::KeyRange,
             AccessPathKind::IndexPrefix => PlanKind::IndexPrefix,
             AccessPathKind::IndexMultiLookup => PlanKind::IndexMultiLookup,
+            AccessPathKind::IndexBranchSet => PlanKind::IndexBranchSet,
             AccessPathKind::IndexRange => PlanKind::IndexRange,
             AccessPathKind::FullScan => PlanKind::FullScan,
         },

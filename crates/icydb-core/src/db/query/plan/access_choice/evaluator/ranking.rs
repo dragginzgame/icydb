@@ -73,6 +73,27 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
         )
     }
 
+    fn index_branch_set(
+        &mut self,
+        index_name: &str,
+        index_fields: &[String],
+        fixed_values: &[Value],
+        _branch_values: &[Value],
+    ) -> Self::Output {
+        let prefix_len = fixed_values.len().saturating_add(1);
+        (
+            AccessChoiceFamily::BranchSet,
+            Some(index_name.to_string()),
+            CandidateScore::new(
+                prefix_len,
+                prefix_len == index_fields.len(),
+                false,
+                0,
+                false,
+            ),
+        )
+    }
+
     fn index_range(
         &mut self,
         index_name: &str,
@@ -168,7 +189,9 @@ fn ranked_preference_reason(
 ) -> AccessChoiceRankingReason {
     if matches!(
         family,
-        AccessChoiceFamily::Prefix | AccessChoiceFamily::MultiLookup
+        AccessChoiceFamily::Prefix
+            | AccessChoiceFamily::MultiLookup
+            | AccessChoiceFamily::BranchSet
     ) && chosen_score.exact
         && competing_scores
             .iter()
@@ -179,7 +202,10 @@ fn ranked_preference_reason(
 
     if matches!(
         family,
-        AccessChoiceFamily::Prefix | AccessChoiceFamily::MultiLookup | AccessChoiceFamily::Range
+        AccessChoiceFamily::Prefix
+            | AccessChoiceFamily::MultiLookup
+            | AccessChoiceFamily::BranchSet
+            | AccessChoiceFamily::Range
     ) && chosen_score.filtered
         && competing_scores.iter().any(|score| {
             score.prefix_len == chosen_score.prefix_len
@@ -208,7 +234,7 @@ fn ranked_preference_reason(
 
     if matches!(
         family,
-        AccessChoiceFamily::Prefix | AccessChoiceFamily::Range
+        AccessChoiceFamily::Prefix | AccessChoiceFamily::BranchSet | AccessChoiceFamily::Range
     ) && chosen_score.order_compatible
         && competing_scores.iter().any(|score| {
             score.prefix_len == chosen_score.prefix_len

@@ -60,6 +60,7 @@ struct StorageWritePerfResult {
 enum SqlPerfSurface {
     Account,
     Blob,
+    Token,
     User,
 }
 
@@ -68,6 +69,7 @@ impl SqlPerfSurface {
         match self {
             Self::Account => "account",
             Self::Blob => "blob",
+            Self::Token => "token",
             Self::User => "user",
         }
     }
@@ -272,6 +274,19 @@ fn query_surface_with_perf(
                 ),
             )
             .expect("query_blob_loop_with_perf should decode"),
+        SqlPerfSurface::Token if query_loop_count == 1 => fixture
+            .query_call("query_token_with_perf", (sql.to_string(),))
+            .expect("query_token_with_perf should decode"),
+        SqlPerfSurface::Token => fixture
+            .query_call(
+                "query_token_loop_with_perf",
+                (
+                    sql.to_string(),
+                    u32::try_from(query_loop_count)
+                        .expect("query loop count should fit into canister argument"),
+                ),
+            )
+            .expect("query_token_loop_with_perf should decode"),
     }
 }
 
@@ -290,6 +305,9 @@ fn warm_query_surface_with_perf(
         SqlPerfSurface::Blob => fixture
             .update_call("warm_blob_query_with_perf", (sql.to_string(),))
             .expect("warm_blob_query_with_perf should decode"),
+        SqlPerfSurface::Token => fixture
+            .update_call("warm_token_query_with_perf", (sql.to_string(),))
+            .expect("warm_token_query_with_perf should decode"),
     }
 }
 
@@ -1457,6 +1475,41 @@ fn blob_payload_scenarios() -> Vec<SqlPerfScenario> {
     ]
 }
 
+const TOKEN_BRANCH_SET_PAGE_SQL: &str = "\
+SELECT id \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review') \
+ORDER BY id ASC \
+LIMIT 3";
+
+const TOKEN_BRANCH_SET_NONCOVERED_PAGE_SQL: &str = "\
+SELECT id, title \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review') \
+ORDER BY id ASC \
+LIMIT 3";
+
+fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        scenario(
+            "token.collection_stage_id.branch_set.page_only.limit3",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_page_only",
+            TOKEN_BRANCH_SET_PAGE_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.noncovered_page_only.limit3",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_noncovered_page_only",
+            TOKEN_BRANCH_SET_NONCOVERED_PAGE_SQL,
+        ),
+    ]
+}
+
 fn repeated_query_scenarios() -> Vec<SqlPerfScenario> {
     let mut scenarios = Vec::new();
     scenarios.extend(repeated_query_baseline_scenarios());
@@ -1606,6 +1659,7 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
     scenarios.extend(account_order_scenarios());
     scenarios.extend(account_tier_and_metadata_scenarios());
     scenarios.extend(blob_payload_scenarios());
+    scenarios.extend(token_branch_set_scenarios());
     scenarios.extend(repeated_query_scenarios());
 
     scenarios
@@ -2767,6 +2821,76 @@ fn sql_perf_blob_metadata_query_stays_on_covering_index() {
         perf.attribution.output_blob.projected_bytes, 0,
         "blob scalar metadata query should not project blob payload bytes",
     );
+}
+
+#[test]
+fn sql_perf_token_branch_set_page_is_bounded_and_page_only() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = HashMap::new();
+    reset_sql_perf_fixtures(&fixture);
+
+    let explain = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Token,
+        format!("EXPLAIN EXECUTION {TOKEN_BRANCH_SET_PAGE_SQL}").as_str(),
+        1,
+    )
+    .expect("token branch-set EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain { explain, .. } = explain.result else {
+        panic!("token branch-set EXPLAIN EXECUTION should return explain output");
+    };
+
+    assert!(
+        explain.contains("IndexBranchSet"),
+        "token branch-set EXPLAIN should expose the branch-aware route: {explain}",
+    );
+    assert!(
+        !explain.contains("OrderByMaterializedSort"),
+        "token branch-set EXPLAIN must not materialize-sort the page route: {explain}",
+    );
+
+    for (scenario_key, min_store_gets, max_store_gets) in [
+        (
+            "token.collection_stage_id.branch_set.page_only.limit3",
+            0,
+            0,
+        ),
+        (
+            "token.collection_stage_id.branch_set.noncovered_page_only.limit3",
+            3,
+            4,
+        ),
+    ] {
+        let sample =
+            sample_perf_scenario(&fixture, &baseline, sql_perf_scenario_by_key(scenario_key));
+
+        assert_eq!(
+            sample.outcome.result_kind, "projection",
+            "token branch-set audit row '{scenario_key}' should remain a page/projection query, not count",
+        );
+        assert_eq!(
+            sample.outcome.row_count, 3,
+            "token branch-set audit row '{scenario_key}' should return the requested page size",
+        );
+        assert!(
+            (min_store_gets..=max_store_gets).contains(&sample.avg_data_store_get_calls),
+            "token branch-set audit row '{scenario_key}' should keep row-store get() calls bounded, got {}: {explain}",
+            sample.avg_data_store_get_calls,
+        );
+        assert!(
+            sample.avg_index_store_entry_reads <= 8,
+            "token branch-set audit row '{scenario_key}' should keep index traversal bounded by branch fetch, got {}: {explain}",
+            sample.avg_index_store_entry_reads,
+        );
+        assert_eq!(
+            sample.avg_grouped_count_row_materialization_local_instructions, 0,
+            "token branch-set default page query '{scenario_key}' must not invoke grouped/count materialization",
+        );
+        assert_eq!(
+            sample.avg_grouped_count_group_lookup_local_instructions, 0,
+            "token branch-set default page query '{scenario_key}' must not invoke grouped/count lookup work",
+        );
+    }
 }
 
 #[test]

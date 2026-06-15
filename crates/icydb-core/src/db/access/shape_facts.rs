@@ -208,6 +208,7 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
     match payload {
         ExecutionPathPayload::IndexPrefix { .. } => 1,
         ExecutionPathPayload::IndexMultiLookup { value_count, .. } => *value_count,
+        ExecutionPathPayload::IndexBranchSet { branch_count, .. } => *branch_count,
         ExecutionPathPayload::ByKey(_)
         | ExecutionPathPayload::ByKeys(_)
         | ExecutionPathPayload::KeyRange { .. }

@@ -32,6 +32,7 @@ pub(in crate::db) enum AccessPathKind {
     KeyRange,
     IndexPrefix,
     IndexMultiLookup,
+    IndexBranchSet,
     IndexRange,
     FullScan,
 }
@@ -571,6 +572,20 @@ pub(crate) enum AccessPath<K> {
         values: Vec<Value>,
     },
 
+    /// Branch-aware composite prefix scan over fixed leading values and a
+    /// small exact set in the next index slot.
+    ///
+    /// Contract guarantees:
+    /// - `fixed_values` are equality-bound leading prefix slots
+    /// - `branch_values` are canonicalized as a small set (sorted, deduplicated)
+    /// - each lowered branch scans `fixed_values + branch_value` as one prefix
+    /// - the planner only selects this path when the suffix order is preserved
+    IndexBranchSet {
+        index: SemanticIndexAccessContract,
+        fixed_values: Vec<Value>,
+        branch_values: Vec<Value>,
+    },
+
     /// Index scan using an equality prefix plus one bounded range component.
     ///
     /// This variant is dedicated to secondary range traversal and wraps
@@ -591,6 +606,7 @@ impl<K> AccessPath<K> {
             Self::KeyRange { .. } => AccessPathKind::KeyRange,
             Self::IndexPrefix { .. } => AccessPathKind::IndexPrefix,
             Self::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
+            Self::IndexBranchSet { .. } => AccessPathKind::IndexBranchSet,
             Self::IndexRange { .. } => AccessPathKind::IndexRange,
             Self::FullScan => AccessPathKind::FullScan,
         }
@@ -642,6 +658,7 @@ impl<K> AccessPath<K> {
             | Self::KeyRange { .. }
             | Self::IndexPrefix { .. }
             | Self::IndexMultiLookup { .. }
+            | Self::IndexBranchSet { .. }
             | Self::IndexRange { .. }
             | Self::FullScan => None,
         }
@@ -656,6 +673,7 @@ impl<K> AccessPath<K> {
             | Self::KeyRange { .. }
             | Self::IndexPrefix { .. }
             | Self::IndexMultiLookup { .. }
+            | Self::IndexBranchSet { .. }
             | Self::IndexRange { .. }
             | Self::FullScan => None,
         }
@@ -683,6 +701,26 @@ impl<K> AccessPath<K> {
         }
     }
 
+    /// Borrow branch-aware composite prefix details when this path is
+    /// `IndexBranchSet`.
+    #[must_use]
+    pub(in crate::db) fn as_index_branch_set_contract(
+        &self,
+    ) -> Option<(SemanticIndexAccessContract, &[Value], &[Value])> {
+        match self {
+            Self::IndexBranchSet {
+                index,
+                fixed_values,
+                branch_values,
+            } => Some((
+                index.clone(),
+                fixed_values.as_slice(),
+                branch_values.as_slice(),
+            )),
+            _ => None,
+        }
+    }
+
     /// Borrow index-range details when this path is `IndexRange`.
     #[must_use]
     pub(crate) const fn as_index_range(&self) -> Option<&SemanticIndexRangeSpec> {
@@ -696,9 +734,9 @@ impl<K> AccessPath<K> {
     #[must_use]
     pub(in crate::db) fn selected_index_contract(&self) -> Option<SemanticIndexAccessContract> {
         match self {
-            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => {
-                Some(index.clone())
-            }
+            Self::IndexPrefix { index, .. }
+            | Self::IndexMultiLookup { index, .. }
+            | Self::IndexBranchSet { index, .. } => Some(index.clone()),
             Self::IndexRange { spec } => Some(spec.index()),
             Self::ByKey(_) | Self::ByKeys(_) | Self::KeyRange { .. } | Self::FullScan => None,
         }
@@ -713,6 +751,7 @@ impl<K> AccessPath<K> {
             | Self::ByKeys(_)
             | Self::IndexPrefix { .. }
             | Self::IndexMultiLookup { .. }
+            | Self::IndexBranchSet { .. }
             | Self::IndexRange { .. }
             | Self::FullScan => None,
         }
@@ -754,6 +793,15 @@ impl<K> AccessPath<K> {
             Self::IndexMultiLookup { index, values } => {
                 Ok(AccessPath::IndexMultiLookup { index, values })
             }
+            Self::IndexBranchSet {
+                index,
+                fixed_values,
+                branch_values,
+            } => Ok(AccessPath::IndexBranchSet {
+                index,
+                fixed_values,
+                branch_values,
+            }),
             Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
             Self::FullScan => Ok(AccessPath::FullScan),
         }

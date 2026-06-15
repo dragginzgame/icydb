@@ -38,6 +38,7 @@ const fn scan_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
             | ExplainExecutionNodeType::IndexPrefixScan
             | ExplainExecutionNodeType::IndexRangeScan
             | ExplainExecutionNodeType::IndexMultiLookup
+            | ExplainExecutionNodeType::IndexBranchSet
             | ExplainExecutionNodeType::FullScan
             | ExplainExecutionNodeType::Union
             | ExplainExecutionNodeType::Intersection

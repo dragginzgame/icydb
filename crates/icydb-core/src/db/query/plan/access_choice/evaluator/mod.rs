@@ -73,6 +73,13 @@ pub(super) fn evaluate_index_candidate(
         AccessChoiceFamily::MultiLookup => {
             prefix::evaluate_multi_lookup_candidate_from_contract(&index, schema, predicate)
         }
+        AccessChoiceFamily::BranchSet => augment_candidate_with_order_compatibility(
+            prefix::evaluate_branch_set_candidate_from_contract(&index, schema, predicate),
+            schema,
+            order,
+            scoring_index,
+            grouped,
+        ),
         AccessChoiceFamily::Range => augment_candidate_with_order_compatibility(
             range::evaluate_range_candidate_from_contract(index, schema, predicate),
             schema,

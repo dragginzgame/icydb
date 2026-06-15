@@ -212,6 +212,24 @@ impl AccessPath<Value> {
 
                 Self::IndexMultiLookup { index, values }
             }
+            Self::IndexBranchSet {
+                index,
+                fixed_values,
+                mut branch_values,
+            } => {
+                canonicalize_value_set(&mut branch_values);
+                if let Some(branch_value) = single_canonical_value(branch_values.as_slice()) {
+                    let mut values = fixed_values;
+                    values.push(branch_value.clone());
+                    return Self::IndexPrefix { index, values };
+                }
+
+                Self::IndexBranchSet {
+                    index,
+                    fixed_values,
+                    branch_values,
+                }
+            }
             other => other,
         }
     }
@@ -268,6 +286,25 @@ impl AccessPath<Value> {
                 right_index,
                 right_values,
             ),
+            (
+                Self::IndexBranchSet {
+                    index: left_index,
+                    fixed_values: left_fixed_values,
+                    branch_values: left_branch_values,
+                },
+                Self::IndexBranchSet {
+                    index: right_index,
+                    fixed_values: right_fixed_values,
+                    branch_values: right_branch_values,
+                },
+            ) => Self::canonical_cmp_index_branch_set(
+                left_index,
+                left_fixed_values,
+                left_branch_values,
+                right_index,
+                right_fixed_values,
+                right_branch_values,
+            ),
             (Self::IndexRange { spec: left_spec }, Self::IndexRange { spec: right_spec }) => {
                 Self::canonical_cmp_index_range(left_spec, right_spec)
             }
@@ -291,7 +328,8 @@ impl AccessPath<Value> {
                     2
                 },
             },
-            Self::IndexMultiLookup { .. } => AccessPathRank { tier: 1, detail: 3 },
+            Self::IndexBranchSet { .. } => AccessPathRank { tier: 1, detail: 3 },
+            Self::IndexMultiLookup { .. } => AccessPathRank { tier: 1, detail: 4 },
             Self::FullScan => AccessPathRank { tier: 2, detail: 0 },
         }
     }
@@ -344,6 +382,28 @@ impl AccessPath<Value> {
         }
 
         canonical_cmp_value_list(left_values, right_values)
+    }
+
+    // Compare one index branch-set shape after rank + variant pairing succeeds.
+    fn canonical_cmp_index_branch_set(
+        left_index: &SemanticIndexAccessContract,
+        left_fixed_values: &[Value],
+        left_branch_values: &[Value],
+        right_index: &SemanticIndexAccessContract,
+        right_fixed_values: &[Value],
+        right_branch_values: &[Value],
+    ) -> Ordering {
+        let cmp = canonical_cmp_index_identity(left_index, right_index);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        let cmp = canonical_cmp_value_list(left_fixed_values, right_fixed_values);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        canonical_cmp_value_list(left_branch_values, right_branch_values)
     }
 
     // Compare one semantic index-range shape after rank + variant pairing succeeds.

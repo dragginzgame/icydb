@@ -110,6 +110,11 @@ enum AccessPathCacheKey {
         index: String,
         values: Vec<ValueCacheKey>,
     },
+    IndexBranchSet {
+        index: String,
+        fixed_values: Vec<ValueCacheKey>,
+        branch_values: Vec<ValueCacheKey>,
+    },
     IndexRange(IndexRangeCacheKey),
     Union(Vec<Self>),
     Intersection(Vec<Self>),
@@ -480,6 +485,14 @@ impl AccessPathCacheKey {
                 |(index, values)| Self::IndexMultiLookup {
                     index: index.name().to_string(),
                     values: Self::value_list_cache_key(values),
+                },
+            ),
+            AccessPathKind::IndexBranchSet => path.as_index_branch_set_contract().map_or_else(
+                || Self::invalid_access_path_projection(kind),
+                |(index, fixed_values, branch_values)| Self::IndexBranchSet {
+                    index: index.name().to_string(),
+                    fixed_values: Self::value_list_cache_key(fixed_values),
+                    branch_values: Self::value_list_cache_key(branch_values),
                 },
             ),
             AccessPathKind::IndexRange => path.as_index_range().map_or_else(

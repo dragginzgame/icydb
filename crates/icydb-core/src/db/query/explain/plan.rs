@@ -430,6 +430,12 @@ pub enum ExplainAccessPath {
         fields: Vec<String>,
         values: Vec<Value>,
     },
+    IndexBranchSet {
+        name: String,
+        fields: Vec<String>,
+        fixed_values: Vec<Value>,
+        branch_values: Vec<Value>,
+    },
     IndexRange {
         name: String,
         fields: Vec<String>,
@@ -552,6 +558,8 @@ pub enum ExplainAccessDecisionKind {
     IndexPrefix,
     /// Secondary-index multi-value lookup.
     IndexMultiLookup,
+    /// Branch-aware secondary-index composite prefix lookup.
+    IndexBranchSet,
     /// Secondary-index range lookup.
     IndexRange,
     /// Full entity scan.
@@ -570,6 +578,7 @@ impl ExplainAccessDecisionKind {
             ExplainAccessPath::KeyRange { .. } => Self::KeyRange,
             ExplainAccessPath::IndexPrefix { .. } => Self::IndexPrefix,
             ExplainAccessPath::IndexMultiLookup { .. } => Self::IndexMultiLookup,
+            ExplainAccessPath::IndexBranchSet { .. } => Self::IndexBranchSet,
             ExplainAccessPath::IndexRange { .. } => Self::IndexRange,
             ExplainAccessPath::FullScan => Self::FullScan,
             ExplainAccessPath::Union(_) => Self::Union,
@@ -584,6 +593,7 @@ impl ExplainAccessDecisionKind {
             Self::KeyRange => "KeyRange",
             Self::IndexPrefix => "IndexPrefix",
             Self::IndexMultiLookup => "IndexMultiLookup",
+            Self::IndexBranchSet => "IndexBranchSet",
             Self::IndexRange => "IndexRange",
             Self::FullScan => "FullScan",
             Self::Union => "Union",
@@ -948,6 +958,7 @@ const fn selected_index_name(access: &ExplainAccessPath) -> Option<&str> {
     match access {
         ExplainAccessPath::IndexPrefix { name, .. }
         | ExplainAccessPath::IndexMultiLookup { name, .. }
+        | ExplainAccessPath::IndexBranchSet { name, .. }
         | ExplainAccessPath::IndexRange { name, .. } => Some(name.as_str()),
         ExplainAccessPath::ByKey { .. }
         | ExplainAccessPath::ByKeys { .. }
@@ -963,6 +974,11 @@ fn access_bound_predicate_count(access: &ExplainAccessPath) -> usize {
         ExplainAccessPath::ByKey { .. }
         | ExplainAccessPath::ByKeys { .. }
         | ExplainAccessPath::IndexMultiLookup { .. } => 1,
+        ExplainAccessPath::IndexBranchSet {
+            fixed_values,
+            branch_values,
+            ..
+        } => fixed_values.len() + usize::from(!branch_values.is_empty()),
         ExplainAccessPath::KeyRange { .. } => 2,
         ExplainAccessPath::IndexPrefix { prefix_len, .. } => *prefix_len,
         ExplainAccessPath::IndexRange {

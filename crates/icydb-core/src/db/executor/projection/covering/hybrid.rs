@@ -34,6 +34,7 @@ where
     C: CanisterKind,
 {
     if plan.access.as_index_prefix_contract_path().is_none()
+        && plan.access.as_index_branch_set_contract_path().is_none()
         && plan.access.as_index_range_path().is_none()
     {
         return Ok(None);
@@ -154,7 +155,10 @@ fn hybrid_covering_scan_limit(
     let Some(page) = page else {
         return usize::MAX;
     };
-    if !matches!(order_contract, CoveringProjectionOrder::IndexOrder(_)) {
+    if !matches!(
+        order_contract,
+        CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
+    ) {
         return usize::MAX;
     }
     let Some(limit) = page.limit else {
@@ -196,7 +200,11 @@ const fn hybrid_covering_route_can_apply_page_during_scan(
     order_contract: CoveringProjectionOrder,
     distinct: bool,
 ) -> bool {
-    !distinct && matches!(order_contract, CoveringProjectionOrder::IndexOrder(_))
+    !distinct
+        && matches!(
+            order_contract,
+            CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
+        )
 }
 
 fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize> {

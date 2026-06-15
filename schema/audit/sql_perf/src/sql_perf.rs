@@ -154,3 +154,24 @@ pub struct PerfAuditBlob {}
     )
 )]
 pub struct PerfAuditAccount {}
+
+///
+/// PerfAuditToken
+///
+/// Token-shaped perf fixture for production list/page queries that filter a
+/// fixed collection, branch over a small stage set, and globally order by id.
+///
+
+#[entity(
+    store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    index(fields = ["collection_id", "stage", "id"]),
+    fields(
+        field(ident = "id", value(item(prim = "Ulid"))),
+        field(ident = "collection_id", value(item(prim = "Text", unbounded))),
+        field(ident = "stage", value(item(prim = "Text", unbounded))),
+        field(ident = "title", value(item(prim = "Text", unbounded)))
+    )
+)]
+pub struct PerfAuditToken {}

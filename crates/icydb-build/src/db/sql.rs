@@ -488,6 +488,29 @@ mod tests {
     }
 
     #[test]
+    fn generated_readonly_sql_surface_has_no_implicit_page_or_count_endpoint() {
+        let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
+        let mut surface_tokens = SqlSurfaceTokens::empty(all_sql_surface_flags(), None);
+
+        surface_tokens.push_entity(&entity_ty);
+
+        let endpoint = compact_tokens(super::sql_surface_endpoint_exports(
+            all_sql_surface_flags(),
+            None,
+        ));
+        let surface = compact_tokens(quote!(#surface_tokens));
+
+        assert!(endpoint.contains("fn__icydb_query("));
+        assert!(!endpoint.contains("fn__icydb_list("));
+        assert!(!endpoint.contains("fn__icydb_page("));
+        assert!(!endpoint.contains("fn__icydb_count("));
+        assert!(surface.contains("execute_sql_query_with_perf_attribution"));
+        assert!(!surface.contains("execute_sql_count"));
+        assert!(!surface.contains("execute_fluent_count"));
+        assert!(!surface.contains("execute_count"));
+    }
+
+    #[test]
     fn generated_sql_query_surface_can_reject_introspection() {
         let entity_ty: syn::Path = syn::parse_quote!(crate::Character);
         let mut surface_tokens =

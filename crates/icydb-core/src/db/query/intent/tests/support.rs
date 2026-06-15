@@ -135,6 +135,11 @@ impl PlanAssertion<'_> {
         let actual = match self.plan.access() {
             ExplainAccessPath::IndexPrefix { prefix_len, .. }
             | ExplainAccessPath::IndexRange { prefix_len, .. } => Some(*prefix_len),
+            ExplainAccessPath::IndexBranchSet {
+                fixed_values,
+                branch_values,
+                ..
+            } => (!branch_values.is_empty()).then_some(fixed_values.len().saturating_add(1)),
             ExplainAccessPath::ByKey { .. }
             | ExplainAccessPath::ByKeys { .. }
             | ExplainAccessPath::KeyRange { .. }

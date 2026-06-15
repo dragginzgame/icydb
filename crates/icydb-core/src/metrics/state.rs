@@ -151,6 +151,7 @@ pub struct EventOps {
     pub(crate) plan_by_key: u64,
     pub(crate) plan_by_keys: u64,
     pub(crate) plan_key_range: u64,
+    pub(crate) plan_index_branch_set: u64,
     pub(crate) plan_index_prefix: u64,
     pub(crate) plan_index_multi_lookup: u64,
     pub(crate) plan_index_range: u64,
@@ -559,6 +560,11 @@ impl EventOps {
     #[must_use]
     pub const fn plan_key_range(&self) -> u64 {
         self.plan_key_range
+    }
+
+    #[must_use]
+    pub const fn plan_index_branch_set(&self) -> u64 {
+        self.plan_index_branch_set
     }
 
     #[must_use]
@@ -1020,6 +1026,7 @@ pub(crate) struct EntityCounters {
     pub(crate) plan_by_key: u64,
     pub(crate) plan_by_keys: u64,
     pub(crate) plan_key_range: u64,
+    pub(crate) plan_index_branch_set: u64,
     pub(crate) plan_index_prefix: u64,
     pub(crate) plan_index_multi_lookup: u64,
     pub(crate) plan_index_range: u64,
@@ -1584,6 +1591,7 @@ pub struct EntitySummary {
     plan_by_key: u64,
     plan_by_keys: u64,
     plan_key_range: u64,
+    plan_index_branch_set: u64,
     plan_index_prefix: u64,
     plan_index_multi_lookup: u64,
     plan_index_range: u64,
@@ -1983,6 +1991,11 @@ impl EntitySummary {
     #[must_use]
     pub const fn plan_key_range(&self) -> u64 {
         self.plan_key_range
+    }
+
+    #[must_use]
+    pub const fn plan_index_branch_set(&self) -> u64 {
+        self.plan_index_branch_set
     }
 
     #[must_use]
@@ -2445,6 +2458,7 @@ impl EntitySummary {
             .saturating_add(self.plan_by_key)
             .saturating_add(self.plan_by_keys)
             .saturating_add(self.plan_key_range)
+            .saturating_add(self.plan_index_branch_set)
             .saturating_add(self.plan_index_prefix)
             .saturating_add(self.plan_index_multi_lookup)
             .saturating_add(self.plan_index_range)
@@ -2595,6 +2609,7 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         plan_by_key: ops.plan_by_key,
         plan_by_keys: ops.plan_by_keys,
         plan_key_range: ops.plan_key_range,
+        plan_index_branch_set: ops.plan_index_branch_set,
         plan_index_prefix: ops.plan_index_prefix,
         plan_index_multi_lookup: ops.plan_index_multi_lookup,
         plan_index_range: ops.plan_index_range,

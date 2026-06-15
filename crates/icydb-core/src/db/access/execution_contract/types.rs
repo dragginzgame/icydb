@@ -30,6 +30,10 @@ pub(in crate::db) enum ExecutionPathPayload<'a, K> {
         index: IndexShapeDetails,
         value_count: usize,
     },
+    IndexBranchSet {
+        index: IndexShapeDetails,
+        branch_count: usize,
+    },
     IndexRange {
         index: IndexShapeDetails,
         prefix_values: &'a [Value],
@@ -63,6 +67,15 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
                 value_count: values.len(),
             };
         }
+        if let Some((index, fixed_values, branch_values)) = path.as_index_branch_set_contract() {
+            return Self::IndexBranchSet {
+                index: IndexShapeDetails::from_access_contract(
+                    index,
+                    fixed_values.len().saturating_add(1),
+                ),
+                branch_count: branch_values.len(),
+            };
+        }
         if let Some(spec) = path.as_index_range() {
             return Self::IndexRange {
                 index: IndexShapeDetails::from_access_contract(
@@ -89,6 +102,7 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
             Self::KeyRange { .. } => AccessPathKind::KeyRange,
             Self::IndexPrefix { .. } => AccessPathKind::IndexPrefix,
             Self::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
+            Self::IndexBranchSet { .. } => AccessPathKind::IndexBranchSet,
             Self::IndexRange { .. } => AccessPathKind::IndexRange,
             Self::FullScan => AccessPathKind::FullScan,
         }
@@ -111,6 +125,7 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
             | Self::KeyRange { .. }
             | Self::IndexPrefix { .. }
             | Self::IndexMultiLookup { .. }
+            | Self::IndexBranchSet { .. }
             | Self::FullScan => None,
         }
     }
@@ -119,9 +134,9 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
     #[must_use]
     pub(in crate::db) fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
         match self {
-            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => {
-                Some(index.clone())
-            }
+            Self::IndexPrefix { index, .. }
+            | Self::IndexMultiLookup { index, .. }
+            | Self::IndexBranchSet { index, .. } => Some(index.clone()),
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::KeyRange { .. }
@@ -140,6 +155,7 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
             | Self::KeyRange { .. }
             | Self::IndexPrefix { .. }
             | Self::IndexMultiLookup { .. }
+            | Self::IndexBranchSet { .. }
             | Self::FullScan => None,
         }
     }

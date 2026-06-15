@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+### 🧪 Testing
+
+- Adds a token-shaped SQL perf audit scenario for the branch-aware
+  `(collection_id, stage, id)` route so generated-list style page queries report
+  bounded branch-set traversal and no implicit count work.
+
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)

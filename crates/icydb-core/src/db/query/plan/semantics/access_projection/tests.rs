@@ -60,6 +60,22 @@ impl AccessPlanProjection<u64> for AccessPlanEventProjection {
         self.seen_index = Some((index_name.to_string(), index_fields.len(), 1, values.len()));
     }
 
+    fn index_branch_set(
+        &mut self,
+        index_name: &str,
+        index_fields: &[String],
+        fixed_values: &[Value],
+        branch_values: &[Value],
+    ) -> Self::Output {
+        self.events.push("index_branch_set");
+        self.seen_index = Some((
+            index_name.to_string(),
+            index_fields.len(),
+            fixed_values.len().saturating_add(1),
+            branch_values.len(),
+        ));
+    }
+
     fn index_range(
         &mut self,
         index_name: &str,
@@ -214,6 +230,22 @@ impl AccessPlanProjection<Value> for ExplainAccessEventProjection {
     ) -> Self::Output {
         self.events.push("index_multi_lookup");
         self.seen_index = Some((index_name.to_string(), index_fields.len(), 1, values.len()));
+    }
+
+    fn index_branch_set(
+        &mut self,
+        index_name: &str,
+        index_fields: &[String],
+        fixed_values: &[Value],
+        branch_values: &[Value],
+    ) -> Self::Output {
+        self.events.push("index_branch_set");
+        self.seen_index = Some((
+            index_name.to_string(),
+            index_fields.len(),
+            fixed_values.len().saturating_add(1),
+            branch_values.len(),
+        ));
     }
 
     fn index_range(

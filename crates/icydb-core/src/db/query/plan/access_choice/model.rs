@@ -261,6 +261,7 @@ pub(in crate::db) enum AccessChoiceRejectedReason {
     NonIndexAccess,
     PredicateShapeNotPrefixEligible,
     PredicateShapeNotMultiLookup,
+    PredicateShapeNotBranchSet,
     PredicateShapeNotRangeEligible,
     NonStrictCoercion,
     OperatorNotPrefixEq,
@@ -293,6 +294,7 @@ impl AccessChoiceRejectedReason {
             Self::NonIndexAccess => "non_index_access",
             Self::PredicateShapeNotPrefixEligible => "predicate_shape_not_prefix_eligible",
             Self::PredicateShapeNotMultiLookup => "predicate_shape_not_multi_lookup",
+            Self::PredicateShapeNotBranchSet => "predicate_shape_not_branch_set",
             Self::PredicateShapeNotRangeEligible => "predicate_shape_not_range_eligible",
             Self::NonStrictCoercion => "non_strict_coercion",
             Self::OperatorNotPrefixEq => "operator_not_prefix_eq",
@@ -342,6 +344,7 @@ pub(super) enum AccessChoiceFamily {
     NonIndex,
     Prefix,
     MultiLookup,
+    BranchSet,
     Range,
 }
 

@@ -80,20 +80,33 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     // already guarantees. Range and multi-lookup paths intentionally keep
     // their open bounds as residual semantics unless they appear in the fixed
     // equality prefix.
-    let implied_equalities = if let Some((index, values)) = access_path.as_index_prefix_contract() {
-        access_bound_equalities(index, values)
+    let implied_bounds = if let Some((index, values)) = access_path.as_index_prefix_contract() {
+        AccessBoundClauses {
+            equalities: access_bound_equalities(index, values),
+            branch_in: None,
+        }
+    } else if let Some((index, fixed_values, branch_values)) =
+        access_path.as_index_branch_set_contract()
+    {
+        AccessBoundClauses {
+            equalities: access_bound_equalities(index.clone(), fixed_values),
+            branch_in: access_bound_branch_in(index, fixed_values.len(), branch_values),
+        }
     } else if let Some(spec) = access_path.as_index_range() {
-        access_bound_equalities(spec.index(), spec.prefix_values())
+        AccessBoundClauses {
+            equalities: access_bound_equalities(spec.index(), spec.prefix_values()),
+            branch_in: None,
+        }
     } else {
-        Vec::new()
+        AccessBoundClauses::default()
     };
-    if implied_equalities.is_empty() {
+    if implied_bounds.is_empty() {
         return Some(query_predicate.clone());
     }
 
     // Phase 2: strip only clauses already implied by those fixed equality
     // bounds so execution does not retain redundant post-access filtering.
-    strip_query_clauses_satisfied_by_access_bounds(query_predicate, &implied_equalities)
+    strip_query_clauses_satisfied_by_access_bounds(query_predicate, &implied_bounds)
 }
 
 pub(in crate::db::query::plan) fn predicate_implies_predicate_for_planner(
@@ -153,16 +166,66 @@ fn access_bound_equalities(
         .collect()
 }
 
+#[derive(Default)]
+struct AccessBoundClauses {
+    equalities: Vec<ComparePredicate>,
+    branch_in: Option<ComparePredicate>,
+}
+
+impl AccessBoundClauses {
+    const fn is_empty(&self) -> bool {
+        self.equalities.is_empty() && self.branch_in.is_none()
+    }
+}
+
+fn access_bound_branch_in(
+    index: SemanticIndexAccessContract,
+    branch_slot: usize,
+    branch_values: &[Value],
+) -> Option<ComparePredicate> {
+    let field = index.key_field_at(branch_slot)?;
+
+    Some(ComparePredicate::with_coercion(
+        field,
+        CompareOp::In,
+        Value::List(branch_values.to_vec()),
+        CoercionId::Strict,
+    ))
+}
+
 fn strip_query_clauses_satisfied_by_access_bounds(
     query_predicate: &Predicate,
-    implied_equalities: &[ComparePredicate],
+    implied_bounds: &AccessBoundClauses,
 ) -> Option<Predicate> {
     strip_query_clauses(query_predicate, |cmp| {
-        compare_clause_supported(cmp)
-            && implied_equalities
-                .iter()
-                .any(|bound| query_clause_implies_required(bound, cmp))
+        branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp)
+            || (compare_clause_supported(cmp)
+                && implied_bounds
+                    .equalities
+                    .iter()
+                    .any(|bound| query_clause_implies_required(bound, cmp)))
     })
+}
+
+fn branch_in_clause_implies_required(
+    branch_in: Option<&ComparePredicate>,
+    cmp: &ComparePredicate,
+) -> bool {
+    let Some(branch_in) = branch_in else {
+        return false;
+    };
+    if cmp.field() != branch_in.field() || cmp.op() != CompareOp::In {
+        return false;
+    }
+    let (Value::List(left), Value::List(right)) = (cmp.value(), branch_in.value()) else {
+        return false;
+    };
+    let mut left = left.clone();
+    let mut right = right.clone();
+    crate::value::canonicalize_value_set(&mut left);
+    crate::value::canonicalize_value_set(&mut right);
+
+    left == right
 }
 
 // Both residual-stripping paths share the same recursive AND-collapse contract;

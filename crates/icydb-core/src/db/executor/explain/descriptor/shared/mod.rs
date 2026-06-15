@@ -134,6 +134,19 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         )
     }
 
+    fn index_branch_set(
+        &mut self,
+        _index_name: &str,
+        _index_fields: &[String],
+        _fixed_values: &[Value],
+        _branch_values: &[Value],
+    ) -> Self::Output {
+        empty_execution_node_descriptor(
+            ExplainExecutionNodeType::IndexBranchSet,
+            self.execution_mode,
+        )
+    }
+
     fn index_range(
         &mut self,
         _index_name: &str,
@@ -263,15 +276,14 @@ pub(in crate::db::executor::explain::descriptor) fn route_diagnostic_line_debug(
     out
 }
 
-const fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
-    if let Some(
-        ExplainAccessRoute::IndexPrefix { prefix_len, .. }
-        | ExplainAccessRoute::IndexRange { prefix_len, .. },
-    ) = access_strategy
-    {
-        Some(*prefix_len)
-    } else {
-        None
+fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
+    match access_strategy {
+        Some(ExplainAccessRoute::IndexPrefix { prefix_len, .. })
+        | Some(ExplainAccessRoute::IndexRange { prefix_len, .. }) => Some(*prefix_len),
+        Some(ExplainAccessRoute::IndexBranchSet { fixed_values, .. }) => {
+            Some(fixed_values.len().saturating_add(1))
+        }
+        _ => None,
     }
 }
 
@@ -281,6 +293,15 @@ fn access_prefix_values(access_strategy: Option<&ExplainAccessRoute>) -> Option<
             ExplainAccessRoute::IndexPrefix { values, .. }
             | ExplainAccessRoute::IndexMultiLookup { values, .. },
         ) => Some(values.clone()),
+        Some(ExplainAccessRoute::IndexBranchSet {
+            fixed_values,
+            branch_values,
+            ..
+        }) => {
+            let mut values = fixed_values.clone();
+            values.extend_from_slice(branch_values);
+            Some(values)
+        }
         Some(ExplainAccessRoute::IndexRange { prefix, .. }) => Some(prefix.clone()),
         _ => None,
     }

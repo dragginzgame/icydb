@@ -105,7 +105,14 @@ where
         );
     }
     if !index_prefix_specs.is_empty() {
-        return Err(InternalError::query_executor_invariant());
+        return resolve_covering_projection_components_for_prefix_set(
+            entity_tag,
+            index_prefix_specs,
+            direction,
+            limit,
+            component_indices,
+            resolve_store_for_index,
+        );
     }
 
     if let [spec] = index_range_specs {
@@ -125,6 +132,45 @@ where
     }
 
     Err(InternalError::query_executor_invariant())
+}
+
+// Resolve a branch/multi-prefix covering projection by reading only the bounded
+// page window from each prefix, then applying the same primary-key order and
+// duplicate suppression contract as the dynamic key stream merge.
+fn resolve_covering_projection_components_for_prefix_set<F>(
+    entity_tag: EntityTag,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    direction: Direction,
+    limit: usize,
+    component_indices: &[usize],
+    mut resolve_store_for_index: F,
+) -> Result<CoveringProjectionComponentRows, InternalError>
+where
+    F: FnMut(&str) -> Result<StoreHandle, InternalError>,
+{
+    let continuation = IndexScanContinuationInput::new(None, direction);
+    let mut rows = CoveringProjectionComponentRows::new();
+    for spec in index_prefix_specs {
+        let scan_contract = spec.scan_contract();
+        rows.extend(resolve_covering_projection_components_for_index_bounds(
+            resolve_store_for_index(scan_contract.store_path())?,
+            entity_tag,
+            scan_contract,
+            (spec.lower(), spec.upper()),
+            continuation,
+            limit,
+            component_indices,
+        )?);
+    }
+
+    match direction {
+        Direction::Asc => rows.sort_by(|left, right| left.0.cmp(&right.0)),
+        Direction::Desc => rows.sort_by(|left, right| right.0.cmp(&left.0)),
+    }
+    rows.dedup_by(|left, right| left.0 == right.0);
+    rows.truncate(limit);
+
+    Ok(rows)
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.

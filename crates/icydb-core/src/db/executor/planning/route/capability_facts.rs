@@ -35,6 +35,7 @@ pub(in crate::db::executor) const fn ordered_key_stream_window_shape_supported(
             | AccessPathKind::ByKeys
             | AccessPathKind::IndexPrefix
             | AccessPathKind::IndexMultiLookup
+            | AccessPathKind::IndexBranchSet
             | AccessPathKind::IndexRange
     )
 }
@@ -68,7 +69,7 @@ pub(in crate::db::executor) const fn top_n_seek_lookahead_required_for_shape(
 ) -> bool {
     matches!(
         shape_facts.kind(),
-        AccessPathKind::ByKeys | AccessPathKind::IndexMultiLookup
+        AccessPathKind::ByKeys | AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
     )
 }
 
@@ -103,6 +104,7 @@ pub(in crate::db::executor) const fn streaming_numeric_fold_shape_supported(
             | AccessPathKind::FullScan
             | AccessPathKind::KeyRange
             | AccessPathKind::IndexPrefix
+            | AccessPathKind::IndexBranchSet
             | AccessPathKind::IndexRange
     )
 }

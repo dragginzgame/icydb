@@ -198,11 +198,12 @@ impl ExecutionStats {
 pub enum ExecutionAccessPathVariant {
     ByKey,
     ByKeys,
-    KeyRange,
-    IndexPrefix,
-    IndexMultiLookup,
-    IndexRange,
     FullScan,
+    IndexBranchSet,
+    IndexMultiLookup,
+    IndexPrefix,
+    IndexRange,
+    KeyRange,
     Union,
     Intersection,
 }

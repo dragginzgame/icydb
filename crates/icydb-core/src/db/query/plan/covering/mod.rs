@@ -172,6 +172,7 @@ pub(in crate::db) fn covering_read_reason_code_for_load_plan(
         return "order_mat";
     }
     let index_shape_supported = plan.access.as_index_prefix_contract_path().is_some()
+        || plan.access.as_index_branch_set_contract_path().is_some()
         || plan.access.as_index_range_path().is_some();
     if !index_shape_supported {
         return "access_not_cov";
@@ -201,6 +202,7 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
     }
 
     let index_shape_supported = plan.access.as_index_prefix_contract_path().is_some()
+        || plan.access.as_index_branch_set_contract_path().is_some()
         || plan.access.as_index_range_path().is_some();
     if !index_shape_supported {
         return false;
@@ -676,6 +678,16 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: values,
             prefix_len: values.len(),
+            path_kind_is_range: false,
+        });
+    }
+    if let Some((index, fixed_values, branch_values)) = access.as_index_branch_set_contract_path() {
+        return (!branch_values.is_empty()).then(|| IndexCoveringAccessFacts {
+            order_terms: index_key_item_order_terms(index.key_items()),
+            coverable_component_fields: coverable_component_fields_for_contract(&index),
+            coverable_component_exprs: coverable_component_exprs_for_contract(&index),
+            prefix_values: fixed_values,
+            prefix_len: fixed_values.len().saturating_add(1),
             path_kind_is_range: false,
         });
     }

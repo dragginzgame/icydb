@@ -67,6 +67,21 @@ impl<K> AccessPlan<K> {
         Self::path(AccessPath::IndexMultiLookup { index, values })
     }
 
+    /// Construct a branch-aware composite prefix access plan from one reduced
+    /// access contract.
+    #[must_use]
+    pub(crate) fn index_branch_set_from_contract(
+        index: SemanticIndexAccessContract,
+        fixed_values: Vec<Value>,
+        branch_values: Vec<Value>,
+    ) -> Self {
+        Self::path(AccessPath::IndexBranchSet {
+            index,
+            fixed_values,
+            branch_values,
+        })
+    }
+
     /// Construct an index-range access plan from one semantic range descriptor.
     #[must_use]
     pub(crate) fn index_range(spec: SemanticIndexRangeSpec) -> Self {
@@ -165,6 +180,16 @@ impl<K> AccessPlan<K> {
     ) -> Option<(SemanticIndexAccessContract, &[Value])> {
         self.as_path()
             .and_then(|path| path.as_index_prefix_contract())
+    }
+
+    /// Borrow branch-aware composite prefix details when this is a single
+    /// `IndexBranchSet` path.
+    #[must_use]
+    pub(in crate::db) fn as_index_branch_set_contract_path(
+        &self,
+    ) -> Option<(SemanticIndexAccessContract, &[Value], &[Value])> {
+        self.as_path()
+            .and_then(|path| path.as_index_branch_set_contract())
     }
 
     /// Borrow index-range access details when this is a single IndexRange path.

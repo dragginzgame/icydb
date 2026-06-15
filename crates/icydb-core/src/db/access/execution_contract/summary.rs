@@ -74,6 +74,17 @@ where
                 format!("IndexMultiLookup(values={value_count})")
             }
         }
+        ExecutionPathPayload::IndexBranchSet { branch_count, .. } => {
+            if let Some(details) = path.index_prefix_details() {
+                format!(
+                    "IndexBranchSet({} fixed_prefix_len={} branches={branch_count})",
+                    details.name(),
+                    details.slot_arity().saturating_sub(1),
+                )
+            } else {
+                format!("IndexBranchSet(branches={branch_count})")
+            }
+        }
         ExecutionPathPayload::IndexRange {
             prefix_values,
             lower,

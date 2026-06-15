@@ -883,6 +883,10 @@ pub(super) const fn record_global_plan_kind(ops: &mut metrics::EventOps, kind: P
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
         }
+        PlanKind::IndexBranchSet => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_branch_set = ops.plan_index_branch_set.saturating_add(1);
+        }
         PlanKind::IndexMultiLookup => {
             ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_multi_lookup = ops.plan_index_multi_lookup.saturating_add(1);
@@ -1040,6 +1044,10 @@ pub(super) const fn record_entity_plan_kind(ops: &mut metrics::EntityCounters, k
         PlanKind::FullScan => {
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
+        }
+        PlanKind::IndexBranchSet => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_branch_set = ops.plan_index_branch_set.saturating_add(1);
         }
         PlanKind::IndexMultiLookup => {
             ops.plan_index = ops.plan_index.saturating_add(1);

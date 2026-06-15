@@ -39,6 +39,13 @@ pub(in crate::db) trait AccessPlanProjection<K> {
         index_fields: &[String],
         values: &[Value],
     ) -> Self::Output;
+    fn index_branch_set(
+        &mut self,
+        index_name: &str,
+        index_fields: &[String],
+        fixed_values: &[Value],
+        branch_values: &[Value],
+    ) -> Self::Output;
     fn index_range(
         &mut self,
         index_name: &str,
@@ -108,6 +115,20 @@ impl<K> AccessPath<K> {
 
                 projection.index_multi_lookup(index.name(), fields.as_slice(), values)
             }
+            Self::IndexBranchSet {
+                index,
+                fixed_values,
+                branch_values,
+            } => {
+                let fields = index_contract_key_fields(index);
+
+                projection.index_branch_set(
+                    index.name(),
+                    fields.as_slice(),
+                    fixed_values,
+                    branch_values,
+                )
+            }
             Self::IndexRange { spec } => {
                 let contract = spec.index();
                 let fields = index_contract_key_fields(&contract);
@@ -164,6 +185,12 @@ where
             fields,
             values,
         } => projection.index_multi_lookup(name, fields, values),
+        ExplainAccessPath::IndexBranchSet {
+            name,
+            fields,
+            fixed_values,
+            branch_values,
+        } => projection.index_branch_set(name, fields, fixed_values, branch_values),
         ExplainAccessPath::IndexRange {
             name,
             fields,
@@ -241,6 +268,19 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
     ) -> Self::Output {
         let mut label = String::new();
         let _ = write!(&mut label, "IndexMultiLookup({index_name})");
+
+        label
+    }
+
+    fn index_branch_set(
+        &mut self,
+        index_name: &str,
+        _index_fields: &[String],
+        _fixed_values: &[Value],
+        _branch_values: &[Value],
+    ) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "IndexBranchSet({index_name})");
 
         label
     }
@@ -334,6 +374,16 @@ impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
         _values: &[Value],
     ) -> Self::Output {
         "index_multi_lookup"
+    }
+
+    fn index_branch_set(
+        &mut self,
+        _index_name: &str,
+        _index_fields: &[String],
+        _fixed_values: &[Value],
+        _branch_values: &[Value],
+    ) -> Self::Output {
+        "index_branch_set"
     }
 
     fn index_range(

@@ -383,6 +383,29 @@ static PLANNER_ORDER_ONLY_RANKING_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_ORDER_ONLY_RANKING_INDEX_REFS,
 );
 
+static PLANNER_BRANCH_SET_FIELDS: [FieldModel; 4] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("collection_id", FieldKind::Text { max_len: None }),
+    FieldModel::generated("stage", FieldKind::Text { max_len: None }),
+    FieldModel::generated("title", FieldKind::Text { max_len: None }),
+];
+static PLANNER_BRANCH_SET_INDEX_FIELDS: [&str; 3] = ["collection_id", "stage", "id"];
+static PLANNER_BRANCH_SET_INDEXES: [IndexModel; 1] = [IndexModel::generated(
+    "collection_stage_id_idx",
+    "planner::branch_set_test_entity",
+    &PLANNER_BRANCH_SET_INDEX_FIELDS,
+    false,
+)];
+static PLANNER_BRANCH_SET_INDEX_REFS: [&IndexModel; 1] = [&PLANNER_BRANCH_SET_INDEXES[0]];
+static PLANNER_BRANCH_SET_MODEL: EntityModel = entity_model_from_static(
+    "planner::branch_set_test_entity",
+    "PlannerBranchSetTestEntity",
+    &PLANNER_BRANCH_SET_FIELDS[0],
+    0,
+    &PLANNER_BRANCH_SET_FIELDS,
+    &PLANNER_BRANCH_SET_INDEX_REFS,
+);
+
 fn plan_access_for_test(
     model: &EntityModel,
     schema: &SchemaInfo,
@@ -454,6 +477,30 @@ fn canonical_order(fields: &[(&str, OrderDirection)]) -> OrderSpec {
             .map(|(field, direction)| crate::db::query::plan::OrderTerm::field(*field, *direction))
             .collect(),
     }
+}
+
+fn branch_set_target_predicate() -> Predicate {
+    Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "collection_id",
+            CompareOp::Eq,
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("Draft".to_string()),
+                Value::Text("Review".to_string()),
+            ]),
+            CoercionId::Strict,
+        )),
+    ])
+}
+
+fn branch_set_target_order() -> OrderSpec {
+    canonical_order(&[("id", OrderDirection::Asc)])
 }
 
 fn assert_order_only_fallback_index_range(
@@ -781,6 +828,118 @@ fn planner_primary_key_range_prefers_primary_key_order_over_unordered_secondary_
             Value::Ulid(Ulid::from_u128(90))
         ),
         "primary-key order should let the bounded primary-key range outrank one competing secondary prefix route that cannot preserve ORDER BY id",
+    );
+}
+
+#[test]
+fn planner_branch_set_recognizes_fixed_prefix_in_branch_primary_key_order() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_BRANCH_SET_MODEL);
+    let predicate = branch_set_target_predicate();
+    let order = branch_set_target_order();
+
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_BRANCH_SET_MODEL,
+        schema,
+        Some(&predicate),
+        Some(order.clone()),
+    )
+    .expect("fixed-prefix IN-branch primary-key order predicate should plan");
+
+    let AccessPlan::Path(path) = &plan else {
+        panic!("target branch predicate should lower to one explicit access path");
+    };
+    let AccessPath::IndexBranchSet {
+        index,
+        fixed_values,
+        branch_values,
+    } = path.as_ref()
+    else {
+        panic!("target branch predicate should lower to a branch-aware index route");
+    };
+
+    assert_eq!(index.name(), "collection_stage_id_idx");
+    assert_eq!(
+        fixed_values,
+        &[Value::Text("01KV5N439P0000000000000000".to_string())]
+    );
+    assert_eq!(
+        branch_values,
+        &[
+            Value::Text("Draft".to_string()),
+            Value::Text("Review".to_string()),
+        ]
+    );
+
+    let primary_key_names: Vec<&str> = schema
+        .primary_key_names()
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let order_contract = order
+        .deterministic_secondary_order_contract_fields(&primary_key_names)
+        .expect("ORDER BY id ASC should form a deterministic secondary-order contract");
+    assert!(
+        crate::db::query::plan::access_satisfies_deterministic_secondary_order_contract(
+            &plan.shape_facts(),
+            &order_contract,
+        ),
+        "branch-set route should be globally ordered by the primary-key suffix once fixed prefix plus branch slot are consumed",
+    );
+}
+
+#[test]
+fn planner_branch_set_falls_back_when_branch_count_exceeds_cap() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_BRANCH_SET_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "collection_id",
+            CompareOp::Eq,
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::In,
+            Value::List(
+                (0..=MAX_INDEX_BRANCH_SET_VALUES)
+                    .map(|value| Value::Text(format!("Stage{value:02}")))
+                    .collect(),
+            ),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_BRANCH_SET_MODEL,
+        schema,
+        Some(&predicate),
+        Some(branch_set_target_order()),
+    )
+    .expect("over-cap branch predicate should still plan through a fallback route");
+
+    assert!(
+        !matches!(plan.as_path(), Some(AccessPath::IndexBranchSet { .. })),
+        "over-cap IN lists should not use the branch-aware route",
+    );
+}
+
+#[test]
+fn planner_branch_set_residual_stripping_removes_access_proven_prefix_predicates() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_BRANCH_SET_MODEL);
+    let predicate = branch_set_target_predicate();
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_BRANCH_SET_MODEL,
+        schema,
+        Some(&predicate),
+        Some(branch_set_target_order()),
+    )
+    .expect("target branch predicate should plan");
+
+    let residual = residual_query_predicate_after_access_path_bounds(plan.as_path(), &predicate);
+
+    assert_eq!(
+        residual, None,
+        "fixed collection_id equality and exact stage IN are both proven by the branch route",
     );
 }
 

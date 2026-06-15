@@ -200,6 +200,7 @@ pub enum PlanKind {
     ByKey,
     ByKeys,
     FullScan,
+    IndexBranchSet,
     IndexMultiLookup,
     IndexPrefix,
     IndexRange,

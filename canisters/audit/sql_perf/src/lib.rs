@@ -7,7 +7,7 @@ use candid::CandidType;
 #[cfg(feature = "sql")]
 use ic_cdk::query;
 use ic_cdk::update;
-use icydb::types::Timestamp;
+use icydb::types::{Timestamp, Ulid};
 #[cfg(feature = "sql")]
 use icydb::{
     ErrorCode, ErrorOrigin,
@@ -22,7 +22,7 @@ use icydb::{
 };
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditHeapUser, PerfAuditJournaledUser,
-    PerfAuditUser,
+    PerfAuditToken, PerfAuditUser,
 };
 
 icydb::start!();
@@ -1003,6 +1003,7 @@ fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
     db().delete::<PerfAuditBlob>().execute()?;
     db().delete::<PerfAuditHeapUser>().execute()?;
     db().delete::<PerfAuditJournaledUser>().execute()?;
+    db().delete::<PerfAuditToken>().execute()?;
     db().delete::<PerfAuditUser>().execute()?;
 
     Ok(())
@@ -1017,6 +1018,7 @@ fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
     db().insert_many_atomic(perf_audit_journaled_users())?;
     db().insert_many_atomic(perf_audit_blobs())?;
     db().insert_many_atomic(perf_audit_accounts())?;
+    db().insert_many_atomic(perf_audit_tokens())?;
 
     Ok(())
 }
@@ -1488,6 +1490,49 @@ fn query_blob_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResul
     query_entity_with_perf_loop::<PerfAuditBlob>(sql.as_str(), runs)
 }
 
+/// Execute one PerfAuditToken-only SQL query.
+#[cfg(feature = "sql")]
+#[query]
+fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    db().execute_sql_query::<PerfAuditToken>(sql.as_str())
+}
+
+/// Execute one PerfAuditToken-only SQL query and attach one local instruction
+/// sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
+/// Execute one PerfAuditToken-only SQL query through the update surface so the
+/// canister can persist warmed query caches for later query calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_token_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditToken>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
+/// Execute the same PerfAuditToken-only SQL query repeatedly inside one
+/// canister query call and report the per-run average instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_token_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
+    query_entity_with_perf_loop::<PerfAuditToken>(sql.as_str(), runs)
+}
+
 /// Execute one dedicated PerfAuditUser fluent perf scenario and attach one
 /// local instruction sample.
 #[cfg(feature = "sql")]
@@ -1776,6 +1821,47 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
             created_at: Timestamp::default(),
             updated_at: Timestamp::default(),
         },
+    ]
+}
+
+fn perf_audit_token(id: u128, collection_id: &str, stage: &str, title: &str) -> PerfAuditToken {
+    PerfAuditToken {
+        id: Ulid::from_bytes(id.to_be_bytes()),
+        collection_id: collection_id.to_string(),
+        stage: stage.to_string(),
+        title: title.to_string(),
+        created_at: Timestamp::default(),
+        updated_at: Timestamp::default(),
+    }
+}
+
+/// Build the deterministic token fixture batch used by the branch-set perf
+/// audit query.
+fn perf_audit_tokens() -> Vec<PerfAuditToken> {
+    const TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
+    const OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
+
+    vec![
+        perf_audit_token(9_090, TARGET_COLLECTION, "Draft", "draft-090"),
+        perf_audit_token(9_095, TARGET_COLLECTION, "Review", "review-095"),
+        perf_audit_token(9_100, TARGET_COLLECTION, "Review", "review-100"),
+        perf_audit_token(9_105, TARGET_COLLECTION, "Draft", "draft-105"),
+        perf_audit_token(9_110, TARGET_COLLECTION, "Published", "published-110"),
+        perf_audit_token(9_115, OTHER_COLLECTION, "Draft", "other-draft-115"),
+        perf_audit_token(9_120, TARGET_COLLECTION, "Draft", "draft-120"),
+        perf_audit_token(9_125, TARGET_COLLECTION, "Review", "review-125"),
+        perf_audit_token(9_130, TARGET_COLLECTION, "Draft", "draft-130"),
+        perf_audit_token(9_135, TARGET_COLLECTION, "Review", "review-135"),
+        perf_audit_token(9_140, TARGET_COLLECTION, "Queued", "queued-140"),
+        perf_audit_token(9_145, OTHER_COLLECTION, "Review", "other-review-145"),
+        perf_audit_token(9_150, TARGET_COLLECTION, "Draft", "draft-150"),
+        perf_audit_token(9_155, TARGET_COLLECTION, "Review", "review-155"),
+        perf_audit_token(9_160, TARGET_COLLECTION, "Archived", "archived-160"),
+        perf_audit_token(9_165, OTHER_COLLECTION, "Draft", "other-draft-165"),
+        perf_audit_token(9_170, TARGET_COLLECTION, "Draft", "draft-170"),
+        perf_audit_token(9_175, TARGET_COLLECTION, "Review", "review-175"),
+        perf_audit_token(9_180, TARGET_COLLECTION, "Rejected", "rejected-180"),
+        perf_audit_token(9_185, OTHER_COLLECTION, "Review", "other-review-185"),
     ]
 }
 

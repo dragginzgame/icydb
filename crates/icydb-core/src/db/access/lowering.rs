@@ -317,6 +317,24 @@ fn lower_index_specs_for_path<K>(
                 .map_err(|_err| LoweredAccessError::IndexPrefix)?;
             }
         }
+        AccessPath::IndexBranchSet {
+            index,
+            fixed_values,
+            branch_values,
+        } => {
+            for branch_value in branch_values {
+                let mut values = Vec::with_capacity(fixed_values.len().saturating_add(1));
+                values.extend_from_slice(fixed_values);
+                values.push(branch_value.clone());
+                lower_index_prefix_values_for_specs(
+                    entity_tag,
+                    index.clone(),
+                    values.as_slice(),
+                    index_prefix_specs,
+                )
+                .map_err(|_err| LoweredAccessError::IndexPrefix)?;
+            }
+        }
         AccessPath::IndexRange { spec } => {
             debug_assert_eq!(
                 spec.field_slots().len(),

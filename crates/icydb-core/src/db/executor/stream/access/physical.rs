@@ -13,7 +13,8 @@ use crate::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
             OrderedKeyStreamBox, PrimaryScan, ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
-            route::primary_scan_fetch_hint_shape_supported, traversal::IndexRangeTraversalContract,
+            route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
+            traversal::IndexRangeTraversalContract,
         },
         index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
         key_taxonomy::RawDataStoreKeyRange,
@@ -217,6 +218,46 @@ impl KeyAccessRuntime {
                 index_fetch_hint,
             ),
         ))
+    }
+
+    // Resolve a branch-aware composite prefix scan as lazily merged dynamic
+    // prefix streams. Each branch is internally ordered by the primary-key
+    // suffix after the fixed index prefix, and the merge stream suppresses
+    // duplicate decoded primary keys defensively.
+    fn resolve_index_branch_set_stream(
+        &self,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        branch_count: usize,
+        direction: Direction,
+        index_fetch_hint: Option<usize>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        if index_prefix_specs.len() != branch_count {
+            return Err(InternalError::query_executor_invariant());
+        }
+        if index_prefix_specs.is_empty() {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
+
+        let mut streams = Vec::with_capacity(index_prefix_specs.len());
+        for spec in index_prefix_specs {
+            streams.push(OrderedKeyStreamBox::index_range(
+                IndexRangeKeyStream::from_prefix(
+                    self.store,
+                    self.entity_tag,
+                    spec,
+                    direction,
+                    index_fetch_hint,
+                ),
+            ));
+        }
+
+        let key_comparator = KeyOrderComparator::from_direction(direction);
+        let mut stream = streams.remove(0);
+        for next in streams {
+            stream = OrderedKeyStreamBox::merge(stream, next, key_comparator);
+        }
+
+        Ok(stream)
     }
 
     // Resolve one multi-lookup secondary-index scan and normalize duplicates.
@@ -724,6 +765,23 @@ fn resolve_physical_key_stream(
                 request.continuation.direction(),
                 request.index_predicate_execution,
             )?,
+        ExecutionPathPayload::IndexBranchSet { branch_count, .. } => {
+            if index_path_can_stream_in_final_order(request) {
+                return runtime.resolve_index_branch_set_stream(
+                    request.index_prefix_specs,
+                    *branch_count,
+                    request.continuation.direction(),
+                    request.physical_fetch_hint,
+                );
+            }
+
+            runtime.resolve_index_multi_lookup(
+                request.index_prefix_specs,
+                *branch_count,
+                request.continuation.direction(),
+                request.index_predicate_execution,
+            )?
+        }
         ExecutionPathPayload::IndexRange { .. } => {
             if index_path_can_stream_in_final_order(request) {
                 return runtime.resolve_index_range_stream(

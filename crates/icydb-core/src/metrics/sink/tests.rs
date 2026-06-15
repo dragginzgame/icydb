@@ -215,6 +215,7 @@ fn detailed_plan_metrics_accumulate_alongside_coarse_groups() {
         PlanKind::ByKey,
         PlanKind::ByKeys,
         PlanKind::KeyRange,
+        PlanKind::IndexBranchSet,
         PlanKind::IndexPrefix,
         PlanKind::IndexMultiLookup,
         PlanKind::IndexRange,
@@ -235,11 +236,12 @@ fn detailed_plan_metrics_accumulate_alongside_coarse_groups() {
         .expect("metrics report should include counters");
     assert_eq!(counters.ops.plan_keys, 2);
     assert_eq!(counters.ops.plan_range, 1);
-    assert_eq!(counters.ops.plan_index, 3);
+    assert_eq!(counters.ops.plan_index, 4);
     assert_eq!(counters.ops.plan_full_scan, 3);
     assert_eq!(counters.ops.plan_by_key, 1);
     assert_eq!(counters.ops.plan_by_keys, 1);
     assert_eq!(counters.ops.plan_key_range, 1);
+    assert_eq!(counters.ops.plan_index_branch_set, 1);
     assert_eq!(counters.ops.plan_index_prefix, 1);
     assert_eq!(counters.ops.plan_index_multi_lookup, 1);
     assert_eq!(counters.ops.plan_index_range, 1);
@@ -254,11 +256,12 @@ fn detailed_plan_metrics_accumulate_alongside_coarse_groups() {
     assert_eq!(entity.path(), "metrics::tests::Entity");
     assert_eq!(entity.plan_keys(), 2);
     assert_eq!(entity.plan_range(), 1);
-    assert_eq!(entity.plan_index(), 3);
+    assert_eq!(entity.plan_index(), 4);
     assert_eq!(entity.plan_full_scan(), 3);
     assert_eq!(entity.plan_by_key(), 1);
     assert_eq!(entity.plan_by_keys(), 1);
     assert_eq!(entity.plan_key_range(), 1);
+    assert_eq!(entity.plan_index_branch_set(), 1);
     assert_eq!(entity.plan_index_prefix(), 1);
     assert_eq!(entity.plan_index_multi_lookup(), 1);
     assert_eq!(entity.plan_index_range(), 1);

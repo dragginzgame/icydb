@@ -9,7 +9,7 @@ use crate::{
                 AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore,
             },
             key_item_match::{eq_lookup_value_for_key_item, key_item_matches_field_and_coercion},
-            planner::index_literal_matches_schema,
+            planner::{MAX_INDEX_BRANCH_SET_VALUES, index_literal_matches_schema},
         },
         schema::SchemaInfo,
     },
@@ -271,6 +271,63 @@ pub(super) fn evaluate_multi_lookup_candidate_from_contract(
     eligible_single_lookup_candidate(index_contract.clone())
 }
 
+pub(super) fn evaluate_branch_set_candidate_from_contract(
+    index_contract: &SemanticIndexAccessContract,
+    schema: &SchemaInfo,
+    predicate: &Predicate,
+) -> CandidateEvaluation {
+    let Predicate::And(children) = predicate else {
+        return CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::PredicateShapeNotBranchSet,
+        );
+    };
+
+    let eq_constraints = collect_prefix_eq_constraints(schema, children);
+    if eq_constraints.is_empty() {
+        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NoEqConstraints);
+    }
+
+    let fixed_prefix_len = match evaluate_prefix_len_for_key_items(index_contract, &eq_constraints)
+    {
+        Ok(prefix_len) => prefix_len,
+        Err(reason) => return CandidateEvaluation::Rejected(reason),
+    };
+    if fixed_prefix_len == 0 {
+        return CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::LeadingFieldUnconstrained,
+        );
+    }
+
+    let Some(branch_key_item) = index_contract.key_item_at(fixed_prefix_len) else {
+        return CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::MissingContiguousPrefixOrRange,
+        );
+    };
+    let branch_values = match branch_values_for_key_item(branch_key_item, schema, children) {
+        Ok(Some(values)) => values,
+        Ok(None) => {
+            return CandidateEvaluation::Rejected(
+                AccessChoiceRejectedReason::PredicateShapeNotBranchSet,
+            );
+        }
+        Err(reason) => return CandidateEvaluation::Rejected(reason),
+    };
+    if branch_values.len() < 2 || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+        return CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::PredicateShapeNotBranchSet,
+        );
+    }
+
+    let prefix_len = fixed_prefix_len.saturating_add(1);
+    CandidateEvaluation::Eligible(CandidateScore {
+        prefix_len,
+        exact: prefix_len == index_contract.key_arity(),
+        filtered: index_contract.is_filtered(),
+        range_bound_count: 0,
+        order_compatible: false,
+    })
+}
+
 #[cfg(test)]
 pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candidate(
     index: &IndexModel,
@@ -340,4 +397,52 @@ fn eligible_single_lookup_candidate(
         range_bound_count: 0,
         order_compatible: false,
     })
+}
+
+fn branch_values_for_key_item(
+    key_item: SemanticIndexKeyItemRef<'_>,
+    schema: &SchemaInfo,
+    children: &[Predicate],
+) -> Result<Option<Vec<Value>>, AccessChoiceRejectedReason> {
+    let mut matched: Option<Vec<Value>> = None;
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            continue;
+        };
+        if cmp.op != CompareOp::In || key_item.field() != cmp.field.as_str() {
+            continue;
+        }
+        ensure_lookup_coercion_supported(cmp.coercion.id)?;
+        let Value::List(values) = cmp.value() else {
+            return Err(AccessChoiceRejectedReason::InLiteralNotList);
+        };
+        if values.is_empty() {
+            return Err(AccessChoiceRejectedReason::InLiteralEmpty);
+        }
+
+        let mut branch_values = Vec::with_capacity(values.len());
+        for value in values {
+            let literal_compatible =
+                index_literal_matches_schema(schema, cmp.field.as_str(), value);
+            let Some(lookup_value) = eq_lookup_value_for_key_item(
+                key_item,
+                cmp.field.as_str(),
+                value,
+                cmp.coercion.id,
+                literal_compatible,
+            ) else {
+                return Err(AccessChoiceRejectedReason::InLiteralIncompatible);
+            };
+            branch_values.push(lookup_value);
+        }
+        crate::value::canonicalize_value_set(&mut branch_values);
+        if let Some(existing) = &matched
+            && existing != &branch_values
+        {
+            return Err(AccessChoiceRejectedReason::ConflictingEqConstraints);
+        }
+        matched = Some(branch_values);
+    }
+
+    Ok(matched)
 }

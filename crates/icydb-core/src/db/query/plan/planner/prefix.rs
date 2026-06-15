@@ -11,18 +11,21 @@ use crate::{
         },
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
-            OrderSpec,
+            OrderDirection, OrderSpec,
             key_item_match::eq_lookup_value_for_key_item,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_literal_matches_schema,
+                selected_index_contract_satisfies_secondary_order,
             },
         },
         schema::SchemaInfo,
     },
     model::{entity::EntityModel, index::IndexKeyItemsRef},
-    value::Value,
+    value::{Value, canonicalize_value_set},
 };
+
+pub(in crate::db::query::plan) const MAX_INDEX_BRANCH_SET_VALUES: usize = 8;
 
 fn leading_index_prefix_lookup_value(
     index_contract: &SemanticIndexAccessContract,
@@ -203,6 +206,145 @@ pub(super) fn index_prefix_from_and(
     best.map(|(_, index, values)| AccessPlan::index_prefix_from_contract(index, values))
 }
 
+pub(super) fn index_branch_set_from_and(
+    _model: &EntityModel,
+    candidate_indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
+    children: &[Predicate],
+    order: Option<&OrderSpec>,
+    grouped: bool,
+) -> Option<AccessPlan<Value>> {
+    let order = order?;
+    if grouped || !primary_key_asc_order(schema, order) {
+        return None;
+    }
+
+    let mut eq_values = Vec::new();
+    let mut in_values = Vec::new();
+    collect_branch_set_literals(schema, children, &mut eq_values, &mut in_values);
+    if eq_values.is_empty() || in_values.is_empty() {
+        return None;
+    }
+
+    let mut best: Option<(
+        AccessCandidateScore,
+        SemanticIndexAccessContract,
+        Vec<Value>,
+        Vec<Value>,
+    )> = None;
+    for index in candidate_indexes {
+        let Some(fixed_values) = build_index_eq_prefix(index, &eq_values) else {
+            continue;
+        };
+        if fixed_values.is_empty() {
+            continue;
+        }
+
+        let branch_slot = fixed_values.len();
+        let Some(branch_key_item) = index.key_item_at(branch_slot) else {
+            continue;
+        };
+        let Some(branch_values) = build_index_branch_values(branch_key_item, &in_values) else {
+            continue;
+        };
+        if branch_values.len() < 2 || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+            continue;
+        }
+
+        let branch_prefix_len = branch_slot.saturating_add(1);
+        if !selected_index_contract_satisfies_secondary_order(
+            schema,
+            Some(order),
+            index.clone(),
+            branch_prefix_len,
+            false,
+        ) {
+            continue;
+        }
+
+        let score = access_candidate_score_from_index_contract(
+            schema,
+            Some(order),
+            index.clone(),
+            branch_prefix_len,
+            false,
+            0,
+            false,
+        );
+        match &best {
+            None => best = Some((score, index.clone(), fixed_values, branch_values)),
+            Some((best_score, best_index, _, _))
+                if access_candidate_score_outranks(score, *best_score, true)
+                    || (score == *best_score && index.name() < best_index.name()) =>
+            {
+                best = Some((score, index.clone(), fixed_values, branch_values));
+            }
+            Some(_) => {}
+        }
+    }
+
+    best.map(|(_, index, fixed_values, branch_values)| {
+        AccessPlan::index_branch_set_from_contract(index, fixed_values, branch_values)
+    })
+}
+
+fn primary_key_asc_order(schema: &SchemaInfo, order: &OrderSpec) -> bool {
+    let primary_key_names: Vec<&str> = schema
+        .primary_key_names()
+        .iter()
+        .map(String::as_str)
+        .collect();
+
+    order.primary_key_only_direction_fields(primary_key_names.as_slice())
+        == Some(OrderDirection::Asc)
+}
+
+fn collect_branch_set_literals<'a>(
+    schema: &SchemaInfo,
+    children: &'a [Predicate],
+    eq_values: &mut Vec<CachedEqLiteral<'a>>,
+    in_values: &mut Vec<CachedInLiteral<'a>>,
+) {
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            continue;
+        };
+        if !matches!(
+            cmp.coercion.id,
+            CoercionId::Strict | CoercionId::TextCasefold
+        ) {
+            continue;
+        }
+        match cmp.op {
+            CompareOp::Eq => {
+                eq_values.push(CachedEqLiteral {
+                    field: cmp.field.as_str(),
+                    value: &cmp.value,
+                    coercion: cmp.coercion.id,
+                    compatible: index_literal_matches_schema(schema, &cmp.field, &cmp.value),
+                });
+            }
+            CompareOp::In => {
+                let Value::List(values) = &cmp.value else {
+                    continue;
+                };
+                in_values.push(CachedInLiteral {
+                    field: cmp.field.as_str(),
+                    values: values
+                        .iter()
+                        .map(|value| CachedInValue {
+                            value,
+                            compatible: index_literal_matches_schema(schema, &cmp.field, value),
+                        })
+                        .collect(),
+                    coercion: cmp.coercion.id,
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
 ///
 /// CachedEqLiteral
 ///
@@ -213,6 +355,17 @@ struct CachedEqLiteral<'a> {
     field: &'a str,
     value: &'a Value,
     coercion: CoercionId,
+    compatible: bool,
+}
+
+struct CachedInLiteral<'a> {
+    field: &'a str,
+    values: Vec<CachedInValue<'a>>,
+    coercion: CoercionId,
+}
+
+struct CachedInValue<'a> {
+    value: &'a Value,
     compatible: bool,
 }
 
@@ -280,4 +433,44 @@ where
     }
 
     Some(prefix)
+}
+
+fn build_index_branch_values(
+    key_item: SemanticIndexKeyItemRef<'_>,
+    in_values: &[CachedInLiteral<'_>],
+) -> Option<Vec<Value>> {
+    let mut matched: Option<Vec<Value>> = None;
+    for cached in in_values {
+        if key_item.field() != cached.field {
+            continue;
+        }
+
+        let mut branch_values = Vec::with_capacity(cached.values.len());
+        for cached_value in &cached.values {
+            if !cached_value.compatible {
+                return None;
+            }
+            let lookup_value = eq_lookup_value_for_key_item(
+                key_item,
+                cached.field,
+                cached_value.value,
+                cached.coercion,
+                true,
+            )?;
+            branch_values.push(lookup_value);
+        }
+        canonicalize_value_set(&mut branch_values);
+        if branch_values.is_empty() {
+            return None;
+        }
+
+        if let Some(existing) = &matched
+            && existing != &branch_values
+        {
+            return None;
+        }
+        matched = Some(branch_values);
+    }
+
+    matched
 }

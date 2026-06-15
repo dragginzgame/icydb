@@ -8,6 +8,7 @@ mod aggregate_explain;
 mod aggregate_identity;
 mod aggregate_terminals;
 mod authority_labels;
+mod branch_set;
 mod composite_covering;
 mod cursor;
 mod direct_starts_with;
@@ -96,7 +97,7 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
+    metrics::sink::{MetricsEvent, MetricsSink, PlanKind, with_metrics_sink},
     model::{
         field::{FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
@@ -1384,6 +1385,21 @@ struct CompositeIndexedSessionSqlEntity {
 }
 
 ///
+/// BranchIndexedSessionSqlEntity
+///
+/// Composite indexed SQL session fixture used to lock branch-aware
+/// `(collection_id, stage, id)` execution for generated list/page shapes.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct BranchIndexedSessionSqlEntity {
+    id: Ulid,
+    collection_id: String,
+    stage: String,
+    title: String,
+}
+
+///
 /// ExplicitPkSuffixIndexedSessionSqlEntity
 ///
 /// Indexed SQL fixture mirroring generated/audit schemas that redundantly put
@@ -1611,6 +1627,13 @@ static COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel
     "code_serial",
     IndexedSessionSqlStore::PATH,
     &COMPOSITE_INDEXED_SESSION_SQL_INDEX_FIELDS,
+    false,
+)];
+static BRANCH_INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 3] = ["collection_id", "stage", "id"];
+static BRANCH_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
+    "collection_stage_id",
+    IndexedSessionSqlStore::PATH,
+    &BRANCH_INDEXED_SESSION_SQL_INDEX_FIELDS,
     false,
 )];
 #[cfg(feature = "diagnostics")]
@@ -2319,6 +2342,23 @@ crate::test_entity! {
         crate::test_field! { note: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+}
+
+crate::test_entity! {
+    ident = BranchIndexedSessionSqlEntity,
+    entity_name = "BranchIndexedSessionSqlEntity",
+    tag = EntityTag::new(0x105E),
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { collection_id: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { stage: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { title: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&BRANCH_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
 }
 
 #[cfg(feature = "diagnostics")]
@@ -3707,6 +3747,23 @@ fn seed_composite_indexed_session_sql_entities(
             note: format!("note-{code}-{serial}"),
         },
         "composite indexed SQL",
+    );
+}
+
+fn seed_branch_indexed_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(u128, &str, &str, &str)],
+) {
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, collection_id, stage, title)| BranchIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            collection_id: collection_id.to_string(),
+            stage: stage.to_string(),
+            title: title.to_string(),
+        },
+        "branch indexed SQL",
     );
 }
 

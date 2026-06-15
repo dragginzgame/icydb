@@ -171,6 +171,27 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         }
     }
 
+    fn index_branch_set(
+        &mut self,
+        _index_name: &str,
+        index_fields: &[String],
+        fixed_values: &[Value],
+        branch_values: &[Value],
+    ) -> Self::Output {
+        let mut parts = Vec::new();
+        if let Some(prefix) = prefix_predicate_text(index_fields, fixed_values, fixed_values.len())
+        {
+            parts.push(prefix);
+        }
+        if let Some(field) = index_fields.get(fixed_values.len())
+            && !branch_values.is_empty()
+        {
+            parts.push(format!("{field} IN {branch_values:?}"));
+        }
+
+        (!parts.is_empty()).then(|| parts.join(" AND "))
+    }
+
     fn index_range(
         &mut self,
         _index_name: &str,

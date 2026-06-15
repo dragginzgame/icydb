@@ -87,13 +87,25 @@ pub(super) fn plan_predicate(
                 order,
                 grouped,
             );
+            let branch_set_access = prefix::index_branch_set_from_and(
+                model,
+                candidate_indexes,
+                schema,
+                children,
+                order,
+                grouped,
+            );
 
             // Phase 2: recurse into conjunctive children once while the
             // strongest secondary-index candidate is still available to strip
             // only the clauses that candidate already guarantees.
-            let selected_index_access = index_range_access
-                .as_ref()
-                .map(|spec| AccessPlan::index_range(spec.clone()))
+            let selected_index_access = branch_set_access
+                .clone()
+                .or_else(|| {
+                    index_range_access
+                        .as_ref()
+                        .map(|spec| AccessPlan::index_range(spec.clone()))
+                })
                 .or_else(|| prefix_access.clone());
             let mut plans = children
                 .iter()
@@ -117,6 +129,7 @@ pub(super) fn plan_predicate(
                 selected_index_access.as_ref(),
                 primary_key_range_access.as_ref(),
                 index_range_access.as_ref(),
+                branch_set_access.as_ref(),
                 prefix_access.as_ref(),
             );
             if let Some(family_choice) = family_choice {
@@ -125,6 +138,9 @@ pub(super) fn plan_predicate(
 
             if let Some(prefix) = prefix_access {
                 plans.push(prefix);
+            }
+            if let Some(branch_set) = branch_set_access {
+                plans.push(branch_set);
             }
             if let Some(primary_key_range) = primary_key_range_access {
                 plans.push(primary_key_range);
@@ -176,6 +192,7 @@ fn choose_best_and_family_access(
     selected_index_access: Option<&AccessPlan<Value>>,
     primary_key_range_access: Option<&AccessPlan<Value>>,
     index_range_access: Option<&crate::db::access::SemanticIndexRangeSpec>,
+    branch_set_access: Option<&AccessPlan<Value>>,
     prefix_access: Option<&AccessPlan<Value>>,
 ) -> Option<PlannedAccessSelection> {
     let mut chosen: Option<(AndFamilyCandidateScore, PlannedAccessSelection)> = None;
@@ -257,6 +274,14 @@ fn choose_best_and_family_access(
             .map(AccessPlan::index_range)
             .map(|access| PlannedAccessSelection::new(access, None)),
         AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 3),
+    );
+
+    update_best_and_family_candidate(
+        &mut chosen,
+        branch_set_access
+            .cloned()
+            .map(|access| PlannedAccessSelection::new(access, None)),
+        AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 4),
     );
 
     update_best_and_family_candidate(
@@ -428,6 +453,16 @@ fn access_preserves_required_order(
             false,
         );
     }
+    if let Some((index, fixed_values, _branch_values)) = access.as_index_branch_set_contract_path()
+    {
+        return selected_index_contract_satisfies_secondary_order(
+            schema,
+            Some(order),
+            index,
+            fixed_values.len().saturating_add(1),
+            false,
+        );
+    }
     if let Some(spec) = access.as_index_range_path() {
         return selected_index_contract_satisfies_secondary_order(
             schema,
@@ -457,8 +492,9 @@ fn child_is_redundant_under_selected_index_access(
         return false;
     };
 
-    if cmp.op == crate::db::predicate::CompareOp::Eq
-        && selected_index_prefix_guarantees_eq_compare(schema, path.as_ref(), cmp)
+    if selected_index_branch_set_guarantees_compare(schema, path.as_ref(), cmp)
+        || (cmp.op == crate::db::predicate::CompareOp::Eq
+            && selected_index_prefix_guarantees_eq_compare(schema, path.as_ref(), cmp))
     {
         return true;
     }
@@ -466,6 +502,38 @@ fn child_is_redundant_under_selected_index_access(
     path.as_ref()
         .selected_index_contract()
         .is_some_and(|index| index_contract_predicate_guarantees_compare(index, cmp))
+}
+
+fn selected_index_branch_set_guarantees_compare(
+    schema: &SchemaInfo,
+    selected_path: &AccessPath<Value>,
+    cmp: &crate::db::predicate::ComparePredicate,
+) -> bool {
+    let Some((index, fixed_values, branch_values)) = selected_path.as_index_branch_set_contract()
+    else {
+        return false;
+    };
+    if cmp.op == crate::db::predicate::CompareOp::Eq {
+        return index_prefix_guarantees_eq_compare(schema, index, fixed_values, cmp);
+    }
+
+    if cmp.op != crate::db::predicate::CompareOp::In {
+        return false;
+    }
+    let branch_slot = fixed_values.len();
+    let Some(branch_field) = index.key_field_at(branch_slot) else {
+        return false;
+    };
+    if cmp.field() != branch_field {
+        return false;
+    }
+    let crate::value::Value::List(values) = cmp.value() else {
+        return false;
+    };
+    let mut values = values.clone();
+    crate::value::canonicalize_value_set(&mut values);
+
+    values == branch_values
 }
 
 // Selected index prefix and selected index range both carry an equality prefix
