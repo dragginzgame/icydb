@@ -166,6 +166,8 @@ pub struct SqlQueryExecutionAttribution {
     pub pure_covering: Option<SqlPureCoveringAttribution>,
     pub output_blob: SqlOutputBlobAttribution,
     pub store_get_calls: u64,
+    pub index_store_get_calls: u64,
+    pub index_store_entry_reads: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,

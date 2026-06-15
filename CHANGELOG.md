@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Adds borrowed value-storage blob scalar views and reuses opened retained-row
-  readers for blob/text byte-length slots, trimming `OCTET_LENGTH(...)` paths
-  without materializing owned blob payloads.
-
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.23` splits SQL perf diagnostics between row-store gets, index-store
+  point gets, and streamed index entry reads so covering-query costs are easier
+  to interpret.
+
+- `0.182.22` publishes the 0.182.21 blob byte-length optimization state
+  without additional runtime behavior changes.
+
+- `0.182.21` adds borrowed retained blob/text scalar access so SQL byte-length
+  projections can avoid materializing owned payloads.
 
 - `0.182.20` publishes the 0.182.19 blob covering-index audit state without
   additional runtime behavior changes.

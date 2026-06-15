@@ -15,14 +15,14 @@ mod result;
 mod update_policy;
 
 #[cfg(feature = "diagnostics")]
-use crate::db::DataStore;
-#[cfg(feature = "diagnostics")]
 use crate::db::executor::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
+#[cfg(feature = "diagnostics")]
+use crate::db::{DataStore, IndexStore};
 #[cfg(feature = "diagnostics")]
 use crate::db::{GroupedCountAttribution, GroupedExecutionAttribution};
 #[cfg(feature = "diagnostics")]
@@ -84,6 +84,56 @@ pub use update_policy::{
     SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
     SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
 };
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy)]
+struct SqlStoreCounterSnapshot {
+    data_store_get_calls: u64,
+    index_store_get_calls: u64,
+    index_store_entry_reads: u64,
+}
+
+#[cfg(feature = "diagnostics")]
+impl SqlStoreCounterSnapshot {
+    fn capture() -> Self {
+        Self {
+            data_store_get_calls: DataStore::current_get_call_count(),
+            index_store_get_calls: IndexStore::current_get_call_count(),
+            index_store_entry_reads: IndexStore::current_entry_read_count(),
+        }
+    }
+
+    fn delta_since(self) -> Self {
+        let current = Self::capture();
+
+        Self {
+            data_store_get_calls: current
+                .data_store_get_calls
+                .saturating_sub(self.data_store_get_calls),
+            index_store_get_calls: current
+                .index_store_get_calls
+                .saturating_sub(self.index_store_get_calls),
+            index_store_entry_reads: current
+                .index_store_entry_reads
+                .saturating_sub(self.index_store_entry_reads),
+        }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+const fn sql_query_cache_attribution_from_phases(
+    compile: SqlCacheAttribution,
+    execute: SqlCacheAttribution,
+) -> SqlQueryCacheAttribution {
+    let merged = compile.merge(execute);
+
+    SqlQueryCacheAttribution {
+        sql_compiled_command_hits: merged.sql_compiled_command_cache_hits,
+        sql_compiled_command_misses: merged.sql_compiled_command_cache_misses,
+        shared_query_plan_hits: merged.shared_query_plan_cache_hits,
+        shared_query_plan_misses: merged.shared_query_plan_cache_misses,
+    }
+}
 
 /// Parsed SQL endpoint surface used by generated SQL helper dispatch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -590,14 +640,13 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: measure the execute side separately so repeat-run cache
         // experiments can prove which side actually moved.
-        let store_get_calls_before = DataStore::current_get_call_count();
+        let store_counters_before = SqlStoreCounterSnapshot::capture();
         let pure_covering_decode_before = current_pure_covering_decode_local_instructions();
         let pure_covering_row_assembly_before =
             current_pure_covering_row_assembly_local_instructions();
         let (result, execute_cache_attribution, execute_phase_attribution) =
             self.execute_compiled_sql_context_with_phase_attribution::<E>(&compiled)?;
-        let store_get_calls =
-            DataStore::current_get_call_count().saturating_sub(store_get_calls_before);
+        let store_counters = store_counters_before.delta_since();
         let pure_covering_decode_local_instructions =
             current_pure_covering_decode_local_instructions()
                 .saturating_sub(pure_covering_decode_before);
@@ -609,7 +658,10 @@ impl<C: CanisterKind> DbSession<C> {
             .saturating_add(execute_phase_attribution.store_local_instructions)
             .saturating_add(execute_phase_attribution.executor_local_instructions)
             .saturating_add(execute_phase_attribution.response_finalization_local_instructions);
-        let cache_attribution = compile_cache_attribution.merge(execute_cache_attribution);
+        let cache_attribution = sql_query_cache_attribution_from_phases(
+            compile_cache_attribution,
+            execute_cache_attribution,
+        );
         let total_local_instructions =
             compile_local_instructions.saturating_add(execute_local_instructions);
         let grouped = matches!(&result, SqlStatementResult::Grouped { .. }).then_some(
@@ -672,17 +724,13 @@ impl<C: CanisterKind> DbSession<C> {
                 ),
                 pure_covering,
                 output_blob,
-                store_get_calls,
+                store_get_calls: store_counters.data_store_get_calls,
+                index_store_get_calls: store_counters.index_store_get_calls,
+                index_store_entry_reads: store_counters.index_store_entry_reads,
                 response_decode_local_instructions: 0,
                 execute_local_instructions,
                 total_local_instructions,
-                cache: SqlQueryCacheAttribution {
-                    sql_compiled_command_hits: cache_attribution.sql_compiled_command_cache_hits,
-                    sql_compiled_command_misses: cache_attribution
-                        .sql_compiled_command_cache_misses,
-                    shared_query_plan_hits: cache_attribution.shared_query_plan_cache_hits,
-                    shared_query_plan_misses: cache_attribution.shared_query_plan_cache_misses,
-                },
+                cache: cache_attribution,
             },
         ))
     }

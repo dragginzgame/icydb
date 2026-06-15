@@ -14,7 +14,7 @@ use ic_memory::stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
 };
 use serde::Deserialize;
-#[cfg(test)]
+#[cfg(any(test, feature = "diagnostics"))]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 use std::ops::Bound;
@@ -22,6 +22,37 @@ use std::ops::Bound;
 #[cfg(test)]
 thread_local! {
     static JOURNALED_SNAPSHOT_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(feature = "diagnostics")]
+thread_local! {
+    static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
+    static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_index_store_get_call() {
+    INDEX_STORE_GET_CALL_COUNT.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_index_store_entry_read() {
+    INDEX_STORE_ENTRY_READ_COUNT.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+}
+
+fn visit_index_store_entry<E>(
+    key: &RawIndexStoreKey,
+    value: &IndexEntryValue,
+    visit: &mut impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
+) -> Result<bool, E> {
+    #[cfg(feature = "diagnostics")]
+    record_index_store_entry_read();
+
+    visit(key, value)
 }
 
 #[cfg(test)]
@@ -142,6 +173,9 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => {
                 for (key, value) in map {
+                    #[cfg(feature = "diagnostics")]
+                    record_index_store_entry_read();
+
                     if visitor(key, value)?.should_stop() {
                         return Ok(());
                     }
@@ -162,6 +196,9 @@ impl IndexStore {
     }
 
     pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
+        #[cfg(feature = "diagnostics")]
+        record_index_store_get_call();
+
         match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
             IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key),
@@ -321,6 +358,18 @@ impl IndexStore {
         bytes
     }
 
+    /// Return the monotonic perf-only count of index-entry fetches seen by this process.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn current_get_call_count() -> u64 {
+        INDEX_STORE_GET_CALL_COUNT.with(Cell::get)
+    }
+
+    /// Return the monotonic perf-only count of index entries yielded by traversal.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn current_entry_read_count() -> u64 {
+        INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
+    }
+
     const fn bump_generation(&mut self) {
         self.generation = self.generation.saturating_add(1);
     }
@@ -404,28 +453,28 @@ impl IndexStore {
         match direction {
             Direction::Asc if canonical.is_empty() => {
                 for (key, value) in live.range((lower, upper)) {
-                    if visit(key, value)? {
+                    if visit_index_store_entry(key, value, &mut visit)? {
                         return Ok(());
                     }
                 }
             }
             Direction::Desc if canonical.is_empty() => {
                 for (key, value) in live.range((lower, upper)).rev() {
-                    if visit(key, value)? {
+                    if visit_index_store_entry(key, value, &mut visit)? {
                         return Ok(());
                     }
                 }
             }
             Direction::Asc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)) {
-                    if visit(entry.key(), &entry.value())? {
+                    if visit_index_store_entry(entry.key(), &entry.value(), &mut visit)? {
                         return Ok(());
                     }
                 }
             }
             Direction::Desc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)).rev() {
-                    if visit(entry.key(), &entry.value())? {
+                    if visit_index_store_entry(entry.key(), &entry.value(), &mut visit)? {
                         return Ok(());
                     }
                 }
@@ -441,9 +490,15 @@ impl IndexStore {
                     |entry| {
                         let should_stop = match entry {
                             OrderedOverlayEntry::Canonical(canonical_entry) => {
-                                visit(canonical_entry.key(), &canonical_entry.value())?
+                                visit_index_store_entry(
+                                    canonical_entry.key(),
+                                    &canonical_entry.value(),
+                                    &mut visit,
+                                )?
                             }
-                            OrderedOverlayEntry::Live((key, value)) => visit(key, value)?,
+                            OrderedOverlayEntry::Live((key, value)) => {
+                                visit_index_store_entry(key, value, &mut visit)?
+                            }
                         };
                         Ok(if should_stop {
                             OrderedOverlayVisit::Stop
@@ -464,9 +519,15 @@ impl IndexStore {
                     |entry| {
                         let should_stop = match entry {
                             OrderedOverlayEntry::Canonical(canonical_entry) => {
-                                visit(canonical_entry.key(), &canonical_entry.value())?
+                                visit_index_store_entry(
+                                    canonical_entry.key(),
+                                    &canonical_entry.value(),
+                                    &mut visit,
+                                )?
                             }
-                            OrderedOverlayEntry::Live((key, value)) => visit(key, value)?,
+                            OrderedOverlayEntry::Live((key, value)) => {
+                                visit_index_store_entry(key, value, &mut visit)?
+                            }
                         };
                         Ok(if should_stop {
                             OrderedOverlayVisit::Stop
@@ -490,6 +551,35 @@ mod tests {
 
     fn raw_key(value: u8) -> RawIndexStoreKey {
         <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn index_store_diagnostic_counters_record_gets_and_entry_reads() {
+        let mut store = IndexStore::init_heap();
+        store.insert(raw_key(7), IndexEntryValue::presence());
+        store.insert(raw_key(9), IndexEntryValue::presence());
+
+        let gets_before = IndexStore::current_get_call_count();
+        assert_eq!(store.get(&raw_key(7)), Some(IndexEntryValue::presence()));
+        assert_eq!(store.get(&raw_key(8)), None);
+
+        assert_eq!(
+            IndexStore::current_get_call_count().saturating_sub(gets_before),
+            2,
+            "diagnostic index-store get counter should count both hit and miss reads",
+        );
+
+        let entries_before = IndexStore::current_entry_read_count();
+        store
+            .visit_entries(|_key, _entry| Ok::<_, Infallible>(IndexStoreVisit::Continue))
+            .expect("index entry visit should succeed");
+
+        assert_eq!(
+            IndexStore::current_entry_read_count().saturating_sub(entries_before),
+            2,
+            "diagnostic index-store entry counter should count yielded traversal entries",
+        );
     }
 
     #[test]

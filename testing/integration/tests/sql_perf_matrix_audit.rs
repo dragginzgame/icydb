@@ -165,6 +165,8 @@ struct MatrixSample {
     kernel_row_order_window_local_instructions: u64,
     kernel_row_page_window_local_instructions: u64,
     data_store_get_calls: u64,
+    index_store_get_calls: u64,
+    index_store_entry_reads: u64,
     output_blob_values: u64,
     output_blob_bytes: u64,
     output_blob_hex_bytes: u64,
@@ -1128,6 +1130,8 @@ fn sample_scenario(
         kernel_row_page_window_local_instructions: kernel_row
             .map_or(0, |kernel| kernel.page_window_local_instructions),
         data_store_get_calls: attribution.store_get_calls,
+        index_store_get_calls: attribution.index_store_get_calls,
+        index_store_entry_reads: attribution.index_store_entry_reads,
         output_blob_values: attribution.output_blob.projected_values,
         output_blob_bytes: attribution.output_blob.projected_bytes,
         output_blob_hex_bytes: attribution.output_blob.rendered_hex_bytes,
@@ -1315,6 +1319,16 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
         "Top Data Store Gets",
         ranked_by(samples, |sample| sample.data_store_get_calls),
     );
+    append_ranked_table(
+        output,
+        "Top Index Store Gets",
+        ranked_by(samples, |sample| sample.index_store_get_calls),
+    );
+    append_ranked_table(
+        output,
+        "Top Index Store Entry Reads",
+        ranked_by(samples, |sample| sample.index_store_entry_reads),
+    );
     append_blob_output_table(
         output,
         "Top Blob Output Bytes",
@@ -1408,6 +1422,16 @@ fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSamp
         output,
         "Top Main Fixture Data Store Gets",
         ranked_main_fixture_by(samples, |sample| sample.data_store_get_calls),
+    );
+    append_ranked_table(
+        output,
+        "Top Main Fixture Index Store Gets",
+        ranked_main_fixture_by(samples, |sample| sample.index_store_get_calls),
+    );
+    append_ranked_table(
+        output,
+        "Top Main Fixture Index Store Entry Reads",
+        ranked_main_fixture_by(samples, |sample| sample.index_store_entry_reads),
     );
     append_pure_covering_table(
         output,
@@ -1508,18 +1532,18 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor | data_store.get | Rows | SQL |"
+        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor | data_store.get | index_store.get | index_store.entries | Rows | SQL |"
     )
     .expect("write to string should succeed");
     writeln!(
         output,
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     )
     .expect("write to string should succeed");
     for sample in samples {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.key,
             sample.surface,
             sample.total_local_instructions,
@@ -1529,6 +1553,8 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
             sample.store_local_instructions,
             sample.executor_local_instructions,
             sample.data_store_get_calls,
+            sample.index_store_get_calls,
+            sample.index_store_entry_reads,
             sample.outcome.row_count,
             sample.sql.replace('|', "\\|"),
         )
@@ -2142,6 +2168,8 @@ fn report_matrix_sample(
         kernel_row_order_window_local_instructions: 0,
         kernel_row_page_window_local_instructions: 0,
         data_store_get_calls: 1,
+        index_store_get_calls: 0,
+        index_store_entry_reads: 0,
         output_blob_values: 0,
         output_blob_bytes: 0,
         output_blob_hex_bytes: 0,
