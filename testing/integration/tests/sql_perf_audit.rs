@@ -133,7 +133,7 @@ struct SqlPerfScenarioSample {
     avg_grouped_count_group_lookup_local_instructions: u64,
     avg_grouped_count_existing_group_update_local_instructions: u64,
     avg_grouped_count_new_group_insert_local_instructions: u64,
-    avg_store_get_calls: u64,
+    avg_data_store_get_calls: u64,
     avg_sql_compiled_command_cache_hits: u64,
     avg_sql_compiled_command_cache_misses: u64,
     avg_shared_query_plan_cache_hits: u64,
@@ -512,7 +512,7 @@ struct SqlPerfRawSamples {
     grouped_fold_samples: Vec<u64>,
     grouped_finalize_samples: Vec<u64>,
     grouped_count: GroupedCountRawSamples,
-    store_get_call_samples: Vec<u64>,
+    data_store_get_call_samples: Vec<u64>,
     sql_compiled_command_cache_hit_samples: Vec<u64>,
     sql_compiled_command_cache_miss_samples: Vec<u64>,
     shared_query_plan_cache_hit_samples: Vec<u64>,
@@ -530,7 +530,7 @@ impl SqlPerfRawSamples {
             grouped_fold_samples: Vec::with_capacity(sample_count),
             grouped_finalize_samples: Vec::with_capacity(sample_count),
             grouped_count: GroupedCountRawSamples::with_capacity(sample_count),
-            store_get_call_samples: Vec::with_capacity(sample_count),
+            data_store_get_call_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_hit_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_miss_samples: Vec::with_capacity(sample_count),
             shared_query_plan_cache_hit_samples: Vec::with_capacity(sample_count),
@@ -553,7 +553,7 @@ impl SqlPerfRawSamples {
         self.grouped_finalize_samples
             .push(grouped.map_or(0, |grouped| grouped.finalize_local_instructions));
         self.grouped_count.record(&sample.attribution);
-        self.store_get_call_samples
+        self.data_store_get_call_samples
             .push(sample.attribution.store_get_calls);
         self.sql_compiled_command_cache_hit_samples
             .push(sample.attribution.cache.sql_compiled_command_hits);
@@ -592,7 +592,7 @@ fn build_sql_perf_scenario_sample(
         grouped_count.existing_group_update_local_instructions;
     let avg_grouped_count_new_group_insert_local_instructions =
         grouped_count.new_group_insert_local_instructions;
-    let avg_store_get_calls = average_u64(&raw.store_get_call_samples);
+    let avg_data_store_get_calls = average_u64(&raw.data_store_get_call_samples);
     let avg_sql_compiled_command_cache_hits =
         average_u64(&raw.sql_compiled_command_cache_hit_samples);
     let avg_sql_compiled_command_cache_misses =
@@ -642,7 +642,7 @@ fn build_sql_perf_scenario_sample(
         avg_grouped_count_group_lookup_local_instructions,
         avg_grouped_count_existing_group_update_local_instructions,
         avg_grouped_count_new_group_insert_local_instructions,
-        avg_store_get_calls,
+        avg_data_store_get_calls,
         avg_sql_compiled_command_cache_hits,
         avg_sql_compiled_command_cache_misses,
         avg_shared_query_plan_cache_hits,
@@ -1564,7 +1564,7 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
-        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Avg store.get() | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
+        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Avg data_store.get() | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
     );
     println!(
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
@@ -1596,7 +1596,7 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
             sample.avg_grouped_count_group_lookup_local_instructions,
             sample.avg_grouped_count_existing_group_update_local_instructions,
             sample.avg_grouped_count_new_group_insert_local_instructions,
-            sample.avg_store_get_calls,
+            sample.avg_data_store_get_calls,
             sample.avg_sql_compiled_command_cache_hits,
             sample.avg_sql_compiled_command_cache_misses,
             sample.avg_shared_query_plan_cache_hits,
@@ -1904,7 +1904,7 @@ fn print_storage_read_comparison(
     journaled: &SqlQueryPerfResult,
 ) {
     println!(
-        "{label}: heap_total={} journaled_total={} total_delta={} total_ratio={} heap_compile={} journaled_compile={} compile_delta={} heap_execute={} journaled_execute={} execute_delta={} heap_store={} journaled_store={} store_delta={} heap_executor={} journaled_executor={} executor_delta={} heap_store_gets={} journaled_store_gets={}",
+        "{label}: heap_total={} journaled_total={} total_delta={} total_ratio={} heap_compile={} journaled_compile={} compile_delta={} heap_execute={} journaled_execute={} execute_delta={} heap_store={} journaled_store={} store_delta={} heap_executor={} journaled_executor={} executor_delta={} heap_data_store_gets={} journaled_data_store_gets={}",
         heap.attribution.total_local_instructions,
         journaled.attribution.total_local_instructions,
         signed_instruction_delta(

@@ -164,7 +164,7 @@ struct MatrixSample {
     kernel_row_row_read_local_instructions: u64,
     kernel_row_order_window_local_instructions: u64,
     kernel_row_page_window_local_instructions: u64,
-    store_get_calls: u64,
+    data_store_get_calls: u64,
     sql_compiled_command_hits: u64,
     sql_compiled_command_misses: u64,
     shared_query_plan_hits: u64,
@@ -1120,7 +1120,7 @@ fn sample_scenario(
             .map_or(0, |kernel| kernel.order_window_local_instructions),
         kernel_row_page_window_local_instructions: kernel_row
             .map_or(0, |kernel| kernel.page_window_local_instructions),
-        store_get_calls: attribution.store_get_calls,
+        data_store_get_calls: attribution.store_get_calls,
         sql_compiled_command_hits: attribution.cache.sql_compiled_command_hits,
         sql_compiled_command_misses: attribution.cache.sql_compiled_command_misses,
         shared_query_plan_hits: attribution.cache.shared_query_plan_hits,
@@ -1302,8 +1302,8 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
     );
     append_ranked_table(
         output,
-        "Top Store Gets",
-        ranked_by(samples, |sample| sample.store_get_calls),
+        "Top Data Store Gets",
+        ranked_by(samples, |sample| sample.data_store_get_calls),
     );
     append_pure_covering_hotspot_tables(output, samples);
     append_direct_data_row_hotspot_tables(output, samples);
@@ -1391,8 +1391,8 @@ fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSamp
     );
     append_ranked_table(
         output,
-        "Top Main Fixture Store Gets",
-        ranked_main_fixture_by(samples, |sample| sample.store_get_calls),
+        "Top Main Fixture Data Store Gets",
+        ranked_main_fixture_by(samples, |sample| sample.data_store_get_calls),
     );
     append_pure_covering_table(
         output,
@@ -1493,7 +1493,7 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor | store.get | Rows | SQL |"
+        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor | data_store.get | Rows | SQL |"
     )
     .expect("write to string should succeed");
     writeln!(
@@ -1513,7 +1513,7 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
             sample.planner_local_instructions,
             sample.store_local_instructions,
             sample.executor_local_instructions,
-            sample.store_get_calls,
+            sample.data_store_get_calls,
             sample.outcome.row_count,
             sample.sql.replace('|', "\\|"),
         )
@@ -1575,7 +1575,7 @@ fn append_direct_data_row_table(output: &mut String, title: &str, samples: Vec<&
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Scan | Key Stream | Row Read | Key Encode | Store Get | Order Window | Page Window | SQL |"
+        "| Scenario | Surface | Scan | Key Stream | Row Read | Key Encode | Data Store Get | Order Window | Page Window | SQL |"
     )
     .expect("write to string should succeed");
     writeln!(output, "|---|---|---:|---:|---:|---:|---:|---:|---:|---|")
@@ -2090,7 +2090,7 @@ fn report_matrix_sample(
         kernel_row_row_read_local_instructions: 0,
         kernel_row_order_window_local_instructions: 0,
         kernel_row_page_window_local_instructions: 0,
-        store_get_calls: 1,
+        data_store_get_calls: 1,
         sql_compiled_command_hits: 0,
         sql_compiled_command_misses: 1,
         shared_query_plan_hits: 0,

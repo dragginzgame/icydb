@@ -7,14 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Splits SQL perf-matrix hotspot reports so ordinary indexed/main fixtures,
-  pure-covering costs, and intentional heap/journaled unindexed storage mirror
-  baselines are ranked separately, and lets matching expression-index
-  projections stay on pure covering reads.
+- Clarifies SQL perf-audit store-get reporting as `data_store.get` row-store
+  access so pure covering reads are not confused with index traversal cost.
 
 ## [0.182.x] 📊 - 2026-06-13 - Audit and Optimisation Baselines
 
 Detailed notes: [docs/changelog/0.182.md](docs/changelog/0.182.md)
+
+- `0.182.16` separates SQL perf-matrix hotspot reports by fixture class and
+  keeps matching expression-index projections on pure covering reads.
 
 - `0.182.15` consolidates scalar scan retention accounting across retained
   kernel and direct data-row lanes while trimming redundant sparse primary-key
