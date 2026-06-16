@@ -91,11 +91,27 @@ impl IndexPrefixCardinality {
         previous: Option<&IndexEntryValue>,
         new: &IndexEntryValue,
     ) {
-        self.data_generation = None;
-        if let Some(previous) = previous {
-            self.apply_delta(raw_key, previous, PrefixCardinalityDelta::Decrement);
+        if !self.decodable {
+            return;
         }
-        self.apply_delta(raw_key, new, PrefixCardinalityDelta::Increment);
+
+        let previous_prefixes = match previous {
+            Some(previous) => self.counted_prefixes_or_invalidate(raw_key, previous),
+            None => Some(Vec::new()),
+        };
+        let Some(previous_prefixes) = previous_prefixes else {
+            return;
+        };
+        let Some(new_prefixes) = self.counted_prefixes_or_invalidate(raw_key, new) else {
+            return;
+        };
+        if previous_prefixes == new_prefixes {
+            return;
+        }
+
+        self.data_generation = None;
+        self.apply_delta(previous_prefixes, PrefixCardinalityDelta::Decrement);
+        self.apply_delta(new_prefixes, PrefixCardinalityDelta::Increment);
     }
 
     pub(super) fn apply_remove(
@@ -103,23 +119,42 @@ impl IndexPrefixCardinality {
         raw_key: &RawIndexStoreKey,
         previous: Option<&IndexEntryValue>,
     ) {
-        self.data_generation = None;
-        if let Some(previous) = previous {
-            self.apply_delta(raw_key, previous, PrefixCardinalityDelta::Decrement);
+        if !self.decodable {
+            return;
         }
+
+        let Some(previous) = previous else {
+            return;
+        };
+        let Some(prefixes) = self.counted_prefixes_or_invalidate(raw_key, previous) else {
+            return;
+        };
+        if prefixes.is_empty() {
+            return;
+        }
+
+        self.data_generation = None;
+        self.apply_delta(prefixes, PrefixCardinalityDelta::Decrement);
+    }
+
+    fn counted_prefixes_or_invalidate(
+        &mut self,
+        raw_key: &RawIndexStoreKey,
+        entry: &IndexEntryValue,
+    ) -> Option<Vec<IndexPrefixCardinalityKey>> {
+        let Some(prefixes) = counted_prefixes(raw_key, entry) else {
+            self.invalidate_decoding();
+            return None;
+        };
+
+        Some(prefixes)
     }
 
     fn apply_delta(
         &mut self,
-        raw_key: &RawIndexStoreKey,
-        entry: &IndexEntryValue,
+        prefixes: Vec<IndexPrefixCardinalityKey>,
         delta: PrefixCardinalityDelta,
     ) {
-        let Some(prefixes) = counted_prefixes(raw_key, entry) else {
-            self.invalidate_decoding();
-            return;
-        };
-
         for prefix in prefixes {
             match delta {
                 PrefixCardinalityDelta::Increment => {
@@ -177,13 +212,13 @@ fn counted_prefixes(
     raw_key: &RawIndexStoreKey,
     entry: &IndexEntryValue,
 ) -> Option<Vec<IndexPrefixCardinalityKey>> {
-    let witness = entry.decode_row_witness(raw_key).ok()?;
-    if witness.existence_witness() != IndexEntryExistenceWitness::Present {
+    let index_key = IndexKey::try_from_raw(raw_key).ok()?;
+    if index_key.key_kind() != IndexKeyKind::User {
         return Some(Vec::new());
     }
 
-    let index_key = IndexKey::try_from_raw(raw_key).ok()?;
-    if index_key.key_kind() != IndexKeyKind::User {
+    let witness = entry.decode_row_witness(raw_key).ok()?;
+    if witness.existence_witness() != IndexEntryExistenceWitness::Present {
         return Some(Vec::new());
     }
 

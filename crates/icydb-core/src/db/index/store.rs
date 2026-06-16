@@ -624,13 +624,30 @@ mod tests {
         components: Vec<Vec<u8>>,
         primary_key: u64,
     ) -> RawIndexStoreKey {
+        indexed_raw_key_with_kind(index_id, IndexKeyKind::User, components, primary_key)
+    }
+
+    fn indexed_raw_key_with_kind(
+        index_id: &IndexId,
+        key_kind: IndexKeyKind,
+        components: Vec<Vec<u8>>,
+        primary_key: u64,
+    ) -> RawIndexStoreKey {
         IndexKey::new_from_components_with_primary_key_value(
             index_id,
-            IndexKeyKind::User,
+            key_kind,
             components.as_slice(),
             &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
         )
         .to_raw()
+    }
+
+    fn malformed_index_entry_value() -> IndexEntryValue {
+        <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xFF]))
+    }
+
+    fn missing_index_entry_value() -> IndexEntryValue {
+        <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![1]))
     }
 
     #[test]
@@ -689,6 +706,142 @@ mod tests {
             store.exact_prefix_cardinality(8, IndexKeyKind::User, index_id, &[collection, review],),
             None,
             "row generation drift should force the caller to use the existing-row fallback",
+        );
+    }
+
+    #[test]
+    fn index_prefix_cardinality_ignores_system_index_mutations() {
+        let user_index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let system_index_id = IndexId::new(EntityTag::new(0xCA7D), 2);
+        let collection = b"collection-a".to_vec();
+        let draft = b"Draft".to_vec();
+        let system_component = b"reverse-edge".to_vec();
+        let mut store = IndexStore::init_heap();
+
+        store.insert(
+            indexed_raw_key(&user_index_id, vec![collection.clone(), draft.clone()], 1),
+            IndexEntryValue::presence(),
+        );
+        store.mark_prefix_cardinality_data_generation(7);
+
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                user_index_id,
+                &[collection.clone(), draft.clone()],
+            ),
+            Some(1),
+        );
+
+        let system_key = indexed_raw_key_with_kind(
+            &system_index_id,
+            IndexKeyKind::System,
+            vec![system_component],
+            1,
+        );
+        store.insert(system_key.clone(), IndexEntryValue::presence());
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                user_index_id,
+                &[collection.clone(), draft.clone()],
+            ),
+            Some(1),
+            "system index writes must not invalidate synchronized user-prefix cardinality",
+        );
+
+        store.remove(&system_key);
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                user_index_id,
+                &[collection.clone(), draft.clone()],
+            ),
+            Some(1),
+            "system index removals must not invalidate synchronized user-prefix cardinality",
+        );
+
+        let malformed_system_key = indexed_raw_key_with_kind(
+            &system_index_id,
+            IndexKeyKind::System,
+            vec![b"malformed-reverse-edge".to_vec()],
+            2,
+        );
+        store.insert(malformed_system_key.clone(), malformed_index_entry_value());
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                user_index_id,
+                &[collection.clone(), draft.clone()],
+            ),
+            Some(1),
+            "malformed system index payloads must not invalidate user-prefix cardinality",
+        );
+
+        store.remove(&malformed_system_key);
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                user_index_id,
+                &[collection.clone(), draft],
+            ),
+            Some(1),
+            "malformed system index removals must not invalidate user-prefix cardinality",
+        );
+
+        let review = b"Review".to_vec();
+        store.insert(
+            indexed_raw_key(&user_index_id, vec![collection.clone(), review.clone()], 2),
+            IndexEntryValue::presence(),
+        );
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                user_index_id,
+                &[collection, review]
+            ),
+            None,
+            "user-prefix count changes must still require a fresh row-generation stamp",
+        );
+    }
+
+    #[test]
+    fn index_prefix_cardinality_ignores_missing_user_index_mutations() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let collection = b"collection-a".to_vec();
+        let draft = b"Draft".to_vec();
+        let mut store = IndexStore::init_heap();
+
+        store.insert(
+            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+            IndexEntryValue::presence(),
+        );
+        store.mark_prefix_cardinality_data_generation(7);
+
+        let stale_key = indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2);
+        store.insert(stale_key.clone(), missing_index_entry_value());
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                index_id,
+                &[collection.clone(), draft.clone()],
+            ),
+            Some(1),
+            "missing user index entries must not affect synchronized prefix cardinality",
+        );
+
+        store.remove(&stale_key);
+        assert_eq!(
+            store.exact_prefix_cardinality(7, IndexKeyKind::User, index_id, &[collection, draft],),
+            Some(1),
+            "missing user index removals must not affect synchronized prefix cardinality",
         );
     }
 
