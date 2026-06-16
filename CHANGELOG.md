@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.6` lets fully index-covered `COUNT(*)` queries fold secondary index
+  keys directly, avoiding row-store probes while keeping exact-count metadata
+  work deferred.
+
 - `0.183.5` lets pure and hybrid covering scans apply fully indexable
   residual predicates before page windows and sparse hydration, while tightening
   branch-set perf attribution and compact diagnostic-code registry ownership.
