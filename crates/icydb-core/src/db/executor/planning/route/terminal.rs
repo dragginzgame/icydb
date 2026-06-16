@@ -15,7 +15,6 @@ use crate::db::{
     },
     query::plan::{
         AccessPlannedQuery, CoveringReadExecutionPlan, covering_strict_predicate_compatible,
-        index_covering_count_keys_terminal_eligible,
         index_covering_existing_rows_terminal_eligible,
     },
 };
@@ -42,7 +41,7 @@ pub(in crate::db::executor) enum BytesTerminalFastPathContract {
 pub(in crate::db::executor) enum CountTerminalFastPathContract {
     PrimaryKeyCardinality,
     PrimaryKeyExistingRows(Direction),
-    IndexCoveringKeys(Direction),
+    IndexCoveringExistingRows(Direction),
 }
 
 ///
@@ -71,10 +70,9 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
 
 /// Derive one route-owned `count()` terminal fast-path contract from structural plan state.
 ///
-/// Index-covering COUNT uses key-only folding only after the strict predicate
-/// gate proves the count filter can be applied by the index route. EXISTS keeps
-/// existing-row semantics because its missing-row sensitivity is a separate
-/// terminal contract.
+/// Secondary index-covered COUNT still uses existing-row checks so stale
+/// secondary keys preserve materialized-count parity and strict missing-row
+/// corruption diagnostics.
 pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_model(
     plan: &AccessPlannedQuery,
     lowered_access: &LoweredAccess<'_, Value>,
@@ -97,8 +95,8 @@ pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_mode
             ))
     })
     .or_else(|| {
-        index_covering_count_keys_terminal_eligible(plan, strict_predicate_compatible).then_some(
-            CountTerminalFastPathContract::IndexCoveringKeys(Direction::Asc),
+        index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible).then_some(
+            CountTerminalFastPathContract::IndexCoveringExistingRows(Direction::Asc),
         )
     })
 }

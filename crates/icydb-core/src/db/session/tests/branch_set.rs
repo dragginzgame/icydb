@@ -623,7 +623,7 @@ fn session_branch_set_sql_noncovered_projection_hydrates_only_bounded_page_rows(
 
 #[cfg(feature = "diagnostics")]
 #[test]
-fn session_branch_set_sql_count_covered_predicate_avoids_row_store_gets() {
+fn session_branch_set_sql_count_covered_predicate_keeps_row_presence_checks() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_branch_set_fixture(&session);
@@ -649,8 +649,9 @@ fn session_branch_set_sql_count_covered_predicate_avoids_row_store_gets() {
         "covered branch COUNT should match the full branch predicate result",
     );
     assert_eq!(
-        attribution.store_get_calls, 0,
-        "fully indexable branch COUNT should fold index keys without row-store probes",
+        attribution.store_get_calls,
+        expected_branch_ids(usize::MAX).len() as u64,
+        "fully indexable branch COUNT should still probe row presence for exact stale-key semantics",
     );
     assert!(
         attribution.index_store_entry_reads > 0,

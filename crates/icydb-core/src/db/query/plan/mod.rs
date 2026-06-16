@@ -67,8 +67,7 @@ pub(in crate::db) use covering::{
     covering_index_projection_facts_with_primary_key_names,
     covering_read_execution_plan_from_fields_with_primary_key_names,
     covering_read_execution_plan_with_schema_info, covering_read_reason_code_for_load_plan,
-    covering_strict_predicate_compatible, index_covering_count_keys_terminal_eligible,
-    index_covering_existing_rows_terminal_eligible,
+    covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionRoute,

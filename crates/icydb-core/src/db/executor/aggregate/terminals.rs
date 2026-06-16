@@ -84,9 +84,6 @@ where
         PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality => {
             execute_count_primary_key_cardinality_terminal_request(prepared)
         }
-        PreparedScalarTerminalStrategy::CountIndexKeys { direction } => {
-            execute_count_index_keys_terminal_request(prepared, direction)
-        }
         PreparedScalarTerminalStrategy::ExistingRows { direction } => {
             execute_existing_rows_terminal_request(prepared, op, direction)
         }
@@ -146,35 +143,6 @@ fn execute_count_primary_key_cardinality_terminal_request(
     Ok(ScalarAggregateOutput::Count(count))
 }
 
-// Execute prepared COUNT by folding an index-backed key stream directly.
-fn execute_count_index_keys_terminal_request(
-    prepared: PreparedAggregateStreamingInputs<'_>,
-    direction: Direction,
-) -> Result<ScalarAggregateOutput, InternalError> {
-    let runtime = IndexTerminalRuntime {
-        entity_tag: prepared.authority.entity_tag(),
-        store: prepared.store,
-        logical_plan: &prepared.logical_plan,
-        strict_mode: prepared.execution_preparation.strict_mode(),
-        index_prefix_specs: prepared.index_prefix_specs.as_ref(),
-        index_range_specs: prepared.index_range_specs.as_ref(),
-    };
-    let aggregate_output = aggregate_index_terminal_output_with_runtime(
-        runtime,
-        ScalarTerminalKind::Count,
-        direction,
-        AggregateFoldMode::KeysOnly,
-    )
-    .map(|(output, rows_scanned)| {
-        record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
-        output
-    })?;
-
-    aggregate_output
-        .into_count()
-        .map(ScalarAggregateOutput::Count)
-}
-
 // Execute one COUNT/EXISTS existing-row terminal through one streaming fold
 // without materializing the effective window.
 fn execute_existing_rows_terminal_request(
@@ -197,16 +165,13 @@ fn execute_existing_rows_terminal_request(
             return Err(InternalError::query_executor_invariant());
         }
     };
-    let aggregate_output = aggregate_index_terminal_output_with_runtime(
-        runtime,
-        aggregate_kind,
-        direction,
-        AggregateFoldMode::ExistingRows,
-    )
-    .map(|(output, rows_scanned)| {
-        record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
-        output
-    })?;
+    let aggregate_output =
+        aggregate_index_terminal_output_with_runtime(runtime, aggregate_kind, direction).map(
+            |(output, rows_scanned)| {
+                record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
+                output
+            },
+        )?;
 
     match op {
         PreparedScalarTerminalOp::Count => aggregate_output
@@ -226,7 +191,6 @@ fn aggregate_index_terminal_output_with_runtime(
     runtime: IndexTerminalRuntime<'_>,
     kind: ScalarTerminalKind,
     direction: Direction,
-    fold_mode: AggregateFoldMode,
 ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
     let IndexTerminalRuntime {
         entity_tag,
@@ -263,7 +227,7 @@ fn aggregate_index_terminal_output_with_runtime(
         logical_plan,
         kind,
         direction,
-        fold_mode,
+        AggregateFoldMode::ExistingRows,
         &mut key_stream,
     )?;
 
@@ -459,25 +423,26 @@ where
             ScalarTerminalBoundaryRequest::Count => {
                 let (strategy, window_provably_empty) = {
                     let lowered_access = prepared.lowered_access()?;
-                    let strategy = derive_count_terminal_fast_path_contract_for_model(
-                        &prepared.logical_plan,
-                        &lowered_access,
-                        prepared.execution_preparation.strict_mode().is_some(),
-                    )
-                    .map_or(
-                        PreparedScalarTerminalStrategy::KernelAggregate,
-                        |contract| match contract {
-                            CountTerminalFastPathContract::PrimaryKeyCardinality => {
-                                PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality
-                            }
-                            CountTerminalFastPathContract::PrimaryKeyExistingRows(direction) => {
-                                PreparedScalarTerminalStrategy::ExistingRows { direction }
-                            }
-                            CountTerminalFastPathContract::IndexCoveringKeys(direction) => {
-                                PreparedScalarTerminalStrategy::CountIndexKeys { direction }
-                            }
-                        },
-                    );
+                    let strategy =
+                        derive_count_terminal_fast_path_contract_for_model(
+                            &prepared.logical_plan,
+                            &lowered_access,
+                            prepared.execution_preparation.strict_mode().is_some(),
+                        )
+                        .map_or(
+                            PreparedScalarTerminalStrategy::KernelAggregate,
+                            |contract| match contract {
+                                CountTerminalFastPathContract::PrimaryKeyCardinality => {
+                                    PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality
+                                }
+                                CountTerminalFastPathContract::PrimaryKeyExistingRows(
+                                    direction,
+                                )
+                                | CountTerminalFastPathContract::IndexCoveringExistingRows(
+                                    direction,
+                                ) => PreparedScalarTerminalStrategy::ExistingRows { direction },
+                            },
+                        );
 
                     (strategy, prepared.window_is_provably_empty(&lowered_access))
                 };
