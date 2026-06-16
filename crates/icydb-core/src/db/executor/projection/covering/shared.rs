@@ -23,14 +23,14 @@ pub(super) struct CoveringScanWindow {
 
 pub(super) fn covering_scan_window(
     order_contract: CoveringProjectionOrder,
-    branch_set_access: bool,
+    primary_key_order_scan_safe: bool,
     page_window_allowed_for_route: bool,
     distinct: bool,
     page: Option<&PageSpec>,
 ) -> CoveringScanWindow {
     let page_window_can_apply = page_window_allowed_for_route
         && !distinct
-        && covering_index_scan_order_can_apply_page_window(order_contract, branch_set_access);
+        && covering_scan_order_can_apply_page_window(order_contract, primary_key_order_scan_safe);
 
     CoveringScanWindow {
         direction: crate::db::executor::covering_projection_scan_direction(order_contract),
@@ -62,12 +62,12 @@ pub(super) fn apply_covering_page_window<T>(
     apply_offset_limit_window(rows, page.offset, page.limit);
 }
 
-const fn covering_index_scan_order_can_apply_page_window(
+const fn covering_scan_order_can_apply_page_window(
     order_contract: CoveringProjectionOrder,
-    branch_set_access: bool,
+    primary_key_order_scan_safe: bool,
 ) -> bool {
     matches!(order_contract, CoveringProjectionOrder::IndexOrder(_))
-        || (branch_set_access
+        || (primary_key_order_scan_safe
             && matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_)))
 }
 

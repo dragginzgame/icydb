@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
-- `0.183.2` fixes covered materialized fallback paging around residual
-  predicates and primary-key ordering, then adds production-shaped `LIMIT 50`
-  branch-set audit coverage against an over-cap fallback comparator.
+- `0.183.2` fixes covering page-window regressions around residual predicates,
+  primary-key ordering, and key-only `LIMIT` scans, then adds
+  production-shaped branch-set audit coverage against an over-cap fallback.
 
 - `0.183.1` hardens branch-aware route ownership and moves SQL covering branch
   reads onto lazy branch-head merging so covered and hybrid projections avoid

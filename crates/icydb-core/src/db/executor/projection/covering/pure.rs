@@ -402,7 +402,7 @@ where
     let page = plan.scalar_plan().page.as_ref();
     let scan_window = covering_scan_window(
         covering.order_contract,
-        false,
+        true,
         true,
         plan.scalar_plan().distinct,
         page,
