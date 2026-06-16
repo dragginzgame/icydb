@@ -1,3 +1,12 @@
+//! Module: node::entity
+//!
+//! Responsibility: entity schema node metadata and relationship validation.
+//! Does not own: runtime data storage or query execution.
+//! Boundary: validates model declarations before catalog/runtime acceptance.
+
+#[cfg(test)]
+mod tests;
+
 use crate::prelude::*;
 use std::any::Any;
 
@@ -205,6 +214,3 @@ impl VisitableNode for Entity {
         self.ty().accept(v);
     }
 }
-
-#[cfg(test)]
-mod tests;

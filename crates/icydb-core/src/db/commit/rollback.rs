@@ -36,6 +36,7 @@ impl PreparedRowCommitOp {
         Self {
             index_ops,
             data_store: self.data_store,
+            data_index_store: self.data_index_store,
             data_key: self.data_key.clone(),
             data_value,
         }

@@ -43,6 +43,12 @@ use std::borrow::Cow;
 pub(in crate::db) use diagnostics::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
 };
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_count_attribution() {
+    diagnostics::record_scalar_aggregate_terminal_attribution(
+        ScalarAggregateTerminalAttribution::from_index_prefix_cardinality_count(),
+    );
+}
 pub(in crate::db) use request::{StructuralAggregateRequest, StructuralAggregateResult};
 pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregateTerminalKind};
 

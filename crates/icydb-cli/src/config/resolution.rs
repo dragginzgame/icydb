@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::ResolvedConfig;
+use crate::config::ResolvedConfig;
 
 pub(super) fn load_resolved_config(
     start_dir: Option<&Path>,

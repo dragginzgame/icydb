@@ -13,13 +13,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::cli::ConfigInitArgs;
+use crate::{cli::ConfigInitArgs, config::resolution::resolve_start_dir};
 
 use self::{
     placement::{ConfigInitPlacement, resolve_config_init_placement},
     render::render_default_config,
 };
-use super::resolution::resolve_start_dir;
 
 /// Create a default IcyDB config file at the repository/workspace config root.
 pub(crate) fn init_config(args: ConfigInitArgs) -> Result<(), String> {

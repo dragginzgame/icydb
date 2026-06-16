@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.7` adds synchronized exact index-prefix cardinality metadata so
+  covered SQL `COUNT(*)` prefix and small-branch predicates can avoid row-store
+  and index-entry scans while stale metadata falls back safely.
+
 - `0.183.6` keeps secondary index-covered `COUNT(*)` fail-closed under stale
   keys by preserving row-presence checks until exact-count metadata can prove
   key-only counts safely.

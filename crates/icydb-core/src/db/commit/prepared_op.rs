@@ -188,6 +188,7 @@ mod tests {
 pub(in crate::db) struct PreparedRowCommitOp {
     pub(crate) index_ops: Vec<PreparedIndexMutation>,
     pub(crate) data_store: &'static LocalKey<RefCell<DataStore>>,
+    pub(crate) data_index_store: &'static LocalKey<RefCell<IndexStore>>,
     pub(crate) data_key: RawDataStoreKey,
     pub(crate) data_value: Option<CanonicalRow>,
 }

@@ -5,7 +5,10 @@
 
 use crate::db::{
     direction::Direction,
-    index::{IndexEntryValue, key::RawIndexStoreKey},
+    index::{
+        IndexEntryValue, IndexId, IndexKeyKind, cardinality::IndexPrefixCardinality,
+        key::RawIndexStoreKey,
+    },
     ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
 };
 
@@ -111,6 +114,7 @@ pub struct IndexStore {
     pub(super) backend: IndexStoreBackend,
     generation: u64,
     state: IndexState,
+    prefix_cardinality: IndexPrefixCardinality,
 }
 
 pub(super) enum IndexStoreBackend {
@@ -144,6 +148,7 @@ impl IndexStore {
             backend: IndexStoreBackend::Heap(HeapBTreeMap::new()),
             generation: 0,
             state: IndexState::Ready,
+            prefix_cardinality: IndexPrefixCardinality::synchronized_empty(),
         }
     }
 
@@ -153,7 +158,7 @@ impl IndexStore {
     /// canonical stable index is updated by future fold/rebuild paths.
     #[must_use]
     pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        Self {
+        let mut store = Self {
             backend: IndexStoreBackend::Journaled {
                 canonical: StableBTreeMap::init(memory),
                 live: HeapBTreeMap::new(),
@@ -161,7 +166,10 @@ impl IndexStore {
             },
             generation: 0,
             state: IndexState::Ready,
-        }
+            prefix_cardinality: IndexPrefixCardinality::synchronized_empty(),
+        };
+        store.rebuild_prefix_cardinality_from_entries(Some(0));
+        store
     }
 
     /// Visit all index entries in canonical store order without exposing the
@@ -244,6 +252,26 @@ impl IndexStore {
         self.state
     }
 
+    /// Return an exact user-index prefix count when the index metadata is
+    /// synchronized with the caller's authoritative row-store generation.
+    #[must_use]
+    pub(in crate::db) fn exact_prefix_cardinality(
+        &self,
+        data_generation: u64,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        components: &[Vec<u8>],
+    ) -> Option<u64> {
+        self.prefix_cardinality
+            .exact_count(data_generation, key_kind, index_id, components)
+    }
+
+    /// Mark prefix-cardinality metadata synchronized with the authoritative
+    /// row-store generation after a committed row/index transition.
+    pub(in crate::db) const fn mark_prefix_cardinality_data_generation(&mut self, generation: u64) {
+        self.prefix_cardinality.mark_synchronized(generation);
+    }
+
     /// Mark this index store as in-progress and therefore ineligible for
     /// planner visibility until a full authoritative rebuild ends.
     pub(in crate::db) const fn mark_building(&mut self) {
@@ -270,16 +298,19 @@ impl IndexStore {
         } else {
             None
         };
+        let cardinality_key = key.clone();
         let previous = match &mut self.backend {
-            IndexStoreBackend::Heap(map) => map.insert(key, entry),
+            IndexStoreBackend::Heap(map) => map.insert(key, entry.clone()),
             IndexStoreBackend::Journaled {
                 live, tombstones, ..
             } => {
                 tombstones.remove(&key);
-                live.insert(key, entry);
+                live.insert(key, entry.clone());
                 previous_journaled
             }
         };
+        self.prefix_cardinality
+            .apply_insert(&cardinality_key, previous.as_ref(), &entry);
         self.bump_generation();
         previous
     }
@@ -300,6 +331,7 @@ impl IndexStore {
                 previous_journaled
             }
         };
+        self.prefix_cardinality.apply_remove(key, previous.as_ref());
         self.bump_generation();
         previous
     }
@@ -319,6 +351,7 @@ impl IndexStore {
                 }
             }
         }
+        self.prefix_cardinality.clear_unsynchronized();
         self.bump_generation();
     }
 
@@ -343,6 +376,8 @@ impl IndexStore {
         }
         live.clear();
         tombstones.clear();
+        let data_generation = self.prefix_cardinality.synchronized_generation();
+        self.rebuild_prefix_cardinality_from_entries(data_generation);
         self.bump_generation();
 
         Ok(())
@@ -372,6 +407,28 @@ impl IndexStore {
 
     const fn bump_generation(&mut self) {
         self.generation = self.generation.saturating_add(1);
+    }
+
+    fn rebuild_prefix_cardinality_from_entries(&mut self, data_generation: Option<u64>) {
+        self.prefix_cardinality.clear_unsynchronized();
+        let entries = Self::entries_snapshot_for_cardinality(&self.backend);
+        for (key, value) in &entries {
+            self.prefix_cardinality.apply_insert(key, None, value);
+        }
+        if let Some(data_generation) = data_generation {
+            self.prefix_cardinality.mark_synchronized(data_generation);
+        }
+    }
+
+    fn entries_snapshot_for_cardinality(
+        backend: &IndexStoreBackend,
+    ) -> HeapBTreeMap<RawIndexStoreKey, IndexEntryValue> {
+        match backend {
+            IndexStoreBackend::Heap(map) => map.clone(),
+            IndexStoreBackend::Journaled { .. } => {
+                Self::journaled_entries_snapshot_for_fold(backend)
+            }
+        }
     }
 
     #[cfg(test)]
@@ -546,11 +603,101 @@ impl IndexStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::direction::Direction, testing::test_memory, traits::Storable};
+    use crate::{
+        db::{
+            direction::Direction,
+            index::{EncodedValue, IndexId, IndexKey, IndexKeyKind},
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+        },
+        testing::test_memory,
+        traits::Storable,
+        types::EntityTag,
+        value::Value,
+    };
     use std::{borrow::Cow, convert::Infallible};
 
     fn raw_key(value: u8) -> RawIndexStoreKey {
         <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+    }
+
+    fn encoded_component(value: &Value) -> Vec<u8> {
+        EncodedValue::try_from_ref(value)
+            .expect("test index component should encode")
+            .encoded()
+            .to_vec()
+    }
+
+    fn indexed_raw_key(
+        index_id: &IndexId,
+        components: Vec<Vec<u8>>,
+        primary_key: u64,
+    ) -> RawIndexStoreKey {
+        IndexKey::new_from_components_with_primary_key_value(
+            index_id,
+            IndexKeyKind::User,
+            components.as_slice(),
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
+        )
+        .to_raw()
+    }
+
+    #[test]
+    fn index_prefix_cardinality_requires_explicit_data_generation_sync() {
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let collection = encoded_component(&Value::Text("collection-a".to_string()));
+        let draft = encoded_component(&Value::Text("Draft".to_string()));
+        let review = encoded_component(&Value::Text("Review".to_string()));
+        let mut store = IndexStore::init_heap();
+
+        store.insert(
+            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+            IndexEntryValue::presence(),
+        );
+        store.insert(
+            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+            IndexEntryValue::presence(),
+        );
+        store.insert(
+            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+            IndexEntryValue::presence(),
+        );
+
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                0,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            None,
+            "raw index mutations must not be trusted until row generation sync is stamped",
+        );
+
+        store.mark_prefix_cardinality_data_generation(7);
+
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                index_id,
+                std::slice::from_ref(&collection),
+            ),
+            Some(3),
+        );
+        assert_eq!(
+            store.exact_prefix_cardinality(
+                7,
+                IndexKeyKind::User,
+                index_id,
+                &[collection.clone(), draft],
+            ),
+            Some(2),
+        );
+        assert_eq!(
+            store.exact_prefix_cardinality(8, IndexKeyKind::User, index_id, &[collection, review],),
+            None,
+            "row generation drift should force the caller to use the existing-row fallback",
+        );
     }
 
     #[cfg(feature = "diagnostics")]

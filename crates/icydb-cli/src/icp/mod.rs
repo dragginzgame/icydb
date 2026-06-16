@@ -66,8 +66,14 @@ pub(crate) fn require_created_canister(environment: &str, canister: &str) -> Res
 pub(crate) mod test_support {
     use std::process::Command;
 
+    use crate::icp::{
+        call, commands,
+        process::{self, CanisterStatusOutput},
+        project,
+    };
+
     pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
-        super::call::hex_response_bytes(output)
+        call::hex_response_bytes(output)
     }
 
     pub(crate) fn icp_query_command(
@@ -76,7 +82,7 @@ pub(crate) mod test_support {
         method: &str,
         candid_arg: &str,
     ) -> Command {
-        super::call::icp_query_command(environment, canister, method, candid_arg)
+        call::icp_query_command(environment, canister, method, candid_arg)
     }
 
     pub(crate) fn icp_update_command(
@@ -85,19 +91,19 @@ pub(crate) mod test_support {
         method: &str,
         candid_arg: &str,
     ) -> Command {
-        super::call::icp_update_command(environment, canister, method, candid_arg)
+        call::icp_update_command(environment, canister, method, candid_arg)
     }
 
     pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
-        super::commands::fixtures_load_command(environment, canister)
+        commands::fixtures_load_command(environment, canister)
     }
 
     pub(crate) fn deploy_command(environment: &str, canister: &str) -> Command {
-        super::commands::deploy_command(environment, canister)
+        commands::deploy_command(environment, canister)
     }
 
     pub(crate) fn build_command(environment: &str, canister: &str) -> Command {
-        super::commands::build_command(environment, canister)
+        commands::build_command(environment, canister)
     }
 
     pub(crate) fn install_upgrade_command(
@@ -105,49 +111,41 @@ pub(crate) mod test_support {
         canister: &str,
         wasm_path: std::path::PathBuf,
     ) -> Command {
-        super::commands::install_upgrade_command(environment, canister, wasm_path)
+        commands::install_upgrade_command(environment, canister, wasm_path)
     }
 
     pub(crate) fn status_command(environment: &str, canister: &str) -> Command {
-        super::commands::status_command(environment, canister)
+        commands::status_command(environment, canister)
     }
 
     pub(crate) fn top_up_command(environment: &str, canister: &str, amount: &str) -> Command {
-        super::commands::top_up_command(environment, canister, amount)
+        commands::top_up_command(environment, canister, amount)
     }
 
     pub(crate) fn parse_canister_cycles(status: &str) -> Option<u128> {
-        super::commands::parse_canister_cycles(status)
+        commands::parse_canister_cycles(status)
     }
 
     pub(crate) fn canister_status_check_command(environment: &str, canister: &str) -> Command {
-        super::process::canister_status_command(
-            environment,
-            canister,
-            super::process::CanisterStatusOutput::Discard,
-        )
+        process::canister_status_command(environment, canister, CanisterStatusOutput::Discard)
     }
 
     pub(crate) fn canister_status_id_command(environment: &str, canister: &str) -> Command {
-        super::process::canister_status_command(
-            environment,
-            canister,
-            super::process::CanisterStatusOutput::IdOnly,
-        )
+        process::canister_status_command(environment, canister, CanisterStatusOutput::IdOnly)
     }
 
     pub(crate) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
-        super::project::parse_manifest_canisters(contents, environment)
+        project::parse_manifest_canisters(contents, environment)
     }
 
     pub(crate) fn parse_manifest_environment_network<'a>(
         contents: &'a str,
         environment: &str,
     ) -> Option<&'a str> {
-        super::project::parse_manifest_environment_network(contents, environment)
+        project::parse_manifest_environment_network(contents, environment)
     }
 
     pub(crate) fn unreachable_network_hint(message: &str) -> Option<&'static str> {
-        super::process::unreachable_network_hint(message)
+        process::unreachable_network_hint(message)
     }
 }

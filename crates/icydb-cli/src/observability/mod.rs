@@ -98,6 +98,10 @@ fn method_error(
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    use crate::observability::{
+        method_error as base_method_error, metrics, render, schema, schema_check, snapshot,
+    };
+
     pub(crate) fn method_error(
         label: &str,
         environment: &str,
@@ -105,76 +109,76 @@ pub(crate) mod test_support {
         method: &str,
         detail: &str,
     ) -> String {
-        super::method_error(label, environment, canister, method, detail)
+        base_method_error(label, environment, canister, method, detail)
     }
 
     pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
-        super::metrics::metrics_candid_arg(window_start_ms)
+        metrics::metrics_candid_arg(window_start_ms)
     }
 
     pub(crate) fn decode_metrics_report(
         candid_bytes: &[u8],
     ) -> Result<Result<icydb::metrics::CompactMetricsReport, icydb::Error>, String> {
-        super::metrics::decode_metrics_report(candid_bytes)
+        metrics::decode_metrics_report(candid_bytes)
     }
 
     pub(crate) fn decode_extended_metrics_report(
         candid_bytes: &[u8],
     ) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
-        super::metrics::decode_extended_metrics_report(candid_bytes)
+        metrics::decode_extended_metrics_report(candid_bytes)
     }
 
     pub(crate) fn decode_metrics_reset_response(
         candid_bytes: &[u8],
     ) -> Result<Result<(), icydb::Error>, String> {
-        super::metrics::decode_metrics_reset_response(candid_bytes)
+        metrics::decode_metrics_reset_response(candid_bytes)
     }
 
     pub(crate) fn decode_schema_report(
         candid_bytes: &[u8],
     ) -> Result<Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>, String> {
-        super::schema::decode_schema_report(candid_bytes)
+        schema::decode_schema_report(candid_bytes)
     }
 
     pub(crate) fn decode_schema_check_report(
         candid_bytes: &[u8],
     ) -> Result<Result<Vec<icydb::db::EntitySchemaCheckDescription>, icydb::Error>, String> {
-        super::schema_check::decode_schema_check_report(candid_bytes)
+        schema_check::decode_schema_check_report(candid_bytes)
     }
 
     pub(crate) fn decode_snapshot_report(
         candid_bytes: &[u8],
     ) -> Result<Result<icydb::db::StorageReport, icydb::Error>, String> {
-        super::snapshot::decode_snapshot_report(candid_bytes)
+        snapshot::decode_snapshot_report(candid_bytes)
     }
 
     pub(crate) fn render_field_list(fields: &[String]) -> String {
-        super::render::render_field_list(fields)
+        render::render_field_list(fields)
     }
 
     pub(crate) fn render_metrics_report(report: &icydb::metrics::CompactMetricsReport) -> String {
-        super::metrics::render_metrics_report(report)
+        metrics::render_metrics_report(report)
     }
 
     pub(crate) fn render_extended_metrics_report(report: &icydb::metrics::EventReport) -> String {
-        super::metrics::render_extended_metrics_report(report)
+        metrics::render_extended_metrics_report(report)
     }
 
     pub(crate) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {
-        super::schema::render_schema_report(report)
+        schema::render_schema_report(report)
     }
 
     pub(crate) fn render_schema_check_report(
         report: &[icydb::db::EntitySchemaCheckDescription],
     ) -> String {
-        super::schema_check::render_schema_check_report(report)
+        schema_check::render_schema_check_report(report)
     }
 
     pub(crate) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {
-        super::snapshot::render_snapshot_report(report)
+        snapshot::render_snapshot_report(report)
     }
 
     pub(crate) const fn yes_no(value: bool) -> &'static str {
-        super::render::yes_no(value)
+        render::yes_no(value)
     }
 }

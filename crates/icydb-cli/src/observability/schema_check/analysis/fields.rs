@@ -7,9 +7,10 @@ use std::collections::BTreeMap;
 
 use icydb::db::{EntityFieldDescription, EntitySchemaDescription};
 
-use crate::observability::render::yes_no;
-
-use super::{DDL_ORIGIN, schema_check_detail_row};
+use crate::observability::{
+    render::yes_no,
+    schema_check::analysis::{DDL_ORIGIN, schema_check_detail_row},
+};
 
 pub(super) struct SchemaCheckFieldAnalysis {
     pub(super) accepted_only: usize,

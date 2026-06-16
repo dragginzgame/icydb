@@ -7,9 +7,10 @@ use std::{collections::BTreeSet, fmt::Write as _, path::Path};
 
 use icydb_config::{GeneratedSqlIntrospectionPolicy, GeneratedSqlUpdatePolicy};
 
-use crate::table::{ColumnAlign, append_indented_table};
-
-use super::ResolvedConfig;
+use crate::{
+    config::ResolvedConfig,
+    table::{ColumnAlign, append_indented_table},
+};
 
 type CanisterConfigRow = [String; 5];
 type CheckedCanisterConfigRow = [String; 6];

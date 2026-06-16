@@ -17,9 +17,9 @@ std::thread_local! {
 ///
 /// ScalarAggregateSinkMode
 ///
-/// ScalarAggregateSinkMode records which executor-owned scalar aggregate sink
-/// strategy reduced one terminal set. It exists for diagnostics so the future
-/// streaming sink can be compared against today's buffered kernel-row boundary.
+/// ScalarAggregateSinkMode records which executor-owned scalar aggregate path
+/// satisfied one terminal set. It exists for diagnostics so fast-path terminal
+/// sources remain distinguishable from buffered reducer work.
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -27,6 +27,7 @@ pub(in crate::db) enum ScalarAggregateSinkMode {
     #[default]
     None,
     Buffered,
+    IndexPrefixCardinality,
 }
 
 impl ScalarAggregateSinkMode {
@@ -34,6 +35,7 @@ impl ScalarAggregateSinkMode {
         match self {
             Self::None => None,
             Self::Buffered => Some("Buffered"),
+            Self::IndexPrefixCardinality => Some("IndexPrefixCardinality"),
         }
     }
 }
@@ -80,6 +82,14 @@ impl ScalarAggregateTerminalAttribution {
             unique_input_expr_count: usize_to_u64(terminals.input_expr_count()),
             unique_filter_expr_count: usize_to_u64(terminals.filter_expr_count()),
             sink_mode: ScalarAggregateSinkMode::Buffered,
+            ..Self::none()
+        }
+    }
+
+    pub(super) const fn from_index_prefix_cardinality_count() -> Self {
+        Self {
+            terminal_count: 1,
+            sink_mode: ScalarAggregateSinkMode::IndexPrefixCardinality,
             ..Self::none()
         }
     }

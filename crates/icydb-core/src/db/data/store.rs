@@ -44,6 +44,7 @@ fn record_data_store_get_call() {
 
 pub struct DataStore {
     backend: DataStoreBackend,
+    generation: u64,
 }
 
 enum DataStoreBackend {
@@ -74,6 +75,7 @@ impl DataStore {
     pub const fn init_heap() -> Self {
         Self {
             backend: DataStoreBackend::Heap(HeapBTreeMap::new()),
+            generation: 0,
         }
     }
 
@@ -90,6 +92,7 @@ impl DataStore {
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
             },
+            generation: 0,
         }
     }
 
@@ -105,7 +108,7 @@ impl DataStore {
         } else {
             None
         };
-        match &mut self.backend {
+        let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
                 live, tombstones, ..
@@ -114,7 +117,9 @@ impl DataStore {
                 live.insert(key, row);
                 previous_journaled
             }
-        }
+        };
+        self.bump_generation();
+        previous
     }
 
     /// Insert one raw row directly for corruption-focused test setup only.
@@ -129,7 +134,7 @@ impl DataStore {
         } else {
             None
         };
-        match &mut self.backend {
+        let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
                 live, tombstones, ..
@@ -138,7 +143,9 @@ impl DataStore {
                 live.insert(key, row);
                 previous_journaled
             }
-        }
+        };
+        self.bump_generation();
+        previous
     }
 
     /// Remove one row by raw key.
@@ -148,7 +155,7 @@ impl DataStore {
         } else {
             None
         };
-        match &mut self.backend {
+        let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.remove(key),
             DataStoreBackend::Journaled {
                 live, tombstones, ..
@@ -157,7 +164,9 @@ impl DataStore {
                 tombstones.insert(key.clone());
                 previous_journaled
             }
-        }
+        };
+        self.bump_generation();
+        previous
     }
 
     /// Reset the volatile projection for journaled recovery without mutating
@@ -174,6 +183,7 @@ impl DataStore {
 
         live.clear();
         tombstones.clear();
+        self.bump_generation();
 
         Ok(())
     }
@@ -200,6 +210,7 @@ impl DataStore {
         };
         tombstones.remove(&key);
         live.insert(key, row);
+        self.bump_generation();
 
         Ok(previous)
     }
@@ -225,6 +236,7 @@ impl DataStore {
         };
         live.remove(key);
         tombstones.insert(key.clone());
+        self.bump_generation();
 
         Ok(previous)
     }
@@ -239,7 +251,10 @@ impl DataStore {
             return Err(crate::error::InternalError::store_invariant());
         };
 
-        Ok(canonical.insert(key, row))
+        let previous = canonical.insert(key, row);
+        self.bump_generation();
+
+        Ok(previous)
     }
 
     /// Apply one folded journal row delete into the canonical stable base.
@@ -251,7 +266,10 @@ impl DataStore {
             return Err(crate::error::InternalError::store_invariant());
         };
 
-        Ok(canonical.remove(key))
+        let previous = canonical.remove(key);
+        self.bump_generation();
+
+        Ok(previous)
     }
 
     /// Load one row by raw key.
@@ -291,6 +309,7 @@ impl DataStore {
                 tombstones.clear();
             }
         }
+        self.bump_generation();
     }
 
     /// Return the number of stored rows without exposing the backing map.
@@ -307,6 +326,12 @@ impl DataStore {
                 count
             }
         }
+    }
+
+    /// Return the row-store generation used to prove index metadata freshness.
+    #[must_use]
+    pub(in crate::db) const fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Return whether the data store currently contains no rows.
@@ -451,6 +476,10 @@ impl DataStore {
             Ok(StoreVisit::Continue)
         });
         bytes
+    }
+
+    const fn bump_generation(&mut self) {
+        self.generation = self.generation.saturating_add(1);
     }
 
     /// Return the monotonic perf-only count of stable row fetches seen by this process.

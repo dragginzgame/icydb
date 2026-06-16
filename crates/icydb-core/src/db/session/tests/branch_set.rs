@@ -623,7 +623,7 @@ fn session_branch_set_sql_noncovered_projection_hydrates_only_bounded_page_rows(
 
 #[cfg(feature = "diagnostics")]
 #[test]
-fn session_branch_set_sql_count_covered_predicate_keeps_row_presence_checks() {
+fn session_branch_set_sql_count_covered_predicate_uses_prefix_cardinality() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_branch_set_fixture(&session);
@@ -649,16 +649,27 @@ fn session_branch_set_sql_count_covered_predicate_keeps_row_presence_checks() {
         "covered branch COUNT should match the full branch predicate result",
     );
     assert_eq!(
-        attribution.store_get_calls,
-        expected_branch_ids(usize::MAX).len() as u64,
-        "fully indexable branch COUNT should still probe row presence for exact stale-key semantics",
-    );
-    assert!(
-        attribution.index_store_entry_reads > 0,
-        "covered branch COUNT should scan index entries rather than row storage",
+        attribution.store_get_calls, 0,
+        "synchronized branch COUNT should use exact prefix cardinality without row probes",
     );
     assert_eq!(
-        attribution.scalar_aggregate, None,
-        "COUNT fast path should stay outside buffered scalar aggregate diagnostics",
+        attribution.index_store_entry_reads, 0,
+        "synchronized branch COUNT should not scan index entries",
+    );
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .expect("prefix-cardinality COUNT should report its terminal source");
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("IndexPrefixCardinality"),
+        "covered branch COUNT should attribute the exact metadata source",
+    );
+    assert_eq!(
+        scalar_aggregate.terminal_count, 1,
+        "covered branch COUNT should report one terminal",
+    );
+    assert_eq!(
+        scalar_aggregate.rows_ingested, 0,
+        "metadata COUNT should not ingest rows through the buffered reducer",
     );
 }

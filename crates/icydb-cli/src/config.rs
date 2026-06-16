@@ -135,28 +135,30 @@ fn load_config_context(args: ConfigArgs) -> Result<ConfigContext, String> {
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    use crate::config::{ConfigSurface, ConfiguredEndpoint, report, surface};
+
     pub(crate) fn disabled_config_surface_message(
         resolved: &icydb_config::ResolvedIcydbConfig,
         canister: &str,
-        surface: super::ConfigSurface,
+        config_surface: ConfigSurface,
     ) -> String {
-        super::surface::disabled_config_surface_message(resolved, canister, surface)
+        surface::disabled_config_surface_message(resolved, canister, config_surface)
     }
 
     pub(crate) fn config_surface_enabled_for_resolved(
         resolved: &icydb_config::ResolvedIcydbConfig,
         canister: &str,
-        surface: super::ConfigSurface,
+        config_surface: ConfigSurface,
     ) -> bool {
-        super::surface::config_surface_enabled_for_resolved(resolved, canister, surface)
+        surface::config_surface_enabled_for_resolved(resolved, canister, config_surface)
     }
 
     pub(crate) fn configured_endpoint_enabled_for_resolved(
         resolved: &icydb_config::ResolvedIcydbConfig,
         canister: &str,
-        endpoint: super::ConfiguredEndpoint,
+        endpoint: ConfiguredEndpoint,
     ) -> bool {
-        super::surface::configured_endpoint_enabled_for_resolved(resolved, canister, endpoint)
+        surface::configured_endpoint_enabled_for_resolved(resolved, canister, endpoint)
     }
 
     pub(crate) fn render_config_report(
@@ -165,7 +167,7 @@ pub(crate) mod test_support {
         known_canisters: &[String],
         resolved: &icydb_config::ResolvedIcydbConfig,
     ) -> String {
-        super::report::render_config_report(start_dir, environment, known_canisters, resolved)
+        report::render_config_report(start_dir, environment, known_canisters, resolved)
     }
 
     pub(crate) fn config_sync_issues(
@@ -173,6 +175,6 @@ pub(crate) mod test_support {
         known_canisters: &[String],
         resolved: &icydb_config::ResolvedIcydbConfig,
     ) -> Vec<String> {
-        super::report::config_sync_issues(environment, known_canisters, resolved)
+        report::config_sync_issues(environment, known_canisters, resolved)
     }
 }

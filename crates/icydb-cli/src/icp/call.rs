@@ -5,7 +5,7 @@
 
 use std::process::{Command, Stdio};
 
-use super::process::output_stderr;
+use crate::icp::process::output_stderr;
 
 pub(super) fn icp_query_command(
     environment: &str,

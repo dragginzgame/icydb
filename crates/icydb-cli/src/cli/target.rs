@@ -5,7 +5,7 @@
 
 use clap::Args;
 
-use super::{DEFAULT_ENVIRONMENT, ICP_ENVIRONMENT_ENV};
+use crate::cli::{DEFAULT_ENVIRONMENT, ICP_ENVIRONMENT_ENV};
 
 ///
 /// CanisterTarget

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueHint};
 
-use super::{CanisterTarget, EnvironmentTarget};
+use crate::cli::{CanisterTarget, EnvironmentTarget};
 
 ///
 /// CanisterCommand

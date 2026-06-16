@@ -1,13 +1,14 @@
 //! Module: registry
+//!
 //! Responsibility: single public diagnostic-code registry.
 //! Does not own: diagnostic prose or runtime error construction.
 //! Boundary: generates numeric constants and reconstruction from one table.
 
-use super::{
-    Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorCode, ErrorOrigin, QueryErrorKind,
-    QueryProjectionCode, QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind,
-    SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
-    SqlWriteBoundaryCode,
+use crate::{
+    Diagnostic, DiagnosticCode, DiagnosticDetail, ErrorClass, ErrorCode, ErrorOrigin,
+    QueryErrorKind, QueryProjectionCode, QueryResultShapeCode, RuntimeBoundaryCode,
+    RuntimeErrorKind, SchemaDdlAdmissionCode, SqlFeatureCode, SqlLoweringCode,
+    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
 macro_rules! define_error_code_registry {
@@ -76,7 +77,7 @@ macro_rules! define_error_code_registry {
 
             /// Return the diagnostic class represented by this public code.
             #[must_use]
-            pub const fn class(self) -> super::ErrorClass {
+            pub const fn class(self) -> ErrorClass {
                 self.diagnostic_code().class()
             }
 

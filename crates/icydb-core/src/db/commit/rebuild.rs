@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DecodedDataStoreKey, StoreVisit},
+        data::{DataStore, DecodedDataStoreKey, StoreVisit},
         index::{IndexEntryValue, IndexState, IndexStore, IndexStoreVisit, RawIndexStoreKey},
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
@@ -81,11 +81,13 @@ impl IndexStoreSnapshot {
 
     // Restore one index store to the exact pre-rebuild snapshot.
     fn restore(self) {
+        let data_generation = self.handle.with_data(DataStore::generation);
         self.handle.with_index_mut(|index_store| {
             index_store.clear();
             for (raw_key, raw_entry) in self.entries {
                 index_store.insert(raw_key, raw_entry);
             }
+            index_store.mark_prefix_cardinality_data_generation(data_generation);
 
             match self.state {
                 IndexState::Building => index_store.mark_building(),
@@ -168,6 +170,11 @@ fn rebuild_secondary_indexes_in_place(
                 index_op.apply();
             }
         }
+
+        let data_generation = handle.with_data(DataStore::generation);
+        handle.with_index_mut(|index_store| {
+            index_store.mark_prefix_cardinality_data_generation(data_generation);
+        });
     }
 
     Ok(())

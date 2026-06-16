@@ -8,10 +8,12 @@ mod indexes;
 
 use icydb::db::{EntitySchemaCheckDescription, EntitySchemaDescription};
 
-use crate::observability::render::render_field_list;
+use crate::observability::{
+    render::render_field_list,
+    schema_check::recommendations::{SchemaCheckRecommendationFacts, schema_check_recommendations},
+};
 
 use self::{fields::analyze_entity_schema_fields, indexes::analyze_entity_schema_indexes};
-use super::recommendations::{SchemaCheckRecommendationFacts, schema_check_recommendations};
 
 const DDL_ORIGIN: &str = "ddl";
 const GENERATED_ORIGIN: &str = "generated";

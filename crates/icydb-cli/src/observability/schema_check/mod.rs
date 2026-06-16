@@ -11,11 +11,11 @@ use crate::{
     cli::CanisterTarget,
     config::{SCHEMA_CHECK_ENDPOINT, require_configured_endpoint},
     icp::require_created_canister,
+    observability::{call_query, endpoint_result_error},
 };
 use candid::Decode;
 
 use self::{analysis::analyze_schema_check, render::render_schema_check_report_from_summary};
-use super::{call_query, endpoint_result_error};
 
 /// Read and print the generated-vs-accepted schema check endpoint.
 pub(super) fn run_schema_check_command(target: CanisterTarget) -> Result<(), String> {

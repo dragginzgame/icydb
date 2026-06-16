@@ -5,7 +5,7 @@
 
 use clap::Subcommand;
 
-use super::CanisterTarget;
+use crate::cli::CanisterTarget;
 
 ///
 /// SchemaCommand

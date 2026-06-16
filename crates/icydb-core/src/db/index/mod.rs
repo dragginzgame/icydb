@@ -3,6 +3,7 @@
 //! Does not own: query planning policy, commit orchestration, or relation semantics.
 //! Boundary: executor/query/commit may depend on index; index depends on data primitives.
 
+mod cardinality;
 mod entry;
 pub(in crate::db) mod envelope;
 mod key;

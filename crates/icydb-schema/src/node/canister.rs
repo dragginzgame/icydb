@@ -1,3 +1,12 @@
+//! Module: node::canister
+//!
+//! Responsibility: canister-level schema node metadata and memory allocation validation.
+//! Does not own: ICP lifecycle management or runtime stable-memory implementation.
+//! Boundary: validates declared memory ranges and stable keys before runtime use.
+
+#[cfg(test)]
+mod tests;
+
 use crate::node::{
     stable_memory_key, validate_app_memory_id, validate_memory_id_in_range,
     validate_memory_id_not_reserved, validate_stable_key, validate_stable_key_segment,
@@ -228,10 +237,3 @@ impl VisitableNode for Canister {
         self.def().path()
     }
 }
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests;

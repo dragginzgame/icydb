@@ -3,7 +3,7 @@
 //! Does not own: config file discovery, report rendering, or endpoint execution.
 //! Boundary: exposes endpoint constants and config-surface diagnostics to CLI owners.
 
-use super::ResolvedConfig;
+use crate::config::ResolvedConfig;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConfigSurface {

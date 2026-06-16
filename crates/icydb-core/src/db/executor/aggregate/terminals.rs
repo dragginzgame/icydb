@@ -5,8 +5,11 @@
 
 use crate::{
     db::{
-        access::{ExecutionPathPayload, LoweredAccess},
-        data::{DecodedDataStoreKey, StoreVisit},
+        access::{
+            ExecutionPathPayload, LoweredAccess, MAX_INDEX_BRANCH_SET_VALUES,
+            SemanticIndexAccessContract,
+        },
+        data::{DataStore, DecodedDataStoreKey, StoreVisit},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
@@ -32,7 +35,8 @@ use crate::{
                 derive_exists_terminal_fast_path_contract_for_model,
             },
         },
-        index::predicate::IndexPredicateExecution,
+        index::{EncodedValue, IndexId, IndexKeyKind, predicate::IndexPredicateExecution},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
         registry::StoreHandle,
     },
@@ -150,6 +154,12 @@ fn execute_existing_rows_terminal_request(
     op: &PreparedScalarTerminalOp,
     direction: Direction,
 ) -> Result<ScalarAggregateOutput, InternalError> {
+    if matches!(op, PreparedScalarTerminalOp::Count)
+        && let Some(output) = try_count_index_prefix_cardinality_terminal_request(&prepared)
+    {
+        return Ok(output);
+    }
+
     let runtime = IndexTerminalRuntime {
         entity_tag: prepared.authority.entity_tag(),
         store: prepared.store,
@@ -232,6 +242,201 @@ fn aggregate_index_terminal_output_with_runtime(
     )?;
 
     Ok((aggregate_output, rows_scanned))
+}
+
+// Execute COUNT from exact index-prefix cardinality metadata when the access
+// path and any surviving residual predicate prove a finite set of full
+// component prefixes. Returns `None` when the shape is unsupported or the
+// metadata is stale against the row store.
+fn try_count_index_prefix_cardinality_terminal_request(
+    prepared: &PreparedAggregateStreamingInputs<'_>,
+) -> Option<ScalarAggregateOutput> {
+    let prefixes =
+        exact_count_cardinality_prefixes(&prepared.logical_plan, prepared.authority.entity_tag())?;
+
+    let data_generation = prepared.store.with_data(DataStore::generation);
+    let available_rows = prepared.store.with_index(|store| {
+        let mut total = 0_u64;
+        for prefix in &prefixes {
+            let count = store.exact_prefix_cardinality(
+                data_generation,
+                IndexKeyKind::User,
+                prefix.index_id,
+                prefix.components.as_slice(),
+            )?;
+            total = total.saturating_add(count);
+        }
+        Some(total)
+    });
+    let available_rows = available_rows?;
+    let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
+    let (count, _rows_scanned) = count_window_result_from_page(
+        prepared.logical_plan.scalar_plan().page.as_ref(),
+        available_rows,
+    );
+    record_rows_scanned_for_path(prepared.authority.entity_path(), 0);
+    #[cfg(all(feature = "diagnostics", feature = "sql"))]
+    super::scalar_terminals::record_index_prefix_cardinality_count_attribution();
+
+    Some(ScalarAggregateOutput::Count(count))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExactCountCardinalityPrefix {
+    index_id: IndexId,
+    components: Vec<Vec<u8>>,
+}
+
+fn exact_count_cardinality_prefixes(
+    plan: &AccessPlannedQuery,
+    entity_tag: EntityTag,
+) -> Option<Vec<ExactCountCardinalityPrefix>> {
+    if !plan.has_no_distinct()
+        || plan.scalar_plan().order.is_some()
+        || plan.has_residual_filter_expr()
+    {
+        return None;
+    }
+
+    if let Some(spec) = plan.access.as_index_branch_set_spec_path() {
+        if plan.has_residual_filter_predicate() {
+            return None;
+        }
+
+        return exact_cardinality_prefixes_for_branch_values(
+            entity_tag,
+            spec.index_ref(),
+            spec.fixed_values(),
+            spec.branch_values(),
+        );
+    }
+
+    let (index, fixed_values) = plan.access.as_index_prefix_contract_path()?;
+    if !plan.has_residual_filter_predicate() {
+        return exact_cardinality_prefixes_for_values(entity_tag, &index, fixed_values);
+    }
+
+    let branch_slot = fixed_values.len();
+    let branch_field = index.key_field_at(branch_slot)?;
+    let residual = plan.effective_execution_predicate()?;
+    let branch_values = exact_branch_values_from_residual(&residual, branch_field)?;
+    exact_cardinality_prefixes_for_branch_values(
+        entity_tag,
+        &index,
+        fixed_values,
+        branch_values.as_slice(),
+    )
+}
+
+fn exact_cardinality_prefixes_for_branch_values(
+    entity_tag: EntityTag,
+    index: &SemanticIndexAccessContract,
+    fixed_values: &[Value],
+    branch_values: &[Value],
+) -> Option<Vec<ExactCountCardinalityPrefix>> {
+    if branch_values.is_empty() || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+        return None;
+    }
+
+    let mut prefixes = Vec::with_capacity(branch_values.len());
+    for branch_value in branch_values {
+        let mut values = Vec::with_capacity(fixed_values.len().saturating_add(1));
+        values.extend_from_slice(fixed_values);
+        values.push(branch_value.clone());
+        prefixes.extend(exact_cardinality_prefixes_for_values(
+            entity_tag,
+            index,
+            values.as_slice(),
+        )?);
+    }
+
+    Some(prefixes)
+}
+
+fn exact_cardinality_prefixes_for_values(
+    entity_tag: EntityTag,
+    index: &SemanticIndexAccessContract,
+    values: &[Value],
+) -> Option<Vec<ExactCountCardinalityPrefix>> {
+    if values.is_empty() || values.len() > index.key_arity() {
+        return None;
+    }
+
+    let components = EncodedValue::try_encode_all(values)
+        .ok()?
+        .into_iter()
+        .map(|value| value.encoded().to_vec())
+        .collect();
+
+    Some(vec![ExactCountCardinalityPrefix {
+        index_id: IndexId::new(entity_tag, index.ordinal()),
+        components,
+    }])
+}
+
+fn exact_branch_values_from_residual(predicate: &Predicate, field: &str) -> Option<Vec<Value>> {
+    let mut values = match predicate {
+        Predicate::Compare(compare) => exact_compare_branch_values(compare, field)?,
+        Predicate::Or(children) => {
+            let mut values = Vec::new();
+            for child in children {
+                let Predicate::Compare(compare) = child else {
+                    return None;
+                };
+                if compare.op() != CompareOp::Eq {
+                    return None;
+                }
+                values.extend(exact_compare_branch_values(compare, field)?);
+            }
+            values
+        }
+        Predicate::And(children) if children.len() == 1 => {
+            exact_branch_values_from_residual(&children[0], field)?
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::And(_)
+        | Predicate::Not(_)
+        | Predicate::CompareFields(_)
+        | Predicate::IsNull { .. }
+        | Predicate::IsNotNull { .. }
+        | Predicate::IsMissing { .. }
+        | Predicate::IsEmpty { .. }
+        | Predicate::IsNotEmpty { .. }
+        | Predicate::TextContains { .. }
+        | Predicate::TextContainsCi { .. } => return None,
+    };
+
+    values.sort_by(Value::canonical_cmp);
+    values.dedup_by(|right, left| Value::canonical_cmp(left, right).is_eq());
+    if values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+        return None;
+    }
+
+    Some(values)
+}
+
+fn exact_compare_branch_values(compare: &ComparePredicate, field: &str) -> Option<Vec<Value>> {
+    if compare.field() != field || compare.coercion().id() != CoercionId::Strict {
+        return None;
+    }
+
+    match compare.op() {
+        CompareOp::Eq => Some(vec![compare.value().clone()]),
+        CompareOp::In => match compare.value() {
+            Value::List(values) => Some(values.clone()),
+            _ => None,
+        },
+        CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => None,
+    }
 }
 
 // Resolve COUNT for PK full-scan/key-range shapes from store cardinality while

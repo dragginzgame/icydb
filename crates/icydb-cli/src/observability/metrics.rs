@@ -14,9 +14,8 @@ use crate::{
         require_configured_endpoint,
     },
     icp::require_created_canister,
+    observability::{call_query, call_update, endpoint_result_error},
 };
-
-use super::{call_query, call_update, endpoint_result_error};
 
 /// Read or reset the generated metrics endpoints.
 pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {

@@ -1,5 +1,13 @@
-use super::relation::RelationComponentContract;
-use crate::prelude::*;
+//! Module: node::item
+//!
+//! Responsibility: schema node model declarations and validation hooks.
+//! Does not own: runtime catalog authority or storage execution.
+//! Boundary: models macro/schema metadata before runtime acceptance.
+
+#[cfg(test)]
+mod tests;
+
+use crate::{node::relation::RelationComponentContract, prelude::*};
 use std::ops::Not;
 
 ///
@@ -193,6 +201,3 @@ pub enum ItemTarget {
     Is(&'static str),
     Primitive(Primitive),
 }
-
-#[cfg(test)]
-mod tests;

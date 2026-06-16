@@ -17,7 +17,7 @@ use crate::{
         },
         index::{
             IndexDelta, IndexDeltaGroup, IndexEntryValue, IndexMembershipDelta, IndexMutationPlan,
-            IndexPlanReadView, IndexReadContract, IndexRowIdentity, RawIndexStoreKey,
+            IndexPlanReadView, IndexReadContract, IndexRowIdentity, IndexStore, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
             plan_index_mutation_for_slot_reader_structural,
         },
@@ -520,6 +520,7 @@ where
         forward_index_ops,
         reverse_index_ops,
         data_store.data_store(),
+        data_store.index_store(),
         data_key,
         data_value,
     ))
@@ -530,6 +531,7 @@ fn materialize_prepared_row_commit(
     forward_index_ops: Vec<CommitIndexOp>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_store: &'static LocalKey<RefCell<DataStore>>,
+    data_index_store: &'static LocalKey<RefCell<IndexStore>>,
     data_key: RawDataStoreKey,
     data_value: Option<CanonicalRow>,
 ) -> PreparedRowCommitOp {
@@ -547,6 +549,7 @@ fn materialize_prepared_row_commit(
     PreparedRowCommitOp {
         index_ops,
         data_store,
+        data_index_store,
         data_key,
         data_value,
     }

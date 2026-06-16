@@ -11,9 +11,8 @@ use crate::{
     cli::CanisterTarget,
     config::{SNAPSHOT_ENDPOINT, require_configured_endpoint},
     icp::require_created_canister,
+    observability::{call_query, endpoint_result_error},
 };
-
-use super::{call_query, endpoint_result_error};
 
 /// Read and print the generated storage snapshot endpoint.
 pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {

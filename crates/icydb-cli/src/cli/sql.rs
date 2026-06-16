@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use clap::{Args, ValueHint};
 
-use super::{DEFAULT_ENVIRONMENT, ICP_ENVIRONMENT_ENV};
+use crate::cli::{DEFAULT_ENVIRONMENT, ICP_ENVIRONMENT_ENV};
 
 const SQL_HISTORY_FILE: &str = ".cache/sql_history";
 

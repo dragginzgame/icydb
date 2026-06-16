@@ -8,9 +8,10 @@ use icydb::metrics::{
     EventCounters, EventOps, EventReport, compact_metric_code,
 };
 
-use crate::table::{ColumnAlign, append_indented_table};
-
-use super::super::render::yes_no;
+use crate::{
+    observability::render::yes_no,
+    table::{ColumnAlign, append_indented_table},
+};
 
 type MetricsEntityRow = [String; 6];
 

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{ArgAction, Args, Subcommand, ValueEnum, ValueHint};
 
-use super::ICP_ENVIRONMENT_ENV;
+use crate::cli::ICP_ENVIRONMENT_ENV;
 
 ///
 /// ConfigCommand

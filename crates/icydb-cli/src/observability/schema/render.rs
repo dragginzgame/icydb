@@ -8,9 +8,10 @@ use icydb::db::{
     EntitySchemaDescription,
 };
 
-use crate::table::{ColumnAlign, append_indented_table};
-
-use super::super::render::{render_field_list, yes_no};
+use crate::{
+    observability::render::{render_field_list, yes_no},
+    table::{ColumnAlign, append_indented_table},
+};
 
 type SchemaEntityRow = [String; 6];
 type SchemaFieldRow = [String; 8];

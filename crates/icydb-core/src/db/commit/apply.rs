@@ -28,12 +28,17 @@ impl PreparedRowCommitOp {
         }
 
         // Phase 2: apply the authoritative row-store mutation.
-        self.data_store.with_borrow_mut(|store| {
+        let data_generation = self.data_store.with_borrow_mut(|store| {
             if let Some(value) = self.data_value {
                 store.insert(self.data_key, value);
             } else {
                 store.remove(&self.data_key);
             }
+            store.generation()
+        });
+
+        self.data_index_store.with_borrow_mut(|store| {
+            store.mark_prefix_cardinality_data_generation(data_generation);
         });
     }
 }

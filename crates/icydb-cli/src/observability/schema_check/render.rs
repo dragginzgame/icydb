@@ -3,9 +3,10 @@
 //! Does not own: schema drift analysis, canister calls, or CLI dispatch.
 //! Boundary: formats summary rows without interpreting schema semantics.
 
-use crate::table::{ColumnAlign, append_indented_table};
-
-use super::analysis::SchemaCheckSummary;
+use crate::{
+    observability::schema_check::analysis::SchemaCheckSummary,
+    table::{ColumnAlign, append_indented_table},
+};
 
 pub(super) fn render_schema_check_report_from_summary(summary: &SchemaCheckSummary) -> String {
     let mut output = String::new();

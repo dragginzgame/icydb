@@ -5,7 +5,7 @@
 
 use clap::Args;
 
-use super::CanisterTarget;
+use crate::cli::CanisterTarget;
 
 ///
 /// MetricsArgs
