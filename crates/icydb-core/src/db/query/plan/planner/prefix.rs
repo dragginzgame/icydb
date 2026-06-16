@@ -212,8 +212,7 @@ pub(super) fn index_branch_set_from_and(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Option<AccessPlan<Value>> {
-    let order = order?;
-    if grouped || !primary_key_asc_order(schema, order) {
+    if grouped || order.is_some_and(|order| !primary_key_asc_order(schema, order)) {
         return None;
     }
 
@@ -250,19 +249,21 @@ pub(super) fn index_branch_set_from_and(
         }
 
         let branch_prefix_len = branch_slot.saturating_add(1);
-        if !selected_index_contract_satisfies_secondary_order(
-            schema,
-            Some(order),
-            index.clone(),
-            branch_prefix_len,
-            false,
-        ) {
+        if order.is_some()
+            && !selected_index_contract_satisfies_secondary_order(
+                schema,
+                order,
+                index.clone(),
+                branch_prefix_len,
+                false,
+            )
+        {
             continue;
         }
 
         let score = access_candidate_score_from_index_contract(
             schema,
-            Some(order),
+            order,
             index.clone(),
             branch_prefix_len,
             false,

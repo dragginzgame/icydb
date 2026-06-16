@@ -5,10 +5,7 @@
 
 use crate::{
     db::{
-        access::{
-            ExecutionPathPayload, LoweredAccess, MAX_INDEX_BRANCH_SET_VALUES,
-            SemanticIndexAccessContract,
-        },
+        access::{ExecutionPathPayload, LoweredAccess, LoweredIndexPrefixSpec},
         data::{DataStore, DecodedDataStoreKey, StoreVisit},
         direction::Direction,
         executor::{
@@ -35,8 +32,7 @@ use crate::{
                 derive_exists_terminal_fast_path_contract_for_model,
             },
         },
-        index::{EncodedValue, IndexId, IndexKeyKind, predicate::IndexPredicateExecution},
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        index::{IndexId, IndexKey, IndexKeyKind, predicate::IndexPredicateExecution},
         query::builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
         registry::StoreHandle,
     },
@@ -251,8 +247,7 @@ fn aggregate_index_terminal_output_with_runtime(
 fn try_count_index_prefix_cardinality_terminal_request(
     prepared: &PreparedAggregateStreamingInputs<'_>,
 ) -> Option<ScalarAggregateOutput> {
-    let prefixes =
-        exact_count_cardinality_prefixes(&prepared.logical_plan, prepared.authority.entity_tag())?;
+    let prefixes = exact_count_cardinality_prefixes(prepared)?;
 
     let data_generation = prepared.store.with_data(DataStore::generation);
     let available_rows = prepared.store.with_index(|store| {
@@ -288,155 +283,78 @@ struct ExactCountCardinalityPrefix {
 }
 
 fn exact_count_cardinality_prefixes(
-    plan: &AccessPlannedQuery,
-    entity_tag: EntityTag,
+    prepared: &PreparedAggregateStreamingInputs<'_>,
 ) -> Option<Vec<ExactCountCardinalityPrefix>> {
+    let plan = &prepared.logical_plan;
     if !plan.has_no_distinct()
         || plan.scalar_plan().order.is_some()
         || plan.has_residual_filter_expr()
+        || plan.has_residual_filter_predicate()
     {
         return None;
     }
 
-    if let Some(spec) = plan.access.as_index_branch_set_spec_path() {
-        if plan.has_residual_filter_predicate() {
-            return None;
-        }
+    let lowered_access = prepared.lowered_access().ok()?;
+    let path = lowered_access.executable().as_path()?;
+    let index = path.index_prefix_details()?;
+    let prefix_len = index.slot_arity();
+    let expected_prefix_specs = match path {
+        ExecutionPathPayload::IndexBranchSet { branch_count, .. } => *branch_count,
+        ExecutionPathPayload::IndexPrefix { .. } => 1,
+        ExecutionPathPayload::ByKey(_)
+        | ExecutionPathPayload::ByKeys(_)
+        | ExecutionPathPayload::KeyRange { .. }
+        | ExecutionPathPayload::IndexMultiLookup { .. }
+        | ExecutionPathPayload::IndexRange { .. }
+        | ExecutionPathPayload::FullScan => return None,
+    };
 
-        return exact_cardinality_prefixes_for_branch_values(
-            entity_tag,
-            spec.index_ref(),
-            spec.fixed_values(),
-            spec.branch_values(),
-        );
-    }
-
-    let (index, fixed_values) = plan.access.as_index_prefix_contract_path()?;
-    if !plan.has_residual_filter_predicate() {
-        return exact_cardinality_prefixes_for_values(entity_tag, &index, fixed_values);
-    }
-
-    let branch_slot = fixed_values.len();
-    let branch_field = index.key_field_at(branch_slot)?;
-    let residual = plan.effective_execution_predicate()?;
-    let branch_values = exact_branch_values_from_residual(&residual, branch_field)?;
-    exact_cardinality_prefixes_for_branch_values(
-        entity_tag,
-        &index,
-        fixed_values,
-        branch_values.as_slice(),
+    exact_cardinality_prefixes_from_lowered_specs(
+        prepared.index_prefix_specs.as_ref(),
+        expected_prefix_specs,
+        prefix_len,
     )
 }
 
-fn exact_cardinality_prefixes_for_branch_values(
-    entity_tag: EntityTag,
-    index: &SemanticIndexAccessContract,
-    fixed_values: &[Value],
-    branch_values: &[Value],
+fn exact_cardinality_prefixes_from_lowered_specs(
+    specs: &[LoweredIndexPrefixSpec],
+    expected_prefix_specs: usize,
+    prefix_len: usize,
 ) -> Option<Vec<ExactCountCardinalityPrefix>> {
-    if branch_values.is_empty() || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+    if prefix_len == 0 || specs.len() != expected_prefix_specs {
         return None;
     }
 
-    let mut prefixes = Vec::with_capacity(branch_values.len());
-    for branch_value in branch_values {
-        let mut values = Vec::with_capacity(fixed_values.len().saturating_add(1));
-        values.extend_from_slice(fixed_values);
-        values.push(branch_value.clone());
-        prefixes.extend(exact_cardinality_prefixes_for_values(
-            entity_tag,
-            index,
-            values.as_slice(),
+    let mut prefixes = Vec::with_capacity(specs.len());
+    for spec in specs {
+        prefixes.push(exact_cardinality_prefix_from_lowered_spec(
+            spec, prefix_len,
         )?);
     }
 
     Some(prefixes)
 }
 
-fn exact_cardinality_prefixes_for_values(
-    entity_tag: EntityTag,
-    index: &SemanticIndexAccessContract,
-    values: &[Value],
-) -> Option<Vec<ExactCountCardinalityPrefix>> {
-    if values.is_empty() || values.len() > index.key_arity() {
+fn exact_cardinality_prefix_from_lowered_spec(
+    spec: &LoweredIndexPrefixSpec,
+    prefix_len: usize,
+) -> Option<ExactCountCardinalityPrefix> {
+    let Bound::Included(raw_key) = spec.lower() else {
         return None;
-    }
-
-    let components = EncodedValue::try_encode_all(values)
-        .ok()?
-        .into_iter()
-        .map(|value| value.encoded().to_vec())
-        .collect();
-
-    Some(vec![ExactCountCardinalityPrefix {
-        index_id: IndexId::new(entity_tag, index.ordinal()),
-        components,
-    }])
-}
-
-fn exact_branch_values_from_residual(predicate: &Predicate, field: &str) -> Option<Vec<Value>> {
-    let mut values = match predicate {
-        Predicate::Compare(compare) => exact_compare_branch_values(compare, field)?,
-        Predicate::Or(children) => {
-            let mut values = Vec::new();
-            for child in children {
-                let Predicate::Compare(compare) = child else {
-                    return None;
-                };
-                if compare.op() != CompareOp::Eq {
-                    return None;
-                }
-                values.extend(exact_compare_branch_values(compare, field)?);
-            }
-            values
-        }
-        Predicate::And(children) if children.len() == 1 => {
-            exact_branch_values_from_residual(&children[0], field)?
-        }
-        Predicate::True
-        | Predicate::False
-        | Predicate::And(_)
-        | Predicate::Not(_)
-        | Predicate::CompareFields(_)
-        | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => return None,
     };
-
-    values.sort_by(Value::canonical_cmp);
-    values.dedup_by(|right, left| Value::canonical_cmp(left, right).is_eq());
-    if values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+    let key = IndexKey::try_from_raw(raw_key).ok()?;
+    if key.key_kind() != IndexKeyKind::User || key.component_count() < prefix_len {
         return None;
     }
 
-    Some(values)
-}
+    let components = (0..prefix_len)
+        .map(|slot| key.component(slot).map(<[u8]>::to_vec))
+        .collect::<Option<Vec<_>>>()?;
 
-fn exact_compare_branch_values(compare: &ComparePredicate, field: &str) -> Option<Vec<Value>> {
-    if compare.field() != field || compare.coercion().id() != CoercionId::Strict {
-        return None;
-    }
-
-    match compare.op() {
-        CompareOp::Eq => Some(vec![compare.value().clone()]),
-        CompareOp::In => match compare.value() {
-            Value::List(values) => Some(values.clone()),
-            _ => None,
-        },
-        CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => None,
-    }
+    Some(ExactCountCardinalityPrefix {
+        index_id: *key.index_id(),
+        components,
+    })
 }
 
 // Resolve COUNT for PK full-scan/key-range shapes from store cardinality while

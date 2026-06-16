@@ -606,25 +606,17 @@ mod tests {
     use crate::{
         db::{
             direction::Direction,
-            index::{EncodedValue, IndexId, IndexKey, IndexKeyKind},
+            index::{IndexId, IndexKey, IndexKeyKind},
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         },
         testing::test_memory,
         traits::Storable,
         types::EntityTag,
-        value::Value,
     };
     use std::{borrow::Cow, convert::Infallible};
 
     fn raw_key(value: u8) -> RawIndexStoreKey {
         <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
-    }
-
-    fn encoded_component(value: &Value) -> Vec<u8> {
-        EncodedValue::try_from_ref(value)
-            .expect("test index component should encode")
-            .encoded()
-            .to_vec()
     }
 
     fn indexed_raw_key(
@@ -644,9 +636,9 @@ mod tests {
     #[test]
     fn index_prefix_cardinality_requires_explicit_data_generation_sync() {
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
-        let collection = encoded_component(&Value::Text("collection-a".to_string()));
-        let draft = encoded_component(&Value::Text("Draft".to_string()));
-        let review = encoded_component(&Value::Text("Review".to_string()));
+        let collection = b"collection-a".to_vec();
+        let draft = b"Draft".to_vec();
+        let review = b"Review".to_vec();
         let mut store = IndexStore::init_heap();
 
         store.insert(
