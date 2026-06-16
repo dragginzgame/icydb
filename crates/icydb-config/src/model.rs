@@ -1,3 +1,8 @@
+//! Module: model
+//! Responsibility: validated host-side config models consumed by code generation.
+//! Does not own: TOML parsing, path discovery, or generated Rust emission.
+//! Boundary: stores normalized canister feature switches and build-target policy.
+
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -15,6 +20,7 @@ pub(crate) const DEFAULT_SNAPSHOT_ENABLED: bool = false;
 pub(crate) const DEFAULT_SCHEMA_ENABLED: bool = false;
 
 /// Resolved IcyDB config and the path it came from, if a manifest exists.
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ResolvedIcydbConfig {
     config_path: Option<PathBuf>,
@@ -43,6 +49,7 @@ impl ResolvedIcydbConfig {
 }
 
 /// Validated IcyDB project config ready for build-script consumption.
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GeneratedIcydbConfig {
     canisters: BTreeMap<String, GeneratedCanisterConfig>,
@@ -189,6 +196,7 @@ impl GeneratedIcydbConfig {
 }
 
 /// Validated generated settings for one canister.
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GeneratedCanisterConfig {
     sql: GeneratedCanisterSqlConfig,
@@ -268,6 +276,7 @@ impl GeneratedCanisterConfig {
 }
 
 /// Validated generated SQL endpoint switches for one canister.
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GeneratedCanisterSqlConfig {
     readonly: bool,
@@ -296,6 +305,7 @@ impl GeneratedCanisterSqlConfig {
 }
 
 /// Build target used to resolve target-sensitive generated canister settings.
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum GeneratedBuildTarget {
     /// Local ICP replica target.
@@ -330,6 +340,7 @@ impl GeneratedBuildTarget {
 }
 
 /// Local/IC policy for generated read-only SQL operational introspection.
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GeneratedSqlIntrospectionPolicy {
     local: bool,
@@ -376,6 +387,7 @@ impl Default for GeneratedSqlIntrospectionPolicy {
 }
 
 /// Generated SQL update endpoint policy selected by `icydb.toml`.
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GeneratedSqlUpdatePolicy {
     /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
@@ -385,6 +397,7 @@ pub enum GeneratedSqlUpdatePolicy {
 }
 
 /// Validated generated metrics endpoint switches for one canister.
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GeneratedCanisterMetricsConfig {
     enabled: bool,

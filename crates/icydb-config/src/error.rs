@@ -1,8 +1,14 @@
+//! Module: error
+//! Responsibility: path-aware diagnostics for host-side config loading.
+//! Does not own: runtime database errors, schema diagnostics, or CLI rendering policy.
+//! Boundary: captures config discovery, read, parse, and canister-name validation failures.
+
 use std::{io, path::PathBuf};
 
 use thiserror::Error as ThisError;
 
 /// Config loading error with path-aware diagnostics.
+
 #[derive(Debug, ThisError)]
 pub enum ConfigError {
     #[error("failed to read IcyDB config at '{}': {source}", path.display())]

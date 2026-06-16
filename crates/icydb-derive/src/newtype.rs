@@ -1,3 +1,8 @@
+//! Module: newtype
+//! Responsibility: shared parser for single-field tuple newtype derives.
+//! Does not own: generated trait implementations or runtime wrapper semantics.
+//! Boundary: validates derive input shape and returns the inner type contract.
+
 use proc_macro2::TokenStream;
 use syn::{Data, DeriveInput, Error, Fields, Generics, Ident, Type};
 

@@ -1,3 +1,8 @@
+//! Module: node::field_list_arg
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
 use crate::prelude::*;
 
 pub(super) fn parse_scalar_field_arg(

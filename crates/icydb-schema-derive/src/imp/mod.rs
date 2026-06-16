@@ -1,3 +1,8 @@
+//! Module: imp
+//! Responsibility: generated trait implementation modules.
+//! Does not own: node parsing or schema validation.
+//! Boundary: re-exports focused impl generators.
+
 mod collection;
 mod default;
 mod entity;

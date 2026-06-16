@@ -132,6 +132,50 @@ fn execute_sql_projection_index_covering_matrix_matches_entity_rows() {
 }
 
 #[test]
+fn execute_sql_projection_index_covering_residual_predicate_filters_before_limit() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_covering_order_fixture(&session);
+
+    let sql = "SELECT name FROM IndexedSessionSqlEntity \
+               WHERE name != 'alice' \
+               ORDER BY name ASC \
+               LIMIT 2";
+    let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("index-covered residual predicate projection should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![Value::Text("bob".to_string())],
+            vec![Value::Text("carol".to_string())],
+        ],
+        "pure covering must apply fully indexable residual predicates before LIMIT",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn execute_sql_projection_index_covering_residual_predicate_avoids_row_store_gets() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_covering_order_fixture(&session);
+
+    let sql = "SELECT name FROM IndexedSessionSqlEntity \
+               WHERE name != 'alice' \
+               ORDER BY name ASC \
+               LIMIT 2";
+    let (_result, attribution) = session
+        .execute_sql_query_with_attribution::<IndexedSessionSqlEntity>(sql)
+        .expect("index-covered residual predicate projection should execute with attribution");
+
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "fully indexable residual predicates should keep pure covering row-store-free",
+    );
+}
+
+#[test]
 fn session_explain_execution_covering_query_matrix_uses_index_range_access() {
     // Phase 1: run both the plain and filtered covering shapes through the
     // same root route contract.

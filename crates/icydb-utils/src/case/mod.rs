@@ -1,9 +1,15 @@
+//! Module: case
+//! Responsibility: shared text case conversion vocabulary and helpers.
+//! Does not own: identifier authority, schema naming policy, or external crate behavior.
+//! Boundary: wraps local and external case conversion behind one workspace API.
+
 mod constant;
 mod snake;
 mod title;
 
-use convert_case as cc;
 use std::fmt::{self, Display};
+
+use convert_case as cc;
 
 pub use snake::to_snake_case;
 

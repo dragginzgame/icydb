@@ -1,3 +1,9 @@
+//! Module: db::response::rows
+//!
+//! Responsibility: public database response payloads.
+//! Does not own: query execution, storage mutation, or core response construction.
+//! Boundary: adapts core response shapes to facade-facing Candid-friendly types.
+
 use candid::CandidType;
 use icydb_core::value::OutputValue;
 use serde::Deserialize;

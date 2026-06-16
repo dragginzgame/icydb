@@ -1,3 +1,9 @@
+//! Module: base::sanitizer::text
+//!
+//! Responsibility: base sanitizer definitions.
+//! Does not own: validation policy, persistence, or schema mutation semantics.
+//! Boundary: mutates schema field values through facade sanitizer traits.
+
 pub mod ascii;
 pub mod case;
 pub mod color;

@@ -1,3 +1,9 @@
+//! Module: db::session::generated
+//!
+//! Responsibility: public session and fluent query facade.
+//! Does not own: core execution, storage engines, or planner semantics.
+//! Boundary: wraps core sessions with stable generated-code and application APIs.
+
 use crate::{
     db::{DbSession, StorageReport},
     error::Error,

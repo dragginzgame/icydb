@@ -1,3 +1,9 @@
+//! Module: base::types
+//!
+//! Responsibility: base domain type declarations.
+//! Does not own: runtime storage, query execution, or validator implementation internals.
+//! Boundary: declares macro-modeled domain wrappers and records for downstream schemas.
+
 pub mod bytes;
 pub mod color;
 pub mod finance;

@@ -1,4 +1,8 @@
-use icydb_core::db::LoadQueryResult as CoreLoadQueryResult;
+//! Module: db::response::query
+//!
+//! Responsibility: public database response payloads.
+//! Does not own: query execution, storage mutation, or core response construction.
+//! Boundary: adapts core response shapes to facade-facing Candid-friendly types.
 
 use crate::{
     db::response::{PagedGroupedResponse, Response},
@@ -6,6 +10,8 @@ use crate::{
     error::{Error, ErrorOrigin},
     traits::EntityKind,
 };
+
+use icydb_core::db::LoadQueryResult as CoreLoadQueryResult;
 
 ///
 /// QueryResponse

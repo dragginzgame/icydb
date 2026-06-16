@@ -1,3 +1,8 @@
+//! Module: node::entity::tests
+//! Responsibility: regression coverage for this module.
+//! Does not own: production behavior.
+//! Boundary: test-only contracts.
+
 use super::{Entity, composite_primary_key_type_part};
 use crate::node::{
     Def, Field, FieldList, HasSchemaPart, Index, Item, PrimaryKey, PrimaryKeySource, Relation,

@@ -1,3 +1,9 @@
+//! Module: db::session::load
+//!
+//! Responsibility: public session and fluent query facade.
+//! Does not own: core execution, storage engines, or planner semantics.
+//! Boundary: wraps core sessions with stable generated-code and application APIs.
+
 use crate::{
     db::{
         ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, Row,
@@ -13,6 +19,7 @@ use crate::{
     types::{Decimal, Id},
     value::{InputValue, OutputValue},
 };
+
 use icydb_core as core;
 
 type MinMaxIds<E> = Option<(Id<E>, Id<E>)>;

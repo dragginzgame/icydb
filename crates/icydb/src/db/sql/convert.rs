@@ -1,7 +1,14 @@
+//! Module: db::sql::convert
+//!
+//! Responsibility: public SQL result and rendering facade.
+//! Does not own: SQL parsing, lowering, planning, or execution.
+//! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
+
 use crate::db::sql::{
     SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput,
     value_render::{render_projection_value_text, sql_projection_output_rows},
 };
+
 use icydb_core::db::{GroupedRow, SqlStatementResult};
 
 pub(crate) fn sql_query_result_from_statement(

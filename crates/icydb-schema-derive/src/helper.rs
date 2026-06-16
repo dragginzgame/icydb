@@ -1,3 +1,8 @@
+//! Module: helper
+//! Responsibility: schema derive support.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro input to generated tokens.
+
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 

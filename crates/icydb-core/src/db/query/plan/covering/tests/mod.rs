@@ -90,6 +90,7 @@ fn covering_hybrid_projection_plan(
         covering_read_model().fields(),
         &finalized,
         primary_key_name,
+        false,
     )
 }
 

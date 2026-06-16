@@ -1,3 +1,8 @@
+//! Module: node::store
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
 use crate::validate::memory::{
     app_memory_id_error, memory_id_reserved_error, stable_key_segment_is_canonical,
 };

@@ -1,3 +1,9 @@
+//! Module: traits
+//!
+//! Responsibility: public trait facade and application entity contract.
+//! Does not own: core trait implementation semantics.
+//! Boundary: re-exports stable trait names and narrows facade-only contracts.
+
 use icydb_core::traits::EntityValue;
 
 pub use icydb_core::traits::{

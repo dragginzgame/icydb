@@ -1,9 +1,16 @@
+//! Module: db::response
+//!
+//! Responsibility: public database response payloads.
+//! Does not own: query execution, storage mutation, or core response construction.
+//! Boundary: adapts core response shapes to facade-facing Candid-friendly types.
+
 mod paged;
 mod query;
 mod rows;
 mod write;
 
 use crate::{error::Error, traits::EntityKind, types::Id};
+
 use icydb_core::db::{
     EntityResponse as CoreEntityResponse, ProjectionResponse as CoreProjectionResponse,
     ResponseCardinalityExt as CoreResponseCardinalityExt,

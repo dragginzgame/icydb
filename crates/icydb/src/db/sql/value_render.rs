@@ -1,4 +1,11 @@
+//! Module: db::sql::value_render
+//!
+//! Responsibility: public SQL result and rendering facade.
+//! Does not own: SQL parsing, lowering, planning, or execution.
+//! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
+
 use crate::{db::response::render_output_value_text, value::OutputValue};
+
 use icydb_core::types::Decimal;
 
 pub(in crate::db::sql) fn sql_projection_output_rows(

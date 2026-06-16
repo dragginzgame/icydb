@@ -1775,6 +1775,37 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     );
 }
 
+fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
+    let scenario = sample.scenario_key.as_str();
+    let rows = sample.outcome.row_count;
+    let compile = sample.avg_compile_local_instructions;
+    let execute = sample.avg_execute_local_instructions;
+    let total_avg = sample.avg_local_instructions;
+    let first = sample.first_local_instructions;
+    let min = sample.min_local_instructions;
+    let max = sample.max_local_instructions;
+    let data_gets = sample.avg_data_store_get_calls;
+    let index_gets = sample.avg_index_store_get_calls;
+    let index_entries = sample.avg_index_store_entry_reads;
+    let grouped_count_rows = sample.avg_grouped_count_row_materialization_local_instructions;
+    let grouped_count_lookup = sample.avg_grouped_count_group_lookup_local_instructions;
+    let sql_hits = sample.avg_sql_compiled_command_cache_hits;
+    let sql_misses = sample.avg_sql_compiled_command_cache_misses;
+    let shared_hits = sample.avg_shared_query_plan_cache_hits;
+    let shared_misses = sample.avg_shared_query_plan_cache_misses;
+    let delta = sample
+        .avg_local_instructions_delta
+        .map_or_else(|| "N/A".to_string(), |delta| format!("{delta:+}"));
+    let delta_percent = sample.avg_local_instructions_delta_percent_bps.map_or_else(
+        || "N/A".to_string(),
+        |delta_bps| format!("{:+}.{:02}%", delta_bps / 100, delta_bps.abs() % 100),
+    );
+
+    println!(
+        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} execute={execute} total_avg={total_avg} first={first} min={min} max={max} data_gets={data_gets} index_gets={index_gets} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses} delta={delta} delta_pct={delta_percent}",
+    );
+}
+
 // RepeatCacheContractCase keeps one representative repeated-SELECT contract
 // case together so the IC testkit audit can assert the final two-layer repeat
 // path directly instead of relying only on printed report inspection.
@@ -2921,6 +2952,7 @@ fn sql_perf_token_branch_set_page_is_bounded_and_page_only() {
     ] {
         let sample =
             sample_perf_scenario(&fixture, &baseline, sql_perf_scenario_by_key(scenario_key));
+        print_branch_set_perf_sample("page-only", &sample);
 
         assert_eq!(
             sample.outcome.result_kind, "projection",
@@ -2972,6 +3004,13 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
             "token.collection_stage_id.overcap_fallback.page_only.limit50",
         ),
     );
+    print_branch_set_perf_sample("limit50 branch", &branch);
+    print_branch_set_perf_sample("limit50 overcap fallback", &fallback);
+    let execute_delta = i128::from(fallback.avg_execute_local_instructions)
+        - i128::from(branch.avg_execute_local_instructions);
+    let total_delta =
+        i128::from(fallback.avg_local_instructions) - i128::from(branch.avg_local_instructions);
+    println!("branch-set perf limit50 saved: execute={execute_delta} total={total_delta}");
 
     assert_eq!(
         branch.outcome.row_count, 50,

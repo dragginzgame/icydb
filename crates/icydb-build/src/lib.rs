@@ -1,4 +1,11 @@
+//! Module: lib
+//! Responsibility: host-side generated actor code construction for IcyDB canisters.
+//! Does not own: schema validation, runtime session semantics, or build config parsing.
+//! Boundary: turns validated schema nodes and build options into generated Rust tokens.
+
 mod db;
+
+use std::sync::Arc;
 
 use icydb_schema::{
     build::get_schema,
@@ -6,7 +13,6 @@ use icydb_schema::{
 };
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::sync::Arc;
 
 /// Generate canister actor code for the given schema path and build options.
 ///
@@ -18,7 +24,9 @@ use std::sync::Arc;
 pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> String {
     // Load the validated schema and resolve the requested canister node.
     let schema = get_schema().expect("schema must be valid before codegen");
-    let canister = schema.cast_node::<Canister>(canister_path).unwrap();
+    let canister = schema
+        .cast_node::<Canister>(canister_path)
+        .expect("canister path must resolve to a canister node");
 
     // Render the canister actor glue from the schema-owned metadata.
     let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone(), options);
@@ -40,91 +48,6 @@ pub struct BuildOptions {
     metrics: BuildMetricsOptions,
     snapshot_enabled: bool,
     schema_enabled: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct BuildSqlOptions {
-    surfaces: BuildSqlSurfaceFlags,
-    update_policy: Option<BuildSqlUpdatePolicy>,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct BuildSqlSurfaceFlags(u8);
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct BuildMetricsOptions {
-    enabled: bool,
-    extended_enabled: bool,
-}
-
-/// Generated SQL update endpoint policy selected by actor codegen.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BuildSqlUpdatePolicy {
-    /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
-    PublicPrimaryKeyOnly,
-    /// Expose only public-safe bounded deterministic `UPDATE` through `__icydb_update`.
-    PublicBoundedDeterministic,
-}
-
-impl BuildSqlSurfaceFlags {
-    const DDL: u8 = 1 << 1;
-    const FIXTURES: u8 = 1 << 2;
-    const INTROSPECTION: u8 = 1 << 3;
-    const READONLY: u8 = 1;
-
-    #[must_use]
-    pub(crate) const fn with_readonly_enabled(self, enabled: bool) -> Self {
-        self.with_flag(Self::READONLY, enabled)
-    }
-
-    #[must_use]
-    pub(crate) const fn with_ddl_enabled(self, enabled: bool) -> Self {
-        self.with_flag(Self::DDL, enabled)
-    }
-
-    #[must_use]
-    pub(crate) const fn with_fixtures_enabled(self, enabled: bool) -> Self {
-        self.with_flag(Self::FIXTURES, enabled)
-    }
-
-    #[must_use]
-    pub(crate) const fn with_introspection_enabled(self, enabled: bool) -> Self {
-        self.with_flag(Self::INTROSPECTION, enabled)
-    }
-
-    #[must_use]
-    pub(crate) const fn readonly_enabled(self) -> bool {
-        self.contains(Self::READONLY)
-    }
-
-    #[must_use]
-    pub(crate) const fn ddl_enabled(self) -> bool {
-        self.contains(Self::DDL)
-    }
-
-    #[must_use]
-    pub(crate) const fn fixtures_enabled(self) -> bool {
-        self.contains(Self::FIXTURES)
-    }
-
-    #[must_use]
-    pub(crate) const fn introspection_enabled(self) -> bool {
-        self.contains(Self::INTROSPECTION)
-    }
-
-    #[must_use]
-    const fn contains(self, flag: u8) -> bool {
-        self.0 & flag == flag
-    }
-
-    #[must_use]
-    const fn with_flag(self, flag: u8, enabled: bool) -> Self {
-        if enabled {
-            Self(self.0 | flag)
-        } else {
-            Self(self.0 & !flag)
-        }
-    }
 }
 
 impl BuildOptions {
@@ -275,8 +198,98 @@ impl BuildOptions {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct BuildSqlOptions {
+    surfaces: BuildSqlSurfaceFlags,
+    update_policy: Option<BuildSqlUpdatePolicy>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BuildSqlSurfaceFlags(u8);
+
+impl BuildSqlSurfaceFlags {
+    const DDL: u8 = 1 << 1;
+    const FIXTURES: u8 = 1 << 2;
+    const INTROSPECTION: u8 = 1 << 3;
+    const READONLY: u8 = 1;
+
+    #[must_use]
+    pub(crate) const fn with_readonly_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::READONLY, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_ddl_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::DDL, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_fixtures_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::FIXTURES, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn with_introspection_enabled(self, enabled: bool) -> Self {
+        self.with_flag(Self::INTROSPECTION, enabled)
+    }
+
+    #[must_use]
+    pub(crate) const fn readonly_enabled(self) -> bool {
+        self.contains(Self::READONLY)
+    }
+
+    #[must_use]
+    pub(crate) const fn ddl_enabled(self) -> bool {
+        self.contains(Self::DDL)
+    }
+
+    #[must_use]
+    pub(crate) const fn fixtures_enabled(self) -> bool {
+        self.contains(Self::FIXTURES)
+    }
+
+    #[must_use]
+    pub(crate) const fn introspection_enabled(self) -> bool {
+        self.contains(Self::INTROSPECTION)
+    }
+
+    #[must_use]
+    const fn contains(self, flag: u8) -> bool {
+        self.0 & flag == flag
+    }
+
+    #[must_use]
+    const fn with_flag(self, flag: u8, enabled: bool) -> Self {
+        if enabled {
+            Self(self.0 | flag)
+        } else {
+            Self(self.0 & !flag)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct BuildMetricsOptions {
+    enabled: bool,
+    extended_enabled: bool,
+}
+
+/// Generated SQL update endpoint policy selected by actor codegen.
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildSqlUpdatePolicy {
+    /// Expose only public-safe primary-key `UPDATE` through `__icydb_update`.
+    PublicPrimaryKeyOnly,
+    /// Expose only public-safe bounded deterministic `UPDATE` through `__icydb_update`.
+    PublicBoundedDeterministic,
+}
+
 /// Build-script helper that emits generated actor code with host-provided
 /// generation options.
+///
+/// # Panics
+///
+/// Panics if Cargo does not provide `OUT_DIR` to the build script process.
 #[macro_export]
 macro_rules! build_with_options {
     ($actor:expr, $options:expr) => {

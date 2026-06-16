@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.5` lets pure and hybrid covering scans apply fully indexable
+  residual predicates before page windows and sparse hydration, while tightening
+  branch-set perf attribution and compact diagnostic-code registry ownership.
+
 - `0.183.4` hardens branch-tree route assembly with explicit branch-set access
   assertions, shared ordered stream-set reducers, and CI guardrails against
   executor-local merge/intersection drift.

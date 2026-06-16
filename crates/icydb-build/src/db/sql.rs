@@ -1,7 +1,12 @@
-use proc_macro2::TokenStream;
-use quote::quote;
+//! Module: db::sql
+//! Responsibility: generated SQL helper surface tokens for one canister actor.
+//! Does not own: SQL parsing, query execution, or controller authorization policy.
+//! Boundary: emits opt-in dispatch helpers and endpoint exports from codegen metadata.
 
 use crate::{BuildSqlSurfaceFlags, BuildSqlUpdatePolicy};
+
+use proc_macro2::TokenStream;
+use quote::quote;
 
 ///
 /// SqlSurfaceTokens
@@ -10,6 +15,7 @@ use crate::{BuildSqlSurfaceFlags, BuildSqlUpdatePolicy};
 /// helpers stay non-exported; the public controller-gated methods are owned by
 /// the runtime macro.
 ///
+
 pub(super) struct SqlSurfaceTokens {
     surfaces: BuildSqlSurfaceFlags,
     update_policy: Option<BuildSqlUpdatePolicy>,

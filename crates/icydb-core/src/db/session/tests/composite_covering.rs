@@ -374,6 +374,64 @@ fn execute_sql_projection_hybrid_covering_projection_mixes_covering_and_row_fiel
 }
 
 #[test]
+fn execute_sql_projection_hybrid_covering_residual_predicate_filters_before_row_reads() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed early `alpha` rows that the fully indexable residual
+    // predicate must reject before sparse row-backed projection reads.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_331_u128, "alpha", 1),
+            (9_332, "alpha", 2),
+            (9_333, "beta", 1),
+            (9_334, "beta", 2),
+            (9_335, "gamma", 1),
+        ],
+    );
+
+    let sql = "SELECT id, code, note \
+               FROM CompositeIndexedSessionSqlEntity \
+               WHERE code != 'alpha' \
+               ORDER BY code ASC, serial ASC, id ASC \
+               LIMIT 2";
+    let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
+        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+            .expect("hybrid residual covering projection query should execute")
+    });
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Ulid(Ulid::from_u128(9_333)),
+                Value::Text("beta".to_string()),
+                Value::Text("note-beta-1".to_string()),
+            ],
+            vec![
+                Value::Ulid(Ulid::from_u128(9_334)),
+                Value::Text("beta".to_string()),
+                Value::Text("note-beta-2".to_string()),
+            ],
+        ],
+        "hybrid covering must apply fully indexable residual predicates before LIMIT",
+    );
+    assert_eq!(
+        metrics.hybrid_covering_path_hits, 1,
+        "fully indexable residual predicates should stay on the hybrid covering path",
+    );
+    assert_eq!(
+        metrics.hybrid_covering_row_field_accesses, 2,
+        "hybrid covering should sparse-read row-backed fields only for accepted page rows",
+    );
+    assert_eq!(
+        metrics.data_rows_path_hits, 0,
+        "hybrid residual covering should bypass the generic data-row path",
+    );
+}
+
+#[test]
 fn execute_sql_projection_hybrid_covering_projection_skips_offset_before_index_projection() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

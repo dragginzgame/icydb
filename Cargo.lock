@@ -1262,6 +1262,9 @@ dependencies = [
 [[package]]
 name = "icydb-diagnostic-code"
 version = "0.183.4"
+dependencies = [
+ "remain",
+]
 
 [[package]]
 name = "icydb-primitives"

@@ -1,3 +1,8 @@
+//! Module: trait_kind
+//! Responsibility: schema derive support.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro input to generated tokens.
+
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use derive_more::IntoIterator;

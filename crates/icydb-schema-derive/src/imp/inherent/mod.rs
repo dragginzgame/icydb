@@ -1,3 +1,8 @@
+//! Module: imp::inherent
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
 mod collection;
 mod entity;
 mod model;

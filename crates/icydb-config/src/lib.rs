@@ -1,4 +1,7 @@
-//! Shared host-side support for `icydb.toml` project configuration.
+//! Module: lib
+//! Responsibility: shared host-side support for `icydb.toml` project configuration.
+//! Does not own: runtime configuration, generated actor code, or schema semantics.
+//! Boundary: exposes resolved generated-config models for build scripts and CLI tools.
 //!
 //! This crate owns existing config discovery, TOML parsing, and validation for
 //! build scripts and CLI commands. Runtime crates and generated actor code
@@ -9,6 +12,8 @@ mod error;
 mod model;
 mod parse;
 mod resolve;
+#[cfg(test)]
+mod tests;
 
 pub use emit::emit_config_for_build_script;
 pub use error::ConfigError;
@@ -24,6 +29,3 @@ pub const ICYDB_CONFIG_FILE_NAME: &str = "icydb.toml";
 /// Build-script environment variable used to resolve target-sensitive defaults.
 pub const ICYDB_BUILD_TARGET_ENV: &str = "ICYDB_BUILD_TARGET";
 const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
-
-#[cfg(test)]
-mod tests;

@@ -1,3 +1,11 @@
+//! Module: node::field
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
+#[cfg(test)]
+mod tests;
+
 use crate::{prelude::*, validate::reserved::is_reserved_word};
 use darling::ast::NestedMeta;
 use icydb_utils::{Case, Casing};
@@ -1442,10 +1450,3 @@ impl HasTypeExpr for Field {
         }
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

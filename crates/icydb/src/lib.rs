@@ -1,3 +1,9 @@
+//! Module: lib
+//!
+//! Responsibility: public facade crate surface and generated-code wiring.
+//! Does not own: core execution, storage internals, or schema mutation semantics.
+//! Boundary: re-exports stable runtime, design-time, and macro-facing surfaces.
+
 //! # icydb
 //!
 //! `icydb` is the **public facade crate** for the IcyDB runtime.

@@ -7,15 +7,18 @@ use crate::{
     db::{
         Db,
         executor::{
-            CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
-            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
+            CoveringProjectionMetricsRecorder, ExecutionPreparation,
+            ProjectionMaterializationMetricsRecorder, SharedPreparedExecutionPlan,
+            SharedPreparedProjectionRuntimeHandoff,
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
+            planning::preparation::slot_map_for_model_plan,
             projection::{
                 MaterializedProjectionRows, ProjectionDistinctWindow, project, project_distinct,
                 try_execute_prepared_covering_projection_rows_for_canister,
             },
             saturating_u32_len,
         },
+        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -109,19 +112,38 @@ where
     // Phase 1: choose the covering projection lane only for non-DISTINCT
     // requests. DISTINCT must see final projected rows in scalar execution order
     // before executor-owned deduplication and windowing.
-    if !distinct
-        && let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
+    if !distinct {
+        let covering = prepared_plan.projection_covering_read_execution_plan();
+        let covering_execution_preparation = prepared_plan
+            .logical_plan()
+            .has_residual_filter_predicate()
+            .then(|| {
+                ExecutionPreparation::from_plan(
+                    prepared_plan.logical_plan(),
+                    slot_map_for_model_plan(prepared_plan.logical_plan()),
+                )
+            });
+        let index_predicate_execution = covering_execution_preparation
+            .as_ref()
+            .and_then(ExecutionPreparation::strict_mode)
+            .map(|program| IndexPredicateExecution {
+                program,
+                rejected_keys_counter: None,
+            });
+
+        if let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
             db,
             prepared_plan.authority(),
             prepared_plan.logical_plan(),
-            prepared_plan.projection_covering_read_execution_plan(),
+            covering,
             || prepared_plan.hybrid_covering_read_plan(),
+            index_predicate_execution,
             covering_metrics,
-        )?
-    {
-        let rows = MaterializedProjectionRows::from_value_rows(projected.into_value_rows());
+        )? {
+            let rows = MaterializedProjectionRows::from_value_rows(projected.into_value_rows());
 
-        return Ok(StructuralProjectionResult::new(rows));
+            return Ok(StructuralProjectionResult::new(rows));
+        }
     }
 
     let SharedPreparedProjectionRuntimeHandoff {

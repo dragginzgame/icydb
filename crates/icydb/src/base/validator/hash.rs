@@ -1,3 +1,9 @@
+//! Module: base::validator::hash
+//!
+//! Responsibility: base validator definitions.
+//! Does not own: sanitization policy, persistence, or schema mutation semantics.
+//! Boundary: reports typed visitor issues for facade schema values.
+
 use crate::{design::prelude::*, traits::Validator};
 
 ///

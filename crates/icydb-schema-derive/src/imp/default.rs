@@ -1,3 +1,11 @@
+//! Module: imp::default
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
+#[cfg(test)]
+mod tests;
+
 use crate::prelude::*;
 
 ///
@@ -160,10 +168,3 @@ fn entity_default_assignment(field: &Field, primary_keys: &[Ident]) -> TokenStre
         quote!(#ident: #expr)
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

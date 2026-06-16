@@ -1,3 +1,8 @@
+//! Module: validate::memory
+//! Responsibility: derive-side validation helpers.
+//! Does not own: runtime validation.
+//! Boundary: parse-time checks.
+
 pub(crate) use icydb_schema::node::{APP_MEMORY_ID_MAX, APP_MEMORY_ID_MIN};
 
 /// Return a range-validation error message for a memory id, if invalid.

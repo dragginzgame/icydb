@@ -1,3 +1,8 @@
+//! Module: lib
+//! Responsibility: shared primitive capability metadata used across schema and runtime.
+//! Does not own: query coercion policy, storage encoding, or schema validation.
+//! Boundary: exposes compact scalar-kind capability descriptors and registry order.
+
 #[macro_use]
 mod macros;
 

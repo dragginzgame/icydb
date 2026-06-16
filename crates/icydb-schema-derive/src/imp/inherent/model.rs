@@ -1,3 +1,8 @@
+//! Module: imp::inherent::model
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
 use crate::{
     node::{Field, Item, ItemTarget, Value},
     prelude::quote_option,

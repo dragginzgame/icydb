@@ -1,3 +1,8 @@
+//! Module: db::schema
+//! Responsibility: generated accepted-schema report endpoint tokens.
+//! Does not own: schema validation, entity description semantics, or controller policy.
+//! Boundary: emits controller-gated schema report helpers for concrete canister entities.
+
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -8,6 +13,7 @@ use quote::quote;
 /// The endpoint remains generated because only codegen knows the concrete
 /// entity types bound to one canister.
 ///
+
 pub(super) struct SchemaSurfaceTokens {
     entity_tys: Vec<syn::Path>,
 }

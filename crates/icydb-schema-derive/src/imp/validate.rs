@@ -1,3 +1,8 @@
+//! Module: imp::validate
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
 use crate::{imp::field_walk::field_walk_bindings, prelude::*};
 use quote::format_ident;
 

@@ -8,5 +8,8 @@ description = "Compact diagnostic codes for IcyDB"
 repository = { workspace = true }
 authors = { workspace = true }
 
+[dependencies]
+remain = { workspace = true }
+
 [lints]
 workspace = true

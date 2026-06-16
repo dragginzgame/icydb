@@ -1,3 +1,9 @@
+//! Module: db::session::macros
+//!
+//! Responsibility: public session and fluent query facade.
+//! Does not own: core execution, storage engines, or planner semantics.
+//! Boundary: wraps core sessions with stable generated-code and application APIs.
+
 macro_rules! impl_session_query_shape_methods {
     () => {
         /// Filter by a single typed primary-key value.

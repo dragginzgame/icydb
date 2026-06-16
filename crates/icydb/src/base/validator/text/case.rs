@@ -1,4 +1,11 @@
+//! Module: base::validator::text::case
+//!
+//! Responsibility: base validator definitions.
+//! Does not own: sanitization policy, persistence, or schema mutation semantics.
+//! Boundary: reports typed visitor issues for facade schema values.
+
 use crate::{design::prelude::*, traits::Validator};
+
 use icydb_utils::{Case, Casing};
 
 ///

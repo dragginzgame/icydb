@@ -15,7 +15,7 @@ use crate::{
             IndexScan, KeyOrderComparator, read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
-        index::{IndexEntryExistenceWitness, RawIndexStoreKey},
+        index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
@@ -88,6 +88,7 @@ pub(in crate::db::executor) fn reorder_covering_projection_pairs<T>(
 
 // Resolve one covering projection component stream from one lowered
 // index-prefix or index-range contract.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db::executor) fn resolve_covering_projection_components_from_lowered_specs<F>(
     entity_tag: EntityTag,
     index_prefix_specs: &[LoweredIndexPrefixSpec],
@@ -95,6 +96,7 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     direction: Direction,
     limit: usize,
     component_indices: &[usize],
+    predicate_execution: Option<IndexPredicateExecution<'_>>,
     mut resolve_store_for_index: F,
 ) -> Result<CoveringProjectionComponentRows, InternalError>
 where
@@ -112,6 +114,7 @@ where
             continuation,
             limit,
             component_indices,
+            predicate_execution,
         );
     }
     if !index_prefix_specs.is_empty() {
@@ -121,6 +124,7 @@ where
             direction,
             limit,
             component_indices,
+            predicate_execution,
             resolve_store_for_index,
         );
     }
@@ -135,6 +139,7 @@ where
             continuation,
             limit,
             component_indices,
+            predicate_execution,
         );
     }
     if !index_range_specs.is_empty() {
@@ -155,6 +160,7 @@ fn resolve_covering_projection_components_for_prefix_set<F>(
     direction: Direction,
     limit: usize,
     component_indices: &[usize],
+    predicate_execution: Option<IndexPredicateExecution<'_>>,
     mut resolve_store_for_index: F,
 ) -> Result<CoveringProjectionComponentRows, InternalError>
 where
@@ -179,6 +185,7 @@ where
             Some(limit),
             chunk_entries,
             Arc::clone(&component_indices),
+            predicate_execution,
         ));
     }
 
@@ -216,6 +223,7 @@ const fn covering_branch_component_chunk_entries(limit: usize, branch_count: usi
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.
+#[expect(clippy::too_many_arguments)]
 fn resolve_covering_projection_components_for_index_bounds(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -227,6 +235,7 @@ fn resolve_covering_projection_components_for_index_bounds(
     continuation: IndexScanContinuationInput<'_>,
     limit: usize,
     component_indices: &[usize],
+    predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<CoveringProjectionComponentRows, InternalError> {
     IndexScan::components_structural(
         store,
@@ -237,16 +246,16 @@ fn resolve_covering_projection_components_for_index_bounds(
         continuation,
         limit,
         component_indices,
-        None,
+        predicate_execution,
     )
 }
 
-enum CoveringComponentStreamBox {
-    Prefix(Box<CoveringPrefixComponentStream>),
-    Merge(Box<MergeCoveringComponentStream>),
+enum CoveringComponentStreamBox<'a> {
+    Prefix(Box<CoveringPrefixComponentStream<'a>>),
+    Merge(Box<MergeCoveringComponentStream<'a>>),
 }
 
-impl CoveringComponentStreamBox {
+impl<'a> CoveringComponentStreamBox<'a> {
     #[expect(clippy::too_many_arguments)]
     fn prefix(
         store: StoreHandle,
@@ -258,6 +267,7 @@ impl CoveringComponentStreamBox {
         limit: Option<usize>,
         chunk_entries: usize,
         component_indices: Arc<[usize]>,
+        predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
         Self::Prefix(Box::new(CoveringPrefixComponentStream::new(
             store,
@@ -269,6 +279,7 @@ impl CoveringComponentStreamBox {
             limit,
             chunk_entries,
             component_indices,
+            predicate_execution,
         )))
     }
 
@@ -301,7 +312,7 @@ impl CoveringComponentStreamBox {
     }
 }
 
-struct CoveringPrefixComponentStream {
+struct CoveringPrefixComponentStream<'a> {
     store: StoreHandle,
     entity_tag: EntityTag,
     index: LoweredIndexScanContract,
@@ -312,12 +323,13 @@ struct CoveringPrefixComponentStream {
     remaining: Option<usize>,
     chunk_entries: usize,
     component_indices: Arc<[usize]>,
+    predicate_execution: Option<IndexPredicateExecution<'a>>,
     buffer: CoveringProjectionComponentRows,
     buffer_pos: usize,
     exhausted: bool,
 }
 
-impl CoveringPrefixComponentStream {
+impl<'a> CoveringPrefixComponentStream<'a> {
     #[expect(clippy::too_many_arguments)]
     const fn new(
         store: StoreHandle,
@@ -329,6 +341,7 @@ impl CoveringPrefixComponentStream {
         limit: Option<usize>,
         chunk_entries: usize,
         component_indices: Arc<[usize]>,
+        predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
         Self {
             store,
@@ -341,6 +354,7 @@ impl CoveringPrefixComponentStream {
             remaining: limit,
             chunk_entries,
             component_indices,
+            predicate_execution,
             buffer: Vec::new(),
             buffer_pos: 0,
             exhausted: false,
@@ -369,7 +383,7 @@ impl CoveringPrefixComponentStream {
             self.next_output_limit()
                 .map(|limit| limit.min(self.chunk_entries)),
             &self.component_indices,
-            None,
+            self.predicate_execution,
         )?;
         let (rows, last_raw_key) = chunk.into_component_rows_and_resume_anchor();
         let emitted = rows.len();
@@ -424,7 +438,10 @@ impl CoveringComponentStreamSideState {
         }
     }
 
-    fn ensure_row(&mut self, stream: &mut CoveringComponentStreamBox) -> Result<(), InternalError> {
+    fn ensure_row(
+        &mut self,
+        stream: &mut CoveringComponentStreamBox<'_>,
+    ) -> Result<(), InternalError> {
         if self.done || self.row.is_some() {
             return Ok(());
         }
@@ -472,19 +489,19 @@ impl CoveringComponentStreamSideState {
     }
 }
 
-struct MergeCoveringComponentStream {
-    left: CoveringComponentStreamBox,
-    right: CoveringComponentStreamBox,
+struct MergeCoveringComponentStream<'a> {
+    left: CoveringComponentStreamBox<'a>,
+    right: CoveringComponentStreamBox<'a>,
     left_state: CoveringComponentStreamSideState,
     right_state: CoveringComponentStreamSideState,
     comparator: KeyOrderComparator,
     last_emitted: Option<DecodedDataStoreKey>,
 }
 
-impl MergeCoveringComponentStream {
+impl<'a> MergeCoveringComponentStream<'a> {
     const fn new(
-        left: CoveringComponentStreamBox,
-        right: CoveringComponentStreamBox,
+        left: CoveringComponentStreamBox<'a>,
+        right: CoveringComponentStreamBox<'a>,
         comparator: KeyOrderComparator,
     ) -> Self {
         Self {

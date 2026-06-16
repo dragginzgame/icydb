@@ -1,9 +1,13 @@
-use std::{env, path::PathBuf};
+//! Module: emit
+//! Responsibility: resolve build-script config and emit Cargo rerun directives.
+//! Does not own: TOML validation, schema generation, or runtime feature gates.
+//! Boundary: adapts resolved host config into build-script-facing generated settings.
 
 use crate::{
     CONFIG_PATH_ENV, ConfigError, GeneratedBuildTarget, GeneratedIcydbConfig,
     ICYDB_BUILD_TARGET_ENV, parse::load_icydb_toml, resolve::resolve_config_path,
 };
+use std::{env, path::PathBuf};
 
 const CARGO_MANIFEST_DIR_ENV: &str = "CARGO_MANIFEST_DIR";
 

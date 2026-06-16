@@ -12,7 +12,7 @@ mod shared;
 use std::cell::Cell;
 
 use crate::{
-    db::{Db, executor::EntityAuthority},
+    db::{Db, executor::EntityAuthority, index::predicate::IndexPredicateExecution},
     error::InternalError,
     traits::CanisterKind,
     value::Value,
@@ -96,6 +96,7 @@ pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for
     plan: &AccessPlannedQuery,
     covering: Option<Arc<CoveringReadExecutionPlan>>,
     hybrid: impl FnOnce() -> Option<Arc<CoveringReadPlan>>,
+    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Option<CoveringProjectionRows>, InternalError>
 where
@@ -107,6 +108,7 @@ where
             authority.clone(),
             plan,
             &covering,
+            index_predicate_execution,
         )?
     {
         return Ok(Some(CoveringProjectionRows::new(projected)));
@@ -117,7 +119,12 @@ where
     };
 
     hybrid::try_execute_hybrid_covering_projection_rows_with_plan_for_canister(
-        db, authority, plan, metrics, &hybrid,
+        db,
+        authority,
+        plan,
+        metrics,
+        &hybrid,
+        index_predicate_execution,
     )
     .map(|projected| projected.map(CoveringProjectionRows::new))
 }

@@ -1,3 +1,8 @@
+//! Module: macros
+//! Responsibility: scalar-kind registry macro definitions for primitive metadata.
+//! Does not own: scalar runtime behavior, query coercion, or storage encoding.
+//! Boundary: expands one canonical scalar-kind registry into generated metadata helpers.
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! scalar_kind_registry_entries {

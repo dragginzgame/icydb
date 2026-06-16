@@ -1,3 +1,8 @@
+//! Module: inner
+//! Responsibility: generated `Inner` accessors for one-field wrappers.
+//! Does not own: wrapper construction, validation, or storage semantics.
+//! Boundary: emits borrowed and consuming accessors for validated newtypes.
+
 use crate::newtype::parse_newtype;
 use proc_macro2::TokenStream;
 use quote::quote;

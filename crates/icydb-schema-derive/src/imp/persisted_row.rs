@@ -1,3 +1,8 @@
+//! Module: imp::persisted_row
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
 use crate::prelude::*;
 
 ///

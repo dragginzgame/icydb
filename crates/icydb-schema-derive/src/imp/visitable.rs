@@ -1,3 +1,8 @@
+//! Module: imp::visitable
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
 use crate::{imp::field_walk::field_walk_bindings, prelude::*};
 
 ///

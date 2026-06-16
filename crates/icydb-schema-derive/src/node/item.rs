@@ -1,3 +1,11 @@
+//! Module: node::item
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
+#[cfg(test)]
+mod tests;
+
 use crate::prelude::*;
 
 ///
@@ -270,10 +278,3 @@ impl HasTypeExpr for ItemTarget {
         }
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

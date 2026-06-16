@@ -1,4 +1,7 @@
-use std::{env, fs};
+//! Module: tests
+//! Responsibility: config parsing and discovery regression coverage.
+//! Does not own: runtime config behavior or build-script process integration.
+//! Boundary: exercises crate-local host config contracts with filesystem fixtures.
 
 use crate::{
     ConfigError, GeneratedBuildTarget, GeneratedSqlUpdatePolicy, ICYDB_CONFIG_FILE_NAME,
@@ -6,6 +9,7 @@ use crate::{
     parse::parse_icydb_toml,
     resolve::{resolve_config_path, resolve_existing_icydb_toml},
 };
+use std::{env, fs};
 
 #[test]
 fn absent_config_defaults_all_generated_surfaces_off() {

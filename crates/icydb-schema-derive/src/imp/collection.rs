@@ -1,3 +1,8 @@
+//! Module: imp::collection
+//! Responsibility: generated collection trait impls.
+//! Does not own: collection runtime semantics.
+//! Boundary: emits impls for collection shapes.
+
 use crate::prelude::*;
 
 ///

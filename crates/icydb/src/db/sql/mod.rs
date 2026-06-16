@@ -1,3 +1,9 @@
+//! Module: db::sql
+//!
+//! Responsibility: public SQL result and rendering facade.
+//! Does not own: SQL parsing, lowering, planning, or execution.
+//! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
+
 //! Defines the public SQL text/result payload types exposed by the facade crate.
 //!
 //! This module consumes already-executed SQL outputs and renders stable
@@ -5,6 +11,8 @@
 
 mod convert;
 mod table_render;
+#[cfg(test)]
+mod tests;
 mod types;
 mod value_render;
 
@@ -17,10 +25,3 @@ pub use table_render::{
     render_show_memory_lines, render_show_stores_lines, render_show_stores_verbose_lines,
 };
 pub use types::{SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput};
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests;

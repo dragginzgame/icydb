@@ -1,3 +1,8 @@
+//! Module: imp::default::tests
+//! Responsibility: regression coverage for this module.
+//! Does not own: production behavior.
+//! Boundary: test-only contracts.
+
 use super::{default_strategy_entity, record_default_strategy};
 use crate::{
     node::{

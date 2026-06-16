@@ -1,3 +1,9 @@
+//! Module: db::query
+//!
+//! Responsibility: public query facade re-exports.
+//! Does not own: query planning, validation, or execution semantics.
+//! Boundary: exposes stable core query DSL types through the facade crate.
+
 //! Public facade query surface.
 //!
 //! Re-exports the typed query builders, semantic query types, and facade-only

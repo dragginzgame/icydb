@@ -1,10 +1,20 @@
+//! Module: error
+//!
+//! Responsibility: public compact error payloads and facade error category mapping.
+//! Does not own: rich internal diagnostics or core error construction.
+//! Boundary: maps core diagnostics to canister-facing Candid error codes.
+
+#[cfg(test)]
+mod tests;
+
+use std::fmt;
+
 use candid::CandidType;
 use icydb_core::{
     db::{QueryError, ResponseError},
     error::{ErrorOrigin as CoreErrorOrigin, InternalError},
 };
 use serde::Deserialize;
-use std::fmt;
 
 //
 // Error
@@ -36,7 +46,7 @@ impl Error {
     ) -> Self {
         Self {
             code: code.raw(),
-            class: error_class_wire_code(code.class()),
+            class: code.class().wire_code(),
             origin: origin.wire_code(),
         }
     }
@@ -97,16 +107,9 @@ impl Error {
     /// Return the broad compact diagnostic class.
     #[must_use]
     pub const fn class(&self) -> icydb_diagnostic_code::ErrorClass {
-        match self.class {
-            1 => icydb_diagnostic_code::ErrorClass::Query,
-            2 => icydb_diagnostic_code::ErrorClass::Corruption,
-            3 => icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat,
-            4 => icydb_diagnostic_code::ErrorClass::NotFound,
-            5 => icydb_diagnostic_code::ErrorClass::Internal,
-            6 => icydb_diagnostic_code::ErrorClass::Conflict,
-            7 => icydb_diagnostic_code::ErrorClass::Unsupported,
-            8 => icydb_diagnostic_code::ErrorClass::InvariantViolation,
-            _ => self.code().class(),
+        match icydb_diagnostic_code::ErrorClass::from_wire_code(self.class) {
+            Some(class) => class,
+            None => self.code().class(),
         }
     }
 
@@ -154,19 +157,6 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-const fn error_class_wire_code(class: icydb_diagnostic_code::ErrorClass) -> u8 {
-    match class {
-        icydb_diagnostic_code::ErrorClass::Query => 1,
-        icydb_diagnostic_code::ErrorClass::Corruption => 2,
-        icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat => 3,
-        icydb_diagnostic_code::ErrorClass::NotFound => 4,
-        icydb_diagnostic_code::ErrorClass::Internal => 5,
-        icydb_diagnostic_code::ErrorClass::Conflict => 6,
-        icydb_diagnostic_code::ErrorClass::Unsupported => 7,
-        icydb_diagnostic_code::ErrorClass::InvariantViolation => 8,
-    }
-}
 
 #[cfg_attr(doc, doc = "ErrorKind\n\nPublic error category.")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -324,35 +314,35 @@ pub enum ErrorOrigin {
 impl ErrorOrigin {
     const fn wire_code(self) -> u8 {
         match self {
-            Self::Cursor => 1,
-            Self::Executor => 2,
-            Self::Identity => 3,
-            Self::Index => 4,
-            Self::Interface => 5,
-            Self::Planner => 6,
-            Self::Query => 7,
-            Self::Recovery => 8,
-            Self::Response => 9,
-            Self::Runtime => 10,
-            Self::Serialize => 11,
-            Self::Store => 12,
+            Self::Cursor => icydb_diagnostic_code::ErrorOrigin::Cursor.wire_code(),
+            Self::Executor => icydb_diagnostic_code::ErrorOrigin::Executor.wire_code(),
+            Self::Identity => icydb_diagnostic_code::ErrorOrigin::Identity.wire_code(),
+            Self::Index => icydb_diagnostic_code::ErrorOrigin::Index.wire_code(),
+            Self::Interface => icydb_diagnostic_code::ErrorOrigin::Interface.wire_code(),
+            Self::Planner => icydb_diagnostic_code::ErrorOrigin::Planner.wire_code(),
+            Self::Query => icydb_diagnostic_code::ErrorOrigin::Query.wire_code(),
+            Self::Recovery => icydb_diagnostic_code::ErrorOrigin::Recovery.wire_code(),
+            Self::Response => icydb_diagnostic_code::ErrorOrigin::Response.wire_code(),
+            Self::Runtime => icydb_diagnostic_code::ErrorOrigin::Runtime.wire_code(),
+            Self::Serialize => icydb_diagnostic_code::ErrorOrigin::Serialize.wire_code(),
+            Self::Store => icydb_diagnostic_code::ErrorOrigin::Store.wire_code(),
         }
     }
 
     const fn from_wire_code(code: u8) -> Self {
-        match code {
-            1 => Self::Cursor,
-            2 => Self::Executor,
-            3 => Self::Identity,
-            4 => Self::Index,
-            5 => Self::Interface,
-            6 => Self::Planner,
-            7 => Self::Query,
-            8 => Self::Recovery,
-            9 => Self::Response,
-            11 => Self::Serialize,
-            12 => Self::Store,
-            _ => Self::Runtime,
+        match icydb_diagnostic_code::ErrorOrigin::from_wire_code(code) {
+            icydb_diagnostic_code::ErrorOrigin::Cursor => Self::Cursor,
+            icydb_diagnostic_code::ErrorOrigin::Executor => Self::Executor,
+            icydb_diagnostic_code::ErrorOrigin::Identity => Self::Identity,
+            icydb_diagnostic_code::ErrorOrigin::Index => Self::Index,
+            icydb_diagnostic_code::ErrorOrigin::Interface => Self::Interface,
+            icydb_diagnostic_code::ErrorOrigin::Planner => Self::Planner,
+            icydb_diagnostic_code::ErrorOrigin::Query => Self::Query,
+            icydb_diagnostic_code::ErrorOrigin::Recovery => Self::Recovery,
+            icydb_diagnostic_code::ErrorOrigin::Response => Self::Response,
+            icydb_diagnostic_code::ErrorOrigin::Runtime => Self::Runtime,
+            icydb_diagnostic_code::ErrorOrigin::Serialize => Self::Serialize,
+            icydb_diagnostic_code::ErrorOrigin::Store => Self::Store,
         }
     }
 }
@@ -412,10 +402,3 @@ impl From<icydb_diagnostic_code::ErrorOrigin> for ErrorOrigin {
         }
     }
 }
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests;

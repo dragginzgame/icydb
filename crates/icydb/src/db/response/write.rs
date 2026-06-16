@@ -1,9 +1,16 @@
+//! Module: db::response::write
+//!
+//! Responsibility: public database response payloads.
+//! Does not own: query execution, storage mutation, or core response construction.
+//! Boundary: adapts core response shapes to facade-facing Candid-friendly types.
+
 use crate::{
     diagnostic::RuntimeBoundaryCode,
     error::{Error, ErrorOrigin},
     traits::Entity,
     types::Id,
 };
+
 use icydb_core::db::{ResponseError, WriteBatchResponse as CoreWriteBatchResponse};
 
 ///

@@ -1,3 +1,8 @@
+//! Module: node::map
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
 use crate::{imp::*, prelude::*};
 
 ///

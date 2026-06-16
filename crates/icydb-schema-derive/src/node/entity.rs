@@ -1,3 +1,11 @@
+//! Module: node::entity
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
+#[cfg(test)]
+mod tests;
+
 use crate::{imp::*, prelude::*};
 use icydb_core::db::{EntityName, IndexName};
 use std::collections::HashSet;
@@ -850,10 +858,3 @@ impl ToTokens for Entity {
         });
     }
 }
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests;

@@ -1,3 +1,8 @@
+//! Module: ops
+//! Responsibility: arithmetic operator derive token generation for newtypes.
+//! Does not own: numeric semantics, overflow behavior, or runtime value coercion.
+//! Boundary: delegates operator implementations to the wrapped inner type.
+
 use crate::newtype::{self, NewtypeInput};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};

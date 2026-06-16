@@ -1,3 +1,8 @@
+//! Module: gen::implementor
+//! Responsibility: schema registration tokens.
+//! Does not own: node parsing or runtime validation.
+//! Boundary: parsed nodes to schema writes.
+
 use crate::prelude::*;
 use syn::{GenericParam, WherePredicate, parse2, punctuated::Punctuated, token::Comma};
 

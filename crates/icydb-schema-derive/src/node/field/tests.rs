@@ -1,3 +1,8 @@
+//! Module: node::field::tests
+//! Responsibility: regression coverage for this module.
+//! Does not own: production behavior.
+//! Boundary: test-only contracts.
+
 use super::{Field, FieldGeneration, FieldWriteManagement, Value};
 use crate::node::{Arg, ArgNumber, Item};
 use darling::{FromMeta, ast::NestedMeta};

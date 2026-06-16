@@ -1,3 +1,8 @@
+//! Module: lib
+//! Responsibility: schema derive support.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro input to generated tokens.
+
 mod r#gen;
 mod helper;
 mod imp;

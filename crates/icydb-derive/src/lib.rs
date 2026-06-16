@@ -1,3 +1,8 @@
+//! Module: lib
+//! Responsibility: proc-macro entry points for IcyDB runtime helper derives.
+//! Does not own: schema derive semantics, runtime trait behavior, or storage codecs.
+//! Boundary: delegates derive macro inputs to focused token generators.
+
 mod display;
 mod field_projection;
 mod inner;

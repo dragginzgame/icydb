@@ -1,3 +1,8 @@
+//! Module: field_projection
+//! Responsibility: generated field-index projection for named structs.
+//! Does not own: runtime value conversion or schema field ordering authority.
+//! Boundary: maps validated Rust fields to macro-facing projection values.
+
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Fields, Type};

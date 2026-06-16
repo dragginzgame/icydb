@@ -1,3 +1,9 @@
+//! Module: db
+//!
+//! Responsibility: facade module surface.
+//! Does not own: core runtime ownership.
+//! Boundary: keeps public facade shape stable for downstream code.
+
 pub mod query;
 pub mod response;
 mod session;

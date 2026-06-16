@@ -1,3 +1,8 @@
+//! Module: imp::sanitize
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
 use crate::{imp::field_walk::field_walk_bindings, prelude::*};
 
 /// ---------------------------------------------------------------------------
@@ -8,6 +13,7 @@ pub struct SanitizeAutoTrait;
 
 /// Each node type can emit sanitizer code for its *own value only*.
 /// Traversal into children is handled by the visitor.
+
 pub trait SanitizeAutoFn {
     fn self_tokens(_: &Self) -> TokenStream {
         quote!()

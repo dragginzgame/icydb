@@ -1,6 +1,8 @@
-use candid::Encode;
-use icydb_core::db::{GroupedRow, SqlStatementResult};
-use icydb_core::types::{Decimal, Float32, Float64};
+//! Module: db::sql::tests
+//!
+//! Responsibility: module boundary tests.
+//! Does not own: production implementation or public API ownership.
+//! Boundary: verifies facade contracts through local module behavior.
 
 use crate::__macro::Value;
 use crate::db::sql::{
@@ -15,6 +17,10 @@ use crate::db::{
     EntitySchemaDescription, MemoryCatalogDescription, StoreCatalogDescription,
 };
 use crate::value::OutputValue;
+
+use candid::Encode;
+use icydb_core::db::{GroupedRow, SqlStatementResult};
+use icydb_core::types::{Decimal, Float32, Float64};
 
 fn text(value: &str) -> OutputValue {
     OutputValue::Text(value.to_string())

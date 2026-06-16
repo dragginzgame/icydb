@@ -1,3 +1,9 @@
+//! Module: error::tests
+//!
+//! Responsibility: module boundary tests.
+//! Does not own: production implementation or public API ownership.
+//! Boundary: verifies facade contracts through local module behavior.
+
 use super::*;
 use candid::types::{CandidType, Label, Type, TypeInner};
 use icydb_core::db::{IntentError, PlanError, QueryExecutionError, ValidateError};

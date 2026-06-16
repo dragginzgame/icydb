@@ -1,3 +1,8 @@
+//! Module: node::primary_key
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
 use super::field_list_arg::{
     field_or_fields_duplicate_message, parse_field_list_arg, parse_scalar_field_arg,
 };

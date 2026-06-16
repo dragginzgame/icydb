@@ -1,3 +1,9 @@
+//! Module: db::sql::types
+//!
+//! Responsibility: public SQL result and rendering facade.
+//! Does not own: SQL parsing, lowering, planning, or execution.
+//! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
+
 use crate::db::{
     EntityCatalogDescription, EntityFieldDescription, EntitySchemaDescription,
     MemoryCatalogDescription, StoreCatalogDescription,
@@ -10,6 +16,7 @@ use crate::db::{
         render_sql_ddl_lines,
     },
 };
+
 use candid::CandidType;
 use serde::Deserialize;
 

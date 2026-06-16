@@ -1,3 +1,9 @@
+//! Module: db::session
+//!
+//! Responsibility: public session and fluent query facade.
+//! Does not own: core execution, storage engines, or planner semantics.
+//! Boundary: wraps core sessions with stable generated-code and application APIs.
+
 pub mod delete;
 pub(crate) mod generated;
 pub mod load;
@@ -19,6 +25,7 @@ use crate::{
     traits::{CanisterKind, Entity},
     value::{InputValue, OutputValue},
 };
+
 use icydb_core as core;
 
 // re-exports

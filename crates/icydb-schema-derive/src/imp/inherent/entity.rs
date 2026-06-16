@@ -1,3 +1,8 @@
+//! Module: imp::inherent::entity
+//! Responsibility: generated implementation tokens.
+//! Does not own: runtime trait semantics.
+//! Boundary: parsed nodes to impl tokens.
+
 use crate::{
     imp::inherent::{InherentTrait, model::model_field_expr},
     prelude::*,

@@ -1,3 +1,8 @@
+//! Module: node::item::tests
+//! Responsibility: regression coverage for this module.
+//! Does not own: production behavior.
+//! Boundary: test-only contracts.
+
 use super::Item;
 use darling::{FromMeta, ast::NestedMeta};
 use icydb_schema::types::Primitive;

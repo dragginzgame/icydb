@@ -1,3 +1,8 @@
+//! Module: db::store
+//! Responsibility: generated store memory declarations and session accessors.
+//! Does not own: store runtime behavior, memory manager implementation, or schema authority.
+//! Boundary: translates validated store metadata into actor-local storage wiring tokens.
+
 use crate::ActorBuilder;
 use icydb_schema::node::{Store, StoreHeapConfig, StoreJournaledMemoryConfig, StoreStorage};
 use proc_macro2::{Ident, TokenStream};
@@ -10,6 +15,7 @@ use quote::{format_ident, quote};
 /// statements emitted for one actor. It keeps store wiring helpers below the
 /// argument limit while preserving the generated-code phase boundary.
 ///
+
 struct StoreRegistryTokens {
     journal_defs: TokenStream,
     data_defs: TokenStream,

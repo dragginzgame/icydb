@@ -1,3 +1,8 @@
+//! Module: node::arg::number
+//! Responsibility: derive-side node parsing.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro metadata to node models.
+
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta};
 use syn::Lit;

@@ -381,6 +381,7 @@ where
             direction,
             usize::MAX,
             &[component_index],
+            None,
             |store_path| prepared.store_resolver.try_get_store(store_path),
         )
     }

@@ -1,3 +1,9 @@
+//! Module: base::validator::text
+//!
+//! Responsibility: base validator definitions.
+//! Does not own: sanitization policy, persistence, or schema mutation semantics.
+//! Boundary: reports typed visitor issues for facade schema values.
+
 pub mod case;
 pub mod color;
 

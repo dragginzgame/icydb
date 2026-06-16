@@ -1,3 +1,8 @@
+//! Module: case::constant
+//! Responsibility: local CONSTANT_CASE conversion helper.
+//! Does not own: snake_case tokenization or schema identifier authority.
+//! Boundary: converts existing snake-case output into Rust-constant-safe labels.
+
 use crate::case::snake::to_snake_case;
 
 /// Convert text into a Rust-constant-safe uppercase snake form.

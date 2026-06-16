@@ -1,3 +1,8 @@
+//! Module: persisted_row
+//! Responsibility: generated persisted-row slot bridge for named structs.
+//! Does not own: slot codec implementations, store layout authority, or migrations.
+//! Boundary: maps Rust fields to persisted slot read/write calls.
+
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{

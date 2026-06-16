@@ -280,7 +280,8 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
 /// - direct-field projections only
 /// - index-backed access only
 /// - no grouped plans
-/// - no residual predicate
+/// - no residual predicate unless the predicate is fully indexable by the
+///   selected access route
 /// - at least one row-backed projected field
 /// - projected fields may still be primary-key, constant, or index-backed
 ///   alongside those row-backed fields
@@ -290,13 +291,14 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
     fields: &[FieldModel],
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
+    strict_predicate_compatible: bool,
 ) -> Option<CoveringReadPlan> {
     let primary_key_names = [primary_key_name];
     covering_index_projection_plan_from_fields(
         fields,
         plan,
         &primary_key_names,
-        false,
+        strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::HybridRowFallback,
         true,
     )
@@ -309,13 +311,14 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
 pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
+    strict_predicate_compatible: bool,
 ) -> Option<CoveringReadPlan> {
     let primary_key_names = primary_key_names_from_schema(schema)?;
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
         primary_key_names.as_slice(),
-        false,
+        strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::HybridRowFallback,
         true,
     )

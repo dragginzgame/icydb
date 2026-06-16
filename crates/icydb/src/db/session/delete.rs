@@ -1,15 +1,22 @@
+//! Module: db::session::delete
+//!
+//! Responsibility: public session and fluent query facade.
+//! Does not own: core execution, storage engines, or planner semantics.
+//! Boundary: wraps core sessions with stable generated-code and application APIs.
+
 use crate::{
     db::{
+        DbSession,
         query::{CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query, QueryTracePlan},
+        response::RowProjectionOutput,
         session::macros::impl_session_query_shape_methods,
     },
     error::Error,
     traits::{Entity, SingletonEntity},
     types::Id,
 };
-use icydb_core as core;
 
-use crate::db::{DbSession, response::RowProjectionOutput};
+use icydb_core as core;
 
 ///
 /// SessionDeleteQuery

@@ -30,6 +30,7 @@ use crate::{
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
         },
+        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -42,6 +43,7 @@ pub(super) fn try_execute_covering_projection_rows_with_plan_for_canister<C>(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
     covering: &CoveringReadExecutionPlan,
+    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
     C: CanisterKind,
@@ -51,6 +53,7 @@ where
     }
     if plan.has_residual_filter_predicate()
         && (!covering.strict_predicate_compatible
+            || index_predicate_execution.is_none()
             || !matches!(
                 covering.order_contract,
                 CoveringProjectionOrder::IndexOrder(_)
@@ -117,6 +120,7 @@ where
         scan_window.direction,
         scan_window.limit,
         component_indices.as_slice(),
+        index_predicate_execution,
         |store_path| db.recovered_store(store_path),
     )?;
     let page = plan.scalar_plan().page.as_ref();

@@ -349,10 +349,15 @@ impl EntityAuthority {
     pub(in crate::db::executor) fn covering_hybrid_projection_plan(
         &self,
         plan: &AccessPlannedQuery,
+        strict_predicate_compatible: bool,
     ) -> Option<CoveringReadPlan> {
         let schema_info = self.accepted_schema_info.as_ref()?;
 
-        covering_hybrid_projection_plan_with_schema_info(schema_info, plan)
+        covering_hybrid_projection_plan_with_schema_info(
+            schema_info,
+            plan,
+            strict_predicate_compatible,
+        )
     }
 
     /// Build one structural index key from already-materialized row slots

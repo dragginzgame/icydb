@@ -1,3 +1,8 @@
+//! Module: types
+//! Responsibility: schema derive support.
+//! Does not own: runtime schema semantics.
+//! Boundary: macro input to generated tokens.
+
 use crate::prelude::*;
 
 ///

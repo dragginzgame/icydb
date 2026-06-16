@@ -1,3 +1,8 @@
+//! Module: validate::reserved
+//! Responsibility: derive-side validation helpers.
+//! Does not own: runtime validation.
+//! Boundary: parse-time checks.
+
 use std::{collections::HashSet, sync::LazyLock};
 
 ///

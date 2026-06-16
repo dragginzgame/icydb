@@ -17,6 +17,7 @@ use crate::{
             EntityAuthority, ExecutorPlanError,
             resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
         },
+        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -30,11 +31,15 @@ pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister
     plan: &AccessPlannedQuery,
     metrics: CoveringProjectionMetricsRecorder,
     hybrid: &CoveringReadPlan,
+    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
     C: CanisterKind,
 {
-    if plan.has_residual_filter_expr() || plan.has_residual_filter_predicate() {
+    if plan.has_residual_filter_expr() {
+        return Ok(None);
+    }
+    if plan.has_residual_filter_predicate() && index_predicate_execution.is_none() {
         return Ok(None);
     }
 
@@ -74,6 +79,7 @@ where
         scan_window.direction,
         scan_window.limit,
         component_indices.as_slice(),
+        index_predicate_execution,
         |store_path| db.recovered_store(store_path),
     )?;
 

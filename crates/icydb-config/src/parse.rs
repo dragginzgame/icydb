@@ -1,9 +1,7 @@
-use serde::Deserialize;
-use std::{
-    collections::{BTreeMap, btree_map::Entry},
-    fs,
-    path::Path,
-};
+//! Module: parse
+//! Responsibility: parse and validate `icydb.toml` into generated config models.
+//! Does not own: path discovery, build-script emission, or runtime config state.
+//! Boundary: turns TOML source plus known canister names into validated host models.
 
 use crate::{
     ConfigError, GeneratedCanisterConfig, GeneratedIcydbConfig, ResolvedIcydbConfig,
@@ -16,6 +14,13 @@ use crate::{
     },
     resolve::resolve_config_path,
 };
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    fs,
+    path::Path,
+};
+
+use serde::Deserialize;
 
 #[cfg(test)]
 pub(crate) fn parse_icydb_toml(

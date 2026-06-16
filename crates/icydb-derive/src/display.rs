@@ -1,3 +1,8 @@
+//! Module: display
+//! Responsibility: generated `Display` implementation for one-field wrappers.
+//! Does not own: formatting policy beyond delegating to the wrapped inner type.
+//! Boundary: adds the required inner `Display` bound and emits the trait impl.
+
 use crate::newtype;
 use proc_macro2::TokenStream;
 use quote::quote;

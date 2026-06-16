@@ -1,3 +1,8 @@
+//! Module: case::title
+//! Responsibility: local English-style title-case conversion helper.
+//! Does not own: full Unicode titlecasing or external case-conversion policy.
+//! Boundary: normalizes short human-facing labels used by workspace tooling.
+
 /// Convert text into English-style title case.
 #[must_use]
 pub fn to_title_case(input: &str) -> String {

@@ -1,15 +1,25 @@
+//! Module: db
+//! Responsibility: generated database session wiring for one canister actor.
+//! Does not own: schema validation, store runtime semantics, or SQL planning.
+//! Boundary: assembles store, SQL, and schema-surface token bundles.
+
 mod schema;
 mod sql;
 mod store;
 
 use crate::ActorBuilder;
-use proc_macro2::TokenStream;
-use quote::quote;
 use schema::SchemaSurfaceTokens;
 use sql::SqlSurfaceTokens;
+
+use proc_macro2::TokenStream;
+use quote::quote;
 use syn::parse_str;
 
 /// Render the generated store/session wiring for one canister actor.
+///
+/// # Panics
+///
+/// Panics if validated schema paths cannot be parsed back into Rust paths.
 #[must_use]
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
     let canister_path_source = builder.canister_path();
