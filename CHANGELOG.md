@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.3` fixes branch-set cursor continuation so resumed fixed-prefix
+  small-`IN` pages restart each branch at the primary-key boundary and keep
+  `SELECT *` work bounded to the merged page lookahead window.
+
 - `0.183.2` fixes covering page-window regressions around residual predicates,
   primary-key ordering, and key-only `LIMIT` scans, then adds
   production-shaped branch-set audit coverage against an over-cap fallback.

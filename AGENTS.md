@@ -45,6 +45,8 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Copyable style examples live under `docs/governance/code-hygiene/example-crate/`.
 - Avoid `super::` outside tests unless narrowly justified. Never use `#[path]` module wiring.
 - Public APIs need docs; non-trivial private logic needs intent/invariant comments.
+- Public APIs with reachable panic paths need `# Panics` docs; prefer typed errors or invariant helpers.
+- Same-file impl order: type, inherent `impl Type`, then trait impls alphabetically.
 - Do not match error strings in code or tests.
 - Persisted decoding must be bounded and fallible.
 

@@ -78,9 +78,15 @@ use thiserror::Error;
 Rules:
 
 - Avoid `super::super::` paths.
-- `super::` usage is allowed; reserve it for local module-relative references.
+- Avoid `super::` outside tests unless narrowly justified. When justified, keep
+  it to local module-relative references.
 - Prefer grouped `crate::{...}` imports.
+- Group imports by root instead of scattering repeated paths through the file.
 - Avoid inline `crate::long::path::...` usage inside functions.
+- Keep normal imports, re-exports, and module declarations in their own blocks;
+  do not mix `use` and `pub use` lines to save vertical space.
+- Keep `#[cfg(...)]` imports in the same conceptual block they would occupy
+  without the `cfg`.
 - When deriving or implementing `Display`, prefer `use std::fmt::{self, Display};` for consistency with adjacent formatting impls.
 
 Required top-of-file sequence (module files):
@@ -132,6 +138,14 @@ Example:
 
 This prevents architectural drift and clarifies module responsibilities.
 
+## Documentation And Wasm Size
+
+Do not remove public API docs for raw wasm-size reasons alone. Rust doc comments
+are metadata for rustdoc and are not expected to be retained in emitted wasm
+objects under release/stripped builds. If a generated-doc path is suspected of
+affecting raw wasm bytes, prove it with a direct raw `.wasm` comparison before
+changing style policy.
+
 ## 3. Struct and Enum Documentation
 
 All public structs and enums should include documentation describing:
@@ -146,6 +160,9 @@ Spacing rule for documented type declarations (`struct`, `enum`, `trait`):
 - Leave one blank line after the doc comment block and before the type declaration.
 - When attributes are present (for example `#[derive(...)]`), keep that same blank line between the
   doc block and the first attribute; this applies equally to structs, enums, and traits.
+- If a multi-line item doc block uses the house style with standalone `///`
+  lines before and after the body, leave a real blank line after the closing
+  standalone `///` before any attributes or item declaration.
 - Apply this consistently so type docs are visually scannable in large files.
 
 Error-enum variant formatting:
@@ -176,6 +193,8 @@ Functions should include documentation when they:
 - Perform planner checks
 - Derive execution contracts
 - Contain non-obvious logic
+- Can panic, either directly or through an intentional `expect`, `unwrap`, or
+  caller-triggered assertion exposed through a public API
 
 Ordering rule for documented items with attributes:
 
@@ -192,6 +211,22 @@ Example:
 /// Requires ORDER BY to include primary key as the final tie-break.
 /// Prevents unstable pagination anchors.
 ```
+
+Public APIs with reachable panic paths must include a `# Panics` section naming
+the exact condition. Prefer returning a typed error when the caller can
+reasonably recover.
+Internal invariant failures should use the local invariant helper for that
+subsystem instead of naked `panic!`, `unwrap`, or `expect`; if such an
+invariant failure remains visible through a public API, document it as an
+invariant violation rather than a normal caller contract. Tests may still use
+`expect` when it improves failure messages.
+
+Workspace lint policy for panic docs is tracked in
+[`panic-docs-clippy-lint.md`](/home/adam/projects/icydb/docs/design/ideas/panic-docs-clippy-lint.md).
+
+Comments should state intent, ownership, invariants, or non-obvious tradeoffs.
+Remove comments that restate the next line, describe obsolete behavior, or name
+historical implementation steps without explaining a current constraint.
 
 ## 5. Code Section Banners
 
@@ -228,9 +263,34 @@ Functions should appear in the following order:
 
 When a type and its `impl` live in the same file:
 
-- Place the inherent `impl TypeName { ... }` block immediately below the type definition when feasible.
-- Keep related trait impls adjacent to the type/inherent impls unless a clear module-structure reason requires separation.
-- If a type has many impl blocks, prefer a stable alphabetical ordering (typically by trait name) to reduce scan friction and merge churn.
+- Place the inherent `impl TypeName { ... }` block immediately below the type
+  definition when feasible.
+- Follow the inherent impl with trait impls for that same type, ordered
+  alphabetically by trait name unless a stronger local convention exists.
+- Keep related trait impls adjacent to the type/inherent impls unless a clear
+  module-structure reason requires separation.
+- If a file contains multiple types, keep each type family together: type,
+  inherent impl, then trait impls for that type.
+
+Example:
+
+```rust
+pub struct RoutePlan {
+    // fields
+}
+
+impl RoutePlan {
+    // constructors and inherent methods
+}
+
+impl Display for RoutePlan {
+    // formatting
+}
+
+impl TryFrom<RouteInput> for RoutePlan {
+    // conversion
+}
+```
 
 ## 7. Function Length
 

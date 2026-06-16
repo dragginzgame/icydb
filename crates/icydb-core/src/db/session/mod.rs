@@ -554,6 +554,11 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Return one stable list of runtime-registered entity catalog entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the runtime session cannot read its registered entity catalog.
+    /// Use `try_show_entities` when the caller can report the internal error.
     #[must_use]
     pub fn show_entities(&self) -> Vec<crate::db::EntityCatalogDescription> {
         self.try_show_entities().expect("session invariant")

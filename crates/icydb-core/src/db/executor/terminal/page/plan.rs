@@ -52,8 +52,13 @@ impl<'a> ScalarMaterializationPlan<'a> {
     // Build the shared scalar page-kernel request from one already-resolved
     // materialization plan so the terminal runtime does not re-read raw
     // capabilities after policy resolution.
-    pub(super) const fn kernel_request<'r>(
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "kernel request assembly keeps the scalar materialization boundary explicit"
+    )]
+    pub(super) fn kernel_request<'r>(
         &self,
+        plan: &'a AccessPlannedQuery,
         key_stream: &'a mut OrderedKeyStreamBox,
         scan_budget_hint: Option<usize>,
         load_order_route_mode: LoadOrderRouteMode,
@@ -64,6 +69,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
         ScalarPageKernelRequest {
             key_stream,
             scan_budget_hint,
+            row_keep_cap: self.branch_set_page_scan_keep_cap(plan, continuation),
             load_order_route_mode,
             consistency,
             scan_strategy: self.kernel_row_scan_strategy,
@@ -75,6 +81,46 @@ impl<'a> ScalarMaterializationPlan<'a> {
     // Return the post-access strategy already frozen into this plan.
     pub(super) const fn post_access_strategy(&self) -> PostAccessStrategy<'a> {
         self.post_access_strategy
+    }
+
+    // Bound branch-set page materialization at the merged lookahead window.
+    // The branch route already proves final primary-key order for this slice,
+    // so no post-scan ordering or predicate phase can reveal earlier rows.
+    fn branch_set_page_scan_keep_cap(
+        &self,
+        plan: &AccessPlannedQuery,
+        continuation: &ScalarContinuationContext,
+    ) -> Option<usize> {
+        let logical = plan.scalar_plan();
+        if !logical.mode.is_load()
+            || logical.distinct
+            || logical
+                .order
+                .as_ref()
+                .is_none_or(|order| order.fields.is_empty())
+            || !access_order_satisfied_by_route_mode(plan)
+            || plan.access.as_index_branch_set_spec_path().is_none()
+            || !matches!(
+                self.post_access_strategy.predicate_strategy,
+                PostAccessPredicateStrategy::NotPresent
+            )
+            || self
+                .post_access_strategy
+                .defer_retained_slot_distinct_window
+        {
+            return None;
+        }
+
+        let limit = logical.page.as_ref()?.limit?;
+        if limit == 0 {
+            return Some(0);
+        }
+
+        Some(
+            continuation
+                .keep_count_for_limit_window(plan, limit)
+                .saturating_add(1),
+        )
     }
 
     // Return the outward cursor-emission mode already frozen into this plan.

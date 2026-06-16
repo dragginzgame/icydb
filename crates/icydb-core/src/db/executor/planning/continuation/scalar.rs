@@ -149,8 +149,23 @@ impl ScalarContinuationContext {
     pub(in crate::db::executor) fn access_scan_input(
         &self,
         direction: Direction,
+        plan: &AccessPlannedQuery,
     ) -> AccessScanContinuationInput<'_> {
-        AccessScanContinuationInput::new(self.previous_index_range_anchor(), direction)
+        let primary_key_names = plan.primary_key_names();
+        let primary_key_ordered = plan.scalar_plan().order.as_ref().is_some_and(|order| {
+            order
+                .primary_key_only_direction_fields(primary_key_names.as_slice())
+                .is_some()
+        });
+        let primary_key_boundary = primary_key_ordered
+            .then_some(self.cursor_boundary())
+            .flatten();
+
+        AccessScanContinuationInput::with_primary_key_boundary(
+            self.previous_index_range_anchor(),
+            direction,
+            primary_key_boundary,
+        )
     }
 
     /// Assert scalar route-continuation invariants against this runtime context.

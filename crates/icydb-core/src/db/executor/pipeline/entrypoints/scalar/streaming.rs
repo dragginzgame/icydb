@@ -124,7 +124,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
         stream_bindings: AccessStreamBindings {
             index_prefix_specs,
             index_range_specs,
-            continuation: continuation.access_scan_input(direction),
+            continuation: continuation.access_scan_input(direction, plan),
         },
         execution_preparation: &prep,
         projection_materialization: projection_runtime_mode,

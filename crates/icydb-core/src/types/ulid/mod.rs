@@ -62,8 +62,9 @@ impl Ulid {
         Self(WrappedUlid::from_parts(timestamp_ms, randomness))
     }
 
-    /// generate
     /// Generate a ULID with the current timestamp and a random value.
+    ///
+    /// # Panics
     ///
     /// Panics if randomness is unavailable or monotonic generation overflows.
     #[must_use]

@@ -28,6 +28,10 @@ impl PrimaryKeyModel {
     }
 
     /// Build ordered primary-key metadata from generated field references.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `fields` is empty.
     #[must_use]
     pub const fn ordered(fields: &'static [&'static FieldModel]) -> Self {
         assert!(!fields.is_empty(), "primary key model requires fields");

@@ -9,6 +9,11 @@ use quote::quote;
 use std::sync::Arc;
 
 /// Generate canister actor code for the given schema path and build options.
+///
+/// # Panics
+///
+/// Panics if the process-global schema has not validated successfully or if
+/// `canister_path` does not resolve to a canister node.
 #[must_use]
 pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> String {
     // Load the validated schema and resolve the requested canister node.

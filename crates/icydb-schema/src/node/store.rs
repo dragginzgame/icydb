@@ -418,6 +418,11 @@ impl Store {
         self.storage.storage_capabilities()
     }
 
+    /// Return the stable data-memory ID for journaled storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub const fn stable_data_memory_id(&self) -> u8 {
         match self.storage {
@@ -426,6 +431,11 @@ impl Store {
         }
     }
 
+    /// Return the stable index-memory ID for journaled storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub const fn stable_index_memory_id(&self) -> u8 {
         match self.storage {
@@ -434,6 +444,11 @@ impl Store {
         }
     }
 
+    /// Return the stable schema-memory ID for journaled storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub const fn stable_schema_memory_id(&self) -> u8 {
         match self.storage {
@@ -442,6 +457,11 @@ impl Store {
         }
     }
 
+    /// Return the journal memory ID for journaled storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub const fn journal_memory_id(&self) -> u8 {
         match self.storage {

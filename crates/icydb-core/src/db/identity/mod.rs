@@ -159,6 +159,11 @@ impl EntityName {
     }
 
     /// Borrow the entity name as UTF-8 text.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stored entity-name bytes violate the ASCII-only identity
+    /// invariant. Construction and decoding are expected to prevent this.
     #[must_use]
     pub fn as_str(&self) -> &str {
         // Invariant: construction and decoding enforce ASCII-only storage,
@@ -355,6 +360,11 @@ impl IndexName {
     }
 
     /// Borrow the index identity as UTF-8 text.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stored index-name bytes violate the ASCII-only identity
+    /// invariant. Construction and decoding are expected to prevent this.
     #[must_use]
     pub fn as_str(&self) -> &str {
         // Invariant: construction and decoding enforce ASCII-only storage,

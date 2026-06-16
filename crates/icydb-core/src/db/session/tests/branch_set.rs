@@ -165,13 +165,39 @@ fn assert_target_top_n_fetch(descriptor: &ExplainExecutionNodeDescriptor) {
 }
 
 fn expected_branch_rows(limit: usize) -> Vec<Vec<Value>> {
+    expected_branch_ids(limit)
+        .into_iter()
+        .map(|id| vec![Value::Ulid(id)])
+        .collect()
+}
+
+fn expected_branch_ids(limit: usize) -> Vec<Ulid> {
     [
         9_090_u128, 9_095, 9_100, 9_105, 9_120, 9_125, 9_130, 9_135, 9_150, 9_155, 9_170, 9_175,
     ]
     .into_iter()
     .take(limit)
-    .map(|id| vec![Value::Ulid(Ulid::from_u128(id))])
+    .map(Ulid::from_u128)
     .collect()
+}
+
+fn paged_branch_ids(
+    page: &crate::db::PagedLoadExecution<BranchIndexedSessionSqlEntity>,
+) -> Vec<Ulid> {
+    page.iter().map(|row| row.id().key()).collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn with_store_and_index_reads<T>(run: impl FnOnce() -> T) -> (T, u64, u64) {
+    let store_gets_before = crate::db::data::DataStore::current_get_call_count();
+    let index_entries_before = crate::db::index::IndexStore::current_entry_read_count();
+    let result = run();
+    let store_gets =
+        crate::db::data::DataStore::current_get_call_count().saturating_sub(store_gets_before);
+    let index_entries = crate::db::index::IndexStore::current_entry_read_count()
+        .saturating_sub(index_entries_before);
+
+    (result, store_gets, index_entries)
 }
 
 #[test]
@@ -285,6 +311,106 @@ fn session_branch_set_sql_rows_match_full_filter_primary_key_sort() {
         rows,
         expected_branch_rows(BRANCH_LIMIT),
         "branch merge should match full filter plus global primary-key ASC sort",
+    );
+}
+
+#[test]
+fn session_branch_set_sql_cursor_continuation_resumes_branch_streams_after_boundary() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_sql("*", BRANCH_LIMIT);
+    let descriptor = branch_descriptor(sql.as_str());
+    let query =
+        lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("branch-set paged SQL should lower: {err:?}"));
+
+    assert_target_branch_route(&descriptor);
+    assert_target_top_n_fetch(&descriptor);
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .unwrap_or_else(|err| panic!("first branch-set page should execute: {err:?}"))
+        .into_execution();
+
+    assert_eq!(
+        paged_branch_ids(&first),
+        expected_branch_ids(BRANCH_LIMIT),
+        "first branch-set page should match the first global primary-key window",
+    );
+
+    let cursor = crate::db::encode_cursor(
+        first
+            .continuation_cursor()
+            .expect("first branch-set page should emit a continuation cursor"),
+    );
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+        .unwrap_or_else(|err| panic!("second branch-set page should execute: {err:?}"))
+        .into_execution();
+
+    assert_eq!(
+        paged_branch_ids(&second),
+        expected_branch_ids(BRANCH_LIMIT * 2)
+            .into_iter()
+            .skip(BRANCH_LIMIT)
+            .collect::<Vec<_>>(),
+        "second branch-set page should resume after the prior page boundary",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_cursor_continuation_does_not_replay_branch_prefix_entries() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_sql("*", BRANCH_LIMIT);
+    let query =
+        lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("branch-set paged SQL should lower: {err:?}"));
+
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .unwrap_or_else(|err| panic!("first branch-set page should execute: {err:?}"))
+        .into_execution();
+    let cursor = crate::db::encode_cursor(
+        first
+            .continuation_cursor()
+            .expect("first branch-set page should emit a continuation cursor"),
+    );
+
+    let (second_with_trace, second_store_gets, second_entry_reads) =
+        with_store_and_index_reads(|| {
+            session
+                .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+                .unwrap_or_else(|err| panic!("second branch-set page should execute: {err:?}"))
+        });
+    let second = second_with_trace.into_execution();
+
+    assert_eq!(
+        paged_branch_ids(&second),
+        expected_branch_ids(BRANCH_LIMIT * 2)
+            .into_iter()
+            .skip(BRANCH_LIMIT)
+            .collect::<Vec<_>>(),
+        "resumed branch page should still emit the next primary-key window",
+    );
+    assert!(
+        (BRANCH_LIMIT as u64..=BRANCH_FETCH).contains(&second_store_gets),
+        "resumed SELECT * branch page should hydrate only returned rows plus lookahead, got {second_store_gets} row-store gets",
+    );
+
+    let branch_match_count = expected_branch_ids(usize::MAX).len() as u64;
+    let branch_stream_entry_cap = BRANCH_FETCH * 2;
+    let remaining_after_first_page = branch_match_count.saturating_sub(BRANCH_LIMIT as u64);
+    assert!(
+        second_entry_reads <= branch_stream_entry_cap,
+        "resumed branch page should read at most the page lookahead per branch stream, got {second_entry_reads} reads for cap {branch_stream_entry_cap}",
+    );
+    assert!(
+        second_entry_reads < remaining_after_first_page,
+        "resumed branch page should not scan the full remaining suffix, got {second_entry_reads} reads for {remaining_after_first_page} remaining matches",
     );
 }
 

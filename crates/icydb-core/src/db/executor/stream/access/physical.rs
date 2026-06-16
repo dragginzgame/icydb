@@ -5,9 +5,12 @@
 
 use crate::{
     db::{
-        access::ExecutionPathPayload,
-        cursor::IndexScanContinuationInput,
-        data::{DecodedDataStoreKey, RawDataStoreKey, StoreVisit},
+        access::{ExecutionPathPayload, IndexShapeDetails},
+        cursor::{CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput},
+        data::{
+            DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
+            primary_key_value_from_structural_value,
+        },
         direction::Direction,
         executor::{
             ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -17,7 +20,7 @@ use crate::{
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
         },
-        index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
+        index::{EncodedValue, IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
         key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
     },
@@ -214,6 +217,7 @@ impl KeyAccessRuntime {
                 self.entity_tag,
                 spec,
                 direction,
+                None,
                 index_fetch_hint,
             ),
         ))
@@ -225,9 +229,10 @@ impl KeyAccessRuntime {
     // duplicate decoded primary keys defensively.
     fn resolve_index_branch_set_stream(
         &self,
+        index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         branch_count: usize,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         if index_prefix_specs.len() != branch_count {
@@ -239,18 +244,23 @@ impl KeyAccessRuntime {
 
         let mut streams = Vec::with_capacity(index_prefix_specs.len());
         for spec in index_prefix_specs {
+            let branch_anchor = continuation
+                .primary_key_boundary()
+                .map(|boundary| branch_set_resume_anchor_for_prefix(index, spec, boundary))
+                .transpose()?;
             streams.push(OrderedKeyStreamBox::index_range(
                 IndexRangeKeyStream::from_prefix(
                     self.store,
                     self.entity_tag,
                     spec,
-                    direction,
+                    continuation.direction(),
+                    branch_anchor,
                     index_fetch_hint,
                 ),
             ));
         }
 
-        let key_comparator = KeyOrderComparator::from_direction(direction);
+        let key_comparator = KeyOrderComparator::from_direction(continuation.direction());
         let mut stream = streams.remove(0);
         for next in streams {
             stream = OrderedKeyStreamBox::merge(stream, next, key_comparator);
@@ -334,6 +344,85 @@ impl KeyAccessRuntime {
             ),
         ))
     }
+}
+
+fn branch_set_resume_anchor_for_prefix(
+    index: &IndexShapeDetails,
+    spec: &LoweredIndexPrefixSpec,
+    primary_key_boundary: &CursorBoundary,
+) -> Result<RawIndexStoreKey, InternalError> {
+    let prefix_len = index.slot_arity();
+    let key_arity = index.key_arity();
+    if prefix_len >= key_arity {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    let prefix_start = lowered_prefix_start_key(spec)?;
+    if prefix_start.component_count() != key_arity {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    let suffix_len = key_arity.saturating_sub(prefix_len);
+    let (primary_key, suffix_values) = primary_key_suffix_values(primary_key_boundary, suffix_len)?;
+
+    let mut components = Vec::with_capacity(key_arity);
+    for component_index in 0..prefix_len {
+        let component = prefix_start
+            .component(component_index)
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        components.push(component.to_vec());
+    }
+
+    // Branch-set continuation is valid only for this slice's proven
+    // primary-key suffix. Fill that suffix from the cursor boundary so each
+    // branch resumes at the same global primary-key position.
+    let suffix_components = EncodedValue::try_encode_all(suffix_values.as_slice())?;
+    components.extend(
+        suffix_components
+            .iter()
+            .map(|component| component.as_ref().to_vec()),
+    );
+
+    Ok(IndexKey::new_from_components_with_primary_key_value(
+        prefix_start.index_id(),
+        prefix_start.key_kind(),
+        components.as_slice(),
+        &primary_key,
+    )
+    .to_raw())
+}
+
+fn lowered_prefix_start_key(spec: &LoweredIndexPrefixSpec) -> Result<IndexKey, InternalError> {
+    let Bound::Included(raw_key) = spec.lower() else {
+        return Err(InternalError::query_executor_invariant());
+    };
+
+    IndexKey::try_from_raw(raw_key).map_err(|_err| InternalError::query_executor_invariant())
+}
+
+fn primary_key_suffix_values(
+    boundary: &CursorBoundary,
+    suffix_len: usize,
+) -> Result<(crate::db::PrimaryKeyValue, Vec<Value>), InternalError> {
+    if boundary.slots.len() != suffix_len {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    let values = boundary
+        .slots
+        .iter()
+        .map(|slot| match slot {
+            CursorBoundarySlot::Present(value) => Ok(value.clone()),
+            CursorBoundarySlot::Missing => Err(InternalError::query_executor_invariant()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary_key = if let [value] = values.as_slice() {
+        primary_key_value_from_structural_value(value)?
+    } else {
+        primary_key_value_from_structural_value(&Value::List(values.clone()))?
+    };
+
+    Ok((primary_key, values))
 }
 
 ///
@@ -566,6 +655,7 @@ impl IndexRangeKeyStream {
         entity_tag: EntityTag,
         spec: &LoweredIndexPrefixSpec,
         direction: Direction,
+        anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
     ) -> Self {
         Self::new(
@@ -574,7 +664,7 @@ impl IndexRangeKeyStream {
             spec.lower().clone(),
             spec.upper().clone(),
             direction,
-            None,
+            anchor,
             limit,
         )
     }
@@ -764,12 +854,16 @@ fn resolve_physical_key_stream(
                 request.continuation.direction(),
                 request.index_predicate_execution,
             )?,
-        ExecutionPathPayload::IndexBranchSet { branch_count, .. } => {
+        ExecutionPathPayload::IndexBranchSet {
+            index,
+            branch_count,
+        } => {
             if index_path_can_stream_in_final_order(request) {
                 return runtime.resolve_index_branch_set_stream(
+                    index,
                     request.index_prefix_specs,
                     *branch_count,
-                    request.continuation.direction(),
+                    request.continuation,
                     request.physical_fetch_hint,
                 );
             }

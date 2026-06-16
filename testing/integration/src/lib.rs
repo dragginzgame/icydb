@@ -375,6 +375,11 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
 
 /// Build one supported canister and install it into a fresh standalone fixture
 /// with empty init args.
+///
+/// # Panics
+///
+/// Panics if the canister cannot be built, the built WASM cannot be read, empty
+/// init args cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
     let wasm_path = build_canister_with_options(
@@ -403,6 +408,10 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
 }
 
 /// Reset and reload the generated IcyDB fixture set on one installed canister.
+///
+/// # Panics
+///
+/// Panics if the reset or load calls fail to decode or return fixture errors.
 pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
     let reset: Result<(), Error> = fixture
         .update_call("__icydb_fixtures_reset", ())

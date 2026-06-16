@@ -235,7 +235,12 @@ impl CompositePrimaryKeyValue {
 
         let mut stored = [PrimaryKeyComponent::Unit; MAX_PRIMARY_KEY_FIELDS];
         stored[..components.len()].copy_from_slice(components);
-        let len = u8::try_from(components.len()).expect("primary-key invariant");
+        let Ok(len) = u8::try_from(components.len()) else {
+            return Err(CompositePrimaryKeyValueError::TooManyComponents {
+                count: components.len(),
+                max: MAX_PRIMARY_KEY_FIELDS,
+            });
+        };
 
         Ok(Self {
             len,

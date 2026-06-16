@@ -23,9 +23,11 @@ use crate::{
             },
             plan_metrics::record_plan_metrics,
             planning::route::top_n_seek_lookahead_required_for_shape,
+            route::access_order_satisfied_by_route_mode,
             with_execution_stats_capture,
         },
         index::IndexCompilePolicy,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
 };
@@ -61,6 +63,42 @@ const fn prepare_scalar_route_for_execution(
         route_plan.scan_hints.physical_fetch_hint = None;
         route_plan.scan_hints.load_scan_budget_hint = None;
     }
+}
+
+fn apply_branch_set_page_fetch_hint(
+    route_plan: &mut crate::db::executor::ExecutionPlan,
+    plan: &AccessPlannedQuery,
+    continuation: &ScalarContinuationContext,
+    residual_filter_present: bool,
+) {
+    if route_plan.scan_hints.physical_fetch_hint.is_some()
+        || residual_filter_present
+        || plan.access.as_index_branch_set_spec_path().is_none()
+        || !plan.scalar_plan().mode.is_load()
+        || plan.scalar_plan().distinct
+        || plan
+            .scalar_plan()
+            .order
+            .as_ref()
+            .is_none_or(|order| order.fields.is_empty())
+        || !access_order_satisfied_by_route_mode(plan)
+        || !route_plan.load_order_route_mode().allows_streaming_load()
+    {
+        return;
+    }
+
+    let Some(limit) = plan.scalar_plan().page.as_ref().and_then(|page| page.limit) else {
+        return;
+    };
+
+    let fetch = if limit == 0 {
+        0
+    } else {
+        continuation
+            .keep_count_for_limit_window(plan, limit)
+            .saturating_add(1)
+    };
+    route_plan.scan_hints.physical_fetch_hint = Some(fetch);
 }
 
 // Execute one prepared scalar runtime bundle through the canonical monomorphic
@@ -110,6 +148,12 @@ pub(super) fn execute_prepared_scalar_path_execution(
     let continuation_applied = route_continuation.applied();
     continuation.debug_assert_route_continuation_invariants(plan, route_continuation);
     let direction = route_plan.direction();
+    apply_branch_set_page_fetch_hint(
+        &mut route_plan,
+        plan,
+        &continuation,
+        prep.effective_runtime_filter_program().is_some(),
+    );
     let mut execution_trace =
         debug.then(|| execution_trace_for_access(&plan.access, direction, continuation_applied));
     let execution_started_at = start_execution_timer();
@@ -123,7 +167,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
         stream_bindings: AccessStreamBindings {
             index_prefix_specs,
             index_range_specs,
-            continuation: continuation.access_scan_input(direction),
+            continuation: continuation.access_scan_input(direction, plan),
         },
         execution_preparation: &prep,
         projection_materialization: projection_runtime_mode,

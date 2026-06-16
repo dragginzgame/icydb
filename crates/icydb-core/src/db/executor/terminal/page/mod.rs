@@ -224,6 +224,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
     let (mut rows, rows_scanned) =
         execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
+            plan,
             key_stream,
             scan_budget_hint,
             load_order_route_mode,
@@ -293,6 +294,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
     // materialization so residual filtering and row-read accounting stay shared.
     let (mut rows, rows_scanned) =
         execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
+            plan,
             key_stream,
             scan_budget_hint,
             load_order_route_mode,

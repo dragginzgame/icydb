@@ -134,6 +134,8 @@ impl Decimal {
 
     /// Construct a decimal from mantissa and scale.
     ///
+    /// # Panics
+    ///
     /// Panics when `scale` exceeds the supported range.
     #[must_use]
     pub const fn new(num: i64, scale: u32) -> Self {
@@ -340,6 +342,8 @@ impl Decimal {
     }
 
     /// Build from a raw mantissa and scale.
+    ///
+    /// # Panics
     ///
     /// Panics when the mantissa and scale cannot be represented without
     /// violating the decimal scale invariant.

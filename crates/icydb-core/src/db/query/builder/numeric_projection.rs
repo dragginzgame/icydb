@@ -318,12 +318,20 @@ pub fn div(
 }
 
 /// Build `ROUND(field, scale)`.
+///
+/// # Panics
+///
+/// Panics when `scale` exceeds the supported numeric projection scale.
 pub fn round(field: impl AsRef<str>, scale: u32) -> RoundProjectionExpr {
     RoundProjectionExpr::field(field.as_ref().to_string(), scale)
         .expect("numeric projection invariant")
 }
 
 /// Build `ROUND(expr, scale)` for one existing bounded numeric projection.
+///
+/// # Panics
+///
+/// Panics when `scale` exceeds the supported numeric projection scale.
 #[must_use]
 pub fn round_expr(projection: &NumericProjectionExpr, scale: u32) -> RoundProjectionExpr {
     projection

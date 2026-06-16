@@ -68,6 +68,7 @@ struct RowScanResult<T> {
 pub(super) struct ScalarPageKernelRequest<'a, 'r> {
     pub(super) key_stream: &'a mut OrderedKeyStreamBox,
     pub(super) scan_budget_hint: Option<usize>,
+    pub(super) row_keep_cap: Option<usize>,
     pub(super) load_order_route_mode: LoadOrderRouteMode,
     pub(super) consistency: MissingRowPolicy,
     pub(super) scan_strategy: KernelRowScanStrategy<'a>,
@@ -262,6 +263,7 @@ pub(super) fn execute_scalar_page_kernel_dyn(
     let ScalarPageKernelRequest {
         key_stream,
         scan_budget_hint,
+        row_keep_cap,
         load_order_route_mode,
         consistency,
         scan_strategy,
@@ -277,7 +279,7 @@ pub(super) fn execute_scalar_page_kernel_dyn(
         scan_budget_hint,
         consistency,
         scan_strategy,
-        row_keep_cap: None,
+        row_keep_cap,
         row_skip_count: 0,
         row_runtime,
     })

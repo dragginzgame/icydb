@@ -4,7 +4,7 @@
 //! Boundary: data-only scan request shapes consumed by stream and scan runtime.
 
 use crate::db::{
-    cursor::IndexScanContinuationInput,
+    cursor::{CursorBoundary, IndexScanContinuationInput},
     direction::Direction,
     executor::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey},
 };
@@ -84,6 +84,7 @@ impl<'a> AccessStreamBindings<'a> {
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct AccessScanContinuationInput<'a> {
     index_scan_continuation: IndexScanContinuationInput<'a>,
+    primary_key_boundary: Option<&'a CursorBoundary>,
 }
 
 impl<'a> AccessScanContinuationInput<'a> {
@@ -95,6 +96,20 @@ impl<'a> AccessScanContinuationInput<'a> {
     ) -> Self {
         Self {
             index_scan_continuation: IndexScanContinuationInput::new(anchor, direction),
+            primary_key_boundary: None,
+        }
+    }
+
+    /// Build one access-scan continuation input carrying a decoded primary-key boundary.
+    #[must_use]
+    pub(in crate::db::executor) const fn with_primary_key_boundary(
+        anchor: Option<&'a LoweredKey>,
+        direction: Direction,
+        primary_key_boundary: Option<&'a CursorBoundary>,
+    ) -> Self {
+        Self {
+            index_scan_continuation: IndexScanContinuationInput::new(anchor, direction),
+            primary_key_boundary,
         }
     }
 
@@ -116,5 +131,11 @@ impl<'a> AccessScanContinuationInput<'a> {
         &self,
     ) -> IndexScanContinuationInput<'a> {
         self.index_scan_continuation
+    }
+
+    /// Borrow the decoded primary-key cursor boundary for PK-ordered access routes.
+    #[must_use]
+    pub(in crate::db::executor) const fn primary_key_boundary(&self) -> Option<&'a CursorBoundary> {
+        self.primary_key_boundary
     }
 }

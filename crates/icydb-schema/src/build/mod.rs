@@ -20,6 +20,10 @@ static SCHEMA: LazyLock<RwLock<Schema>> = LazyLock::new(|| RwLock::new(Schema::n
 static SCHEMA_VALIDATED: OnceLock<bool> = OnceLock::new();
 
 /// Acquire a write guard to the global schema during build-time codegen.
+///
+/// # Panics
+///
+/// Panics if the process-global schema lock has been poisoned.
 pub fn schema_write() -> RwLockWriteGuard<'static, Schema> {
     SCHEMA
         .write()
