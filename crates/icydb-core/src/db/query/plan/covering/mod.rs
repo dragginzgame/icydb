@@ -214,6 +214,18 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
     strict_predicate_compatible
 }
 
+/// Return whether one scalar `COUNT(*)` terminal can count the index key stream
+/// directly. This uses the same strict index-coverage gate as covering
+/// existing-row terminals, but the runtime contract is stronger: execution
+/// folds keys only and must not probe row storage.
+#[must_use]
+pub(in crate::db) fn index_covering_count_keys_terminal_eligible(
+    plan: &AccessPlannedQuery,
+    strict_predicate_compatible: bool,
+) -> bool {
+    index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
+}
+
 /// Derive one planner-owned scalar covering-read plan from generated field-table
 /// authority plus the frozen projection contract on the plan.
 #[must_use]

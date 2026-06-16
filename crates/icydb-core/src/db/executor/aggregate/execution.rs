@@ -610,6 +610,7 @@ impl PreparedScalarTerminalOp {
 pub(in crate::db::executor) enum PreparedScalarTerminalStrategy {
     KernelAggregate,
     CountPrimaryKeyCardinality,
+    CountIndexKeys { direction: Direction },
     ExistingRows { direction: Direction },
 }
 

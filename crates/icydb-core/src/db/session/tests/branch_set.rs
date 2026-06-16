@@ -620,3 +620,44 @@ fn session_branch_set_sql_noncovered_projection_hydrates_only_bounded_page_rows(
         "non-covered default page-shaped branch query must not invoke count",
     );
 }
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_count_covered_predicate_avoids_row_store_gets() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = format!(
+        "SELECT COUNT(*) \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ('Draft', 'Review')",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("covered branch COUNT SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("covered branch COUNT SQL should return a projection row");
+    };
+
+    assert_eq!(
+        rows,
+        vec![outputs(vec![Value::Nat64(
+            expected_branch_ids(usize::MAX).len() as u64
+        )])],
+        "covered branch COUNT should match the full branch predicate result",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "fully indexable branch COUNT should fold index keys without row-store probes",
+    );
+    assert!(
+        attribution.index_store_entry_reads > 0,
+        "covered branch COUNT should scan index entries rather than row storage",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate, None,
+        "COUNT fast path should stay outside buffered scalar aggregate diagnostics",
+    );
+}
