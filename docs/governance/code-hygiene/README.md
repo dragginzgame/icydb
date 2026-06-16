@@ -5,10 +5,10 @@
 This document defines source consistency and readability standards used across `icydb-core`.
 The goal is to keep the codebase easy to navigate, maintain, and evolve as the system grows.
 
-This document governs file structure, imports, documentation, and organization of code inside modules.
-
-Copyable example modules live in
-[`docs/governance/code-style/README.md`](/home/adam/projects/icydb/docs/governance/code-style/README.md).
+This directory governs file structure, imports, documentation, and organization
+of code inside modules. The standard lives in this README; copyable example
+modules live under
+[`example-crate/`](/home/adam/projects/icydb/docs/governance/code-hygiene/example-crate).
 
 This is not the module hardening audit. Use
 `docs/audits/modular/module-surface-hardening.md` when the task is to justify
@@ -16,6 +16,42 @@ retained surface, remove stale complexity, or evaluate cleanup against hot-path
 and wasm-sensitive runtime shape. Use
 `docs/audits/modular/module-cleanup-runner.md` when the task is to patch a named
 module using that policy.
+
+## Example Crate
+
+The `example-crate/` tree is documentation-only Rust that models the preferred
+IcyDB crate and module shape. It intentionally has no `Cargo.toml`, is outside
+the Cargo workspace, and must not own package metadata or version numbers.
+
+```text
+example-crate/
+└── src/
+    ├── lib.rs
+    ├── catalog/
+    │   ├── admission.rs
+    │   ├── mod.rs
+    │   ├── snapshot.rs
+    │   └── tests.rs
+    ├── diagnostic.rs
+    └── plan/
+        ├── mod.rs
+        └── route.rs
+```
+
+The example demonstrates module-level ownership headers, top-of-file ordering,
+grouped imports, narrow visibility, public item docs, invariant-bearing
+constructors, typed diagnostics, leaf-local inline tests, and boundary-level
+`tests.rs`.
+
+When copying from it:
+
+- Copy structure and ordering, not the example domain names.
+- Keep runtime authority in the owning module; do not reconstruct accepted
+  runtime state from generated model conveniences.
+- Use scoped visibility before widening a symbol to `pub`.
+- Put cross-module tests in the owner boundary instead of burying them in a
+  leaf module.
+- Keep examples formatted with `rustfmt`.
 
 ## 1. Import Organization
 

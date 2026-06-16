@@ -37,11 +37,12 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Agent details: `docs/governance/agent-operating-manual.md`
 - Changelog rules: `docs/governance/changelog.md`
 - Slice/PR governance: `docs/governance/velocity-preservation.md`
-- Code hygiene background: `docs/governance/code-hygiene.md`
+- Code hygiene/style: `docs/governance/code-hygiene/README.md`
 
 ## Defaults To Remember
 
 - Imports: `mod`, blank line, `use`, blank line, `pub use`; prefer grouped `use crate::{...}`.
+- Copyable style examples live under `docs/governance/code-hygiene/example-crate/`.
 - Avoid `super::` outside tests unless narrowly justified. Never use `#[path]` module wiring.
 - Public APIs need docs; non-trivial private logic needs intent/invariant comments.
 - Do not match error strings in code or tests.
