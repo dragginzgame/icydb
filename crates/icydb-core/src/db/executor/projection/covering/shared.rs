@@ -1,12 +1,115 @@
 use crate::{
     db::{
         data::DecodedDataStoreKey,
-        executor::projection::covering::contracts::{CoveringReadField, CoveringReadFieldSource},
+        direction::Direction,
+        executor::{
+            apply_offset_limit_window,
+            projection::covering::contracts::{
+                CoveringProjectionOrder, CoveringReadField, CoveringReadFieldSource, PageSpec,
+            },
+        },
     },
     error::InternalError,
     value::Value,
 };
 use std::collections::BTreeMap;
+
+pub(super) struct CoveringScanWindow {
+    pub(super) direction: Direction,
+    pub(super) limit: usize,
+    pub(super) page_skip_count: usize,
+    pub(super) page_window_applied: bool,
+}
+
+pub(super) fn covering_scan_window(
+    order_contract: CoveringProjectionOrder,
+    branch_set_access: bool,
+    page_window_allowed_for_route: bool,
+    distinct: bool,
+    page: Option<&PageSpec>,
+) -> CoveringScanWindow {
+    let page_window_can_apply = page_window_allowed_for_route
+        && !distinct
+        && covering_index_scan_order_can_apply_page_window(order_contract, branch_set_access);
+
+    CoveringScanWindow {
+        direction: crate::db::executor::covering_projection_scan_direction(order_contract),
+        limit: covering_scan_limit(page_window_can_apply, page),
+        page_skip_count: covering_scan_time_page_skip_count(page_window_can_apply, page),
+        page_window_applied: covering_scan_time_page_window_applied(page_window_can_apply, page),
+    }
+}
+
+pub(super) fn apply_covering_page_window<T>(
+    distinct: bool,
+    page: Option<&PageSpec>,
+    page_window_already_applied: bool,
+    rows: &mut Vec<T>,
+) {
+    if distinct {
+        // DISTINCT paging is deferred to the projection materializer after
+        // projected-row deduplication over the ordered stream.
+        return;
+    }
+    if page_window_already_applied {
+        return;
+    }
+
+    let Some(page) = page else {
+        return;
+    };
+
+    apply_offset_limit_window(rows, page.offset, page.limit);
+}
+
+const fn covering_index_scan_order_can_apply_page_window(
+    order_contract: CoveringProjectionOrder,
+    branch_set_access: bool,
+) -> bool {
+    matches!(order_contract, CoveringProjectionOrder::IndexOrder(_))
+        || (branch_set_access
+            && matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_)))
+}
+
+fn covering_scan_limit(page_window_can_apply: bool, page: Option<&PageSpec>) -> usize {
+    let Some(page) = page else {
+        return usize::MAX;
+    };
+    if !page_window_can_apply {
+        return usize::MAX;
+    }
+    let Some(limit) = page.limit else {
+        return usize::MAX;
+    };
+
+    page.offset
+        .saturating_add(limit)
+        .max(1)
+        .try_into()
+        .unwrap_or(usize::MAX)
+}
+
+fn covering_scan_time_page_skip_count(
+    page_window_can_apply: bool,
+    page: Option<&PageSpec>,
+) -> usize {
+    if !page_window_can_apply {
+        return 0;
+    }
+
+    page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
+}
+
+fn covering_scan_time_page_window_applied(
+    page_window_can_apply: bool,
+    page: Option<&PageSpec>,
+) -> bool {
+    if !page_window_can_apply {
+        return false;
+    }
+
+    page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
+}
 
 pub(super) fn covering_projection_component_indices(fields: &[CoveringReadField]) -> Vec<usize> {
     let mut component_indices = Vec::with_capacity(fields.len());

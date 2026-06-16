@@ -6,14 +6,15 @@ use crate::{
         executor::projection::covering::{
             CoveringProjectionMetricsRecorder,
             contracts::{
-                AccessPlannedQuery, CoveringProjectionOrder, CoveringReadField,
-                CoveringReadFieldSource, CoveringReadPlan, PageSpec,
+                AccessPlannedQuery, CoveringReadField, CoveringReadFieldSource, CoveringReadPlan,
             },
-            shared::{covering_projection_component_indices, decode_hybrid_covering_components},
+            shared::{
+                apply_covering_page_window, covering_projection_component_indices,
+                covering_scan_window, decode_hybrid_covering_components,
+            },
         },
         executor::{
-            EntityAuthority, ExecutorPlanError, apply_offset_limit_window,
-            covering_projection_scan_direction,
+            EntityAuthority, ExecutorPlanError,
             resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
         },
     },
@@ -33,6 +34,10 @@ pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister
 where
     C: CanisterKind,
 {
+    if plan.has_residual_filter_expr() || plan.has_residual_filter_predicate() {
+        return Ok(None);
+    }
+
     if plan.access.as_index_prefix_contract_path().is_none()
         && plan.access.as_index_branch_set_spec_path().is_none()
         && plan.access.as_index_range_path().is_none()
@@ -55,21 +60,10 @@ where
     let index_prefix_specs = lowered_access.index_prefix_specs();
     let index_range_specs = lowered_access.index_range_specs();
 
-    // Phase 2: read the covering-backed component payloads in the order
-    // implied by the planner-owned covering order contract.
-    let scan_direction = covering_projection_scan_direction(hybrid.order_contract);
-    let scan_limit = hybrid_covering_scan_limit(
+    let scan_window = covering_scan_window(
         hybrid.order_contract,
-        plan.scalar_plan().distinct,
-        plan.scalar_plan().page.as_ref(),
-    );
-    let scan_time_page_skip_count = hybrid_covering_scan_time_page_skip_count(
-        hybrid.order_contract,
-        plan.scalar_plan().distinct,
-        plan.scalar_plan().page.as_ref(),
-    );
-    let scan_time_page_window_applied = hybrid_covering_scan_time_page_window_applied(
-        hybrid.order_contract,
+        plan.access.as_index_branch_set_spec_path().is_some(),
+        true,
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
     );
@@ -77,8 +71,8 @@ where
         authority.entity_tag(),
         index_prefix_specs,
         index_range_specs,
-        scan_direction,
-        scan_limit,
+        scan_window.direction,
+        scan_window.limit,
         component_indices.as_slice(),
         |store_path| db.recovered_store(store_path),
     )?;
@@ -88,7 +82,7 @@ where
     metrics.record_hybrid_path_hit();
     let mut projected_rows = store.with_data(|data_store| {
         let mut projected_rows =
-            Vec::with_capacity(raw_pairs.len().saturating_sub(scan_time_page_skip_count));
+            Vec::with_capacity(raw_pairs.len().saturating_sub(scan_window.page_skip_count));
         let mut projected_row_count = 0usize;
 
         for (data_key, _existence_witness, components) in raw_pairs {
@@ -101,7 +95,7 @@ where
             let Some(sparse_row_fields) = sparse_row_fields else {
                 continue;
             };
-            if projected_row_count < scan_time_page_skip_count {
+            if projected_row_count < scan_window.page_skip_count {
                 projected_row_count = projected_row_count.saturating_add(1);
                 continue;
             }
@@ -126,12 +120,12 @@ where
         hybrid.order_contract,
         projected_rows.as_mut_slice(),
     );
-    if !plan.scalar_plan().distinct
-        && !scan_time_page_window_applied
-        && let Some(page) = plan.scalar_plan().page.as_ref()
-    {
-        apply_offset_limit_window(&mut projected_rows, page.offset, page.limit);
-    }
+    apply_covering_page_window(
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+        scan_window.page_window_applied,
+        &mut projected_rows,
+    );
 
     Ok(Some(
         projected_rows
@@ -139,72 +133,6 @@ where
             .map(|(_data_key, row)| row)
             .collect(),
     ))
-}
-
-fn hybrid_covering_scan_limit(
-    order_contract: CoveringProjectionOrder,
-    distinct: bool,
-    page: Option<&PageSpec>,
-) -> usize {
-    if distinct {
-        // DISTINCT windows apply after projected-row deduplication, so the
-        // hybrid covering fast path must keep the full ordered input stream.
-        return usize::MAX;
-    }
-
-    let Some(page) = page else {
-        return usize::MAX;
-    };
-    if !matches!(
-        order_contract,
-        CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
-    ) {
-        return usize::MAX;
-    }
-    let Some(limit) = page.limit else {
-        return usize::MAX;
-    };
-
-    page.offset
-        .saturating_add(limit)
-        .max(1)
-        .try_into()
-        .unwrap_or(usize::MAX)
-}
-
-fn hybrid_covering_scan_time_page_skip_count(
-    order_contract: CoveringProjectionOrder,
-    distinct: bool,
-    page: Option<&PageSpec>,
-) -> usize {
-    if !hybrid_covering_route_can_apply_page_during_scan(order_contract, distinct) {
-        return 0;
-    }
-
-    page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
-}
-
-fn hybrid_covering_scan_time_page_window_applied(
-    order_contract: CoveringProjectionOrder,
-    distinct: bool,
-    page: Option<&PageSpec>,
-) -> bool {
-    if !hybrid_covering_route_can_apply_page_during_scan(order_contract, distinct) {
-        return false;
-    }
-
-    page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
-}
-
-const fn hybrid_covering_route_can_apply_page_during_scan(
-    order_contract: CoveringProjectionOrder,
-    distinct: bool,
-) -> bool {
-    !distinct
-        && matches!(
-            order_contract,
-            CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
-        )
 }
 
 fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize> {

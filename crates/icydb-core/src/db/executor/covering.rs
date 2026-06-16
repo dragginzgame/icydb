@@ -34,7 +34,8 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
-const COVERING_BRANCH_HEAD_CHUNK_ENTRIES: usize = 2;
+const COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES: usize = 2;
+const COVERING_BRANCH_MAX_CHUNK_ENTRIES: usize = 64;
 
 pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
 
@@ -164,6 +165,7 @@ where
     }
 
     let component_indices: Arc<[usize]> = Arc::from(component_indices.to_vec());
+    let chunk_entries = covering_branch_component_chunk_entries(limit, index_prefix_specs.len());
     let mut streams = Vec::with_capacity(index_prefix_specs.len());
     for spec in index_prefix_specs {
         let scan_contract = spec.scan_contract();
@@ -175,6 +177,7 @@ where
             spec.upper().clone(),
             direction,
             Some(limit),
+            chunk_entries,
             Arc::clone(&component_indices),
         ));
     }
@@ -186,6 +189,30 @@ where
     }
 
     stream.collect_limit(limit)
+}
+
+const fn covering_branch_component_chunk_entries(limit: usize, branch_count: usize) -> usize {
+    if limit <= COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES.saturating_mul(2) {
+        return COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES;
+    }
+
+    let branch_count = if branch_count == 0 { 1 } else { branch_count };
+    if branch_count <= 2 {
+        return if limit > COVERING_BRANCH_MAX_CHUNK_ENTRIES {
+            COVERING_BRANCH_MAX_CHUNK_ENTRIES
+        } else {
+            limit
+        };
+    }
+
+    let fair_branch_window = limit.div_ceil(branch_count);
+    if fair_branch_window < COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES {
+        COVERING_BRANCH_SMALL_PAGE_CHUNK_ENTRIES
+    } else if fair_branch_window > COVERING_BRANCH_MAX_CHUNK_ENTRIES {
+        COVERING_BRANCH_MAX_CHUNK_ENTRIES
+    } else {
+        fair_branch_window
+    }
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.
@@ -229,6 +256,7 @@ impl CoveringComponentStreamBox {
         upper: Bound<LoweredKey>,
         direction: Direction,
         limit: Option<usize>,
+        chunk_entries: usize,
         component_indices: Arc<[usize]>,
     ) -> Self {
         Self::Prefix(Box::new(CoveringPrefixComponentStream::new(
@@ -239,6 +267,7 @@ impl CoveringComponentStreamBox {
             upper,
             direction,
             limit,
+            chunk_entries,
             component_indices,
         )))
     }
@@ -281,6 +310,7 @@ struct CoveringPrefixComponentStream {
     direction: Direction,
     anchor: Option<RawIndexStoreKey>,
     remaining: Option<usize>,
+    chunk_entries: usize,
     component_indices: Arc<[usize]>,
     buffer: CoveringProjectionComponentRows,
     buffer_pos: usize,
@@ -297,6 +327,7 @@ impl CoveringPrefixComponentStream {
         upper: Bound<LoweredKey>,
         direction: Direction,
         limit: Option<usize>,
+        chunk_entries: usize,
         component_indices: Arc<[usize]>,
     ) -> Self {
         Self {
@@ -308,6 +339,7 @@ impl CoveringPrefixComponentStream {
             direction,
             anchor: None,
             remaining: limit,
+            chunk_entries,
             component_indices,
             buffer: Vec::new(),
             buffer_pos: 0,
@@ -333,9 +365,9 @@ impl CoveringPrefixComponentStream {
             &self.lower,
             &self.upper,
             continuation,
-            COVERING_BRANCH_HEAD_CHUNK_ENTRIES,
+            self.chunk_entries,
             self.next_output_limit()
-                .map(|limit| limit.min(COVERING_BRANCH_HEAD_CHUNK_ENTRIES)),
+                .map(|limit| limit.min(self.chunk_entries)),
             &self.component_indices,
             None,
         )?;

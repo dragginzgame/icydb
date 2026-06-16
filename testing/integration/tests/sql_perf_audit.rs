@@ -371,6 +371,13 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
     }
 }
 
+fn rendered_projection_rows(result: SqlQueryResult) -> Vec<Vec<String>> {
+    match result {
+        SqlQueryResult::Projection(rows) => rows.rendered_rows(),
+        other => panic!("expected projection payload, got {other:?}"),
+    }
+}
+
 fn baseline_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -1491,6 +1498,30 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 3";
 
+const TOKEN_BRANCH_SET_PAGE_LIMIT50_SQL: &str = "\
+SELECT id \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review') \
+ORDER BY id ASC \
+LIMIT 50";
+
+const TOKEN_BRANCH_SET_NONCOVERED_PAGE_LIMIT50_SQL: &str = "\
+SELECT id, title \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review') \
+ORDER BY id ASC \
+LIMIT 50";
+
+const TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL: &str = "\
+SELECT id \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden') \
+ORDER BY id ASC \
+LIMIT 50";
+
 fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
@@ -1506,6 +1537,27 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_collection_stage_id",
             "branch_set_noncovered_page_only",
             TOKEN_BRANCH_SET_NONCOVERED_PAGE_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_page_only",
+            TOKEN_BRANCH_SET_PAGE_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.noncovered_page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_noncovered_page_only",
+            TOKEN_BRANCH_SET_NONCOVERED_PAGE_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.overcap_fallback.page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_overcap_fallback",
+            TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL,
         ),
     ]
 }
@@ -1804,6 +1856,12 @@ fn sql_perf_scenario_by_key(scenario_key: &str) -> SqlPerfScenario {
         .into_iter()
         .find(|scenario| scenario.scenario_key == scenario_key)
         .unwrap_or_else(|| panic!("sql perf scenario '{scenario_key}' should exist"))
+}
+
+fn one_sample_sql_perf_scenario(scenario_key: &str) -> SqlPerfScenario {
+    let mut scenario = sql_perf_scenario_by_key(scenario_key);
+    scenario.sample_count = 1;
+    scenario
 }
 
 // assert_scenario_sample_cache_expectation checks that one sampled report row
@@ -2891,6 +2949,128 @@ fn sql_perf_token_branch_set_page_is_bounded_and_page_only() {
             "token branch-set default page query '{scenario_key}' must not invoke grouped/count lookup work",
         );
     }
+}
+
+#[test]
+fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = HashMap::new();
+    reset_sql_perf_fixtures(&fixture);
+
+    assert_token_branch_set_limit50_explain_contract(&fixture);
+    assert_token_branch_set_limit50_fallback_rows_match(&fixture);
+
+    let branch = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario("token.collection_stage_id.branch_set.page_only.limit50"),
+    );
+    let fallback = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario(
+            "token.collection_stage_id.overcap_fallback.page_only.limit50",
+        ),
+    );
+
+    assert_eq!(
+        branch.outcome.row_count, 50,
+        "branch-set LIMIT 50 pressure query should return the requested page size",
+    );
+    assert_eq!(
+        fallback.outcome, branch.outcome,
+        "over-cap fallback comparator should return the same page result as the branch route",
+    );
+    assert_eq!(
+        branch.avg_data_store_get_calls, 0,
+        "covered branch-set LIMIT 50 pressure query should avoid row-store get() calls",
+    );
+    assert!(
+        branch.avg_index_store_entry_reads <= 128,
+        "branch-set LIMIT 50 should keep index traversal bounded by the merged page, got {}",
+        branch.avg_index_store_entry_reads,
+    );
+    assert!(
+        branch.avg_execute_local_instructions < fallback.avg_execute_local_instructions,
+        "branch-set LIMIT 50 should execute cheaper than the over-cap fallback; branch={} fallback={}",
+        branch.avg_execute_local_instructions,
+        fallback.avg_execute_local_instructions,
+    );
+}
+
+fn assert_token_branch_set_limit50_explain_contract(fixture: &StandaloneCanisterFixture) {
+    let branch_explain = query_surface_with_perf(
+        fixture,
+        SqlPerfSurface::Token,
+        format!("EXPLAIN EXECUTION {TOKEN_BRANCH_SET_PAGE_LIMIT50_SQL}").as_str(),
+        1,
+    )
+    .expect("token branch-set LIMIT 50 EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain {
+        explain: branch_explain,
+        ..
+    } = branch_explain.result
+    else {
+        panic!("token branch-set LIMIT 50 EXPLAIN EXECUTION should return explain output");
+    };
+    assert!(
+        branch_explain.contains("IndexBranchSet"),
+        "token branch-set LIMIT 50 EXPLAIN should expose the branch-aware route: {branch_explain}",
+    );
+    assert!(
+        !branch_explain.contains("OrderByMaterializedSort"),
+        "token branch-set LIMIT 50 EXPLAIN must not materialize-sort the page route: {branch_explain}",
+    );
+
+    let fallback_explain = query_surface_with_perf(
+        fixture,
+        SqlPerfSurface::Token,
+        format!("EXPLAIN EXECUTION {TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL}").as_str(),
+        1,
+    )
+    .expect("token over-cap fallback LIMIT 50 EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain {
+        explain: fallback_explain,
+        ..
+    } = fallback_explain.result
+    else {
+        panic!("token over-cap fallback LIMIT 50 EXPLAIN EXECUTION should return explain output");
+    };
+    assert!(
+        !fallback_explain.contains("IndexBranchSet"),
+        "token over-cap fallback LIMIT 50 should not be admitted as IndexBranchSet: {fallback_explain}",
+    );
+    assert!(
+        fallback_explain.contains("OrderByMaterializedSort"),
+        "token over-cap fallback LIMIT 50 should materialize-sort after rejecting the branch route: {fallback_explain}",
+    );
+}
+
+fn assert_token_branch_set_limit50_fallback_rows_match(fixture: &StandaloneCanisterFixture) {
+    let branch_rows = rendered_projection_rows(
+        query_surface_with_perf(
+            fixture,
+            SqlPerfSurface::Token,
+            TOKEN_BRANCH_SET_PAGE_LIMIT50_SQL,
+            1,
+        )
+        .expect("token branch-set LIMIT 50 query should succeed")
+        .result,
+    );
+    let fallback_rows = rendered_projection_rows(
+        query_surface_with_perf(
+            fixture,
+            SqlPerfSurface::Token,
+            TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL,
+            1,
+        )
+        .expect("token over-cap fallback LIMIT 50 query should succeed")
+        .result,
+    );
+    assert_eq!(
+        fallback_rows, branch_rows,
+        "over-cap fallback comparator should return the same first page as the branch route",
+    );
 }
 
 #[test]

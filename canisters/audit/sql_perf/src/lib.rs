@@ -1841,7 +1841,7 @@ fn perf_audit_tokens() -> Vec<PerfAuditToken> {
     const TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
     const OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 
-    vec![
+    let mut tokens = vec![
         perf_audit_token(9_090, TARGET_COLLECTION, "Draft", "draft-090"),
         perf_audit_token(9_095, TARGET_COLLECTION, "Review", "review-095"),
         perf_audit_token(9_100, TARGET_COLLECTION, "Review", "review-100"),
@@ -1862,7 +1862,25 @@ fn perf_audit_tokens() -> Vec<PerfAuditToken> {
         perf_audit_token(9_175, TARGET_COLLECTION, "Review", "review-175"),
         perf_audit_token(9_180, TARGET_COLLECTION, "Rejected", "rejected-180"),
         perf_audit_token(9_185, OTHER_COLLECTION, "Review", "other-review-185"),
-    ]
+    ];
+
+    for offset in 0..240u128 {
+        let stage = match offset % 4 {
+            0 => "Draft",
+            1 => "Queued",
+            2 => "Review",
+            _ => "Published",
+        };
+        let title = format!("{}-pressure-{offset:03}", stage.to_ascii_lowercase());
+        tokens.push(perf_audit_token(
+            10_000 + offset,
+            TARGET_COLLECTION,
+            stage,
+            title.as_str(),
+        ));
+    }
+
+    tokens
 }
 
 #[cfg(feature = "candid-export")]

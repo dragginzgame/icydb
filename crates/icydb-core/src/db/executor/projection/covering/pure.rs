@@ -17,15 +17,15 @@ use crate::{
                 CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
             },
             shared::{
-                covering_projection_component_indices, project_covering_row_from_decoded_values,
+                apply_covering_page_window, covering_projection_component_indices,
+                covering_scan_window, project_covering_row_from_decoded_values,
                 project_covering_row_from_owned_decoded_values,
                 project_covering_row_from_single_decoded_value,
             },
         },
         executor::{
             CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
-            OrderedKeyStreamBox, PrimaryRangeKeyStream, apply_offset_limit_window,
-            covering_projection_scan_direction, decode_covering_projection_pairs,
+            OrderedKeyStreamBox, PrimaryRangeKeyStream, decode_covering_projection_pairs,
             decode_single_covering_projection_pairs, map_covering_projection_pairs,
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
@@ -49,7 +49,16 @@ where
     if plan.has_residual_filter_expr() {
         return Ok(None);
     }
-    if plan.has_residual_filter_predicate() && !covering.strict_predicate_compatible {
+    if plan.has_residual_filter_predicate()
+        && (!covering.strict_predicate_compatible
+            || !matches!(
+                covering.order_contract,
+                CoveringProjectionOrder::IndexOrder(_)
+            ))
+    {
+        // The covering lane does not yet own residual predicate evaluation.
+        // Keep primary-key reorder fallbacks materialized so predicates run
+        // before global ordering and LIMIT.
         return Ok(None);
     }
 
@@ -94,10 +103,10 @@ where
 
     // Phase 2: scan the covering component payloads under the same planner
     // order contract the executor already exposes in EXPLAIN EXECUTION.
-    let scan_direction = covering_projection_scan_direction(covering.order_contract);
-    let scan_limit = pure_covering_scan_limit(
+    let scan_window = covering_scan_window(
         covering.order_contract,
-        covering.existing_row_mode,
+        plan.access.as_index_branch_set_spec_path().is_some(),
+        covering.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
     );
@@ -105,26 +114,14 @@ where
         authority.entity_tag(),
         index_prefix_specs,
         index_range_specs,
-        scan_direction,
-        scan_limit,
+        scan_window.direction,
+        scan_window.limit,
         component_indices.as_slice(),
         |store_path| db.recovered_store(store_path),
     )?;
     let page = plan.scalar_plan().page.as_ref();
     let order_contract = covering.order_contract;
     let index_order = matches!(order_contract, CoveringProjectionOrder::IndexOrder(_));
-    let scan_time_page_skip_count = pure_covering_scan_time_page_skip_count(
-        order_contract,
-        covering.existing_row_mode,
-        plan.scalar_plan().distinct,
-        page,
-    );
-    let scan_time_page_window_applied = pure_covering_scan_time_page_window_applied(
-        order_contract,
-        covering.existing_row_mode,
-        plan.scalar_plan().distinct,
-        page,
-    );
 
     if component_indices.is_empty() {
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -159,7 +156,7 @@ where
         if index_order {
             let mut projected_rows = assemble_covering_rows_in_index_order(
                 projected_keys,
-                scan_time_page_skip_count,
+                scan_window.page_skip_count,
                 |(data_key, ())| {
                     project_covering_row_from_decoded_values(
                         &data_key,
@@ -169,10 +166,10 @@ where
                     )
                 },
             )?;
-            apply_pure_covering_page_window(
+            apply_covering_page_window(
                 plan.scalar_plan().distinct,
                 page,
-                scan_time_page_window_applied,
+                scan_window.page_window_applied,
                 &mut projected_rows,
             );
 
@@ -193,7 +190,7 @@ where
                 Ok::<(DecodedDataStoreKey, Vec<Value>), InternalError>((data_key, projected_row))
             },
         )?;
-        apply_pure_covering_page_window(
+        apply_covering_page_window(
             plan.scalar_plan().distinct,
             page,
             false,
@@ -210,7 +207,7 @@ where
         let component_index = component_indices[0];
 
         let decoded_scan_time_skip_count = if index_order {
-            scan_time_page_skip_count
+            scan_window.page_skip_count
         } else {
             0
         };
@@ -258,10 +255,10 @@ where
                     )
                 },
             )?;
-            apply_pure_covering_page_window(
+            apply_covering_page_window(
                 plan.scalar_plan().distinct,
                 page,
-                scan_time_page_window_applied,
+                scan_window.page_window_applied,
                 &mut projected_rows,
             );
 
@@ -282,7 +279,7 @@ where
                 Ok::<(DecodedDataStoreKey, Vec<Value>), InternalError>((data_key, projected_row))
             },
         )?;
-        apply_pure_covering_page_window(
+        apply_covering_page_window(
             plan.scalar_plan().distinct,
             page,
             false,
@@ -296,7 +293,7 @@ where
     // proven routes avoid row-store reads entirely while row-check-required
     // routes still preserve missing-row consistency rules.
     let decoded_scan_time_skip_count = if index_order {
-        scan_time_page_skip_count
+        scan_window.page_skip_count
     } else {
         0
     };
@@ -344,10 +341,10 @@ where
                 )
             },
         )?;
-        apply_pure_covering_page_window(
+        apply_covering_page_window(
             plan.scalar_plan().distinct,
             page,
-            scan_time_page_window_applied,
+            scan_window.page_window_applied,
             &mut projected_rows,
         );
 
@@ -368,7 +365,7 @@ where
             Ok::<(DecodedDataStoreKey, Vec<Value>), InternalError>((data_key, projected_row))
         },
     )?;
-    apply_pure_covering_page_window(
+    apply_covering_page_window(
         plan.scalar_plan().distinct,
         page,
         false,
@@ -402,33 +399,30 @@ where
         return Ok(None);
     }
 
-    let Some(stream) = primary_store_covering_key_stream(db, authority, plan, covering)? else {
+    let page = plan.scalar_plan().page.as_ref();
+    let scan_window = covering_scan_window(
+        covering.order_contract,
+        false,
+        true,
+        plan.scalar_plan().distinct,
+        page,
+    );
+    let Some(stream) =
+        primary_store_covering_key_stream(db, authority, plan, covering, scan_window.limit)?
+    else {
         return Ok(None);
     };
 
-    let page = plan.scalar_plan().page.as_ref();
-    let scan_time_page_skip_count = pure_covering_scan_time_page_skip_count(
-        covering.order_contract,
-        covering.existing_row_mode,
-        plan.scalar_plan().distinct,
-        page,
-    );
-    let scan_time_page_window_applied = pure_covering_scan_time_page_window_applied(
-        covering.order_contract,
-        covering.existing_row_mode,
-        plan.scalar_plan().distinct,
-        page,
-    );
     let mut projected_rows = assemble_primary_store_covering_rows_in_stream_order(
         stream,
-        scan_time_page_skip_count,
-        pure_covering_output_capacity_hint(page, scan_time_page_window_applied),
+        scan_window.page_skip_count,
+        pure_covering_output_capacity_hint(page, scan_window.page_window_applied),
         covering,
     )?;
-    apply_pure_covering_page_window(
+    apply_covering_page_window(
         plan.scalar_plan().distinct,
         page,
-        scan_time_page_window_applied,
+        scan_window.page_window_applied,
         &mut projected_rows,
     );
 
@@ -514,6 +508,7 @@ fn primary_store_covering_key_stream<C>(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
     covering: &CoveringReadExecutionPlan,
+    scan_limit: usize,
 ) -> Result<Option<OrderedKeyStreamBox>, InternalError>
 where
     C: CanisterKind,
@@ -523,12 +518,6 @@ where
     };
 
     let store = db.recovered_store(authority.store_path())?;
-    let scan_limit = pure_covering_scan_limit(
-        covering.order_contract,
-        covering.existing_row_mode,
-        plan.scalar_plan().distinct,
-        plan.scalar_plan().page.as_ref(),
-    );
     let scan_limit = (scan_limit != usize::MAX).then_some(scan_limit);
 
     if let Some((start, end)) = plan.access.as_primary_key_range_path() {
@@ -551,104 +540,6 @@ where
     }
 
     Ok(None)
-}
-
-fn pure_covering_scan_limit(
-    order_contract: CoveringProjectionOrder,
-    existing_row_mode: CoveringExistingRowMode,
-    distinct: bool,
-    page: Option<&PageSpec>,
-) -> usize {
-    if distinct {
-        // DISTINCT windows apply after projected-row deduplication, so the
-        // covering fast path must not pre-truncate the ordered input stream.
-        return usize::MAX;
-    }
-    if existing_row_mode != CoveringExistingRowMode::ProvenByPlanner {
-        return usize::MAX;
-    }
-
-    let Some(page) = page else {
-        return usize::MAX;
-    };
-    if !matches!(
-        order_contract,
-        CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
-    ) {
-        return usize::MAX;
-    }
-    let Some(limit) = page.limit else {
-        return usize::MAX;
-    };
-
-    page.offset
-        .saturating_add(limit)
-        .max(1)
-        .try_into()
-        .unwrap_or(usize::MAX)
-}
-
-fn pure_covering_scan_time_page_skip_count(
-    order_contract: CoveringProjectionOrder,
-    existing_row_mode: CoveringExistingRowMode,
-    distinct: bool,
-    page: Option<&PageSpec>,
-) -> usize {
-    if !pure_covering_route_can_apply_page_during_scan(order_contract, existing_row_mode, distinct)
-    {
-        return 0;
-    }
-
-    page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
-}
-
-fn pure_covering_scan_time_page_window_applied(
-    order_contract: CoveringProjectionOrder,
-    existing_row_mode: CoveringExistingRowMode,
-    distinct: bool,
-    page: Option<&PageSpec>,
-) -> bool {
-    if !pure_covering_route_can_apply_page_during_scan(order_contract, existing_row_mode, distinct)
-    {
-        return false;
-    }
-
-    page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
-}
-
-fn pure_covering_route_can_apply_page_during_scan(
-    order_contract: CoveringProjectionOrder,
-    existing_row_mode: CoveringExistingRowMode,
-    distinct: bool,
-) -> bool {
-    !distinct
-        && existing_row_mode == CoveringExistingRowMode::ProvenByPlanner
-        && matches!(
-            order_contract,
-            CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
-        )
-}
-
-fn apply_pure_covering_page_window<T>(
-    distinct: bool,
-    page: Option<&PageSpec>,
-    page_window_already_applied: bool,
-    rows: &mut Vec<T>,
-) {
-    if distinct {
-        // DISTINCT paging is deferred to the projection materializer after
-        // projected-row deduplication over the ordered stream.
-        return;
-    }
-    if page_window_already_applied {
-        return;
-    }
-
-    let Some(page) = page else {
-        return;
-    };
-
-    apply_offset_limit_window(rows, page.offset, page.limit);
 }
 
 fn drop_scan_time_covering_offset(

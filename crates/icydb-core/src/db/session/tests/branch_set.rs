@@ -54,6 +54,20 @@ fn branch_target_over_cap_sql(select: &str, limit: usize) -> String {
     )
 }
 
+fn branch_target_over_cap_sparse_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN (\
+             'Draft', 'Review', 'MissingA', 'MissingB', 'MissingC', \
+             'MissingD', 'MissingE', 'MissingF', 'MissingG'\
+           ) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
 fn seed_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
     seed_branch_indexed_session_sql_entities(
         session,
@@ -210,6 +224,50 @@ fn session_branch_set_sql_large_in_falls_back_and_keeps_residual_stage_predicate
     assert!(
         rendered.contains("stage"),
         "fallback route must retain the unproven stage predicate: {rendered}",
+    );
+}
+
+#[test]
+fn session_branch_set_sql_over_cap_fallback_filters_before_primary_key_limit() {
+    const OVER_CAP_LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_over_cap_sparse_sql("id", OVER_CAP_LIMIT);
+    let descriptor = branch_descriptor(sql.as_str());
+    let rendered = descriptor.render_text_tree();
+
+    assert!(
+        !explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::IndexBranchSet
+        ),
+        "over-cap sparse IN list should stay on the fallback route",
+    );
+    assert!(
+        rendered.contains("stage"),
+        "fallback route must retain the sparse stage predicate: {rendered}",
+    );
+    assert!(
+        explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        ),
+        "fallback route must materialize-sort before applying the page limit",
+    );
+    assert!(
+        !explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek),
+        "fallback route must not pre-limit before residual filtering and primary-key sorting",
+    );
+
+    let rows = statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+        .unwrap_or_else(|err| panic!("over-cap fallback projection should execute: {err:?}"));
+
+    assert_eq!(
+        rows,
+        expected_branch_rows(OVER_CAP_LIMIT),
+        "over-cap fallback should apply residual stage filtering before the global primary-key LIMIT",
     );
 }
 
