@@ -1,3 +1,9 @@
+//! Module: db::query::plan::expr::type_inference::unify
+//! Responsibility: expression type unification for COALESCE, CASE, and numeric
+//! expression planning.
+//! Does not own: parser syntax, expression lowering, or runtime evaluation.
+//! Boundary: converts inferred expression classes into planner type contracts.
+
 use crate::{
     db::query::plan::{
         PlanError,

@@ -1,3 +1,8 @@
+//! Module: node::map
+//! Responsibility: schema graph metadata for map collection nodes.
+//! Does not own: runtime map encoding, validation policy, or visitor execution.
+//! Boundary: stores canonical key/value descriptors for downstream schema visitors.
+
 use crate::prelude::*;
 
 ///

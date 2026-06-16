@@ -4,7 +4,7 @@ use crate::{
         direction::Direction,
         executor::stream::key::{
             BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
-            MergeOrderedKeyStream, OrderedKeyStream, VecOrderedKeyStream,
+            MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
             ordered_key_stream_from_materialized_keys,
         },
     },
@@ -404,6 +404,30 @@ fn merge_stream_rejects_child_direction_mismatch() {
 }
 
 #[test]
+fn ordered_key_stream_box_merge_all_reduces_streams_pairwise() {
+    let streams = vec![
+        OrderedKeyStreamBox::materialized(vec![data_key(1), data_key(4)]),
+        OrderedKeyStreamBox::materialized(vec![data_key(2), data_key(4)]),
+        OrderedKeyStreamBox::materialized(vec![data_key(3), data_key(5)]),
+    ];
+    let mut merged =
+        OrderedKeyStreamBox::merge_all(streams, KeyOrderComparator::from_direction(Direction::Asc));
+
+    let out = collect_stream(&mut merged).expect("merge-all should succeed");
+    assert_eq!(
+        out,
+        vec![
+            data_key(1),
+            data_key(2),
+            data_key(3),
+            data_key(4),
+            data_key(5)
+        ],
+        "merge-all should preserve ordering and duplicate suppression across every stream",
+    );
+}
+
+#[test]
 fn intersect_stream_asc_yields_shared_keys() {
     let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(3), data_key(5)]);
     let right = StaticOrderedKeyStream::new(vec![data_key(3), data_key(4), data_key(5)]);
@@ -506,4 +530,24 @@ fn intersect_stream_rejects_non_monotonic_child_sequence_when_discard_updates_wi
         );
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);
+}
+
+#[test]
+fn ordered_key_stream_box_intersect_all_reduces_streams_pairwise() {
+    let streams = vec![
+        OrderedKeyStreamBox::materialized(vec![data_key(1), data_key(2), data_key(3), data_key(4)]),
+        OrderedKeyStreamBox::materialized(vec![data_key(2), data_key(3), data_key(5)]),
+        OrderedKeyStreamBox::materialized(vec![data_key(0), data_key(2), data_key(3), data_key(6)]),
+    ];
+    let mut intersected = OrderedKeyStreamBox::intersect_all(
+        streams,
+        KeyOrderComparator::from_direction(Direction::Asc),
+    );
+
+    let out = collect_stream(&mut intersected).expect("intersect-all should succeed");
+    assert_eq!(
+        out,
+        vec![data_key(2), data_key(3)],
+        "intersect-all should keep only keys present in every stream",
+    );
 }

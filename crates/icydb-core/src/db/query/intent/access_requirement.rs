@@ -22,6 +22,8 @@ pub enum RequiredAccessPath {
     IndexPrefix,
     /// Require secondary-index multi-lookup access.
     IndexMultiLookup,
+    /// Require secondary-index branch-set access.
+    IndexBranchSet,
     /// Require secondary-index range access.
     IndexRange,
     /// Require full scan access.
@@ -41,6 +43,7 @@ impl RequiredAccessPath {
             Self::KeyRange => "KeyRange",
             Self::IndexPrefix => "IndexPrefix",
             Self::IndexMultiLookup => "IndexMultiLookup",
+            Self::IndexBranchSet => "IndexBranchSet",
             Self::IndexRange => "IndexRange",
             Self::FullScan => "FullScan",
             Self::Union => "Union",
@@ -58,6 +61,10 @@ impl RequiredAccessPath {
                 | (
                     Self::IndexMultiLookup,
                     ExplainAccessDecisionKind::IndexMultiLookup
+                )
+                | (
+                    Self::IndexBranchSet,
+                    ExplainAccessDecisionKind::IndexBranchSet
                 )
                 | (Self::IndexRange, ExplainAccessDecisionKind::IndexRange)
                 | (Self::FullScan, ExplainAccessDecisionKind::FullScan)
@@ -212,6 +219,7 @@ const fn selected_access_is_secondary_index(kind: ExplainAccessDecisionKind) -> 
         kind,
         ExplainAccessDecisionKind::IndexPrefix
             | ExplainAccessDecisionKind::IndexMultiLookup
+            | ExplainAccessDecisionKind::IndexBranchSet
             | ExplainAccessDecisionKind::IndexRange
     )
 }

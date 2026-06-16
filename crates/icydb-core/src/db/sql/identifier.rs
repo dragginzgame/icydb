@@ -13,6 +13,7 @@ pub(in crate::db::sql) use crate::db::predicate::rewrite_field_identifiers;
 /// candidate by tail-equivalence, this returns `field`. Otherwise returns the
 /// original identifier unchanged.
 ///
+
 #[must_use]
 pub fn normalize_identifier_to_scope(identifier: String, entity_scope: &[String]) -> String {
     let Some((qualifier, leaf)) = split_qualified_identifier(identifier.as_str()) else {

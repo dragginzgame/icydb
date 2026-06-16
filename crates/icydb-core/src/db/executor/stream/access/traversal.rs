@@ -17,10 +17,7 @@ use crate::{
                     },
                     physical,
                 },
-                key::{
-                    KeyOrderComparator, OrderedKeyStreamBox,
-                    ordered_key_stream_from_materialized_keys,
-                },
+                key::{KeyOrderComparator, OrderedKeyStreamBox},
             },
             traversal::IndexRangeTraversalContract,
         },
@@ -231,41 +228,6 @@ impl AccessPlanStreamResolver {
         Ok(streams)
     }
 
-    // Reduce child streams pairwise using a stream combiner.
-    fn reduce_key_streams<F>(
-        mut streams: Vec<OrderedKeyStreamBox>,
-        combiner: F,
-    ) -> OrderedKeyStreamBox
-    where
-        F: Fn(OrderedKeyStreamBox, OrderedKeyStreamBox) -> OrderedKeyStreamBox,
-    {
-        if streams.is_empty() {
-            return ordered_key_stream_from_materialized_keys(Vec::new());
-        }
-        if streams.len() == 1 {
-            return streams
-                .pop()
-                .unwrap_or_else(|| ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
-
-        while streams.len() > 1 {
-            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
-            let mut iter = streams.into_iter();
-            while let Some(left) = iter.next() {
-                if let Some(right) = iter.next() {
-                    next_round.push(combiner(left, right));
-                } else {
-                    next_round.push(left);
-                }
-            }
-            streams = next_round;
-        }
-
-        streams
-            .pop()
-            .unwrap_or_else(|| ordered_key_stream_from_materialized_keys(Vec::new()))
-    }
-
     // Build an ordered key stream for this access plan.
     /// Produce one ordered key stream for an access plan while consuming lowered specs.
     fn produce_key_stream(
@@ -312,9 +274,7 @@ impl AccessPlanStreamResolver {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
-        Ok(Self::reduce_key_streams(streams, |left, right| {
-            OrderedKeyStreamBox::merge(left, right, key_comparator)
-        }))
+        Ok(OrderedKeyStreamBox::merge_all(streams, key_comparator))
     }
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
@@ -327,8 +287,6 @@ impl AccessPlanStreamResolver {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
-        Ok(Self::reduce_key_streams(streams, |left, right| {
-            OrderedKeyStreamBox::intersect(left, right, key_comparator)
-        }))
+        Ok(OrderedKeyStreamBox::intersect_all(streams, key_comparator))
     }
 }

@@ -1,3 +1,8 @@
+//! Module: case::snake
+//! Responsibility: local snake_case conversion helper.
+//! Does not own: full case-conversion policy or external `convert_case` behavior.
+//! Boundary: normalizes text into the workspace snake_case form used by codegen.
+
 /// Convert text into snake_case.
 #[must_use]
 pub fn to_snake_case(s: &str) -> String {

@@ -260,13 +260,10 @@ impl KeyAccessRuntime {
             ));
         }
 
-        let key_comparator = KeyOrderComparator::from_direction(continuation.direction());
-        let mut stream = streams.remove(0);
-        for next in streams {
-            stream = OrderedKeyStreamBox::merge(stream, next, key_comparator);
-        }
-
-        Ok(stream)
+        Ok(OrderedKeyStreamBox::merge_all(
+            streams,
+            KeyOrderComparator::from_direction(continuation.direction()),
+        ))
     }
 
     // Resolve one multi-lookup secondary-index scan and normalize duplicates.

@@ -209,6 +209,10 @@ fn required_access_path_matches(
                 ExplainAccessDecisionKind::IndexMultiLookup
             )
             | (
+                RequiredAccessPath::IndexBranchSet,
+                ExplainAccessDecisionKind::IndexBranchSet
+            )
+            | (
                 RequiredAccessPath::IndexRange,
                 ExplainAccessDecisionKind::IndexRange
             )
@@ -375,6 +379,14 @@ pub(in crate::db::query::intent::tests) struct PlanPushdownEntity {
 }
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
+pub(in crate::db::query::intent::tests) struct PlanBranchSetEntity {
+    pub(in crate::db::query::intent::tests) id: Ulid,
+    pub(in crate::db::query::intent::tests) collection_id: String,
+    pub(in crate::db::query::intent::tests) stage: String,
+    pub(in crate::db::query::intent::tests) title: String,
+}
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanUniqueRangeEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) code: u32,
@@ -522,6 +534,16 @@ pub(in crate::db::query::intent::tests) static PLAN_PUSHDOWN_INDEX_MODELS: [Inde
         false,
     )];
 
+pub(in crate::db::query::intent::tests) static PLAN_BRANCH_SET_INDEX_FIELDS: [&str; 3] =
+    ["collection_id", "stage", "id"];
+pub(in crate::db::query::intent::tests) static PLAN_BRANCH_SET_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::generated(
+        "collection_stage_id",
+        PlanDataStore::PATH,
+        &PLAN_BRANCH_SET_INDEX_FIELDS,
+        false,
+    )];
+
 pub(in crate::db::query::intent::tests) static PLAN_UNIQUE_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
 pub(in crate::db::query::intent::tests) static PLAN_UNIQUE_RANGE_INDEX_MODELS: [IndexModel; 1] =
     [IndexModel::generated(
@@ -627,6 +649,23 @@ crate::test_entity! {
         crate::test_field! { label: String => FieldKind::Text { max_len: None } },
     ],
     indexes = [&PLAN_PUSHDOWN_INDEX_MODELS[0]],
+}
+
+crate::test_entity! {
+    ident = PlanBranchSetEntity,
+    entity_name = "PlanBranchSetEntity",
+    tag = crate::testing::PLAN_ENTITY_TAG,
+    store = PlanDataStore,
+    canister = PlanCanister,
+    key_type = Ulid,
+    primary_key = [id],
+    fields = [
+        crate::test_field! { id: Ulid => FieldKind::Ulid },
+        crate::test_field! { collection_id: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { stage: String => FieldKind::Text { max_len: None } },
+        crate::test_field! { title: String => FieldKind::Text { max_len: None } },
+    ],
+    indexes = [&PLAN_BRANCH_SET_INDEX_MODELS[0]],
 }
 
 crate::test_entity! {

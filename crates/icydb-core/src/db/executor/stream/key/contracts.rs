@@ -199,6 +199,53 @@ impl OrderedKeyStreamBox {
             comparator,
         ))
     }
+
+    /// Construct one balanced merge tree from already ordered streams.
+    #[must_use]
+    pub(in crate::db::executor) fn merge_all(
+        streams: Vec<Self>,
+        comparator: KeyOrderComparator,
+    ) -> Self {
+        Self::reduce_pairwise(streams, |left, right| Self::merge(left, right, comparator))
+    }
+
+    /// Construct one balanced intersection tree from already ordered streams.
+    #[must_use]
+    pub(in crate::db::executor) fn intersect_all(
+        streams: Vec<Self>,
+        comparator: KeyOrderComparator,
+    ) -> Self {
+        Self::reduce_pairwise(streams, |left, right| {
+            Self::intersect(left, right, comparator)
+        })
+    }
+
+    fn reduce_pairwise<F>(mut streams: Vec<Self>, combiner: F) -> Self
+    where
+        F: Fn(Self, Self) -> Self,
+    {
+        if streams.is_empty() {
+            return Self::empty();
+        }
+        if streams.len() == 1 {
+            return streams.pop().unwrap_or_else(Self::empty);
+        }
+
+        while streams.len() > 1 {
+            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
+            let mut iter = streams.into_iter();
+            while let Some(left) = iter.next() {
+                if let Some(right) = iter.next() {
+                    next_round.push(combiner(left, right));
+                } else {
+                    next_round.push(left);
+                }
+            }
+            streams = next_round;
+        }
+
+        streams.pop().unwrap_or_else(Self::empty)
+    }
 }
 
 impl OrderedKeyStream for OrderedKeyStreamBox {

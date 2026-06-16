@@ -889,6 +889,44 @@ fn fluent_access_requirements_assert_selected_plan_without_reranking() {
 }
 
 #[test]
+fn fluent_access_requirements_can_require_branch_set_access() {
+    let baseline = Query::<PlanBranchSetEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("collection_id").eq("01KV5N439P0000000000000000"))
+        .filter(FieldRef::new("stage").in_list(["Draft", "Review"]))
+        .order_term(crate::db::asc("id"))
+        .limit(50)
+        .explain()
+        .expect("baseline branch-set explain should build");
+    let required = Query::<PlanBranchSetEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("collection_id").eq("01KV5N439P0000000000000000"))
+        .filter(FieldRef::new("stage").in_list(["Draft", "Review"]))
+        .order_term(crate::db::asc("id"))
+        .limit(50)
+        .require_index()
+        .require_index_named("collection_stage_id")
+        .require_access_path(RequiredAccessPath::IndexBranchSet)
+        .require_no_residual_filter()
+        .explain()
+        .expect("matching branch-set access requirements should pass");
+
+    assert_plan(&required)
+        .uses_index("collection_stage_id")
+        .access_kind(RequiredAccessPath::IndexBranchSet)
+        .bound_prefix_len(2)
+        .has_no_residual_filter();
+    assert_eq!(
+        baseline.access(),
+        required.access(),
+        "branch-set access requirement must not change the selected plan",
+    );
+    assert_eq!(
+        baseline.access_decision(),
+        required.access_decision(),
+        "branch-set access requirement must not change planner decision metadata",
+    );
+}
+
+#[test]
 fn fluent_access_requirements_fail_closed_with_selected_decision() {
     let err = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(

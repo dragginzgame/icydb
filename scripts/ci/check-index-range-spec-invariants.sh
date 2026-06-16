@@ -55,6 +55,10 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::require_index_range_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
   "crates/icydb-core/src/db/index/key/build.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
+  "crates/icydb-core/src/db/executor/stream/key/contracts.rs:::fn reduce_pairwise:::ordered stream set reduction must stay centralized"
+  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::OrderedKeyStreamBox::merge_all:::branch-set execution must use the shared merge tree helper"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::OrderedKeyStreamBox::merge_all:::access union execution must use the shared merge tree helper"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::OrderedKeyStreamBox::intersect_all:::access intersection execution must use the shared intersection tree helper"
   "crates/icydb-core/src/db/executor/traversal.rs:::pub\\(in crate::db::executor\\) fn require_spec:::missing invariant error for unresolved index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/traversal.rs:::validate_spec_alignment:::missing invariant error for misaligned index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs:::index-range executable spec must be materialized for index-range plans:::missing invariant error for unresolved index-range pushdown specs"
@@ -135,6 +139,48 @@ prefix_builder_calls_outside_index="$(
 if [[ -n "$prefix_builder_calls_outside_index" ]]; then
   echo "[ERROR] Raw prefix/range key builder calls must stay inside db/index." >&2
   echo "$prefix_builder_calls_outside_index" >&2
+  status=1
+fi
+
+bespoke_stream_set_reduction_matches="$(
+  rg -n --no-heading --color=never \
+    "OrderedKeyStreamBox::(merge|intersect)\\(" \
+    crates/icydb-core/src/db/executor \
+    --glob '!crates/icydb-core/src/db/executor/stream/key/contracts.rs' \
+    --glob '!**/tests.rs' \
+    --glob '!**/tests/**' \
+    || true
+)"
+if [[ -n "$bespoke_stream_set_reduction_matches" ]]; then
+  echo "[ERROR] Executor stream-set reduction must use merge_all/intersect_all helpers." >&2
+  echo "$bespoke_stream_set_reduction_matches" >&2
+  status=1
+fi
+
+direct_stream_combinator_matches="$(
+  rg -n --no-heading --color=never \
+    "(MergeOrderedKeyStream|IntersectOrderedKeyStream)::new_with_comparator" \
+    crates/icydb-core/src/db/executor \
+    --glob '!crates/icydb-core/src/db/executor/stream/key/contracts.rs' \
+    --glob '!**/tests.rs' \
+    --glob '!**/tests/**' \
+    || true
+)"
+if [[ -n "$direct_stream_combinator_matches" ]]; then
+  echo "[ERROR] Executor route assembly must not bypass OrderedKeyStreamBox stream trees." >&2
+  echo "$direct_stream_combinator_matches" >&2
+  status=1
+fi
+
+legacy_stream_reducer_matches="$(
+  rg -n --no-heading --color=never \
+    "reduce_key_streams|fold_key_streams" \
+    crates/icydb-core/src/db/executor \
+    || true
+)"
+if [[ -n "$legacy_stream_reducer_matches" ]]; then
+  echo "[ERROR] Executor stream-set reduction must stay on the shared ordered stream tree." >&2
+  echo "$legacy_stream_reducer_matches" >&2
   status=1
 fi
 

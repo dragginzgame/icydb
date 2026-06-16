@@ -7,6 +7,10 @@
 use crate::db::{
     executor::{
         ExecutionPreparation,
+        explain::descriptor::shared::{
+            aggregate_covering_projection_for_terminal, explain_aggregate_ordering_source,
+            explain_execution_mode, explain_node_properties_for_route,
+        },
         planning::preparation::slot_map_for_model_plan,
         route::{
             AggregateRouteShape, ExecutionRoutePlan, RoutePlanRequest, build_execution_route_plan,
@@ -16,11 +20,6 @@ use crate::db::{
         explain::{ExplainExecutionDescriptor, explain_access_plan},
         plan::{AccessPlannedQuery, AggregateKind},
     },
-};
-
-use crate::db::executor::explain::descriptor::shared::{
-    aggregate_covering_projection_for_terminal, explain_aggregate_ordering_source,
-    explain_execution_mode, explain_node_properties_for_route,
 };
 
 ///
@@ -54,6 +53,9 @@ impl AggregateExplainPreparation {
                 execution_preparation: &execution_preparation,
             },
         )
+        // Aggregate descriptor assembly only receives planner-owned aggregate
+        // route shapes, so route-plan failure indicates planner/executor drift
+        // rather than a recoverable EXPLAIN caller error.
         .expect(
             "aggregate explain route planning should not fail for planner-owned aggregate shapes",
         );
