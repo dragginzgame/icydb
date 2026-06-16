@@ -39,6 +39,7 @@ FORBIDDEN_PATTERNS=(
 EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS=(
   "\\bEncodedValue\\b"
   "try_from_ref"
+  "IndexKey::new_from_components_with_primary_key_value\\("
 )
 
 # Required guardrails that enforce the planner->executor lowering contract.
@@ -52,6 +53,8 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/executor/planning/route/guard.rs:::ensure_spec_at_most_one_if_enabled\\(:::missing invariant error for multi-spec secondary fast-path drift"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::validate_index_range_specs_consumed:::missing invariant check for unused IndexRangeSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::require_index_range_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
+  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
+  "crates/icydb-core/src/db/index/key/build.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
   "crates/icydb-core/src/db/executor/traversal.rs:::pub\\(in crate::db::executor\\) fn require_spec:::missing invariant error for unresolved index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/traversal.rs:::validate_spec_alignment:::missing invariant error for misaligned index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs:::index-range executable spec must be materialized for index-range plans:::missing invariant error for unresolved index-range pushdown specs"
