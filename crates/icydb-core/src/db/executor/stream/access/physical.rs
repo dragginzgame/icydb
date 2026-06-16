@@ -20,7 +20,7 @@ use crate::{
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
         },
-        index::{EncodedValue, IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
+        index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
         key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
     },
@@ -365,31 +365,18 @@ fn branch_set_resume_anchor_for_prefix(
     let suffix_len = key_arity.saturating_sub(prefix_len);
     let (primary_key, suffix_values) = primary_key_suffix_values(primary_key_boundary, suffix_len)?;
 
-    let mut components = Vec::with_capacity(key_arity);
-    for component_index in 0..prefix_len {
-        let component = prefix_start
-            .component(component_index)
-            .ok_or_else(InternalError::query_executor_invariant)?;
-        components.push(component.to_vec());
-    }
-
     // Branch-set continuation is valid only for this slice's proven
     // primary-key suffix. Fill that suffix from the cursor boundary so each
     // branch resumes at the same global primary-key position.
-    let suffix_components = EncodedValue::try_encode_all(suffix_values.as_slice())?;
-    components.extend(
-        suffix_components
-            .iter()
-            .map(|component| component.as_ref().to_vec()),
-    );
-
-    Ok(IndexKey::new_from_components_with_primary_key_value(
-        prefix_start.index_id(),
-        prefix_start.key_kind(),
-        components.as_slice(),
-        &primary_key,
+    Ok(
+        IndexKey::new_from_existing_prefix_and_suffix_values_with_primary_key_value(
+            &prefix_start,
+            prefix_len,
+            suffix_values.as_slice(),
+            &primary_key,
+        )?
+        .to_raw(),
     )
-    .to_raw())
 }
 
 fn lowered_prefix_start_key(spec: &LoweredIndexPrefixSpec) -> Result<IndexKey, InternalError> {

@@ -392,6 +392,36 @@ impl IndexKey {
         }
     }
 
+    /// Build an index key from already-lowered prefix components plus a
+    /// semantic primary-key suffix.
+    pub(in crate::db) fn new_from_existing_prefix_and_suffix_values_with_primary_key_value(
+        prefix_start: &Self,
+        prefix_len: usize,
+        suffix_values: &[Value],
+        primary_key: &PrimaryKeyValue,
+    ) -> Result<Self, InternalError> {
+        let mut components = Vec::with_capacity(prefix_len + suffix_values.len());
+        for component_index in 0..prefix_len {
+            let component = prefix_start
+                .component(component_index)
+                .ok_or_else(InternalError::query_executor_invariant)?;
+            push_index_key_component(&mut components, component.to_vec())?;
+        }
+        for value in suffix_values {
+            let Some(component) = encode_value_index_component_ref(value)? else {
+                return Err(InternalError::query_executor_invariant());
+            };
+            push_index_key_component(&mut components, component)?;
+        }
+
+        Ok(Self {
+            key_kind: prefix_start.key_kind,
+            index_id: prefix_start.index_id,
+            components,
+            primary_key: Self::compact_primary_key_value_bytes(primary_key),
+        })
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(in crate::db::index) fn bounds_for_prefix<C: AsRef<[u8]>>(
