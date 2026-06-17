@@ -1531,6 +1531,12 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 3";
 
+const TOKEN_BRANCH_SET_COUNT_SQL: &str = "\
+SELECT COUNT(*) \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review')";
+
 const TOKEN_BRANCH_SET_DUPLICATE_COUNT_SQL: &str = "\
 SELECT COUNT(*) \
 FROM PerfAuditToken \
@@ -1607,6 +1613,13 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_collection_stage_id",
             "branch_set_index_residual_covering",
             TOKEN_BRANCH_SET_INDEX_RESIDUAL_PAGE_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.count",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_count",
+            TOKEN_BRANCH_SET_COUNT_SQL,
         ),
         scenario(
             "token.collection_stage_id.branch_set.duplicate_count",
@@ -3161,6 +3174,28 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
     );
 }
 
+fn assert_branch_set_count_sample_uses_prefix_cardinality(
+    label: &str,
+    sample: &SqlPerfScenarioSample,
+) {
+    assert_eq!(
+        sample.outcome.result_kind, "projection",
+        "{label} branch-set COUNT audit row should return SQL projection output",
+    );
+    assert_eq!(
+        sample.outcome.row_count, 1,
+        "{label} branch-set COUNT audit row should return one aggregate row",
+    );
+    assert_eq!(
+        sample.avg_data_store_get_calls, 0,
+        "{label} branch COUNT should avoid row-store get() calls",
+    );
+    assert_eq!(
+        sample.avg_index_store_entry_reads, 0,
+        "{label} branch COUNT should use prefix-cardinality metadata without scanning index entries",
+    );
+}
+
 #[test]
 fn sql_perf_token_branch_set_changed_queries_stay_bounded() {
     let fixture = install_sql_perf_canister_fixture();
@@ -3203,28 +3238,21 @@ fn sql_perf_token_branch_set_changed_queries_stay_bounded() {
         "index-residual page query must not invoke grouped/count lookup work",
     );
 
+    let count = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario("token.collection_stage_id.branch_set.count"),
+    );
+    print_branch_set_perf_sample("count", &count);
+    assert_branch_set_count_sample_uses_prefix_cardinality("plain", &count);
+
     let duplicate_count = sample_perf_scenario(
         &fixture,
         &baseline,
         one_sample_sql_perf_scenario("token.collection_stage_id.branch_set.duplicate_count"),
     );
     print_branch_set_perf_sample("duplicate count", &duplicate_count);
-    assert_eq!(
-        duplicate_count.outcome.result_kind, "projection",
-        "branch-set duplicate COUNT audit row should return SQL projection output",
-    );
-    assert_eq!(
-        duplicate_count.outcome.row_count, 1,
-        "branch-set duplicate COUNT audit row should return one aggregate row",
-    );
-    assert_eq!(
-        duplicate_count.avg_data_store_get_calls, 0,
-        "duplicate branch COUNT should avoid row-store get() calls",
-    );
-    assert_eq!(
-        duplicate_count.avg_index_store_entry_reads, 0,
-        "duplicate branch COUNT should use prefix-cardinality metadata without scanning index entries",
-    );
+    assert_branch_set_count_sample_uses_prefix_cardinality("duplicate", &duplicate_count);
 
     let duplicate_count_query = query_surface_with_perf(
         &fixture,

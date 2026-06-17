@@ -60,6 +60,10 @@ impl SqlSelectStatement {
             return false;
         }
 
+        if self.is_direct_global_aggregate_projection_without_post_filters() {
+            return true;
+        }
+
         // Skip the heavier global-aggregate shape lowering when one plain scalar
         // SELECT cannot possibly route onto the dedicated aggregate lane.
         if !self.might_require_global_aggregate_lane() {
@@ -80,6 +84,19 @@ impl SqlSelectStatement {
         match &self.projection {
             SqlProjection::Items(items) => items.iter().any(SqlSelectItem::contains_aggregate),
             SqlProjection::All => false,
+        }
+    }
+
+    fn is_direct_global_aggregate_projection_without_post_filters(&self) -> bool {
+        if !self.having.is_empty() || !self.order_by.is_empty() {
+            return false;
+        }
+
+        match &self.projection {
+            SqlProjection::Items(items) if !items.is_empty() => items
+                .iter()
+                .all(|item| matches!(item, SqlSelectItem::Aggregate(_))),
+            SqlProjection::Items(_) | SqlProjection::All => false,
         }
     }
 }
