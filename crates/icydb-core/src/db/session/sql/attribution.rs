@@ -1,4 +1,4 @@
-//! Module: db::session::sql::attribution
+//! Module: session::sql::attribution
 //! Responsibility: SQL compile/execute diagnostics and phase-attribution DTOs.
 //! Does not own: SQL execution, cache lookup, or response shaping.
 //! Boundary: typed attribution payloads shared by session SQL orchestration and execute helpers.
@@ -16,11 +16,14 @@ use candid::CandidType;
 #[cfg(feature = "diagnostics")]
 use serde::Deserialize;
 
-// SqlCompileAttribution
-//
-// Candid diagnostics payload for SQL front-end compile counters.
-// The short field names are scoped by the `compile` parent field on
-// `SqlQueryExecutionAttribution`.
+///
+/// SqlCompileAttribution
+///
+/// Candid diagnostics payload for SQL front-end compile counters.
+/// The short field names are scoped by the `compile` parent field on
+/// `SqlQueryExecutionAttribution`.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlCompileAttribution {
@@ -38,11 +41,14 @@ pub struct SqlCompileAttribution {
     pub cache_insert_local_instructions: u64,
 }
 
-// SqlExecutionAttribution
-//
-// Candid diagnostics payload for the reduced SQL execute phase.
-// Planner, store, executor invocation, executor runtime, and response
-// finalization counters stay together under the `execution` parent field.
+///
+/// SqlExecutionAttribution
+///
+/// Candid diagnostics payload for the reduced SQL execute phase.
+/// Planner, store, executor invocation, executor runtime, and response
+/// finalization counters stay together under the `execution` parent field.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlExecutionAttribution {
@@ -53,11 +59,14 @@ pub struct SqlExecutionAttribution {
     pub response_finalization_local_instructions: u64,
 }
 
-// SqlScalarAggregateAttribution
-//
-// Candid diagnostics payload for scalar aggregate terminal execution.
-// The field names drop the old `scalar_aggregate_` prefix because the parent
-// field now owns that context.
+///
+/// SqlScalarAggregateAttribution
+///
+/// Candid diagnostics payload for scalar aggregate terminal execution.
+/// The field names drop the old `scalar_aggregate_` prefix because the parent
+/// field now owns that context.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlScalarAggregateAttribution {
@@ -74,6 +83,9 @@ pub struct SqlScalarAggregateAttribution {
 
 #[cfg(feature = "diagnostics")]
 impl SqlScalarAggregateAttribution {
+    /// Project executor scalar aggregate attribution into the SQL diagnostics payload.
+    ///
+    /// Returns `None` when the executor reported no scalar aggregate work.
     pub(in crate::db::session::sql) fn from_executor(
         terminal: ScalarAggregateTerminalAttribution,
     ) -> Option<Self> {
@@ -107,11 +119,14 @@ impl SqlScalarAggregateAttribution {
     }
 }
 
-// SqlPureCoveringAttribution
-//
-// Candid diagnostics payload for pure covering projection counters.
-// The value is optional on the top-level SQL attribution because most query
-// shapes do not enter this projection path.
+///
+/// SqlPureCoveringAttribution
+///
+/// Candid diagnostics payload for pure covering projection counters.
+/// The value is optional on the top-level SQL attribution because most query
+/// shapes do not enter this projection path.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlPureCoveringAttribution {
@@ -119,11 +134,14 @@ pub struct SqlPureCoveringAttribution {
     pub row_assembly_local_instructions: u64,
 }
 
-// SqlHybridCoveringAttribution
-//
-// Candid diagnostics payload for hybrid covering projection counters.
-// Hybrid covering reads use index/primary-key values where possible and sparse
-// row reads only for uncovered projected fields.
+///
+/// SqlHybridCoveringAttribution
+///
+/// Candid diagnostics payload for hybrid covering projection counters.
+/// Hybrid covering reads use index/primary-key values where possible and sparse
+/// row reads only for uncovered projected fields.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlHybridCoveringAttribution {
@@ -132,11 +150,14 @@ pub struct SqlHybridCoveringAttribution {
     pub row_field_accesses: u64,
 }
 
-// SqlOutputBlobAttribution
-//
-// Candid diagnostics payload for SQL projection payload size. Raw bytes count
-// the blob bytes projected into SQL output values; rendered hex bytes count the
-// blob-specific `0x...` text that public SQL row rendering will emit.
+///
+/// SqlOutputBlobAttribution
+///
+/// Candid diagnostics payload for SQL projection payload size. Raw bytes count
+/// the blob bytes projected into SQL output values; rendered hex bytes count
+/// the blob-specific `0x...` text that public SQL row rendering will emit.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlOutputBlobAttribution {
@@ -145,10 +166,13 @@ pub struct SqlOutputBlobAttribution {
     pub rendered_hex_bytes: u64,
 }
 
-// SqlQueryCacheAttribution
-//
-// Candid diagnostics payload for SQL compiled-command and shared query-plan
-// cache counters observed during one SQL query call.
+///
+/// SqlQueryCacheAttribution
+///
+/// Candid diagnostics payload for SQL compiled-command and shared query-plan
+/// cache counters observed during one SQL query call.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryCacheAttribution {
@@ -158,13 +182,16 @@ pub struct SqlQueryCacheAttribution {
     pub shared_query_plan_misses: u64,
 }
 
-// SqlQueryExecutionAttribution
-//
-// SqlQueryExecutionAttribution records the top-level reduced SQL query cost
-// split at the new compile/execute boundary.
-// Every field is an additive counter where zero means no observed work or no
-// observed event for that bucket. Path-specific counters are present only for
-// the execution path that produced them.
+///
+/// SqlQueryExecutionAttribution
+///
+/// SqlQueryExecutionAttribution records the top-level reduced SQL query cost
+/// split at the new compile/execute boundary.
+/// Every field is an additive counter where zero means no observed work or no
+/// observed event for that bucket. Path-specific counters are present only for
+/// the execution path that produced them.
+///
+
 #[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryExecutionAttribution {
@@ -214,6 +241,7 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
 
 #[cfg(feature = "diagnostics")]
 impl SqlExecutePhaseAttribution {
+    /// Build execute-phase attribution from legacy execute and store totals.
     #[must_use]
     pub(in crate::db) const fn from_execute_total_and_store_total(
         execute_local_instructions: u64,
