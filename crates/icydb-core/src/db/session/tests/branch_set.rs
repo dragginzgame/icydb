@@ -2,6 +2,8 @@ use super::*;
 
 const BRANCH_COLLECTION: &str = "01KV5N439P0000000000000000";
 const OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
+#[cfg(feature = "diagnostics")]
+const SKEW_BRANCH_COLLECTION: &str = "01KV5N439P2222222222222222";
 const BRANCH_LIMIT: usize = 3;
 const BRANCH_FETCH: u64 = 4;
 #[cfg(feature = "diagnostics")]
@@ -14,6 +16,18 @@ fn branch_target_sql(select: &str, limit: usize) -> String {
         "SELECT {select} \
          FROM BranchIndexedSessionSqlEntity \
          WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ('Draft', 'Review') \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
+#[cfg(feature = "diagnostics")]
+fn skew_branch_target_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{SKEW_BRANCH_COLLECTION}' \
            AND stage IN ('Draft', 'Review') \
          ORDER BY id ASC \
          LIMIT {limit}",
@@ -143,6 +157,28 @@ fn seed_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
             (9_175, BRANCH_COLLECTION, "Review", "review-175"),
             (9_180, BRANCH_COLLECTION, "Rejected", "rejected-180"),
             (9_185, OTHER_COLLECTION, "Review", "other-review-185"),
+        ],
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+fn seed_skew_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
+    seed_branch_indexed_session_sql_entities(
+        session,
+        &[
+            (10_000, SKEW_BRANCH_COLLECTION, "Draft", "draft-000"),
+            (10_010, SKEW_BRANCH_COLLECTION, "Draft", "draft-010"),
+            (10_020, SKEW_BRANCH_COLLECTION, "Draft", "draft-020"),
+            (10_030, SKEW_BRANCH_COLLECTION, "Draft", "draft-030"),
+            (10_040, SKEW_BRANCH_COLLECTION, "Draft", "draft-040"),
+            (10_050, SKEW_BRANCH_COLLECTION, "Draft", "draft-050"),
+            (10_060, SKEW_BRANCH_COLLECTION, "Draft", "draft-060"),
+            (10_070, SKEW_BRANCH_COLLECTION, "Draft", "draft-070"),
+            (10_500, SKEW_BRANCH_COLLECTION, "Review", "review-500"),
+            (10_510, SKEW_BRANCH_COLLECTION, "Review", "review-510"),
+            (10_520, SKEW_BRANCH_COLLECTION, "Review", "review-520"),
+            (10_530, SKEW_BRANCH_COLLECTION, "Review", "review-530"),
+            (10_540, SKEW_BRANCH_COLLECTION, "Review", "review-540"),
         ],
     );
 }
@@ -294,6 +330,15 @@ fn expected_branch_ids(limit: usize) -> Vec<Ulid> {
     .take(limit)
     .map(Ulid::from_u128)
     .collect()
+}
+
+#[cfg(feature = "diagnostics")]
+fn expected_skew_branch_rows(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    [10_000_u128, 10_010, 10_020, 10_030, 10_040, 10_050]
+        .into_iter()
+        .take(limit)
+        .map(|id| outputs(vec![Value::Ulid(Ulid::from_u128(id))]))
+        .collect()
 }
 
 #[cfg(feature = "diagnostics")]
@@ -549,6 +594,54 @@ fn session_branch_set_sql_rows_match_full_filter_primary_key_sort() {
         rows,
         expected_branch_rows(BRANCH_LIMIT),
         "branch merge should match full filter plus global primary-key ASC sort",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_skewed_branch_refill_preserves_order_and_stops_at_lookahead() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_skew_branch_set_fixture(&session);
+    let sql = skew_branch_target_sql("id", BRANCH_LIMIT);
+    let descriptor = branch_descriptor(sql.as_str());
+
+    assert!(
+        explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::IndexBranchSet),
+        "skewed branch query should stay on the branch-aware route",
+    );
+    assert!(
+        !explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort,
+        ),
+        "skewed branch route should preserve primary-key order without materialized sort",
+    );
+    assert_target_top_n_fetch(&descriptor);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("skewed branch SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("skewed branch SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_skew_branch_rows(BRANCH_LIMIT),
+        "branch chunk refill should preserve global primary-key order",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "key-only skewed branch projection should stay row-store-free",
+    );
+    assert!(
+        attribution.index_store_entry_reads > BRANCH_FETCH,
+        "skewed branch page should force a second pull from the leading branch, got {attribution:?}",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= BRANCH_FETCH + 2,
+        "skewed branch page should stop after the page lookahead refill, got {attribution:?}",
     );
 }
 
