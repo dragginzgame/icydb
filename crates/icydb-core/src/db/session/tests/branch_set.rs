@@ -673,3 +673,52 @@ fn session_branch_set_sql_count_covered_predicate_uses_prefix_cardinality() {
         "metadata COUNT should not ingest rows through the buffered reducer",
     );
 }
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_count_duplicate_branch_literals_use_unique_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = format!(
+        "SELECT COUNT(*) \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ('Draft', 'Draft', 'Review')",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("duplicate-literal branch COUNT SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("duplicate-literal branch COUNT SQL should return a projection row");
+    };
+
+    assert_eq!(
+        rows,
+        vec![outputs(vec![Value::Nat64(
+            expected_branch_ids(usize::MAX).len() as u64
+        )])],
+        "duplicate branch literals must not double-count exact prefix cardinality",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "duplicate-literal branch COUNT should stay row-store-free",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "duplicate-literal branch COUNT should stay index-scan-free",
+    );
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .expect("duplicate-literal prefix-cardinality COUNT should report its terminal source");
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("IndexPrefixCardinality"),
+        "duplicate-literal branch COUNT should still use exact metadata",
+    );
+    assert_eq!(
+        scalar_aggregate.rows_ingested, 0,
+        "duplicate-literal metadata COUNT should not ingest rows through the buffered reducer",
+    );
+}

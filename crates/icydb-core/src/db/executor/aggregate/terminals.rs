@@ -276,7 +276,7 @@ fn try_count_index_prefix_cardinality_terminal_request(
     Some(ScalarAggregateOutput::Count(count))
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct ExactCountCardinalityPrefix {
     index_id: IndexId,
     components: Vec<Vec<u8>>,
@@ -331,6 +331,8 @@ fn exact_cardinality_prefixes_from_lowered_specs(
             spec, prefix_len,
         )?);
     }
+    prefixes.sort();
+    prefixes.dedup();
 
     Some(prefixes)
 }
