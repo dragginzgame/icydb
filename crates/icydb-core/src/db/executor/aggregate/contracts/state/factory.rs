@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::contracts::state::factory
+//! Responsibility: aggregate state-machine construction.
+//! Does not own: route planning, stream execution, or reducer semantics.
+//! Boundary: converts prepared aggregate contracts into initial reducer state.
+
 use crate::db::{
     direction::Direction,
     executor::{

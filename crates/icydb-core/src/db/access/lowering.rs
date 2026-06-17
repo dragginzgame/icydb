@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, ExecutableAccessPlan},
         index::{
-            IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexStoreKey,
+            EncodedValue, IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexStoreKey,
             build_index_bounds_for_arity,
         },
     },
@@ -147,6 +147,7 @@ pub(in crate::db) struct LoweredIndexPrefixSpec {
     scan_contract: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
+    prefix_components: Vec<Vec<u8>>,
 }
 
 impl LoweredIndexPrefixSpec {
@@ -155,11 +156,13 @@ impl LoweredIndexPrefixSpec {
         index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
+        prefix_components: Vec<Vec<u8>>,
     ) -> Self {
         Self {
             scan_contract: LoweredIndexScanContract::from_access_contract(index),
             lower,
             upper,
+            prefix_components,
         }
     }
 
@@ -176,6 +179,11 @@ impl LoweredIndexPrefixSpec {
     #[must_use]
     pub(in crate::db) const fn upper(&self) -> &Bound<LoweredKey> {
         &self.upper
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
+        self.prefix_components.as_slice()
     }
 }
 
@@ -367,7 +375,17 @@ fn lower_index_prefix_values_for_specs(
         IndexBoundsSpec::Prefix { values },
     )
     .map_err(|_| InternalError::query_executor_invariant())?;
-    specs.push(LoweredIndexPrefixSpec::new(index, lower, upper));
+    let prefix_components = EncodedValue::try_encode_all(values)
+        .map_err(|_| InternalError::query_executor_invariant())?
+        .into_iter()
+        .map(|encoded| encoded.encoded().to_vec())
+        .collect();
+    specs.push(LoweredIndexPrefixSpec::new(
+        index,
+        lower,
+        upper,
+        prefix_components,
+    ));
 
     Ok(())
 }

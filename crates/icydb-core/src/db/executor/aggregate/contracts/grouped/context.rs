@@ -1,16 +1,14 @@
-//! Module: db::executor::aggregate::contracts::grouped::context
-//! Defines grouped aggregate execution context shared across grouped runtime
-//! preparation and evaluation.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::aggregate::contracts::grouped::context
+//! Responsibility: grouped aggregate execution configuration and budget accounting.
+//! Does not own: grouped reducer payloads or aggregate route planning.
+//! Boundary: enforces grouped resource limits for grouped execution operators.
 
 use crate::db::executor::{
-    aggregate::contracts::{GroupBudgetResourceCode, error::GroupError},
+    aggregate::contracts::{
+        GroupBudgetResourceCode, error::GroupError, state::GroupedTerminalAggregateState,
+    },
     group::{GroupKey, GroupKeySet},
 };
-use std::mem::size_of;
-
-use crate::db::executor::aggregate::contracts::state::GroupedTerminalAggregateState;
 #[cfg(test)]
 use crate::{
     db::{
@@ -21,6 +19,7 @@ use crate::{
     },
     error::InternalError,
 };
+use std::mem::size_of;
 
 ///
 /// ExecutionBudget
@@ -50,21 +49,25 @@ impl ExecutionBudget {
         }
     }
 
+    /// Return the number of canonical groups admitted so far.
     #[must_use]
     pub(in crate::db::executor) const fn groups(&self) -> u64 {
         self.groups
     }
 
+    /// Return the number of aggregate state slots budgeted so far.
     #[must_use]
     pub(in crate::db::executor) const fn aggregate_states(&self) -> u64 {
         self.aggregate_states
     }
 
+    /// Return the conservative grouped memory estimate in bytes.
     #[must_use]
     pub(in crate::db::executor) const fn estimated_bytes(&self) -> u64 {
         self.estimated_bytes
     }
 
+    /// Return the total number of grouped DISTINCT values admitted so far.
     #[must_use]
     pub(in crate::db::executor) const fn distinct_values(&self) -> u64 {
         self.distinct_values
@@ -204,21 +207,25 @@ impl ExecutionConfig {
         Self::with_hard_limits(u64::MAX, u64::MAX)
     }
 
+    /// Return the maximum number of canonical groups admitted by this config.
     #[must_use]
     pub(in crate::db::executor) const fn max_groups(&self) -> u64 {
         self.max_groups
     }
 
+    /// Return the maximum conservative grouped memory estimate in bytes.
     #[must_use]
     pub(in crate::db::executor) const fn max_group_bytes(&self) -> u64 {
         self.max_group_bytes
     }
 
+    /// Return the maximum DISTINCT values admitted within one group.
     #[must_use]
     pub(in crate::db::executor) const fn max_distinct_values_per_group(&self) -> u64 {
         self.max_distinct_values_per_group
     }
 
+    /// Return the maximum DISTINCT values admitted across all groups.
     #[must_use]
     pub(in crate::db::executor) const fn max_distinct_values_total(&self) -> u64 {
         self.max_distinct_values_total
@@ -244,11 +251,13 @@ impl ExecutionContext {
         }
     }
 
+    /// Return the immutable grouped execution limit configuration.
     #[must_use]
     pub(in crate::db::executor) const fn config(&self) -> &ExecutionConfig {
         &self.config
     }
 
+    /// Return the immutable grouped execution budget counters.
     #[must_use]
     pub(in crate::db::executor) const fn budget(&self) -> &ExecutionBudget {
         &self.budget
@@ -295,6 +304,7 @@ impl ExecutionContext {
         )
     }
 
+    /// Record one new canonical group with one aggregate state slot.
     pub(in crate::db::executor::aggregate) fn record_new_group(
         &mut self,
         group_count_before_insert: usize,
@@ -328,9 +338,10 @@ impl ExecutionContext {
         )
     }
 
-    // Record one newly seen grouped key plus an explicit number of aggregate
-    // state slots so bundle-based grouped execution can preserve the previous
-    // per-aggregate-state budget accounting model.
+    /// Record one new canonical group with one or more aggregate state slots.
+    ///
+    /// Bundle-based grouped execution passes the number of terminal states so
+    /// budget accounting can preserve the per-aggregate-state model.
     pub(in crate::db::executor::aggregate) fn record_new_group_states(
         &mut self,
         group_count_before_insert: usize,
@@ -365,6 +376,7 @@ impl ExecutionContext {
         Ok(())
     }
 
+    /// Record one admitted grouped DISTINCT value against the total budget.
     pub(in crate::db::executor) const fn record_distinct_value(
         &mut self,
     ) -> Result<(), GroupError> {

@@ -51,13 +51,19 @@ where
     if plan.has_residual_filter_expr() {
         return Ok(None);
     }
+    let primary_key_order_scan_safe = plan.access.as_index_branch_set_spec_path().is_some();
+    let residual_predicate_order_supported = matches!(
+        covering.order_contract,
+        CoveringProjectionOrder::IndexOrder(_)
+    ) || (primary_key_order_scan_safe
+        && matches!(
+            covering.order_contract,
+            CoveringProjectionOrder::PrimaryKeyOrder(_)
+        ));
     if plan.has_residual_filter_predicate()
         && (!covering.strict_predicate_compatible
             || index_predicate_execution.is_none()
-            || !matches!(
-                covering.order_contract,
-                CoveringProjectionOrder::IndexOrder(_)
-            ))
+            || !residual_predicate_order_supported)
     {
         // The covering lane does not yet own residual predicate evaluation.
         // Keep primary-key reorder fallbacks materialized so predicates run
@@ -108,7 +114,7 @@ where
     // order contract the executor already exposes in EXPLAIN EXECUTION.
     let scan_window = covering_scan_window(
         covering.order_contract,
-        plan.access.as_index_branch_set_spec_path().is_some(),
+        primary_key_order_scan_safe,
         covering.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner,
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),

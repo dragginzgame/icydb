@@ -25,6 +25,7 @@ use std::{cmp::Ordering, sync::LazyLock};
 use super::{
     IndexCompilePolicy, canonical_index_predicate, compile_index_program,
     compile_index_program_for_targets, eval_index_compare, eval_index_program_on_decoded_key,
+    eval_index_program_on_prefix_components,
 };
 
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
@@ -122,6 +123,37 @@ fn compile_index_program_maps_field_slot_to_component_index() {
             op: IndexCompareOp::Eq,
             literal: IndexLiteral::One(expected),
         }
+    );
+}
+
+#[test]
+fn prefix_component_predicate_evaluation_rejects_known_false_prefixes() {
+    let collection = literal_index_component_bytes(&Value::Text("collection-a".to_string()))
+        .expect("collection literal should encode");
+    let draft =
+        literal_index_component_bytes(&Value::Text("Draft".to_string())).expect("draft literal");
+    let review =
+        literal_index_component_bytes(&Value::Text("Review".to_string())).expect("review literal");
+    let program = IndexPredicateProgram::Compare {
+        component_index: 1,
+        op: IndexCompareOp::Ne,
+        literal: IndexLiteral::One(review.clone()),
+    };
+
+    assert_eq!(
+        eval_index_program_on_prefix_components(&[collection.clone(), draft], &program,),
+        Some(true),
+        "known Draft branch prefix should pass stage != Review",
+    );
+    assert_eq!(
+        eval_index_program_on_prefix_components(&[collection.clone(), review], &program),
+        Some(false),
+        "known Review branch prefix should be pruned before scanning",
+    );
+    assert_eq!(
+        eval_index_program_on_prefix_components(&[collection], &program),
+        None,
+        "predicates on unbound suffix components must remain unknown",
     );
 }
 

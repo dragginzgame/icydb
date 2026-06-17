@@ -18,12 +18,23 @@ pub struct Def {
 }
 
 impl Def {
+    /// Build one derive-side definition wrapper from the parsed item.
+    #[must_use]
     pub const fn new(item: ItemStruct) -> Self {
         Self { item: Some(item) }
     }
 
+    /// Return the parsed item identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called before darling has attached the parsed item metadata.
     pub fn ident(&self) -> Ident {
-        self.item.as_ref().unwrap().ident.clone()
+        self.item
+            .as_ref()
+            .unwrap_or_else(|| panic!("derive definition metadata must include the parsed item"))
+            .ident
+            .clone()
     }
 }
 

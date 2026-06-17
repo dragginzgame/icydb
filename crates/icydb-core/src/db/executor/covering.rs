@@ -15,7 +15,10 @@ use crate::{
             IndexScan, KeyOrderComparator, read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
-        index::{IndexEntryExistenceWitness, RawIndexStoreKey, predicate::IndexPredicateExecution},
+        index::{
+            IndexEntryExistenceWitness, RawIndexStoreKey,
+            predicate::{IndexPredicateExecution, eval_index_program_on_prefix_components},
+        },
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
@@ -174,6 +177,9 @@ where
     let chunk_entries = covering_branch_component_chunk_entries(limit, index_prefix_specs.len());
     let mut streams = Vec::with_capacity(index_prefix_specs.len());
     for spec in index_prefix_specs {
+        if prefix_components_rejected_by_predicate(spec.prefix_components(), predicate_execution) {
+            continue;
+        }
         let scan_contract = spec.scan_contract();
         streams.push(CoveringComponentStreamBox::prefix(
             resolve_store_for_index(scan_contract.store_path())?,
@@ -188,6 +194,9 @@ where
             predicate_execution,
         ));
     }
+    if streams.is_empty() {
+        return Ok(Vec::new());
+    }
 
     let comparator = KeyOrderComparator::from_direction(direction);
     let mut stream = streams.remove(0);
@@ -196,6 +205,17 @@ where
     }
 
     stream.collect_limit(limit)
+}
+
+fn prefix_components_rejected_by_predicate(
+    prefix_components: &[Vec<u8>],
+    predicate_execution: Option<IndexPredicateExecution<'_>>,
+) -> bool {
+    predicate_execution
+        .and_then(|execution| {
+            eval_index_program_on_prefix_components(prefix_components, execution.program)
+        })
+        .is_some_and(|passed| !passed)
 }
 
 const fn covering_branch_component_chunk_entries(limit: usize, branch_count: usize) -> usize {

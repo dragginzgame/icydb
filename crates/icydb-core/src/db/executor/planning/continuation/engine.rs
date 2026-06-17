@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::continuation::engine
-//! Defines continuation-window helpers used by executor runtime loops.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::continuation::engine
+//! Responsibility: load-cursor compatibility and revalidation dispatch.
+//! Does not own: cursor token encoding or route feasibility derivation.
+//! Boundary: converts load cursor inputs into runtime-ready continuation contexts.
 
 use crate::{
     db::{

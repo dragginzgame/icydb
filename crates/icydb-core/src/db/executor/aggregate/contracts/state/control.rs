@@ -1,7 +1,15 @@
+//! Module: executor::aggregate::contracts::state::control
+//! Responsibility: shared aggregate fold-control enums.
+//! Does not own: aggregate reducer storage or stream traversal.
+//! Boundary: carries reducer continuation and extrema direction decisions.
+
 use crate::db::direction::Direction;
 
 ///
 /// FoldControl
+///
+/// FoldControl tells aggregate execution kernels whether the current reducer can
+/// stop scanning after one accepted input or must continue consuming rows.
 ///
 
 #[derive(Clone, Copy, Debug)]
@@ -74,6 +82,9 @@ impl ExtremumKind {
 
 ///
 /// AggregateFoldMode
+///
+/// AggregateFoldMode selects whether aggregate execution must inspect existing
+/// rows or can satisfy the request from decoded key streams only.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

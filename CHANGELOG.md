@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Deduplicates metadata-backed exact-count branch prefixes so duplicate
-  `IN` values cannot double-count covered `COUNT(*)` results.
+- Keeps branch-set covered projections row-store-free and prunes branches proven
+  false by strict index-backed residual predicates.
 
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.9` deduplicates metadata-backed exact-count branch prefixes so
+  duplicate `IN` values cannot double-count covered `COUNT(*)` results while
+  preserving the zero-row-read count path.
 
 - `0.183.8` keeps covered `COUNT(*)` prefix metadata usable when unrelated
   index maintenance runs: system-index writes and missing-row witnesses no

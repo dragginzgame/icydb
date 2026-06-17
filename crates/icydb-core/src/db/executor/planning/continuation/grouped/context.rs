@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::continuation::grouped::context
+//! Module: executor::planning::continuation::grouped::context
 //! Responsibility: grouped continuation runtime context assembly and cursor emission.
 //! Does not own: grouped route feasibility selection or grouped fold/output operators.
 //! Boundary: continuation authority for grouped runtime cursor context.

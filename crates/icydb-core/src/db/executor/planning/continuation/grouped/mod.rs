@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::continuation::grouped
+//! Module: executor::planning::continuation::grouped
 //! Responsibility: continuation-owned grouped pagination/continuation runtime contracts.
 //! Does not own: grouped route feasibility or grouped fold/output execution policy.
 //! Boundary: exports immutable grouped continuation primitives for runtime consumers.

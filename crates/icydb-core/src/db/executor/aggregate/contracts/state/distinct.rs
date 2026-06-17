@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::contracts::state::distinct
+//! Responsibility: aggregate DISTINCT admission state helpers.
+//! Does not own: grouped hash table policy or aggregate reducer payloads.
+//! Boundary: canonicalizes key/value markers before reducer admission.
+
 use crate::{
     db::{
         data::DecodedDataStoreKey,

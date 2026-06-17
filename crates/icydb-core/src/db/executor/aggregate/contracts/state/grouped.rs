@@ -1,4 +1,8 @@
-use super::super::plan::{CompiledExpr, FieldSlot, collapse_true_only_boolean_admission};
+//! Module: executor::aggregate::contracts::state::grouped
+//! Responsibility: grouped aggregate terminal state transitions.
+//! Does not own: aggregate route planning or grouped row-shaping output.
+//! Boundary: applies prepared grouped aggregate contracts to row/key inputs.
+
 use crate::{
     db::{
         data::DecodedDataStoreKey,
@@ -8,6 +12,7 @@ use crate::{
                 contracts::{
                     error::GroupError,
                     grouped::ExecutionContext,
+                    plan::{CompiledExpr, FieldSlot, collapse_true_only_boolean_admission},
                     spec::AggregateKind,
                     state::{
                         ExtremumKind, FoldControl, GroupedAggregateReducerState,

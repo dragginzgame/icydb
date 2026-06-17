@@ -56,7 +56,7 @@ impl ScalarAggregateOutput {
         InternalError::query_executor_invariant()
     }
 
-    // Decode COUNT reducer output while preserving the caller's contract label.
+    /// Decode COUNT reducer output while preserving the caller's contract label.
     pub(in crate::db::executor) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
@@ -64,7 +64,7 @@ impl ScalarAggregateOutput {
         }
     }
 
-    // Decode EXISTS reducer output while preserving the caller's contract label.
+    /// Decode EXISTS reducer output while preserving the caller's contract label.
     pub(in crate::db::executor) fn into_exists(self) -> Result<bool, InternalError> {
         match self {
             Self::Exists(value) => Ok(value),
@@ -72,8 +72,9 @@ impl ScalarAggregateOutput {
         }
     }
 
-    // Decode one structural id-returning aggregate output for MIN/MAX/FIRST/LAST
-    // terminals while keeping the aggregate-shape mismatch on the owner type.
+    /// Decode one structural id-returning aggregate output for MIN/MAX/FIRST/LAST terminals.
+    ///
+    /// Keeps aggregate-shape mismatch diagnostics owned by the output contract type.
     pub(in crate::db::executor) fn into_optional_id_terminal(
         self,
         kind: AggregateKind,

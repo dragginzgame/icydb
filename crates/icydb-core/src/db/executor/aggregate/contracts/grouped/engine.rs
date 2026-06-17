@@ -1,7 +1,7 @@
-//! Module: db::executor::aggregate::contracts::grouped::engine
+//! Module: executor::aggregate::contracts::grouped::engine
 //! Responsibility: grouped aggregate state ownership and scalar aggregate engine contracts.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes grouped reducer contracts while keeping grouped implementation details internal.
+//! Does not own: grouped execution budgeting or route planning.
+//! Boundary: applies aggregate state contracts to grouped and scalar key inputs.
 
 use crate::{
     db::{
@@ -54,6 +54,7 @@ pub(in crate::db::executor) struct GroupedAggregateOutput {
 
 #[cfg(test)]
 impl GroupedAggregateOutput {
+    /// Convert one finalized grouped output into its canonical value pair.
     pub(in crate::db::executor::aggregate) fn into_value_pair(self) -> (Value, Value) {
         (self.group_key.canonical_value().clone(), self.output)
     }
@@ -292,8 +293,8 @@ impl GroupedAggregateState {
 ///
 /// ScalarAggregateEngine
 ///
-/// ScalarAggregateEngine is the structural scalar aggregate reducer engine shared by scalar
-/// aggregate execution spines.
+/// ScalarAggregateEngine is the structural scalar aggregate reducer engine
+/// shared by scalar aggregate execution spines.
 ///
 
 pub(in crate::db::executor) struct ScalarAggregateEngine {
@@ -327,9 +328,10 @@ impl ScalarAggregateEngine {
     }
 }
 
-// Execute one scalar aggregate engine through one canonical ingest/finalize authority.
-// The caller supplies loop/key ingestion behavior while this boundary owns the
-// terminal finalize projection.
+/// Execute one scalar aggregate engine through one canonical ingest/finalize authority.
+///
+/// The caller supplies loop/key ingestion behavior while this boundary owns the
+/// terminal finalize projection.
 pub(in crate::db::executor) fn execute_scalar_aggregate<F>(
     mut engine: ScalarAggregateEngine,
     mut ingest_all: F,

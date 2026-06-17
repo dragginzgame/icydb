@@ -6,6 +6,8 @@ const BRANCH_LIMIT: usize = 3;
 const BRANCH_FETCH: u64 = 4;
 #[cfg(feature = "diagnostics")]
 const BRANCH_HEAD_MERGE_READ_CAP: u64 = BRANCH_FETCH + 1;
+#[cfg(feature = "diagnostics")]
+const BRANCH_INDEX_RESIDUAL_READ_CAP: u64 = 10;
 
 fn branch_target_sql(select: &str, limit: usize) -> String {
     format!(
@@ -35,6 +37,18 @@ fn branch_target_duplicate_literal_sql(select: &str, limit: usize) -> String {
          FROM BranchIndexedSessionSqlEntity \
          WHERE collection_id = '{BRANCH_COLLECTION}' \
            AND stage IN ('Draft', 'Draft', 'Review') \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
+fn branch_target_index_residual_sql(select: &str, limit: usize) -> String {
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ('Draft', 'Review') \
+           AND stage != 'Review' \
          ORDER BY id ASC \
          LIMIT {limit}",
     )
@@ -179,6 +193,26 @@ fn expected_branch_ids(limit: usize) -> Vec<Ulid> {
     .take(limit)
     .map(Ulid::from_u128)
     .collect()
+}
+
+fn expected_draft_branch_rows(limit: usize) -> Vec<Vec<Value>> {
+    [9_090_u128, 9_105, 9_120, 9_130, 9_150, 9_170]
+        .into_iter()
+        .take(limit)
+        .map(|id| {
+            vec![
+                Value::Ulid(Ulid::from_u128(id)),
+                Value::Text("Draft".to_string()),
+            ]
+        })
+        .collect()
+}
+
+fn expected_draft_branch_output_rows(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    expected_draft_branch_rows(limit)
+        .into_iter()
+        .map(outputs)
+        .collect()
 }
 
 fn paged_branch_ids(
@@ -592,6 +626,44 @@ fn session_branch_set_sql_key_only_projection_is_covered_and_bounded() {
     assert_eq!(
         attribution.scalar_aggregate, None,
         "default page-shaped branch query must not invoke an exact count path",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_index_residual_covering_projection_stays_row_store_free() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_index_residual_sql("id, stage", BRANCH_LIMIT);
+    let descriptor = branch_descriptor(sql.as_str());
+
+    assert_target_branch_route(&descriptor);
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "branch-set index-residual projection should stay on covering reads",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("index-residual covered branch SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("index-residual covered branch SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_draft_branch_output_rows(BRANCH_LIMIT),
+        "index-covered residual predicates must filter before the branch LIMIT",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "index-residual covered branch projection should avoid row-store reads",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= BRANCH_INDEX_RESIDUAL_READ_CAP,
+        "index-residual branch stream should remain bounded by lazy branch heads, got {attribution:?}",
     );
 }
 

@@ -1,10 +1,17 @@
+//! Module: executor::aggregate::contracts::state::reducer
+//! Responsibility: scalar and grouped aggregate reducer payload storage.
+//! Does not own: route planning, row evaluation, or distinct-key admission.
+//! Boundary: stores and finalizes aggregate terminal values.
+
 use crate::{
-    db::executor::aggregate::{
-        contracts::spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind},
-        value_reducer::{ValueReducerState, finalize_count},
+    db::{
+        executor::aggregate::{
+            contracts::spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind},
+            value_reducer::{ValueReducerState, finalize_count},
+        },
+        key_taxonomy::PrimaryKeyValue,
+        numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
     },
-    db::key_taxonomy::PrimaryKeyValue,
-    db::numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
     error::InternalError,
     types::Decimal,
     value::Value,

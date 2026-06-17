@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::contracts::state::scalar
+//! Responsibility: scalar aggregate terminal state transitions.
+//! Does not own: aggregate route planning or key-stream construction.
+//! Boundary: applies prepared scalar aggregate contracts to decoded data keys.
+
 use crate::{
     db::{
         data::DecodedDataStoreKey,

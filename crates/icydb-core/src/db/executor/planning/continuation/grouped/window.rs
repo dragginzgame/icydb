@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::continuation::grouped::window
+//! Module: executor::planning::continuation::grouped::window
 //! Responsibility: grouped pagination-window contract for continuation runtime state.
 //! Does not own: grouped route feasibility or grouped aggregate fold behavior.
 //! Boundary: continuation authority for grouped paging window primitives.

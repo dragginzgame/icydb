@@ -1498,6 +1498,21 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 3";
 
+const TOKEN_BRANCH_SET_INDEX_RESIDUAL_PAGE_SQL: &str = "\
+SELECT id, stage \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review') \
+  AND stage != 'Review' \
+ORDER BY id ASC \
+LIMIT 3";
+
+const TOKEN_BRANCH_SET_DUPLICATE_COUNT_SQL: &str = "\
+SELECT COUNT(*) \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Draft', 'Review')";
+
 const TOKEN_BRANCH_SET_PAGE_LIMIT50_SQL: &str = "\
 SELECT id \
 FROM PerfAuditToken \
@@ -1537,6 +1552,20 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_collection_stage_id",
             "branch_set_noncovered_page_only",
             TOKEN_BRANCH_SET_NONCOVERED_PAGE_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.index_residual_covering.limit3",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_index_residual_covering",
+            TOKEN_BRANCH_SET_INDEX_RESIDUAL_PAGE_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.duplicate_count",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_duplicate_count",
+            TOKEN_BRANCH_SET_DUPLICATE_COUNT_SQL,
         ),
         scenario(
             "token.collection_stage_id.branch_set.page_only.limit50",
@@ -3037,6 +3066,97 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
     );
 }
 
+#[test]
+fn sql_perf_token_branch_set_changed_queries_stay_bounded() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = HashMap::new();
+    reset_sql_perf_fixtures(&fixture);
+
+    assert_token_branch_set_index_residual_explain_contract(&fixture);
+
+    let residual = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario(
+            "token.collection_stage_id.branch_set.index_residual_covering.limit3",
+        ),
+    );
+    print_branch_set_perf_sample("index residual covering", &residual);
+    assert_eq!(
+        residual.outcome.result_kind, "projection",
+        "branch-set index-residual audit row should remain a projection page query",
+    );
+    assert_eq!(
+        residual.outcome.row_count, 3,
+        "branch-set index-residual audit row should return the requested page size",
+    );
+    assert_eq!(
+        residual.avg_data_store_get_calls, 0,
+        "index-residual covered branch query should stay row-store-free",
+    );
+    assert!(
+        residual.avg_index_store_entry_reads <= 16,
+        "index-residual branch query should keep index traversal bounded by lazy branch heads, got {}",
+        residual.avg_index_store_entry_reads,
+    );
+    assert_eq!(
+        residual.avg_grouped_count_row_materialization_local_instructions, 0,
+        "index-residual page query must not invoke grouped/count materialization",
+    );
+    assert_eq!(
+        residual.avg_grouped_count_group_lookup_local_instructions, 0,
+        "index-residual page query must not invoke grouped/count lookup work",
+    );
+
+    let duplicate_count = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario("token.collection_stage_id.branch_set.duplicate_count"),
+    );
+    print_branch_set_perf_sample("duplicate count", &duplicate_count);
+    assert_eq!(
+        duplicate_count.outcome.result_kind, "projection",
+        "branch-set duplicate COUNT audit row should return SQL projection output",
+    );
+    assert_eq!(
+        duplicate_count.outcome.row_count, 1,
+        "branch-set duplicate COUNT audit row should return one aggregate row",
+    );
+    assert_eq!(
+        duplicate_count.avg_data_store_get_calls, 0,
+        "duplicate branch COUNT should avoid row-store get() calls",
+    );
+    assert_eq!(
+        duplicate_count.avg_index_store_entry_reads, 0,
+        "duplicate branch COUNT should use prefix-cardinality metadata without scanning index entries",
+    );
+
+    let duplicate_count_query = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Token,
+        TOKEN_BRANCH_SET_DUPLICATE_COUNT_SQL,
+        1,
+    )
+    .expect("token duplicate-literal branch COUNT should succeed");
+    let scalar_aggregate = duplicate_count_query
+        .attribution
+        .scalar_aggregate
+        .expect("duplicate branch COUNT should report scalar aggregate attribution");
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("IndexPrefixCardinality"),
+        "duplicate branch COUNT should attribute the metadata-backed terminal source",
+    );
+    assert_eq!(
+        scalar_aggregate.rows_ingested, 0,
+        "duplicate branch COUNT should not ingest rows through the buffered reducer",
+    );
+    assert_eq!(
+        scalar_aggregate.terminal_count, 1,
+        "duplicate branch COUNT should report one scalar aggregate terminal",
+    );
+}
+
 fn assert_token_branch_set_limit50_explain_contract(fixture: &StandaloneCanisterFixture) {
     let branch_explain = query_surface_with_perf(
         fixture,
@@ -3082,6 +3202,31 @@ fn assert_token_branch_set_limit50_explain_contract(fixture: &StandaloneCanister
     assert!(
         fallback_explain.contains("OrderByMaterializedSort"),
         "token over-cap fallback LIMIT 50 should materialize-sort after rejecting the branch route: {fallback_explain}",
+    );
+}
+
+fn assert_token_branch_set_index_residual_explain_contract(fixture: &StandaloneCanisterFixture) {
+    let residual_explain = query_surface_with_perf(
+        fixture,
+        SqlPerfSurface::Token,
+        format!("EXPLAIN EXECUTION {TOKEN_BRANCH_SET_INDEX_RESIDUAL_PAGE_SQL}").as_str(),
+        1,
+    )
+    .expect("token branch-set index-residual EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain { explain, .. } = residual_explain.result else {
+        panic!("token branch-set index-residual EXPLAIN EXECUTION should return explain output");
+    };
+    assert!(
+        explain.contains("IndexBranchSet"),
+        "token branch-set index-residual EXPLAIN should expose the branch-aware route: {explain}",
+    );
+    assert!(
+        !explain.contains("OrderByMaterializedSort"),
+        "token branch-set index-residual EXPLAIN must not materialize-sort the page route: {explain}",
+    );
+    assert!(
+        explain.contains("covering_scan=true"),
+        "token branch-set index-residual EXPLAIN should stay on the covering scan lane: {explain}",
     );
 }
 

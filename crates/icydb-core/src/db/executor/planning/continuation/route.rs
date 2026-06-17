@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::continuation::route
+//! Module: executor::planning::continuation::route
 //! Responsibility: continuation-owned route window and continuation-mode contracts.
 //! Does not own: route feasibility derivation or planner continuation-policy semantics.
 //! Boundary: continuation authority exports immutable route continuation primitives.
@@ -40,6 +40,7 @@ pub(in crate::db::executor) struct RouteContinuationPlan {
 }
 
 impl RouteContinuationPlan {
+    /// Build one route continuation plan from immutable policy and access windows.
     #[must_use]
     const fn new(
         mode: ContinuationMode,
@@ -62,6 +63,7 @@ impl RouteContinuationPlan {
         }
     }
 
+    /// Build one route continuation plan from a planner-owned scalar access-window plan.
     #[must_use]
     pub(in crate::db::executor::planning::continuation) fn from_scalar_access_window_plan(
         mode: ContinuationMode,
@@ -100,46 +102,55 @@ impl RouteContinuationPlan {
         Self::initial_with_policy(ContinuationPolicy::new(true, true, true))
     }
 
+    /// Return the route continuation mode.
     #[must_use]
     pub(in crate::db::executor) const fn mode(self) -> ContinuationMode {
         self.mode
     }
 
+    /// Return whether a continuation cursor or anchor has been applied.
     #[must_use]
     pub(in crate::db::executor) const fn applied(self) -> bool {
         self.applied
     }
 
+    /// Return whether strict advancement must be enforced after applying continuation state.
     #[must_use]
     pub(in crate::db::executor) const fn strict_advance_required_when_applied(self) -> bool {
         self.strict_advance_required_when_applied
     }
 
+    /// Return whether grouped execution may consume this applied continuation state.
     #[must_use]
     pub(in crate::db::executor) const fn grouped_safe_when_applied(self) -> bool {
         self.grouped_safe_when_applied
     }
 
+    /// Return whether index-range LIMIT pushdown remains valid for this continuation state.
     #[must_use]
     pub(in crate::db::executor) const fn index_range_limit_pushdown_allowed(self) -> bool {
         self.index_range_limit_pushdown_allowed
     }
 
+    /// Return the effective output offset projected from the keep window.
     #[must_use]
     pub(in crate::db::executor) fn effective_offset(self) -> u32 {
         u32::try_from(self.access_window_keep.lower_bound()).unwrap_or(u32::MAX)
     }
 
+    /// Return the page limit projected from the keep window.
     #[must_use]
     pub(in crate::db::executor) const fn limit(&self) -> Option<u32> {
         self.access_window_keep.page_limit()
     }
 
+    /// Borrow the access window used for retained output rows.
     #[must_use]
     pub(in crate::db::executor) const fn keep_access_window(&self) -> &AccessWindow {
         &self.access_window_keep
     }
 
+    /// Borrow the access window used for stream fetch work.
     #[must_use]
     pub(in crate::db::executor) const fn fetch_access_window(&self) -> &AccessWindow {
         &self.access_window_fetch

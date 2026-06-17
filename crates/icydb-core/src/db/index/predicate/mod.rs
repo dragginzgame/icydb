@@ -164,6 +164,70 @@ pub(in crate::db) fn eval_index_program_on_decoded_key(
     }
 }
 
+/// Evaluate one compiled index-only program against known prefix components.
+///
+/// Returns `None` when the available prefix does not contain every component
+/// needed to decide the predicate. Callers may only prune a whole prefix when
+/// this returns `Some(false)`.
+#[must_use]
+pub(in crate::db) fn eval_index_program_on_prefix_components(
+    components: &[Vec<u8>],
+    program: &IndexPredicateProgram,
+) -> Option<bool> {
+    match program {
+        IndexPredicateProgram::True => Some(true),
+        IndexPredicateProgram::False => Some(false),
+        IndexPredicateProgram::And(children) => {
+            eval_index_and_on_prefix_components(components, children.as_slice())
+        }
+        IndexPredicateProgram::Or(children) => {
+            eval_index_or_on_prefix_components(components, children.as_slice())
+        }
+        IndexPredicateProgram::Not(inner) => {
+            eval_index_program_on_prefix_components(components, inner).map(|passed| !passed)
+        }
+        IndexPredicateProgram::Compare {
+            component_index,
+            op,
+            literal,
+        } => components
+            .get(*component_index)
+            .map(|component| eval_index_compare(component.as_slice(), *op, literal)),
+    }
+}
+
+fn eval_index_and_on_prefix_components(
+    components: &[Vec<u8>],
+    children: &[IndexPredicateProgram],
+) -> Option<bool> {
+    let mut all_known = true;
+    for child in children {
+        match eval_index_program_on_prefix_components(components, child) {
+            Some(true) => {}
+            Some(false) => return Some(false),
+            None => all_known = false,
+        }
+    }
+
+    all_known.then_some(true)
+}
+
+fn eval_index_or_on_prefix_components(
+    components: &[Vec<u8>],
+    children: &[IndexPredicateProgram],
+) -> Option<bool> {
+    let mut all_known = true;
+    for child in children {
+        match eval_index_program_on_prefix_components(components, child) {
+            Some(true) => return Some(true),
+            Some(false) => {}
+            None => all_known = false,
+        }
+    }
+
+    all_known.then_some(false)
+}
+
 /// Evaluate one compiled index-only execution request and update observability
 /// counters when a key is rejected by index-only filtering.
 pub(in crate::db) fn eval_index_execution_on_decoded_key(
