@@ -112,6 +112,16 @@ fn lower_sql_where_expr_keeps_top_level_membership_compact() {
 }
 
 #[test]
+fn derive_where_predicate_only_subset_rejects_plain_compare_without_membership() {
+    let expr = parse_where_expr("SELECT * FROM users WHERE age >= 21");
+
+    assert!(
+        derive_sql_where_expr_predicate_only_subset(&expr).is_none(),
+        "plain compares must keep the visible scalar filter expression for semantic identity",
+    );
+}
+
+#[test]
 fn derive_where_predicate_only_subset_keeps_compare_and_membership_compact() {
     let expr = parse_where_expr(
         "SELECT * FROM users \

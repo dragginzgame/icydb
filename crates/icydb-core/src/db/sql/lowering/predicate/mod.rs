@@ -52,6 +52,10 @@ pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_subset(
 pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_only_subset(
     sql_expr: &SqlExpr,
 ) -> Option<Predicate> {
+    if !predicate_only_sql_expr_contains_membership(sql_expr) {
+        return None;
+    }
+
     derive_sql_where_expr_predicate_only_subset_impl(sql_expr)
         .map(|predicate| normalize_predicate(&predicate))
 }
@@ -80,6 +84,31 @@ fn derive_sql_where_expr_predicate_only_subset_impl(sql_expr: &SqlExpr) -> Optio
         | SqlExpr::FunctionCall { .. }
         | SqlExpr::Unary { .. }
         | SqlExpr::Case { .. } => None,
+    }
+}
+
+fn predicate_only_sql_expr_contains_membership(sql_expr: &SqlExpr) -> bool {
+    match sql_expr {
+        SqlExpr::Membership { .. } => true,
+        SqlExpr::Binary {
+            op: SqlExprBinaryOp::And,
+            left,
+            right,
+        } => {
+            predicate_only_sql_expr_contains_membership(left.as_ref())
+                || predicate_only_sql_expr_contains_membership(right.as_ref())
+        }
+        SqlExpr::Binary { .. }
+        | SqlExpr::Field(_)
+        | SqlExpr::FieldPath { .. }
+        | SqlExpr::Aggregate(_)
+        | SqlExpr::Literal(_)
+        | SqlExpr::Param { .. }
+        | SqlExpr::NullTest { .. }
+        | SqlExpr::Like { .. }
+        | SqlExpr::FunctionCall { .. }
+        | SqlExpr::Unary { .. }
+        | SqlExpr::Case { .. } => false,
     }
 }
 
