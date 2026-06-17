@@ -505,6 +505,85 @@ fn compile_index_program_rejects_in_with_empty_list_literal() {
 }
 
 #[test]
+fn compile_index_program_keeps_small_in_literals_linear() {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("gamma".to_string()),
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+            Value::Text("alpha".to_string()),
+        ]),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
+        .expect("strict IN should compile to an index predicate");
+    let alpha = literal_index_component_bytes(&Value::Text("alpha".to_string()))
+        .expect("alpha literal should encode");
+    let beta = literal_index_component_bytes(&Value::Text("beta".to_string()))
+        .expect("beta literal should encode");
+    let gamma = literal_index_component_bytes(&Value::Text("gamma".to_string()))
+        .expect("gamma literal should encode");
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::Compare {
+            component_index: 0,
+            op: IndexCompareOp::In,
+            literal: IndexLiteral::Many(vec![gamma, alpha.clone(), beta, alpha]),
+        },
+        "small index membership literals should keep linear caller-order evaluation",
+    );
+}
+
+#[test]
+fn compile_index_program_canonicalizes_large_in_literals_for_binary_membership() {
+    let mut values = (0..40)
+        .rev()
+        .map(|idx| Value::Text(format!("v{idx:02}")))
+        .collect::<Vec<_>>();
+    values.push(Value::Text("v07".to_string()));
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::In,
+        Value::List(values),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
+        .expect("strict IN should compile to an index predicate");
+    let mut expected = (0..40)
+        .map(|idx| {
+            literal_index_component_bytes(&Value::Text(format!("v{idx:02}")))
+                .expect("expected literal should encode")
+        })
+        .collect::<Vec<_>>();
+    expected.sort();
+    expected.dedup();
+    let hit = literal_index_component_bytes(&Value::Text("v07".to_string()))
+        .expect("hit literal should encode");
+
+    let IndexPredicateProgram::Compare { literal, .. } = &program else {
+        panic!("expected compare program");
+    };
+    assert_eq!(
+        program,
+        IndexPredicateProgram::Compare {
+            component_index: 0,
+            op: IndexCompareOp::In,
+            literal: IndexLiteral::ManySorted(expected),
+        },
+        "large index membership literals must be sorted and deduplicated for binary search",
+    );
+    assert!(
+        eval_index_compare(hit.as_slice(), IndexCompareOp::In, literal),
+        "canonicalized compiled membership should preserve strict IN semantics",
+    );
+}
+
+#[test]
 fn compile_index_program_and_subset_compiles_supported_children_only() {
     let predicate = ExecutablePredicate::And(vec![
         ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(

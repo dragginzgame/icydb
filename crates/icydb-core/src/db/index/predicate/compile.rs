@@ -21,6 +21,8 @@ use crate::{
 };
 use std::ops::Bound;
 
+const INDEX_MANY_BINARY_SEARCH_MIN_CANDIDATES: usize = 32;
+
 ///
 /// IndexCompilePolicy
 ///
@@ -168,17 +170,7 @@ fn compile_index_program_and_subset(
             // Nested AND nodes can also be safely reduced to a conjunction subset.
             compile_index_program_and_subset(nested, index_slots)
         } else {
-            let capabilities = classify_predicate_capabilities(
-                child,
-                PredicateCapabilityContext::index_compile(index_slots),
-            );
-            match capabilities.index() {
-                IndexPredicateCapability::FullyIndexable => {
-                    compile_index_program_from_resolved_full(child, index_slots)
-                }
-                IndexPredicateCapability::PartiallyIndexable
-                | IndexPredicateCapability::RequiresFullScan => None,
-            }
+            compile_index_program_from_resolved_full(child, index_slots)
         };
 
         let Some(child_program) = child_program else {
@@ -209,14 +201,7 @@ fn compile_index_program_and_subset_for_targets(
         let child_program = if let ExecutablePredicate::And(nested) = child {
             compile_index_program_and_subset_for_targets(nested, compile_targets)
         } else {
-            let capabilities = classify_predicate_capabilities_for_targets(child, compile_targets);
-            match capabilities.index() {
-                IndexPredicateCapability::FullyIndexable => {
-                    compile_index_program_from_resolved_full_for_targets(child, compile_targets)
-                }
-                IndexPredicateCapability::PartiallyIndexable
-                | IndexPredicateCapability::RequiresFullScan => None,
-            }
+            compile_index_program_from_resolved_full_for_targets(child, compile_targets)
         };
 
         let Some(child_program) = child_program else {
@@ -344,7 +329,7 @@ fn compile_compare_index_node(
         Some(IndexPredicateProgram::Compare {
             component_index,
             op: index_compare_op(cmp.op)?,
-            literal: IndexLiteral::Many(literals),
+            literal: compile_index_many_literal(literals)?,
         })
     } else if matches!(cmp.op, CompareOp::StartsWith) {
         compile_starts_with_index_node(component_index, literal_value)
@@ -384,20 +369,32 @@ fn compile_compare_index_node_for_targets(
                 literal_index_component_bytes(&lowered)
             })
             .collect::<Option<Vec<_>>>()?;
-        if literals.is_empty() {
-            return None;
-        }
 
         Some(IndexPredicateProgram::Compare {
             component_index: target.component_index,
             op: index_compare_op(cmp.op)?,
-            literal: IndexLiteral::Many(literals),
+            literal: compile_index_many_literal(literals)?,
         })
     } else if matches!(cmp.op, CompareOp::StartsWith) {
         compile_starts_with_index_node_for_target(literal_value, cmp.coercion.id, target)
     } else {
         None
     }
+}
+
+fn compile_index_many_literal(mut literals: Vec<Vec<u8>>) -> Option<IndexLiteral> {
+    if literals.is_empty() {
+        return None;
+    }
+
+    if literals.len() < INDEX_MANY_BINARY_SEARCH_MIN_CANDIDATES {
+        return Some(IndexLiteral::Many(literals));
+    }
+
+    literals.sort();
+    literals.dedup();
+
+    Some(IndexLiteral::ManySorted(literals))
 }
 
 fn compile_starts_with_index_node(

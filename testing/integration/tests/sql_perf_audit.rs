@@ -1583,6 +1583,14 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 50";
 
+const TOKEN_BRANCH_SET_LARGE_IN_FALLBACK_LIMIT50_SQL: &str = "\
+SELECT id \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07', 'Missing08', 'Missing09', 'Missing10', 'Missing11', 'Missing12', 'Missing13', 'Missing14', 'Missing15', 'Missing16', 'Missing17', 'Missing18', 'Missing19', 'Missing20', 'Missing21', 'Missing22', 'Missing23', 'Missing24', 'Missing25', 'Missing26', 'Missing27', 'Missing28', 'Missing29', 'Missing30') \
+ORDER BY id ASC \
+LIMIT 50";
+
 const TOKEN_BRANCH_SET_OVERCAP_FALLBACK_NONCOVERED_LIMIT50_SQL: &str = "\
 SELECT id, title \
 FROM PerfAuditToken \
@@ -1662,6 +1670,13 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_collection_stage_id",
             "branch_set_overcap_fallback",
             TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.large_in_fallback.page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_large_in_fallback",
+            TOKEN_BRANCH_SET_LARGE_IN_FALLBACK_LIMIT50_SQL,
         ),
         scenario(
             "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
@@ -3126,9 +3141,17 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
             "token.collection_stage_id.overcap_fallback.page_only.limit50",
         ),
     );
+    let large_in_fallback = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario(
+            "token.collection_stage_id.large_in_fallback.page_only.limit50",
+        ),
+    );
     print_branch_set_perf_sample("limit50 branch", &branch);
     print_branch_set_perf_sample("limit50 wide branch", &wide_branch);
     print_branch_set_perf_sample("limit50 overcap fallback", &fallback);
+    print_branch_set_perf_sample("limit50 large IN fallback", &large_in_fallback);
     let execute_delta = i128::from(fallback.avg_execute_local_instructions)
         - i128::from(branch.avg_execute_local_instructions);
     let total_delta =
@@ -3142,6 +3165,10 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
     assert_eq!(
         fallback.outcome, branch.outcome,
         "over-cap fallback comparator should return the same page result as the branch route",
+    );
+    assert_eq!(
+        large_in_fallback.outcome, branch.outcome,
+        "large-IN fallback comparator should return the same page result as the branch route",
     );
     assert_eq!(
         wide_branch.outcome, branch.outcome,
@@ -3171,6 +3198,15 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         "wide branch-set LIMIT 50 should execute cheaper than the over-cap fallback; wide={} fallback={}",
         wide_branch.avg_execute_local_instructions,
         fallback.avg_execute_local_instructions,
+    );
+    assert_eq!(
+        large_in_fallback.avg_data_store_get_calls, 0,
+        "covered large-IN fallback should avoid row-store get() calls",
+    );
+    assert!(
+        large_in_fallback.avg_index_store_entry_reads <= 320,
+        "large-IN fallback should stay bounded to the fixed collection prefix, got {}",
+        large_in_fallback.avg_index_store_entry_reads,
     );
 }
 
@@ -3414,6 +3450,29 @@ fn assert_token_branch_set_limit50_explain_contract(fixture: &StandaloneCanister
         fallback_explain.contains("OrderByMaterializedSort"),
         "token over-cap fallback LIMIT 50 should materialize-sort after rejecting the branch route: {fallback_explain}",
     );
+
+    let large_in_fallback_explain = query_surface_with_perf(
+        fixture,
+        SqlPerfSurface::Token,
+        format!("EXPLAIN EXECUTION {TOKEN_BRANCH_SET_LARGE_IN_FALLBACK_LIMIT50_SQL}").as_str(),
+        1,
+    )
+    .expect("token large-IN fallback LIMIT 50 EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain {
+        explain: large_in_fallback_explain,
+        ..
+    } = large_in_fallback_explain.result
+    else {
+        panic!("token large-IN fallback LIMIT 50 EXPLAIN EXECUTION should return explain output");
+    };
+    assert!(
+        !large_in_fallback_explain.contains("IndexBranchSet"),
+        "token large-IN fallback LIMIT 50 should not be admitted as IndexBranchSet: {large_in_fallback_explain}",
+    );
+    assert!(
+        large_in_fallback_explain.contains("OrderByMaterializedSort"),
+        "token large-IN fallback LIMIT 50 should remain on the over-cap fallback route: {large_in_fallback_explain}",
+    );
 }
 
 fn assert_token_branch_set_index_residual_explain_contract(fixture: &StandaloneCanisterFixture) {
@@ -3469,6 +3528,20 @@ fn assert_token_branch_set_limit50_fallback_rows_match(fixture: &StandaloneCanis
     assert_eq!(
         fallback_rows, branch_rows,
         "over-cap fallback comparator should return the same first page as the branch route",
+    );
+    let large_in_fallback_rows = rendered_projection_rows(
+        query_surface_with_perf(
+            fixture,
+            SqlPerfSurface::Token,
+            TOKEN_BRANCH_SET_LARGE_IN_FALLBACK_LIMIT50_SQL,
+            1,
+        )
+        .expect("token large-IN fallback LIMIT 50 query should succeed")
+        .result,
+    );
+    assert_eq!(
+        large_in_fallback_rows, branch_rows,
+        "large-IN fallback comparator should return the same first page as the branch route",
     );
     let wide_branch_rows = rendered_projection_rows(
         query_surface_with_perf(

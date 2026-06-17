@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- SQL global aggregate compile routing now uses a cheap direct-aggregate lane
-  screen before full aggregate lowering, reducing cold compile cost for
-  branch-set `COUNT(*)` queries while preserving aggregate validation.
-
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.16` trims SQL/index predicate preparation for large membership
+  filters and routes larger encoded `IN` sets through sorted binary-search
+  evaluation while keeping common small lists on the cheap linear path.
+
+- `0.183.15` reduces cold compile cost for branch-set `COUNT(*)` queries by
+  screening direct global aggregate shapes before full aggregate lowering while
+  preserving aggregate validation and prefix-cardinality count attribution.
 
 - `0.183.14` expands deterministic branch-route perf coverage and tightens
   branch page execution with empty-prefix pruning, fair active-stream pulls,

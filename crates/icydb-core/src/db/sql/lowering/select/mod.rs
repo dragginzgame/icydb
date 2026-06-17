@@ -121,17 +121,6 @@ impl LoweredSqlFilter {
             predicate_subset: Some(predicate_subset),
         }
     }
-
-    // Keep the older SQL binding behavior where some callers canonicalized the
-    // predicate side before entering the shared base-query application helper.
-    fn canonicalize_predicate_for_schema(self, schema: &SchemaInfo) -> Self {
-        Self {
-            visible_expr: self.visible_expr,
-            predicate_subset: self
-                .predicate_subset
-                .map(|predicate| canonicalize_sql_predicate_for_schema(schema, predicate)),
-        }
-    }
 }
 
 ///
@@ -404,7 +393,7 @@ fn apply_lowered_select_shape_with_schema(
     Ok(apply_lowered_base_query_shape_with_schema(
         query,
         LoweredBaseQueryShape {
-            filter: filter.map(|filter| filter.canonicalize_predicate_for_schema(schema)),
+            filter,
             order_by,
             limit,
             offset,
@@ -731,15 +720,6 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural_with_schema(
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let delete = LoweredBaseQueryShape {
-        filter: delete
-            .filter
-            .map(|filter| filter.canonicalize_predicate_for_schema(schema)),
-        order_by: delete.order_by,
-        limit: delete.limit,
-        offset: delete.offset,
-    };
-
     validate_base_query_sql_capabilities(schema, &delete)?;
 
     Ok(apply_lowered_base_query_shape_with_schema(

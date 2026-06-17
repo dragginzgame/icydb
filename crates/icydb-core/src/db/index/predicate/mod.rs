@@ -74,7 +74,12 @@ pub(crate) enum IndexCompareOp {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum IndexLiteral {
     One(Vec<u8>),
+    // Small membership lists keep their encoded literal order and use linear
+    // evaluation to avoid sort/dedup overhead on the common branch-set sizes.
     Many(Vec<Vec<u8>>),
+    // Larger membership lists are sorted/deduped once at compile time and use
+    // binary search in the index-predicate hot loop.
+    ManySorted(Vec<Vec<u8>>),
 }
 
 // Compare one encoded index component against one compiled literal payload.
@@ -96,6 +101,12 @@ pub(crate) fn eval_index_compare(
         (IndexCompareOp::NotIn, IndexLiteral::Many(candidates)) => {
             candidates.iter().all(|candidate| component != candidate)
         }
+        (IndexCompareOp::In, IndexLiteral::ManySorted(candidates)) => candidates
+            .binary_search_by(|candidate| candidate.as_slice().cmp(component))
+            .is_ok(),
+        (IndexCompareOp::NotIn, IndexLiteral::ManySorted(candidates)) => candidates
+            .binary_search_by(|candidate| candidate.as_slice().cmp(component))
+            .is_err(),
         (
             IndexCompareOp::Eq
             | IndexCompareOp::Ne
@@ -103,7 +114,7 @@ pub(crate) fn eval_index_compare(
             | IndexCompareOp::Lte
             | IndexCompareOp::Gt
             | IndexCompareOp::Gte,
-            IndexLiteral::Many(_),
+            IndexLiteral::Many(_) | IndexLiteral::ManySorted(_),
         )
         | (IndexCompareOp::In | IndexCompareOp::NotIn, IndexLiteral::One(_)) => false,
     }
