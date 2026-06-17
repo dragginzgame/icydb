@@ -1,3 +1,8 @@
+//! Module: sql::lowering::predicate
+//! Responsibility: lower SQL boolean expressions into predicate and planner expression forms.
+//! Does not own: predicate normalization semantics or executor route selection.
+//! Boundary: translates parser SQL shapes onto runtime predicate/query-plan authorities.
+
 mod normalize;
 #[cfg(test)]
 mod tests;
@@ -7,7 +12,7 @@ use crate::{
     db::{
         predicate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MembershipCompareLeaf,
-            Predicate, collapse_membership_compare_leaves, normalize as normalize_predicate,
+            Predicate, collapse_membership_compare_leaves, normalize_owned,
         },
         query::plan::expr::{
             Expr, derive_normalized_bool_expr_predicate_subset, is_normalized_bool_expr,
@@ -56,8 +61,7 @@ pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_only_subset(
         return None;
     }
 
-    derive_sql_where_expr_predicate_only_subset_impl(sql_expr)
-        .map(|predicate| normalize_predicate(&predicate))
+    derive_sql_where_expr_predicate_only_subset_impl(sql_expr).map(normalize_owned)
 }
 
 fn derive_sql_where_expr_predicate_only_subset_impl(sql_expr: &SqlExpr) -> Option<Predicate> {

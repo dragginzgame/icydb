@@ -73,6 +73,33 @@ pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
     }
 }
 
+/// Normalize an already-owned predicate into the same canonical,
+/// deterministic form as [`normalize`] without cloning leaf payloads.
+#[must_use]
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn normalize_owned(predicate: Predicate) -> Predicate {
+    // Normalize recursively while preserving logical equivalence.
+    match predicate {
+        Predicate::True => Predicate::True,
+        Predicate::False => Predicate::False,
+
+        Predicate::And(children) => normalize_and_owned(children),
+        Predicate::Or(children) => normalize_or_owned(children),
+        Predicate::Not(inner) => normalize_not_owned(*inner),
+
+        Predicate::Compare(cmp) => Predicate::Compare(cmp),
+        Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp),
+
+        Predicate::IsNull { field } => Predicate::IsNull { field },
+        Predicate::IsNotNull { field } => Predicate::IsNotNull { field },
+        Predicate::IsMissing { field } => Predicate::IsMissing { field },
+        Predicate::IsEmpty { field } => Predicate::IsEmpty { field },
+        Predicate::IsNotEmpty { field } => Predicate::IsNotEmpty { field },
+        Predicate::TextContains { field, value } => Predicate::TextContains { field, value },
+        Predicate::TextContainsCi { field, value } => Predicate::TextContainsCi { field, value },
+    }
+}
+
 ///
 /// Normalize enum literals in predicates against schema enum metadata.
 ///
@@ -452,12 +479,21 @@ fn normalize_enum_value(
 ///     NOT (NOT x)  →  x
 ///
 fn normalize_not(inner: &Predicate) -> Predicate {
-    let normalized = normalize(inner);
+    normalize_not_from_normalized(normalize(inner), |predicate| normalize(&predicate))
+}
 
+#[cfg(any(test, feature = "sql"))]
+fn normalize_not_owned(inner: Predicate) -> Predicate {
+    normalize_not_from_normalized(normalize_owned(inner), normalize_owned)
+}
+
+fn normalize_not_from_normalized(
+    normalized: Predicate,
+    normalize_double_inner: impl FnOnce(Predicate) -> Predicate,
+) -> Predicate {
     if let Predicate::Not(double) = normalized {
-        return normalize(&double);
+        return normalize_double_inner(*double);
     }
-
     Predicate::Not(Box::new(normalized))
 }
 
@@ -473,11 +509,20 @@ fn normalize_not(inner: &Predicate) -> Predicate {
 /// Children are sorted deterministically.
 ///
 fn normalize_and(children: &[Predicate]) -> Predicate {
+    normalize_and_from_normalized(children.iter().map(normalize))
+}
+
+#[cfg(any(test, feature = "sql"))]
+fn normalize_and_owned(children: Vec<Predicate>) -> Predicate {
+    normalize_and_from_normalized(children.into_iter().map(normalize_owned))
+}
+
+fn normalize_and_from_normalized(
+    normalized_children: impl IntoIterator<Item = Predicate>,
+) -> Predicate {
     let mut out = Vec::new();
 
-    for child in children {
-        let normalized = normalize(child);
-
+    for normalized in normalized_children {
         match normalized {
             Predicate::True => {}
             Predicate::False => return Predicate::False,
@@ -519,11 +564,20 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
 /// Children are sorted deterministically.
 ///
 fn normalize_or(children: &[Predicate]) -> Predicate {
+    normalize_or_from_normalized(children.iter().map(normalize))
+}
+
+#[cfg(any(test, feature = "sql"))]
+fn normalize_or_owned(children: Vec<Predicate>) -> Predicate {
+    normalize_or_from_normalized(children.into_iter().map(normalize_owned))
+}
+
+fn normalize_or_from_normalized(
+    normalized_children: impl IntoIterator<Item = Predicate>,
+) -> Predicate {
     let mut out = Vec::new();
 
-    for child in children {
-        let normalized = normalize(child);
-
+    for normalized in normalized_children {
         match normalized {
             Predicate::False => {}
             Predicate::True => return Predicate::True,

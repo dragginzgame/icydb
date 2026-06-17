@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- SQL parsing now moves consumed string literals, lexes simple strings from
-  source slices, and skips whole-expression clones when no WHERE postfix
-  predicate can follow, reducing cold compile cost for literal-heavy `IN`
-  filters.
+- SQL predicate-only lowering now normalizes freshly built predicates through an
+  owned path, avoiding an extra large-list clone during literal-heavy `IN`
+  compile.
 
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.17` trims cold SQL parse cost for literal-heavy membership filters by
+  moving consumed string literals, lexing simple strings from source slices,
+  and avoiding unnecessary WHERE postfix expression clones.
 
 - `0.183.16` trims SQL/index predicate preparation for large membership
   filters and routes larger encoded `IN` sets through sorted binary-search

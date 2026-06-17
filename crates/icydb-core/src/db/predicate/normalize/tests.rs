@@ -2,10 +2,40 @@ use crate::{
     db::predicate::{
         CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize,
         normalize::{normalize_compare_value_for_kind, normalize_value_for_kind},
+        normalize_owned,
     },
     model::field::FieldKind,
     value::Value,
 };
+
+#[test]
+fn normalize_owned_matches_borrowed_normalize_for_compact_membership_conjunction() {
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("Review".to_string()),
+                Value::Text("Draft".to_string()),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::eq(
+            "collection_id".to_string(),
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+        ),
+        Predicate::Not(Box::new(Predicate::Not(Box::new(Predicate::eq(
+            "rank".to_string(),
+            Value::Nat64(7),
+        ))))),
+    ]);
+
+    assert_eq!(
+        normalize_owned(predicate.clone()),
+        normalize(&predicate),
+        "owned normalization must preserve borrowed normalization semantics",
+    );
+}
 
 #[test]
 fn normalize_and_dedups_identical_children_and_collapses_to_singleton() {

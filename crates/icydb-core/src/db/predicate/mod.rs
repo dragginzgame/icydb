@@ -46,6 +46,8 @@ pub(in crate::db) use capability::{
 };
 pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use normalize::normalize_owned;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(crate) use parser::parse_sql_predicate;
 #[cfg(any(test, feature = "sql"))]
