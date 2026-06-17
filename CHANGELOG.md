@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Prunes branch-set `IN` branches contradicted by strict branch-field
   exclusions during planning, collapsing single survivors to prefix routes
-  while preserving bounded covering page windows.
+  while applying bounded covering page windows only when the consumed prefix
+  proves final primary-key order.
 
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 

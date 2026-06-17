@@ -17,8 +17,9 @@ use crate::{
                 CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
             },
             shared::{
-                apply_covering_page_window, covering_projection_component_indices,
-                covering_scan_window, project_covering_row_from_decoded_values,
+                access_preserves_primary_key_order_for_covering_window, apply_covering_page_window,
+                covering_projection_component_indices, covering_scan_window,
+                project_covering_row_from_decoded_values,
                 project_covering_row_from_owned_decoded_values,
                 project_covering_row_from_single_decoded_value,
             },
@@ -51,8 +52,8 @@ where
     if plan.has_residual_filter_expr() {
         return Ok(None);
     }
-    let primary_key_order_scan_safe = plan.access.as_index_branch_set_spec_path().is_some()
-        || plan.access.as_index_prefix_contract_path().is_some();
+    let primary_key_order_scan_safe =
+        access_preserves_primary_key_order_for_covering_window(plan, covering.order_contract);
     let residual_predicate_order_supported = matches!(
         covering.order_contract,
         CoveringProjectionOrder::IndexOrder(_)

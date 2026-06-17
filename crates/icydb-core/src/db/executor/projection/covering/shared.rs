@@ -1,11 +1,13 @@
 use crate::{
     db::{
+        access::SemanticIndexAccessContract,
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
             apply_offset_limit_window,
             projection::covering::contracts::{
-                CoveringProjectionOrder, CoveringReadField, CoveringReadFieldSource, PageSpec,
+                AccessPlannedQuery, CoveringProjectionOrder, CoveringReadField,
+                CoveringReadFieldSource, PageSpec,
             },
         },
     },
@@ -19,6 +21,50 @@ pub(super) struct CoveringScanWindow {
     pub(super) limit: usize,
     pub(super) page_skip_count: usize,
     pub(super) page_window_applied: bool,
+}
+
+pub(super) fn access_preserves_primary_key_order_for_covering_window(
+    plan: &AccessPlannedQuery,
+    order_contract: CoveringProjectionOrder,
+) -> bool {
+    if !matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_)) {
+        return false;
+    }
+    let primary_key_names = plan.primary_key_names();
+    if let Some((index, prefix_values)) = plan.access.as_index_prefix_contract_path() {
+        return index_suffix_matches_primary_key_order(
+            index,
+            prefix_values.len(),
+            primary_key_names.as_slice(),
+        );
+    }
+    if let Some(spec) = plan.access.as_index_branch_set_spec_path() {
+        return index_suffix_matches_primary_key_order(
+            spec.index(),
+            spec.branch_prefix_len(),
+            primary_key_names.as_slice(),
+        );
+    }
+
+    false
+}
+
+fn index_suffix_matches_primary_key_order(
+    index: SemanticIndexAccessContract,
+    prefix_len: usize,
+    primary_key_names: &[&str],
+) -> bool {
+    if prefix_len >= index.key_arity() {
+        return true;
+    }
+    if index.key_arity().saturating_sub(prefix_len) != primary_key_names.len() {
+        return false;
+    }
+
+    primary_key_names
+        .iter()
+        .enumerate()
+        .all(|(offset, name)| index.key_field_at(prefix_len + offset) == Some(*name))
 }
 
 pub(super) fn covering_scan_window(

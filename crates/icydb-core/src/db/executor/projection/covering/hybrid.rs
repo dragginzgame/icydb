@@ -9,8 +9,9 @@ use crate::{
                 AccessPlannedQuery, CoveringReadField, CoveringReadFieldSource, CoveringReadPlan,
             },
             shared::{
-                apply_covering_page_window, covering_projection_component_indices,
-                covering_scan_window, decode_hybrid_covering_components,
+                access_preserves_primary_key_order_for_covering_window, apply_covering_page_window,
+                covering_projection_component_indices, covering_scan_window,
+                decode_hybrid_covering_components,
             },
         },
         executor::{
@@ -67,8 +68,7 @@ where
 
     let scan_window = covering_scan_window(
         hybrid.order_contract,
-        plan.access.as_index_branch_set_spec_path().is_some()
-            || plan.access.as_index_prefix_contract_path().is_some(),
+        access_preserves_primary_key_order_for_covering_window(plan, hybrid.order_contract),
         true,
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
