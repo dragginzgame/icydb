@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::route::contracts::execution::observability
-//! Defines observability metadata attached to executor execution-plan routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::contracts::execution::observability
+//! Responsibility: grouped route observability DTOs.
+//! Does not own: route decision derivation or planner fallback classification.
+//! Boundary: carries route outcome metadata into explain and diagnostics surfaces.
 
 use crate::db::executor::planning::route::contracts::execution::{
     GroupedExecutionMode, RouteExecutionMode,
@@ -22,6 +22,7 @@ pub(in crate::db::executor) enum GroupedRouteDecisionOutcome {
 }
 
 impl GroupedRouteDecisionOutcome {
+    /// Return the stable observability code for this grouped route outcome.
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
@@ -44,6 +45,7 @@ pub(in crate::db::executor) enum GroupedRouteRejectionReason {
 }
 
 impl GroupedRouteRejectionReason {
+    /// Return the stable observability code for this grouped route rejection reason.
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
@@ -76,11 +78,13 @@ pub(in crate::db::executor) struct GroupedRouteObservability {
 }
 
 impl GroupedRouteObservability {
+    /// Return the grouped route decision outcome.
     #[must_use]
     pub(in crate::db::executor) const fn outcome(self) -> GroupedRouteDecisionOutcome {
         self.outcome
     }
 
+    /// Return the route-gate rejection reason, when grouped routing was rejected.
     #[must_use]
     pub(in crate::db::executor) const fn rejection_reason(
         self,
@@ -88,6 +92,7 @@ impl GroupedRouteObservability {
         self.rejection_reason
     }
 
+    /// Return the planner-owned grouped fallback reason, when present.
     #[must_use]
     pub(in crate::db::executor) const fn planner_fallback_reason(
         self,
@@ -95,16 +100,19 @@ impl GroupedRouteObservability {
         self.planner_fallback_reason
     }
 
+    /// Return whether grouped route planning considered this route eligible.
     #[must_use]
     pub(in crate::db::executor) const fn eligible(self) -> bool {
         self.eligible
     }
 
+    /// Return the selected route execution mode.
     #[must_use]
     pub(in crate::db::executor) const fn execution_mode(self) -> RouteExecutionMode {
         self.execution_mode
     }
 
+    /// Return the selected grouped execution mode.
     #[must_use]
     pub(in crate::db::executor) const fn grouped_execution_mode(self) -> GroupedExecutionMode {
         self.grouped_execution_mode

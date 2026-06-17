@@ -1,18 +1,18 @@
-//! Module: db::executor::planning::route::mode
+//! Module: executor::planning::route::mode
 //! Responsibility: route-owned direction/window/continuation-mode derivation helpers.
 //! Does not own: access-shape capability decisions or route execution-mode selection.
 //! Boundary: pure derivation primitives consumed by route planning.
 
 use crate::db::{
     direction::Direction,
+    executor::planning::route::{AggregateRouteShape, RouteCapabilityFacts},
     query::plan::{AccessPlannedQuery, ExecutionOrderContract},
 };
 
-use crate::db::executor::planning::route::{AggregateRouteShape, RouteCapabilityFacts};
-
-// Route-owned aggregate non-count streaming gate.
-// Field-target extrema uses route capability flags directly; non-target
-// terminals use the shared streaming-safe/pushdown/index-range route gates.
+/// Return whether aggregate non-count execution may remain streaming.
+///
+/// Field-target extrema uses route capability flags directly; non-target
+/// terminals use the shared streaming-safe/pushdown/index-range route gates.
 pub(super) const fn aggregate_non_count_streaming_allowed(
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     capability_facts: RouteCapabilityFacts,
@@ -49,9 +49,10 @@ pub(super) const fn aggregate_non_count_streaming_allowed(
     false
 }
 
-// Route-owned load streaming gate.
-// Load execution remains streaming when canonical streaming-safe shapes
-// apply or when route enabled index-range limit pushdown.
+/// Return whether load execution may remain streaming.
+///
+/// Load execution remains streaming when canonical streaming-safe shapes apply
+/// or when route enabled index-range limit pushdown.
 pub(super) const fn load_streaming_allowed(
     capability_facts: RouteCapabilityFacts,
     index_range_limit_enabled: bool,
@@ -62,6 +63,7 @@ pub(super) const fn load_streaming_allowed(
         || index_range_limit_enabled
 }
 
+/// Derive the route scan direction for load execution.
 pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery) -> Direction {
     ExecutionOrderContract::from_plan(
         plan.grouped_plan().is_some(),
@@ -70,6 +72,7 @@ pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery) -> Directio
     .primary_scan_direction()
 }
 
+/// Derive the route scan direction for aggregate execution.
 pub(super) fn derive_aggregate_route_direction(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,

@@ -145,6 +145,25 @@ pub(in crate::db) struct CoveringReadExecutionPlan {
     pub(in crate::db) strict_predicate_compatible: bool,
 }
 
+///
+/// CoveringHybridReadExecutionPlan
+///
+/// Execution-grade hybrid covering-read contract.
+/// Hybrid projections still need sparse row-backed field reads for uncovered
+/// slots, so they carry the same route-local order and row-presence proof as
+/// pure covering reads instead of letting execution infer those facts from a
+/// planner-only projection tuple.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct CoveringHybridReadExecutionPlan {
+    pub(in crate::db) fields: Vec<CoveringReadField>,
+    pub(in crate::db) prefix_len: usize,
+    pub(in crate::db) order_contract: CoveringProjectionOrder,
+    pub(in crate::db) existing_row_mode: CoveringExistingRowMode,
+    pub(in crate::db) strict_predicate_compatible: bool,
+}
+
 /// Return whether one plan's residual predicate stays compatible with the
 /// strict covering-read and covering-existing-rows admission rules.
 #[must_use]
@@ -322,6 +341,28 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
         CoveringProjectionFieldSourcePolicy::HybridRowFallback,
         true,
     )
+}
+
+/// Derive one execution-grade hybrid direct-field projection plan from
+/// accepted schema authority.
+#[must_use]
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
+    schema: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    strict_predicate_compatible: bool,
+) -> Option<CoveringHybridReadExecutionPlan> {
+    let covering = covering_hybrid_projection_plan_with_schema_info(
+        schema,
+        plan,
+        strict_predicate_compatible,
+    )?;
+
+    Some(covering_hybrid_read_execution_plan(
+        covering,
+        CoveringExistingRowMode::ProvenByPlanner,
+        strict_predicate_compatible,
+    ))
 }
 
 /// Derive one execution-grade scalar covering-read plan from generated field-table
@@ -537,6 +578,23 @@ fn covering_read_execution_plan(
     strict_predicate_compatible: bool,
 ) -> CoveringReadExecutionPlan {
     CoveringReadExecutionPlan {
+        fields: covering.fields,
+        prefix_len: covering.prefix_len,
+        order_contract: covering.order_contract,
+        existing_row_mode,
+        strict_predicate_compatible,
+    }
+}
+
+// Freeze one execution-grade hybrid covering-read plan from one planner-owned
+// projection plan plus its row-presence contract.
+#[cfg(any(test, feature = "sql"))]
+fn covering_hybrid_read_execution_plan(
+    covering: CoveringReadPlan,
+    existing_row_mode: CoveringExistingRowMode,
+    strict_predicate_compatible: bool,
+) -> CoveringHybridReadExecutionPlan {
+    CoveringHybridReadExecutionPlan {
         fields: covering.fields,
         prefix_len: covering.prefix_len,
         order_contract: covering.order_contract,

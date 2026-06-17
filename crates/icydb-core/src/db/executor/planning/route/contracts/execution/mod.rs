@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::route::contracts::execution
+//! Module: executor::planning::route::contracts::execution
 //! Responsibility: executor route execution-shape contracts and observability payloads.
 //! Does not own: route planning decisions or planner capability derivation policy.
-//! Boundary: exposes stable execution-shape DTOs consumed by route/load/runtime seams.
+//! Boundary: exposes stable execution-shape DTOs consumed by route, load, and runtime code.
 
 mod observability;
 mod plan;
@@ -33,6 +33,7 @@ pub(in crate::db::executor) enum LoadOrderRouteMode {
 }
 
 impl LoadOrderRouteMode {
+    /// Return the stable observability code for this load-order route mode.
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
@@ -42,16 +43,19 @@ impl LoadOrderRouteMode {
         }
     }
 
+    /// Return whether this mode supports direct streaming load execution.
     #[must_use]
     pub(in crate::db::executor) const fn allows_streaming_load(self) -> bool {
         matches!(self, Self::DirectStreaming)
     }
 
+    /// Return whether this mode preserves ordered grouped projection inputs.
     #[must_use]
     pub(in crate::db::executor) const fn allows_ordered_group_projection(self) -> bool {
         matches!(self, Self::DirectStreaming)
     }
 
+    /// Return whether this mode supports top-N seek execution.
     #[must_use]
     pub(in crate::db::executor) const fn allows_top_n_seek(self) -> bool {
         matches!(self, Self::DirectStreaming)
@@ -74,6 +78,7 @@ pub(in crate::db::executor) struct GroupedExecutionModeContext {
 }
 
 impl GroupedExecutionModeContext {
+    /// Build grouped execution-mode context from route-derived facts.
     #[must_use]
     pub(in crate::db::executor) const fn from_route_inputs(
         direction: Direction,
@@ -106,6 +111,7 @@ pub(in crate::db::executor) enum LoadOrderRouteReason {
 }
 
 impl LoadOrderRouteReason {
+    /// Return the stable observability code for this load-order route reason.
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
@@ -135,6 +141,7 @@ pub(in crate::db::executor) struct LoadOrderRouteDecision {
 }
 
 impl LoadOrderRouteDecision {
+    /// Build a direct-streaming ordered-load route decision.
     #[must_use]
     pub(in crate::db::executor) const fn direct_streaming() -> Self {
         Self {
@@ -143,6 +150,7 @@ impl LoadOrderRouteDecision {
         }
     }
 
+    /// Build a materialized-boundary ordered-load route decision.
     #[must_use]
     pub(in crate::db::executor) const fn materialized_boundary(
         reason: LoadOrderRouteReason,
@@ -153,6 +161,7 @@ impl LoadOrderRouteDecision {
         }
     }
 
+    /// Build a materialized-fallback ordered-load route decision.
     #[must_use]
     pub(in crate::db::executor) const fn materialized_fallback(
         reason: LoadOrderRouteReason,
@@ -163,11 +172,13 @@ impl LoadOrderRouteDecision {
         }
     }
 
+    /// Return the selected ordered-load route mode.
     #[must_use]
     pub(in crate::db::executor) const fn mode(self) -> LoadOrderRouteMode {
         self.mode
     }
 
+    /// Return the reason attached to the ordered-load route mode.
     #[must_use]
     pub(in crate::db::executor) const fn reason(self) -> LoadOrderRouteReason {
         self.reason
@@ -203,6 +214,7 @@ pub(in crate::db::executor) enum GroupedExecutionMode {
 }
 
 impl GroupedExecutionMode {
+    /// Project planner grouped strategy plus route facts into a grouped execution mode.
     #[must_use]
     pub(in crate::db::executor) const fn from_planner_strategy(
         plan_strategy: GroupedPlanStrategy,
@@ -225,6 +237,7 @@ impl GroupedExecutionMode {
         }
     }
 
+    /// Return the stable observability code for this grouped execution mode.
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
@@ -273,6 +286,7 @@ pub(in crate::db::executor) enum AggregateSeekSpec {
 }
 
 impl AggregateSeekSpec {
+    /// Return the bounded fetch size for this aggregate seek.
     #[must_use]
     pub(in crate::db::executor) const fn fetch(self) -> usize {
         match self {
@@ -294,11 +308,13 @@ pub(in crate::db::executor) struct TopNSeekSpec {
 }
 
 impl TopNSeekSpec {
+    /// Build one top-N seek spec from a bounded fetch size.
     #[must_use]
     pub(in crate::db::executor::planning::route) const fn new(fetch: usize) -> Self {
         Self { fetch }
     }
 
+    /// Return the bounded fetch size for this top-N seek.
     #[must_use]
     pub(in crate::db::executor) const fn fetch(self) -> usize {
         self.fetch

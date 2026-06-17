@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::order_pushdown
+//! Module: executor::planning::route::order_pushdown
 //! Responsibility: secondary-index ORDER BY pushdown route DTOs.
 //! Does not own: access tree shape, logical ORDER BY validation, or executor dispatch.
 //! Boundary: route planning derives these values; explain and trace surfaces project them.

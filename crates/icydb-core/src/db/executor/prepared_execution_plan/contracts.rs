@@ -4,8 +4,8 @@
 //! Boundary: centralizes query-plan DTOs consumed by prepared execution plans.
 
 pub(in crate::db::executor) use crate::db::query::plan::{
-    AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan, ExecutionOrdering, GroupSpec,
-    OrderSpec, PlannedContinuationContract, QueryMode,
+    AccessPlannedQuery, CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan,
+    ExecutionOrdering, GroupSpec, OrderSpec, PlannedContinuationContract, QueryMode,
     constant_covering_projection_value_from_access,
     covering_index_projection_facts_with_primary_key_names as covering_index_projection_facts,
 };

@@ -1,17 +1,17 @@
-//! Module: db::executor::planning::route::planner::execution::aggregate_non_count
-//! Shapes executor plans for non-`COUNT` scalar aggregate routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::planner::execution::aggregate_non_count
+//! Responsibility: non-`COUNT` scalar aggregate execution-stage derivation.
+//! Does not own: aggregate terminal execution or feasibility derivation.
+//! Boundary: maps staged route facts into non-`COUNT` execution mode.
 
 use crate::db::executor::{
     aggregate::AggregateFoldMode,
-    route::aggregate_non_count_streaming_allowed,
     route::{
-        RouteExecutionMode, RouteShapeKind,
+        RouteExecutionMode, RouteShapeKind, aggregate_non_count_streaming_allowed,
         planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
     },
 };
 
+/// Derive the execution mode for non-`COUNT` scalar aggregate routes.
 pub(super) const fn derive_execution_mode_for_aggregate_non_count(
     intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,
@@ -36,6 +36,7 @@ pub(super) const fn derive_execution_mode_for_aggregate_non_count(
     }
 }
 
+/// Build the execution stage for non-`COUNT` scalar aggregate routes.
 pub(super) fn build_execution_stage_for_aggregate_non_count(
     intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,

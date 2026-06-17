@@ -6,7 +6,8 @@ use crate::{
         executor::projection::covering::{
             CoveringProjectionMetricsRecorder,
             contracts::{
-                AccessPlannedQuery, CoveringReadField, CoveringReadFieldSource, CoveringReadPlan,
+                AccessPlannedQuery, CoveringExistingRowMode, CoveringHybridReadExecutionPlan,
+                CoveringReadField, CoveringReadFieldSource,
             },
             shared::{
                 access_preserves_primary_key_order_for_covering_window, apply_covering_page_window,
@@ -15,7 +16,7 @@ use crate::{
             },
         },
         executor::{
-            EntityAuthority, ExecutorPlanError,
+            CoveringProjectionComponentRows, EntityAuthority, ExecutorPlanError,
             resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
         },
         index::predicate::IndexPredicateExecution,
@@ -31,7 +32,7 @@ pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
     metrics: CoveringProjectionMetricsRecorder,
-    hybrid: &CoveringReadPlan,
+    hybrid: &CoveringHybridReadExecutionPlan,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
@@ -40,7 +41,9 @@ where
     if plan.has_residual_filter_expr() {
         return Ok(None);
     }
-    if plan.has_residual_filter_predicate() && index_predicate_execution.is_none() {
+    if plan.has_residual_filter_predicate()
+        && (!hybrid.strict_predicate_compatible || index_predicate_execution.is_none())
+    {
         return Ok(None);
     }
 
@@ -65,11 +68,12 @@ where
         })?;
     let index_prefix_specs = lowered_access.index_prefix_specs();
     let index_range_specs = lowered_access.index_range_specs();
+    let row_presence_proven = hybrid.existing_row_mode == CoveringExistingRowMode::ProvenByPlanner;
 
     let scan_window = covering_scan_window(
         hybrid.order_contract,
         access_preserves_primary_key_order_for_covering_window(plan, hybrid.order_contract),
-        true,
+        row_presence_proven,
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
     );
@@ -84,45 +88,140 @@ where
         |store_path| db.recovered_store(store_path),
     )?;
 
-    // Phase 3: assemble final projected rows by mixing decoded covering
-    // values with sparse row-backed field reads for uncovered slots.
     metrics.record_hybrid_path_hit();
-    let mut projected_rows = store.with_data(|data_store| {
-        let mut projected_rows =
-            Vec::with_capacity(raw_pairs.len().saturating_sub(scan_window.page_skip_count));
-        let mut projected_row_count = 0usize;
+    let row_layout = authority.row_layout();
 
-        for (data_key, _existence_witness, components) in raw_pairs {
-            let sparse_row_fields = read_hybrid_projection_row_fields_from_store(
-                authority.row_layout(),
+    store.with_data(|data_store| {
+        let projected_rows = if row_presence_proven {
+            execute_hybrid_covering_projection_with_proven_rows(
+                &row_layout,
                 data_store,
-                &data_key,
+                plan,
+                hybrid,
+                component_indices.as_slice(),
                 row_field_slots.as_slice(),
-            )?;
-            let Some(sparse_row_fields) = sparse_row_fields else {
-                continue;
-            };
-            if projected_row_count < scan_window.page_skip_count {
-                projected_row_count = projected_row_count.saturating_add(1);
-                continue;
-            }
-
-            let decoded_components =
-                decode_hybrid_covering_components(component_indices.as_slice(), components)?;
-            let projected_row = project_hybrid_covering_row(
-                &data_key,
-                hybrid.fields.as_slice(),
-                decoded_components,
-                sparse_row_fields,
+                scan_window.page_skip_count,
+                scan_window.page_window_applied,
+                raw_pairs,
                 metrics,
-            )?;
+            )?
+        } else {
+            execute_hybrid_covering_projection_with_checked_rows(
+                &row_layout,
+                data_store,
+                plan,
+                hybrid,
+                component_indices.as_slice(),
+                row_field_slots.as_slice(),
+                scan_window.page_skip_count,
+                scan_window.page_window_applied,
+                raw_pairs,
+                metrics,
+            )?
+        };
 
-            projected_rows.push((data_key, projected_row));
+        Ok(Some(projected_rows))
+    })
+}
+
+#[expect(clippy::too_many_arguments)]
+fn execute_hybrid_covering_projection_with_proven_rows(
+    row_layout: &RowLayout,
+    data_store: &DataStore,
+    plan: &AccessPlannedQuery,
+    hybrid: &CoveringHybridReadExecutionPlan,
+    component_indices: &[usize],
+    row_field_slots: &[usize],
+    page_skip_count: usize,
+    page_window_applied: bool,
+    raw_pairs: CoveringProjectionComponentRows,
+    metrics: CoveringProjectionMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let mut keyed_components = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
+
+    for (data_key, _existence_witness, components) in raw_pairs.into_iter().skip(page_skip_count) {
+        keyed_components.push((data_key, components));
+    }
+
+    crate::db::executor::reorder_covering_projection_pairs(
+        hybrid.order_contract,
+        keyed_components.as_mut_slice(),
+    );
+    apply_covering_page_window(
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+        page_window_applied,
+        &mut keyed_components,
+    );
+
+    let mut projected_rows = Vec::with_capacity(keyed_components.len());
+    for (data_key, components) in keyed_components {
+        let sparse_row_fields = read_hybrid_projection_row_fields_from_store(
+            row_layout,
+            data_store,
+            &data_key,
+            row_field_slots,
+        )?
+        .ok_or_else(InternalError::query_executor_invariant)?;
+        let decoded_components = decode_hybrid_covering_components(component_indices, components)?;
+        let projected_row = project_hybrid_covering_row(
+            &data_key,
+            hybrid.fields.as_slice(),
+            decoded_components,
+            sparse_row_fields,
+            metrics,
+        )?;
+
+        projected_rows.push(projected_row);
+    }
+
+    Ok(projected_rows)
+}
+
+#[expect(clippy::too_many_arguments)]
+fn execute_hybrid_covering_projection_with_checked_rows(
+    row_layout: &RowLayout,
+    data_store: &DataStore,
+    plan: &AccessPlannedQuery,
+    hybrid: &CoveringHybridReadExecutionPlan,
+    component_indices: &[usize],
+    row_field_slots: &[usize],
+    page_skip_count: usize,
+    page_window_applied: bool,
+    raw_pairs: CoveringProjectionComponentRows,
+    metrics: CoveringProjectionMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let mut projected_rows = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
+    let mut projected_row_count = 0usize;
+
+    for (data_key, _existence_witness, components) in raw_pairs {
+        let sparse_row_fields = read_hybrid_projection_row_fields_from_store(
+            row_layout,
+            data_store,
+            &data_key,
+            row_field_slots,
+        )?;
+        let Some(sparse_row_fields) = sparse_row_fields else {
+            continue;
+        };
+        if projected_row_count < page_skip_count {
             projected_row_count = projected_row_count.saturating_add(1);
+            continue;
         }
 
-        Ok::<Vec<(DecodedDataStoreKey, Vec<Value>)>, InternalError>(projected_rows)
-    })?;
+        let decoded_components = decode_hybrid_covering_components(component_indices, components)?;
+        let projected_row = project_hybrid_covering_row(
+            &data_key,
+            hybrid.fields.as_slice(),
+            decoded_components,
+            sparse_row_fields,
+            metrics,
+        )?;
+
+        projected_rows.push((data_key, projected_row));
+        projected_row_count = projected_row_count.saturating_add(1);
+    }
+
     crate::db::executor::reorder_covering_projection_pairs(
         hybrid.order_contract,
         projected_rows.as_mut_slice(),
@@ -130,16 +229,14 @@ where
     apply_covering_page_window(
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
-        scan_window.page_window_applied,
+        page_window_applied,
         &mut projected_rows,
     );
 
-    Ok(Some(
-        projected_rows
-            .into_iter()
-            .map(|(_data_key, row)| row)
-            .collect(),
-    ))
+    Ok(projected_rows
+        .into_iter()
+        .map(|(_data_key, row)| row)
+        .collect())
 }
 
 fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize> {
@@ -160,7 +257,7 @@ fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize>
 }
 
 fn read_hybrid_projection_row_fields_from_store(
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     data_store: &DataStore,
     data_key: &DecodedDataStoreKey,
     row_field_slots: &[usize],

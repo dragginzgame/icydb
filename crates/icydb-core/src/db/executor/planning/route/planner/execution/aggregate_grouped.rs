@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::route::planner::execution::aggregate_grouped
-//! Shapes executor plans for grouped aggregate routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::planner::execution::aggregate_grouped
+//! Responsibility: grouped aggregate execution-stage derivation.
+//! Does not own: grouped aggregate execution or feasibility derivation.
+//! Boundary: maps grouped intent into the materialized grouped execution stage.
 
 use crate::db::executor::{
     aggregate::{AggregateFoldMode, AggregateKind},
@@ -11,6 +11,7 @@ use crate::db::executor::{
     },
 };
 
+/// Build the execution stage for grouped aggregate routes.
 pub(super) fn build_execution_stage_for_aggregate_grouped(
     intent_stage: &RouteIntentStage<'_>,
 ) -> RouteExecutionStage {

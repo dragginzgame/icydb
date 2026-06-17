@@ -1,7 +1,7 @@
 #[cfg(any(test, feature = "sql"))]
-use crate::db::query::plan::CoveringReadPlan;
+use crate::db::query::plan::CoveringHybridReadExecutionPlan;
 #[cfg(any(test, feature = "sql"))]
-use crate::db::query::plan::covering_hybrid_projection_plan_with_schema_info;
+use crate::db::query::plan::covering_hybrid_projection_execution_plan_with_schema_info;
 #[cfg(feature = "sql")]
 use crate::db::schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot};
 #[cfg(test)]
@@ -350,10 +350,10 @@ impl EntityAuthority {
         &self,
         plan: &AccessPlannedQuery,
         strict_predicate_compatible: bool,
-    ) -> Option<CoveringReadPlan> {
+    ) -> Option<CoveringHybridReadExecutionPlan> {
         let schema_info = self.accepted_schema_info.as_ref()?;
 
-        covering_hybrid_projection_plan_with_schema_info(
+        covering_hybrid_projection_execution_plan_with_schema_info(
             schema_info,
             plan,
             strict_predicate_compatible,

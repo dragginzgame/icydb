@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::planner::stages
+//! Module: executor::planning::route::planner::stages
 //! Responsibility: immutable staged route-planning contracts shared by planner phases.
 //! Does not own: stage derivation orchestration or route execution assembly.
 //! Boundary: exposes the typed stage bundles consumed by planner entrypoint, intent, feasibility, and execution modules.
@@ -147,9 +147,10 @@ fn debug_assert_grouped_route_plan_alignment(
     }
 }
 
-// Assemble one immutable route plan from already-derived intent, feasibility,
-// and execution stages. This owner only wires the decided stage contracts
-// together; it does not select execution modes or route variants.
+/// Assemble one immutable route plan from already-derived stages.
+///
+/// This owner only wires the decided stage contracts together; it does not
+/// select execution modes or route variants.
 pub(super) fn assemble_execution_route_plan(
     intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
@@ -183,9 +184,10 @@ pub(super) fn assemble_execution_route_plan(
     }
 }
 
-// Build one immutable route plan from already-derived intent and feasibility
-// stages. Execution-stage selection remains execution-owned; this helper only
-// sequences that stage handoff and then assembles the final route contract.
+/// Build one immutable route plan from already-derived intent and feasibility stages.
+///
+/// Execution-stage selection remains execution-owned; this helper only
+/// sequences that stage handoff and then assembles the final route contract.
 pub(super) fn build_execution_route_plan_from_stages(
     intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,

@@ -1,6 +1,6 @@
 use super::contracts::{
-    AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan, ExecutionOrdering, OrderSpec,
-    PlannedContinuationContract, QueryMode,
+    AccessPlannedQuery, CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan,
+    ExecutionOrdering, OrderSpec, PlannedContinuationContract, QueryMode,
 };
 use crate::{
     db::{
@@ -65,7 +65,7 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) projection_covering_read_execution_plan:
         OnceLock<Option<Arc<CoveringReadExecutionPlan>>>,
     pub(in crate::db::executor::prepared_execution_plan) hybrid_covering_read_plan:
-        OnceLock<Option<Arc<CoveringReadPlan>>>,
+        OnceLock<Option<Arc<CoveringHybridReadExecutionPlan>>>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_grouped_runtime_residents:
         OnceLock<Option<Arc<PreparedGroupedRuntimeResidents>>>,
     pub(in crate::db::executor::prepared_execution_plan) aggregate_execution_preparation:
@@ -355,7 +355,7 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_hybrid_covering_read_plan(
         &self,
         authority: EntityAuthority,
-    ) -> Option<Arc<CoveringReadPlan>> {
+    ) -> Option<Arc<CoveringHybridReadExecutionPlan>> {
         self.residents
             .hybrid_covering_read_plan
             .get_or_init(|| {

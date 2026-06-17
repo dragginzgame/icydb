@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route
+//! Module: executor::planning::route
 //! Responsibility: derive runtime route decisions from validated executor/query inputs.
 //! Does not own: logical query semantics or stream/kernel execution internals.
 //! Boundary: produces one immutable execution-route contract consumed by runtime dispatch.
@@ -23,6 +23,18 @@ mod tests;
 
 use capability_facts::derive_execution_capability_facts_for_model;
 use capability_facts::direction_allows_physical_fetch_hint;
+use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
+use fast_path::pk_order_stream_fast_path_shape_supported;
+use hints::{
+    aggregate_probe_fetch_hint, aggregate_seek_spec_from_probe_fetch,
+    assess_index_range_limit_pushdown_for_model, bounded_probe_hint_is_safe,
+    count_pushdown_fetch_hint, load_scan_budget_hint, top_n_seek_spec_for_model,
+};
+use mode::{aggregate_non_count_streaming_allowed, load_streaming_allowed};
+use mode::{derive_aggregate_route_direction, derive_load_route_direction};
+use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
+use pushdown::secondary_order_contract_active;
+
 pub(in crate::db::executor) use capability_facts::explain_access_order_satisfied_for_model;
 pub(in crate::db::executor) use capability_facts::{
     count_pushdown_shape_supported, direct_primary_key_lookup_shape_supported,
@@ -33,25 +45,14 @@ pub(in crate::db::executor) use capability_facts::{
 pub(in crate::db) use contracts::AggregateRouteShape;
 pub use contracts::RouteExecutionMode;
 pub(in crate::db::executor) use contracts::*;
-use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
-use fast_path::pk_order_stream_fast_path_shape_supported;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(in crate::db::executor) use fast_path::verify_pk_stream_fast_path_access;
 pub(in crate::db::executor) use guard::*;
 pub(in crate::db::executor) use hints::widened_residual_filter_predicate_pushdown_fetch;
-use hints::{
-    aggregate_probe_fetch_hint, aggregate_seek_spec_from_probe_fetch,
-    assess_index_range_limit_pushdown_for_model, bounded_probe_hint_is_safe,
-    count_pushdown_fetch_hint, load_scan_budget_hint, top_n_seek_spec_for_model,
-};
-use mode::{aggregate_non_count_streaming_allowed, load_streaming_allowed};
-use mode::{derive_aggregate_route_direction, derive_load_route_direction};
 pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPushdownRejection};
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_mode;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
-use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
-use pushdown::secondary_order_contract_active;
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
     LoadTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,

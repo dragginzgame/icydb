@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::planner::execution
+//! Module: executor::planning::route::planner::execution
 //! Responsibility: map staged intent + feasibility into execution mode.
 //! Does not own: intent normalization or feasibility derivation.
 //! Boundary: execution-stage derivation for route planning.
@@ -10,16 +10,18 @@ mod load_scalar;
 
 use crate::db::executor::planning::route::{
     IndexRangeLimitSpec, RouteExecutionMode, RouteShapeKind,
-    planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
+    planner::{
+        RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,
+        execution::{
+            aggregate_count::build_execution_stage_for_aggregate_count,
+            aggregate_grouped::build_execution_stage_for_aggregate_grouped,
+            aggregate_non_count::build_execution_stage_for_aggregate_non_count,
+            load_scalar::build_execution_stage_for_load,
+        },
+    },
 };
 
-use crate::db::executor::planning::route::planner::execution::{
-    aggregate_count::build_execution_stage_for_aggregate_count,
-    aggregate_grouped::build_execution_stage_for_aggregate_grouped,
-    aggregate_non_count::build_execution_stage_for_aggregate_non_count,
-    load_scalar::build_execution_stage_for_load,
-};
-
+/// Preserve index-range limit pushdown only for streaming execution modes.
 pub(super) const fn index_range_limit_spec_for_execution_mode(
     feasibility_stage: &RouteFeasibilityStage,
     execution_mode: RouteExecutionMode,
@@ -54,6 +56,7 @@ fn debug_assert_probe_hint_contract(feasibility_stage: &RouteFeasibilityStage) {
     );
 }
 
+/// Derive the execution stage from already-normalized intent and feasibility.
 pub(super) fn derive_route_execution_stage(
     intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,

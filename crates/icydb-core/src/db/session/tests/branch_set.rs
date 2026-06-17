@@ -213,6 +213,39 @@ fn expected_branch_rows(limit: usize) -> Vec<Vec<Value>> {
         .collect()
 }
 
+fn expected_branch_id_title_rows(limit: usize) -> Vec<Vec<Value>> {
+    [
+        (9_090_u128, "draft-090"),
+        (9_095, "review-095"),
+        (9_100, "review-100"),
+        (9_105, "draft-105"),
+        (9_120, "draft-120"),
+        (9_125, "review-125"),
+        (9_130, "draft-130"),
+        (9_135, "review-135"),
+        (9_150, "draft-150"),
+        (9_155, "review-155"),
+        (9_170, "draft-170"),
+        (9_175, "review-175"),
+    ]
+    .into_iter()
+    .take(limit)
+    .map(|(id, title)| {
+        vec![
+            Value::Ulid(Ulid::from_u128(id)),
+            Value::Text(title.to_string()),
+        ]
+    })
+    .collect()
+}
+
+fn expected_branch_id_title_output_rows(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
+    expected_branch_id_title_rows(limit)
+        .into_iter()
+        .map(outputs)
+        .collect()
+}
+
 fn expected_branch_ids(limit: usize) -> Vec<Ulid> {
     [
         9_090_u128, 9_095, 9_100, 9_105, 9_120, 9_125, 9_130, 9_135, 9_150, 9_155, 9_170, 9_175,
@@ -383,9 +416,49 @@ fn session_branch_set_sql_over_cap_covering_fallback_does_not_prelimit_prefix_st
         expected_branch_rows(OVER_CAP_LIMIT),
         "covered over-cap fallback must filter and sort before the page limit",
     );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "key-only over-cap fallback should evaluate fully indexable residual predicates from index keys",
+    );
     assert!(
         attribution.index_store_entry_reads > OVER_CAP_LIMIT as u64,
         "over-cap fallback must not cap prefix traversal at the page limit before filtering, got {attribution:?}",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_over_cap_hybrid_fallback_hydrates_only_page_rows_after_filter_sort() {
+    const OVER_CAP_LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_over_cap_sparse_sql("id, title", OVER_CAP_LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("over-cap hybrid fallback SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("over-cap hybrid fallback SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        expected_branch_id_title_output_rows(OVER_CAP_LIMIT),
+        "hybrid over-cap fallback must filter and sort before hydrating row-backed fields",
+    );
+    assert_eq!(
+        attribution.store_get_calls, OVER_CAP_LIMIT as u64,
+        "hybrid over-cap fallback should hydrate only final page rows, got {attribution:?}",
+    );
+    assert!(
+        attribution.index_store_entry_reads > OVER_CAP_LIMIT as u64,
+        "hybrid over-cap fallback must still scan enough index entries to filter before the page limit, got {attribution:?}",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate, None,
+        "hybrid over-cap fallback default page path must not invoke count",
     );
 }
 

@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::pushdown
+//! Module: executor::planning::route::pushdown
 //! Responsibility: secondary-index ORDER BY pushdown feasibility routing.
 //! Does not own: logical ORDER BY validation semantics.
 //! Boundary: route-owned access-shape assessment over validated logical+access plans.

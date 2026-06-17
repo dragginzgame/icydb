@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::guard
+//! Module: executor::planning::route::guard
 //! Responsibility: invariant guards for route fast-path lowered-spec arity contracts.
 //! Does not own: route decision policy.
 //! Boundary: fail-closed internal validation at route/runtime handoff.
@@ -42,8 +42,10 @@ impl RouteFastPathSpecContract {
     }
 }
 
-// Guard secondary aggregate fast-path assumptions so index-prefix
-// spec consumption cannot silently drift if planner shapes evolve.
+/// Guard secondary aggregate fast-path assumptions.
+///
+/// This keeps index-prefix spec consumption from silently drifting if planner
+/// shapes evolve.
 pub(in crate::db::executor) fn ensure_secondary_aggregate_fast_path_arity(
     secondary_pushdown_eligible: bool,
     index_prefix_spec_count: usize,
@@ -54,8 +56,9 @@ pub(in crate::db::executor) fn ensure_secondary_aggregate_fast_path_arity(
     )
 }
 
-// Guard index-range aggregate fast-path assumptions so contract/runtime
-// spec boundaries remain explicit and drift-resistant.
+/// Guard index-range aggregate fast-path assumptions.
+///
+/// This keeps contract/runtime spec boundaries explicit and drift-resistant.
 pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
     index_range_pushdown_eligible: bool,
     index_prefix_spec_count: usize,
@@ -77,8 +80,10 @@ pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
     )
 }
 
-// Guard load fast-path assumptions so contract/runtime spec boundaries remain
-// explicit and drift-resistant as new fast paths are introduced.
+/// Guard load fast-path assumptions.
+///
+/// This keeps contract/runtime spec boundaries explicit and drift-resistant as
+/// new fast paths are introduced.
 pub(in crate::db::executor) fn ensure_load_fast_path_spec_arity(
     secondary_pushdown_eligible: bool,
     index_prefix_spec_count: usize,

@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::capability_facts
+//! Module: executor::planning::route::capability_facts
 //! Responsibility: derive route capability facts from executable plans.
 //! Does not own: fast-path execution dispatch or post-access kernel behavior.
 //! Boundary: capability and eligibility helpers for route planning.
@@ -6,6 +6,11 @@
 use crate::db::{
     access::{AccessPathKind, AccessShapeFacts, SinglePathAccessShapeFacts},
     direction::Direction,
+    executor::planning::route::{
+        ExecutionRoutePlan, RouteCapabilityFacts,
+        index_range_limit_pushdown_shape_supported_for_order_contract,
+        pushdown::access_order_satisfied_by_route_mode_with_access_shape_facts,
+    },
     executor::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
         route::{
@@ -16,12 +21,6 @@ use crate::db::{
         },
     },
     query::plan::{AccessPlannedQuery, OrderDirection, PlannerRouteProfile},
-};
-
-use crate::db::executor::planning::route::{
-    ExecutionRoutePlan, RouteCapabilityFacts,
-    index_range_limit_pushdown_shape_supported_for_order_contract,
-    pushdown::access_order_satisfied_by_route_mode_with_access_shape_facts,
 };
 
 /// Return whether this access path can produce an ordered key-stream window directly.
@@ -199,8 +198,10 @@ impl LoadRouteCapabilityFacts {
     }
 }
 
-// Derive the shared load-capability fact snapshot once so route capability-fact and
-// load-hint helpers do not re-derive the same plan facts independently.
+/// Derive the shared load-capability fact snapshot once.
+///
+/// Route capability-fact and load-hint helpers must not re-derive the same plan
+/// facts independently.
 fn derive_load_route_capability_facts_for_model(
     plan: &AccessPlannedQuery,
     access_shape_facts: &AccessShapeFacts,

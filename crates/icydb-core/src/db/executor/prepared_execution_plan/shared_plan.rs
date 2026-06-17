@@ -1,6 +1,6 @@
 use super::contracts::AccessPlannedQuery;
 #[cfg(feature = "sql")]
-use super::contracts::{CoveringReadExecutionPlan, CoveringReadPlan};
+use super::contracts::{CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan};
 #[cfg(feature = "sql")]
 use crate::{
     db::executor::{
@@ -114,7 +114,7 @@ impl SharedPreparedExecutionPlan {
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn hybrid_covering_read_plan(
         &self,
-    ) -> Option<std::sync::Arc<CoveringReadPlan>> {
+    ) -> Option<std::sync::Arc<CoveringHybridReadExecutionPlan>> {
         self.core
             .get_or_init_hybrid_covering_read_plan(self.authority.clone())
     }

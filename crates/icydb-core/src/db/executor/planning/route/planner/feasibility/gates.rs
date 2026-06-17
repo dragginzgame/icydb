@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::route::planner::feasibility::gates
-//! Defines feasibility gates that reject route plans before executor shaping.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::planner::feasibility::gates
+//! Responsibility: route feasibility pre-gates.
+//! Does not own: route intent derivation or execution-stage selection.
+//! Boundary: exposes pure gate decisions consumed by feasibility derivation.
 
 use crate::db::executor::aggregate::AggregateKind;
 
@@ -42,7 +42,7 @@ type IndexRangeLimitFeasibilityRule =
 const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] =
     &[index_range_limit_gate_grouped_violation];
 
-// Return the first violated route-feasibility rule in declaration order.
+/// Return the first violated route-feasibility rule in declaration order.
 fn first_violated_rule<R, C, E>(rules: &[R], ctx: C) -> Option<E>
 where
     C: Copy,
@@ -120,6 +120,7 @@ fn load_scan_hint_gate_grouped_intent_violation(
     ctx.grouped.then_some(LoadScanHintGateReason::GroupedIntent)
 }
 
+/// Return whether index-range limit pushdown may run for grouped state.
 #[must_use]
 pub(super) fn index_range_limit_pushdown_allowed_for_grouped(grouped: bool) -> bool {
     let gate = IndexRangeLimitGateContext::new(grouped);
@@ -128,6 +129,7 @@ pub(super) fn index_range_limit_pushdown_allowed_for_grouped(grouped: bool) -> b
     rejection.is_none()
 }
 
+/// Return whether load scan hints may be derived for this route intent.
 #[must_use]
 pub(super) fn load_scan_hints_allowed_for_intent(
     kind: Option<AggregateKind>,

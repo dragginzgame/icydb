@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Prunes branch-set `IN` branches contradicted by strict branch-field
-  exclusions during planning, collapsing single survivors to prefix routes
-  while applying bounded covering page windows only when the consumed prefix
-  proves final primary-key order.
-
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.12` keeps key-only and planner-proven hybrid covering fallbacks from
+  hydrating rows before index-only residual filtering, materialized primary-key
+  reordering, and the final page window have run.
+
+- `0.183.11` prunes impossible branch-set `IN` values during planning and
+  tightens covered page windows so primary-key limits apply early only when the
+  consumed prefix proves final primary-key order.
 
 - `0.183.10` keeps strict residual predicates on branch-set covered
   projections row-store-free and prunes impossible branch streams before index

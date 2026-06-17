@@ -1,17 +1,17 @@
-//! Module: db::executor::planning::route::planner::execution::load_scalar
-//! Shapes executor plans for scalar load routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::planner::execution::load_scalar
+//! Responsibility: scalar load execution-stage derivation.
+//! Does not own: load execution or feasibility derivation.
+//! Boundary: maps staged route facts into scalar load execution mode.
 
 use crate::db::executor::{
     aggregate::AggregateFoldMode,
-    route::load_streaming_allowed,
     route::{
-        RouteExecutionMode, RouteShapeKind,
+        RouteExecutionMode, RouteShapeKind, load_streaming_allowed,
         planner::{RouteExecutionStage, RouteFeasibilityStage},
     },
 };
 
+/// Derive the execution mode for scalar load routes.
 pub(super) const fn derive_execution_mode_for_load(
     feasibility_stage: &RouteFeasibilityStage,
 ) -> RouteExecutionMode {
@@ -25,6 +25,7 @@ pub(super) const fn derive_execution_mode_for_load(
     }
 }
 
+/// Build the execution stage for scalar load routes.
 pub(super) const fn build_execution_stage_for_load(
     feasibility_stage: &RouteFeasibilityStage,
 ) -> RouteExecutionStage {

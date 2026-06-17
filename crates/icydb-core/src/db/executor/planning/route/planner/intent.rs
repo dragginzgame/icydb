@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::planner::intent
+//! Module: executor::planning::route::planner::intent
 //! Responsibility: normalize route intent into canonical staged intent state.
 //! Does not own: feasibility or execution-mode derivation.
 //! Boundary: pure intent derivation for staged route planning.
@@ -31,9 +31,10 @@ const fn route_shape_kind_for_intent(grouped: bool, kind: Option<AggregateKind>)
     }
 }
 
-// Build the canonical intent-stage record from one already-selected route
-// family. Keeping the invariant checks here preserves one route-shape authority
-// while avoiding a second private enum that mirrors RoutePlanRequest.
+/// Build the canonical intent-stage record from one already-selected route family.
+///
+/// Keeping the invariant checks here preserves one route-shape authority while
+/// avoiding a second private enum that mirrors `RoutePlanRequest`.
 fn route_intent_stage<'a>(
     aggregate_shape: Option<AggregateRouteShape<'a>>,
     grouped_plan_strategy: Option<GroupedPlanStrategy>,
@@ -85,8 +86,8 @@ fn route_intent_stage<'a>(
     stage
 }
 
-// Derive the canonical staged load intent at route entrypoints that only need
-// the load shape contract.
+/// Derive the canonical staged load intent from route entrypoints that only
+/// need the load shape contract.
 pub(super) fn derive_load_route_intent_stage() -> RouteIntentStage<'static> {
     route_intent_stage(
         None,
@@ -97,8 +98,9 @@ pub(super) fn derive_load_route_intent_stage() -> RouteIntentStage<'static> {
     )
 }
 
-// Derive the canonical staged aggregate intent, including the one
-// preparation-owned materialization forcing policy input.
+/// Derive the canonical staged aggregate intent.
+///
+/// This includes the one preparation-owned materialization forcing policy input.
 pub(super) fn derive_aggregate_route_intent_stage<'a>(
     aggregate: AggregateRouteShape<'a>,
     execution_preparation: &ExecutionPreparation,
@@ -114,8 +116,10 @@ pub(super) fn derive_aggregate_route_intent_stage<'a>(
     )
 }
 
-// Derive the canonical staged grouped-aggregate intent from planner strategy
-// plus the same preparation-owned materialization forcing policy contract.
+/// Derive the canonical staged grouped-aggregate intent.
+///
+/// This combines planner strategy with the same preparation-owned
+/// materialization forcing policy contract.
 pub(super) fn derive_grouped_route_intent_stage(
     grouped_plan_strategy: GroupedPlanStrategy,
     execution_preparation: &ExecutionPreparation,
@@ -131,8 +135,7 @@ pub(super) fn derive_grouped_route_intent_stage(
     )
 }
 
-// Derive the canonical staged mutation intent once delete-only admission has
-// been validated at the route-intent boundary.
+/// Derive the canonical staged mutation intent after delete-only admission.
 pub(super) fn derive_mutation_route_intent_stage(
     plan: &AccessPlannedQuery,
 ) -> Result<RouteIntentStage<'static>, InternalError> {

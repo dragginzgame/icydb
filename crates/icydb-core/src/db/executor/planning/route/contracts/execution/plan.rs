@@ -1,8 +1,7 @@
-//! Module: db::executor::planning::route::contracts::execution::plan
-//! Defines execution-plan route contracts consumed by executor preparation and
-//! explain surfaces.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::contracts::execution::plan
+//! Responsibility: route execution-plan payload.
+//! Does not own: route feasibility derivation or runtime execution.
+//! Boundary: exposes route-derived execution facts consumed by preparation and explain surfaces.
 
 use crate::db::{
     direction::Direction,
@@ -133,9 +132,9 @@ impl ExecutionRoutePlan {
         matches!(self.execution_mode, RouteExecutionMode::Materialized)
     }
 
-    // Grouped route observability projection.
-    // Non-grouped routes intentionally report no grouped diagnostics payload.
     /// Project grouped route observability payload when grouped routing is active.
+    ///
+    /// Non-grouped routes intentionally report no grouped diagnostics payload.
     #[must_use]
     pub(in crate::db::executor) const fn grouped_observability(
         &self,
@@ -177,59 +176,60 @@ impl ExecutionRoutePlan {
         }
     }
 
-    // True when DESC execution can traverse the physical access path in reverse.
+    /// Return whether DESC execution can traverse the physical access path in reverse.
     pub(in crate::db::executor) const fn desc_physical_reverse_supported(&self) -> bool {
         self.desc_physical_reverse_supported
     }
 
-    // True when secondary-prefix pushdown is enabled for this route.
+    /// Return whether secondary-prefix pushdown is enabled for this route.
     pub(in crate::db::executor) const fn secondary_fast_path_eligible(&self) -> bool {
         self.secondary_pushdown_applicability.is_eligible()
     }
 
-    // True when the plan shape supports direct PK ordered streaming fast path.
+    /// Return whether the plan shape supports direct PK ordered streaming fast path.
     pub(in crate::db::executor) const fn pk_order_fast_path_eligible(&self) -> bool {
         self.capability_facts.pk_order_fast_path_eligible
     }
 
-    // True when access shape is streaming-safe for final order semantics.
+    /// Return the load-order route mode selected for final order semantics.
     pub(in crate::db::executor) const fn load_order_route_mode(&self) -> LoadOrderRouteMode {
         self.capability_facts.load_order_route_mode()
     }
 
-    // Route-owned explanation for why one ordered load shape stayed direct or
-    // materialized at the current boundary.
+    /// Return why one ordered load shape stayed direct or materialized.
     pub(in crate::db::executor) const fn load_order_route_reason(&self) -> LoadOrderRouteReason {
         self.capability_facts.load_order_route_reason()
     }
 
-    // True when index-range limit pushdown is enabled for this route.
+    /// Return whether index-range limit pushdown is enabled for this route.
     pub(in crate::db::executor) const fn index_range_limit_fast_path_enabled(&self) -> bool {
         self.index_range_limit_spec.is_some()
     }
 
-    // True when composite aggregate fast-path execution is shape-safe.
+    /// Return whether composite aggregate fast-path execution is shape-safe.
     pub(in crate::db::executor) const fn composite_aggregate_fast_path_eligible(&self) -> bool {
         self.capability_facts.composite_aggregate_fast_path_eligible
     }
 
-    // True when route permits a future `min(field)` fast path.
+    /// Return whether route permits a future `min(field)` fast path.
     pub(in crate::db::executor) const fn field_min_fast_path_eligible(&self) -> bool {
         self.capability_facts.field_min_fast_path_eligible
     }
 
-    // True when route permits a future `max(field)` fast path.
+    /// Return whether route permits a future `max(field)` fast path.
     pub(in crate::db::executor) const fn field_max_fast_path_eligible(&self) -> bool {
         self.capability_facts.field_max_fast_path_eligible
     }
 
-    // Route-owned fast-path dispatch order. Executors must dispatch using this
-    // order instead of introducing ad-hoc aggregate/runtime micro fast paths.
+    /// Return the route-owned fast-path dispatch order.
+    ///
+    /// Executors must dispatch using this order instead of introducing
+    /// ad-hoc aggregate/runtime micro fast paths.
     pub(in crate::db::executor) const fn fast_path_order(&self) -> &'static [FastPathOrder] {
         self.fast_path_order
     }
 
-    // Route-owned load fast-path gate for one candidate route.
+    /// Return whether one candidate load fast-path route is eligible.
     pub(in crate::db::executor) const fn load_fast_path_route_eligible(
         &self,
         route: FastPathOrder,
@@ -248,20 +248,21 @@ impl ExecutionRoutePlan {
         }
     }
 
-    // Route-owned bounded probe hint for secondary Min/Max single-step probing.
-    // This prevents executor-local hint math from drifting outside routing.
+    /// Return route-owned bounded seek spec for secondary Min/Max probing.
+    ///
+    /// This prevents executor-local hint math from drifting outside routing.
     #[must_use]
     pub(in crate::db::executor) const fn aggregate_seek_spec(&self) -> Option<AggregateSeekSpec> {
         self.aggregate_seek_spec
     }
 
-    // Route-owned bounded fetch hint derived from aggregate seek contract.
+    /// Return route-owned bounded fetch hint derived from aggregate seek contract.
     #[must_use]
     pub(in crate::db::executor) fn aggregate_seek_fetch_hint(&self) -> Option<usize> {
         self.aggregate_seek_spec().map(AggregateSeekSpec::fetch)
     }
 
-    // Route-owned bounded fetch contract for ordered load top-N seek windows.
+    /// Return route-owned bounded fetch contract for ordered load top-N seek windows.
     #[must_use]
     pub(in crate::db::executor) const fn top_n_seek_spec(&self) -> Option<TopNSeekSpec> {
         self.top_n_seek_spec

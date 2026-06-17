@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::planner::feasibility
+//! Module: executor::planning::route::planner::feasibility
 //! Responsibility: derive continuation/window/capability feasibility state.
 //! Does not own: route-intent normalization or execution-mode selection.
 //! Boundary: staged feasibility derivation for route planning.
@@ -26,6 +26,10 @@ use crate::db::{
             load_scan_budget_hint,
             planner::{
                 RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage,
+                feasibility::gates::{
+                    index_range_limit_pushdown_allowed_for_grouped,
+                    load_scan_hints_allowed_for_intent,
+                },
                 stages::{RouteCountPushdownState, RouteDerivationSupport},
             },
             top_n_seek_spec_for_model,
@@ -34,10 +38,7 @@ use crate::db::{
     query::plan::{AccessPlannedQuery, GroupedPlanStrategy, PlannerRouteProfile},
 };
 
-use crate::db::executor::planning::route::planner::feasibility::gates::{
-    index_range_limit_pushdown_allowed_for_grouped, load_scan_hints_allowed_for_intent,
-};
-
+/// Derive the complete feasibility stage for one validated model plan.
 pub(super) fn derive_execution_feasibility_stage_for_model(
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
@@ -126,6 +127,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
     }
 }
 
+/// Derive the immutable route derivation context shared by execution-stage builders.
 pub(super) fn derive_route_derivation_context_for_model(
     plan: &AccessPlannedQuery,
     intent_stage: &RouteIntentStage<'_>,
@@ -197,8 +199,10 @@ pub(super) fn derive_route_derivation_context_for_model(
     }
 }
 
-// Derive the static route capability and COUNT shape state once before any
-// scan-hint or grouped-mode decisions consume them.
+/// Derive static route capability and COUNT shape state.
+///
+/// This runs before any scan-hint or grouped-mode decisions consume those
+/// facts.
 fn derive_route_capability_state_for_model(
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
@@ -334,8 +338,9 @@ struct RouteScanHintInputs<'a> {
     count_pushdown: &'a RouteCountPushdownState,
 }
 
-// Grouped execution mode stays optional, but derive it behind one helper so
-// the main feasibility function only coordinates phases.
+/// Derive grouped execution mode behind one optional helper.
+///
+/// This keeps the main feasibility function focused on phase coordination.
 fn derive_grouped_execution_mode_for_intent(
     grouped: bool,
     grouped_plan_strategy: Option<GroupedPlanStrategy>,

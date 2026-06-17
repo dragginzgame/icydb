@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::route::planner::execution::aggregate_count
-//! Shapes executor plans for scalar aggregate `COUNT` routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::planner::execution::aggregate_count
+//! Responsibility: scalar aggregate `COUNT` execution-stage derivation.
+//! Does not own: COUNT terminal execution or feasibility derivation.
+//! Boundary: maps staged route facts into COUNT execution mode and fold mode.
 
 use crate::db::executor::{
     aggregate::AggregateFoldMode,
@@ -11,6 +11,7 @@ use crate::db::executor::{
     },
 };
 
+/// Derive the execution mode for scalar aggregate `COUNT` routes.
 pub(super) const fn derive_execution_mode_for_aggregate_count(
     feasibility_stage: &RouteFeasibilityStage,
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,
@@ -24,6 +25,7 @@ pub(super) const fn derive_execution_mode_for_aggregate_count(
     }
 }
 
+/// Build the execution stage for scalar aggregate `COUNT` routes.
 pub(super) fn build_execution_stage_for_aggregate_count(
     feasibility_stage: &RouteFeasibilityStage,
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,

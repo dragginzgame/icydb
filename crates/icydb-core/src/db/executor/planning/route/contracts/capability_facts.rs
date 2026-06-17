@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::route::contracts::capability_facts
-//! Defines execution capability facts attached to planned executor routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::contracts::capability_facts
+//! Responsibility: route capability fact snapshots.
+//! Does not own: capability derivation algorithms or execution dispatch.
+//! Boundary: exposes immutable capability facts consumed by route gates and hints.
 
 use crate::db::executor::{
     aggregate::capability::AggregateFieldExtremaIneligibilityReason,
@@ -44,16 +44,19 @@ pub(in crate::db::executor) struct RouteCapabilityFacts {
 }
 
 impl RouteCapabilityFacts {
+    /// Return the ordered-load route mode selected by capability derivation.
     #[must_use]
     pub(in crate::db::executor) const fn load_order_route_mode(self) -> LoadOrderRouteMode {
         self.load_order_route_decision.mode()
     }
 
+    /// Return the explanation for the ordered-load route mode decision.
     #[must_use]
     pub(in crate::db::executor) const fn load_order_route_reason(self) -> LoadOrderRouteReason {
         self.load_order_route_decision.reason()
     }
 
+    /// Return whether the route retains a residual filter after access pushdown.
     #[must_use]
     pub(in crate::db::executor) const fn residual_filter_present(self) -> bool {
         self.residual_filter_present

@@ -54,22 +54,13 @@ where
     }
     let primary_key_order_scan_safe =
         access_preserves_primary_key_order_for_covering_window(plan, covering.order_contract);
-    let residual_predicate_order_supported = matches!(
-        covering.order_contract,
-        CoveringProjectionOrder::IndexOrder(_)
-    ) || (primary_key_order_scan_safe
-        && matches!(
-            covering.order_contract,
-            CoveringProjectionOrder::PrimaryKeyOrder(_)
-        ));
     if plan.has_residual_filter_predicate()
-        && (!covering.strict_predicate_compatible
-            || index_predicate_execution.is_none()
-            || !residual_predicate_order_supported)
+        && (!covering.strict_predicate_compatible || index_predicate_execution.is_none())
     {
-        // The covering lane does not yet own residual predicate evaluation.
-        // Keep primary-key reorder fallbacks materialized so predicates run
-        // before global ordering and LIMIT.
+        // Residual predicates stay on covering only when they compile to an
+        // index-only program. The covering component resolver applies that
+        // program before any reorder or page window, including materialized
+        // primary-key-order fallbacks.
         return Ok(None);
     }
 

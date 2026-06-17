@@ -1,7 +1,7 @@
-//! Module: db::executor::planning::route::contracts::shape
-//! Defines the structural route-shape contracts produced by executor planning.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::contracts::shape
+//! Responsibility: structural route-shape contracts and fast-path precedence constants.
+//! Does not own: route feasibility derivation or executor dispatch.
+//! Boundary: exports immutable route shape facts produced by executor planning.
 
 use crate::db::{
     executor::aggregate::capability::field_kind_supports_aggregate_ordering,

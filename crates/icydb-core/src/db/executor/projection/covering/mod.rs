@@ -19,7 +19,9 @@ use crate::{
 };
 use std::sync::Arc;
 
-use self::contracts::{AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan};
+use self::contracts::{
+    AccessPlannedQuery, CoveringHybridReadExecutionPlan, CoveringReadExecutionPlan,
+};
 
 ///
 /// CoveringProjectionRows
@@ -95,7 +97,7 @@ pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
     covering: Option<Arc<CoveringReadExecutionPlan>>,
-    hybrid: impl FnOnce() -> Option<Arc<CoveringReadPlan>>,
+    hybrid: impl FnOnce() -> Option<Arc<CoveringHybridReadExecutionPlan>>,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Option<CoveringProjectionRows>, InternalError>

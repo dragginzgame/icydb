@@ -1,4 +1,4 @@
-//! Module: db::executor::planning::route::fast_path
+//! Module: executor::planning::route::fast_path
 //! Responsibility: route-owned fast-path verification/dispatch scaffolding.
 //! Does not own: route capability derivation or stream materialization behavior.
 //! Boundary: precedence runner and fast-path eligibility helpers for route planning.
@@ -6,14 +6,15 @@
 use crate::{
     db::{
         access::ExecutableAccessPlan,
-        executor::{ExecutionPreparation, route::primary_key_stream_window_shape_supported},
+        executor::{
+            ExecutionPreparation, planning::route::FastPathOrder,
+            route::primary_key_stream_window_shape_supported,
+        },
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     value::Value,
 };
-
-use crate::db::executor::planning::route::FastPathOrder;
 
 ///
 /// try_first_verified_fast_path_hit

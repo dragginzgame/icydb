@@ -4,7 +4,7 @@
 //! Boundary: centralizes query-plan DTOs consumed by covering projection execution.
 
 pub(in crate::db::executor) use crate::db::query::plan::{
-    AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-    CoveringReadExecutionPlan, CoveringReadField, CoveringReadFieldSource, CoveringReadPlan,
+    AccessPlannedQuery, CoveringExistingRowMode, CoveringHybridReadExecutionPlan,
+    CoveringProjectionOrder, CoveringReadExecutionPlan, CoveringReadField, CoveringReadFieldSource,
     PageSpec,
 };
