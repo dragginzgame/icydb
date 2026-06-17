@@ -15,7 +15,7 @@ use crate::{
         executor::{
             ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
-            ordered_key_stream_from_materialized_keys,
+            lowered_index_prefix_empty_bitmap, ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
@@ -29,6 +29,9 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
+
+const BRANCH_STREAM_SMALL_CHUNK_ENTRIES: usize = 2;
+const BRANCH_STREAM_MAX_CHUNK_ENTRIES: usize = 64;
 
 ///
 /// KeyOrderState
@@ -219,6 +222,7 @@ impl KeyAccessRuntime {
                 direction,
                 None,
                 index_fetch_hint,
+                ACCESS_SCAN_CHUNK_ENTRIES,
             ),
         ))
     }
@@ -242,12 +246,26 @@ impl KeyAccessRuntime {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
         }
 
-        let mut streams = Vec::with_capacity(index_prefix_specs.len());
-        for spec in index_prefix_specs {
+        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
+        let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
+        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
+            if proven_empty {
+                continue;
+            }
             let branch_anchor = continuation
                 .primary_key_boundary()
                 .map(|boundary| branch_set_resume_anchor_for_prefix(index, spec, boundary))
                 .transpose()?;
+            active_specs.push((spec, branch_anchor));
+        }
+        if active_specs.is_empty() {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
+
+        let branch_chunk_entries =
+            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
+        let mut streams = Vec::with_capacity(active_specs.len());
+        for (spec, branch_anchor) in active_specs {
             streams.push(OrderedKeyStreamBox::index_range(
                 IndexRangeKeyStream::from_prefix(
                     self.store,
@@ -256,6 +274,7 @@ impl KeyAccessRuntime {
                     continuation.direction(),
                     branch_anchor,
                     index_fetch_hint,
+                    branch_chunk_entries,
                 ),
             ));
         }
@@ -610,6 +629,25 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
     }
 }
 
+const fn branch_stream_chunk_entries(fetch_hint: Option<usize>, branch_count: usize) -> usize {
+    let Some(fetch_hint) = fetch_hint else {
+        return ACCESS_SCAN_CHUNK_ENTRIES;
+    };
+    if fetch_hint <= BRANCH_STREAM_SMALL_CHUNK_ENTRIES.saturating_mul(2) {
+        return BRANCH_STREAM_SMALL_CHUNK_ENTRIES;
+    }
+
+    let branch_count = if branch_count == 0 { 1 } else { branch_count };
+    let fair_branch_window = fetch_hint.div_ceil(branch_count);
+    if fair_branch_window < BRANCH_STREAM_SMALL_CHUNK_ENTRIES {
+        BRANCH_STREAM_SMALL_CHUNK_ENTRIES
+    } else if fair_branch_window > BRANCH_STREAM_MAX_CHUNK_ENTRIES {
+        BRANCH_STREAM_MAX_CHUNK_ENTRIES
+    } else {
+        fair_branch_window
+    }
+}
+
 ///
 /// IndexRangeKeyStream
 ///
@@ -627,6 +665,7 @@ pub(in crate::db::executor) struct IndexRangeKeyStream {
     direction: Direction,
     anchor: Option<RawIndexStoreKey>,
     remaining: Option<usize>,
+    chunk_entries: usize,
     buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
     exhausted: bool,
@@ -641,15 +680,16 @@ impl IndexRangeKeyStream {
         direction: Direction,
         anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
+        chunk_entries: usize,
     ) -> Self {
         Self::new(
             store,
             entity_tag,
-            spec.lower().clone(),
-            spec.upper().clone(),
+            (spec.lower().clone(), spec.upper().clone()),
             direction,
             anchor,
             limit,
+            chunk_entries,
         )
     }
 
@@ -664,23 +704,24 @@ impl IndexRangeKeyStream {
         Self::new(
             store,
             entity_tag,
-            spec.lower().clone(),
-            spec.upper().clone(),
+            (spec.lower().clone(), spec.upper().clone()),
             continuation.direction(),
             continuation.anchor().cloned(),
             limit,
+            ACCESS_SCAN_CHUNK_ENTRIES,
         )
     }
 
-    const fn new(
+    fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
-        lower: Bound<LoweredKey>,
-        upper: Bound<LoweredKey>,
+        bounds: (Bound<LoweredKey>, Bound<LoweredKey>),
         direction: Direction,
         anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
+        chunk_entries: usize,
     ) -> Self {
+        let (lower, upper) = bounds;
         Self {
             store,
             entity_tag,
@@ -689,6 +730,7 @@ impl IndexRangeKeyStream {
             direction,
             anchor,
             remaining: limit,
+            chunk_entries,
             buffer: Vec::new(),
             buffer_pos: 0,
             exhausted: false,
@@ -700,6 +742,18 @@ impl IndexRangeKeyStream {
         self.remaining
     }
 
+    const fn next_chunk_entries(&self) -> usize {
+        let chunk_entries = if self.chunk_entries == 0 {
+            ACCESS_SCAN_CHUNK_ENTRIES
+        } else {
+            self.chunk_entries
+        };
+        match self.remaining {
+            Some(remaining) if remaining < chunk_entries => remaining,
+            Some(_) | None => chunk_entries,
+        }
+    }
+
     // Re-enter the index store for one bounded raw-index chunk.
     fn load_next_chunk(&mut self) -> Result<(), InternalError> {
         if self.exhausted || matches!(self.remaining, Some(0)) {
@@ -707,6 +761,7 @@ impl IndexRangeKeyStream {
             return Ok(());
         }
 
+        let chunk_entries = self.next_chunk_entries();
         let continuation = IndexScanContinuationInput::new(self.anchor.as_ref(), self.direction);
         let chunk = IndexScan::chunk_structural(
             self.store,
@@ -714,7 +769,7 @@ impl IndexRangeKeyStream {
             &self.lower,
             &self.upper,
             continuation,
-            ACCESS_SCAN_CHUNK_ENTRIES,
+            chunk_entries,
             self.next_output_limit(),
         )?;
         let (keys, last_raw_key) = chunk.into_decoded_keys_and_resume_anchor();

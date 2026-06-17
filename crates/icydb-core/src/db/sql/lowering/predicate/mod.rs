@@ -6,8 +6,8 @@ mod validate;
 use crate::{
     db::{
         predicate::{
-            CoercionId, CompareOp, MembershipCompareLeaf, Predicate,
-            collapse_membership_compare_leaves,
+            CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MembershipCompareLeaf,
+            Predicate, collapse_membership_compare_leaves, normalize as normalize_predicate,
         },
         query::plan::expr::{
             Expr, derive_normalized_bool_expr_predicate_subset, is_normalized_bool_expr,
@@ -17,7 +17,7 @@ use crate::{
                 SqlLoweringError,
                 expr::{SqlExprPhase, lower_sql_expr},
             },
-            parser::{SqlExpr, SqlScalarFunction},
+            parser::{SqlExpr, SqlExprBinaryOp, SqlScalarFunction},
         },
     },
     value::Value,
@@ -52,7 +52,142 @@ pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_subset(
 pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_only_subset(
     sql_expr: &SqlExpr,
 ) -> Option<Predicate> {
-    derive_top_level_sql_membership_predicate_subset(sql_expr)
+    derive_sql_where_expr_predicate_only_subset_impl(sql_expr)
+        .map(|predicate| normalize_predicate(&predicate))
+}
+
+fn derive_sql_where_expr_predicate_only_subset_impl(sql_expr: &SqlExpr) -> Option<Predicate> {
+    match sql_expr {
+        SqlExpr::Membership { .. } => derive_top_level_sql_membership_predicate_subset(sql_expr),
+        SqlExpr::Binary {
+            op: SqlExprBinaryOp::And,
+            left,
+            right,
+        } => Some(Predicate::And(vec![
+            derive_sql_where_expr_predicate_only_subset_impl(left.as_ref())?,
+            derive_sql_where_expr_predicate_only_subset_impl(right.as_ref())?,
+        ])),
+        SqlExpr::Binary { op, left, right } => {
+            derive_sql_binary_compare_predicate(*op, left.as_ref(), right.as_ref())
+        }
+        SqlExpr::Field(_)
+        | SqlExpr::FieldPath { .. }
+        | SqlExpr::Aggregate(_)
+        | SqlExpr::Literal(_)
+        | SqlExpr::Param { .. }
+        | SqlExpr::NullTest { .. }
+        | SqlExpr::Like { .. }
+        | SqlExpr::FunctionCall { .. }
+        | SqlExpr::Unary { .. }
+        | SqlExpr::Case { .. } => None,
+    }
+}
+
+fn derive_sql_binary_compare_predicate(
+    op: SqlExprBinaryOp,
+    left: &SqlExpr,
+    right: &SqlExpr,
+) -> Option<Predicate> {
+    let op = sql_compare_op(op)?;
+    if matches!(left, SqlExpr::Literal(Value::Null))
+        || matches!(right, SqlExpr::Literal(Value::Null))
+    {
+        return None;
+    }
+
+    match (left, right) {
+        (SqlExpr::Field(field), SqlExpr::Literal(value)) => {
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
+                field,
+                op,
+                value.clone(),
+                sql_compare_literal_coercion(op, value),
+            )))
+        }
+        (SqlExpr::Literal(value), SqlExpr::Field(field)) => {
+            let op = op.flipped();
+
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
+                field,
+                op,
+                value.clone(),
+                sql_compare_literal_coercion(op, value),
+            )))
+        }
+        (SqlExpr::Field(left_field), SqlExpr::Field(right_field)) => Some(
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                left_field,
+                op,
+                right_field,
+                sql_compare_field_coercion(op),
+            )),
+        ),
+        (
+            SqlExpr::FunctionCall {
+                function: SqlScalarFunction::Lower,
+                args,
+            },
+            SqlExpr::Literal(Value::Text(value)),
+        ) => {
+            let [SqlExpr::Field(field)] = args.as_slice() else {
+                return None;
+            };
+
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
+                field,
+                op,
+                Value::Text(value.clone()),
+                CoercionId::TextCasefold,
+            )))
+        }
+        _ => None,
+    }
+}
+
+const fn sql_compare_op(op: SqlExprBinaryOp) -> Option<CompareOp> {
+    match op {
+        SqlExprBinaryOp::Eq => Some(CompareOp::Eq),
+        SqlExprBinaryOp::Ne => Some(CompareOp::Ne),
+        SqlExprBinaryOp::Lt => Some(CompareOp::Lt),
+        SqlExprBinaryOp::Lte => Some(CompareOp::Lte),
+        SqlExprBinaryOp::Gt => Some(CompareOp::Gt),
+        SqlExprBinaryOp::Gte => Some(CompareOp::Gte),
+        SqlExprBinaryOp::Or
+        | SqlExprBinaryOp::And
+        | SqlExprBinaryOp::Add
+        | SqlExprBinaryOp::Sub
+        | SqlExprBinaryOp::Mul
+        | SqlExprBinaryOp::Div => None,
+    }
+}
+
+const fn sql_compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
+    match value {
+        Value::Text(_) | Value::Nat64(_) | Value::Nat128(_) | Value::NatBig(_) => {
+            CoercionId::Strict
+        }
+        Value::Float32(_) | Value::Float64(_) | Value::Decimal(_) => {
+            if op.is_ordering_family() {
+                CoercionId::NumericWiden
+            } else {
+                CoercionId::Strict
+            }
+        }
+        _ if value.supports_numeric_coercion() => CoercionId::NumericWiden,
+        _ => CoercionId::Strict,
+    }
+}
+
+fn sql_compare_field_coercion(op: CompareOp) -> CoercionId {
+    if !op.supports_field_compare() {
+        unreachable!("sql predicate lowering invariant");
+    }
+
+    if op.is_ordering_family() {
+        CoercionId::NumericWiden
+    } else {
+        CoercionId::Strict
+    }
 }
 
 // Lower one parser-owned SQL boolean expression onto the shared planner-owned

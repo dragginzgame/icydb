@@ -12,7 +12,8 @@ use crate::{
         data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
-            IndexScan, KeyOrderComparator, read_row_presence_with_consistency_from_data_store,
+            IndexScan, KeyOrderComparator, lowered_index_prefix_empty_bitmap,
+            read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
         index::{
@@ -174,15 +175,42 @@ where
     }
 
     let component_indices: Arc<[usize]> = Arc::from(component_indices.to_vec());
-    let chunk_entries = covering_branch_component_chunk_entries(limit, index_prefix_specs.len());
-    let mut streams = Vec::with_capacity(index_prefix_specs.len());
-    for spec in index_prefix_specs {
+    let first_scan_contract = index_prefix_specs[0].scan_contract();
+    let first_store_path = first_scan_contract.store_path().to_string();
+    let prefix_store = resolve_store_for_index(first_store_path.as_str())?;
+    let same_store = index_prefix_specs
+        .iter()
+        .all(|spec| spec.scan_contract().store_path() == first_store_path.as_str());
+    let empty_prefixes = if same_store {
+        lowered_index_prefix_empty_bitmap(prefix_store, index_prefix_specs)
+    } else {
+        vec![false; index_prefix_specs.len()]
+    };
+    let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
+    for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
         if prefix_components_rejected_by_predicate(spec.prefix_components(), predicate_execution) {
             continue;
         }
+        if proven_empty {
+            continue;
+        }
         let scan_contract = spec.scan_contract();
+        let store = if same_store {
+            prefix_store
+        } else {
+            resolve_store_for_index(scan_contract.store_path())?
+        };
+        active_specs.push((spec, scan_contract, store));
+    }
+    if active_specs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let chunk_entries = covering_branch_component_chunk_entries(limit, active_specs.len());
+    let mut streams = Vec::with_capacity(active_specs.len());
+    for (spec, scan_contract, store) in active_specs {
         streams.push(CoveringComponentStreamBox::prefix(
-            resolve_store_for_index(scan_contract.store_path())?,
+            store,
             entity_tag,
             scan_contract,
             spec.lower().clone(),

@@ -1,10 +1,10 @@
-//! Module: db::executor::tests::semantics
-//! Covers executor semantic correctness across load, aggregate, and delete
-//! behavior.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::tests::semantics
+//! Responsibility: executor semantic correctness across load, aggregate, and delete behavior.
+//! Does not own: executor implementation or planner lowering.
+//! Boundary: verifies executor behavior through stable query and route fixtures.
 
 use super::support::*;
+
 #[cfg(feature = "sql")]
 use crate::db::query::plan::expr::{ProjectionField, ProjectionSpec};
 use crate::{

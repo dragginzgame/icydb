@@ -1,7 +1,7 @@
-//! Module: db::sql::lowering::tests
-//! Covers SQL lowering from parsed statements into structural query shapes.
+//! Module: sql::lowering::tests
+//! Responsibility: SQL lowering tests from parsed statements into structural query shapes.
 //! Does not own: production SQL lowering behavior outside this test module.
-//! Boundary: verifies this module API while keeping fixture details internal.
+//! Boundary: verifies SQL lowering behavior while keeping fixture details internal.
 
 use crate::{
     db::{
@@ -780,9 +780,58 @@ fn compile_sql_command_select_membership_uses_predicate_only_filter() {
         panic!("membership predicate should carry a list literal");
     };
     assert_eq!(
-        values.len(),
-        2,
-        "membership predicate should canonicalize duplicate literal values",
+        values.as_slice(),
+        [Value::Nat64(10), Value::Nat64(20)],
+        "membership predicate should canonicalize duplicate literal values against the resolved field kind",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_membership_conjunction_uses_predicate_only_filter() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE name = 'Ada' AND age IN (10, 20, 10)",
+        "membership conjunction WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("membership conjunction WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        plan.scalar_plan().filter_expr.is_none(),
+        "simple compare plus membership should not retain a separate visible filter expression",
+    );
+    assert!(
+        !plan.scalar_plan().predicate_covers_filter_expr,
+        "predicate-only membership conjunction has no visible filter expression to cover",
+    );
+    let Some(Predicate::And(children)) = plan.scalar_plan().predicate.as_ref() else {
+        panic!("membership conjunction WHERE should lower to one compact AND predicate");
+    };
+
+    assert!(
+        children.iter().any(|child| matches!(
+            child,
+            Predicate::Compare(compare)
+                if compare.field() == "name"
+                    && compare.op() == CompareOp::Eq
+                    && compare.value() == &Value::Text("Ada".to_string())
+        )),
+        "membership conjunction should retain the direct equality predicate",
+    );
+    assert!(
+        children.iter().any(|child| matches!(
+            child,
+            Predicate::Compare(compare)
+                if compare.field() == "age"
+                    && compare.op() == CompareOp::In
+                    && matches!(
+                        compare.value(),
+                        Value::List(values)
+                            if values.as_slice() == [Value::Nat64(10), Value::Nat64(20)]
+                    )
+        )),
+        "membership conjunction should keep the IN predicate compact and schema-canonicalized",
     );
 }
 

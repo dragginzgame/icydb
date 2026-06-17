@@ -37,8 +37,8 @@ pub(in crate::db) enum AccessPathKind {
     FullScan,
 }
 
-/// Conservative cap for branch-aware composite prefix access routes.
-pub(in crate::db) const MAX_INDEX_BRANCH_SET_VALUES: usize = 8;
+/// Conservative candidate cap for branch-aware composite prefix access routes.
+pub(in crate::db) const MAX_INDEX_BRANCH_SET_VALUES: usize = 16;
 
 ///
 /// SemanticIndexAccessContract

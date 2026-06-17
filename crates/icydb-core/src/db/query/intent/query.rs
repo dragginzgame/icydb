@@ -134,10 +134,19 @@ impl StructuralQuery {
         }
     }
 
+    /// Append one test-owned predicate after normalizing it at the intent boundary.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(test)]
     pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.intent = self.intent.filter_predicate(predicate);
+        self
+    }
+
+    /// Append one predicate that has already been normalized by the caller.
+    #[must_use]
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn filter_normalized_predicate(mut self, predicate: Predicate) -> Self {
+        self.intent = self.intent.filter_normalized_predicate(predicate);
         self
     }
 

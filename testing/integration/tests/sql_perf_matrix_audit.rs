@@ -34,6 +34,7 @@ enum MatrixSurface {
     Blob,
     HeapUser,
     JournaledUser,
+    Token,
     User,
 }
 
@@ -44,6 +45,7 @@ impl MatrixSurface {
             Self::Blob => "blob",
             Self::HeapUser => "heap_user",
             Self::JournaledUser => "journaled_user",
+            Self::Token => "token",
             Self::User => "user",
         }
     }
@@ -54,6 +56,7 @@ impl MatrixSurface {
             Self::Blob => "PerfAuditBlob",
             Self::HeapUser => "PerfAuditHeapUser",
             Self::JournaledUser => "PerfAuditJournaledUser",
+            Self::Token => "PerfAuditToken",
             Self::User => "PerfAuditUser",
         }
     }
@@ -64,6 +67,7 @@ impl MatrixSurface {
             Self::Blob => "query_blob_with_perf",
             Self::HeapUser => "query_heap_user_with_perf",
             Self::JournaledUser => "query_journaled_user_with_perf",
+            Self::Token => "query_token_with_perf",
             Self::User => "query_user_with_perf",
         }
     }
@@ -143,6 +147,18 @@ struct MatrixSample {
     family: String,
     sql: String,
     compile_local_instructions: u64,
+    compile_cache_key_local_instructions: u64,
+    compile_cache_lookup_local_instructions: u64,
+    compile_parse_local_instructions: u64,
+    compile_parse_tokenize_local_instructions: u64,
+    compile_parse_select_local_instructions: u64,
+    compile_parse_expr_local_instructions: u64,
+    compile_parse_predicate_local_instructions: u64,
+    compile_aggregate_lane_check_local_instructions: u64,
+    compile_prepare_local_instructions: u64,
+    compile_lower_local_instructions: u64,
+    compile_bind_local_instructions: u64,
+    compile_cache_insert_local_instructions: u64,
     execute_local_instructions: u64,
     planner_local_instructions: u64,
     store_local_instructions: u64,
@@ -239,13 +255,18 @@ impl Lcg {
 
 fn deterministic_matrix() -> Vec<MatrixScenario> {
     let mut scenarios = Vec::new();
-    scenarios.extend(select_matrix(
+    let mut user_scenarios = select_matrix(
         MatrixSurface::User,
         &user_projections(),
         &user_predicates(),
         &user_orders(),
         &[1, 3, 10],
-    ));
+    );
+    if !user_scenarios.is_empty() {
+        scenarios.extend(user_scenarios.drain(..1));
+    }
+    scenarios.extend(token_branch_route_hotspot_matrix());
+    scenarios.extend(user_scenarios);
     scenarios.extend(select_matrix(
         MatrixSurface::Account,
         &account_projections(),
@@ -264,6 +285,112 @@ fn deterministic_matrix() -> Vec<MatrixScenario> {
     scenarios.extend(aggregate_and_metadata_matrix());
 
     scenarios
+}
+
+const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
+const TOKEN_BRANCH_STAGES: &str = "'Draft', 'Review'";
+const TOKEN_BRANCH_STAGES_WITH_DUPLICATE: &str = "'Draft', 'Draft', 'Review'";
+const TOKEN_BRANCH_STAGES_WIDE: &str =
+    "'Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden'";
+const TOKEN_BRANCH_STAGES_OVER_CAP: &str = "'Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07'";
+
+fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
+    vec![
+        scenario(
+            "token.collection_stage_id.branch_set.page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_set.page_only",
+            token_branch_page_sql("id", TOKEN_BRANCH_STAGES, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.covering_page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_set.covering_page_only",
+            token_branch_page_sql("id, collection_id, stage", TOKEN_BRANCH_STAGES, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.noncovered_page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_set.noncovered_page_only",
+            token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.full_entity.limit50",
+            MatrixSurface::Token,
+            "route.branch_set.full_entity",
+            token_branch_page_sql("*", TOKEN_BRANCH_STAGES, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.index_residual_covering.limit3",
+            MatrixSurface::Token,
+            "route.branch_set.index_residual_covering",
+            token_branch_page_sql_with_extra_predicate(
+                "id, stage",
+                TOKEN_BRANCH_STAGES,
+                "stage != 'Review'",
+                3,
+            ),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.count",
+            MatrixSurface::Token,
+            "route.branch_set.count",
+            token_branch_count_sql(TOKEN_BRANCH_STAGES),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.duplicate_count",
+            MatrixSurface::Token,
+            "route.branch_set.duplicate_count",
+            token_branch_count_sql(TOKEN_BRANCH_STAGES_WITH_DUPLICATE),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.wide_page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_set.wide_page_only",
+            token_branch_page_sql("id", TOKEN_BRANCH_STAGES_WIDE, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_set.wide_noncovered_page_only",
+            token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_WIDE, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.overcap_fallback.page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_over_cap.page_only",
+            token_branch_page_sql("id", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
+        ),
+        scenario(
+            "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
+            MatrixSurface::Token,
+            "route.branch_over_cap.noncovered_page_only",
+            token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
+        ),
+    ]
+}
+
+fn token_branch_page_sql(projection: &str, stages: &str, limit: u32) -> String {
+    format!(
+        "SELECT {projection} FROM PerfAuditToken WHERE collection_id = '{TOKEN_TARGET_COLLECTION}' AND stage IN ({stages}) ORDER BY id ASC LIMIT {limit}"
+    )
+}
+
+fn token_branch_page_sql_with_extra_predicate(
+    projection: &str,
+    stages: &str,
+    extra_predicate: &str,
+    limit: u32,
+) -> String {
+    format!(
+        "SELECT {projection} FROM PerfAuditToken WHERE collection_id = '{TOKEN_TARGET_COLLECTION}' AND stage IN ({stages}) AND {extra_predicate} ORDER BY id ASC LIMIT {limit}"
+    )
+}
+
+fn token_branch_count_sql(stages: &str) -> String {
+    format!(
+        "SELECT COUNT(*) FROM PerfAuditToken WHERE collection_id = '{TOKEN_TARGET_COLLECTION}' AND stage IN ({stages})"
+    )
 }
 
 fn select_matrix(
@@ -778,6 +905,7 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
                 &storage_mirror_orders(),
             )
         }
+        MatrixSurface::Token => random_token_route_hotspot_scenario(rng, key),
         MatrixSurface::User => {
             let predicate = random_user_predicate(rng);
             random_select_scenario(
@@ -790,6 +918,15 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
             )
         }
     }
+}
+
+fn random_token_route_hotspot_scenario(rng: &mut Lcg, key: String) -> MatrixScenario {
+    let token_scenarios = token_branch_route_hotspot_matrix();
+    let mut scenario = rng.choose(&token_scenarios).clone();
+    scenario.key = key;
+    scenario.source = MatrixSource::Random;
+    scenario.family = format!("random.{}", scenario.family);
+    scenario
 }
 
 fn random_select_scenario(
@@ -1081,6 +1218,7 @@ fn sample_scenario(
     let perf = query_surface_with_perf(fixture, scenario)
         .map_err(|err| Box::new(matrix_failure_from_error(scenario, err)))?;
     let attribution = perf.attribution;
+    let compile = attribution.compile;
     let grouped = attribution.grouped;
     let pure_covering = attribution.pure_covering;
     let hybrid_covering = attribution.hybrid_covering;
@@ -1094,6 +1232,19 @@ fn sample_scenario(
         family: scenario.family.clone(),
         sql: scenario.sql.clone(),
         compile_local_instructions: attribution.compile_local_instructions,
+        compile_cache_key_local_instructions: compile.cache_key_local_instructions,
+        compile_cache_lookup_local_instructions: compile.cache_lookup_local_instructions,
+        compile_parse_local_instructions: compile.parse_local_instructions,
+        compile_parse_tokenize_local_instructions: compile.parse_tokenize_local_instructions,
+        compile_parse_select_local_instructions: compile.parse_select_local_instructions,
+        compile_parse_expr_local_instructions: compile.parse_expr_local_instructions,
+        compile_parse_predicate_local_instructions: compile.parse_predicate_local_instructions,
+        compile_aggregate_lane_check_local_instructions: compile
+            .aggregate_lane_check_local_instructions,
+        compile_prepare_local_instructions: compile.prepare_local_instructions,
+        compile_lower_local_instructions: compile.lower_local_instructions,
+        compile_bind_local_instructions: compile.bind_local_instructions,
+        compile_cache_insert_local_instructions: compile.cache_insert_local_instructions,
         execute_local_instructions: attribution.execute_local_instructions,
         planner_local_instructions: attribution.execution.planner_local_instructions,
         store_local_instructions: attribution.execution.store_local_instructions,
@@ -1306,6 +1457,10 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
     append_ranked_table(
         output,
         "Top Compile Instructions",
+        ranked_by(samples, |sample| sample.compile_local_instructions),
+    );
+    append_compile_phase_table(
+        output,
         ranked_by(samples, |sample| sample.compile_local_instructions),
     );
     append_ranked_table(
@@ -1633,6 +1788,54 @@ fn append_blob_output_table(output: &mut String, title: &str, samples: Vec<&Matr
             sample.output_blob_hex_bytes,
             sample.total_local_instructions,
             sample.outcome.row_count,
+            sample.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_compile_phase_table(output: &mut String, samples: Vec<&MatrixSample>) {
+    let samples = samples
+        .into_iter()
+        .filter(|sample| sample.compile_local_instructions > 0)
+        .collect::<Vec<_>>();
+    if samples.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## Top Compile Phase Instructions").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Compile | Cache Key | Cache Lookup | Parse | Tokenize | Select | Expr | Predicate | Aggregate Check | Prepare | Lower | Bind | Cache Insert | Total | SQL |"
+    )
+    .expect("write to string should succeed");
+    writeln!(
+        output,
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    )
+    .expect("write to string should succeed");
+    for sample in samples {
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            sample.key,
+            sample.surface,
+            sample.compile_local_instructions,
+            sample.compile_cache_key_local_instructions,
+            sample.compile_cache_lookup_local_instructions,
+            sample.compile_parse_local_instructions,
+            sample.compile_parse_tokenize_local_instructions,
+            sample.compile_parse_select_local_instructions,
+            sample.compile_parse_expr_local_instructions,
+            sample.compile_parse_predicate_local_instructions,
+            sample.compile_aggregate_lane_check_local_instructions,
+            sample.compile_prepare_local_instructions,
+            sample.compile_lower_local_instructions,
+            sample.compile_bind_local_instructions,
+            sample.compile_cache_insert_local_instructions,
+            sample.total_local_instructions,
             sample.sql.replace('|', "\\|"),
         )
         .expect("write to string should succeed");
@@ -1986,6 +2189,89 @@ fn sql_perf_generated_matrix_has_stable_shape() {
 }
 
 #[test]
+fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
+    let deterministic = deterministic_matrix();
+    let scenarios_by_key = deterministic
+        .iter()
+        .enumerate()
+        .map(|(position, scenario)| (scenario.key.as_str(), (position, scenario)))
+        .collect::<BTreeMap<_, _>>();
+    let expected_keys = [
+        "token.collection_stage_id.branch_set.page_only.limit50",
+        "token.collection_stage_id.branch_set.covering_page_only.limit50",
+        "token.collection_stage_id.branch_set.noncovered_page_only.limit50",
+        "token.collection_stage_id.branch_set.full_entity.limit50",
+        "token.collection_stage_id.branch_set.index_residual_covering.limit3",
+        "token.collection_stage_id.branch_set.count",
+        "token.collection_stage_id.branch_set.duplicate_count",
+        "token.collection_stage_id.branch_set.wide_page_only.limit50",
+        "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
+        "token.collection_stage_id.overcap_fallback.page_only.limit50",
+        "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
+    ];
+
+    for key in expected_keys {
+        let (position, scenario) = scenarios_by_key
+            .get(key)
+            .unwrap_or_else(|| panic!("deterministic matrix should include route hotspot {key}"));
+        assert!(
+            *position < DEFAULT_MATRIX_LIMIT,
+            "route hotspot {key} should run inside the default matrix window; position={position}"
+        );
+        assert_eq!(scenario.surface, MatrixSurface::Token);
+        assert!(
+            scenario.family.starts_with("route."),
+            "route hotspot {key} should be grouped under route families"
+        );
+        assert!(
+            scenario.sql.contains("FROM PerfAuditToken"),
+            "route hotspot {key} should target the token fixture"
+        );
+        assert!(
+            scenario
+                .sql
+                .contains("collection_id = '01KV5N439P0000000000000000'"),
+            "route hotspot {key} should keep the fixed collection prefix"
+        );
+    }
+
+    let branch = scenarios_by_key
+        .get("token.collection_stage_id.branch_set.page_only.limit50")
+        .expect("branch-set route hotspot should exist")
+        .1;
+    assert!(
+        branch.sql.contains("stage IN ('Draft', 'Review')"),
+        "branch-set route hotspot should use the small exact stage set"
+    );
+    assert!(
+        branch.sql.contains("ORDER BY id ASC LIMIT 50"),
+        "branch-set route hotspot should preserve the primary-key page order"
+    );
+
+    let wide_branch = scenarios_by_key
+        .get("token.collection_stage_id.branch_set.wide_page_only.limit50")
+        .expect("wide branch-set route hotspot should exist")
+        .1;
+    assert!(
+        wide_branch.sql.contains(
+            "stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden')"
+        ),
+        "wide branch-set hotspot should cover the admitted nine-branch route"
+    );
+
+    let over_cap = scenarios_by_key
+        .get("token.collection_stage_id.overcap_fallback.page_only.limit50")
+        .expect("over-cap route hotspot should exist")
+        .1;
+    assert!(
+        over_cap.sql.contains(
+            "stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07')"
+        ),
+        "over-cap route hotspot should exceed the branch-set admission cap"
+    );
+}
+
+#[test]
 fn sql_perf_matrix_exact_key_filter_selects_known_scenarios() {
     let deterministic = deterministic_matrix();
     let selected = filter_matrix_scenarios(
@@ -2155,6 +2441,60 @@ fn sql_perf_matrix_main_fixture_hotspots_exclude_storage_mirror_baselines() {
 }
 
 #[test]
+fn sql_perf_matrix_reports_compile_phase_hotspots() {
+    let mut sample = report_matrix_sample(
+        "token.collection_stage_id.overcap_fallback.page_only.limit50",
+        "token",
+        240,
+        10,
+        "SELECT id FROM PerfAuditToken WHERE collection_id = '01KV5N439P0000000000000000' AND stage IN ('Draft', 'Review', 'Hold') ORDER BY id ASC LIMIT 50",
+    );
+    sample.compile_local_instructions = 120;
+    sample.compile_cache_key_local_instructions = 7;
+    sample.compile_cache_lookup_local_instructions = 5;
+    sample.compile_parse_local_instructions = 30;
+    sample.compile_parse_tokenize_local_instructions = 11;
+    sample.compile_parse_select_local_instructions = 8;
+    sample.compile_parse_expr_local_instructions = 4;
+    sample.compile_parse_predicate_local_instructions = 7;
+    sample.compile_aggregate_lane_check_local_instructions = 3;
+    sample.compile_prepare_local_instructions = 13;
+    sample.compile_lower_local_instructions = 17;
+    sample.compile_bind_local_instructions = 19;
+    sample.compile_cache_insert_local_instructions = 26;
+
+    let report = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        generated_scenario_count: 1,
+        executed_scenario_count: 1,
+        failed_scenario_count: 0,
+        matrix_limit: 1,
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples: vec![sample],
+        failures: Vec::new(),
+    };
+
+    let markdown = matrix_markdown(&report);
+    let compile_phase_section = markdown
+        .split("## Top Compile Phase Instructions")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("compile phase hotspot section should render");
+
+    assert!(
+        compile_phase_section
+            .contains("token.collection_stage_id.overcap_fallback.page_only.limit50"),
+        "compile phase section should include scenarios with compile attribution",
+    );
+    assert!(
+        compile_phase_section.contains("| `token.collection_stage_id.overcap_fallback.page_only.limit50` | token | 120 | 7 | 5 | 30 | 11 | 8 | 4 | 7 | 3 | 13 | 17 | 19 | 26 | 240 |"),
+        "compile phase section should expose cache, parse, prepare, lower, bind, and insert costs",
+    );
+}
+
+#[test]
 fn sql_perf_matrix_reports_pure_covering_hotspots() {
     let samples = vec![main_fixture_sample_with_pure_covering(
         "user.select.pk.id_only.pk_asc.limit1",
@@ -2272,6 +2612,18 @@ fn report_matrix_sample(
         family: "select.pk.all.pk_asc".to_string(),
         sql: sql.to_string(),
         compile_local_instructions: 1,
+        compile_cache_key_local_instructions: 0,
+        compile_cache_lookup_local_instructions: 0,
+        compile_parse_local_instructions: 0,
+        compile_parse_tokenize_local_instructions: 0,
+        compile_parse_select_local_instructions: 0,
+        compile_parse_expr_local_instructions: 0,
+        compile_parse_predicate_local_instructions: 0,
+        compile_aggregate_lane_check_local_instructions: 0,
+        compile_prepare_local_instructions: 0,
+        compile_lower_local_instructions: 0,
+        compile_bind_local_instructions: 0,
+        compile_cache_insert_local_instructions: 0,
         execute_local_instructions: total.saturating_sub(1),
         planner_local_instructions: 0,
         store_local_instructions: store,

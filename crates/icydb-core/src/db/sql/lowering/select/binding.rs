@@ -4,7 +4,7 @@ use crate::{
         query::plan::expr::{BinaryOp, CaseWhenArm, Expr},
         schema::SchemaInfo,
     },
-    value::Value,
+    value::{Value, canonicalize_value_set},
 };
 
 // Canonicalize strict numeric SQL predicate literals onto the resolved model
@@ -253,10 +253,11 @@ fn canonicalize_sql_compare_list_for_schema(
         }
         _ => return None,
     };
-    let items = items
+    let mut items = items
         .iter()
         .map(|item| schema.canonicalize_strict_sql_literal(field, item))
         .collect::<Option<Vec<_>>>()?;
+    canonicalize_value_set(&mut items);
 
     Some((items, coercion))
 }

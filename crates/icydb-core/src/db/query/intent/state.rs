@@ -3,8 +3,6 @@
 //! Does not own: planner semantic validation or executor runtime behavior.
 //! Boundary: records intent-shape state consumed by planner-owned validation/build stages.
 
-#[cfg(any(test, feature = "sql"))]
-use crate::db::query::plan::expr::normalized_bool_expr_from_predicate;
 use crate::db::{
     predicate::Predicate,
     query::{
@@ -79,15 +77,14 @@ impl NormalizedFilter {
         }
     }
 
-    /// Build one normalized filter from a runtime predicate by routing it
-    /// through the planner-owned boolean-expression representation.
+    /// Build one invisible filter from an already-normalized runtime predicate.
     #[must_use]
     #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db::query::intent) fn from_normalized_predicate(predicate: Predicate) -> Self {
-        let expr = normalized_bool_expr_from_predicate(&predicate);
-
+    pub(in crate::db::query::intent) const fn from_normalized_predicate(
+        predicate: Predicate,
+    ) -> Self {
         Self {
-            expr,
+            expr: Expr::Literal(crate::value::Value::Bool(true)),
             predicate_subset: Some(predicate),
             predicate_subset_covers_expr: false,
             filter_expr_visible: false,

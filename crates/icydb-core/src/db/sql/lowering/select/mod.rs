@@ -1,3 +1,8 @@
+//! Module: sql::lowering::select
+//! Responsibility: lower SQL SELECT-like query tails into structural query contracts.
+//! Does not own: SQL parsing, executor planning, or runtime execution.
+//! Boundary: binds lowered SQL clauses to query intent using schema-owned validation.
+
 mod aggregate;
 mod binding;
 mod order;
@@ -644,7 +649,7 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
             }
         } else if let Some(predicate) = filter.predicate_subset {
             let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-            query = query.filter_predicate(predicate);
+            query = query.filter_normalized_predicate(predicate);
         }
     }
     query = apply_order_terms_structural(query, lowered.order_by);

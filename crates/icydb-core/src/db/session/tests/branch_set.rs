@@ -42,6 +42,7 @@ fn branch_target_duplicate_literal_sql(select: &str, limit: usize) -> String {
     )
 }
 
+#[cfg(feature = "diagnostics")]
 fn branch_target_index_residual_sql(select: &str, limit: usize) -> String {
     format!(
         "SELECT {select} \
@@ -54,7 +55,7 @@ fn branch_target_index_residual_sql(select: &str, limit: usize) -> String {
     )
 }
 
-fn branch_target_over_cap_sql(select: &str, limit: usize) -> String {
+fn branch_target_wide_sql(select: &str, limit: usize) -> String {
     format!(
         "SELECT {select} \
          FROM BranchIndexedSessionSqlEntity \
@@ -68,7 +69,8 @@ fn branch_target_over_cap_sql(select: &str, limit: usize) -> String {
     )
 }
 
-fn branch_target_over_cap_sparse_sql(select: &str, limit: usize) -> String {
+#[cfg(feature = "diagnostics")]
+fn branch_target_wide_sparse_sql(select: &str, limit: usize) -> String {
     format!(
         "SELECT {select} \
          FROM BranchIndexedSessionSqlEntity \
@@ -80,6 +82,41 @@ fn branch_target_over_cap_sparse_sql(select: &str, limit: usize) -> String {
          ORDER BY id ASC \
          LIMIT {limit}",
     )
+}
+
+fn branch_target_over_cap_sql(select: &str, limit: usize) -> String {
+    let stages = branch_target_over_cap_stage_literals();
+
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ({stages}) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
+fn branch_target_over_cap_sparse_sql(select: &str, limit: usize) -> String {
+    let stages = branch_target_over_cap_stage_literals();
+
+    format!(
+        "SELECT {select} \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id = '{BRANCH_COLLECTION}' \
+           AND stage IN ({stages}) \
+         ORDER BY id ASC \
+         LIMIT {limit}",
+    )
+}
+
+fn branch_target_over_cap_stage_literals() -> String {
+    let mut stages = vec!["'Draft'".to_string(), "'Review'".to_string()];
+    stages.extend(
+        (0..crate::db::access::MAX_INDEX_BRANCH_SET_VALUES)
+            .map(|index| format!("'Missing{index:02}'")),
+    );
+    stages.join(", ")
 }
 
 fn seed_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
@@ -178,6 +215,7 @@ fn assert_target_top_n_fetch(descriptor: &ExplainExecutionNodeDescriptor) {
     );
 }
 
+#[cfg(feature = "diagnostics")]
 fn assert_pruned_draft_prefix_route(descriptor: &ExplainExecutionNodeDescriptor) {
     let prefix_node =
         explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::IndexPrefixScan)
@@ -213,6 +251,7 @@ fn expected_branch_rows(limit: usize) -> Vec<Vec<Value>> {
         .collect()
 }
 
+#[cfg(feature = "diagnostics")]
 fn expected_branch_id_title_rows(limit: usize) -> Vec<Vec<Value>> {
     [
         (9_090_u128, "draft-090"),
@@ -239,6 +278,7 @@ fn expected_branch_id_title_rows(limit: usize) -> Vec<Vec<Value>> {
     .collect()
 }
 
+#[cfg(feature = "diagnostics")]
 fn expected_branch_id_title_output_rows(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
     expected_branch_id_title_rows(limit)
         .into_iter()
@@ -256,6 +296,7 @@ fn expected_branch_ids(limit: usize) -> Vec<Ulid> {
     .collect()
 }
 
+#[cfg(feature = "diagnostics")]
 fn expected_draft_branch_rows(limit: usize) -> Vec<Vec<Value>> {
     [9_090_u128, 9_105, 9_120, 9_130, 9_150, 9_170]
         .into_iter()
@@ -269,6 +310,7 @@ fn expected_draft_branch_rows(limit: usize) -> Vec<Vec<Value>> {
         .collect()
 }
 
+#[cfg(feature = "diagnostics")]
 fn expected_draft_branch_output_rows(limit: usize) -> Vec<Vec<crate::value::OutputValue>> {
     expected_draft_branch_rows(limit)
         .into_iter()
@@ -323,6 +365,37 @@ fn session_branch_set_sql_admits_or_of_equality_branch_shape() {
     let descriptor = branch_descriptor(sql.as_str());
 
     assert_target_branch_route(&descriptor);
+    assert_target_top_n_fetch(&descriptor);
+}
+
+#[test]
+fn session_branch_set_sql_admits_nine_branch_route_under_current_cap() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_wide_sql("id", BRANCH_LIMIT);
+    let descriptor = branch_descriptor(sql.as_str());
+    let branch_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::IndexBranchSet)
+            .expect("nine-value IN list should stay inside the branch-set cap");
+    let Some(ExplainAccessPath::IndexBranchSet { branch_values, .. }) =
+        branch_node.access_strategy()
+    else {
+        panic!("wide branch route should expose branch values");
+    };
+
+    assert_eq!(
+        branch_values.len(),
+        9,
+        "wide branch route should preserve every exact branch literal",
+    );
+    assert!(
+        !explain_execution_contains_node_type(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort,
+        ),
+        "wide branch route should keep primary-key ordering without materialized sort",
+    );
     assert_target_top_n_fetch(&descriptor);
 }
 
@@ -757,6 +830,40 @@ fn session_branch_set_sql_key_only_projection_is_covered_and_bounded() {
     assert_eq!(
         attribution.scalar_aggregate, None,
         "default page-shaped branch query must not invoke an exact count path",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_wide_sparse_route_prunes_empty_branch_streams() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_wide_sparse_sql("id", BRANCH_LIMIT);
+    let descriptor = branch_descriptor(sql.as_str());
+
+    assert!(
+        explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::IndexBranchSet),
+        "sparse wide branch list should stay inside the branch-set route",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("sparse wide branch SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("sparse wide branch SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| runtime_outputs(row))
+            .collect::<Vec<_>>(),
+        expected_branch_rows(BRANCH_LIMIT),
+        "sparse wide branch route should keep branch-merged primary-key order",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= BRANCH_HEAD_MERGE_READ_CAP,
+        "empty sparse branch prefixes should be pruned before stream merge, got {attribution:?}",
     );
 }
 

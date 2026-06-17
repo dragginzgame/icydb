@@ -3,13 +3,11 @@
 //! Does not own: boolean canonicalization, type inference, or projection evaluation.
 //! Boundary: all predicate-shaped expression crossings are exported from this module root.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 mod bridge;
 mod compile;
 mod compiled;
 
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db) use bridge::normalized_bool_expr_from_predicate;
 #[cfg(test)]
 pub(in crate::db) use bridge::{
     canonicalize_runtime_predicate_via_bool_expr, predicate_to_runtime_bool_expr_for_test,

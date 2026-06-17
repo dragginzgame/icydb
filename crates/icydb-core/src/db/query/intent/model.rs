@@ -190,10 +190,22 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         self.consistency
     }
 
+    /// Append one test-owned predicate after normalizing it at the intent boundary.
     #[must_use]
-    #[cfg(any(test, feature = "sql"))]
+    #[cfg(test)]
     pub(in crate::db::query) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.intent.append_predicate(normalize(&predicate));
+        self
+    }
+
+    /// Append one predicate that has already been normalized by the caller.
+    #[must_use]
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db::query) fn filter_normalized_predicate(
+        mut self,
+        predicate: Predicate,
+    ) -> Self {
+        self.intent.append_predicate(predicate);
         self
     }
 

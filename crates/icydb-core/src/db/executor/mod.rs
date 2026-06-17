@@ -10,6 +10,7 @@ mod delete;
 mod diagnostics;
 pub(in crate::db) mod explain;
 mod group;
+mod index_prefix_cardinality;
 mod kernel;
 mod mutation;
 mod order;
@@ -77,6 +78,7 @@ pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
     freeze_load_execution_route_facts_for_authority,
 };
+pub(in crate::db::executor) use index_prefix_cardinality::lowered_index_prefix_empty_bitmap;
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;

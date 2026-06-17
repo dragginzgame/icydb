@@ -6,7 +6,10 @@ use crate::{
             derive_normalized_bool_expr_predicate_subset,
         },
         sql::{
-            lowering::predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
+            lowering::predicate::{
+                derive_sql_where_expr_predicate_only_subset, lower_sql_where_bool_expr,
+                lower_sql_where_expr,
+            },
             parser::parse_sql,
         },
     },
@@ -105,6 +108,51 @@ fn lower_sql_where_expr_keeps_top_level_membership_compact() {
         values.len(),
         2,
         "compact membership predicate should canonicalize duplicate members",
+    );
+}
+
+#[test]
+fn derive_where_predicate_only_subset_keeps_compare_and_membership_compact() {
+    let expr = parse_where_expr(
+        "SELECT * FROM users \
+         WHERE collection_id = '01KV5N439P0000000000000000' \
+           AND stage IN ('Draft', 'Review', 'Draft')",
+    );
+
+    let predicate = derive_sql_where_expr_predicate_only_subset(&expr)
+        .expect("simple compare plus membership WHERE should stay predicate-only");
+    let Predicate::And(children) = predicate else {
+        panic!("predicate-only conjunction should lower to one AND predicate");
+    };
+
+    assert!(
+        children.iter().any(|child| matches!(
+            child,
+            Predicate::Compare(compare)
+                if compare.field() == "collection_id"
+                    && compare.op() == CompareOp::Eq
+                    && compare.value()
+                        == &Value::Text("01KV5N439P0000000000000000".to_string())
+        )),
+        "predicate-only conjunction should retain the fixed equality prefix",
+    );
+    assert!(
+        children.iter().any(|child| matches!(
+            child,
+            Predicate::Compare(compare)
+                if compare.field() == "stage"
+                    && compare.op() == CompareOp::In
+                    && matches!(
+                        compare.value(),
+                        Value::List(values)
+                            if values.as_slice()
+                                == [
+                                    Value::Text("Draft".to_string()),
+                                    Value::Text("Review".to_string())
+                                ]
+                    )
+        )),
+        "predicate-only conjunction should keep membership compact and deduplicated",
     );
 }
 

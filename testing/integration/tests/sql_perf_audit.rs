@@ -1553,7 +1553,7 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 50";
 
-const TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL: &str = "\
+const TOKEN_BRANCH_SET_WIDE_PAGE_LIMIT50_SQL: &str = "\
 SELECT id \
 FROM PerfAuditToken \
 WHERE collection_id = '01KV5N439P0000000000000000' \
@@ -1561,11 +1561,27 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 50";
 
-const TOKEN_BRANCH_SET_OVERCAP_FALLBACK_NONCOVERED_LIMIT50_SQL: &str = "\
+const TOKEN_BRANCH_SET_WIDE_NONCOVERED_PAGE_LIMIT50_SQL: &str = "\
 SELECT id, title \
 FROM PerfAuditToken \
 WHERE collection_id = '01KV5N439P0000000000000000' \
   AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden') \
+ORDER BY id ASC \
+LIMIT 50";
+
+const TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL: &str = "\
+SELECT id \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07') \
+ORDER BY id ASC \
+LIMIT 50";
+
+const TOKEN_BRANCH_SET_OVERCAP_FALLBACK_NONCOVERED_LIMIT50_SQL: &str = "\
+SELECT id, title \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden', 'Missing00', 'Missing01', 'Missing02', 'Missing03', 'Missing04', 'Missing05', 'Missing06', 'Missing07') \
 ORDER BY id ASC \
 LIMIT 50";
 
@@ -1612,6 +1628,20 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_collection_stage_id",
             "branch_set_noncovered_page_only",
             TOKEN_BRANCH_SET_NONCOVERED_PAGE_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.wide_page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_wide_page_only",
+            TOKEN_BRANCH_SET_WIDE_PAGE_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.branch_set.wide_noncovered_page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_wide_noncovered_page_only",
+            TOKEN_BRANCH_SET_WIDE_NONCOVERED_PAGE_LIMIT50_SQL,
         ),
         scenario(
             "token.collection_stage_id.overcap_fallback.page_only.limit50",
@@ -3071,6 +3101,11 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         &baseline,
         one_sample_sql_perf_scenario("token.collection_stage_id.branch_set.page_only.limit50"),
     );
+    let wide_branch = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario("token.collection_stage_id.branch_set.wide_page_only.limit50"),
+    );
     let fallback = sample_perf_scenario(
         &fixture,
         &baseline,
@@ -3079,6 +3114,7 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         ),
     );
     print_branch_set_perf_sample("limit50 branch", &branch);
+    print_branch_set_perf_sample("limit50 wide branch", &wide_branch);
     print_branch_set_perf_sample("limit50 overcap fallback", &fallback);
     let execute_delta = i128::from(fallback.avg_execute_local_instructions)
         - i128::from(branch.avg_execute_local_instructions);
@@ -3095,8 +3131,16 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         "over-cap fallback comparator should return the same page result as the branch route",
     );
     assert_eq!(
+        wide_branch.outcome, branch.outcome,
+        "wide branch-set comparator should return the same page result as the small branch route",
+    );
+    assert_eq!(
         branch.avg_data_store_get_calls, 0,
         "covered branch-set LIMIT 50 pressure query should avoid row-store get() calls",
+    );
+    assert_eq!(
+        wide_branch.avg_data_store_get_calls, 0,
+        "covered wide branch-set LIMIT 50 pressure query should avoid row-store get() calls",
     );
     assert!(
         branch.avg_index_store_entry_reads <= 128,
@@ -3107,6 +3151,12 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         branch.avg_execute_local_instructions < fallback.avg_execute_local_instructions,
         "branch-set LIMIT 50 should execute cheaper than the over-cap fallback; branch={} fallback={}",
         branch.avg_execute_local_instructions,
+        fallback.avg_execute_local_instructions,
+    );
+    assert!(
+        wide_branch.avg_execute_local_instructions < fallback.avg_execute_local_instructions,
+        "wide branch-set LIMIT 50 should execute cheaper than the over-cap fallback; wide={} fallback={}",
+        wide_branch.avg_execute_local_instructions,
         fallback.avg_execute_local_instructions,
     );
 }
@@ -3291,6 +3341,29 @@ fn assert_token_branch_set_limit50_explain_contract(fixture: &StandaloneCanister
         "token branch-set LIMIT 50 EXPLAIN must not materialize-sort the page route: {branch_explain}",
     );
 
+    let wide_branch_explain = query_surface_with_perf(
+        fixture,
+        SqlPerfSurface::Token,
+        format!("EXPLAIN EXECUTION {TOKEN_BRANCH_SET_WIDE_PAGE_LIMIT50_SQL}").as_str(),
+        1,
+    )
+    .expect("token wide branch-set LIMIT 50 EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain {
+        explain: wide_branch_explain,
+        ..
+    } = wide_branch_explain.result
+    else {
+        panic!("token wide branch-set LIMIT 50 EXPLAIN EXECUTION should return explain output");
+    };
+    assert!(
+        wide_branch_explain.contains("IndexBranchSet"),
+        "token wide branch-set LIMIT 50 EXPLAIN should expose the branch-aware route: {wide_branch_explain}",
+    );
+    assert!(
+        !wide_branch_explain.contains("OrderByMaterializedSort"),
+        "token wide branch-set LIMIT 50 EXPLAIN must not materialize-sort the page route: {wide_branch_explain}",
+    );
+
     let fallback_explain = query_surface_with_perf(
         fixture,
         SqlPerfSurface::Token,
@@ -3368,6 +3441,20 @@ fn assert_token_branch_set_limit50_fallback_rows_match(fixture: &StandaloneCanis
     assert_eq!(
         fallback_rows, branch_rows,
         "over-cap fallback comparator should return the same first page as the branch route",
+    );
+    let wide_branch_rows = rendered_projection_rows(
+        query_surface_with_perf(
+            fixture,
+            SqlPerfSurface::Token,
+            TOKEN_BRANCH_SET_WIDE_PAGE_LIMIT50_SQL,
+            1,
+        )
+        .expect("token wide branch-set LIMIT 50 query should succeed")
+        .result,
+    );
+    assert_eq!(
+        wide_branch_rows, branch_rows,
+        "wide branch-set comparator should return the same first page as the small branch route",
     );
 }
 

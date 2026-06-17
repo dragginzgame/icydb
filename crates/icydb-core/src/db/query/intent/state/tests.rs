@@ -150,6 +150,32 @@ fn append_predicate_ands_multiple_filters() {
 }
 
 #[test]
+fn append_predicate_keeps_invisible_filter_expression_trivial() {
+    let mut intent = QueryIntent::<u64>::new();
+    intent.append_predicate(Predicate::And(vec![Predicate::True, Predicate::False]));
+
+    let filter = intent
+        .scalar()
+        .filter
+        .as_ref()
+        .expect("predicate append should create one scalar filter");
+
+    assert!(
+        filter.logical_filter_expr().is_none(),
+        "predicate-only filters should not expose a logical filter expression",
+    );
+    assert_eq!(
+        filter.expr,
+        Expr::Literal(Value::Bool(true)),
+        "invisible predicate-only filters should not rebuild a boolean expression tree",
+    );
+    assert!(
+        filter.predicate_subset().is_some(),
+        "predicate-only filters should retain predicate access-planning identity",
+    );
+}
+
+#[test]
 fn push_order_terms_preserve_declared_order_sequence() {
     let mut intent = QueryIntent::<u64>::new();
     intent.push_order_term(crate::db::asc("rank").lower());

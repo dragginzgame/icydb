@@ -25,7 +25,8 @@ impl<K> QueryIntent<K> {
         self.append_normalized_filter(NormalizedFilter::from_normalized_expr(expr));
     }
 
-    /// Append one filter predicate to scalar intent, implicitly AND-ing chains.
+    /// Append one already-normalized filter predicate to scalar intent,
+    /// implicitly AND-ing chains.
     #[cfg(any(test, feature = "sql"))]
     pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
         self.append_normalized_filter(NormalizedFilter::from_normalized_predicate(predicate));
