@@ -76,6 +76,34 @@ fn tokenize_sql_preserves_qualified_identifier_segments() {
 }
 
 #[test]
+fn tokenize_sql_decodes_string_literals_without_losing_escaped_or_utf8_text() {
+    let tokens = tokenize_sql("'Draft' '' 'Review''s' 'caf\u{00e9}'")
+        .expect("string literals should tokenize");
+
+    let kinds = tokens
+        .into_iter()
+        .map(|token| token.kind)
+        .collect::<Vec<_>>();
+
+    std::assert_matches!(
+        kinds.first(),
+        Some(TokenKind::StringLiteral(value)) if value == "Draft"
+    );
+    std::assert_matches!(
+        kinds.get(1),
+        Some(TokenKind::StringLiteral(value)) if value.is_empty()
+    );
+    std::assert_matches!(
+        kinds.get(2),
+        Some(TokenKind::StringLiteral(value)) if value == "Review's"
+    );
+    std::assert_matches!(
+        kinds.get(3),
+        Some(TokenKind::StringLiteral(value)) if value == "caf\u{00e9}"
+    );
+}
+
+#[test]
 fn tokenize_sql_decodes_hex_blob_literals() {
     let tokens = tokenize_sql("X'0A0b' x'FF'").expect("blob literals should tokenize");
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- SQL parsing now moves consumed string literals, lexes simple strings from
+  source slices, and skips whole-expression clones when no WHERE postfix
+  predicate can follow, reducing cold compile cost for literal-heavy `IN`
+  filters.
+
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)

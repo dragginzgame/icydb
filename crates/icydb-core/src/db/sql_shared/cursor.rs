@@ -41,9 +41,11 @@ impl SqlTokenCursor {
         if matches!(self.peek_kind(), Some(TokenKind::BlobLiteral(_))) {
             return self.take_blob_literal();
         }
+        if matches!(self.peek_kind(), Some(TokenKind::StringLiteral(_))) {
+            return self.take_string_literal();
+        }
 
         let literal = match self.peek_kind() {
-            Some(TokenKind::StringLiteral(value)) => Value::Text(value.clone()),
             Some(TokenKind::Number(value)) => parse_number_literal(value.as_str())?,
             Some(TokenKind::Keyword(Keyword::Null)) => Value::Null,
             Some(TokenKind::Keyword(Keyword::True)) => Value::Bool(true),
@@ -59,6 +61,25 @@ impl SqlTokenCursor {
         self.advance();
 
         Ok(literal)
+    }
+
+    // Move text literal payloads out of the token buffer just like blob
+    // literals. Large `IN ('...')` lists otherwise clone every string once
+    // between tokenization and parser AST construction.
+    fn take_string_literal(&mut self) -> Result<Value, SqlParseError> {
+        let Some(token) = self.tokens.get_mut(self.pos) else {
+            return Err(SqlParseError::expected(
+                SqlExpectedToken::Literal,
+                self.peek_kind(),
+            ));
+        };
+        let TokenKind::StringLiteral(value) = std::mem::replace(&mut token.kind, TokenKind::Comma)
+        else {
+            unreachable!("sql cursor invariant");
+        };
+        self.pos += 1;
+
+        Ok(Value::Text(value))
     }
 
     // Move large SQL blob literal payloads out of the token buffer instead of

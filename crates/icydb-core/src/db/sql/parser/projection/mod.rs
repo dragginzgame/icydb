@@ -201,6 +201,7 @@ impl Parser {
 
         loop {
             if surface.allows_predicate_postfix()
+                && self.peek_where_postfix_start()
                 && let Some(expr) = self.try_parse_where_postfix_expr(left.clone(), surface)?
             {
                 left = expr;

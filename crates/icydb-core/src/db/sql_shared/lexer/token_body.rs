@@ -38,19 +38,37 @@ impl Lexer<'_> {
         &mut self,
     ) -> Result<String, crate::db::sql_shared::SqlParseError> {
         self.expect_byte(b'\'')?;
-        let mut out = String::new();
+        let mut segment_start = self.pos;
+        let mut out = None;
         while let Some(byte) = self.peek_byte() {
             self.pos += 1;
             if byte == b'\'' {
                 if self.peek_byte() == Some(b'\'') {
+                    let out = out.get_or_insert_with(String::new);
+                    out.push_str(string_literal_slice(
+                        self.bytes,
+                        segment_start,
+                        self.pos - 1,
+                    ));
                     self.pos += 1;
                     out.push('\'');
+                    segment_start = self.pos;
                     continue;
                 }
 
-                return Ok(out);
+                if let Some(mut out) = out {
+                    out.push_str(string_literal_slice(
+                        self.bytes,
+                        segment_start,
+                        self.pos - 1,
+                    ));
+                    return Ok(out);
+                }
+
+                return Ok(
+                    string_literal_slice(self.bytes, segment_start, self.pos - 1).to_owned(),
+                );
             }
-            out.push(byte as char);
         }
 
         Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
@@ -98,6 +116,10 @@ impl Lexer<'_> {
             ),
         }
     }
+}
+
+fn string_literal_slice(bytes: &[u8], start: usize, end: usize) -> &str {
+    std::str::from_utf8(&bytes[start..end]).expect("SQL source bytes must remain utf-8")
 }
 
 // Decode the SQL-standard-ish `X'ABCD'` blob surface at the lexical boundary so

@@ -9,6 +9,23 @@ use crate::{
 };
 
 impl Parser {
+    pub(super) fn peek_where_postfix_start(&self) -> bool {
+        if self.peek_keyword(Keyword::Is)
+            || self.peek_keyword(Keyword::In)
+            || self.peek_keyword(Keyword::Between)
+            || self.cursor.peek_identifier_keyword("LIKE")
+            || self.cursor.peek_identifier_keyword("ILIKE")
+        {
+            return true;
+        }
+
+        self.cursor.peek_keyword(Keyword::Not)
+            && (self.cursor.peek_identifier_keyword_at(1, "LIKE")
+                || self.cursor.peek_identifier_keyword_at(1, "ILIKE")
+                || self.cursor.peek_keyword_at(1, Keyword::In)
+                || self.cursor.peek_keyword_at(1, Keyword::Between))
+    }
+
     pub(super) fn try_parse_where_postfix_expr(
         &mut self,
         left: SqlExpr,
