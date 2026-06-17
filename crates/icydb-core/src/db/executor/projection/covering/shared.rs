@@ -404,3 +404,131 @@ pub(super) fn decode_hybrid_covering_components(
 
     Ok(decoded)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        db::{
+            access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
+            predicate::MissingRowPolicy,
+            query::plan::AccessPlannedQuery,
+        },
+        model::{field::FieldKind, index::IndexModel},
+        traits::EntitySchema,
+        types::Ulid,
+    };
+
+    const COLLECTION_STAGE_ID_FIELDS: [&str; 3] = ["collection_id", "stage", "id"];
+    const COLLECTION_STAGE_ID_INDEX: IndexModel = IndexModel::generated(
+        "covering_window::tests::collection_stage_id",
+        "covering_window::tests::CoveringWindowEntity",
+        &COLLECTION_STAGE_ID_FIELDS,
+        false,
+    );
+
+    crate::test_schema_entity! {
+        ident = CoveringWindowEntity,
+        entity_name = "CoveringWindowEntity",
+        key_type = Ulid,
+        primary_key = [id],
+        fields = [
+            crate::test_field! { id: Ulid => FieldKind::Ulid },
+            crate::test_field! { collection_id: () => FieldKind::Text { max_len: None } },
+            crate::test_field! { stage: () => FieldKind::Text { max_len: None } },
+        ],
+        indexes = [&COLLECTION_STAGE_ID_INDEX],
+    }
+
+    fn index_contract() -> SemanticIndexAccessContract {
+        SemanticIndexAccessContract::model_only_from_generated_index(COLLECTION_STAGE_ID_INDEX)
+    }
+
+    fn finalized_plan(access: AccessPath<Value>) -> AccessPlannedQuery {
+        let mut plan = AccessPlannedQuery::new(access, MissingRowPolicy::Ignore);
+        plan.finalize_static_execution_planning_contract_for_model_only(
+            <CoveringWindowEntity as EntitySchema>::MODEL,
+        )
+        .expect("covering-window tests require frozen primary-key metadata");
+
+        plan
+    }
+
+    #[test]
+    fn covering_window_rejects_prefix_before_primary_key_suffix() {
+        let plan = finalized_plan(AccessPath::IndexPrefix {
+            index: index_contract(),
+            values: vec![Value::Text("collection-a".to_string())],
+        });
+
+        assert!(
+            !access_preserves_primary_key_order_for_covering_window(
+                &plan,
+                CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+            ),
+            "prefix (collection_id) leaves stage before id, so index order is not global primary-key order",
+        );
+    }
+
+    #[test]
+    fn covering_window_accepts_prefix_at_primary_key_suffix() {
+        let plan = finalized_plan(AccessPath::IndexPrefix {
+            index: index_contract(),
+            values: vec![
+                Value::Text("collection-a".to_string()),
+                Value::Text("Draft".to_string()),
+            ],
+        });
+
+        assert!(
+            access_preserves_primary_key_order_for_covering_window(
+                &plan,
+                CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+            ),
+            "prefix (collection_id, stage) consumes every non-primary component before id",
+        );
+    }
+
+    #[test]
+    fn covering_window_accepts_branch_set_at_primary_key_suffix() {
+        let branch_plan = AccessPlan::index_branch_set_from_contract(
+            index_contract(),
+            vec![Value::Text("collection-a".to_string())],
+            vec![
+                Value::Text("Draft".to_string()),
+                Value::Text("Review".to_string()),
+            ],
+        );
+        let plan = finalized_plan(
+            branch_plan
+                .as_path()
+                .expect("branch-set helper should produce a path")
+                .clone(),
+        );
+
+        assert!(
+            access_preserves_primary_key_order_for_covering_window(
+                &plan,
+                CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+            ),
+            "branch-set streams consume collection_id and stage before merging by id",
+        );
+    }
+
+    #[test]
+    fn covering_scan_window_does_not_prelimit_unproven_primary_key_order() {
+        let scan_window = covering_scan_window(
+            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+            false,
+            true,
+            false,
+            Some(&PageSpec {
+                limit: Some(8),
+                offset: 0,
+            }),
+        );
+
+        assert_eq!(scan_window.limit, usize::MAX);
+        assert!(!scan_window.page_window_applied);
+    }
+}

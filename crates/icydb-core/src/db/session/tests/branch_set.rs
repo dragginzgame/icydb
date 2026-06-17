@@ -359,6 +359,36 @@ fn session_branch_set_sql_over_cap_fallback_filters_before_primary_key_limit() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_over_cap_covering_fallback_does_not_prelimit_prefix_stream() {
+    const OVER_CAP_LIMIT: usize = 8;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_over_cap_sparse_sql("id", OVER_CAP_LIMIT);
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("over-cap covered fallback SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("over-cap covered fallback SQL should return projection rows");
+    };
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| runtime_outputs(row))
+            .collect::<Vec<_>>(),
+        expected_branch_rows(OVER_CAP_LIMIT),
+        "covered over-cap fallback must filter and sort before the page limit",
+    );
+    assert!(
+        attribution.index_store_entry_reads > OVER_CAP_LIMIT as u64,
+        "over-cap fallback must not cap prefix traversal at the page limit before filtering, got {attribution:?}",
+    );
+}
+
 #[test]
 fn session_branch_set_sql_rows_match_full_filter_primary_key_sort() {
     reset_indexed_session_sql_store();
