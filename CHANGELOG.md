@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.13` separates pure covering, hybrid covering, and materialized SQL
+  projection diagnostics so perf audits can rank sparse covering hotspots
+  while full-entity reads stay on the materialized route.
+
 - `0.183.12` keeps key-only and planner-proven hybrid covering fallbacks from
   hydrating rows before index-only residual filtering, materialized primary-key
   reordering, and the final page window have run.

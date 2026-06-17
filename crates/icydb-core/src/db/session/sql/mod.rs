@@ -58,9 +58,9 @@ pub use crate::db::sql::ddl::{SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlP
 pub(in crate::db) use attribution::SqlExecutePhaseAttribution;
 #[cfg(feature = "diagnostics")]
 pub use attribution::{
-    SqlCompileAttribution, SqlExecutionAttribution, SqlOutputBlobAttribution,
-    SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
-    SqlScalarAggregateAttribution,
+    SqlCompileAttribution, SqlExecutionAttribution, SqlHybridCoveringAttribution,
+    SqlOutputBlobAttribution, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
+    SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
 };
 pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
 pub(in crate::db::session::sql) use cache::{
@@ -133,6 +133,39 @@ const fn sql_query_cache_attribution_from_phases(
         shared_query_plan_hits: merged.shared_query_plan_cache_hits,
         shared_query_plan_misses: merged.shared_query_plan_cache_misses,
     }
+}
+
+#[cfg(feature = "diagnostics")]
+const fn sql_hybrid_covering_attribution_from_projection_metrics(
+    metrics: SqlProjectionMaterializationMetrics,
+) -> Option<SqlHybridCoveringAttribution> {
+    if metrics.hybrid_covering_path_hits > 0
+        || metrics.hybrid_covering_index_field_accesses > 0
+        || metrics.hybrid_covering_row_field_accesses > 0
+    {
+        return Some(SqlHybridCoveringAttribution {
+            path_hits: metrics.hybrid_covering_path_hits,
+            index_field_accesses: metrics.hybrid_covering_index_field_accesses,
+            row_field_accesses: metrics.hybrid_covering_row_field_accesses,
+        });
+    }
+
+    None
+}
+
+#[cfg(feature = "diagnostics")]
+const fn sql_pure_covering_attribution_from_local_instructions(
+    decode_local_instructions: u64,
+    row_assembly_local_instructions: u64,
+) -> Option<SqlPureCoveringAttribution> {
+    if decode_local_instructions > 0 || row_assembly_local_instructions > 0 {
+        return Some(SqlPureCoveringAttribution {
+            decode_local_instructions,
+            row_assembly_local_instructions,
+        });
+    }
+
+    None
 }
 
 /// Parsed SQL endpoint surface used by generated SQL helper dispatch.
@@ -644,8 +677,11 @@ impl<C: CanisterKind> DbSession<C> {
         let pure_covering_decode_before = current_pure_covering_decode_local_instructions();
         let pure_covering_row_assembly_before =
             current_pure_covering_row_assembly_local_instructions();
-        let (result, execute_cache_attribution, execute_phase_attribution) =
-            self.execute_compiled_sql_context_with_phase_attribution::<E>(&compiled)?;
+        let (executed, projection_materialization) =
+            with_sql_projection_materialization_metrics(|| {
+                self.execute_compiled_sql_context_with_phase_attribution::<E>(&compiled)
+            });
+        let (result, execute_cache_attribution, execute_phase_attribution) = executed?;
         let store_counters = store_counters_before.delta_since();
         let pure_covering_decode_local_instructions =
             current_pure_covering_decode_local_instructions()
@@ -676,12 +712,12 @@ impl<C: CanisterKind> DbSession<C> {
                 ),
             },
         );
-        let pure_covering = (pure_covering_decode_local_instructions > 0
-            || pure_covering_row_assembly_local_instructions > 0)
-            .then_some(SqlPureCoveringAttribution {
-                decode_local_instructions: pure_covering_decode_local_instructions,
-                row_assembly_local_instructions: pure_covering_row_assembly_local_instructions,
-            });
+        let pure_covering = sql_pure_covering_attribution_from_local_instructions(
+            pure_covering_decode_local_instructions,
+            pure_covering_row_assembly_local_instructions,
+        );
+        let hybrid_covering =
+            sql_hybrid_covering_attribution_from_projection_metrics(projection_materialization);
         let output_blob = sql_output_blob_attribution(&result);
 
         Ok((
@@ -723,6 +759,7 @@ impl<C: CanisterKind> DbSession<C> {
                     execute_phase_attribution.scalar_aggregate_terminal,
                 ),
                 pure_covering,
+                hybrid_covering,
                 output_blob,
                 store_get_calls: store_counters.data_store_get_calls,
                 index_store_get_calls: store_counters.index_store_get_calls,

@@ -23,8 +23,8 @@ use crate::{
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
                 AccessChoiceResidualBurden, AccessPlannedQuery, CoveringExistingRowMode,
-                CoveringProjectionOrder, CoveringReadFieldSource, access_plan_label,
-                covering_read_execution_plan_from_fields_with_primary_key_names,
+                CoveringHybridReadExecutionPlan, CoveringProjectionOrder, CoveringReadFieldSource,
+                access_plan_label, covering_read_execution_plan_from_fields_with_primary_key_names,
                 covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
                 grouped_executor_handoff,
             },
@@ -93,14 +93,13 @@ struct LoadVerbosePreparation {
     access_choice: AccessChoiceExplainSnapshot,
     chosen_access_label: String,
     projected_fields: Vec<String>,
-    covering_scan: bool,
 }
 
 impl LoadVerbosePreparation {
     // Build the verbose-only projection bundle from the logical plan and the
     // already derived route plan so diagnostics remain a direct projection
     // of planner and route state.
-    fn from_route_plan(plan: &AccessPlannedQuery, route_plan: &ExecutionRoutePlan) -> Self {
+    fn from_plan(plan: &AccessPlannedQuery) -> Self {
         let access_choice = plan.access_choice().clone();
         let chosen_access_label = access_plan_label(&plan.access);
         let projected_fields = plan
@@ -113,7 +112,6 @@ impl LoadVerbosePreparation {
             access_choice,
             chosen_access_label,
             projected_fields,
-            covering_scan: route_plan.load_terminal_fast_path().is_some(),
         }
     }
 }
@@ -130,6 +128,7 @@ impl LoadVerbosePreparation {
 pub(in crate::db) struct LoadExecutionRouteFacts {
     route_plan: ExecutionRoutePlan,
     explain_preparation: LoadExplainPreparation,
+    hybrid_covering_read_plan: Option<CoveringHybridReadExecutionPlan>,
 }
 
 ///
@@ -209,6 +208,9 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         strict_predicate_compatible && explain_preparation.predicate_index_capability.is_some();
     let execution_mode = explain_execution_mode(route_plan);
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
+    let hybrid_covering_read_plan = route_facts.hybrid_covering_read_plan.as_ref();
+    let covering_projection_selected =
+        load_terminal_fast_path.is_some() || hybrid_covering_read_plan.is_some();
 
     // Phase 2: derive one canonical access projection and reuse it across
     // descriptor assembly instead of re-projecting the chosen route again.
@@ -225,14 +227,14 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     root.node_properties
         .insert("ord_route_reason", Value::from(order_observability.reason));
     annotate_access_choice_node_properties(&mut root, plan.access_choice());
-    let covering_scan = load_terminal_fast_path.is_some();
+    let covering_scan = covering_projection_selected;
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
         "cov_scan_reason",
         Value::from(covering_read_reason_code_for_load_plan(
             plan,
             strict_predicate_compatible,
-            load_terminal_fast_path.is_some(),
+            covering_projection_selected,
         )),
     );
     annotate_grouped_route_node_properties(&mut root, route_plan);
@@ -245,11 +247,18 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan);
     root.node_properties.insert(
         "cov_read_route",
-        Value::from(if load_terminal_fast_path.is_some() {
+        Value::from(if covering_projection_selected {
             "covering_read"
         } else {
             "materialized"
         }),
+    );
+    root.node_properties.insert(
+        "cov_read_kind",
+        Value::from(covering_execution_kind_label(
+            load_terminal_fast_path,
+            hybrid_covering_read_plan,
+        )),
     );
     annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
@@ -270,6 +279,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         route_plan,
         execution_mode,
         load_terminal_fast_path,
+        hybrid_covering_read_plan,
     ));
 
     root
@@ -280,6 +290,7 @@ fn load_modifier_execution_nodes(
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    hybrid_covering_read_plan: Option<&CoveringHybridReadExecutionPlan>,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
     let mut nodes = Vec::new();
 
@@ -312,9 +323,11 @@ fn load_modifier_execution_nodes(
     {
         nodes.push(node);
     }
-    if let Some(node) =
-        covering_projection_execution_node_descriptor(load_terminal_fast_path, execution_mode)
-    {
+    if let Some(node) = covering_projection_execution_node_descriptor(
+        load_terminal_fast_path,
+        hybrid_covering_read_plan,
+        execution_mode,
+    ) {
         nodes.push(node);
     }
     if let Some(page) = plan.scalar_plan().page.as_ref() {
@@ -342,9 +355,13 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
 ) -> Vec<String> {
     let route_plan = &route_facts.route_plan;
     let explain_preparation = &route_facts.explain_preparation;
+    let load_terminal_fast_path = route_plan.load_terminal_fast_path();
+    let hybrid_covering_read_plan = route_facts.hybrid_covering_read_plan.as_ref();
+    let covering_projection_selected =
+        load_terminal_fast_path.is_some() || hybrid_covering_read_plan.is_some();
 
     // Phase 1: build canonical route/planner inputs for load mode.
-    let verbose_preparation = LoadVerbosePreparation::from_route_plan(plan, route_plan);
+    let verbose_preparation = LoadVerbosePreparation::from_plan(plan);
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
     let strict_prefilter_compiled =
         strict_predicate_compatible && explain_preparation.predicate_index_capability.is_some();
@@ -394,15 +411,19 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
     ));
     lines.push(route_diagnostic_line_bool(
         "projection_pushdown",
-        verbose_preparation.covering_scan,
+        covering_projection_selected,
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.covering_read",
         covering_read_reason_code_for_load_plan(
             plan,
             strict_prefilter_compiled,
-            verbose_preparation.covering_scan,
+            covering_projection_selected,
         ),
+    ));
+    lines.push(descriptor_route_property_line(
+        "diag.r.covering_kind",
+        covering_execution_kind_label(load_terminal_fast_path, hybrid_covering_read_plan),
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.access_choice_chosen",
@@ -540,6 +561,7 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
                 },
             )?,
             explain_preparation,
+            hybrid_covering_read_plan: None,
         });
     }
 
@@ -568,6 +590,7 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
             },
         )?,
         explain_preparation,
+        hybrid_covering_read_plan: None,
     })
 }
 
@@ -589,6 +612,7 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
                 },
             )?,
             explain_preparation,
+            hybrid_covering_read_plan: None,
         });
     }
 
@@ -599,6 +623,22 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     } else {
         None
     };
+    let hybrid_covering_read_plan =
+        if plan.scalar_plan().mode.is_load() && load_terminal_fast_path.is_none() {
+            #[cfg(any(test, feature = "sql"))]
+            {
+                authority.covering_hybrid_projection_plan(
+                    plan,
+                    explain_preparation.strict_predicate_compatible,
+                )
+            }
+            #[cfg(not(any(test, feature = "sql")))]
+            {
+                None
+            }
+        } else {
+            None
+        };
 
     Ok(LoadExecutionRouteFacts {
         route_plan: build_execution_route_plan(
@@ -611,6 +651,7 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
             },
         )?,
         explain_preparation,
+        hybrid_covering_read_plan,
     })
 }
 
@@ -699,9 +740,28 @@ fn grouped_route_observability(
 // on the planner-owned covering-read contract.
 fn covering_projection_execution_node_descriptor(
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    hybrid_covering_read_plan: Option<&CoveringHybridReadExecutionPlan>,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
-    let LoadTerminalFastPathContract::CoveringRead(covering) = load_terminal_fast_path?;
+    let (covering_kind, fields, order_contract, existing_row_mode) =
+        if let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path
+        {
+            (
+                "pure_covering",
+                covering.fields.as_slice(),
+                covering.order_contract,
+                covering.existing_row_mode,
+            )
+        } else if let Some(hybrid) = hybrid_covering_read_plan {
+            (
+                "hybrid_covering",
+                hybrid.fields.as_slice(),
+                hybrid.order_contract,
+                hybrid.existing_row_mode,
+            )
+        } else {
+            return None;
+        };
     let mut node =
         crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
             ExplainExecutionNodeType::CoveringRead,
@@ -709,15 +769,16 @@ fn covering_projection_execution_node_descriptor(
         );
     node.projection = Some("covering_read".to_string());
     node.covering_scan = Some(true);
+    node.node_properties
+        .insert("covering_kind", Value::from(covering_kind));
     node.node_properties.insert(
         "covering_order",
-        Value::from(covering_read_order_contract_label(covering.order_contract)),
+        Value::from(covering_read_order_contract_label(order_contract)),
     );
     node.node_properties.insert(
         "covering_fields",
         Value::List(
-            covering
-                .fields
+            fields
                 .iter()
                 .map(|field| Value::from(field.field_slot.field().to_string()))
                 .collect(),
@@ -726,8 +787,7 @@ fn covering_projection_execution_node_descriptor(
     node.node_properties.insert(
         "covering_sources",
         Value::List(
-            covering
-                .fields
+            fields
                 .iter()
                 .map(|field| Value::from(covering_read_field_source_label(&field.source)))
                 .collect(),
@@ -735,10 +795,23 @@ fn covering_projection_execution_node_descriptor(
     );
     node.node_properties.insert(
         "existing_row_mode",
-        Value::from(covering_existing_row_mode_label(covering.existing_row_mode)),
+        Value::from(covering_existing_row_mode_label(existing_row_mode)),
     );
 
     Some(node)
+}
+
+const fn covering_execution_kind_label(
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    hybrid_covering_read_plan: Option<&CoveringHybridReadExecutionPlan>,
+) -> &'static str {
+    if load_terminal_fast_path.is_some() {
+        "pure_covering"
+    } else if hybrid_covering_read_plan.is_some() {
+        "hybrid_covering"
+    } else {
+        "materialized"
+    }
 }
 
 const fn covering_read_order_contract_label(

@@ -135,6 +135,9 @@ struct SqlPerfScenarioSample {
     avg_grouped_count_group_lookup_local_instructions: u64,
     avg_grouped_count_existing_group_update_local_instructions: u64,
     avg_grouped_count_new_group_insert_local_instructions: u64,
+    avg_hybrid_covering_path_hits: u64,
+    avg_hybrid_covering_index_field_accesses: u64,
+    avg_hybrid_covering_row_field_accesses: u64,
     avg_data_store_get_calls: u64,
     avg_index_store_get_calls: u64,
     avg_index_store_entry_reads: u64,
@@ -542,6 +545,9 @@ struct SqlPerfRawSamples {
     grouped_fold_samples: Vec<u64>,
     grouped_finalize_samples: Vec<u64>,
     grouped_count: GroupedCountRawSamples,
+    hybrid_covering_path_hit_samples: Vec<u64>,
+    hybrid_covering_index_field_access_samples: Vec<u64>,
+    hybrid_covering_row_field_access_samples: Vec<u64>,
     data_store_get_call_samples: Vec<u64>,
     index_store_get_call_samples: Vec<u64>,
     index_store_entry_read_samples: Vec<u64>,
@@ -565,6 +571,9 @@ impl SqlPerfRawSamples {
             grouped_fold_samples: Vec::with_capacity(sample_count),
             grouped_finalize_samples: Vec::with_capacity(sample_count),
             grouped_count: GroupedCountRawSamples::with_capacity(sample_count),
+            hybrid_covering_path_hit_samples: Vec::with_capacity(sample_count),
+            hybrid_covering_index_field_access_samples: Vec::with_capacity(sample_count),
+            hybrid_covering_row_field_access_samples: Vec::with_capacity(sample_count),
             data_store_get_call_samples: Vec::with_capacity(sample_count),
             index_store_get_call_samples: Vec::with_capacity(sample_count),
             index_store_entry_read_samples: Vec::with_capacity(sample_count),
@@ -593,6 +602,13 @@ impl SqlPerfRawSamples {
         self.grouped_finalize_samples
             .push(grouped.map_or(0, |grouped| grouped.finalize_local_instructions));
         self.grouped_count.record(&sample.attribution);
+        let hybrid = sample.attribution.hybrid_covering;
+        self.hybrid_covering_path_hit_samples
+            .push(hybrid.map_or(0, |hybrid| hybrid.path_hits));
+        self.hybrid_covering_index_field_access_samples
+            .push(hybrid.map_or(0, |hybrid| hybrid.index_field_accesses));
+        self.hybrid_covering_row_field_access_samples
+            .push(hybrid.map_or(0, |hybrid| hybrid.row_field_accesses));
         self.data_store_get_call_samples
             .push(sample.attribution.store_get_calls);
         self.index_store_get_call_samples
@@ -642,6 +658,11 @@ fn build_sql_perf_scenario_sample(
         grouped_count.existing_group_update_local_instructions;
     let avg_grouped_count_new_group_insert_local_instructions =
         grouped_count.new_group_insert_local_instructions;
+    let avg_hybrid_covering_path_hits = average_u64(&raw.hybrid_covering_path_hit_samples);
+    let avg_hybrid_covering_index_field_accesses =
+        average_u64(&raw.hybrid_covering_index_field_access_samples);
+    let avg_hybrid_covering_row_field_accesses =
+        average_u64(&raw.hybrid_covering_row_field_access_samples);
     let avg_data_store_get_calls = average_u64(&raw.data_store_get_call_samples);
     let avg_index_store_get_calls = average_u64(&raw.index_store_get_call_samples);
     let avg_index_store_entry_reads = average_u64(&raw.index_store_entry_read_samples);
@@ -697,6 +718,9 @@ fn build_sql_perf_scenario_sample(
         avg_grouped_count_group_lookup_local_instructions,
         avg_grouped_count_existing_group_update_local_instructions,
         avg_grouped_count_new_group_insert_local_instructions,
+        avg_hybrid_covering_path_hits,
+        avg_hybrid_covering_index_field_accesses,
+        avg_hybrid_covering_row_field_accesses,
         avg_data_store_get_calls,
         avg_index_store_get_calls,
         avg_index_store_entry_reads,
@@ -1537,6 +1561,14 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 50";
 
+const TOKEN_BRANCH_SET_OVERCAP_FALLBACK_NONCOVERED_LIMIT50_SQL: &str = "\
+SELECT id, title \
+FROM PerfAuditToken \
+WHERE collection_id = '01KV5N439P0000000000000000' \
+  AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', 'Listed', 'Sold', 'Hidden') \
+ORDER BY id ASC \
+LIMIT 50";
+
 fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
@@ -1587,6 +1619,13 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_collection_stage_id",
             "branch_set_overcap_fallback",
             TOKEN_BRANCH_SET_OVERCAP_FALLBACK_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "branch_set_overcap_fallback_noncovered",
+            TOKEN_BRANCH_SET_OVERCAP_FALLBACK_NONCOVERED_LIMIT50_SQL,
         ),
     ]
 }
@@ -1748,10 +1787,10 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
-        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Avg data_store.get() | Avg index_store.get() | Avg index_store.entries | Blob Values | Blob Bytes | Blob Hex Bytes | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
+        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Hybrid Hits | Hybrid Index Fields | Hybrid Row Fields | Avg data_store.get() | Avg index_store.get() | Avg index_store.entries | Blob Values | Blob Bytes | Blob Hex Bytes | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
     );
     println!(
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     );
 
     for sample in samples {
@@ -1764,7 +1803,7 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
         );
 
         println!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.scenario_key,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
@@ -1780,6 +1819,9 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
             sample.avg_grouped_count_group_lookup_local_instructions,
             sample.avg_grouped_count_existing_group_update_local_instructions,
             sample.avg_grouped_count_new_group_insert_local_instructions,
+            sample.avg_hybrid_covering_path_hits,
+            sample.avg_hybrid_covering_index_field_accesses,
+            sample.avg_hybrid_covering_row_field_accesses,
             sample.avg_data_store_get_calls,
             sample.avg_index_store_get_calls,
             sample.avg_index_store_entry_reads,
@@ -1818,6 +1860,9 @@ fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
     let index_entries = sample.avg_index_store_entry_reads;
     let grouped_count_rows = sample.avg_grouped_count_row_materialization_local_instructions;
     let grouped_count_lookup = sample.avg_grouped_count_group_lookup_local_instructions;
+    let hybrid_hits = sample.avg_hybrid_covering_path_hits;
+    let hybrid_index_fields = sample.avg_hybrid_covering_index_field_accesses;
+    let hybrid_row_fields = sample.avg_hybrid_covering_row_field_accesses;
     let sql_hits = sample.avg_sql_compiled_command_cache_hits;
     let sql_misses = sample.avg_sql_compiled_command_cache_misses;
     let shared_hits = sample.avg_shared_query_plan_cache_hits;
@@ -1831,7 +1876,7 @@ fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
     );
 
     println!(
-        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} execute={execute} total_avg={total_avg} first={first} min={min} max={max} data_gets={data_gets} index_gets={index_gets} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses} delta={delta} delta_pct={delta_percent}",
+        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} execute={execute} total_avg={total_avg} first={first} min={min} max={max} data_gets={data_gets} index_gets={index_gets} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} hybrid_hits={hybrid_hits} hybrid_index_fields={hybrid_index_fields} hybrid_row_fields={hybrid_row_fields} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses} delta={delta} delta_pct={delta_percent}",
     );
 }
 
@@ -3154,6 +3199,71 @@ fn sql_perf_token_branch_set_changed_queries_stay_bounded() {
     assert_eq!(
         scalar_aggregate.terminal_count, 1,
         "duplicate branch COUNT should report one scalar aggregate terminal",
+    );
+}
+
+#[test]
+fn sql_perf_token_hybrid_covering_hotspot_counters_are_attributed() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = HashMap::new();
+    reset_sql_perf_fixtures(&fixture);
+
+    let explain = query_surface_with_perf(
+        &fixture,
+        SqlPerfSurface::Token,
+        format!("EXPLAIN EXECUTION {TOKEN_BRANCH_SET_OVERCAP_FALLBACK_NONCOVERED_LIMIT50_SQL}")
+            .as_str(),
+        1,
+    )
+    .expect("token hybrid over-cap EXPLAIN EXECUTION should succeed");
+    let SqlQueryResult::Explain { explain, .. } = explain.result else {
+        panic!("token hybrid over-cap EXPLAIN EXECUTION should return explain output");
+    };
+    assert!(
+        explain.contains("cov_read_kind=Text(\"hybrid_covering\")"),
+        "hybrid over-cap EXPLAIN should expose the hybrid covering route kind: {explain}",
+    );
+    assert!(
+        explain.contains("covering_kind=Text(\"hybrid_covering\")"),
+        "hybrid over-cap EXPLAIN should expose the hybrid covering terminal: {explain}",
+    );
+    assert!(
+        explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+        "hybrid over-cap route should keep the planner-proven row-presence contract visible: {explain}",
+    );
+
+    let sample = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario(
+            "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
+        ),
+    );
+    print_branch_set_perf_sample("overcap hybrid covering", &sample);
+
+    assert_eq!(
+        sample.outcome.result_kind, "projection",
+        "hybrid over-cap audit row should remain a projection page query",
+    );
+    assert_eq!(
+        sample.outcome.row_count, 50,
+        "hybrid over-cap audit row should return the requested page size",
+    );
+    assert_eq!(
+        sample.avg_hybrid_covering_path_hits, 1,
+        "hybrid over-cap audit row should report the hybrid covering path",
+    );
+    assert_eq!(
+        sample.avg_hybrid_covering_row_field_accesses, 50,
+        "hybrid over-cap audit row should read one row-backed field per returned row",
+    );
+    assert_eq!(
+        sample.avg_data_store_get_calls, 50,
+        "hybrid over-cap audit row should hydrate only returned rows after filtering, sorting, and windowing",
+    );
+    assert!(
+        sample.avg_index_store_entry_reads > sample.avg_data_store_get_calls,
+        "hybrid over-cap audit row should still attribute the pre-window index scan separately",
     );
 }
 

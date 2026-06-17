@@ -152,6 +152,9 @@ struct MatrixSample {
     grouped_finalize_local_instructions: u64,
     pure_covering_decode_local_instructions: u64,
     pure_covering_row_assembly_local_instructions: u64,
+    hybrid_covering_path_hits: u64,
+    hybrid_covering_index_field_accesses: u64,
+    hybrid_covering_row_field_accesses: u64,
     direct_data_row_scan_local_instructions: u64,
     direct_data_row_key_stream_local_instructions: u64,
     direct_data_row_row_read_local_instructions: u64,
@@ -1080,6 +1083,7 @@ fn sample_scenario(
     let attribution = perf.attribution;
     let grouped = attribution.grouped;
     let pure_covering = attribution.pure_covering;
+    let hybrid_covering = attribution.hybrid_covering;
     let direct_data_row = attribution.direct_data_row;
     let kernel_row = attribution.kernel_row;
 
@@ -1105,6 +1109,11 @@ fn sample_scenario(
         pure_covering_row_assembly_local_instructions: pure_covering.map_or(0, |pure_covering| {
             pure_covering.row_assembly_local_instructions
         }),
+        hybrid_covering_path_hits: hybrid_covering.map_or(0, |hybrid| hybrid.path_hits),
+        hybrid_covering_index_field_accesses: hybrid_covering
+            .map_or(0, |hybrid| hybrid.index_field_accesses),
+        hybrid_covering_row_field_accesses: hybrid_covering
+            .map_or(0, |hybrid| hybrid.row_field_accesses),
         direct_data_row_scan_local_instructions: direct_data_row
             .map_or(0, |direct| direct.scan_local_instructions),
         direct_data_row_key_stream_local_instructions: direct_data_row
@@ -1335,6 +1344,7 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
         ranked_by(samples, |sample| sample.output_blob_bytes),
     );
     append_pure_covering_hotspot_tables(output, samples);
+    append_hybrid_covering_hotspot_tables(output, samples);
     append_direct_data_row_hotspot_tables(output, samples);
     append_kernel_row_hotspot_tables(output, samples);
     append_main_fixture_hotspot_tables(output, samples);
@@ -1356,6 +1366,23 @@ fn append_pure_covering_hotspot_tables(output: &mut String, samples: &[MatrixSam
             sample.pure_covering_row_assembly_local_instructions
         }),
         |sample| sample.pure_covering_row_assembly_local_instructions,
+    );
+}
+
+fn append_hybrid_covering_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
+    append_hybrid_covering_table(
+        output,
+        "Top Hybrid Covering Row Field Accesses",
+        ranked_by(samples, |sample| sample.hybrid_covering_row_field_accesses),
+        |sample| sample.hybrid_covering_row_field_accesses,
+    );
+    append_hybrid_covering_table(
+        output,
+        "Top Hybrid Covering Index Field Accesses",
+        ranked_by(samples, |sample| {
+            sample.hybrid_covering_index_field_accesses
+        }),
+        |sample| sample.hybrid_covering_index_field_accesses,
     );
 }
 
@@ -1448,6 +1475,20 @@ fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSamp
             sample.pure_covering_row_assembly_local_instructions
         }),
         |sample| sample.pure_covering_row_assembly_local_instructions,
+    );
+    append_hybrid_covering_table(
+        output,
+        "Top Main Fixture Hybrid Covering Row Field Accesses",
+        ranked_main_fixture_by(samples, |sample| sample.hybrid_covering_row_field_accesses),
+        |sample| sample.hybrid_covering_row_field_accesses,
+    );
+    append_hybrid_covering_table(
+        output,
+        "Top Main Fixture Hybrid Covering Index Field Accesses",
+        ranked_main_fixture_by(samples, |sample| {
+            sample.hybrid_covering_index_field_accesses
+        }),
+        |sample| sample.hybrid_covering_index_field_accesses,
     );
     append_direct_data_row_table(
         output,
@@ -1631,6 +1672,49 @@ fn append_pure_covering_table<F>(
             sample.surface,
             sample.pure_covering_decode_local_instructions,
             sample.pure_covering_row_assembly_local_instructions,
+            sample.total_local_instructions,
+            sample.sql.replace('|', "\\|"),
+        )
+        .expect("write to string should succeed");
+    }
+    writeln!(output).expect("write to string should succeed");
+}
+
+fn append_hybrid_covering_table<F>(
+    output: &mut String,
+    title: &str,
+    samples: Vec<&MatrixSample>,
+    metric: F,
+) where
+    F: Fn(&MatrixSample) -> u64,
+{
+    let samples = samples
+        .into_iter()
+        .filter(|sample| metric(sample) > 0)
+        .collect::<Vec<_>>();
+    if samples.is_empty() {
+        return;
+    }
+
+    writeln!(output, "## {title}").expect("write to string should succeed");
+    writeln!(output).expect("write to string should succeed");
+    writeln!(
+        output,
+        "| Scenario | Surface | Path Hits | Index Fields | Row Fields | Data Store Get | Total | SQL |"
+    )
+    .expect("write to string should succeed");
+    writeln!(output, "|---|---|---:|---:|---:|---:|---:|---|")
+        .expect("write to string should succeed");
+    for sample in samples {
+        writeln!(
+            output,
+            "| `{}` | {} | {} | {} | {} | {} | {} | `{}` |",
+            sample.key,
+            sample.surface,
+            sample.hybrid_covering_path_hits,
+            sample.hybrid_covering_index_field_accesses,
+            sample.hybrid_covering_row_field_accesses,
+            sample.data_store_get_calls,
             sample.total_local_instructions,
             sample.sql.replace('|', "\\|"),
         )
@@ -2122,6 +2206,48 @@ fn sql_perf_matrix_reports_pure_covering_hotspots() {
     );
 }
 
+#[test]
+fn sql_perf_matrix_reports_hybrid_covering_hotspots() {
+    let samples = vec![main_fixture_sample_with_hybrid_covering(
+        "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
+        "token",
+        240,
+        1,
+        0,
+        50,
+        "SELECT id, title FROM PerfAuditToken ORDER BY id ASC LIMIT 50",
+    )];
+    let report = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        generated_scenario_count: samples.len(),
+        executed_scenario_count: samples.len(),
+        failed_scenario_count: 0,
+        matrix_limit: samples.len(),
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples,
+        failures: Vec::new(),
+    };
+
+    let markdown = matrix_markdown(&report);
+    let hybrid_row_section = markdown
+        .split("## Top Hybrid Covering Row Field Accesses")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("hybrid covering row-field hotspot section should render");
+
+    assert!(
+        hybrid_row_section
+            .contains("token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50"),
+        "hybrid covering section should include scenarios with row-backed field attribution",
+    );
+    assert!(
+        hybrid_row_section.contains("| `token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50` | token | 1 | 0 | 50 | 50 | 240 |"),
+        "hybrid covering section should expose path hits, field accesses, row gets, and total costs",
+    );
+}
+
 fn storage_matrix_sample(key: &str, surface: &str, total: u64, store: u64) -> MatrixSample {
     report_matrix_sample(
         key,
@@ -2155,6 +2281,9 @@ fn report_matrix_sample(
         grouped_finalize_local_instructions: 0,
         pure_covering_decode_local_instructions: 0,
         pure_covering_row_assembly_local_instructions: 0,
+        hybrid_covering_path_hits: 0,
+        hybrid_covering_index_field_accesses: 0,
+        hybrid_covering_row_field_accesses: 0,
         direct_data_row_scan_local_instructions: 0,
         direct_data_row_key_stream_local_instructions: 0,
         direct_data_row_row_read_local_instructions: 0,
@@ -2210,6 +2339,23 @@ fn main_fixture_sample_with_pure_covering(
     let mut sample = report_matrix_sample(key, surface, total, 0, sql);
     sample.pure_covering_decode_local_instructions = decode;
     sample.pure_covering_row_assembly_local_instructions = row_assembly;
+    sample
+}
+
+fn main_fixture_sample_with_hybrid_covering(
+    key: &str,
+    surface: &str,
+    total: u64,
+    path_hits: u64,
+    index_fields: u64,
+    row_fields: u64,
+    sql: &str,
+) -> MatrixSample {
+    let mut sample = report_matrix_sample(key, surface, total, 0, sql);
+    sample.hybrid_covering_path_hits = path_hits;
+    sample.hybrid_covering_index_field_accesses = index_fields;
+    sample.hybrid_covering_row_field_accesses = row_fields;
+    sample.data_store_get_calls = row_fields;
     sample
 }
 

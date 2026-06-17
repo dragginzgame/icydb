@@ -19,7 +19,7 @@ use crate::db::{
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch, FieldSlot, OrderDirection,
         OrderSpec,
-        expr::{Expr, FieldId, Function, ProjectionSpec},
+        expr::{Expr, FieldId, Function, ProjectionSelection, ProjectionSpec},
         index_key_item_order_terms,
     },
     schema::SchemaInfo,
@@ -818,6 +818,14 @@ fn covering_index_projection_plan(
 ) -> Option<CoveringReadPlan> {
     // Phase 1: reject unsupported plan shapes and freeze the shared
     // index-backed covering contract once for the whole projection.
+    if matches!(
+        source_policy,
+        CoveringProjectionFieldSourcePolicy::HybridRowFallback
+    ) && matches!(plan.projection_selection, ProjectionSelection::All)
+    {
+        return None;
+    }
+
     let (index_facts, order_contract) = prepare_covering_index_projection_plan(
         plan,
         primary_key_names,

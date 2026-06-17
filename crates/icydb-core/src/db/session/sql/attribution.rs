@@ -119,6 +119,19 @@ pub struct SqlPureCoveringAttribution {
     pub row_assembly_local_instructions: u64,
 }
 
+// SqlHybridCoveringAttribution
+//
+// Candid diagnostics payload for hybrid covering projection counters.
+// Hybrid covering reads use index/primary-key values where possible and sparse
+// row reads only for uncovered projected fields.
+#[cfg(feature = "diagnostics")]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlHybridCoveringAttribution {
+    pub path_hits: u64,
+    pub index_field_accesses: u64,
+    pub row_field_accesses: u64,
+}
+
 // SqlOutputBlobAttribution
 //
 // Candid diagnostics payload for SQL projection payload size. Raw bytes count
@@ -164,6 +177,7 @@ pub struct SqlQueryExecutionAttribution {
     pub grouped: Option<GroupedExecutionAttribution>,
     pub scalar_aggregate: Option<SqlScalarAggregateAttribution>,
     pub pure_covering: Option<SqlPureCoveringAttribution>,
+    pub hybrid_covering: Option<SqlHybridCoveringAttribution>,
     pub output_blob: SqlOutputBlobAttribution,
     pub store_get_calls: u64,
     pub index_store_get_calls: u64,
