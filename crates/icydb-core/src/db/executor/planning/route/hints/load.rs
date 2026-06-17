@@ -1,8 +1,7 @@
-//! Module: db::executor::planning::route::hints::load
-//! Defines lightweight load-routing hints used to explain and classify chosen
-//! executor routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::hints::load
+//! Responsibility: load-route bounded-fetch and seek hint derivation.
+//! Does not own: load route shape classification or execution dispatch.
+//! Boundary: emits optional load hints from prepared continuation and capability facts.
 
 use crate::db::{
     executor::{
@@ -135,6 +134,7 @@ pub(in crate::db::executor) fn widened_residual_filter_predicate_pushdown_fetch(
     }
 }
 
+/// Return the maximum widened bounded fetch used for residual-predicate retries.
 pub(in crate::db::executor) const fn residual_filter_predicate_pushdown_fetch_cap() -> usize {
     256
 }

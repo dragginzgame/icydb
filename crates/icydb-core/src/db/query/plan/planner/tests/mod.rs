@@ -939,6 +939,118 @@ fn planner_branch_set_residual_stripping_removes_access_proven_prefix_predicates
 }
 
 #[test]
+fn planner_branch_set_prunes_excluded_branch_to_prefix_and_strips_residual() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_BRANCH_SET_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "collection_id",
+            CompareOp::Eq,
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("Draft".to_string()),
+                Value::Text("Review".to_string()),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::Ne,
+            Value::Text("Review".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_BRANCH_SET_MODEL,
+        schema,
+        Some(&predicate),
+        Some(branch_set_target_order()),
+    )
+    .expect("excluded branch predicate should still plan through the composite index");
+    let AccessPlan::Path(path) = &plan else {
+        panic!("pruned branch predicate should lower to one explicit access path");
+    };
+    let AccessPath::IndexPrefix { index, values } = path.as_ref() else {
+        panic!("single surviving branch should collapse to an index-prefix route");
+    };
+
+    assert_eq!(index.name(), "collection_stage_id_idx");
+    assert_eq!(
+        values,
+        &[
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+            Value::Text("Draft".to_string()),
+        ],
+    );
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(plan.as_path(), &predicate),
+        None,
+        "collection_id, stage IN, and stage != Review are all proven by the pruned prefix route",
+    );
+}
+
+#[test]
+fn planner_branch_set_prunes_not_in_branch_values_before_admission() {
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_BRANCH_SET_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "collection_id",
+            CompareOp::Eq,
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("Draft".to_string()),
+                Value::Text("Published".to_string()),
+                Value::Text("Review".to_string()),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::NotIn,
+            Value::List(vec![Value::Text("Review".to_string())]),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_BRANCH_SET_MODEL,
+        schema,
+        Some(&predicate),
+        Some(branch_set_target_order()),
+    )
+    .expect("NOT IN-pruned branch predicate should still plan");
+    let AccessPlan::Path(path) = &plan else {
+        panic!("pruned branch predicate should lower to one explicit access path");
+    };
+    let AccessPath::IndexBranchSet { spec } = path.as_ref() else {
+        panic!("two surviving branches should remain a branch-set route");
+    };
+
+    assert_eq!(
+        spec.branch_values(),
+        &[
+            Value::Text("Draft".to_string()),
+            Value::Text("Published".to_string()),
+        ],
+    );
+    assert_eq!(
+        residual_query_predicate_after_access_path_bounds(plan.as_path(), &predicate),
+        None,
+        "branch-set IN and NOT IN predicates are both proven by the reduced branch route",
+    );
+}
+
+#[test]
 fn planner_secondary_prefix_still_beats_primary_key_range_without_required_order() {
     let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![

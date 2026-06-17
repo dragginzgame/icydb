@@ -3217,8 +3217,12 @@ fn assert_token_branch_set_index_residual_explain_contract(fixture: &StandaloneC
         panic!("token branch-set index-residual EXPLAIN EXECUTION should return explain output");
     };
     assert!(
-        explain.contains("IndexBranchSet"),
-        "token branch-set index-residual EXPLAIN should expose the branch-aware route: {explain}",
+        explain.contains("IndexPrefix"),
+        "token branch-set index-residual EXPLAIN should expose the pruned prefix route: {explain}",
+    );
+    assert!(
+        !explain.contains("IndexBranchSet"),
+        "token branch-set index-residual EXPLAIN should prune the rejected branch before route execution: {explain}",
     );
     assert!(
         !explain.contains("OrderByMaterializedSort"),

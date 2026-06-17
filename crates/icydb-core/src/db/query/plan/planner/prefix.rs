@@ -218,7 +218,14 @@ pub(super) fn index_branch_set_from_and(
 
     let mut eq_values = Vec::new();
     let mut in_values = Vec::new();
-    collect_branch_set_literals(schema, children, &mut eq_values, &mut in_values);
+    let mut excluded_values = Vec::new();
+    collect_branch_set_literals(
+        schema,
+        children,
+        &mut eq_values,
+        &mut in_values,
+        &mut excluded_values,
+    );
     if eq_values.is_empty() || in_values.is_empty() {
         return None;
     }
@@ -245,6 +252,11 @@ pub(super) fn index_branch_set_from_and(
             continue;
         };
         if branch_values.len() < 2 || branch_values.len() > MAX_INDEX_BRANCH_SET_VALUES {
+            continue;
+        }
+        let mut branch_values = branch_values;
+        prune_branch_values_by_exclusions(branch_key_item, &mut branch_values, &excluded_values);
+        if branch_values.is_empty() {
             continue;
         }
 
@@ -283,7 +295,13 @@ pub(super) fn index_branch_set_from_and(
     }
 
     best.map(|(_, index, fixed_values, branch_values)| {
-        AccessPlan::index_branch_set_from_contract(index, fixed_values, branch_values)
+        if let [branch_value] = branch_values.as_slice() {
+            let mut values = fixed_values;
+            values.push(branch_value.clone());
+            AccessPlan::index_prefix_from_contract(index, values)
+        } else {
+            AccessPlan::index_branch_set_from_contract(index, fixed_values, branch_values)
+        }
     })
 }
 
@@ -303,6 +321,7 @@ fn collect_branch_set_literals<'a>(
     children: &'a [Predicate],
     eq_values: &mut Vec<CachedEqLiteral<'a>>,
     in_values: &mut Vec<CachedInLiteral<'a>>,
+    excluded_values: &mut Vec<CachedExcludedLiteral<'a>>,
 ) {
     for child in children {
         let Predicate::Compare(cmp) = child else {
@@ -339,6 +358,32 @@ fn collect_branch_set_literals<'a>(
                     coercion: cmp.coercion.id,
                 });
             }
+            CompareOp::Ne => {
+                excluded_values.push(CachedExcludedLiteral {
+                    field: cmp.field.as_str(),
+                    values: vec![CachedInValue {
+                        value: &cmp.value,
+                        compatible: index_literal_matches_schema(schema, &cmp.field, &cmp.value),
+                    }],
+                    coercion: cmp.coercion.id,
+                });
+            }
+            CompareOp::NotIn => {
+                let Value::List(values) = &cmp.value else {
+                    continue;
+                };
+                excluded_values.push(CachedExcludedLiteral {
+                    field: cmp.field.as_str(),
+                    values: values
+                        .iter()
+                        .map(|value| CachedInValue {
+                            value,
+                            compatible: index_literal_matches_schema(schema, &cmp.field, value),
+                        })
+                        .collect(),
+                    coercion: cmp.coercion.id,
+                });
+            }
             _ => {}
         }
     }
@@ -358,6 +403,12 @@ struct CachedEqLiteral<'a> {
 }
 
 struct CachedInLiteral<'a> {
+    field: &'a str,
+    values: Vec<CachedInValue<'a>>,
+    coercion: CoercionId,
+}
+
+struct CachedExcludedLiteral<'a> {
     field: &'a str,
     values: Vec<CachedInValue<'a>>,
     coercion: CoercionId,
@@ -472,4 +523,31 @@ fn build_index_branch_values(
     }
 
     matched
+}
+
+fn prune_branch_values_by_exclusions(
+    key_item: SemanticIndexKeyItemRef<'_>,
+    branch_values: &mut Vec<Value>,
+    excluded_values: &[CachedExcludedLiteral<'_>],
+) {
+    branch_values.retain(|branch_value| {
+        !excluded_values.iter().any(|excluded| {
+            if key_item.field() != excluded.field {
+                return false;
+            }
+            excluded.values.iter().any(|excluded_value| {
+                if !excluded_value.compatible {
+                    return false;
+                }
+                eq_lookup_value_for_key_item(
+                    key_item,
+                    excluded.field,
+                    excluded_value.value,
+                    excluded.coercion,
+                    true,
+                )
+                .is_some_and(|lookup_value| lookup_value == *branch_value)
+            })
+        })
+    });
 }

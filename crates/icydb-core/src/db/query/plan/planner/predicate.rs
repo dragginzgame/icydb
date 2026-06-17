@@ -492,8 +492,7 @@ fn child_is_redundant_under_selected_index_access(
     };
 
     if selected_index_branch_set_guarantees_compare(schema, path.as_ref(), cmp)
-        || (cmp.op == crate::db::predicate::CompareOp::Eq
-            && selected_index_prefix_guarantees_eq_compare(schema, path.as_ref(), cmp))
+        || selected_index_prefix_guarantees_compare(schema, path.as_ref(), cmp)
     {
         return true;
     }
@@ -511,32 +510,40 @@ fn selected_index_branch_set_guarantees_compare(
     let Some(spec) = selected_path.as_index_branch_set_spec() else {
         return false;
     };
-    if cmp.op == crate::db::predicate::CompareOp::Eq {
-        return index_prefix_guarantees_eq_compare(schema, spec.index(), spec.fixed_values(), cmp);
+    if index_prefix_guarantees_compare(schema, spec.index(), spec.fixed_values(), cmp) {
+        return true;
     }
 
-    if cmp.op != crate::db::predicate::CompareOp::In {
-        return false;
-    }
-    let Some(branch_field) = spec.branch_field() else {
+    let Some(branch_key_item) = spec.branch_key_item() else {
         return false;
     };
-    if cmp.field() != branch_field {
-        return false;
-    }
-    let crate::value::Value::List(values) = cmp.value() else {
+    let Some(values) = lookup_compare_values_for_key_item(schema, branch_key_item, cmp) else {
         return false;
     };
-    let mut values = values.clone();
-    crate::value::canonicalize_value_set(&mut values);
 
-    values == spec.branch_values()
+    match cmp.op {
+        crate::db::predicate::CompareOp::Eq | crate::db::predicate::CompareOp::In => spec
+            .branch_values()
+            .iter()
+            .all(|branch_value| values.contains(branch_value)),
+        crate::db::predicate::CompareOp::Ne | crate::db::predicate::CompareOp::NotIn => spec
+            .branch_values()
+            .iter()
+            .all(|branch_value| !values.contains(branch_value)),
+        crate::db::predicate::CompareOp::Lt
+        | crate::db::predicate::CompareOp::Lte
+        | crate::db::predicate::CompareOp::Gt
+        | crate::db::predicate::CompareOp::Gte
+        | crate::db::predicate::CompareOp::StartsWith
+        | crate::db::predicate::CompareOp::Contains
+        | crate::db::predicate::CompareOp::EndsWith => false,
+    }
 }
 
 // Selected index prefix and selected index range both carry an equality prefix
 // that can already prove one compare predicate. Project that shared contract
 // before checking whether the chosen access path makes the child redundant.
-fn selected_index_prefix_guarantees_eq_compare(
+fn selected_index_prefix_guarantees_compare(
     schema: &SchemaInfo,
     selected_path: &AccessPath<Value>,
     cmp: &crate::db::predicate::ComparePredicate,
@@ -550,20 +557,17 @@ fn selected_index_prefix_guarantees_eq_compare(
         return false;
     };
 
-    index_prefix_guarantees_eq_compare(schema, index, prefix_values, cmp)
+    index_prefix_guarantees_compare(schema, index, prefix_values, cmp)
 }
 
 // Prefix guarantees are checked against canonical key-item lowering so mixed
-// field/expression prefixes can suppress only the exact equality clauses they
-// already prove.
-fn index_prefix_guarantees_eq_compare(
+// field/expression prefixes can suppress only clauses they already prove.
+fn index_prefix_guarantees_compare(
     schema: &SchemaInfo,
     index: SemanticIndexAccessContract,
     prefix_values: &[Value],
     cmp: &crate::db::predicate::ComparePredicate,
 ) -> bool {
-    let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
-
     prefix_values
         .iter()
         .enumerate()
@@ -571,18 +575,80 @@ fn index_prefix_guarantees_eq_compare(
             let Some(key_item) = index.key_item_at(slot) else {
                 return false;
             };
-            let Some(candidate) = eq_lookup_value_for_key_item(
+            let Some(values) = lookup_compare_values_for_key_item(schema, key_item, cmp) else {
+                return false;
+            };
+
+            match cmp.op {
+                crate::db::predicate::CompareOp::Eq | crate::db::predicate::CompareOp::In => {
+                    values.contains(expected_value)
+                }
+                crate::db::predicate::CompareOp::Ne | crate::db::predicate::CompareOp::NotIn => {
+                    !values.contains(expected_value)
+                }
+                crate::db::predicate::CompareOp::Lt
+                | crate::db::predicate::CompareOp::Lte
+                | crate::db::predicate::CompareOp::Gt
+                | crate::db::predicate::CompareOp::Gte
+                | crate::db::predicate::CompareOp::StartsWith
+                | crate::db::predicate::CompareOp::Contains
+                | crate::db::predicate::CompareOp::EndsWith => false,
+            }
+        })
+}
+
+fn lookup_compare_values_for_key_item(
+    schema: &SchemaInfo,
+    key_item: crate::db::access::SemanticIndexKeyItemRef<'_>,
+    cmp: &crate::db::predicate::ComparePredicate,
+) -> Option<Vec<Value>> {
+    if key_item.field() != cmp.field.as_str() {
+        return None;
+    }
+
+    match cmp.op {
+        crate::db::predicate::CompareOp::Eq | crate::db::predicate::CompareOp::Ne => {
+            let literal_compatible =
+                index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+            eq_lookup_value_for_key_item(
                 key_item,
                 cmp.field.as_str(),
                 cmp.value(),
                 cmp.coercion.id,
                 literal_compatible,
-            ) else {
-                return false;
+            )
+            .map(|value| vec![value])
+        }
+        crate::db::predicate::CompareOp::In | crate::db::predicate::CompareOp::NotIn => {
+            let crate::value::Value::List(values) = cmp.value() else {
+                return None;
             };
+            let mut lookup_values = values
+                .iter()
+                .filter_map(|value| {
+                    let literal_compatible =
+                        index_literal_matches_schema(schema, cmp.field.as_str(), value);
+                    eq_lookup_value_for_key_item(
+                        key_item,
+                        cmp.field.as_str(),
+                        value,
+                        cmp.coercion.id,
+                        literal_compatible,
+                    )
+                })
+                .collect::<Vec<_>>();
+            crate::value::canonicalize_value_set(&mut lookup_values);
 
-            candidate == *expected_value
-        })
+            Some(lookup_values)
+        }
+        crate::db::predicate::CompareOp::Lt
+        | crate::db::predicate::CompareOp::Lte
+        | crate::db::predicate::CompareOp::Gt
+        | crate::db::predicate::CompareOp::Gte
+        | crate::db::predicate::CompareOp::StartsWith
+        | crate::db::predicate::CompareOp::Contains
+        | crate::db::predicate::CompareOp::EndsWith => None,
+    }
 }
 
 fn index_contract_predicate_guarantees_compare(

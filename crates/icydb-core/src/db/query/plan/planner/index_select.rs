@@ -200,13 +200,35 @@ fn strip_query_clauses_satisfied_by_access_bounds(
     implied_bounds: &AccessBoundClauses,
 ) -> Option<Predicate> {
     strip_query_clauses(query_predicate, |cmp| {
-        branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp)
-            || (compare_clause_supported(cmp)
-                && implied_bounds
-                    .equalities
-                    .iter()
-                    .any(|bound| query_clause_implies_required(bound, cmp)))
+        access_bound_clauses_imply_required(implied_bounds, cmp)
     })
+}
+
+fn access_bound_clauses_imply_required(
+    implied_bounds: &AccessBoundClauses,
+    cmp: &ComparePredicate,
+) -> bool {
+    branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp)
+        || implied_bounds
+            .equalities
+            .iter()
+            .any(|bound| equality_bound_implies_required(bound, cmp))
+}
+
+fn equality_bound_implies_required(bound: &ComparePredicate, cmp: &ComparePredicate) -> bool {
+    if bound.field() != cmp.field() || bound.op() != CompareOp::Eq {
+        return false;
+    }
+
+    match cmp.op() {
+        CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+            compare_clause_supported(cmp) && query_clause_implies_required(bound, cmp)
+        }
+        CompareOp::Ne => !values_equal(bound.value(), cmp.value()),
+        CompareOp::In => list_contains_value(cmp.value(), bound.value()),
+        CompareOp::NotIn => !list_contains_value(cmp.value(), bound.value()),
+        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => false,
+    }
 }
 
 fn branch_in_clause_implies_required(
@@ -216,18 +238,48 @@ fn branch_in_clause_implies_required(
     let Some(branch_in) = branch_in else {
         return false;
     };
-    if cmp.field() != branch_in.field() || cmp.op() != CompareOp::In {
+    if cmp.field() != branch_in.field() || branch_in.op() != CompareOp::In {
         return false;
     }
-    let (Value::List(left), Value::List(right)) = (cmp.value(), branch_in.value()) else {
+    let Value::List(branch_values) = branch_in.value() else {
         return false;
     };
-    let mut left = left.clone();
-    let mut right = right.clone();
-    crate::value::canonicalize_value_set(&mut left);
-    crate::value::canonicalize_value_set(&mut right);
 
-    left == right
+    match cmp.op() {
+        CompareOp::Eq => branch_values
+            .iter()
+            .all(|branch_value| values_equal(branch_value, cmp.value())),
+        CompareOp::Ne => branch_values
+            .iter()
+            .all(|branch_value| !values_equal(branch_value, cmp.value())),
+        CompareOp::In => branch_values
+            .iter()
+            .all(|branch_value| list_contains_value(cmp.value(), branch_value)),
+        CompareOp::NotIn => branch_values
+            .iter()
+            .all(|branch_value| !list_contains_value(cmp.value(), branch_value)),
+        CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => false,
+    }
+}
+
+fn list_contains_value(list: &Value, value: &Value) -> bool {
+    let Value::List(values) = list else {
+        return false;
+    };
+
+    values
+        .iter()
+        .any(|candidate| values_equal(candidate, value))
+}
+
+fn values_equal(left: &Value, right: &Value) -> bool {
+    compare_values(left, right).is_some_and(Ordering::is_eq)
 }
 
 // Both residual-stripping paths share the same recursive AND-collapse contract;

@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Keeps branch-set covered projections row-store-free and prunes branches proven
-  false by strict index-backed residual predicates.
+- Prunes branch-set `IN` branches contradicted by strict branch-field
+  exclusions during planning, collapsing single survivors to prefix routes
+  while preserving bounded covering page windows.
 
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.10` keeps strict residual predicates on branch-set covered
+  projections row-store-free and prunes impossible branch streams before index
+  traversal.
 
 - `0.183.9` deduplicates metadata-backed exact-count branch prefixes so
   duplicate `IN` values cannot double-count covered `COUNT(*)` results while

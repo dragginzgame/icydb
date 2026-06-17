@@ -178,6 +178,34 @@ fn assert_target_top_n_fetch(descriptor: &ExplainExecutionNodeDescriptor) {
     );
 }
 
+fn assert_pruned_draft_prefix_route(descriptor: &ExplainExecutionNodeDescriptor) {
+    let prefix_node =
+        explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::IndexPrefixScan)
+            .expect("pruned branch shape should expose one index-prefix route node");
+
+    assert_eq!(
+        prefix_node.access_strategy(),
+        Some(&ExplainAccessPath::IndexPrefix {
+            name: "collection_stage_id".to_string(),
+            fields: vec![
+                "collection_id".to_string(),
+                "stage".to_string(),
+                "id".to_string(),
+            ],
+            prefix_len: 2,
+            values: vec![
+                Value::Text(BRANCH_COLLECTION.to_string()),
+                Value::Text("Draft".to_string()),
+            ],
+        }),
+        "pruned branch route should collapse to the surviving Draft prefix",
+    );
+    assert!(
+        !explain_execution_contains_node_type(descriptor, ExplainExecutionNodeType::IndexBranchSet),
+        "single surviving branch should not stay represented as IndexBranchSet",
+    );
+}
+
 fn expected_branch_rows(limit: usize) -> Vec<Vec<Value>> {
     expected_branch_ids(limit)
         .into_iter()
@@ -638,11 +666,11 @@ fn session_branch_set_sql_index_residual_covering_projection_stays_row_store_fre
     let sql = branch_target_index_residual_sql("id, stage", BRANCH_LIMIT);
     let descriptor = branch_descriptor(sql.as_str());
 
-    assert_target_branch_route(&descriptor);
+    assert_pruned_draft_prefix_route(&descriptor);
     assert_eq!(
         descriptor.covering_scan(),
         Some(true),
-        "branch-set index-residual projection should stay on covering reads",
+        "pruned index-residual projection should stay on covering reads",
     );
 
     let (result, attribution) = session
@@ -659,11 +687,11 @@ fn session_branch_set_sql_index_residual_covering_projection_stays_row_store_fre
     );
     assert_eq!(
         attribution.store_get_calls, 0,
-        "index-residual covered branch projection should avoid row-store reads",
+        "index-residual covered prefix projection should avoid row-store reads",
     );
     assert!(
         attribution.index_store_entry_reads <= BRANCH_INDEX_RESIDUAL_READ_CAP,
-        "index-residual branch stream should remain bounded by lazy branch heads, got {attribution:?}",
+        "index-residual pruned prefix stream should remain bounded by the page, got {attribution:?}",
     );
 }
 

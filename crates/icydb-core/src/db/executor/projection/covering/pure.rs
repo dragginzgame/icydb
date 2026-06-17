@@ -51,7 +51,8 @@ where
     if plan.has_residual_filter_expr() {
         return Ok(None);
     }
-    let primary_key_order_scan_safe = plan.access.as_index_branch_set_spec_path().is_some();
+    let primary_key_order_scan_safe = plan.access.as_index_branch_set_spec_path().is_some()
+        || plan.access.as_index_prefix_contract_path().is_some();
     let residual_predicate_order_supported = matches!(
         covering.order_contract,
         CoveringProjectionOrder::IndexOrder(_)

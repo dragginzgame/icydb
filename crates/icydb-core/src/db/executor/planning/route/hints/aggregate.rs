@@ -1,8 +1,7 @@
-//! Module: db::executor::planning::route::hints::aggregate
-//! Defines aggregate-routing hints used to explain and classify chosen
-//! executor routes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: executor::planning::route::hints::aggregate
+//! Responsibility: aggregate bounded-probe and seek hint derivation.
+//! Does not own: aggregate route shape classification or execution dispatch.
+//! Boundary: emits optional aggregate route hints from prepared capability facts.
 
 use crate::db::{
     direction::Direction,
@@ -16,6 +15,7 @@ use crate::db::{
     query::plan::{AccessPlannedQuery, AggregateKind},
 };
 
+/// Resolve bounded fetch hint for aggregate probe execution.
 pub(in crate::db::executor::planning::route) const fn count_pushdown_fetch_hint(
     access_window: AccessWindow,
     capability_facts: RouteCapabilityFacts,
@@ -27,6 +27,7 @@ pub(in crate::db::executor::planning::route) const fn count_pushdown_fetch_hint(
     }
 }
 
+/// Resolve one bounded aggregate probe fetch hint for a planned aggregate route.
 pub(in crate::db::executor::planning::route) fn aggregate_probe_fetch_hint(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,

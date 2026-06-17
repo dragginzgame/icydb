@@ -67,7 +67,8 @@ where
 
     let scan_window = covering_scan_window(
         hybrid.order_contract,
-        plan.access.as_index_branch_set_spec_path().is_some(),
+        plan.access.as_index_branch_set_spec_path().is_some()
+            || plan.access.as_index_prefix_contract_path().is_some(),
         true,
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
