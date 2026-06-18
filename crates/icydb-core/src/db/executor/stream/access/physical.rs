@@ -48,6 +48,14 @@ enum KeyOrderState {
     Unordered,
 }
 
+enum PhysicalKeyResolution {
+    Stream(Box<OrderedKeyStreamBox>),
+    Materialized {
+        candidates: Vec<DecodedDataStoreKey>,
+        key_order_state: KeyOrderState,
+    },
+}
+
 ///
 /// StructuralPhysicalStreamRequest
 ///
@@ -899,6 +907,102 @@ const fn index_path_can_stream_in_final_order(request: PhysicalStreamBindings<'_
         && (request.preserve_leaf_index_order || request.physical_fetch_hint.is_some())
 }
 
+fn resolve_index_physical_key_stream(
+    path: &ExecutionPathPayload<'_, Value>,
+    request: PhysicalStreamBindings<'_>,
+    runtime: &KeyAccessRuntime,
+) -> Result<PhysicalKeyResolution, InternalError> {
+    let (candidates, key_order_state) = match path {
+        ExecutionPathPayload::IndexPrefix { .. } => {
+            if index_path_can_stream_in_final_order(request) {
+                return Ok(PhysicalKeyResolution::Stream(Box::new(
+                    runtime.resolve_index_prefix_stream(
+                        request.index_prefix_specs,
+                        request.continuation.direction(),
+                        request.physical_fetch_hint,
+                    )?,
+                )));
+            }
+
+            runtime.resolve_index_prefix(
+                request.index_prefix_specs,
+                request.continuation.direction(),
+                request.physical_fetch_hint,
+                request.index_predicate_execution,
+            )?
+        }
+        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => {
+            if index_path_can_stream_in_final_order(request) {
+                return Ok(PhysicalKeyResolution::Stream(Box::new(
+                    runtime.resolve_index_multi_lookup_stream(
+                        request.index_prefix_specs,
+                        *value_count,
+                        request.continuation.direction(),
+                        request.physical_fetch_hint,
+                    )?,
+                )));
+            }
+
+            runtime.resolve_index_multi_lookup(
+                request.index_prefix_specs,
+                *value_count,
+                request.continuation.direction(),
+                request.index_predicate_execution,
+            )?
+        }
+        ExecutionPathPayload::IndexBranchSet {
+            index,
+            branch_count,
+        } => {
+            if index_path_can_stream_in_final_order(request) {
+                return Ok(PhysicalKeyResolution::Stream(Box::new(
+                    runtime.resolve_index_branch_set_stream(
+                        index,
+                        request.index_prefix_specs,
+                        *branch_count,
+                        request.continuation,
+                        request.physical_fetch_hint,
+                    )?,
+                )));
+            }
+
+            runtime.resolve_index_multi_lookup(
+                request.index_prefix_specs,
+                *branch_count,
+                request.continuation.direction(),
+                request.index_predicate_execution,
+            )?
+        }
+        ExecutionPathPayload::IndexRange { .. } => {
+            if index_path_can_stream_in_final_order(request) {
+                return Ok(PhysicalKeyResolution::Stream(Box::new(
+                    runtime.resolve_index_range_stream(
+                        request.index_range_spec,
+                        request.continuation.index_scan_continuation(),
+                        request.physical_fetch_hint,
+                    )?,
+                )));
+            }
+
+            runtime.resolve_index_range(
+                request.index_range_spec,
+                request.continuation.index_scan_continuation(),
+                request.physical_fetch_hint,
+                request.index_predicate_execution,
+            )?
+        }
+        ExecutionPathPayload::ByKey(_)
+        | ExecutionPathPayload::ByKeys(_)
+        | ExecutionPathPayload::KeyRange { .. }
+        | ExecutionPathPayload::FullScan => return Err(InternalError::query_executor_invariant()),
+    };
+
+    Ok(PhysicalKeyResolution::Materialized {
+        candidates,
+        key_order_state,
+    })
+}
+
 // Resolve one physical access path by dispatching only the coarse path shape
 // through the runtime leaf boundary.
 fn resolve_physical_key_stream(
@@ -930,75 +1034,17 @@ fn resolve_physical_key_stream(
                 primary_scan_fetch_hint,
             ));
         }
-        ExecutionPathPayload::IndexPrefix { .. } => {
-            if index_path_can_stream_in_final_order(request) {
-                return runtime.resolve_index_prefix_stream(
-                    request.index_prefix_specs,
-                    request.continuation.direction(),
-                    request.physical_fetch_hint,
-                );
+        ExecutionPathPayload::IndexPrefix { .. }
+        | ExecutionPathPayload::IndexMultiLookup { .. }
+        | ExecutionPathPayload::IndexBranchSet { .. }
+        | ExecutionPathPayload::IndexRange { .. } => {
+            match resolve_index_physical_key_stream(path, request, runtime)? {
+                PhysicalKeyResolution::Stream(stream) => return Ok(*stream),
+                PhysicalKeyResolution::Materialized {
+                    candidates,
+                    key_order_state,
+                } => (candidates, key_order_state),
             }
-
-            runtime.resolve_index_prefix(
-                request.index_prefix_specs,
-                request.continuation.direction(),
-                request.physical_fetch_hint,
-                request.index_predicate_execution,
-            )?
-        }
-        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => {
-            if index_path_can_stream_in_final_order(request) {
-                return runtime.resolve_index_multi_lookup_stream(
-                    request.index_prefix_specs,
-                    *value_count,
-                    request.continuation.direction(),
-                    request.physical_fetch_hint,
-                );
-            }
-
-            runtime.resolve_index_multi_lookup(
-                request.index_prefix_specs,
-                *value_count,
-                request.continuation.direction(),
-                request.index_predicate_execution,
-            )?
-        }
-        ExecutionPathPayload::IndexBranchSet {
-            index,
-            branch_count,
-        } => {
-            if index_path_can_stream_in_final_order(request) {
-                return runtime.resolve_index_branch_set_stream(
-                    index,
-                    request.index_prefix_specs,
-                    *branch_count,
-                    request.continuation,
-                    request.physical_fetch_hint,
-                );
-            }
-
-            runtime.resolve_index_multi_lookup(
-                request.index_prefix_specs,
-                *branch_count,
-                request.continuation.direction(),
-                request.index_predicate_execution,
-            )?
-        }
-        ExecutionPathPayload::IndexRange { .. } => {
-            if index_path_can_stream_in_final_order(request) {
-                return runtime.resolve_index_range_stream(
-                    request.index_range_spec,
-                    request.continuation.index_scan_continuation(),
-                    request.physical_fetch_hint,
-                );
-            }
-
-            runtime.resolve_index_range(
-                request.index_range_spec,
-                request.continuation.index_scan_continuation(),
-                request.physical_fetch_hint,
-                request.index_predicate_execution,
-            )?
         }
     };
 
