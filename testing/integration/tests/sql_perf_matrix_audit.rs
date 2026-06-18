@@ -403,7 +403,7 @@ fn token_branch_count_sql(stages: &str) -> String {
 fn token_sparse_collection_in_page_sql(missing_count: usize, limit: u32) -> String {
     let mut collections = format!("'{TOKEN_TARGET_COLLECTION}'");
     for index in 0..missing_count {
-        collections.push_str(&format!(", 'missing-collection-{index:03}'"));
+        let _ = write!(collections, ", 'missing-collection-{index:03}'");
     }
 
     format!(
@@ -1644,6 +1644,11 @@ fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSamp
         "Top Main Fixture Index Store Entry Reads",
         ranked_main_fixture_by(samples, |sample| sample.index_store_entry_reads),
     );
+    append_main_fixture_covering_hotspot_tables(output, samples);
+    append_main_fixture_execution_hotspot_tables(output, samples);
+}
+
+fn append_main_fixture_covering_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
     append_pure_covering_table(
         output,
         "Top Main Fixture Pure Covering Decode Instructions",
@@ -1674,6 +1679,9 @@ fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSamp
         }),
         |sample| sample.hybrid_covering_index_field_accesses,
     );
+}
+
+fn append_main_fixture_execution_hotspot_tables(output: &mut String, samples: &[MatrixSample]) {
     append_direct_data_row_table(
         output,
         "Top Main Fixture Direct Data-Row Scan Instructions",

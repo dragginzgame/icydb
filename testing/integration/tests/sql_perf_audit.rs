@@ -3383,6 +3383,22 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         i128::from(fallback.avg_local_instructions) - i128::from(branch.avg_local_instructions);
     println!("branch-set perf limit50 saved: execute={execute_delta} total={total_delta}");
 
+    assert_token_branch_set_limit50_pressure_contract(
+        &branch,
+        &wide_branch,
+        &fallback,
+        &large_in_fallback,
+        &sparse_collection_in,
+    );
+}
+
+fn assert_token_branch_set_limit50_pressure_contract(
+    branch: &SqlPerfScenarioSample,
+    wide_branch: &SqlPerfScenarioSample,
+    fallback: &SqlPerfScenarioSample,
+    large_in_fallback: &SqlPerfScenarioSample,
+    sparse_collection_in: &SqlPerfScenarioSample,
+) {
     assert_eq!(
         branch.outcome.row_count, 50,
         "branch-set LIMIT 50 pressure query should return the requested page size",
