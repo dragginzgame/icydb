@@ -4,12 +4,6 @@
 //! Does not own: response DTO storage or transport-layer error mapping.
 //! Boundary: exposes query-layer response semantics while keeping the DTO layer generic.
 
-use crate::{
-    db::{EntityResponse, ResponseError, Row},
-    prelude::*,
-    types::Id,
-};
-
 mod private {
     use crate::{db::EntityResponse, prelude::*};
 
@@ -25,6 +19,11 @@ mod private {
     impl<E: EntityKind> SealedResponseCardinalityExt<E> for EntityResponse<E> {}
 }
 
+use crate::{
+    db::{EntityResponse, ResponseError, Row},
+    prelude::*,
+    types::Id,
+};
 use private::SealedResponseCardinalityExt;
 
 ///

@@ -3,6 +3,12 @@
 //! Does not own: cursor handling, grouped execution, explain output, or attribution.
 //! Boundary: maps fluent prepared strategies into executor requests and maps executor outputs back into fluent DTOs.
 
+#[cfg(feature = "diagnostics")]
+use crate::db::{
+    FluentTerminalExecutionAttribution, ScalarAggregateAttribution,
+    diagnostics::{StoreCounterSnapshot, measure_local_instruction_delta as measure_query_stage},
+    executor::with_scalar_aggregate_terminal_attribution,
+};
 use crate::{
     db::{
         DbSession, EntityResponse, PersistedRow, Query, QueryError,
@@ -46,6 +52,66 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    // Execute one scalar terminal boundary with diagnostics attribution. This
+    // mirrors the normal scalar-terminal path while exposing the executor-owned
+    // scalar aggregate collector used by SQL aggregate attribution.
+    #[cfg(feature = "diagnostics")]
+    fn execute_scalar_terminal_boundary_with_attribution<E>(
+        &self,
+        query: &Query<E>,
+        request: ScalarTerminalBoundaryRequest,
+    ) -> Result<
+        (
+            ScalarTerminalBoundaryOutput,
+            FluentTerminalExecutionAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (plan_lookup_local_instructions, plan_and_cache) =
+            measure_query_stage(|| self.cached_prepared_query_plan_for_entity::<E>(query));
+        let (plan, cache_attribution) = plan_and_cache?;
+        let compile_local_instructions = plan_lookup_local_instructions;
+
+        let store_counters_before = StoreCounterSnapshot::capture();
+        let (scalar_aggregate_terminal, (executor_invocation_local_instructions, output)) =
+            with_scalar_aggregate_terminal_attribution(|| {
+                measure_query_stage(|| {
+                    self.with_metrics(|| {
+                        self.load_executor::<E>()
+                            .execute_scalar_terminal_request(plan, request)
+                    })
+                    .map_err(QueryError::execute)
+                })
+            });
+        let output = output?;
+        let store_counters = store_counters_before.delta_since();
+        let execute_local_instructions = executor_invocation_local_instructions;
+        let total_local_instructions =
+            compile_local_instructions.saturating_add(execute_local_instructions);
+
+        Ok((
+            output,
+            FluentTerminalExecutionAttribution {
+                compile_local_instructions,
+                plan_lookup_local_instructions,
+                executor_invocation_local_instructions,
+                execute_local_instructions,
+                total_local_instructions,
+                store_get_calls: store_counters.data_store_get_calls,
+                index_store_get_calls: store_counters.index_store_get_calls,
+                index_store_entry_reads: store_counters.index_store_entry_reads,
+                scalar_aggregate: ScalarAggregateAttribution::from_executor(
+                    scalar_aggregate_terminal,
+                ),
+                shared_query_plan_cache_hits: cache_attribution.hits,
+                shared_query_plan_cache_misses: cache_attribution.misses,
+            },
+        ))
+    }
+
     // Execute one projection terminal boundary and keep field projection
     // executor details out of fluent query modules.
     fn execute_scalar_projection_boundary<E>(
@@ -77,6 +143,25 @@ impl<C: CanisterKind> DbSession<C> {
         output.into_count().map_err(QueryError::execute)
     }
 
+    // Execute one fluent count terminal while reporting terminal-specific
+    // diagnostics from the shared scalar aggregate execution path.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn execute_fluent_count_rows_terminal_with_attribution<E>(
+        &self,
+        query: &Query<E>,
+        strategy: CountRowsTerminal,
+    ) -> Result<(u32, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let request = strategy.into_executor_request();
+        let (output, attribution) =
+            self.execute_scalar_terminal_boundary_with_attribution(query, request)?;
+        let count = output.into_count().map_err(QueryError::execute)?;
+
+        Ok((count, attribution))
+    }
+
     // Execute one fluent exists terminal through its concrete session boundary.
     pub(in crate::db) fn execute_fluent_exists_rows_terminal<E>(
         &self,
@@ -90,6 +175,25 @@ impl<C: CanisterKind> DbSession<C> {
         let output = self.execute_scalar_terminal_boundary(query, request)?;
 
         output.into_exists().map_err(QueryError::execute)
+    }
+
+    // Execute one fluent exists terminal while reporting terminal-specific
+    // diagnostics from the shared scalar aggregate execution path.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn execute_fluent_exists_rows_terminal_with_attribution<E>(
+        &self,
+        query: &Query<E>,
+        strategy: ExistsRowsTerminal,
+    ) -> Result<(bool, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let request = strategy.into_executor_request();
+        let (output, attribution) =
+            self.execute_scalar_terminal_boundary_with_attribution(query, request)?;
+        let exists = output.into_exists().map_err(QueryError::execute)?;
+
+        Ok((exists, attribution))
     }
 
     // Execute one scalar id terminal request and decode storage keys into typed ids.

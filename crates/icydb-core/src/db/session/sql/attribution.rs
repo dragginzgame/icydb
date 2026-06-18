@@ -6,6 +6,7 @@
 #[cfg(feature = "diagnostics")]
 use crate::db::{
     DirectDataRowAttribution, GroupedExecutionAttribution, KernelRowAttribution,
+    ScalarAggregateAttribution,
     executor::{
         GroupedCountAttribution as ExecutorGroupedCountAttribution,
         ScalarAggregateTerminalAttribution,
@@ -59,65 +60,8 @@ pub struct SqlExecutionAttribution {
     pub response_finalization_local_instructions: u64,
 }
 
-///
-/// SqlScalarAggregateAttribution
-///
-/// Candid diagnostics payload for scalar aggregate terminal execution.
-/// The field names drop the old `scalar_aggregate_` prefix because the parent
-/// field now owns that context.
-///
-
 #[cfg(feature = "diagnostics")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct SqlScalarAggregateAttribution {
-    pub base_row_local_instructions: u64,
-    pub reducer_fold_local_instructions: u64,
-    pub expression_evaluations: u64,
-    pub filter_evaluations: u64,
-    pub rows_ingested: u64,
-    pub terminal_count: u64,
-    pub unique_input_expr_count: u64,
-    pub unique_filter_expr_count: u64,
-    pub sink_mode: Option<String>,
-}
-
-#[cfg(feature = "diagnostics")]
-impl SqlScalarAggregateAttribution {
-    /// Project executor scalar aggregate attribution into the SQL diagnostics payload.
-    ///
-    /// Returns `None` when the executor reported no scalar aggregate work.
-    pub(in crate::db::session::sql) fn from_executor(
-        terminal: ScalarAggregateTerminalAttribution,
-    ) -> Option<Self> {
-        // Treat the nested payload as absent only when the executor reported
-        // no scalar aggregate work at all. This keeps COUNT fast paths compact
-        // while preserving any future counter that becomes nonzero.
-        let has_scalar_aggregate_work = terminal.base_row_local_instructions != 0
-            || terminal.reducer_fold_local_instructions != 0
-            || terminal.expression_evaluations != 0
-            || terminal.filter_evaluations != 0
-            || terminal.rows_ingested != 0
-            || terminal.terminal_count != 0
-            || terminal.unique_input_expr_count != 0
-            || terminal.unique_filter_expr_count != 0
-            || terminal.sink_mode.label().is_some();
-        if !has_scalar_aggregate_work {
-            return None;
-        }
-
-        Some(Self {
-            base_row_local_instructions: terminal.base_row_local_instructions,
-            reducer_fold_local_instructions: terminal.reducer_fold_local_instructions,
-            expression_evaluations: terminal.expression_evaluations,
-            filter_evaluations: terminal.filter_evaluations,
-            rows_ingested: terminal.rows_ingested,
-            terminal_count: terminal.terminal_count,
-            unique_input_expr_count: terminal.unique_input_expr_count,
-            unique_filter_expr_count: terminal.unique_filter_expr_count,
-            sink_mode: terminal.sink_mode.label().map(str::to_string),
-        })
-    }
-}
+pub type SqlScalarAggregateAttribution = ScalarAggregateAttribution;
 
 ///
 /// SqlPureCoveringAttribution

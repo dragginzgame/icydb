@@ -1,4 +1,4 @@
-//! Module: commit::memory
+//! Module: db::commit::memory
 //! Responsibility: resolve and validate the commit-marker stable-memory slot.
 //! Does not own: marker encoding, marker persistence, or recovery orchestration.
 //! Boundary: commit::{recovery,store} -> commit::memory (one-way).
@@ -10,6 +10,10 @@ use ic_memory::stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMem
 use std::sync::OnceLock;
 
 static COMMIT_STORE_ALLOCATION: OnceLock<CommitMemoryAllocation> = OnceLock::new();
+
+/// Runtime allocation identity for the commit-marker control slot.
+///
+/// This is process-global commit storage wiring, not marker payload metadata.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CommitMemoryAllocation {

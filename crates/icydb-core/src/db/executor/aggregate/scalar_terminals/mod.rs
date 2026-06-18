@@ -49,6 +49,20 @@ pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_count_
         ScalarAggregateTerminalAttribution::from_index_prefix_cardinality_count(),
     );
 }
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::executor::aggregate) fn record_existing_rows_terminal_attribution(
+    rows_ingested: usize,
+) {
+    diagnostics::record_scalar_aggregate_terminal_attribution(
+        ScalarAggregateTerminalAttribution::from_existing_rows_terminal(rows_ingested),
+    );
+}
+#[cfg(feature = "diagnostics")]
+pub(in crate::db::executor::aggregate) fn record_kernel_aggregate_terminal_attribution() {
+    diagnostics::record_scalar_aggregate_terminal_attribution(
+        ScalarAggregateTerminalAttribution::from_kernel_aggregate_terminal(),
+    );
+}
 pub(in crate::db) use request::{StructuralAggregateRequest, StructuralAggregateResult};
 pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregateTerminalKind};
 

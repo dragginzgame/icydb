@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Shares SQL and fluent diagnostics attribution for physical store/index
+  counters and fluent count/exists terminals, so upcoming perf audits can
+  inspect page and scalar terminal work through one frontend-neutral
+  diagnostics surface, and answers metadata-backed fluent `count()` requests
+  before aggregate stream preparation when an exact index-prefix cardinality
+  proof is already available.
+
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.20` trims fluent branch-set full-entity page reads by reusing
+  primary-key bytes recovered during index traversal and adds token-shaped
+  fluent branch-set perf coverage for cold and warmed query-plan paths.
 
 - `0.183.19` trims large `IN (...)` parse overhead and cuts branch-set
   `COUNT(*)` compile cost by reusing predicate-only aggregate filters and a

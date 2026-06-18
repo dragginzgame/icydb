@@ -39,14 +39,15 @@ use post_access::apply_post_access_to_kernel_rows_dyn;
 use scan::execute_scalar_page_kernel_dyn;
 
 #[cfg(feature = "diagnostics")]
+pub(in crate::db) use metrics::{
+    DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
+    with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
+};
+#[cfg(feature = "diagnostics")]
 pub use metrics::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use metrics::{
     ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
-};
-#[cfg(feature = "diagnostics")]
-pub(in crate::db) use metrics::{
-    with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
 pub(in crate::db::executor) use plan::{KernelRowScanStrategy, resolve_cursorless_short_path_plan};
 pub(in crate::db) use retained::RetainedSlotRow;

@@ -12,6 +12,8 @@
 //! dispatch. Adding a new terminal means adding a new descriptor type and one
 //! direct `TerminalStrategyDriver` implementation for that descriptor.
 
+#[cfg(feature = "diagnostics")]
+use crate::db::FluentTerminalExecutionAttribution;
 use crate::{
     db::{
         DbSession, PersistedRow, Query,
@@ -351,6 +353,24 @@ where
         self.execute_terminal(ExistsRowsTerminal::new())
     }
 
+    /// Execute and return whether at least one matching row exists with
+    /// terminal attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn exists_with_attribution(
+        &self,
+    ) -> Result<(bool, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: EntityValue,
+    {
+        self.with_non_paged(|session, query| {
+            session.execute_fluent_exists_rows_terminal_with_attribution(
+                query,
+                ExistsRowsTerminal::new(),
+            )
+        })
+    }
+
     /// Explain scalar `exists()` routing without executing the terminal.
     pub fn explain_exists(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
@@ -407,6 +427,23 @@ where
         E: EntityValue,
     {
         self.execute_terminal(CountRowsTerminal::new())
+    }
+
+    /// Execute and return the number of matching rows with terminal attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn count_with_attribution(
+        &self,
+    ) -> Result<(u32, FluentTerminalExecutionAttribution), QueryError>
+    where
+        E: EntityValue,
+    {
+        self.with_non_paged(|session, query| {
+            session.execute_fluent_count_rows_terminal_with_attribution(
+                query,
+                CountRowsTerminal::new(),
+            )
+        })
     }
 
     /// Execute and return the total persisted payload bytes for the effective

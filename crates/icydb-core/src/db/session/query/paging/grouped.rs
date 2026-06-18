@@ -3,6 +3,8 @@
 //! Does not own: scalar paging or grouped runtime execution semantics.
 //! Boundary: decodes grouped cursor tokens, delegates grouped execution, and finalizes grouped pages.
 
+#[cfg(feature = "diagnostics")]
+use crate::db::executor::GroupedExecutePhaseAttribution;
 use crate::{
     db::{
         DbSession, PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
@@ -92,6 +94,29 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.execute_grouped_with_cursor(plan, cursor_token, |executor, plan, cursor| {
             executor.execute_grouped_paged_with_cursor_traced(plan, cursor)
+        })
+    }
+
+    // Execute one grouped prepared plan result with optional grouped cursor
+    // while preserving executor phase attribution for diagnostics surfaces.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db::session) fn execute_grouped_with_phase_attribution<E>(
+        &self,
+        plan: PreparedExecutionPlan<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<
+        (
+            StructuralGroupedProjectionResult,
+            Option<ExecutionTrace>,
+            GroupedExecutePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_grouped_with_cursor(plan, cursor_token, |executor, plan, cursor| {
+            executor.execute_grouped_paged_with_cursor_traced_with_phase_attribution(plan, cursor)
         })
     }
 }

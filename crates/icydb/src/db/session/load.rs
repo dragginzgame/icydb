@@ -190,6 +190,19 @@ impl<'a, E: Entity> FluentLoadQuery<'a, E> {
         Ok(self.inner.exists()?)
     }
 
+    /// Return whether at least one matching row exists with terminal
+    /// diagnostics attribution.
+    #[cfg(feature = "diagnostics")]
+    #[doc(hidden)]
+    pub fn exists_with_attribution(
+        &self,
+    ) -> Result<(bool, crate::db::FluentTerminalExecutionAttribution), Error>
+    where
+        E: Entity,
+    {
+        Ok(self.inner.exists_with_attribution()?)
+    }
+
     /// Explain scalar `exists()` routing without executing the terminal.
     pub fn explain_exists(&self) -> Result<ExplainAggregateTerminalPlan, Error>
     where

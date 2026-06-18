@@ -1,4 +1,4 @@
-//! Module: query::expr::filter
+//! Module: db::query::expr::filter
 //! Responsibility: frontend-safe filter expression DTOs and planner lowering.
 //! Does not own: query route planning or executor predicate evaluation.
 //! Boundary: converts serialized filter input into planner-owned boolean expressions.
@@ -14,11 +14,10 @@ use crate::{
 use candid::CandidType;
 use serde::Deserialize;
 
-// FilterValue
-//
-// Serialized frontend-safe filter literal payload.
-// This keeps the public filter wire surface narrow and string-backed while
-// the intent boundary still rehydrates typed runtime values from schema.
+/// Serialized frontend-safe filter literal payload.
+///
+/// This keeps the public filter wire surface narrow and string-backed while
+/// the intent boundary still rehydrates typed runtime values from schema.
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum FilterValue {
@@ -29,9 +28,11 @@ pub enum FilterValue {
 }
 
 impl FilterValue {
-    // Convert one typed runtime value onto the narrowed public filter wire
-    // contract. Non-bool scalar values travel as canonical strings so the
-    // schema-aware intent boundary can rehydrate the exact field kind later.
+    /// Convert one typed runtime value onto the narrowed public filter wire
+    /// contract.
+    ///
+    /// Non-bool scalar values travel as canonical strings so the schema-aware
+    /// intent boundary can rehydrate the exact field kind later.
     fn from_typed_value(value: Value) -> Self {
         match value {
             Value::Bool(value) => Self::Bool(value),
@@ -62,8 +63,9 @@ impl FilterValue {
         }
     }
 
-    // Lower one public wire literal back onto the runtime value model before
-    // adjacent schema-aware callers optionally canonicalize it to the target field kind.
+    /// Lower one public wire literal back onto the runtime value model before
+    /// adjacent schema-aware callers optionally canonicalize it to the target
+    /// field kind.
     fn lower_value(&self) -> Value {
         match self {
             Self::String(value) => Value::Text(value.clone()),
@@ -87,11 +89,10 @@ where
     }
 }
 
-// FilterExpr
-//
-// Serialized, planner-agnostic filter language.
-// This is the shared frontend-facing filter input model for fluent callers
-// and lowers onto planner-owned boolean expressions at the intent boundary.
+/// Serialized, planner-agnostic filter language.
+///
+/// This is the shared frontend-facing filter input model for fluent callers
+/// and lowers onto planner-owned boolean expressions at the intent boundary.
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum FilterExpr {

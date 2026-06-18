@@ -1,4 +1,4 @@
-//! Module: commit::store::marker_envelope
+//! Module: db::commit::store::marker_envelope
 //! Responsibility: encode/decode the versioned commit-marker envelope.
 //! Does not own: control-slot framing, stable-cell lifecycle, or marker semantics.
 //! Boundary: control-slot marker bytes -> marker envelope -> marker payload codec.
@@ -43,8 +43,6 @@ fn validate_commit_marker_format_version(format_version: u8) -> Result<(), Inter
     if format_version == COMMIT_MARKER_FORMAT_VERSION_CURRENT {
         return Ok(());
     }
-
-    let _ = format_version;
 
     Err(InternalError::serialize_incompatible_persisted_format())
 }

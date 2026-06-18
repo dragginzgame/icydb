@@ -1057,11 +1057,9 @@ fn session_branch_set_fluent_full_entity_page_uses_lazy_branch_route() {
         "fluent branch target should use the branch-aware route",
     );
 
-    let ((result, attribution), store_gets, index_entries) = with_store_and_index_reads(|| {
-        session
-            .execute_query_result_with_attribution(&query)
-            .expect("fluent branch target should execute")
-    });
+    let (result, attribution) = session
+        .execute_query_result_with_attribution(&query)
+        .expect("fluent branch target should execute");
     let crate::db::LoadQueryResult::Rows(page) = result else {
         panic!("fluent branch target should return scalar rows");
     };
@@ -1072,12 +1070,12 @@ fn session_branch_set_fluent_full_entity_page_uses_lazy_branch_route() {
         "fluent branch target should match globally sorted branch-set rows",
     );
     assert!(
-        (BRANCH_LIMIT as u64..=BRANCH_FETCH).contains(&store_gets),
-        "fluent full-entity branch page should hydrate only returned rows plus lookahead, got {store_gets}",
+        (BRANCH_LIMIT as u64..=BRANCH_FETCH).contains(&attribution.store_get_calls),
+        "fluent full-entity branch page should hydrate only returned rows plus lookahead, got {attribution:?}",
     );
     assert!(
-        index_entries <= BRANCH_HEAD_MERGE_READ_CAP,
-        "fluent branch stream should pull branch heads lazily, got {index_entries}",
+        attribution.index_store_entry_reads <= BRANCH_HEAD_MERGE_READ_CAP,
+        "fluent branch stream should pull branch heads lazily, got {attribution:?}",
     );
     assert!(
         attribution.direct_data_row.is_some(),
@@ -1139,6 +1137,104 @@ fn session_branch_set_sql_count_covered_predicate_uses_prefix_cardinality() {
     assert_eq!(
         scalar_aggregate.rows_ingested, 0,
         "metadata COUNT should not ingest rows through the buffered reducer",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_count_covered_predicate_reports_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+
+    let (count, attribution) = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
+        .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
+        .count_with_attribution()
+        .unwrap_or_else(|err| panic!("covered branch fluent COUNT should execute: {err:?}"));
+
+    assert_eq!(
+        count,
+        u32::try_from(expected_branch_ids(usize::MAX).len())
+            .expect("branch count should fit into u32"),
+        "fluent covered COUNT should match the full branch predicate result",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "fluent synchronized branch COUNT should use exact prefix cardinality without row probes",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "fluent synchronized branch COUNT should not scan index entries",
+    );
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .expect("fluent prefix-cardinality COUNT should report its terminal source");
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("IndexPrefixCardinality"),
+        "fluent covered branch COUNT should attribute the exact metadata source",
+    );
+    assert_eq!(
+        scalar_aggregate.terminal_count, 1,
+        "fluent covered branch COUNT should report one terminal",
+    );
+    assert_eq!(
+        scalar_aggregate.rows_ingested, 0,
+        "fluent metadata COUNT should not ingest rows through the buffered reducer",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_exists_reports_existing_rows_terminal_attribution() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let query = fluent_branch_target_query(
+        u32::try_from(BRANCH_LIMIT).expect("branch test limit should fit into u32"),
+    );
+
+    let (exists, attribution) = session
+        .load::<BranchIndexedSessionSqlEntity>()
+        .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
+        .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
+        .order_term(crate::db::asc("id"))
+        .limit(u32::try_from(BRANCH_LIMIT).expect("branch test limit should fit into u32"))
+        .exists_with_attribution()
+        .unwrap_or_else(|err| panic!("covered branch fluent EXISTS should execute: {err:?}"));
+
+    assert!(
+        exists,
+        "fluent EXISTS should find a row for the branch predicate",
+    );
+    let descriptor = query
+        .explain_execution()
+        .expect("fluent branch EXISTS baseline should explain");
+    assert!(
+        explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::IndexBranchSet),
+        "fluent EXISTS baseline should retain the branch-aware route shape",
+    );
+    assert!(
+        (BRANCH_LIMIT as u64..=BRANCH_FETCH).contains(&attribution.store_get_calls),
+        "fluent branch EXISTS should hydrate only the bounded effective window, got {attribution:?}",
+    );
+    assert!(
+        attribution.index_store_entry_reads <= BRANCH_HEAD_MERGE_READ_CAP,
+        "fluent branch EXISTS should keep branch traversal bounded, got {attribution:?}",
+    );
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .expect("fluent EXISTS should report its terminal source");
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("KernelAggregate"),
+        "fluent EXISTS should attribute the kernel aggregate terminal source",
+    );
+    assert_eq!(
+        scalar_aggregate.terminal_count, 1,
+        "fluent EXISTS should report one terminal",
     );
 }
 

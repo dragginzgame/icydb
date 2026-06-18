@@ -1,4 +1,4 @@
-//! Module: commit::guard
+//! Module: db::commit::guard
 //! Responsibility: enforce commit-window marker lifecycle and rollback guards.
 //! Does not own: mutation planning, marker payload semantics, or recovery orchestration.
 //! Boundary: executor::mutation -> commit::guard -> commit::store (one-way).
@@ -70,7 +70,7 @@ impl CommitApplyGuard {
         }
     }
 
-    // Record one prepared row-op rollback snapshot for the single-row hot path.
+    /// Record one prepared row-op rollback snapshot for the single-row hot path.
     pub(crate) fn record_single_row_rollback(&mut self, rollback: PreparedRowCommitOp) {
         debug_assert!(
             matches!(self.rollback, ApplyRollback::None),
@@ -176,6 +176,11 @@ pub(crate) fn begin_single_row_commit(row_op: CommitRowOp) -> Result<CommitGuard
 /// Durability rule:
 /// - `Ok(())` => marker is cleared.
 /// - `Err(_)` => marker remains persisted for recovery replay.
+///
+/// # Panics
+///
+/// Panics if successful commit completion does not clear the persisted marker,
+/// or if failed commit completion does not preserve the persisted marker.
 pub(crate) fn finish_commit(
     mut guard: CommitGuard,
     apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,

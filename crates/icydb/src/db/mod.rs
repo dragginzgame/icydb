@@ -51,8 +51,8 @@ pub use session::generated::execute_generated_storage_report;
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use icydb_core::db::{
-    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    QueryExecutionAttribution,
+    DirectDataRowAttribution, FluentTerminalExecutionAttribution, GroupedCountAttribution,
+    GroupedExecutionAttribution, QueryExecutionAttribution, ScalarAggregateAttribution,
 };
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]

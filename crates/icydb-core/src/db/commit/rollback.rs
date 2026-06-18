@@ -1,4 +1,4 @@
-//! Module: commit::rollback
+//! Module: db::commit::rollback
 //! Responsibility: capture and apply rollback snapshots for prepared row operations.
 //! Does not own: commit-marker persistence, mutation planning, or recovery orchestration.
 //! Boundary: commit::{prepare,replay,executor} -> commit::rollback -> commit::apply.

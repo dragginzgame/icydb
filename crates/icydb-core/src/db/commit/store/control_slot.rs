@@ -1,4 +1,4 @@
-//! Module: commit::store::control_slot
+//! Module: db::commit::store::control_slot
 //! Responsibility: encode/decode the durable commit control-slot envelope.
 //! Does not own: stable-cell lifecycle, marker semantics, or recovery orchestration.
 //! Boundary: commit store lifecycle -> control-slot bytes -> marker payload.

@@ -218,11 +218,7 @@ impl<C: CanisterKind> DbSession<C> {
                         |session, prepared_plan| {
                             let plan = prepared_plan.typed_clone::<E>();
                             session
-                                .execute_grouped_with_cursor(plan, None, |executor, plan, cursor| {
-                                    executor.execute_grouped_paged_with_cursor_traced_with_phase_attribution(
-                                        plan, cursor,
-                                    )
-                                })
+                                .execute_grouped_with_phase_attribution(plan, None)
                                 .map(|(result, _trace, phase_attribution)| {
                                     (result, phase_attribution)
                                 })

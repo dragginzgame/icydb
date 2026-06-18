@@ -271,6 +271,8 @@ When a type and its `impl` live in the same file:
   module-structure reason requires separation.
 - If a file contains multiple types, keep each type family together: type,
   inherent impl, then trait impls for that type.
+- Keep inline `#[cfg(test)] mod tests { ... }` as the final item in the file.
+  It must not split type families, helper sections, or later runtime items.
 
 Example:
 
@@ -367,7 +369,8 @@ surfaces together, call that out explicitly in the PR summary.
 ## 13. Test Placement
 
 If tests are split into a separate file, declare `mod tests;` at the top with other module declarations.
-If tests are inline, keep `#[cfg(test)] mod tests { ... }` at the bottom of the module.
+If tests are inline, keep `#[cfg(test)] mod tests { ... }` at the bottom of the module, after all
+runtime types, impls, helpers, and utilities.
 For inline tests, the `///`, `/// TESTS`, `///` banner must have exactly one blank line before it and one blank line after it.
 Use leaf-local `tests.rs` only for tests that stay within that module's own boundary.
 If a test exercises subsystem behavior across sibling modules, shared fixtures, orchestration layers, or boundary contracts, move it to a subsystem-level `tests/` directory owned by that boundary instead of adding another leaf `tests.rs`.

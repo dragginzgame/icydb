@@ -1,4 +1,4 @@
-//! Module: commit::apply
+//! Module: db::commit::apply
 //! Responsibility: apply precomputed row/index mutations to stores.
 //! Does not own: mutation preparation, commit-marker durability, or recovery orchestration.
 //! Boundary: commit::{prepared_op,prepare,rebuild,replay} -> commit::apply (one-way).

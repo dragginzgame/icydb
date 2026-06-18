@@ -6,10 +6,14 @@
 use crate::{
     db::{
         DbSession, LoadQueryResult, PersistedRow, Query, QueryError,
-        diagnostics::measure_local_instruction_delta as measure_query_stage,
+        diagnostics::{
+            StoreCounterSnapshot, measure_local_instruction_delta as measure_query_stage,
+        },
         executor::{
+            DirectDataRowPhaseAttribution,
             GroupedCountAttribution as ExecutorGroupedCountAttribution,
-            GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
+            GroupedExecutePhaseAttribution, KernelRowPhaseAttribution,
+            ScalarAggregateTerminalAttribution, ScalarExecutePhaseAttribution,
         },
         session::finalize_structural_grouped_projection_result,
         session::query::{PreparedQueryExecutionOutcome, PreparedQueryExecutionOutput},
@@ -35,6 +39,58 @@ pub struct DirectDataRowAttribution {
     pub page_window_local_instructions: u64,
 }
 
+impl DirectDataRowAttribution {
+    const fn from_direct_phase(phase: DirectDataRowPhaseAttribution) -> Option<Self> {
+        let attribution = Self::from_phase_unchecked(phase);
+
+        if attribution.has_work() {
+            Some(attribution)
+        } else {
+            None
+        }
+    }
+
+    pub(in crate::db) const fn from_scalar_phase(phase: ScalarExecutePhaseAttribution) -> Self {
+        Self::from_phase_unchecked(DirectDataRowPhaseAttribution {
+            scan_local_instructions: phase.direct_data_row_scan_local_instructions,
+            key_stream_local_instructions: phase.direct_data_row_key_stream_local_instructions,
+            row_read_local_instructions: phase.direct_data_row_row_read_local_instructions,
+            key_encode_local_instructions: phase.direct_data_row_key_encode_local_instructions,
+            store_get_local_instructions: phase.direct_data_row_store_get_local_instructions,
+            order_window_local_instructions: phase.direct_data_row_order_window_local_instructions,
+            page_window_local_instructions: phase.direct_data_row_page_window_local_instructions,
+        })
+    }
+
+    pub(in crate::db) const fn from_captured_phase(
+        phase: DirectDataRowPhaseAttribution,
+    ) -> Option<Self> {
+        Self::from_direct_phase(phase)
+    }
+
+    const fn from_phase_unchecked(phase: DirectDataRowPhaseAttribution) -> Self {
+        Self {
+            scan_local_instructions: phase.scan_local_instructions,
+            key_stream_local_instructions: phase.key_stream_local_instructions,
+            row_read_local_instructions: phase.row_read_local_instructions,
+            key_encode_local_instructions: phase.key_encode_local_instructions,
+            store_get_local_instructions: phase.store_get_local_instructions,
+            order_window_local_instructions: phase.order_window_local_instructions,
+            page_window_local_instructions: phase.page_window_local_instructions,
+        }
+    }
+
+    const fn has_work(self) -> bool {
+        self.scan_local_instructions != 0
+            || self.key_stream_local_instructions != 0
+            || self.row_read_local_instructions != 0
+            || self.key_encode_local_instructions != 0
+            || self.store_get_local_instructions != 0
+            || self.order_window_local_instructions != 0
+            || self.page_window_local_instructions != 0
+    }
+}
+
 // KernelRowAttribution
 //
 // Candid diagnostics payload for retained/data kernel-row execution counters.
@@ -50,21 +106,46 @@ pub struct KernelRowAttribution {
 }
 
 impl KernelRowAttribution {
-    pub(in crate::db) fn from_scalar_phase(phase: ScalarExecutePhaseAttribution) -> Option<Self> {
-        let attribution = Self {
+    pub(in crate::db) const fn from_scalar_phase(
+        phase: ScalarExecutePhaseAttribution,
+    ) -> Option<Self> {
+        Self::from_kernel_phase(KernelRowPhaseAttribution {
             scan_local_instructions: phase.kernel_row_scan_local_instructions,
             key_stream_local_instructions: phase.kernel_row_key_stream_local_instructions,
             row_read_local_instructions: phase.kernel_row_row_read_local_instructions,
             order_window_local_instructions: phase.kernel_row_order_window_local_instructions,
             page_window_local_instructions: phase.kernel_row_page_window_local_instructions,
+        })
+    }
+
+    pub(in crate::db) const fn from_captured_phase(
+        phase: KernelRowPhaseAttribution,
+    ) -> Option<Self> {
+        Self::from_kernel_phase(phase)
+    }
+
+    const fn from_kernel_phase(phase: KernelRowPhaseAttribution) -> Option<Self> {
+        let attribution = Self {
+            scan_local_instructions: phase.scan_local_instructions,
+            key_stream_local_instructions: phase.key_stream_local_instructions,
+            row_read_local_instructions: phase.row_read_local_instructions,
+            order_window_local_instructions: phase.order_window_local_instructions,
+            page_window_local_instructions: phase.page_window_local_instructions,
         };
 
-        (attribution.scan_local_instructions != 0
-            || attribution.key_stream_local_instructions != 0
-            || attribution.row_read_local_instructions != 0
-            || attribution.order_window_local_instructions != 0
-            || attribution.page_window_local_instructions != 0)
-            .then_some(attribution)
+        if attribution.has_work() {
+            Some(attribution)
+        } else {
+            None
+        }
+    }
+
+    const fn has_work(self) -> bool {
+        self.scan_local_instructions != 0
+            || self.key_stream_local_instructions != 0
+            || self.row_read_local_instructions != 0
+            || self.order_window_local_instructions != 0
+            || self.page_window_local_instructions != 0
     }
 }
 
@@ -114,6 +195,85 @@ pub struct GroupedExecutionAttribution {
     pub count: GroupedCountAttribution,
 }
 
+///
+/// ScalarAggregateAttribution
+///
+/// Candid diagnostics payload for scalar aggregate terminal execution.
+/// This is shared by SQL and fluent terminal attribution so count/existence
+/// paths do not need frontend-specific executor DTO conversion.
+///
+
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ScalarAggregateAttribution {
+    pub base_row_local_instructions: u64,
+    pub reducer_fold_local_instructions: u64,
+    pub expression_evaluations: u64,
+    pub filter_evaluations: u64,
+    pub rows_ingested: u64,
+    pub terminal_count: u64,
+    pub unique_input_expr_count: u64,
+    pub unique_filter_expr_count: u64,
+    pub sink_mode: Option<String>,
+}
+
+impl ScalarAggregateAttribution {
+    /// Project executor scalar aggregate attribution into the shared diagnostics payload.
+    ///
+    /// Returns `None` when the executor reported no scalar aggregate work.
+    pub(in crate::db) fn from_executor(
+        terminal: ScalarAggregateTerminalAttribution,
+    ) -> Option<Self> {
+        let has_scalar_aggregate_work = terminal.base_row_local_instructions != 0
+            || terminal.reducer_fold_local_instructions != 0
+            || terminal.expression_evaluations != 0
+            || terminal.filter_evaluations != 0
+            || terminal.rows_ingested != 0
+            || terminal.terminal_count != 0
+            || terminal.unique_input_expr_count != 0
+            || terminal.unique_filter_expr_count != 0
+            || terminal.sink_mode.label().is_some();
+        if !has_scalar_aggregate_work {
+            return None;
+        }
+
+        Some(Self {
+            base_row_local_instructions: terminal.base_row_local_instructions,
+            reducer_fold_local_instructions: terminal.reducer_fold_local_instructions,
+            expression_evaluations: terminal.expression_evaluations,
+            filter_evaluations: terminal.filter_evaluations,
+            rows_ingested: terminal.rows_ingested,
+            terminal_count: terminal.terminal_count,
+            unique_input_expr_count: terminal.unique_input_expr_count,
+            unique_filter_expr_count: terminal.unique_filter_expr_count,
+            sink_mode: terminal.sink_mode.label().map(str::to_string),
+        })
+    }
+}
+
+///
+/// FluentTerminalExecutionAttribution
+///
+/// Diagnostics payload for one fluent scalar terminal call. Terminal calls use
+/// the same prepared-plan and executor internals as page queries, but report
+/// scalar aggregate work separately because terminals do not build page
+/// response envelopes.
+///
+
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct FluentTerminalExecutionAttribution {
+    pub compile_local_instructions: u64,
+    pub plan_lookup_local_instructions: u64,
+    pub executor_invocation_local_instructions: u64,
+    pub execute_local_instructions: u64,
+    pub total_local_instructions: u64,
+    pub store_get_calls: u64,
+    pub index_store_get_calls: u64,
+    pub index_store_entry_reads: u64,
+    pub scalar_aggregate: Option<ScalarAggregateAttribution>,
+    pub shared_query_plan_cache_hits: u64,
+    pub shared_query_plan_cache_misses: u64,
+}
+
 // QueryExecutionAttribution
 //
 // QueryExecutionAttribution records the top-level compile/execute split for
@@ -141,6 +301,9 @@ pub struct QueryExecutionAttribution {
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
+    pub store_get_calls: u64,
+    pub index_store_get_calls: u64,
+    pub index_store_entry_reads: u64,
     pub shared_query_plan_cache_hits: u64,
     pub shared_query_plan_cache_misses: u64,
 }
@@ -189,7 +352,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    fn scalar_query_execute_phase_attribution(
+    const fn scalar_query_execute_phase_attribution(
         phase: ScalarExecutePhaseAttribution,
         executor_invocation_local_instructions: u64,
     ) -> QueryExecutePhaseAttribution {
@@ -206,17 +369,7 @@ impl<C: CanisterKind> DbSession<C> {
             runtime_prepare_local_instructions: phase.runtime_prepare_local_instructions,
             runtime_local_instructions: phase.runtime_local_instructions,
             finalize_local_instructions: phase.finalize_local_instructions,
-            direct_data_row: Some(DirectDataRowAttribution {
-                scan_local_instructions: phase.direct_data_row_scan_local_instructions,
-                key_stream_local_instructions: phase.direct_data_row_key_stream_local_instructions,
-                row_read_local_instructions: phase.direct_data_row_row_read_local_instructions,
-                key_encode_local_instructions: phase.direct_data_row_key_encode_local_instructions,
-                store_get_local_instructions: phase.direct_data_row_store_get_local_instructions,
-                order_window_local_instructions: phase
-                    .direct_data_row_order_window_local_instructions,
-                page_window_local_instructions: phase
-                    .direct_data_row_page_window_local_instructions,
-            }),
+            direct_data_row: Some(DirectDataRowAttribution::from_scalar_phase(phase)),
             kernel_row: KernelRowAttribution::from_scalar_phase(phase),
             grouped: None,
         }
@@ -272,10 +425,12 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: execute one prepared plan through the shared execution
         // pipeline, preserving the same outer invocation measurement boundary.
+        let store_counters_before = StoreCounterSnapshot::capture();
         let (executor_invocation_local_instructions, outcome) = measure_query_stage(|| {
             self.execute_prepared(plan, true, PreparedQueryExecutionOutput::Rows)
         });
         let outcome = outcome?;
+        let store_counters = store_counters_before.delta_since();
         let (result, execute_phase_attribution, response_decode_local_instructions) =
             Self::query_execution_attribution_from_outcome(
                 outcome,
@@ -316,6 +471,9 @@ impl<C: CanisterKind> DbSession<C> {
                 response_decode_local_instructions,
                 execute_local_instructions,
                 total_local_instructions,
+                store_get_calls: store_counters.data_store_get_calls,
+                index_store_get_calls: store_counters.index_store_get_calls,
+                index_store_entry_reads: store_counters.index_store_entry_reads,
                 shared_query_plan_cache_hits: cache_attribution.hits,
                 shared_query_plan_cache_misses: cache_attribution.misses,
             },

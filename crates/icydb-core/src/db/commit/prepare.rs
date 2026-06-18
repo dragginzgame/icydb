@@ -1,4 +1,4 @@
-//! Module: commit::prepare
+//! Module: db::commit::prepare
 //! Responsibility: decode commit-marker row ops into mechanical store mutations.
 //! Does not own: marker persistence, commit-window lifecycle, or recovery orchestration.
 //! Boundary: commit::marker -> commit::prepare -> commit::apply (one-way).
@@ -89,7 +89,7 @@ struct CommitInputs {
 }
 
 impl CommitInputs {
-    // Build the canonical schema-fingerprint mismatch mapping for structural commit inputs.
+    /// Build the canonical schema-fingerprint mismatch mapping for structural commit inputs.
     fn schema_fingerprint_mismatch(
         _entity_path: &str,
         _marker: crate::db::commit::CommitSchemaFingerprint,
@@ -131,7 +131,7 @@ impl<C> CommitIndexPlanReadView<'_, C>
 where
     C: CanisterKind,
 {
-    // Resolve the store handle for one schema-owned index store path.
+    /// Resolve the store handle for one schema-owned index store path.
     fn index_store(
         &self,
         index_store: &str,

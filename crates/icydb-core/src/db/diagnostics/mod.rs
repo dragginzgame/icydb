@@ -9,6 +9,8 @@ mod integrity;
 mod local_instructions;
 pub(in crate::db) mod model;
 mod storage_report;
+#[cfg(feature = "diagnostics")]
+mod store_counters;
 #[cfg(test)]
 mod tests;
 
@@ -30,3 +32,5 @@ use model::{
     IndexStoreSnapshotStats, StoreSnapshotAllocationIdentity, StoreSnapshotSchemaMetadata,
 };
 pub(in crate::db) use storage_report::{storage_report, storage_report_default};
+#[cfg(feature = "diagnostics")]
+pub(in crate::db) use store_counters::StoreCounterSnapshot;

@@ -208,11 +208,7 @@ impl<C: CanisterKind> DbSession<C> {
             #[cfg(feature = "diagnostics")]
             if collect_attribution {
                 let (result, trace, phase) =
-                    self.execute_grouped_with_cursor(plan, None, |executor, plan, cursor| {
-                        executor.execute_grouped_paged_with_cursor_traced_with_phase_attribution(
-                            plan, cursor,
-                        )
-                    })?;
+                    self.execute_grouped_with_phase_attribution(plan, None)?;
 
                 return Ok(PreparedQueryExecutionOutcome::Grouped {
                     result,

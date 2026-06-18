@@ -15,14 +15,14 @@ mod result;
 mod update_policy;
 
 #[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::StoreCounterSnapshot;
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
-#[cfg(feature = "diagnostics")]
-use crate::db::{DataStore, IndexStore};
 #[cfg(feature = "diagnostics")]
 use crate::db::{GroupedCountAttribution, GroupedExecutionAttribution};
 #[cfg(feature = "diagnostics")]
@@ -84,41 +84,6 @@ pub use update_policy::{
     SqlUpdateReturningBounds, SqlUpdateReturningPolicy, SqlUpdateStatementClassification,
     SqlUpdateWherePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy,
 };
-
-#[cfg(feature = "diagnostics")]
-#[derive(Clone, Copy)]
-struct SqlStoreCounterSnapshot {
-    data_store_get_calls: u64,
-    index_store_get_calls: u64,
-    index_store_entry_reads: u64,
-}
-
-#[cfg(feature = "diagnostics")]
-impl SqlStoreCounterSnapshot {
-    fn capture() -> Self {
-        Self {
-            data_store_get_calls: DataStore::current_get_call_count(),
-            index_store_get_calls: IndexStore::current_get_call_count(),
-            index_store_entry_reads: IndexStore::current_entry_read_count(),
-        }
-    }
-
-    fn delta_since(self) -> Self {
-        let current = Self::capture();
-
-        Self {
-            data_store_get_calls: current
-                .data_store_get_calls
-                .saturating_sub(self.data_store_get_calls),
-            index_store_get_calls: current
-                .index_store_get_calls
-                .saturating_sub(self.index_store_get_calls),
-            index_store_entry_reads: current
-                .index_store_entry_reads
-                .saturating_sub(self.index_store_entry_reads),
-        }
-    }
-}
 
 #[cfg(feature = "diagnostics")]
 const fn sql_query_cache_attribution_from_phases(
@@ -673,7 +638,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: measure the execute side separately so repeat-run cache
         // experiments can prove which side actually moved.
-        let store_counters_before = SqlStoreCounterSnapshot::capture();
+        let store_counters_before = StoreCounterSnapshot::capture();
         let pure_covering_decode_before = current_pure_covering_decode_local_instructions();
         let pure_covering_row_assembly_before =
             current_pure_covering_row_assembly_local_instructions();

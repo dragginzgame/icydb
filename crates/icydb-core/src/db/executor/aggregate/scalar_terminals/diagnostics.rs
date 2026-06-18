@@ -27,7 +27,9 @@ pub(in crate::db) enum ScalarAggregateSinkMode {
     #[default]
     None,
     Buffered,
+    ExistingRows,
     IndexPrefixCardinality,
+    KernelAggregate,
 }
 
 impl ScalarAggregateSinkMode {
@@ -35,7 +37,9 @@ impl ScalarAggregateSinkMode {
         match self {
             Self::None => None,
             Self::Buffered => Some("Buffered"),
+            Self::ExistingRows => Some("ExistingRows"),
             Self::IndexPrefixCardinality => Some("IndexPrefixCardinality"),
+            Self::KernelAggregate => Some("KernelAggregate"),
         }
     }
 }
@@ -90,6 +94,23 @@ impl ScalarAggregateTerminalAttribution {
         Self {
             terminal_count: 1,
             sink_mode: ScalarAggregateSinkMode::IndexPrefixCardinality,
+            ..Self::none()
+        }
+    }
+
+    pub(super) fn from_existing_rows_terminal(rows_ingested: usize) -> Self {
+        Self {
+            rows_ingested: usize_to_u64(rows_ingested),
+            terminal_count: 1,
+            sink_mode: ScalarAggregateSinkMode::ExistingRows,
+            ..Self::none()
+        }
+    }
+
+    pub(super) const fn from_kernel_aggregate_terminal() -> Self {
+        Self {
+            terminal_count: 1,
+            sink_mode: ScalarAggregateSinkMode::KernelAggregate,
             ..Self::none()
         }
     }

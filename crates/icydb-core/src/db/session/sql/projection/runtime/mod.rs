@@ -123,45 +123,8 @@ where
             })
         });
     let rows = rows?;
-    let direct_data_row = DirectDataRowAttribution {
-        scan_local_instructions: direct_data_row.scan_local_instructions,
-        key_stream_local_instructions: direct_data_row.key_stream_local_instructions,
-        row_read_local_instructions: direct_data_row.row_read_local_instructions,
-        key_encode_local_instructions: direct_data_row.key_encode_local_instructions,
-        store_get_local_instructions: direct_data_row.store_get_local_instructions,
-        order_window_local_instructions: direct_data_row.order_window_local_instructions,
-        page_window_local_instructions: direct_data_row.page_window_local_instructions,
-    };
-    let direct_data_row =
-        direct_data_row_attribution_has_work(direct_data_row).then_some(direct_data_row);
-    let kernel_row = KernelRowAttribution {
-        scan_local_instructions: kernel_row.scan_local_instructions,
-        key_stream_local_instructions: kernel_row.key_stream_local_instructions,
-        row_read_local_instructions: kernel_row.row_read_local_instructions,
-        order_window_local_instructions: kernel_row.order_window_local_instructions,
-        page_window_local_instructions: kernel_row.page_window_local_instructions,
-    };
-    let kernel_row = kernel_row_attribution_has_work(kernel_row).then_some(kernel_row);
+    let direct_data_row = DirectDataRowAttribution::from_captured_phase(direct_data_row);
+    let kernel_row = KernelRowAttribution::from_captured_phase(kernel_row);
 
     Ok((rows, direct_data_row, kernel_row))
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-const fn direct_data_row_attribution_has_work(attribution: DirectDataRowAttribution) -> bool {
-    attribution.scan_local_instructions != 0
-        || attribution.key_stream_local_instructions != 0
-        || attribution.row_read_local_instructions != 0
-        || attribution.key_encode_local_instructions != 0
-        || attribution.store_get_local_instructions != 0
-        || attribution.order_window_local_instructions != 0
-        || attribution.page_window_local_instructions != 0
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-const fn kernel_row_attribution_has_work(attribution: KernelRowAttribution) -> bool {
-    attribution.scan_local_instructions != 0
-        || attribution.key_stream_local_instructions != 0
-        || attribution.row_read_local_instructions != 0
-        || attribution.order_window_local_instructions != 0
-        || attribution.page_window_local_instructions != 0
 }

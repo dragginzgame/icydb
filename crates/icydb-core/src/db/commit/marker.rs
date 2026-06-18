@@ -1,4 +1,4 @@
-//! Module: commit::marker
+//! Module: db::commit::marker
 //! Responsibility: define persisted commit-marker payloads and marker-shape validation.
 //! Does not own: marker storage backend, commit-window lifecycle, or recovery orchestration.
 //! Boundary: commit::{prepare,recovery,store} -> commit::marker (one-way).

@@ -1,4 +1,4 @@
-//! Module: commit::store
+//! Module: db::commit::store
 //! Responsibility: persist, load, and clear commit markers in stable memory.
 //! Does not own: marker shape semantics, recovery orchestration, or commit-window policy.
 //! Boundary: commit::{guard,recovery} -> commit::store (one-way).

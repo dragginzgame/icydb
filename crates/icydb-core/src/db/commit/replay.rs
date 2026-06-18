@@ -1,4 +1,4 @@
-//! Module: commit::replay
+//! Module: db::commit::replay
 //! Responsibility: replay persisted row operations in canonical marker order.
 //! Does not own: marker persistence, secondary-index full rebuild, or mutation planning policy.
 //! Boundary: commit::recovery -> commit::replay -> commit::{prepare,apply} (one-way).

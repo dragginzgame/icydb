@@ -467,6 +467,18 @@ macro_rules! impl_session_materialization_methods {
             Ok(self.inner.count()?)
         }
 
+        /// Return the row count with terminal diagnostics attribution.
+        #[cfg(feature = "diagnostics")]
+        #[doc(hidden)]
+        pub fn count_with_attribution(
+            &self,
+        ) -> Result<(u32, crate::db::FluentTerminalExecutionAttribution), Error>
+        where
+            E: crate::traits::Entity,
+        {
+            Ok(self.inner.count_with_attribution()?)
+        }
+
         /// Require exactly one row.
         pub fn require_one(&self) -> Result<(), Error>
         where

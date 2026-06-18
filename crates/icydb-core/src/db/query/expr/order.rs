@@ -1,4 +1,4 @@
-//! Module: query::expr::order
+//! Module: db::query::expr::order
 //! Responsibility: typed fluent ORDER BY expression DTOs and lowering.
 //! Does not own: planner validation or execution-time order evaluation.
 //! Boundary: converts fluent order inputs into planner-owned order terms.
@@ -37,15 +37,15 @@ impl OrderExpr {
         }
     }
 
-    // Freeze one typed fluent order expression onto the planner-owned
-    // semantic expression now that labels are derived only at explain/hash
-    // edges instead of being stored in fluent order shells.
+    /// Freeze one typed fluent order expression onto the planner-owned
+    /// semantic expression now that labels are derived only at explain/hash
+    /// edges instead of being stored in fluent order shells.
     const fn new(expr: Expr) -> Self {
         Self { expr }
     }
 
-    // Lower one typed fluent order expression into the planner-owned order
-    // contract now that ordering is expression-based end to end.
+    /// Lower one typed fluent order expression into the planner-owned order
+    /// contract now that ordering is expression-based end to end.
     pub(in crate::db) fn lower(&self, direction: OrderDirection) -> PlannedOrderTerm {
         PlannedOrderTerm::new(self.expr.clone(), direction)
     }
@@ -126,8 +126,8 @@ impl OrderTerm {
         }
     }
 
-    // Lower one typed fluent order term directly into the planner-owned
-    // `OrderTerm` contract.
+    /// Lower one typed fluent order term directly into the planner-owned
+    /// `OrderTerm` contract.
     pub(in crate::db) fn lower(&self) -> PlannedOrderTerm {
         self.expr.lower(self.direction)
     }

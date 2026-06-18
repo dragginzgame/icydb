@@ -1,7 +1,7 @@
 use crate::{
     db::executor::{
-        EntityAuthority, ExecutionPreparation, ExecutorPlanError,
-        PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
+        AccessPlannedQuery, EntityAuthority, ExecutionPreparation, ExecutorPlanError,
+        LoweredIndexPrefixSpec, PreparedAggregateStreamingPlanHandoff, PreparedLoadPlan,
         prepared_execution_plan::{
             PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
             contracts::GroupSpec,
@@ -32,8 +32,25 @@ impl PreparedAggregatePlan {
     }
 
     #[must_use]
+    pub(in crate::db::executor) fn logical_plan(&self) -> &AccessPlannedQuery {
+        self.core.plan()
+    }
+
+    #[must_use]
     pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation {
         self.core.get_or_init_aggregate_execution_preparation()
+    }
+
+    pub(in crate::db::executor) fn index_prefix_specs(
+        &self,
+    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
+        if self.core.residents.index_prefix_spec_invalid {
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
+        }
+
+        Ok(self.core.residents.index_prefix_specs.as_ref())
     }
 
     pub(in crate::db::executor) fn into_streaming_handoff(

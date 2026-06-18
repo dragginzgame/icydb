@@ -1,4 +1,4 @@
-//! Module: commit::recovery
+//! Module: db::commit::recovery
 //! Responsibility: run system-level marker replay/rebuild recovery gates before operations.
 //! Does not own: marker storage encoding, mutation planning, or query semantics.
 //! Boundary: db entrypoints -> commit::recovery -> commit::{replay,rebuild,store} (one-way).
