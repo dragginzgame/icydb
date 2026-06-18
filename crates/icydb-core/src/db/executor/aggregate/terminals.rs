@@ -155,12 +155,6 @@ fn execute_existing_rows_terminal_request(
     op: &PreparedScalarTerminalOp,
     direction: Direction,
 ) -> Result<ScalarAggregateOutput, InternalError> {
-    if matches!(op, PreparedScalarTerminalOp::Count)
-        && let Some(output) = try_count_index_prefix_cardinality_terminal_request(&prepared)
-    {
-        return Ok(output);
-    }
-
     let runtime = IndexTerminalRuntime {
         entity_tag: prepared.authority.entity_tag(),
         store: prepared.store,
@@ -247,28 +241,6 @@ fn aggregate_index_terminal_output_with_runtime(
     Ok((aggregate_output, rows_scanned))
 }
 
-// Execute COUNT from exact index-prefix cardinality metadata when the access
-// path and any surviving residual predicate prove a finite set of full
-// component prefixes. Returns `None` when the shape is unsupported or the
-// metadata is stale against the row store.
-fn try_count_index_prefix_cardinality_terminal_request(
-    prepared: &PreparedAggregateStreamingInputs<'_>,
-) -> Option<ScalarAggregateOutput> {
-    let prefixes = exact_count_cardinality_prefixes(
-        &prepared.logical_plan,
-        &prepared.lowered_access().ok()?,
-        prepared.index_prefix_specs.as_ref(),
-    )?;
-    let output = count_index_prefix_cardinality_terminal_output(
-        prepared.store,
-        prepared.logical_plan.scalar_plan().page.as_ref(),
-        &prefixes,
-    )?;
-    record_index_prefix_cardinality_count(prepared.authority.entity_path());
-
-    Some(output)
-}
-
 // Execute COUNT from exact index-prefix metadata before aggregate streaming
 // preparation when the prepared plan already proves a finite prefix set.
 fn try_count_index_prefix_cardinality_prepared_plan<E>(
@@ -294,11 +266,9 @@ where
 
     validate_executor_plan_for_authority(&authority, logical_plan)?;
     let store = executor.db.recovered_store(authority.store_path())?;
-    let Some(ScalarAggregateOutput::Count(count)) = count_index_prefix_cardinality_terminal_output(
-        store,
-        logical_plan.scalar_plan().page.as_ref(),
-        &prefixes,
-    ) else {
+    let Some(count) =
+        count_index_prefix_cardinality(store, logical_plan.scalar_plan().page.as_ref(), &prefixes)
+    else {
         return Ok(None);
     };
 
@@ -308,11 +278,11 @@ where
     Ok(Some(ScalarTerminalBoundaryOutput::Count(count)))
 }
 
-fn count_index_prefix_cardinality_terminal_output(
+fn count_index_prefix_cardinality(
     store: StoreHandle,
     page: Option<&PageSpec>,
     prefixes: &[ExactCountCardinalityPrefix],
-) -> Option<ScalarAggregateOutput> {
+) -> Option<u32> {
     let data_generation = store.with_data(DataStore::generation);
     let available_rows = store.with_index(|store| {
         let mut total = 0_u64;
@@ -331,7 +301,7 @@ fn count_index_prefix_cardinality_terminal_output(
     let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
     let (count, _rows_scanned) = count_window_result_from_page(page, available_rows);
 
-    Some(ScalarAggregateOutput::Count(count))
+    Some(count)
 }
 
 fn record_index_prefix_cardinality_count(entity_path: &'static str) {
