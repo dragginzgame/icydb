@@ -991,25 +991,32 @@ fn fluent_perf_scenarios() -> Vec<FluentPerfScenario> {
     scenarios
 }
 
-#[test]
-fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
-    let fixture = install_sql_perf_canister_fixture();
-    reset_sql_perf_fixtures(&fixture);
-    let baseline = HashMap::new();
+fn token_branch_set_page_scenario() -> FluentPerfScenario {
+    same_key_scenario(
+        "token.collection_stage_id.branch_set.full_entity.limit50",
+        FluentPerfSurface::Token,
+        "branch_set_full_entity",
+        r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
+    )
+}
 
-    let sample = sample_perf_scenario(
-        &fixture,
-        &baseline,
-        same_key_scenario(
-            "token.collection_stage_id.branch_set.full_entity.limit50",
-            FluentPerfSurface::Token,
-            "branch_set_full_entity",
-            r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
-        ),
-    );
+fn warm_token_branch_set_page_scenario() -> FluentPerfScenario {
+    FluentPerfScenario {
+        scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50.warm_after_update",
+        canister_scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50",
+        surface: FluentPerfSurface::Token,
+        query_family: "branch_set_full_entity_warm",
+        query_label: r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
+        sample_count: 1,
+        query_loop_count: 1,
+        sample_mode: FluentPerfSampleMode::WarmThenQuery,
+        isolated_fixture: false,
+    }
+}
 
+fn print_token_branch_set_page_sample(label: &str, sample: &FluentPerfScenarioSample) {
     println!(
-        "fluent token branch-set page: compile={} compile_schema={} compile_info={} compile_prepare={} compile_key={} compile_lookup={} compile_plan={} compile_insert={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
+        "{label}: compile={} compile_schema={} compile_info={} compile_prepare={} compile_key={} compile_lookup={} compile_plan={} compile_insert={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
         sample.avg_compile_local_instructions,
         sample.avg_compile_schema_catalog_local_instructions,
         sample.avg_compile_schema_info_local_instructions,
@@ -1030,12 +1037,16 @@ fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
         sample.avg_shared_query_plan_cache_misses,
         sample.avg_local_instructions,
     );
+}
+
+fn assert_cold_token_branch_set_page_sample(sample: &FluentPerfScenarioSample) {
     assert!(
         sample.outcome_stable,
         "token fluent branch-set outcome should stay stable",
     );
     assert_eq!(
-        sample.outcome.result_kind, "rows",
+        sample.outcome.result_kind.as_str(),
+        "rows",
         "token fluent branch-set should return entity rows",
     );
     assert_eq!(
@@ -1054,57 +1065,39 @@ fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
         sample.avg_grouped_count_row_materialization_local_instructions, 0,
         "page-shaped fluent branch-set should not invoke grouped count work",
     );
+}
 
-    let warm = sample_perf_scenario(
-        &fixture,
-        &baseline,
-        FluentPerfScenario {
-            scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50.warm_after_update",
-            canister_scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50",
-            surface: FluentPerfSurface::Token,
-            query_family: "branch_set_full_entity_warm",
-            query_label: r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
-            sample_count: 1,
-            query_loop_count: 1,
-            sample_mode: FluentPerfSampleMode::WarmThenQuery,
-            isolated_fixture: false,
-        },
-    );
-
-    println!(
-        "warm fluent token branch-set page: compile={} compile_schema={} compile_info={} compile_prepare={} compile_key={} compile_lookup={} compile_plan={} compile_insert={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
-        warm.avg_compile_local_instructions,
-        warm.avg_compile_schema_catalog_local_instructions,
-        warm.avg_compile_schema_info_local_instructions,
-        warm.avg_compile_prepare_local_instructions,
-        warm.avg_compile_cache_key_local_instructions,
-        warm.avg_compile_cache_lookup_local_instructions,
-        warm.avg_compile_plan_build_local_instructions,
-        warm.avg_compile_cache_insert_local_instructions,
-        warm.avg_runtime_local_instructions,
-        warm.avg_direct_data_row_scan_local_instructions,
-        warm.avg_direct_data_row_key_stream_local_instructions,
-        warm.avg_direct_data_row_row_read_local_instructions,
-        warm.avg_direct_data_row_store_get_local_instructions,
-        warm.avg_direct_data_row_order_window_local_instructions,
-        warm.avg_direct_data_row_page_window_local_instructions,
-        warm.avg_execute_local_instructions,
-        warm.avg_shared_query_plan_cache_hits,
-        warm.avg_shared_query_plan_cache_misses,
-        warm.avg_local_instructions,
-    );
+fn assert_warm_token_branch_set_page_sample(
+    sample: &FluentPerfScenarioSample,
+    cold_sample: &FluentPerfScenarioSample,
+) {
     assert_eq!(
-        warm.avg_shared_query_plan_cache_hits, 1,
+        sample.avg_shared_query_plan_cache_hits, 1,
         "warm token fluent branch-set should reuse the shared query-plan cache",
     );
     assert_eq!(
-        warm.avg_shared_query_plan_cache_misses, 0,
+        sample.avg_shared_query_plan_cache_misses, 0,
         "warm token fluent branch-set query should not rebuild the plan after update warm",
     );
     assert!(
-        warm.avg_compile_local_instructions < sample.avg_compile_local_instructions,
+        sample.avg_compile_local_instructions < cold_sample.avg_compile_local_instructions,
         "warm token fluent branch-set compile path should be cheaper than cold query calls",
     );
+}
+
+#[test]
+fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+    let baseline = HashMap::new();
+
+    let sample = sample_perf_scenario(&fixture, &baseline, token_branch_set_page_scenario());
+    print_token_branch_set_page_sample("fluent token branch-set page", &sample);
+    assert_cold_token_branch_set_page_sample(&sample);
+
+    let warm = sample_perf_scenario(&fixture, &baseline, warm_token_branch_set_page_scenario());
+    print_token_branch_set_page_sample("warm fluent token branch-set page", &warm);
+    assert_warm_token_branch_set_page_sample(&warm, &sample);
 }
 
 #[test]
