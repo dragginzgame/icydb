@@ -1,3 +1,8 @@
+//! Module: db::registry::readers
+//! Responsibility: structural row and index reader adapters for registered stores.
+//! Does not own: executor scan policy or index-entry decode semantics.
+//! Boundary: lets StoreHandle satisfy structural preflight reader traits.
+
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawRow},

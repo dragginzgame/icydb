@@ -1,3 +1,8 @@
+//! Module: db::registry::handle
+//! Responsibility: stable store handles and runtime storage capability descriptors.
+//! Does not own: registry path lookup or store mutation semantics.
+//! Boundary: exposes registered storage roles without exposing registry internals.
+
 use crate::db::{
     data::DataStore,
     index::{IndexState, IndexStore},

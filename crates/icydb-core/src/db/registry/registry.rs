@@ -1,3 +1,8 @@
+//! Module: db::registry::registry
+//! Responsibility: generated store path registration and lookup.
+//! Does not own: store handle capability definitions or storage mutation behavior.
+//! Boundary: validates registration invariants before runtime store lookup.
+
 use crate::{
     db::{
         data::DataStore,

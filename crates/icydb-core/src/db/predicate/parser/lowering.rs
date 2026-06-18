@@ -25,7 +25,7 @@ pub(in crate::db::predicate::parser) fn parse_in_predicate(
 ) -> Result<Predicate, SqlParseError> {
     cursor.expect_lparen()?;
 
-    let mut values = Vec::new();
+    let mut values = Vec::with_capacity(cursor.comma_separated_capacity_until_rparen());
     loop {
         values.push(cursor.parse_literal()?);
         if !cursor.eat_comma() {

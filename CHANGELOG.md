@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.19` trims large `IN (...)` parse overhead and cuts branch-set
+  `COUNT(*)` compile cost by reusing predicate-only aggregate filters and a
+  direct count-rows lowering path.
+
 - `0.183.18` reduces cold compile cost for literal-heavy SQL `IN` filters by
   keeping membership lowering owned and avoiding large-list predicate sort-key
   work during normalization.

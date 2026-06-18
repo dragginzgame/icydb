@@ -242,6 +242,37 @@ impl SqlTokenCursor {
         true
     }
 
+    // Estimate a flat comma-separated list length up to the next `)` from the
+    // current cursor position. Parsers still validate each item normally; this
+    // is only a capacity hint for large literal lists.
+    pub(in crate::db) fn comma_separated_capacity_until_rparen(&self) -> usize {
+        let mut commas = 0usize;
+        let mut saw_token = false;
+        let Some(tokens) = self.tokens.get(self.pos..) else {
+            return 0;
+        };
+
+        for token in tokens {
+            match token.kind {
+                TokenKind::RParen => {
+                    return if saw_token {
+                        commas.saturating_add(1)
+                    } else {
+                        0
+                    };
+                }
+                TokenKind::Comma => {
+                    commas = commas.saturating_add(1);
+                }
+                _ => {
+                    saw_token = true;
+                }
+            }
+        }
+
+        0
+    }
+
     pub(crate) fn eat_dot(&mut self) -> bool {
         if !matches!(self.peek_kind(), Some(TokenKind::Dot)) {
             return false;

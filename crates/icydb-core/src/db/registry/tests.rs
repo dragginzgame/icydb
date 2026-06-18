@@ -1,3 +1,8 @@
+//! Module: db::registry::tests
+//! Responsibility: registry registration, lookup, and capability fixture coverage.
+//! Does not own: storage engine behavior outside registered handle wiring.
+//! Boundary: exercises registry-local invariants and converted error classification.
+
 use crate::{
     db::{
         data::DataStore,

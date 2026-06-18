@@ -2,12 +2,6 @@
 //! Responsibility: db-scoped payload encode/decode policy and hash-stream helpers.
 //! Does not own: generic serialization formats outside the database boundary.
 //! Boundary: the only db-level layer allowed to decode persisted payload bytes directly.
-//!
-//! DB codec boundary for engine payload decoding/encoding policy.
-//!
-//! This module owns the outer persisted-row envelope plus the DB-scoped
-//! bounded decode wrappers used beneath it.
-//! All other DB modules must decode via codec helpers.
 
 mod hash_stream;
 pub(in crate::db) mod hex;
@@ -28,25 +22,15 @@ pub(in crate::db) const ROW_FORMAT_VERSION_CURRENT: u8 = 2;
 const ROW_ENVELOPE_MAGIC: [u8; 2] = *b"IR";
 const ROW_ENVELOPE_HEADER_LEN: usize = 2 + 1 + 4;
 
-///
-/// DB Codec
-///
-/// Database-specific decode wrappers over generic serialization helpers.
-///
-/// Policy lives here:
-/// - payload size limits for engine storage formats
-/// - error classification/origin for persisted payload failures
-///
-/// The row-envelope format itself is DB-owned and intentionally does not route
-/// through the generic serializer.
-///
-
 /// Wrap an already-serialized entity payload in the canonical persisted row envelope.
 pub(in crate::db) fn serialize_row_payload(payload: Vec<u8>) -> Result<Vec<u8>, InternalError> {
     serialize_row_payload_with_version(payload, ROW_FORMAT_VERSION_CURRENT)
 }
 
-/// Decode one canonical row envelope into its owned-or-borrowed payload bytes.
+/// Decode one canonical row envelope into borrowed payload bytes.
+///
+/// Enforces the DB row-envelope budget, magic bytes, format version, and
+/// declared payload length before returning the payload slice.
 pub(in crate::db) fn decode_row_payload_bytes(
     bytes: &[u8],
 ) -> Result<Cow<'_, [u8]>, InternalError> {
@@ -97,12 +81,13 @@ fn validate_row_format_version(format_version: u8) -> Result<(), InternalError> 
         return Ok(());
     }
 
-    let _ = format_version;
-
     Err(InternalError::serialize_incompatible_persisted_format())
 }
 
-// Encode one persisted row envelope at an explicit format version.
+/// Encode one persisted row envelope at an explicit format version.
+///
+/// The version parameter is intentionally exposed inside the DB boundary so
+/// tests and migration code can exercise envelope admission explicitly.
 pub(in crate::db) fn serialize_row_payload_with_version(
     payload: Vec<u8>,
     format_version: u8,

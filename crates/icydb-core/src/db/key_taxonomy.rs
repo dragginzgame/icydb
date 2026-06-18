@@ -211,6 +211,10 @@ pub struct CompositePrimaryKeyValue {
 }
 
 impl CompositePrimaryKeyValue {
+    /// Build one admitted composite primary-key value from scalar components.
+    ///
+    /// Enforces the compact key component-count bounds and rejects `Unit`
+    /// components, which are valid only for scalar primary keys.
     pub fn try_from_components(
         components: &[PrimaryKeyComponent],
     ) -> Result<Self, CompositePrimaryKeyValueError> {
@@ -248,16 +252,22 @@ impl CompositePrimaryKeyValue {
         })
     }
 
+    /// Return the number of populated primary-key components.
     #[must_use]
     pub const fn len(self) -> usize {
         self.len as usize
     }
 
+    /// Return whether this value contains no populated components.
+    ///
+    /// Constructed values are never empty; this is available for collection-like
+    /// call sites that operate on borrowed instances.
     #[must_use]
     pub const fn is_empty(self) -> bool {
         self.len == 0
     }
 
+    /// Return the populated primary-key components in canonical order.
     #[must_use]
     pub fn components(&self) -> &[PrimaryKeyComponent] {
         &self.components[..self.len()]
@@ -365,12 +375,18 @@ impl PartialOrd for PrimaryKeyValue {
 // Errors
 //
 
+/// Admission failure for a logical composite primary-key value.
+///
+/// Owned by the compact key taxonomy layer before any bytes are emitted.
 #[derive(Debug)]
 pub enum CompositePrimaryKeyValueError {
+    /// Fewer than the minimum required composite key components were provided.
     TooFewComponents { count: usize, min: usize },
 
+    /// More than the maximum supported composite key components were provided.
     TooManyComponents { count: usize, max: usize },
 
+    /// A `Unit` component appeared inside a composite primary key.
     UnitComponent { index: usize },
 }
 

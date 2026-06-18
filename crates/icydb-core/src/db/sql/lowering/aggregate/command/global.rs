@@ -1,5 +1,12 @@
 use crate::db::{
-    query::plan::expr::{Expr, ProjectionSpec},
+    query::{
+        builder::aggregate::count,
+        plan::{
+            AggregateKind,
+            expr::{Alias, Expr, ProjectionField, ProjectionSpec},
+            lower_global_aggregate_projection,
+        },
+    },
     sql::{
         lowering::{
             LoweredBaseQueryShape, LoweredSqlFilter, SqlLoweringError,
@@ -7,10 +14,17 @@ use crate::db::{
                 LoweredSqlGlobalAggregateTerminals, intern_having_global_aggregate_terminal_index,
                 strip_inert_global_aggregate_output_order_terms,
             },
-            predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
+            aggregate::terminal::{AggregateInput, SqlGlobalAggregateTerminal},
+            predicate::{
+                derive_sql_where_expr_predicate_only_subset_owned,
+                derive_sql_where_expr_predicate_subset, lower_sql_where_bool_expr,
+            },
             select::{lower_global_aggregate_having_expr, lower_order_terms},
         },
-        parser::SqlSelectStatement,
+        parser::{
+            SqlAggregateCall, SqlAggregateKind, SqlExpr, SqlOrderTerm, SqlProjection,
+            SqlSelectItem, SqlSelectStatement,
+        },
     },
 };
 
@@ -25,8 +39,7 @@ use crate::db::{
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering::aggregate::command) query: LoweredBaseQueryShape,
-    pub(in crate::db::sql::lowering::aggregate::command) terminals:
-        Vec<crate::db::sql::lowering::aggregate::terminal::SqlGlobalAggregateTerminal>,
+    pub(in crate::db::sql::lowering::aggregate::command) terminals: Vec<SqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering::aggregate::command) projection: ProjectionSpec,
     pub(in crate::db::sql::lowering::aggregate::command) having: Option<Expr>,
     #[cfg(test)]
@@ -57,6 +70,15 @@ impl LoweredSqlGlobalAggregateCommand {
         if !group_by.is_empty() {
             return Err(SqlLoweringError::global_aggregate_does_not_support_group_by());
         }
+        if having.is_empty() && order_by.is_empty() && is_direct_count_rows_projection(&projection)
+        {
+            return Self::from_direct_count_rows_select(
+                projection_aliases,
+                predicate,
+                limit,
+                offset,
+            );
+        }
         let projection_for_having = projection.clone();
         let order_by = strip_inert_global_aggregate_output_order_terms(
             order_by,
@@ -75,28 +97,89 @@ impl LoweredSqlGlobalAggregateCommand {
             })?;
 
         Ok(Self {
-            query: LoweredBaseQueryShape {
-                filter: predicate
-                    .as_ref()
-                    .map(|expr| {
-                        Ok::<_, SqlLoweringError>(
-                            LoweredSqlFilter::from_visible_expr_and_predicate_subset(
-                                lower_sql_where_bool_expr(expr)?,
-                                lower_sql_where_expr(expr)?,
-                            ),
-                        )
-                    })
-                    .transpose()?,
-                order_by: lower_order_terms(order_by)?,
-                limit,
-                offset,
-            },
+            query: lower_global_aggregate_base_query_shape(predicate, order_by, limit, offset)?,
             terminals: lowered_terminals.terminals,
             projection: lowered_terminals.projection,
             having,
             #[cfg(test)]
             output_remap: lowered_terminals.output_remap,
         })
+    }
+
+    fn from_direct_count_rows_select(
+        projection_aliases: Vec<Option<String>>,
+        predicate: Option<SqlExpr>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<Self, SqlLoweringError> {
+        let alias = projection_aliases
+            .into_iter()
+            .next()
+            .flatten()
+            .map(Alias::new);
+
+        Ok(Self {
+            query: lower_global_aggregate_base_query_shape(predicate, Vec::new(), limit, offset)?,
+            terminals: vec![SqlGlobalAggregateTerminal {
+                kind: AggregateKind::Count,
+                input: AggregateInput::Rows,
+                filter_expr: None,
+                distinct: false,
+            }],
+            projection: lower_global_aggregate_projection(vec![ProjectionField::Scalar {
+                expr: Expr::Aggregate(count()),
+                alias,
+            }]),
+            having: None,
+            #[cfg(test)]
+            output_remap: vec![0],
+        })
+    }
+}
+
+fn is_direct_count_rows_projection(projection: &SqlProjection) -> bool {
+    let SqlProjection::Items(items) = projection else {
+        return false;
+    };
+
+    matches!(
+        items.as_slice(),
+        [SqlSelectItem::Aggregate(SqlAggregateCall {
+            kind: SqlAggregateKind::Count,
+            input: None,
+            filter_expr: None,
+            distinct: false,
+        })]
+    )
+}
+
+fn lower_global_aggregate_base_query_shape(
+    predicate: Option<SqlExpr>,
+    order_by: Vec<SqlOrderTerm>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
+    Ok(LoweredBaseQueryShape {
+        filter: predicate.map(lower_global_aggregate_filter).transpose()?,
+        order_by: lower_order_terms(order_by)?,
+        limit,
+        offset,
+    })
+}
+
+fn lower_global_aggregate_filter(expr: SqlExpr) -> Result<LoweredSqlFilter, SqlLoweringError> {
+    match derive_sql_where_expr_predicate_only_subset_owned(expr) {
+        Ok(predicate_subset) => Ok(LoweredSqlFilter::from_predicate_subset(predicate_subset)),
+        Err(expr) => {
+            let filter_expr = lower_sql_where_bool_expr(&expr)?;
+            let predicate_subset = derive_sql_where_expr_predicate_subset(&expr, &filter_expr)
+                .ok_or_else(SqlLoweringError::unsupported_where_expression)?;
+
+            Ok(LoweredSqlFilter::from_visible_expr_and_predicate_subset(
+                filter_expr,
+                predicate_subset,
+            ))
+        }
     }
 }
 

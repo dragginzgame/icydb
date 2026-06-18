@@ -1,3 +1,8 @@
+//! Module: db::registry::error
+//! Responsibility: typed registry lookup and registration error classification.
+//! Does not own: store runtime behavior or persisted storage error taxonomy.
+//! Boundary: converts registry-local failures into database internal errors.
+
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 
 ///
@@ -12,12 +17,16 @@ use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 #[derive(Debug)]
 #[expect(clippy::enum_variant_names)]
 pub enum StoreRegistryError {
+    /// Requested generated store path is not registered.
     StoreNotFound,
 
+    /// Generated store path was registered more than once.
     StoreAlreadyRegistered,
 
+    /// Physical data/index/schema store triplet was reused by another path.
     StoreHandleTripletAlreadyRegistered,
 
+    /// Allocation identity metadata does not match declared storage capabilities.
     StoreAllocationCapabilityMismatch,
 }
 

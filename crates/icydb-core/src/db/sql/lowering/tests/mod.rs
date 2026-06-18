@@ -6267,6 +6267,37 @@ fn compile_sql_global_aggregate_command_for_model_only_preserves_base_query_wind
 }
 
 #[test]
+fn compile_sql_global_aggregate_count_star_predicate_only_membership_matches_fluent_query() {
+    let command = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
+        "SELECT COUNT(*) \
+         FROM SqlLowerEntity \
+         WHERE age = 21 AND name IN ('Ada', 'Bob')",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("predicate-only global COUNT SQL should lower");
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("age").eq(21_u64))
+        .filter(FieldRef::new("name").in_list(["Ada", "Bob"]));
+
+    assert_count_rows_strategy(command.terminal());
+    assert_sql_lower_queries_share_plan_identity(
+        command.query(),
+        "SQL global COUNT predicate-only base query",
+        &fluent_query,
+        "fluent base query",
+        "predicate-only global COUNT lowering should preserve normalized planned intent",
+    );
+    assert_sql_lower_queries_share_executable_identity(
+        command.query(),
+        "SQL global COUNT predicate-only base query",
+        &fluent_query,
+        "fluent base query",
+        "predicate-only global COUNT lowering should preserve executable family",
+        "predicate-only global COUNT lowering should preserve executable ordering",
+    );
+}
+
+#[test]
 fn compile_sql_global_aggregate_command_for_model_only_parity_matches_fluent_query_and_executable_identity()
  {
     // Phase 1: lower equivalent global aggregate SQL and fluent scalar base query intent.

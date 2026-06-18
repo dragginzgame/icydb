@@ -172,17 +172,6 @@ fn numeric_arithmetic_addition_reports_overflow() {
 }
 
 #[test]
-fn checked_numeric_arithmetic_reports_overflow() {
-    let left = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
-    let right = Value::Int64(1);
-
-    let err = apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, &left, &right)
-        .expect_err("checked numeric addition should reject overflow");
-
-    assert_eq!(err, NumericEvalError::Overflow);
-}
-
-#[test]
 fn decimal_term_helpers_share_canonical_add_and_divide_semantics() {
     let overflow = add_decimal_terms_checked(
         Decimal::from_i128_with_scale(i128::MAX, 0),

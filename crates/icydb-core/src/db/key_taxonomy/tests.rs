@@ -1,3 +1,8 @@
+//! Module: db::key_taxonomy::tests
+//! Responsibility: compact key taxonomy encoding, decoding, and ordering fixtures.
+//! Does not own: index store or data store integration outside taxonomy boundaries.
+//! Boundary: exercises taxonomy-owned raw key wrappers and compact primary-key bytes.
+
 use super::{
     COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompactPrimaryKeyDecodeError, CompactStoreKeyDecodeError,
     CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStoreKey, EncodedIndexComponent,

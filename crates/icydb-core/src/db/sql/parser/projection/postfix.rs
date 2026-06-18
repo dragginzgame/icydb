@@ -148,7 +148,7 @@ impl Parser {
         negated: bool,
     ) -> Result<SqlExpr, SqlParseError> {
         self.expect_lparen()?;
-        let mut values = Vec::new();
+        let mut values = Vec::with_capacity(self.cursor.comma_separated_capacity_until_rparen());
         loop {
             values.push(self.parse_literal()?);
             if !self.eat_comma() {

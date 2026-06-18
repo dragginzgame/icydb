@@ -103,7 +103,9 @@ impl LoweredSqlFilter {
     // Build a predicate-only SQL filter when the parser-level shape proves the
     // predicate is the complete semantic filter and no residual expression has
     // to stay visible at runtime.
-    const fn from_predicate_subset(predicate_subset: Predicate) -> Self {
+    pub(in crate::db::sql::lowering) const fn from_predicate_subset(
+        predicate_subset: Predicate,
+    ) -> Self {
         Self {
             visible_expr: None,
             predicate_subset: Some(predicate_subset),
