@@ -233,21 +233,28 @@ impl DecodedDataStoreKey {
 
     /// Encode into compact on-disk representation.
     pub(in crate::db) fn to_raw(&self) -> Result<RawDataStoreKey, InternalError> {
+        self.raw_key().cloned()
+    }
+
+    /// Borrow the compact on-disk representation, populating the local cache
+    /// on first use. Hot row-read paths can use this to avoid cloning raw keys
+    /// that were already recovered from primary/index traversal.
+    pub(in crate::db) fn raw_key(&self) -> Result<&RawDataStoreKey, InternalError> {
         if let Some(raw) = self.raw.get() {
-            return Ok(raw.clone());
+            return Ok(raw);
         }
 
-        self.to_raw_compact_key_error()
-            .map_err(|err| {
-                DecodedDataStoreKeyEncodeError::CompactKeyEncoding {
-                    key: self.clone(),
-                    source: err,
-                }
-                .into()
+        let raw = self.to_raw_compact_key_error().map_err(|err| {
+            InternalError::from(DecodedDataStoreKeyEncodeError::CompactKeyEncoding {
+                key: self.clone(),
+                source: err,
             })
-            .inspect(|raw| {
-                let _ = self.raw.set(raw.clone());
-            })
+        })?;
+        let _ = self.raw.set(raw);
+
+        self.raw
+            .get()
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Encode into compact on-disk representation, returning compact-key

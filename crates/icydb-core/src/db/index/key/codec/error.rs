@@ -9,6 +9,7 @@ pub(crate) enum IndexKeyDecodeError {
     InvalidSize,
     InvalidIndexIdBytes,
     InvalidIndexLength,
+    InvalidPrimaryKey,
     TrailingBytes,
     TruncatedKey,
     ZeroLengthSegment,

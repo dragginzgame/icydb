@@ -489,11 +489,17 @@ impl EncodedPrimaryKey {
     }
 
     pub(in crate::db) fn decode(&self) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
-        match self.kind()? {
+        Self::decode_bytes(self.as_bytes())
+    }
+
+    pub(in crate::db) fn decode_bytes(
+        bytes: &[u8],
+    ) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
+        match primary_key_kind_from_bytes(bytes)? {
             PrimaryKeyKind::Composite => {
-                decode_composite_primary_key_value(&self.bytes).map(PrimaryKeyValue::Composite)
+                decode_composite_primary_key_value(bytes).map(PrimaryKeyValue::Composite)
             }
-            _ => decode_primary_key_component(&self.bytes).map(PrimaryKeyValue::Scalar),
+            _ => decode_primary_key_component(bytes).map(PrimaryKeyValue::Scalar),
         }
     }
 
@@ -515,11 +521,7 @@ impl EncodedPrimaryKey {
     }
 
     pub(in crate::db) fn kind(&self) -> Result<PrimaryKeyKind, CompactPrimaryKeyDecodeError> {
-        let Some(&tag) = self.bytes.first() else {
-            return Err(CompactPrimaryKeyDecodeError::Empty);
-        };
-
-        PrimaryKeyKind::from_tag(tag).ok_or(CompactPrimaryKeyDecodeError::UnknownKind { tag })
+        primary_key_kind_from_bytes(self.as_bytes())
     }
 
     pub(in crate::db) fn payload(&self) -> Result<&[u8], CompactPrimaryKeyDecodeError> {
@@ -532,12 +534,21 @@ impl TryFrom<&[u8]> for EncodedPrimaryKey {
     type Error = CompactPrimaryKeyDecodeError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let this = Self {
+        let _ = Self::decode_bytes(bytes)?;
+        Ok(Self {
             bytes: bytes.to_vec(),
-        };
-        let _ = this.decode()?;
-        Ok(this)
+        })
     }
+}
+
+fn primary_key_kind_from_bytes(
+    bytes: &[u8],
+) -> Result<PrimaryKeyKind, CompactPrimaryKeyDecodeError> {
+    let Some(&tag) = bytes.first() else {
+        return Err(CompactPrimaryKeyDecodeError::Empty);
+    };
+
+    PrimaryKeyKind::from_tag(tag).ok_or(CompactPrimaryKeyDecodeError::UnknownKind { tag })
 }
 
 impl From<EncodedPrimaryKey> for Vec<u8> {
@@ -665,6 +676,18 @@ pub(crate) struct RawDataStoreKey {
 }
 
 impl RawDataStoreKey {
+    #[must_use]
+    pub(in crate::db) fn from_entity_and_primary_key_bytes(
+        entity_tag: EntityTag,
+        primary_key: &[u8],
+    ) -> Self {
+        let mut bytes = Vec::with_capacity(size_of::<u64>() + primary_key.len());
+        bytes.extend_from_slice(&entity_tag.value().to_be_bytes());
+        bytes.extend_from_slice(primary_key);
+
+        Self { bytes }
+    }
+
     pub(in crate::db) fn from_bytes(bytes: &[u8]) -> Result<Self, CompactStoreKeyDecodeError> {
         let _ = DataStoreKey::try_from_raw_bytes(bytes)?;
         Ok(Self {

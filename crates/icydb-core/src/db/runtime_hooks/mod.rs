@@ -98,6 +98,10 @@ pub(in crate::db) const fn has_runtime_hooks<C: CanisterKind>(
 ///
 /// This runs only in debug builds at hook table construction time so duplicate
 /// registrations fail before runtime dispatch begins.
+///
+/// # Panics
+///
+/// Panics when two runtime hooks declare the same entity tag.
 #[must_use]
 #[cfg(debug_assertions)]
 pub(in crate::db) const fn debug_assert_unique_runtime_hook_tags<C: CanisterKind>(

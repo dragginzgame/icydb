@@ -4,9 +4,9 @@
 //! Boundary: query/session perf surfaces opt in to this meter when they want one
 //! separate physical-access bucket without double-counting nested store calls.
 
-use std::cell::{Cell, RefCell};
-
 use crate::db::diagnostics::read_local_instruction_counter;
+
+use std::cell::{Cell, RefCell};
 
 #[cfg(feature = "diagnostics")]
 std::thread_local! {
@@ -34,6 +34,11 @@ fn record_physical_access_local_instructions(delta: u64) {
 
 /// Run one query/session phase while collecting nested physical store/index
 /// access instructions separately from the surrounding phase total.
+///
+/// # Panics
+///
+/// Panics if physical-access attribution stack state is corrupted while the
+/// scoped measurement is active.
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) fn with_physical_access_attribution<T>(run: impl FnOnce() -> T) -> (u64, T) {
     PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| {

@@ -26,7 +26,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use std::{ops::Bound, sync::Arc};
+use std::{borrow::Cow, ops::Bound, sync::Arc};
 
 type IndexComponentValues = Arc<[Vec<u8>]>;
 
@@ -454,24 +454,43 @@ impl IndexScan {
     ) -> Result<bool, InternalError> {
         record_row_check_index_entry_scanned();
 
-        // Phase 1: only decode raw key components when an index-only predicate
-        // needs them. Plain row-identity scans only need the entry payload.
-        if let Some(execution) = index_predicate_execution {
+        // Phase 1: decode only the primary-key suffix for ordinary row-identity
+        // scans. Predicate scans still need the fully decoded index key.
+        let (primary_key_value, primary_key_bytes) = if let Some(execution) =
+            index_predicate_execution
+        {
             let decoded_key = IndexKey::try_from_raw(raw_key)
                 .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
             if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
                 return Ok(false);
             }
-        }
 
-        // Phase 2: decode the key-owned row witness. The raw index key now owns
-        // row identity; the raw entry value carries only the existence witness.
+            (
+                decoded_key
+                    .primary_key_value()
+                    .map_err(|_| InternalError::index_entry_decode_failed())?,
+                Cow::Owned(decoded_key.primary_key_bytes().to_vec()),
+            )
+        } else {
+            let (primary_key_value, primary_key_bytes) =
+                IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+                    .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+
+            (primary_key_value, Cow::Borrowed(primary_key_bytes))
+        };
+
+        // Phase 2: decode the entry-owned existence witness and pair it with
+        // the row identity recovered from the raw index-key suffix.
         let row_witness = value
-            .decode_row_witness(raw_key)
+            .decode_row_witness_from_primary_key_value(&primary_key_value)
             .map_err(|_| InternalError::index_entry_decode_failed())?;
         record_row_check_index_key_owned_entry();
         record_row_check_index_row_identity_decoded();
-        out.push(Self::data_key_from_row_witness(entity, &row_witness));
+        out.push(Self::data_key_from_row_witness_with_primary_key_bytes(
+            entity,
+            &row_witness,
+            primary_key_bytes.as_ref(),
+        ));
 
         if let Some(limit) = limit
             && out.len() == limit
@@ -521,12 +540,12 @@ impl IndexScan {
         // Phase 2: decode the key-owned row witness. The raw index key now owns
         // row identity; the raw entry value carries only the existence witness.
         let row_witness = value
-            .decode_row_witness(raw_key)
+            .decode_row_witness_from_index_key(&decoded_key)
             .map_err(|_| InternalError::index_entry_decode_failed())?;
         record_row_check_index_key_owned_entry();
         record_row_check_index_row_identity_decoded();
         out.push((
-            Self::data_key_from_row_witness(entity, &row_witness),
+            Self::data_key_from_row_witness(entity, &row_witness, &decoded_key),
             row_witness.existence_witness(),
             components,
         ));
@@ -542,10 +561,27 @@ impl IndexScan {
 
     // Rebuild one data key from the raw row-witness payload without re-encoding
     // the primary key through the value layer.
-    const fn data_key_from_row_witness(
+    fn data_key_from_row_witness(
         entity: EntityTag,
         row_witness: &IndexEntryRowWitness,
+        index_key: &IndexKey,
     ) -> DecodedDataStoreKey {
-        DecodedDataStoreKey::new_primary_key_value(entity, row_witness.primary_key_value())
+        Self::data_key_from_row_witness_with_primary_key_bytes(
+            entity,
+            row_witness,
+            index_key.primary_key_bytes(),
+        )
+    }
+
+    fn data_key_from_row_witness_with_primary_key_bytes(
+        entity: EntityTag,
+        row_witness: &IndexEntryRowWitness,
+        primary_key_bytes: &[u8],
+    ) -> DecodedDataStoreKey {
+        DecodedDataStoreKey::new_with_raw_primary_key_value(
+            entity,
+            row_witness.primary_key_value(),
+            RawDataStoreKey::from_entity_and_primary_key_bytes(entity, primary_key_bytes),
+        )
     }
 }

@@ -370,6 +370,21 @@ fn paged_branch_ids(
 }
 
 #[cfg(feature = "diagnostics")]
+fn response_branch_ids(
+    rows: &crate::db::EntityResponse<BranchIndexedSessionSqlEntity>,
+) -> Vec<Ulid> {
+    rows.ids().map(|id| id.key()).collect()
+}
+
+fn fluent_branch_target_query(limit: u32) -> Query<BranchIndexedSessionSqlEntity> {
+    Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
+        .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
+        .filter(crate::db::query::builder::FieldRef::new("stage").in_list(["Draft", "Review"]))
+        .order_term(crate::db::asc("id"))
+        .limit(limit)
+}
+
+#[cfg(feature = "diagnostics")]
 fn with_store_and_index_reads<T>(run: impl FnOnce() -> T) -> (T, u64, u64) {
     let store_gets_before = crate::db::data::DataStore::current_get_call_count();
     let index_entries_before = crate::db::index::IndexStore::current_entry_read_count();
@@ -1021,6 +1036,56 @@ fn session_branch_set_sql_noncovered_projection_hydrates_only_bounded_page_rows(
     assert_eq!(
         attribution.scalar_aggregate, None,
         "non-covered default page-shaped branch query must not invoke count",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_fluent_full_entity_page_uses_lazy_branch_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let query = fluent_branch_target_query(
+        u32::try_from(BRANCH_LIMIT).expect("branch test limit should fit into u32"),
+    );
+    let descriptor = query
+        .explain_execution()
+        .expect("fluent branch target should explain execution");
+
+    assert!(
+        explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::IndexBranchSet),
+        "fluent branch target should use the branch-aware route",
+    );
+
+    let ((result, attribution), store_gets, index_entries) = with_store_and_index_reads(|| {
+        session
+            .execute_query_result_with_attribution(&query)
+            .expect("fluent branch target should execute")
+    });
+    let crate::db::LoadQueryResult::Rows(page) = result else {
+        panic!("fluent branch target should return scalar rows");
+    };
+
+    assert_eq!(
+        response_branch_ids(&page),
+        expected_branch_ids(BRANCH_LIMIT),
+        "fluent branch target should match globally sorted branch-set rows",
+    );
+    assert!(
+        (BRANCH_LIMIT as u64..=BRANCH_FETCH).contains(&store_gets),
+        "fluent full-entity branch page should hydrate only returned rows plus lookahead, got {store_gets}",
+    );
+    assert!(
+        index_entries <= BRANCH_HEAD_MERGE_READ_CAP,
+        "fluent branch stream should pull branch heads lazily, got {index_entries}",
+    );
+    assert!(
+        attribution.direct_data_row.is_some(),
+        "fluent branch target should report scalar row attribution",
+    );
+    assert_eq!(
+        attribution.grouped, None,
+        "fluent branch target page must not invoke grouped/count work",
     );
 }
 

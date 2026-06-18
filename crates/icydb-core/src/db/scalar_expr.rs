@@ -60,7 +60,7 @@ pub(in crate::db) enum ScalarIndexExpressionOp {
 }
 
 impl ScalarIndexExpressionOp {
-    // Build the canonical scalar-expression input mismatch error.
+    /// Build the canonical scalar-expression input mismatch error.
     #[cfg(test)]
     fn input_type_mismatch(self, expected: &'static str) -> InternalError {
         let _ = self;
@@ -337,7 +337,7 @@ pub(in crate::db) fn eval_canonical_scalar_value_program<'a>(
     }
 }
 
-// Evaluate one scalar field access through the canonical slot-reader fast path.
+/// Evaluate one scalar field access through the canonical slot-reader fast path.
 #[cfg(test)]
 fn eval_canonical_scalar_field(
     slot: usize,
@@ -349,7 +349,7 @@ fn eval_canonical_scalar_field(
     })
 }
 
-// Evaluate one scalar expression operator against the canonical slot seam.
+/// Evaluate one scalar expression operator against the canonical slot seam.
 #[cfg(test)]
 fn eval_canonical_scalar_expression_op(
     slot: usize,

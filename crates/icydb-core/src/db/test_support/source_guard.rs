@@ -1,11 +1,18 @@
 //! Module: db::test_support::source_guard
-//! Shared helpers for source-shape boundary tests.
+//! Responsibility: source-file collection and cfg-test stripping for guard tests.
+//! Does not own: production source parsing or formatting policy.
+//! Boundary: supports db source-shape tests with filesystem-backed fixtures.
 
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
+/// Collect all Rust source files below one root directory.
+///
+/// # Panics
+///
+/// Panics if the root directory or one of its entries cannot be read.
 pub(in crate::db) fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(root)
         .unwrap_or_else(|err| panic!("failed to read source directory {}: {err}", root.display()));
@@ -28,6 +35,11 @@ pub(in crate::db) fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Return a normalized relative Rust source path for guard diagnostics.
+///
+/// # Panics
+///
+/// Panics if `source_path` is not under `manifest_root`.
 pub(in crate::db) fn relative_rust_source_path(manifest_root: &Path, source_path: &Path) -> String {
     source_path
         .strip_prefix(manifest_root)
@@ -41,6 +53,10 @@ pub(in crate::db) fn relative_rust_source_path(manifest_root: &Path, source_path
         .replace('\\', "/")
 }
 
+/// Remove direct `#[cfg(test)]` items from a Rust source string.
+///
+/// This lightweight scanner is for source-shape tests, not a general Rust
+/// parser.
 pub(in crate::db) fn runtime_source_without_test_items(source: &str) -> String {
     let mut output = String::new();
     let mut pending_cfg_test = false;

@@ -177,10 +177,32 @@ impl IndexEntryValue {
         &self,
         raw_key: &RawIndexStoreKey,
     ) -> Result<IndexEntryRowWitness, IndexEntryCorruption> {
-        let witness = self.validate_witness()?;
-        let primary_key_value = primary_key_value_from_raw_index_store_key(raw_key)?;
+        let key = IndexKey::try_from_raw(raw_key).map_err(|_| IndexEntryCorruption::InvalidKey)?;
 
-        Ok(IndexEntryRowWitness::new(&primary_key_value, witness))
+        self.decode_row_witness_from_index_key(&key)
+    }
+
+    // Decode row identity from a caller-owned decoded index key. Index scans
+    // often need the decoded key for predicate/components already, so this
+    // avoids reparsing the same raw index key on the hot traversal path.
+    pub(in crate::db) fn decode_row_witness_from_index_key(
+        &self,
+        key: &IndexKey,
+    ) -> Result<IndexEntryRowWitness, IndexEntryCorruption> {
+        let primary_key_value = key
+            .primary_key_value()
+            .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+
+        self.decode_row_witness_from_primary_key_value(&primary_key_value)
+    }
+
+    pub(in crate::db) fn decode_row_witness_from_primary_key_value(
+        &self,
+        primary_key_value: &PrimaryKeyValue,
+    ) -> Result<IndexEntryRowWitness, IndexEntryCorruption> {
+        let witness = self.validate_witness()?;
+
+        Ok(IndexEntryRowWitness::new(primary_key_value, witness))
     }
 
     /// Validate the raw index entry structure without binding to an entity.
@@ -209,14 +231,6 @@ impl IndexEntryValue {
     pub(crate) fn len(&self) -> usize {
         self.as_bytes().len()
     }
-}
-
-fn primary_key_value_from_raw_index_store_key(
-    raw_key: &RawIndexStoreKey,
-) -> Result<PrimaryKeyValue, IndexEntryCorruption> {
-    let key = IndexKey::try_from_raw(raw_key).map_err(|_| IndexEntryCorruption::InvalidKey)?;
-    key.primary_key_value()
-        .map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 
 impl Storable for IndexEntryValue {

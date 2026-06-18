@@ -88,19 +88,23 @@ impl Storable for JournalSequence {
 
 /// Logical journal record. Index entries are intentionally absent from the
 /// first format; indexes are derived materialized state.
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum JournalRecord {
+    /// Persisted row upsert for one entity and schema fingerprint.
     RowPut {
         entity_path: String,
         primary_key: RawDataStoreKey,
         row_bytes: Vec<u8>,
         schema_fingerprint: CommitSchemaFingerprint,
     },
+    /// Persisted row delete for one entity and schema fingerprint.
     RowDelete {
         entity_path: String,
         primary_key: RawDataStoreKey,
         schema_fingerprint: CommitSchemaFingerprint,
     },
+    /// Persisted schema snapshot update for one store.
     SchemaPut {
         store_path: String,
         schema_snapshot_bytes: Vec<u8>,
@@ -201,6 +205,11 @@ impl JournalBatch {
         &self.records
     }
 }
+
+/// Raw encoded journal batch bytes stored in the journal tail.
+///
+/// Owns the persisted byte envelope and validates only when decoded through the
+/// journal codec boundary.
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::journal) struct RawJournalBatch(Vec<u8>);

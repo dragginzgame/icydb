@@ -14,7 +14,9 @@ use serde::Deserialize;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub(in crate::db) enum Direction {
+    /// Ascending traversal.
     #[default]
     Asc,
+    /// Descending traversal.
     Desc,
 }

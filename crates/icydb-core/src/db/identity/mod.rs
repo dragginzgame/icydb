@@ -1,4 +1,4 @@
-//! Module: identity
+//! Module: db::identity
 //! Responsibility: validated entity/index naming and stable byte ordering contracts.
 //! Does not own: schema metadata, relation policy, or storage-layer persistence.
 //! Boundary: all identity construction/decoding for db data/index key domains.
@@ -37,63 +37,80 @@ pub(super) const MAX_INDEX_NAME_LEN: usize = MAX_INDEX_NAME_PREFIX_LEN
     + (MAX_INDEX_FIELDS * MAX_INDEX_FIELD_NAME_SLUG_LEN)
     + (MAX_INDEX_FIELDS - 1);
 const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
+
+/// Decode error for persisted identity bytes.
 ///
-/// IdentityDecodeError
-/// Decode errors (storage / corruption boundary)
-///
+/// Owned by the identity layer at storage/corruption boundaries.
 
 #[derive(Debug)]
 pub enum IdentityDecodeError {
+    /// Persisted byte slice has the wrong fixed envelope size.
     InvalidSize,
 
+    /// Persisted length prefix is empty or exceeds the identity limit.
     InvalidLength,
 
+    /// Identity payload contains non-ASCII bytes.
     NonAscii,
 
+    /// Fixed-width padding contains non-zero bytes.
     NonZeroPadding,
 
+    /// Entity identity payload contains the reserved index segment delimiter.
     Delimiter,
 }
 
+/// Admission error for generated entity names.
 ///
-/// EntityNameError
-///
+/// Owned by the identity layer before entity names enter stable key formats.
 
 #[derive(Debug)]
 pub enum EntityNameError {
+    /// Entity name is empty.
     Empty,
 
+    /// Entity name exceeds the stable identity byte limit.
     TooLong { len: usize, max: usize },
 
+    /// Entity name contains non-ASCII bytes.
     NonAscii,
 
+    /// Entity name contains the reserved index segment delimiter.
     Delimiter,
 }
 
+/// Admission error for generated index names.
 ///
-/// IndexNameError
-///
+/// Owned by the identity layer while deriving index names from an entity and
+/// field list.
 
 #[derive(Debug)]
 pub enum IndexNameError {
+    /// Index field list exceeds the supported key-width limit.
     TooManyFields { len: usize, max: usize },
 
+    /// Index field list is empty.
     NoFields,
 
+    /// One index field segment is empty.
     FieldEmpty,
 
+    /// One index field segment exceeds the stable identity byte limit.
     FieldTooLong { field: String, max: usize },
 
+    /// One index field segment contains non-ASCII bytes.
     FieldNonAscii { field: String },
 
+    /// One index field segment contains the reserved segment delimiter.
     FieldDelimiter { field: String },
 
+    /// Derived index name exceeds the stable identity byte limit.
     TooLong { len: usize, max: usize },
 }
 
+/// Validated entity identity with fixed-size persisted representation.
 ///
-/// EntityName
-///
+/// Used by data-key and index-key domains as canonical entity-name bytes.
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct EntityName {
@@ -238,9 +255,9 @@ impl fmt::Debug for EntityName {
     }
 }
 
+/// Validated index identity with fixed-size persisted representation.
 ///
-/// IndexName
-///
+/// Used by index-store key domains as canonical index-name bytes.
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct IndexName {

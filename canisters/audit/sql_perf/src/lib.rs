@@ -82,6 +82,8 @@ struct StorageWritePerfResult {
 }
 
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
+const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
+const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 
 #[cfg(feature = "sql")]
 const fn query_validate_error() -> icydb::Error {
@@ -783,6 +785,65 @@ fn run_account_fluent_scenario_once(
 }
 
 #[cfg(feature = "sql")]
+fn run_token_fluent_scenario_once(
+    session: &icydb::db::DbSession<PerfAuditCanister>,
+    scenario: &str,
+) -> Result<(FluentQueryPerfOutcome, QueryExecutionAttribution), icydb::Error> {
+    match scenario {
+        "token.collection_stage_id.branch_set.full_entity.limit50" => {
+            let query = session
+                .load::<PerfAuditToken>()
+                .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
+                .filter_in("stage", ["Draft", "Review"])
+                .order_asc("id")
+                .limit(50);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "token.collection_stage_id.branch_set.duplicate_full_entity.limit50" => {
+            let query = session
+                .load::<PerfAuditToken>()
+                .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
+                .filter_in("stage", ["Draft", "Draft", "Review"])
+                .order_asc("id")
+                .limit(50);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "token.collection_stage_id.branch_set.wide_full_entity.limit50" => {
+            let query = session
+                .load::<PerfAuditToken>()
+                .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
+                .filter_in(
+                    "stage",
+                    [
+                        "Draft",
+                        "Review",
+                        "Published",
+                        "Archived",
+                        "Queued",
+                        "Rejected",
+                        "Minted",
+                        "Burned",
+                        "Frozen",
+                    ],
+                )
+                .order_asc("id")
+                .limit(50);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        _ => Err(query_validate_error()),
+    }
+}
+
+#[cfg(feature = "sql")]
 fn run_journaled_user_fluent_scenario_once(
     session: &icydb::db::DbSession<PerfAuditCanister>,
     scenario: &str,
@@ -867,6 +928,7 @@ fn query_fluent_scenario_loop(
         let (outcome, attribution) = match surface {
             "user" => run_user_fluent_scenario_once(&session, scenario)?,
             "account" => run_account_fluent_scenario_once(&session, scenario)?,
+            "token" => run_token_fluent_scenario_once(&session, scenario)?,
             "heap_user" => run_heap_user_fluent_scenario_once(&session, scenario)?,
             "journaled_user" => run_journaled_user_fluent_scenario_once(&session, scenario)?,
             _ => {
@@ -1589,6 +1651,34 @@ fn query_account_fluent_loop_with_perf(
     query_fluent_scenario_loop("account", scenario.as_str(), runs)
 }
 
+/// Execute one dedicated PerfAuditToken fluent perf scenario and attach one
+/// local instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_token_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("token", scenario.as_str(), 1)
+}
+
+/// Execute one dedicated PerfAuditToken fluent perf scenario through the
+/// update surface so the shared lower query cache can persist for later query
+/// calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_token_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("token", scenario.as_str(), 1)
+}
+
+/// Execute one dedicated PerfAuditToken fluent perf scenario repeatedly inside
+/// one canister query call and report the per-run average instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_token_fluent_loop_with_perf(
+    scenario: String,
+    runs: u32,
+) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("token", scenario.as_str(), runs)
+}
+
 /// Build the deterministic user fixture batch used by the perf audit.
 fn perf_audit_users() -> Vec<PerfAuditUser> {
     vec![
@@ -1838,30 +1928,27 @@ fn perf_audit_token(id: u128, collection_id: &str, stage: &str, title: &str) -> 
 /// Build the deterministic token fixture batch used by the branch-set perf
 /// audit query.
 fn perf_audit_tokens() -> Vec<PerfAuditToken> {
-    const TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
-    const OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
-
     let mut tokens = vec![
-        perf_audit_token(9_090, TARGET_COLLECTION, "Draft", "draft-090"),
-        perf_audit_token(9_095, TARGET_COLLECTION, "Review", "review-095"),
-        perf_audit_token(9_100, TARGET_COLLECTION, "Review", "review-100"),
-        perf_audit_token(9_105, TARGET_COLLECTION, "Draft", "draft-105"),
-        perf_audit_token(9_110, TARGET_COLLECTION, "Published", "published-110"),
-        perf_audit_token(9_115, OTHER_COLLECTION, "Draft", "other-draft-115"),
-        perf_audit_token(9_120, TARGET_COLLECTION, "Draft", "draft-120"),
-        perf_audit_token(9_125, TARGET_COLLECTION, "Review", "review-125"),
-        perf_audit_token(9_130, TARGET_COLLECTION, "Draft", "draft-130"),
-        perf_audit_token(9_135, TARGET_COLLECTION, "Review", "review-135"),
-        perf_audit_token(9_140, TARGET_COLLECTION, "Queued", "queued-140"),
-        perf_audit_token(9_145, OTHER_COLLECTION, "Review", "other-review-145"),
-        perf_audit_token(9_150, TARGET_COLLECTION, "Draft", "draft-150"),
-        perf_audit_token(9_155, TARGET_COLLECTION, "Review", "review-155"),
-        perf_audit_token(9_160, TARGET_COLLECTION, "Archived", "archived-160"),
-        perf_audit_token(9_165, OTHER_COLLECTION, "Draft", "other-draft-165"),
-        perf_audit_token(9_170, TARGET_COLLECTION, "Draft", "draft-170"),
-        perf_audit_token(9_175, TARGET_COLLECTION, "Review", "review-175"),
-        perf_audit_token(9_180, TARGET_COLLECTION, "Rejected", "rejected-180"),
-        perf_audit_token(9_185, OTHER_COLLECTION, "Review", "other-review-185"),
+        perf_audit_token(9_090, TOKEN_TARGET_COLLECTION, "Draft", "draft-090"),
+        perf_audit_token(9_095, TOKEN_TARGET_COLLECTION, "Review", "review-095"),
+        perf_audit_token(9_100, TOKEN_TARGET_COLLECTION, "Review", "review-100"),
+        perf_audit_token(9_105, TOKEN_TARGET_COLLECTION, "Draft", "draft-105"),
+        perf_audit_token(9_110, TOKEN_TARGET_COLLECTION, "Published", "published-110"),
+        perf_audit_token(9_115, TOKEN_OTHER_COLLECTION, "Draft", "other-draft-115"),
+        perf_audit_token(9_120, TOKEN_TARGET_COLLECTION, "Draft", "draft-120"),
+        perf_audit_token(9_125, TOKEN_TARGET_COLLECTION, "Review", "review-125"),
+        perf_audit_token(9_130, TOKEN_TARGET_COLLECTION, "Draft", "draft-130"),
+        perf_audit_token(9_135, TOKEN_TARGET_COLLECTION, "Review", "review-135"),
+        perf_audit_token(9_140, TOKEN_TARGET_COLLECTION, "Queued", "queued-140"),
+        perf_audit_token(9_145, TOKEN_OTHER_COLLECTION, "Review", "other-review-145"),
+        perf_audit_token(9_150, TOKEN_TARGET_COLLECTION, "Draft", "draft-150"),
+        perf_audit_token(9_155, TOKEN_TARGET_COLLECTION, "Review", "review-155"),
+        perf_audit_token(9_160, TOKEN_TARGET_COLLECTION, "Archived", "archived-160"),
+        perf_audit_token(9_165, TOKEN_OTHER_COLLECTION, "Draft", "other-draft-165"),
+        perf_audit_token(9_170, TOKEN_TARGET_COLLECTION, "Draft", "draft-170"),
+        perf_audit_token(9_175, TOKEN_TARGET_COLLECTION, "Review", "review-175"),
+        perf_audit_token(9_180, TOKEN_TARGET_COLLECTION, "Rejected", "rejected-180"),
+        perf_audit_token(9_185, TOKEN_OTHER_COLLECTION, "Review", "other-review-185"),
     ];
 
     for offset in 0..240u128 {
@@ -1874,7 +1961,7 @@ fn perf_audit_tokens() -> Vec<PerfAuditToken> {
         let title = format!("{}-pressure-{offset:03}", stage.to_ascii_lowercase());
         tokens.push(perf_audit_token(
             10_000 + offset,
-            TARGET_COLLECTION,
+            TOKEN_TARGET_COLLECTION,
             stage,
             title.as_str(),
         ));

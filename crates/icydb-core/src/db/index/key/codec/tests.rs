@@ -1053,6 +1053,35 @@ fn index_key_primary_suffix_uses_compact_primary_key_bytes() {
 }
 
 #[test]
+fn index_key_primary_suffix_fast_decode_matches_full_decode() {
+    let primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(42));
+    let primary_key_bytes = IndexKey::compact_primary_key_value_bytes(&primary_key);
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![
+            encode_component(&Value::Text("collection-a".to_string())),
+            encode_component(&Value::Text("Draft".to_string())),
+        ],
+        primary_key_bytes.clone(),
+    );
+    let raw = key.to_raw();
+
+    let (fast_value, fast_bytes) = IndexKey::primary_key_value_and_bytes_from_raw(&raw)
+        .expect("primary suffix fast decode should accept canonical raw index key");
+
+    assert_eq!(fast_value, primary_key);
+    assert_eq!(fast_bytes, primary_key_bytes.as_slice());
+    assert_eq!(
+        fast_value,
+        IndexKey::try_from_raw(&raw)
+            .expect("full decode should accept canonical raw index key")
+            .primary_key_value()
+            .expect("full decode should recover primary suffix"),
+    );
+}
+
+#[test]
 fn index_key_primary_suffix_decodes_composite_primary_key_value() {
     let composite = CompositePrimaryKeyValue::try_from_components(&[
         PrimaryKeyComponent::Nat64(5),

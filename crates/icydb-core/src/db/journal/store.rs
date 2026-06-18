@@ -19,9 +19,12 @@ const FOLD_WATERMARK_VERSION: u8 = 1;
 const FOLD_WATERMARK_BYTES: usize = FOLD_WATERMARK_MAGIC.len() + 1 + 8 + 8;
 
 /// Control-flow result for journal-tail traversal visitors.
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum JournalTailVisit {
+    /// Continue traversal.
     Continue,
+    /// Stop traversal after the current batch.
     Stop,
 }
 
@@ -32,6 +35,7 @@ impl JournalTailVisit {
 }
 
 /// Durable replay boundary for a journal tail.
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct FoldWatermark {
     highest_folded_journal_sequence: JournalSequence,

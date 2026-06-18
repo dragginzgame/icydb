@@ -199,6 +199,36 @@ impl IndexKey {
         EncodedPrimaryKey::try_from(self.primary_key.as_slice())?.decode()
     }
 
+    pub(in crate::db) fn primary_key_value_and_bytes_from_raw(
+        raw: &RawIndexStoreKey,
+    ) -> Result<(PrimaryKeyValue, &[u8]), IndexKeyDecodeError> {
+        let bytes = raw.as_bytes();
+        let (_, _, component_count_usize, mut offset) = parse_index_key_header(bytes)?;
+
+        for _ in 0..component_count_usize {
+            let _ = read_segment(
+                bytes,
+                &mut offset,
+                Self::MAX_COMPONENT_SIZE,
+                "component segment",
+            )?;
+        }
+
+        let primary_key = read_segment(bytes, &mut offset, Self::MAX_PK_SIZE, "primary key")?;
+        if offset != bytes.len() {
+            return Err(IndexKeyDecodeError::TrailingBytes);
+        }
+        let primary_key_value = EncodedPrimaryKey::decode_bytes(primary_key)
+            .map_err(|_| IndexKeyDecodeError::InvalidPrimaryKey)?;
+
+        Ok((primary_key_value, primary_key))
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn primary_key_bytes(&self) -> &[u8] {
+        self.primary_key.as_slice()
+    }
+
     pub(in crate::db) fn compact_primary_key_value_bytes(primary_key: &PrimaryKeyValue) -> Vec<u8> {
         EncodedPrimaryKey::encode(*primary_key)
             .expect("primary-key invariant")

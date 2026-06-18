@@ -31,6 +31,7 @@ struct FluentQueryPerfResult {
 enum FluentPerfSurface {
     User,
     Account,
+    Token,
 }
 
 impl FluentPerfSurface {
@@ -38,6 +39,7 @@ impl FluentPerfSurface {
         match self {
             Self::User => "user",
             Self::Account => "account",
+            Self::Token => "token",
         }
     }
 }
@@ -366,6 +368,19 @@ fn query_fluent_surface_with_perf(
                 ),
             )
             .expect("query_account_fluent_loop_with_perf should decode"),
+        FluentPerfSurface::Token if query_loop_count == 1 => fixture
+            .query_call("query_token_fluent_with_perf", (scenario_key.to_string(),))
+            .expect("query_token_fluent_with_perf should decode"),
+        FluentPerfSurface::Token => fixture
+            .query_call(
+                "query_token_fluent_loop_with_perf",
+                (
+                    scenario_key.to_string(),
+                    u32::try_from(query_loop_count)
+                        .expect("query loop count should fit into canister argument"),
+                ),
+            )
+            .expect("query_token_fluent_loop_with_perf should decode"),
     }
 }
 
@@ -381,6 +396,9 @@ fn warm_fluent_surface_with_perf(
         FluentPerfSurface::Account => fixture
             .update_call("warm_account_fluent_with_perf", (scenario_key.to_string(),))
             .expect("warm_account_fluent_with_perf should decode"),
+        FluentPerfSurface::Token => fixture
+            .update_call("warm_token_fluent_with_perf", (scenario_key.to_string(),))
+            .expect("warm_token_fluent_with_perf should decode"),
     }
 }
 
@@ -848,10 +866,144 @@ fn account_fluent_scenarios() -> Vec<FluentPerfScenario> {
     ]
 }
 
+fn token_fluent_scenarios() -> Vec<FluentPerfScenario> {
+    vec![
+        same_key_scenario(
+            "token.collection_stage_id.branch_set.full_entity.limit50",
+            FluentPerfSurface::Token,
+            "branch_set_full_entity",
+            r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
+        ),
+        parity_scenario(
+            "token.collection_stage_id.branch_set.full_entity.limit50.warm_after_update",
+            "token.collection_stage_id.branch_set.full_entity.limit50",
+            FluentPerfSurface::Token,
+            "branch_set_full_entity_warm",
+            r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
+            FluentPerfSampleMode::WarmThenQuery,
+        ),
+        same_key_scenario(
+            "token.collection_stage_id.branch_set.duplicate_full_entity.limit50",
+            FluentPerfSurface::Token,
+            "branch_set_full_entity",
+            r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Draft", "Review"]).order_term(asc("id")).limit(50)"#,
+        ),
+        same_key_scenario(
+            "token.collection_stage_id.branch_set.wide_full_entity.limit50",
+            FluentPerfSurface::Token,
+            "branch_set_full_entity",
+            r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review", ...]).order_term(asc("id")).limit(50)"#,
+        ),
+    ]
+}
+
 fn fluent_perf_scenarios() -> Vec<FluentPerfScenario> {
     let mut scenarios = user_fluent_scenarios();
     scenarios.extend(account_fluent_scenarios());
+    scenarios.extend(token_fluent_scenarios());
     scenarios
+}
+
+#[test]
+fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+    let baseline = HashMap::new();
+
+    let sample = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        same_key_scenario(
+            "token.collection_stage_id.branch_set.full_entity.limit50",
+            FluentPerfSurface::Token,
+            "branch_set_full_entity",
+            r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
+        ),
+    );
+
+    println!(
+        "fluent token branch-set page: compile={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
+        sample.avg_compile_local_instructions,
+        sample.avg_runtime_local_instructions,
+        sample.avg_direct_data_row_scan_local_instructions,
+        sample.avg_direct_data_row_key_stream_local_instructions,
+        sample.avg_direct_data_row_row_read_local_instructions,
+        sample.avg_direct_data_row_store_get_local_instructions,
+        sample.avg_direct_data_row_order_window_local_instructions,
+        sample.avg_direct_data_row_page_window_local_instructions,
+        sample.avg_execute_local_instructions,
+        sample.avg_shared_query_plan_cache_hits,
+        sample.avg_shared_query_plan_cache_misses,
+        sample.avg_local_instructions,
+    );
+    assert!(
+        sample.outcome_stable,
+        "token fluent branch-set outcome should stay stable",
+    );
+    assert_eq!(
+        sample.outcome.result_kind, "rows",
+        "token fluent branch-set should return entity rows",
+    );
+    assert_eq!(
+        sample.outcome.row_count, 50,
+        "token fluent branch-set should return the requested page size",
+    );
+    assert!(
+        sample.avg_direct_data_row_key_stream_local_instructions > 0,
+        "token fluent branch-set should report indexed key-stream work",
+    );
+    assert!(
+        sample.avg_direct_data_row_store_get_local_instructions > 0,
+        "full-entity fluent branch-set should hydrate returned rows",
+    );
+    assert_eq!(
+        sample.avg_grouped_count_row_materialization_local_instructions, 0,
+        "page-shaped fluent branch-set should not invoke grouped count work",
+    );
+
+    let warm = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        FluentPerfScenario {
+            scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50.warm_after_update",
+            canister_scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50",
+            surface: FluentPerfSurface::Token,
+            query_family: "branch_set_full_entity_warm",
+            query_label: r#"db().load::<PerfAuditToken>().filter_eq("collection_id", target).filter_in("stage", ["Draft", "Review"]).order_term(asc("id")).limit(50)"#,
+            sample_count: 1,
+            query_loop_count: 1,
+            sample_mode: FluentPerfSampleMode::WarmThenQuery,
+            isolated_fixture: false,
+        },
+    );
+
+    println!(
+        "warm fluent token branch-set page: compile={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
+        warm.avg_compile_local_instructions,
+        warm.avg_runtime_local_instructions,
+        warm.avg_direct_data_row_scan_local_instructions,
+        warm.avg_direct_data_row_key_stream_local_instructions,
+        warm.avg_direct_data_row_row_read_local_instructions,
+        warm.avg_direct_data_row_store_get_local_instructions,
+        warm.avg_direct_data_row_order_window_local_instructions,
+        warm.avg_direct_data_row_page_window_local_instructions,
+        warm.avg_execute_local_instructions,
+        warm.avg_shared_query_plan_cache_hits,
+        warm.avg_shared_query_plan_cache_misses,
+        warm.avg_local_instructions,
+    );
+    assert_eq!(
+        warm.avg_shared_query_plan_cache_hits, 1,
+        "warm token fluent branch-set should reuse the shared query-plan cache",
+    );
+    assert_eq!(
+        warm.avg_shared_query_plan_cache_misses, 0,
+        "warm token fluent branch-set query should not rebuild the plan after update warm",
+    );
+    assert!(
+        warm.avg_compile_local_instructions < sample.avg_compile_local_instructions,
+        "warm token fluent branch-set compile path should be cheaper than cold query calls",
+    );
 }
 
 #[test]
