@@ -99,6 +99,55 @@ fn normalize_and_orders_cheaper_predicates_before_text_contains() {
 }
 
 #[test]
+fn normalize_and_orders_scalar_compares_before_membership() {
+    let mixed = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "stage",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("Draft".to_string()),
+                Value::Text("Review".to_string()),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::eq(
+            "collection_id".to_string(),
+            Value::Text("01KV5N439P0000000000000000".to_string()),
+        ),
+    ]);
+
+    let normalized = normalize(&mixed);
+    let Predicate::And(children) = normalized else {
+        panic!("normalized mixed predicate should remain AND with two children");
+    };
+    assert_eq!(
+        children.len(),
+        2,
+        "mixed AND should keep exactly two children"
+    );
+    assert!(
+        matches!(
+            children[0],
+            Predicate::Compare(ComparePredicate {
+                op: CompareOp::Eq,
+                ..
+            })
+        ),
+        "scalar compare predicate should be evaluated before membership predicate",
+    );
+    assert!(
+        matches!(
+            children[1],
+            Predicate::Compare(ComparePredicate {
+                op: CompareOp::In,
+                ..
+            })
+        ),
+        "membership predicate should be placed after scalar compare predicate",
+    );
+}
+
+#[test]
 fn normalize_and_conflicting_eq_literals_collapses_to_false() {
     let predicate = Predicate::And(vec![
         Predicate::eq("rank".to_string(), Value::Nat64(1)),

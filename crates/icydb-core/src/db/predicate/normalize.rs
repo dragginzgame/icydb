@@ -656,16 +656,29 @@ const fn or_eq_compare_value_is_in_safe(value: &Value) -> bool {
 const fn predicate_eval_cost_rank(predicate: &Predicate) -> u8 {
     match predicate {
         Predicate::True | Predicate::False => 0,
-        Predicate::Compare(_)
-        | Predicate::CompareFields(_)
+        Predicate::Compare(compare) => compare_eval_cost_rank(compare.op),
+        Predicate::CompareFields(_)
         | Predicate::IsNull { .. }
         | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. } => 1,
-        Predicate::Not(_) => 2,
+        Predicate::Not(_) => 4,
         Predicate::TextContains { .. } | Predicate::TextContainsCi { .. } => 3,
-        Predicate::And(_) | Predicate::Or(_) => 4,
+        Predicate::And(_) | Predicate::Or(_) => 5,
+    }
+}
+
+const fn compare_eval_cost_rank(op: CompareOp) -> u8 {
+    match op {
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte => 1,
+        CompareOp::In | CompareOp::NotIn => 2,
+        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => 3,
     }
 }
 

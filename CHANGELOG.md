@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- SQL predicate-only lowering now normalizes freshly built predicates through an
-  owned path, avoiding an extra large-list clone during literal-heavy `IN`
-  compile.
-
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.18` reduces cold compile cost for literal-heavy SQL `IN` filters by
+  keeping membership lowering owned and avoiding large-list predicate sort-key
+  work during normalization.
 
 - `0.183.17` trims cold SQL parse cost for literal-heavy membership filters by
   moving consumed string literals, lexing simple strings from source slices,

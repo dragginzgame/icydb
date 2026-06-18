@@ -64,6 +64,16 @@ pub(in crate::db) fn collapse_membership_compare_leaves<'a>(
         values.push(leaf.value);
     }
 
+    collapse_membership_values(field?, target_op, values, coercion?)
+}
+
+/// Collapse already-admitted same-field values into one membership predicate.
+pub(in crate::db) fn collapse_membership_values(
+    field: &str,
+    target_op: CompareOp,
+    mut values: Vec<Value>,
+    coercion: CoercionId,
+) -> Option<ComparePredicate> {
     if values.len() < 2 {
         return None;
     }
@@ -71,9 +81,9 @@ pub(in crate::db) fn collapse_membership_compare_leaves<'a>(
     canonicalize_value_set(&mut values);
 
     Some(ComparePredicate::with_coercion(
-        field?,
+        field,
         target_op,
         Value::List(values),
-        coercion?,
+        coercion,
     ))
 }

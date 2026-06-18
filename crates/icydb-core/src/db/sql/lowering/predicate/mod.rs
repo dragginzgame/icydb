@@ -11,8 +11,8 @@ mod validate;
 use crate::{
     db::{
         predicate::{
-            CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MembershipCompareLeaf,
-            Predicate, collapse_membership_compare_leaves, normalize_owned,
+            CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
+            collapse_membership_values, normalize_owned,
         },
         query::plan::expr::{
             Expr, derive_normalized_bool_expr_predicate_subset, is_normalized_bool_expr,
@@ -54,6 +54,7 @@ pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_subset(
 // first lowering a visible expression. This is intentionally narrow: callers
 // may skip the visible filter only when parser context proves the predicate is
 // the complete semantic filter.
+#[cfg(test)]
 pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_only_subset(
     sql_expr: &SqlExpr,
 ) -> Option<Predicate> {
@@ -64,6 +65,28 @@ pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_only_subset(
     derive_sql_where_expr_predicate_only_subset_impl(sql_expr).map(normalize_owned)
 }
 
+pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_only_subset_owned(
+    sql_expr: SqlExpr,
+) -> Result<Predicate, SqlExpr> {
+    if !predicate_only_sql_expr_contains_membership(&sql_expr) {
+        return Err(sql_expr);
+    }
+
+    let Some(plan) = predicate_only_sql_expr_plan(&sql_expr) else {
+        return Err(sql_expr);
+    };
+    let predicate = derive_sql_where_expr_predicate_only_subset_owned_impl(sql_expr, &plan);
+
+    Ok(normalize_owned(predicate))
+}
+
+enum PredicateOnlySqlExprPlan {
+    Membership { coercion: CoercionId },
+    And(Box<Self>, Box<Self>),
+    Compare,
+}
+
+#[cfg(test)]
 fn derive_sql_where_expr_predicate_only_subset_impl(sql_expr: &SqlExpr) -> Option<Predicate> {
     match sql_expr {
         SqlExpr::Membership { .. } => derive_top_level_sql_membership_predicate_subset(sql_expr),
@@ -91,19 +114,86 @@ fn derive_sql_where_expr_predicate_only_subset_impl(sql_expr: &SqlExpr) -> Optio
     }
 }
 
-fn predicate_only_sql_expr_contains_membership(sql_expr: &SqlExpr) -> bool {
+fn derive_sql_where_expr_predicate_only_subset_owned_impl(
+    sql_expr: SqlExpr,
+    plan: &PredicateOnlySqlExprPlan,
+) -> Predicate {
+    match (sql_expr, plan) {
+        (
+            SqlExpr::Membership {
+                expr,
+                values,
+                negated,
+            },
+            PredicateOnlySqlExprPlan::Membership { coercion },
+        ) => derive_top_level_sql_membership_predicate_subset_owned(
+            *expr, values, negated, *coercion,
+        ),
+        (
+            SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left,
+                right,
+            },
+            PredicateOnlySqlExprPlan::And(left_plan, right_plan),
+        ) => Predicate::And(vec![
+            derive_sql_where_expr_predicate_only_subset_owned_impl(*left, left_plan),
+            derive_sql_where_expr_predicate_only_subset_owned_impl(*right, right_plan),
+        ]),
+        (SqlExpr::Binary { op, left, right }, PredicateOnlySqlExprPlan::Compare) => {
+            derive_sql_binary_compare_predicate_owned(op, *left, *right)
+                .expect("predicate-only plan must match owned compare lowering")
+        }
+        _ => unreachable!("predicate-only plan must match admitted SQL expression"),
+    }
+}
+
+fn predicate_only_sql_expr_plan(sql_expr: &SqlExpr) -> Option<PredicateOnlySqlExprPlan> {
     match sql_expr {
-        SqlExpr::Membership { .. } => true,
+        SqlExpr::Membership { expr, values, .. } => {
+            let (_, fixed_coercion) = sql_membership_target(expr.as_ref())?;
+
+            Some(PredicateOnlySqlExprPlan::Membership {
+                coercion: sql_membership_values_coercion(values, fixed_coercion)?,
+            })
+            .filter(|_| values.len() >= 2)
+        }
         SqlExpr::Binary {
             op: SqlExprBinaryOp::And,
             left,
             right,
-        } => {
+        } => Some(PredicateOnlySqlExprPlan::And(
+            Box::new(predicate_only_sql_expr_plan(left.as_ref())?),
+            Box::new(predicate_only_sql_expr_plan(right.as_ref())?),
+        )),
+        SqlExpr::Binary { op, left, right } => {
+            if sql_binary_compare_predicate_supported(*op, left.as_ref(), right.as_ref()) {
+                Some(PredicateOnlySqlExprPlan::Compare)
+            } else {
+                None
+            }
+        }
+        SqlExpr::Field(_)
+        | SqlExpr::FieldPath { .. }
+        | SqlExpr::Aggregate(_)
+        | SqlExpr::Literal(_)
+        | SqlExpr::Param { .. }
+        | SqlExpr::NullTest { .. }
+        | SqlExpr::Like { .. }
+        | SqlExpr::FunctionCall { .. }
+        | SqlExpr::Unary { .. }
+        | SqlExpr::Case { .. } => None,
+    }
+}
+
+fn predicate_only_sql_expr_contains_membership(sql_expr: &SqlExpr) -> bool {
+    match sql_expr {
+        SqlExpr::Membership { .. } => true,
+        SqlExpr::Binary { op: _, left, right } => {
             predicate_only_sql_expr_contains_membership(left.as_ref())
                 || predicate_only_sql_expr_contains_membership(right.as_ref())
         }
-        SqlExpr::Binary { .. }
-        | SqlExpr::Field(_)
+        SqlExpr::Field(_)
         | SqlExpr::FieldPath { .. }
         | SqlExpr::Aggregate(_)
         | SqlExpr::Literal(_)
@@ -116,6 +206,7 @@ fn predicate_only_sql_expr_contains_membership(sql_expr: &SqlExpr) -> bool {
     }
 }
 
+#[cfg(test)]
 fn derive_sql_binary_compare_predicate(
     op: SqlExprBinaryOp,
     left: &SqlExpr,
@@ -174,6 +265,95 @@ fn derive_sql_binary_compare_predicate(
             )))
         }
         _ => None,
+    }
+}
+
+fn derive_sql_binary_compare_predicate_owned(
+    op: SqlExprBinaryOp,
+    left: SqlExpr,
+    right: SqlExpr,
+) -> Option<Predicate> {
+    let op = sql_compare_op(op)?;
+    if matches!(left, SqlExpr::Literal(Value::Null))
+        || matches!(right, SqlExpr::Literal(Value::Null))
+    {
+        return None;
+    }
+
+    match (left, right) {
+        (SqlExpr::Field(field), SqlExpr::Literal(value)) => {
+            let coercion = sql_compare_literal_coercion(op, &value);
+
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
+                field, op, value, coercion,
+            )))
+        }
+        (SqlExpr::Literal(value), SqlExpr::Field(field)) => {
+            let op = op.flipped();
+            let coercion = sql_compare_literal_coercion(op, &value);
+
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
+                field, op, value, coercion,
+            )))
+        }
+        (SqlExpr::Field(left_field), SqlExpr::Field(right_field)) => Some(
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                left_field,
+                op,
+                right_field,
+                sql_compare_field_coercion(op),
+            )),
+        ),
+        (
+            SqlExpr::FunctionCall {
+                function: SqlScalarFunction::Lower,
+                args,
+            },
+            SqlExpr::Literal(Value::Text(value)),
+        ) => {
+            if args.len() != 1 {
+                return None;
+            }
+            let Some(SqlExpr::Field(field)) = args.into_iter().next() else {
+                return None;
+            };
+
+            Some(Predicate::Compare(ComparePredicate::with_coercion(
+                field,
+                op,
+                Value::Text(value),
+                CoercionId::TextCasefold,
+            )))
+        }
+        _ => None,
+    }
+}
+
+fn sql_binary_compare_predicate_supported(
+    op: SqlExprBinaryOp,
+    left: &SqlExpr,
+    right: &SqlExpr,
+) -> bool {
+    if sql_compare_op(op).is_none() {
+        return false;
+    }
+    if matches!(left, SqlExpr::Literal(Value::Null))
+        || matches!(right, SqlExpr::Literal(Value::Null))
+    {
+        return false;
+    }
+
+    match (left, right) {
+        (SqlExpr::Field(_), SqlExpr::Literal(_) | SqlExpr::Field(_))
+        | (SqlExpr::Literal(_), SqlExpr::Field(_)) => true,
+        (
+            SqlExpr::FunctionCall {
+                function: SqlScalarFunction::Lower,
+                args,
+            },
+            SqlExpr::Literal(Value::Text(_)),
+        ) => matches!(args.as_slice(), [SqlExpr::Field(_)]),
+        _ => false,
     }
 }
 
@@ -288,16 +468,41 @@ fn derive_top_level_sql_membership_predicate_subset(expr: &SqlExpr) -> Option<Pr
     };
     let (field, fixed_coercion) = sql_membership_target(expr.as_ref())?;
 
-    let leaves = values
-        .iter()
-        .map(|value| {
-            let coercion = sql_membership_value_coercion(value, fixed_coercion)?;
+    let mut admitted_values = Vec::with_capacity(values.len());
+    let mut admitted_coercion = None;
+    for value in values {
+        let coercion = sql_membership_value_coercion(value, fixed_coercion)?;
+        if let Some(current) = admitted_coercion {
+            if current != coercion {
+                return None;
+            }
+        } else {
+            admitted_coercion = Some(coercion);
+        }
+        admitted_values.push(value.clone());
+    }
 
-            Some(MembershipCompareLeaf::new(field, value.clone(), coercion))
-        })
-        .collect::<Option<Vec<_>>>()?;
+    collapse_membership_values(field, target_op, admitted_values, admitted_coercion?)
+        .map(Predicate::Compare)
+}
 
-    collapse_membership_compare_leaves(leaves, target_op).map(Predicate::Compare)
+fn derive_top_level_sql_membership_predicate_subset_owned(
+    expr: SqlExpr,
+    values: Vec<Value>,
+    negated: bool,
+    coercion: CoercionId,
+) -> Predicate {
+    let target_op = if negated {
+        CompareOp::NotIn
+    } else {
+        CompareOp::In
+    };
+    let (field, _) = sql_membership_target_owned(expr)
+        .expect("predicate-only plan must admit membership target");
+
+    collapse_membership_values(&field, target_op, values, coercion)
+        .map(Predicate::Compare)
+        .expect("predicate-only plan must admit membership values")
 }
 
 fn sql_membership_target(expr: &SqlExpr) -> Option<(&str, Option<CoercionId>)> {
@@ -312,6 +517,45 @@ fn sql_membership_target(expr: &SqlExpr) -> Option<(&str, Option<CoercionId>)> {
         },
         _ => None,
     }
+}
+
+fn sql_membership_target_owned(expr: SqlExpr) -> Option<(String, Option<CoercionId>)> {
+    match expr {
+        SqlExpr::Field(field) => Some((field, None)),
+        SqlExpr::FunctionCall {
+            function: SqlScalarFunction::Lower,
+            args,
+        } => {
+            if args.len() != 1 {
+                return None;
+            }
+            let Some(SqlExpr::Field(field)) = args.into_iter().next() else {
+                return None;
+            };
+
+            Some((field, Some(CoercionId::TextCasefold)))
+        }
+        _ => None,
+    }
+}
+
+fn sql_membership_values_coercion(
+    values: &[Value],
+    fixed: Option<CoercionId>,
+) -> Option<CoercionId> {
+    let mut admitted_coercion = None;
+    for value in values {
+        let coercion = sql_membership_value_coercion(value, fixed)?;
+        if let Some(current) = admitted_coercion {
+            if current != coercion {
+                return None;
+            }
+        } else {
+            admitted_coercion = Some(coercion);
+        }
+    }
+
+    admitted_coercion
 }
 
 const fn sql_membership_value_coercion(

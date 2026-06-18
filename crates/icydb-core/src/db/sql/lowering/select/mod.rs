@@ -15,7 +15,7 @@ use crate::db::sql::lowering::{
         lower_grouped_aggregate_call,
     },
     predicate::{
-        derive_sql_where_expr_predicate_only_subset, derive_sql_where_expr_predicate_subset,
+        derive_sql_where_expr_predicate_only_subset_owned, derive_sql_where_expr_predicate_subset,
         lower_sql_scalar_where_bool_expr, lower_sql_where_bool_expr, lower_sql_where_expr,
     },
 };
@@ -290,25 +290,29 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
         schema,
     )?;
 
-    let filter = match predicate.as_ref() {
+    let filter = match predicate {
         Some(expr) if !is_grouped => {
-            if let Some(predicate_subset) = derive_sql_where_expr_predicate_only_subset(expr) {
-                Some(LoweredSqlFilter::from_predicate_subset(predicate_subset))
-            } else {
-                let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
-                let predicate_subset = derive_sql_where_expr_predicate_subset(expr, &filter_expr);
+            match derive_sql_where_expr_predicate_only_subset_owned(expr) {
+                Ok(predicate_subset) => {
+                    Some(LoweredSqlFilter::from_predicate_subset(predicate_subset))
+                }
+                Err(expr) => {
+                    let filter_expr = lower_sql_scalar_where_bool_expr(&expr)?;
+                    let predicate_subset =
+                        derive_sql_where_expr_predicate_subset(&expr, &filter_expr);
 
-                Some(
-                    LoweredSqlFilter::from_visible_expr_and_optional_predicate_subset(
-                        filter_expr,
-                        predicate_subset,
-                    ),
-                )
+                    Some(
+                        LoweredSqlFilter::from_visible_expr_and_optional_predicate_subset(
+                            filter_expr,
+                            predicate_subset,
+                        ),
+                    )
+                }
             }
         }
         Some(expr) => {
-            let filter_expr = lower_sql_where_bool_expr(expr)?;
-            let predicate_subset = derive_sql_where_expr_predicate_subset(expr, &filter_expr);
+            let filter_expr = lower_sql_where_bool_expr(&expr)?;
+            let predicate_subset = derive_sql_where_expr_predicate_subset(&expr, &filter_expr);
 
             Some(
                 LoweredSqlFilter::from_visible_expr_and_optional_predicate_subset(

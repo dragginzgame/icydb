@@ -7,7 +7,8 @@ use crate::{
         },
         sql::{
             lowering::predicate::{
-                derive_sql_where_expr_predicate_only_subset, lower_sql_where_bool_expr,
+                derive_sql_where_expr_predicate_only_subset,
+                derive_sql_where_expr_predicate_only_subset_owned, lower_sql_where_bool_expr,
                 lower_sql_where_expr,
             },
             parser::parse_sql,
@@ -118,6 +119,18 @@ fn derive_where_predicate_only_subset_rejects_plain_compare_without_membership()
     assert!(
         derive_sql_where_expr_predicate_only_subset(&expr).is_none(),
         "plain compares must keep the visible scalar filter expression for semantic identity",
+    );
+}
+
+#[test]
+fn derive_where_predicate_only_subset_owned_returns_original_for_plain_compare() {
+    let expr = parse_where_expr("SELECT * FROM users WHERE age >= 21");
+    let returned = derive_sql_where_expr_predicate_only_subset_owned(expr.clone())
+        .expect_err("owned predicate-only lowering should reject plain compares");
+
+    assert_eq!(
+        returned, expr,
+        "owned predicate-only fallback must preserve the original visible filter expression",
     );
 }
 

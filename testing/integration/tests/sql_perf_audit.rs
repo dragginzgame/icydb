@@ -123,6 +123,7 @@ struct SqlPerfScenarioSample {
     baseline_avg_execute_local_instructions: Option<u64>,
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
+    avg_compile_phases: SqlPerfCompilePhaseAverages,
     avg_execute_local_instructions: u64,
     avg_grouped_stream_local_instructions: u64,
     avg_grouped_fold_local_instructions: u64,
@@ -536,10 +537,103 @@ impl GroupedCountRawSamples {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct SqlPerfCompilePhaseAverages {
+    cache_key: u64,
+    cache_lookup: u64,
+    parse: u64,
+    tokenize: u64,
+    select: u64,
+    expr: u64,
+    predicate: u64,
+    aggregate_check: u64,
+    prepare: u64,
+    lower: u64,
+    bind: u64,
+    cache_insert: u64,
+}
+
+// SqlPerfCompilePhaseRawSamples keeps SQL compile subphase attribution together
+// so hotspot-specific reports can show where cold compile time is moving.
+struct SqlPerfCompilePhaseRawSamples {
+    cache_key: Vec<u64>,
+    cache_lookup: Vec<u64>,
+    parse: Vec<u64>,
+    parse_tokenize: Vec<u64>,
+    parse_select: Vec<u64>,
+    parse_expr: Vec<u64>,
+    parse_predicate: Vec<u64>,
+    aggregate_lane_check: Vec<u64>,
+    prepare: Vec<u64>,
+    lower: Vec<u64>,
+    bind: Vec<u64>,
+    cache_insert: Vec<u64>,
+}
+
+impl SqlPerfCompilePhaseRawSamples {
+    fn with_capacity(sample_count: usize) -> Self {
+        Self {
+            cache_key: Vec::with_capacity(sample_count),
+            cache_lookup: Vec::with_capacity(sample_count),
+            parse: Vec::with_capacity(sample_count),
+            parse_tokenize: Vec::with_capacity(sample_count),
+            parse_select: Vec::with_capacity(sample_count),
+            parse_expr: Vec::with_capacity(sample_count),
+            parse_predicate: Vec::with_capacity(sample_count),
+            aggregate_lane_check: Vec::with_capacity(sample_count),
+            prepare: Vec::with_capacity(sample_count),
+            lower: Vec::with_capacity(sample_count),
+            bind: Vec::with_capacity(sample_count),
+            cache_insert: Vec::with_capacity(sample_count),
+        }
+    }
+
+    fn record(&mut self, attribution: &SqlQueryExecutionAttribution) {
+        let compile = &attribution.compile;
+
+        self.cache_key.push(compile.cache_key_local_instructions);
+        self.cache_lookup
+            .push(compile.cache_lookup_local_instructions);
+        self.parse.push(compile.parse_local_instructions);
+        self.parse_tokenize
+            .push(compile.parse_tokenize_local_instructions);
+        self.parse_select
+            .push(compile.parse_select_local_instructions);
+        self.parse_expr.push(compile.parse_expr_local_instructions);
+        self.parse_predicate
+            .push(compile.parse_predicate_local_instructions);
+        self.aggregate_lane_check
+            .push(compile.aggregate_lane_check_local_instructions);
+        self.prepare.push(compile.prepare_local_instructions);
+        self.lower.push(compile.lower_local_instructions);
+        self.bind.push(compile.bind_local_instructions);
+        self.cache_insert
+            .push(compile.cache_insert_local_instructions);
+    }
+
+    fn average(&self) -> SqlPerfCompilePhaseAverages {
+        SqlPerfCompilePhaseAverages {
+            cache_key: average_u64(&self.cache_key),
+            cache_lookup: average_u64(&self.cache_lookup),
+            parse: average_u64(&self.parse),
+            tokenize: average_u64(&self.parse_tokenize),
+            select: average_u64(&self.parse_select),
+            expr: average_u64(&self.parse_expr),
+            predicate: average_u64(&self.parse_predicate),
+            aggregate_check: average_u64(&self.aggregate_lane_check),
+            prepare: average_u64(&self.prepare),
+            lower: average_u64(&self.lower),
+            bind: average_u64(&self.bind),
+            cache_insert: average_u64(&self.cache_insert),
+        }
+    }
+}
+
 // SqlPerfRawSamples keeps one scenario's repeated raw counters together so the
 // report builder can collapse them without passing a long list of slices.
 struct SqlPerfRawSamples {
     compile_samples: Vec<u64>,
+    compile_phases: SqlPerfCompilePhaseRawSamples,
     execute_samples: Vec<u64>,
     grouped_stream_samples: Vec<u64>,
     grouped_fold_samples: Vec<u64>,
@@ -566,6 +660,7 @@ impl SqlPerfRawSamples {
     fn with_capacity(sample_count: usize) -> Self {
         Self {
             compile_samples: Vec::with_capacity(sample_count),
+            compile_phases: SqlPerfCompilePhaseRawSamples::with_capacity(sample_count),
             execute_samples: Vec::with_capacity(sample_count),
             grouped_stream_samples: Vec::with_capacity(sample_count),
             grouped_fold_samples: Vec::with_capacity(sample_count),
@@ -592,6 +687,7 @@ impl SqlPerfRawSamples {
     fn record(&mut self, sample: SqlQueryPerfResult) {
         self.compile_samples
             .push(sample.attribution.compile_local_instructions);
+        self.compile_phases.record(&sample.attribution);
         self.execute_samples
             .push(sample.attribution.execute_local_instructions);
         let grouped = sample.attribution.grouped;
@@ -641,23 +737,12 @@ fn build_sql_perf_scenario_sample(
     raw: &SqlPerfRawSamples,
 ) -> SqlPerfScenarioSample {
     let avg_compile_local_instructions = average_u64(&raw.compile_samples);
+    let avg_compile_phases = raw.compile_phases.average();
     let avg_execute_local_instructions = average_u64(&raw.execute_samples);
     let avg_grouped_stream_local_instructions = average_u64(&raw.grouped_stream_samples);
     let avg_grouped_fold_local_instructions = average_u64(&raw.grouped_fold_samples);
     let avg_grouped_finalize_local_instructions = average_u64(&raw.grouped_finalize_samples);
     let grouped_count = raw.grouped_count.average();
-    let avg_grouped_count_borrowed_hash_computations = grouped_count.borrowed_hash_computations;
-    let avg_grouped_count_bucket_candidate_checks = grouped_count.bucket_candidate_checks;
-    let avg_grouped_count_existing_group_hits = grouped_count.existing_group_hits;
-    let avg_grouped_count_new_group_inserts = grouped_count.new_group_inserts;
-    let avg_grouped_count_row_materialization_local_instructions =
-        grouped_count.row_materialization_local_instructions;
-    let avg_grouped_count_group_lookup_local_instructions =
-        grouped_count.group_lookup_local_instructions;
-    let avg_grouped_count_existing_group_update_local_instructions =
-        grouped_count.existing_group_update_local_instructions;
-    let avg_grouped_count_new_group_insert_local_instructions =
-        grouped_count.new_group_insert_local_instructions;
     let avg_hybrid_covering_path_hits = average_u64(&raw.hybrid_covering_path_hit_samples);
     let avg_hybrid_covering_index_field_accesses =
         average_u64(&raw.hybrid_covering_index_field_access_samples);
@@ -706,18 +791,23 @@ fn build_sql_perf_scenario_sample(
         baseline_avg_execute_local_instructions,
         baseline_avg_local_instructions,
         avg_compile_local_instructions,
+        avg_compile_phases,
         avg_execute_local_instructions,
         avg_grouped_stream_local_instructions,
         avg_grouped_fold_local_instructions,
         avg_grouped_finalize_local_instructions,
-        avg_grouped_count_borrowed_hash_computations,
-        avg_grouped_count_bucket_candidate_checks,
-        avg_grouped_count_existing_group_hits,
-        avg_grouped_count_new_group_inserts,
-        avg_grouped_count_row_materialization_local_instructions,
-        avg_grouped_count_group_lookup_local_instructions,
-        avg_grouped_count_existing_group_update_local_instructions,
-        avg_grouped_count_new_group_insert_local_instructions,
+        avg_grouped_count_borrowed_hash_computations: grouped_count.borrowed_hash_computations,
+        avg_grouped_count_bucket_candidate_checks: grouped_count.bucket_candidate_checks,
+        avg_grouped_count_existing_group_hits: grouped_count.existing_group_hits,
+        avg_grouped_count_new_group_inserts: grouped_count.new_group_inserts,
+        avg_grouped_count_row_materialization_local_instructions: grouped_count
+            .row_materialization_local_instructions,
+        avg_grouped_count_group_lookup_local_instructions: grouped_count
+            .group_lookup_local_instructions,
+        avg_grouped_count_existing_group_update_local_instructions: grouped_count
+            .existing_group_update_local_instructions,
+        avg_grouped_count_new_group_insert_local_instructions: grouped_count
+            .new_group_insert_local_instructions,
         avg_hybrid_covering_path_hits,
         avg_hybrid_covering_index_field_accesses,
         avg_hybrid_covering_row_field_accesses,
@@ -1908,6 +1998,19 @@ fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
     let scenario = sample.scenario_key.as_str();
     let rows = sample.outcome.row_count;
     let compile = sample.avg_compile_local_instructions;
+    let compile_phases = &sample.avg_compile_phases;
+    let compile_key = compile_phases.cache_key;
+    let compile_lookup = compile_phases.cache_lookup;
+    let parse = compile_phases.parse;
+    let tokenize = compile_phases.tokenize;
+    let select = compile_phases.select;
+    let expr = compile_phases.expr;
+    let predicate = compile_phases.predicate;
+    let aggregate_check = compile_phases.aggregate_check;
+    let prepare = compile_phases.prepare;
+    let lower = compile_phases.lower;
+    let bind = compile_phases.bind;
+    let cache_insert = compile_phases.cache_insert;
     let execute = sample.avg_execute_local_instructions;
     let total_avg = sample.avg_local_instructions;
     let first = sample.first_local_instructions;
@@ -1934,7 +2037,7 @@ fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
     );
 
     println!(
-        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} execute={execute} total_avg={total_avg} first={first} min={min} max={max} data_gets={data_gets} index_gets={index_gets} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} hybrid_hits={hybrid_hits} hybrid_index_fields={hybrid_index_fields} hybrid_row_fields={hybrid_row_fields} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses} delta={delta} delta_pct={delta_percent}",
+        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} compile_key={compile_key} compile_lookup={compile_lookup} parse={parse} tokenize={tokenize} select={select} expr={expr} predicate={predicate} agg_check={aggregate_check} prepare={prepare} lower={lower} bind={bind} cache_insert={cache_insert} execute={execute} total_avg={total_avg} first={first} min={min} max={max} data_gets={data_gets} index_gets={index_gets} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} hybrid_hits={hybrid_hits} hybrid_index_fields={hybrid_index_fields} hybrid_row_fields={hybrid_row_fields} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses} delta={delta} delta_pct={delta_percent}",
     );
 }
 
