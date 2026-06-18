@@ -991,7 +991,7 @@ fn fluent_perf_scenarios() -> Vec<FluentPerfScenario> {
     scenarios
 }
 
-fn token_branch_set_page_scenario() -> FluentPerfScenario {
+const fn token_branch_set_page_scenario() -> FluentPerfScenario {
     same_key_scenario(
         "token.collection_stage_id.branch_set.full_entity.limit50",
         FluentPerfSurface::Token,
@@ -1000,7 +1000,7 @@ fn token_branch_set_page_scenario() -> FluentPerfScenario {
     )
 }
 
-fn warm_token_branch_set_page_scenario() -> FluentPerfScenario {
+const fn warm_token_branch_set_page_scenario() -> FluentPerfScenario {
     FluentPerfScenario {
         scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50.warm_after_update",
         canister_scenario_key: "token.collection_stage_id.branch_set.full_entity.limit50",

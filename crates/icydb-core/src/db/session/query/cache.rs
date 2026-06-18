@@ -265,14 +265,16 @@ impl QueryPlanCompilePhaseAttribution {
     }
 }
 
-impl<'a> QueryPlanCompilePhaseRecorder<'a> {
+impl QueryPlanCompilePhaseRecorder<'_> {
     const fn none() -> Self {
         Self { attribution: None }
     }
 
     #[cfg(feature = "diagnostics")]
-    const fn new(attribution: &'a mut QueryPlanCompilePhaseAttribution) -> Self {
-        Self {
+    const fn new(
+        attribution: &mut QueryPlanCompilePhaseAttribution,
+    ) -> QueryPlanCompilePhaseRecorder<'_> {
+        QueryPlanCompilePhaseRecorder {
             attribution: Some(attribution),
         }
     }
