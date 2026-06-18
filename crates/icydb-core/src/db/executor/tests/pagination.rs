@@ -659,6 +659,18 @@ fn seed_indexed_metrics_rows(rows: &[(u128, u32, &str)]) {
     }
 }
 
+fn seed_indexed_metrics_tag_rows(prefix: u128, tag: u32, count: u32) {
+    let save = SaveExecutor::<IndexedMetricsEntity>::new(DB, false);
+    for offset in 0..count {
+        save.insert(IndexedMetricsEntity {
+            id: Ulid::from_u128(prefix + u128::from(offset)),
+            tag,
+            label: format!("tag-{tag}-{offset}"),
+        })
+        .expect("indexed metrics tag row seed save should succeed");
+    }
+}
+
 fn seed_unique_index_range_rows(rows: &[(u128, u32, &str)]) {
     let save = SaveExecutor::<UniqueIndexRangeEntity>::new(DB, false);
     for (id, code, label) in rows {
@@ -684,6 +696,20 @@ fn tag_range_predicate(lower_inclusive: u32, upper_exclusive: u32) -> Predicate 
             Value::Nat64(u64::from(upper_exclusive)),
         ),
     ])
+}
+
+fn tag_in_predicate(values: &[u32]) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        "tag",
+        CompareOp::In,
+        Value::List(
+            values
+                .iter()
+                .map(|value| Value::Nat64(u64::from(*value)))
+                .collect(),
+        ),
+        CoercionId::Strict,
+    ))
 }
 
 fn tag_between_equivalent_predicate(lower_inclusive: u32, upper_inclusive: u32) -> Predicate {
@@ -6103,6 +6129,110 @@ fn load_single_field_between_equivalent_pushdown_matches_expected_order() {
         indexed_metric_ids_from_response(&response),
         indexed_metrics_ids_in_between_equivalent_range(&rows, 10, 30),
         "single-field between-equivalent range should match the ordered fallback row set",
+    );
+}
+
+#[test]
+fn load_index_multi_lookup_limited_page_bounds_index_entry_reads() {
+    setup_pagination_test();
+
+    seed_indexed_metrics_tag_rows(19_201, 10, 40);
+    seed_indexed_metrics_tag_rows(19_301, 30, 40);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(tag_in_predicate(&[10, 30]))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .plan()
+        .map(PreparedExecutionPlan::from)
+        .expect("limited indexed IN page plan should build");
+    let index_entries_before = IndexStore::current_entry_read_count();
+    let page = load
+        .execute_paged_with_cursor(plan, ValidatedCursor::none())
+        .expect("limited indexed IN page should execute");
+    let index_entries = IndexStore::current_entry_read_count().saturating_sub(index_entries_before);
+
+    assert_eq!(
+        indexed_metric_ids_from_response(&page.items),
+        vec![Ulid::from_u128(19_201), Ulid::from_u128(19_202)],
+        "limited indexed IN page should preserve canonical primary-key order",
+    );
+    assert!(
+        page.next_cursor.is_some(),
+        "limited indexed IN page should retain continuation lookahead",
+    );
+    assert!(
+        index_entries <= 6,
+        "limited indexed IN page should avoid reading every matching index entry (index_entries={index_entries})",
+    );
+}
+
+#[test]
+fn load_index_multi_lookup_sparse_values_prunes_empty_prefix_range_scans() {
+    setup_pagination_test();
+
+    seed_indexed_metrics_tag_rows(19_401, 10, 3);
+
+    let sparse_tags = (10..=260).collect::<Vec<_>>();
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(tag_in_predicate(&sparse_tags))
+        .plan()
+        .map(PreparedExecutionPlan::from)
+        .expect("sparse indexed IN plan should build");
+    let range_scans_before = IndexStore::current_range_scan_call_count();
+    let response = load
+        .execute(plan)
+        .expect("sparse indexed IN load should execute");
+    let range_scans =
+        IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+
+    assert_eq!(
+        indexed_metric_ids_from_response(&response),
+        vec![
+            Ulid::from_u128(19_401),
+            Ulid::from_u128(19_402),
+            Ulid::from_u128(19_403),
+        ],
+        "sparse indexed IN load should return only the populated branch rows",
+    );
+    assert_eq!(
+        range_scans, 1,
+        "sparse indexed IN load should not open one index range per empty IN value (range_scans={range_scans})",
+    );
+}
+
+#[test]
+fn load_index_prefix_empty_value_skips_range_scan() {
+    setup_pagination_test();
+
+    seed_indexed_metrics_tag_rows(19_501, 10, 3);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(strict_compare_predicate(
+            "tag",
+            CompareOp::Eq,
+            Value::Nat64(250),
+        ))
+        .plan()
+        .map(PreparedExecutionPlan::from)
+        .expect("empty indexed equality plan should build");
+    let range_scans_before = IndexStore::current_range_scan_call_count();
+    let response = load
+        .execute(plan)
+        .expect("empty indexed equality load should execute");
+    let range_scans =
+        IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+
+    assert!(
+        response.is_empty(),
+        "empty indexed equality load should return no rows",
+    );
+    assert_eq!(
+        range_scans, 0,
+        "empty indexed equality load should skip raw index range traversal (range_scans={range_scans})",
     );
 }
 

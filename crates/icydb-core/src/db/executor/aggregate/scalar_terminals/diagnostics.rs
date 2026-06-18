@@ -90,7 +90,7 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    pub(super) const fn from_index_prefix_cardinality_count() -> Self {
+    pub(super) const fn from_index_prefix_cardinality_terminal() -> Self {
         Self {
             terminal_count: 1,
             sink_mode: ScalarAggregateSinkMode::IndexPrefixCardinality,

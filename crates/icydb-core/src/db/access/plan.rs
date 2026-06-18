@@ -185,6 +185,16 @@ impl<K> AccessPlan<K> {
             .and_then(|path| path.as_index_prefix_contract())
     }
 
+    /// Borrow reduced index multi-lookup details when this is a single
+    /// `IndexMultiLookup` path.
+    #[must_use]
+    pub(in crate::db) fn as_index_multi_lookup_contract_path(
+        &self,
+    ) -> Option<(SemanticIndexAccessContract, &[Value])> {
+        self.as_path()
+            .and_then(|path| path.as_index_multi_lookup_contract())
+    }
+
     /// Borrow branch-aware composite prefix spec when this is a single
     /// `IndexBranchSet` path.
     #[must_use]

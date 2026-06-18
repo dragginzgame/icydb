@@ -18,6 +18,7 @@ use crate::db::{DataStore, IndexStore};
 pub(in crate::db) struct StoreCounterSnapshot {
     pub(in crate::db) data_store_get_calls: u64,
     pub(in crate::db) index_store_get_calls: u64,
+    pub(in crate::db) index_store_range_scan_calls: u64,
     pub(in crate::db) index_store_entry_reads: u64,
 }
 
@@ -27,6 +28,7 @@ impl StoreCounterSnapshot {
         Self {
             data_store_get_calls: DataStore::current_get_call_count(),
             index_store_get_calls: IndexStore::current_get_call_count(),
+            index_store_range_scan_calls: IndexStore::current_range_scan_call_count(),
             index_store_entry_reads: IndexStore::current_entry_read_count(),
         }
     }
@@ -42,6 +44,9 @@ impl StoreCounterSnapshot {
             index_store_get_calls: current
                 .index_store_get_calls
                 .saturating_sub(self.index_store_get_calls),
+            index_store_range_scan_calls: current
+                .index_store_range_scan_calls
+                .saturating_sub(self.index_store_range_scan_calls),
             index_store_entry_reads: current
                 .index_store_entry_reads
                 .saturating_sub(self.index_store_entry_reads),

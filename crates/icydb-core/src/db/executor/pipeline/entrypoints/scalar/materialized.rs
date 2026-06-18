@@ -65,22 +65,25 @@ const fn prepare_scalar_route_for_execution(
     }
 }
 
-fn apply_branch_set_page_fetch_hint(
+fn apply_index_set_page_fetch_hint(
     route_plan: &mut crate::db::executor::ExecutionPlan,
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     residual_filter_present: bool,
 ) {
+    let branch_set_page = plan.access.as_index_branch_set_spec_path().is_some();
+    let multi_lookup_page = plan.access.as_index_multi_lookup_contract_path().is_some();
     if route_plan.scan_hints.physical_fetch_hint.is_some()
         || residual_filter_present
-        || plan.access.as_index_branch_set_spec_path().is_none()
+        || (!branch_set_page && !multi_lookup_page)
         || !plan.scalar_plan().mode.is_load()
         || plan.scalar_plan().distinct
-        || plan
-            .scalar_plan()
-            .order
-            .as_ref()
-            .is_none_or(|order| order.fields.is_empty())
+        || (branch_set_page
+            && plan
+                .scalar_plan()
+                .order
+                .as_ref()
+                .is_none_or(|order| order.fields.is_empty()))
         || !access_order_satisfied_by_route_mode(plan)
         || !route_plan.load_order_route_mode().allows_streaming_load()
     {
@@ -148,7 +151,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
     let continuation_applied = route_continuation.applied();
     continuation.debug_assert_route_continuation_invariants(plan, route_continuation);
     let direction = route_plan.direction();
-    apply_branch_set_page_fetch_hint(
+    apply_index_set_page_fetch_hint(
         &mut route_plan,
         plan,
         &continuation,

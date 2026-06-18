@@ -210,6 +210,7 @@ fn average_attribution(
     total_grouped_count_new_group_insert_local_instructions: u64,
     total_store_get_calls: u64,
     total_index_store_get_calls: u64,
+    total_index_store_range_scan_calls: u64,
     total_index_store_entry_reads: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
@@ -284,6 +285,7 @@ fn average_attribution(
     }
     attribution.store_get_calls = total_store_get_calls / divisor;
     attribution.index_store_get_calls = total_index_store_get_calls / divisor;
+    attribution.index_store_range_scan_calls = total_index_store_range_scan_calls / divisor;
     attribution.index_store_entry_reads = total_index_store_entry_reads / divisor;
     attribution.response_decode_local_instructions =
         total_response_decode_local_instructions / divisor;
@@ -343,6 +345,10 @@ fn average_fluent_attribution(
     total_grouped_count_group_lookup_local_instructions: u64,
     total_grouped_count_existing_group_update_local_instructions: u64,
     total_grouped_count_new_group_insert_local_instructions: u64,
+    total_store_get_calls: u64,
+    total_index_store_get_calls: u64,
+    total_index_store_range_scan_calls: u64,
+    total_index_store_entry_reads: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
@@ -425,6 +431,10 @@ fn average_fluent_attribution(
             },
         });
     }
+    attribution.store_get_calls = total_store_get_calls / divisor;
+    attribution.index_store_get_calls = total_index_store_get_calls / divisor;
+    attribution.index_store_range_scan_calls = total_index_store_range_scan_calls / divisor;
+    attribution.index_store_entry_reads = total_index_store_entry_reads / divisor;
     attribution.response_decode_local_instructions =
         total_response_decode_local_instructions / divisor;
     attribution.execute_local_instructions = total_execute_local_instructions / divisor;
@@ -474,6 +484,7 @@ where
     let mut grouped_count_totals = GroupedCountTotals::default();
     let mut total_store_get_calls = 0_u64;
     let mut total_index_store_get_calls = 0_u64;
+    let mut total_index_store_range_scan_calls = 0_u64;
     let mut total_index_store_entry_reads = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
@@ -563,6 +574,8 @@ where
         total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
         total_index_store_get_calls =
             total_index_store_get_calls.saturating_add(attribution.index_store_get_calls);
+        total_index_store_range_scan_calls = total_index_store_range_scan_calls
+            .saturating_add(attribution.index_store_range_scan_calls);
         total_index_store_entry_reads =
             total_index_store_entry_reads.saturating_add(attribution.index_store_entry_reads);
         total_response_decode_local_instructions = total_response_decode_local_instructions
@@ -618,6 +631,7 @@ where
             grouped_count_totals.new_group_insert_local_instructions,
             total_store_get_calls,
             total_index_store_get_calls,
+            total_index_store_range_scan_calls,
             total_index_store_entry_reads,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
@@ -860,6 +874,17 @@ fn run_token_fluent_scenario_once(
 
             Ok((summarize_fluent_outcome(&result), attribution))
         }
+        "token.collection_id.full_entity.limit300" => {
+            let query = session
+                .load::<PerfAuditToken>()
+                .filter_eq("collection_id", TOKEN_TARGET_COLLECTION)
+                .order_asc("id")
+                .limit(300);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
         _ => Err(query_validate_error()),
     }
 }
@@ -944,6 +969,10 @@ fn query_fluent_scenario_loop(
     let mut total_grouped_fold_local_instructions = 0_u64;
     let mut total_grouped_finalize_local_instructions = 0_u64;
     let mut grouped_count_totals = GroupedCountTotals::default();
+    let mut total_store_get_calls = 0_u64;
+    let mut total_index_store_get_calls = 0_u64;
+    let mut total_index_store_range_scan_calls = 0_u64;
+    let mut total_index_store_entry_reads = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
@@ -1046,6 +1075,13 @@ fn query_fluent_scenario_loop(
                 .saturating_add(grouped.finalize_local_instructions);
         }
         grouped_count_totals.record_fluent(&attribution);
+        total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
+        total_index_store_get_calls =
+            total_index_store_get_calls.saturating_add(attribution.index_store_get_calls);
+        total_index_store_range_scan_calls = total_index_store_range_scan_calls
+            .saturating_add(attribution.index_store_range_scan_calls);
+        total_index_store_entry_reads =
+            total_index_store_entry_reads.saturating_add(attribution.index_store_entry_reads);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
         total_execute_local_instructions =
@@ -1098,6 +1134,10 @@ fn query_fluent_scenario_loop(
             grouped_count_totals.group_lookup_local_instructions,
             grouped_count_totals.existing_group_update_local_instructions,
             grouped_count_totals.new_group_insert_local_instructions,
+            total_store_get_calls,
+            total_index_store_get_calls,
+            total_index_store_range_scan_calls,
+            total_index_store_entry_reads,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,

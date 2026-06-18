@@ -110,6 +110,7 @@ impl<C: CanisterKind> DbSession<C> {
                 total_local_instructions,
                 store_get_calls: store_counters.data_store_get_calls,
                 index_store_get_calls: store_counters.index_store_get_calls,
+                index_store_range_scan_calls: store_counters.index_store_range_scan_calls,
                 index_store_entry_reads: store_counters.index_store_entry_reads,
                 scalar_aggregate: ScalarAggregateAttribution::from_executor(
                     scalar_aggregate_terminal,

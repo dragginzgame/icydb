@@ -55,11 +55,39 @@ fn seed_simple_entities(rows: &[u128]) {
     }
 }
 
+fn seed_indexed_metrics_rows(rows: &[(u128, u32, &str)]) {
+    reset_store();
+    let save = SaveExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    for (id, tag, label) in rows {
+        save.insert(IndexedMetricsEntity {
+            id: Ulid::from_u128(*id),
+            tag: *tag,
+            label: (*label).to_string(),
+        })
+        .expect("aggregate optimization indexed-metrics seed save should succeed");
+    }
+}
+
 fn u32_eq_predicate_strict(field: &str, value: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
         Value::Nat64(u64::from(value)),
+        CoercionId::Strict,
+    ))
+}
+
+fn u32_in_predicate_strict(field: &str, values: &[u32]) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        CompareOp::In,
+        Value::List(
+            values
+                .iter()
+                .map(|value| Value::Nat64(u64::from(*value)))
+                .collect(),
+        ),
         CoercionId::Strict,
     ))
 }
@@ -103,6 +131,105 @@ fn aggregate_optimizations_bytes_by_strict_mode_surfaces_missing_row_corruption(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
         "strict bytes_by must preserve missing-row corruption diagnostics",
+    );
+}
+
+#[test]
+fn aggregate_optimizations_index_multi_lookup_count_uses_prefix_cardinality() {
+    seed_indexed_metrics_rows(&[
+        (8_711, 10, "a"),
+        (8_712, 10, "b"),
+        (8_713, 20, "c"),
+        (8_714, 30, "d"),
+    ]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let (count, scanned) = capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+        execute_count_terminal(
+            &load,
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                .filter_predicate(u32_in_predicate_strict("tag", &[10, 30]))
+                .plan()
+                .map(crate::db::executor::PreparedExecutionPlan::from)
+                .expect("indexed IN COUNT plan should build"),
+        )
+        .expect("indexed IN COUNT should succeed")
+    });
+
+    assert_eq!(
+        count, 3,
+        "indexed IN COUNT should sum exact prefix cardinalities",
+    );
+    assert_eq!(
+        scanned, 0,
+        "indexed IN COUNT should not scan rows when prefix cardinality is synchronized",
+    );
+}
+
+#[test]
+fn aggregate_optimizations_index_multi_lookup_exists_uses_prefix_cardinality() {
+    seed_indexed_metrics_rows(&[
+        (8_716, 10, "a"),
+        (8_717, 10, "b"),
+        (8_718, 20, "c"),
+        (8_719, 30, "d"),
+    ]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(u32_in_predicate_strict("tag", &[10, 30]))
+        .plan()
+        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .expect("indexed IN EXISTS plan should build");
+    let range_scans_before = IndexStore::current_range_scan_call_count();
+    let (exists, scanned) = capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+        execute_exists_terminal(&load, plan).expect("indexed IN EXISTS should succeed")
+    });
+    let range_scans =
+        IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+
+    assert!(
+        exists,
+        "indexed IN EXISTS should answer true from prefix cardinality",
+    );
+    assert_eq!(
+        scanned, 0,
+        "indexed IN EXISTS should not scan rows when prefix cardinality is synchronized",
+    );
+    assert_eq!(
+        range_scans, 0,
+        "indexed IN EXISTS should not open an index range when prefix cardinality is synchronized",
+    );
+}
+
+#[test]
+fn aggregate_optimizations_empty_index_prefix_exists_uses_prefix_cardinality() {
+    seed_indexed_metrics_rows(&[(8_721, 10, "a"), (8_722, 10, "b"), (8_723, 20, "c")]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(u32_eq_predicate_strict("tag", 250))
+        .plan()
+        .map(crate::db::executor::PreparedExecutionPlan::from)
+        .expect("empty indexed EXISTS plan should build");
+    let range_scans_before = IndexStore::current_range_scan_call_count();
+    let (exists, scanned) = capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+        execute_exists_terminal(&load, plan).expect("empty indexed EXISTS should succeed")
+    });
+    let range_scans =
+        IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+
+    assert!(
+        !exists,
+        "empty indexed EXISTS should return false from prefix cardinality",
+    );
+    assert_eq!(
+        scanned, 0,
+        "empty indexed EXISTS should not scan rows when prefix cardinality is synchronized",
+    );
+    assert_eq!(
+        range_scans, 0,
+        "empty indexed EXISTS should not open an index range when prefix cardinality is synchronized",
     );
 }
 

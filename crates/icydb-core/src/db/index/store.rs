@@ -30,12 +30,20 @@ thread_local! {
 #[cfg(feature = "diagnostics")]
 thread_local! {
     static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
+    static INDEX_STORE_RANGE_SCAN_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
 #[cfg(feature = "diagnostics")]
 fn record_index_store_get_call() {
     INDEX_STORE_GET_CALL_COUNT.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_index_store_range_scan_call() {
+    INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
@@ -399,10 +407,21 @@ impl IndexStore {
         INDEX_STORE_GET_CALL_COUNT.with(Cell::get)
     }
 
+    /// Return the monotonic perf-only count of index range traversal probes seen by this process.
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db) fn current_range_scan_call_count() -> u64 {
+        INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(Cell::get)
+    }
+
     /// Return the monotonic perf-only count of index entries yielded by traversal.
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn current_entry_read_count() -> u64 {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
+    }
+
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db::index) fn record_range_scan_call() {
+        record_index_store_range_scan_call();
     }
 
     const fn bump_generation(&mut self) {
@@ -847,7 +866,7 @@ mod tests {
 
     #[cfg(feature = "diagnostics")]
     #[test]
-    fn index_store_diagnostic_counters_record_gets_and_entry_reads() {
+    fn index_store_diagnostic_counters_record_gets_range_scans_and_entry_reads() {
         let mut store = IndexStore::init_heap();
         store.insert(raw_key(7), IndexEntryValue::presence());
         store.insert(raw_key(9), IndexEntryValue::presence());
@@ -860,6 +879,19 @@ mod tests {
             IndexStore::current_get_call_count().saturating_sub(gets_before),
             2,
             "diagnostic index-store get counter should count both hit and miss reads",
+        );
+
+        let range_scans_before = IndexStore::current_range_scan_call_count();
+        let lower = Bound::Included(raw_key(7));
+        let upper = Bound::Included(raw_key(9));
+        store
+            .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |_key, _entry| Ok(false))
+            .expect("raw index range visit should succeed");
+
+        assert_eq!(
+            IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before),
+            1,
+            "diagnostic index-store range-scan counter should count one range traversal probe",
         );
 
         let entries_before = IndexStore::current_entry_read_count();

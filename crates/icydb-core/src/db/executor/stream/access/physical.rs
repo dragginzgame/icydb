@@ -15,7 +15,8 @@ use crate::{
         executor::{
             ACCESS_SCAN_CHUNK_ENTRIES, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
-            lowered_index_prefix_empty_bitmap, ordered_key_stream_from_materialized_keys,
+            lowered_index_prefix_empty_bitmap, lowered_index_prefix_is_proven_empty,
+            ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
             route::primary_scan_fetch_hint_shape_supported, stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
@@ -185,6 +186,14 @@ impl KeyAccessRuntime {
         let [spec] = index_prefix_specs else {
             return Err(InternalError::query_executor_invariant());
         };
+        let key_order_state = if index_fetch_hint.is_some() {
+            KeyOrderState::FinalOrder
+        } else {
+            KeyOrderState::Unordered
+        };
+        if lowered_index_prefix_is_proven_empty(self.store, spec) {
+            return Ok((Vec::new(), key_order_state));
+        }
 
         let keys = IndexScan::prefix_structural(
             self.store,
@@ -194,11 +203,6 @@ impl KeyAccessRuntime {
             index_fetch_hint.unwrap_or(usize::MAX),
             index_predicate_execution,
         )?;
-        let key_order_state = if index_fetch_hint.is_some() {
-            KeyOrderState::FinalOrder
-        } else {
-            KeyOrderState::Unordered
-        };
 
         Ok((keys, key_order_state))
     }
@@ -213,6 +217,9 @@ impl KeyAccessRuntime {
         let [spec] = index_prefix_specs else {
             return Err(InternalError::query_executor_invariant());
         };
+        if lowered_index_prefix_is_proven_empty(self.store, spec) {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
 
         Ok(OrderedKeyStreamBox::index_range(
             IndexRangeKeyStream::from_prefix(
@@ -297,8 +304,12 @@ impl KeyAccessRuntime {
             return Err(InternalError::query_executor_invariant());
         }
 
+        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
         let mut keys = Vec::new();
-        for spec in index_prefix_specs {
+        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
+            if proven_empty {
+                continue;
+            }
             keys.extend(IndexScan::prefix_structural(
                 self.store,
                 self.entity_tag,
@@ -312,6 +323,55 @@ impl KeyAccessRuntime {
         keys.dedup();
 
         Ok((keys, KeyOrderState::AscendingSorted))
+    }
+
+    // Resolve one multi-lookup secondary-index scan as lazily merged prefix streams.
+    fn resolve_index_multi_lookup_stream(
+        &self,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        value_count: usize,
+        direction: Direction,
+        index_fetch_hint: Option<usize>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        if index_prefix_specs.len() != value_count {
+            return Err(InternalError::query_executor_invariant());
+        }
+        if index_prefix_specs.is_empty() {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
+
+        let empty_prefixes = lowered_index_prefix_empty_bitmap(self.store, index_prefix_specs);
+        let mut active_specs = Vec::with_capacity(index_prefix_specs.len());
+        for (spec, proven_empty) in index_prefix_specs.iter().zip(empty_prefixes) {
+            if !proven_empty {
+                active_specs.push(spec);
+            }
+        }
+        if active_specs.is_empty() {
+            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
+        }
+
+        let branch_chunk_entries =
+            branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
+        let mut streams = Vec::with_capacity(active_specs.len());
+        for spec in active_specs {
+            streams.push(OrderedKeyStreamBox::index_range(
+                IndexRangeKeyStream::from_prefix(
+                    self.store,
+                    self.entity_tag,
+                    spec,
+                    direction,
+                    None,
+                    index_fetch_hint,
+                    branch_chunk_entries,
+                ),
+            ));
+        }
+
+        Ok(OrderedKeyStreamBox::merge_all(
+            streams,
+            KeyOrderComparator::from_direction(direction),
+        ))
     }
 
     // Resolve one secondary-index range scan.
@@ -886,13 +946,23 @@ fn resolve_physical_key_stream(
                 request.index_predicate_execution,
             )?
         }
-        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => runtime
-            .resolve_index_multi_lookup(
+        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => {
+            if index_path_can_stream_in_final_order(request) {
+                return runtime.resolve_index_multi_lookup_stream(
+                    request.index_prefix_specs,
+                    *value_count,
+                    request.continuation.direction(),
+                    request.physical_fetch_hint,
+                );
+            }
+
+            runtime.resolve_index_multi_lookup(
                 request.index_prefix_specs,
                 *value_count,
                 request.continuation.direction(),
                 request.index_predicate_execution,
-            )?,
+            )?
+        }
         ExecutionPathPayload::IndexBranchSet {
             index,
             branch_count,

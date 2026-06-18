@@ -76,14 +76,18 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
         return Some(query_predicate.clone());
     };
 
-    // Phase 1: derive only equality clauses that the concrete access path
-    // already guarantees. Range and multi-lookup paths intentionally keep
-    // their open bounds as residual semantics unless they appear in the fixed
-    // equality prefix.
+    // Phase 1: derive only clauses that the concrete access path already
+    // guarantees. Range paths intentionally keep their open bounds as residual
+    // semantics unless they appear in the fixed equality prefix.
     let implied_bounds = if let Some((index, values)) = access_path.as_index_prefix_contract() {
         AccessBoundClauses {
             equalities: access_bound_equalities(index, values),
             branch_in: None,
+        }
+    } else if let Some((index, values)) = access_path.as_index_multi_lookup_contract() {
+        AccessBoundClauses {
+            equalities: Vec::new(),
+            branch_in: access_bound_branch_in(index, 0, values),
         }
     } else if let Some(spec) = access_path.as_index_branch_set_spec() {
         AccessBoundClauses {

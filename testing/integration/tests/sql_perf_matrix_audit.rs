@@ -185,6 +185,7 @@ struct MatrixSample {
     kernel_row_page_window_local_instructions: u64,
     data_store_get_calls: u64,
     index_store_get_calls: u64,
+    index_store_range_scan_calls: u64,
     index_store_entry_reads: u64,
     output_blob_values: u64,
     output_blob_bytes: u64,
@@ -367,6 +368,12 @@ fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
             "route.branch_over_cap.noncovered_page_only",
             token_branch_page_sql("id, title", TOKEN_BRANCH_STAGES_OVER_CAP, 50),
         ),
+        scenario(
+            "token.collection_id.sparse_in.page_only.limit50",
+            MatrixSurface::Token,
+            "route.sparse_in.page_only",
+            token_sparse_collection_in_page_sql(250, 50),
+        ),
     ]
 }
 
@@ -390,6 +397,17 @@ fn token_branch_page_sql_with_extra_predicate(
 fn token_branch_count_sql(stages: &str) -> String {
     format!(
         "SELECT COUNT(*) FROM PerfAuditToken WHERE collection_id = '{TOKEN_TARGET_COLLECTION}' AND stage IN ({stages})"
+    )
+}
+
+fn token_sparse_collection_in_page_sql(missing_count: usize, limit: u32) -> String {
+    let mut collections = format!("'{TOKEN_TARGET_COLLECTION}'");
+    for index in 0..missing_count {
+        collections.push_str(&format!(", 'missing-collection-{index:03}'"));
+    }
+
+    format!(
+        "SELECT id FROM PerfAuditToken WHERE collection_id IN ({collections}) ORDER BY id ASC LIMIT {limit}"
     )
 }
 
@@ -1291,6 +1309,7 @@ fn sample_scenario(
             .map_or(0, |kernel| kernel.page_window_local_instructions),
         data_store_get_calls: attribution.store_get_calls,
         index_store_get_calls: attribution.index_store_get_calls,
+        index_store_range_scan_calls: attribution.index_store_range_scan_calls,
         index_store_entry_reads: attribution.index_store_entry_reads,
         output_blob_values: attribution.output_blob.projected_values,
         output_blob_bytes: attribution.output_blob.projected_bytes,
@@ -1490,6 +1509,11 @@ fn append_instruction_hotspot_tables(output: &mut String, samples: &[MatrixSampl
     );
     append_ranked_table(
         output,
+        "Top Index Store Range Scans",
+        ranked_by(samples, |sample| sample.index_store_range_scan_calls),
+    );
+    append_ranked_table(
+        output,
         "Top Index Store Entry Reads",
         ranked_by(samples, |sample| sample.index_store_entry_reads),
     );
@@ -1612,6 +1636,11 @@ fn append_main_fixture_hotspot_tables(output: &mut String, samples: &[MatrixSamp
     );
     append_ranked_table(
         output,
+        "Top Main Fixture Index Store Range Scans",
+        ranked_main_fixture_by(samples, |sample| sample.index_store_range_scan_calls),
+    );
+    append_ranked_table(
+        output,
         "Top Main Fixture Index Store Entry Reads",
         ranked_main_fixture_by(samples, |sample| sample.index_store_entry_reads),
     );
@@ -1728,18 +1757,18 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
     writeln!(output).expect("write to string should succeed");
     writeln!(
         output,
-        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor | data_store.get | index_store.get | index_store.entries | Rows | SQL |"
+        "| Scenario | Surface | Total | Compile | Execute | Planner | Store | Executor | data_store.get | index_store.get | index_store.ranges | index_store.entries | Rows | SQL |"
     )
     .expect("write to string should succeed");
     writeln!(
         output,
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     )
     .expect("write to string should succeed");
     for sample in samples {
         writeln!(
             output,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.key,
             sample.surface,
             sample.total_local_instructions,
@@ -1750,6 +1779,7 @@ fn append_ranked_table(output: &mut String, title: &str, samples: Vec<&MatrixSam
             sample.executor_local_instructions,
             sample.data_store_get_calls,
             sample.index_store_get_calls,
+            sample.index_store_range_scan_calls,
             sample.index_store_entry_reads,
             sample.outcome.row_count,
             sample.sql.replace('|', "\\|"),
@@ -2269,6 +2299,27 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
         ),
         "over-cap route hotspot should exceed the branch-set admission cap"
     );
+
+    let (sparse_position, sparse_in) = scenarios_by_key
+        .get("token.collection_id.sparse_in.page_only.limit50")
+        .expect("sparse collection IN route hotspot should exist")
+        .to_owned();
+    assert!(
+        sparse_position < DEFAULT_MATRIX_LIMIT,
+        "sparse collection IN hotspot should run inside the default matrix window; position={sparse_position}"
+    );
+    assert!(
+        sparse_in.sql.contains("collection_id IN"),
+        "sparse collection IN hotspot should exercise the index multi-lookup route"
+    );
+    assert!(
+        sparse_in.sql.contains("missing-collection-249"),
+        "sparse collection IN hotspot should include 250 missing prefixes"
+    );
+    assert!(
+        sparse_in.sql.contains("ORDER BY id ASC LIMIT 50"),
+        "sparse collection IN hotspot should preserve the primary-key page order"
+    );
 }
 
 #[test]
@@ -2650,6 +2701,7 @@ fn report_matrix_sample(
         kernel_row_page_window_local_instructions: 0,
         data_store_get_calls: 1,
         index_store_get_calls: 0,
+        index_store_range_scan_calls: 0,
         index_store_entry_reads: 0,
         output_blob_values: 0,
         output_blob_bytes: 0,
@@ -2709,6 +2761,46 @@ fn main_fixture_sample_with_hybrid_covering(
     sample.hybrid_covering_row_field_accesses = row_fields;
     sample.data_store_get_calls = row_fields;
     sample
+}
+
+#[test]
+fn sql_perf_matrix_reports_index_range_scan_hotspots() {
+    let mut sample = report_matrix_sample(
+        "token.collection_id.sparse_in.page_only.limit50",
+        "token",
+        240,
+        30,
+        "SELECT id FROM PerfAuditToken WHERE collection_id IN ('01KV5N439P0000000000000000', 'missing-collection-000') ORDER BY id ASC LIMIT 50",
+    );
+    sample.index_store_range_scan_calls = 251;
+    let report = MatrixReport {
+        matrix_mode: MatrixMode::Deterministic.label().to_string(),
+        generated_scenario_count: 1,
+        executed_scenario_count: 1,
+        failed_scenario_count: 0,
+        matrix_limit: 1,
+        scenario_key_filter: None,
+        random_seed: None,
+        random_case_count: 0,
+        samples: vec![sample],
+        failures: Vec::new(),
+    };
+
+    let markdown = matrix_markdown(&report);
+    let range_scan_section = markdown
+        .split("## Top Index Store Range Scans")
+        .nth(1)
+        .and_then(|tail| tail.split("##").next())
+        .expect("index range-scan hotspot section should render");
+
+    assert!(
+        range_scan_section.contains("token.collection_id.sparse_in.page_only.limit50"),
+        "range-scan hotspot section should include sparse IN scenarios",
+    );
+    assert!(
+        range_scan_section.contains("| 251 |"),
+        "range-scan hotspot section should expose index range traversal counts",
+    );
 }
 
 #[test]

@@ -33,6 +33,9 @@ impl IndexStore {
             return Ok(());
         }
 
+        #[cfg(feature = "diagnostics")]
+        Self::record_range_scan_call();
+
         match direction {
             Direction::Asc => match &self.backend {
                 IndexStoreBackend::Heap(map) => {

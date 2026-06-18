@@ -630,6 +630,11 @@ pub(in crate::db::executor) enum PreparedScalarTerminalPreflight<'plan> {
         logical_plan: &'plan AccessPlannedQuery,
         prefixes: Vec<LoweredIndexPrefixCardinalityKey>,
     },
+    ExistsIndexPrefixCardinality {
+        authority: EntityAuthority,
+        logical_plan: &'plan AccessPlannedQuery,
+        prefixes: Vec<LoweredIndexPrefixCardinalityKey>,
+    },
 }
 
 ///

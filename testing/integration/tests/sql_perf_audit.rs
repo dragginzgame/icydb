@@ -141,6 +141,7 @@ struct SqlPerfScenarioSample {
     avg_hybrid_covering_row_field_accesses: u64,
     avg_data_store_get_calls: u64,
     avg_index_store_get_calls: u64,
+    avg_index_store_range_scan_calls: u64,
     avg_index_store_entry_reads: u64,
     avg_output_blob_values: u64,
     avg_output_blob_bytes: u64,
@@ -644,6 +645,7 @@ struct SqlPerfRawSamples {
     hybrid_covering_row_field_access_samples: Vec<u64>,
     data_store_get_call_samples: Vec<u64>,
     index_store_get_call_samples: Vec<u64>,
+    index_store_range_scan_call_samples: Vec<u64>,
     index_store_entry_read_samples: Vec<u64>,
     output_blob_value_samples: Vec<u64>,
     output_blob_byte_samples: Vec<u64>,
@@ -671,6 +673,7 @@ impl SqlPerfRawSamples {
             hybrid_covering_row_field_access_samples: Vec::with_capacity(sample_count),
             data_store_get_call_samples: Vec::with_capacity(sample_count),
             index_store_get_call_samples: Vec::with_capacity(sample_count),
+            index_store_range_scan_call_samples: Vec::with_capacity(sample_count),
             index_store_entry_read_samples: Vec::with_capacity(sample_count),
             output_blob_value_samples: Vec::with_capacity(sample_count),
             output_blob_byte_samples: Vec::with_capacity(sample_count),
@@ -709,6 +712,8 @@ impl SqlPerfRawSamples {
             .push(sample.attribution.store_get_calls);
         self.index_store_get_call_samples
             .push(sample.attribution.index_store_get_calls);
+        self.index_store_range_scan_call_samples
+            .push(sample.attribution.index_store_range_scan_calls);
         self.index_store_entry_read_samples
             .push(sample.attribution.index_store_entry_reads);
         self.output_blob_value_samples
@@ -750,6 +755,7 @@ fn build_sql_perf_scenario_sample(
         average_u64(&raw.hybrid_covering_row_field_access_samples);
     let avg_data_store_get_calls = average_u64(&raw.data_store_get_call_samples);
     let avg_index_store_get_calls = average_u64(&raw.index_store_get_call_samples);
+    let avg_index_store_range_scan_calls = average_u64(&raw.index_store_range_scan_call_samples);
     let avg_index_store_entry_reads = average_u64(&raw.index_store_entry_read_samples);
     let avg_output_blob_values = average_u64(&raw.output_blob_value_samples);
     let avg_output_blob_bytes = average_u64(&raw.output_blob_byte_samples);
@@ -813,6 +819,7 @@ fn build_sql_perf_scenario_sample(
         avg_hybrid_covering_row_field_accesses,
         avg_data_store_get_calls,
         avg_index_store_get_calls,
+        avg_index_store_range_scan_calls,
         avg_index_store_entry_reads,
         avg_output_blob_values,
         avg_output_blob_bytes,
@@ -1689,6 +1696,17 @@ WHERE collection_id = '01KV5N439P0000000000000000' \
 ORDER BY id ASC \
 LIMIT 50";
 
+const TOKEN_COLLECTION_SPARSE_IN_LIMIT50_SQL: &str = "\
+SELECT id \
+FROM PerfAuditToken \
+WHERE collection_id IN ('01KV5N439P0000000000000000', 'missing-collection-000', 'missing-collection-001', 'missing-collection-002', 'missing-collection-003', 'missing-collection-004', 'missing-collection-005', 'missing-collection-006', 'missing-collection-007', 'missing-collection-008', 'missing-collection-009', 'missing-collection-010', 'missing-collection-011', 'missing-collection-012', 'missing-collection-013', 'missing-collection-014', 'missing-collection-015', 'missing-collection-016', 'missing-collection-017', 'missing-collection-018', 'missing-collection-019', 'missing-collection-020', 'missing-collection-021', 'missing-collection-022', 'missing-collection-023', 'missing-collection-024', 'missing-collection-025', 'missing-collection-026', 'missing-collection-027', 'missing-collection-028', 'missing-collection-029', 'missing-collection-030') \
+ORDER BY id ASC \
+LIMIT 50";
+const TOKEN_COLLECTION_FULL_ENTITY_FLUENT_SCENARIO: &str =
+    "token.collection_id.full_entity.limit300";
+const TOKEN_COLLECTION_FULL_ENTITY_ROWS: u32 = 256;
+const TOKEN_COLLECTION_REPEAT_LOAD_RUNS: u32 = 50;
+
 fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
@@ -1767,6 +1785,13 @@ fn token_branch_set_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_collection_stage_id",
             "branch_set_large_in_fallback",
             TOKEN_BRANCH_SET_LARGE_IN_FALLBACK_LIMIT50_SQL,
+        ),
+        scenario(
+            "token.collection_id.sparse_in.page_only.limit50",
+            SqlPerfSurface::Token,
+            "secondary_collection_stage_id",
+            "sparse_collection_in",
+            TOKEN_COLLECTION_SPARSE_IN_LIMIT50_SQL,
         ),
         scenario(
             "token.collection_stage_id.overcap_fallback.noncovered_page_only.limit50",
@@ -1935,10 +1960,10 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
-        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Hybrid Hits | Hybrid Index Fields | Hybrid Row Fields | Avg data_store.get() | Avg index_store.get() | Avg index_store.entries | Blob Values | Blob Bytes | Blob Hex Bytes | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
+        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | GCount Read | GCount Lookup | GCount Update | GCount Admit | Hybrid Hits | Hybrid Index Fields | Hybrid Row Fields | Avg data_store.get() | Avg index_store.get() | Avg index_store.ranges | Avg index_store.entries | Blob Values | Blob Bytes | Blob Hex Bytes | SQL Compile Hits | SQL Compile Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
     );
     println!(
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     );
 
     for sample in samples {
@@ -1951,7 +1976,7 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
         );
 
         println!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.scenario_key,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
@@ -1972,6 +1997,7 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
             sample.avg_hybrid_covering_row_field_accesses,
             sample.avg_data_store_get_calls,
             sample.avg_index_store_get_calls,
+            sample.avg_index_store_range_scan_calls,
             sample.avg_index_store_entry_reads,
             sample.avg_output_blob_values,
             sample.avg_output_blob_bytes,
@@ -2018,6 +2044,7 @@ fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
     let max = sample.max_local_instructions;
     let data_gets = sample.avg_data_store_get_calls;
     let index_gets = sample.avg_index_store_get_calls;
+    let index_ranges = sample.avg_index_store_range_scan_calls;
     let index_entries = sample.avg_index_store_entry_reads;
     let grouped_count_rows = sample.avg_grouped_count_row_materialization_local_instructions;
     let grouped_count_lookup = sample.avg_grouped_count_group_lookup_local_instructions;
@@ -2037,7 +2064,7 @@ fn print_branch_set_perf_sample(label: &str, sample: &SqlPerfScenarioSample) {
     );
 
     println!(
-        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} compile_key={compile_key} compile_lookup={compile_lookup} parse={parse} tokenize={tokenize} select={select} expr={expr} predicate={predicate} agg_check={aggregate_check} prepare={prepare} lower={lower} bind={bind} cache_insert={cache_insert} execute={execute} total_avg={total_avg} first={first} min={min} max={max} data_gets={data_gets} index_gets={index_gets} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} hybrid_hits={hybrid_hits} hybrid_index_fields={hybrid_index_fields} hybrid_row_fields={hybrid_row_fields} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses} delta={delta} delta_pct={delta_percent}",
+        "branch-set perf {label}: scenario={scenario} rows={rows} compile={compile} compile_key={compile_key} compile_lookup={compile_lookup} parse={parse} tokenize={tokenize} select={select} expr={expr} predicate={predicate} agg_check={aggregate_check} prepare={prepare} lower={lower} bind={bind} cache_insert={cache_insert} execute={execute} total_avg={total_avg} first={first} min={min} max={max} data_gets={data_gets} index_gets={index_gets} index_ranges={index_ranges} index_entries={index_entries} grouped_count_rows={grouped_count_rows} grouped_count_lookup={grouped_count_lookup} hybrid_hits={hybrid_hits} hybrid_index_fields={hybrid_index_fields} hybrid_row_fields={hybrid_row_fields} sql_hits={sql_hits} sql_misses={sql_misses} shared_hits={shared_hits} shared_misses={shared_misses} delta={delta} delta_pct={delta_percent}",
     );
 }
 
@@ -2458,6 +2485,23 @@ fn print_fluent_limit_one_attribution(label: &str, perf: &FluentQueryPerfResult)
     );
 }
 
+fn print_fluent_repeat_load_attribution(label: &str, perf: &FluentQueryPerfResult) {
+    let attribution = &perf.attribution;
+
+    println!(
+        "{label} fluent repeat load: rows={} avg_compile={} avg_execute={} avg_total={} avg_data_gets={} avg_index_ranges={} avg_index_entries={} shared_hits={} shared_misses={}",
+        perf.outcome.row_count,
+        attribution.compile_local_instructions,
+        attribution.execute_local_instructions,
+        attribution.total_local_instructions,
+        attribution.store_get_calls,
+        attribution.index_store_range_scan_calls,
+        attribution.index_store_entry_reads,
+        attribution.shared_query_plan_cache_hits,
+        attribution.shared_query_plan_cache_misses,
+    );
+}
+
 fn assert_storage_primary_limit_one_stays_bounded(label: &str, perf: &SqlQueryPerfResult) {
     let outcome = summarize_perf_outcome(&perf.result);
 
@@ -2650,6 +2694,21 @@ fn query_heap_fluent_attributed_limit_one_perf(
         .expect("heap fluent attributed LIMIT 1 perf query should decode");
 
     result.expect("heap fluent attributed LIMIT 1 perf query should succeed")
+}
+
+fn query_token_fluent_loop_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    scenario: &str,
+    query_loop_count: u32,
+) -> FluentQueryPerfResult {
+    let result: Result<FluentQueryPerfResult, Error> = fixture
+        .query_call(
+            "query_token_fluent_loop_with_perf",
+            (scenario.to_string(), query_loop_count),
+        )
+        .expect("token fluent loop perf query should decode");
+
+    result.expect("token fluent loop perf query should succeed")
 }
 
 fn assert_journaled_fluent_limit_one_reports(fixture: &StandaloneCanisterFixture) {
@@ -3051,6 +3110,56 @@ fn sql_perf_named_report_rows_keep_the_compiled_and_shared_cache_story() {
 }
 
 #[test]
+fn sql_perf_repeated_same_indexed_load_reports_full_reload_pressure() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let repeat = query_token_fluent_loop_with_perf(
+        &fixture,
+        TOKEN_COLLECTION_FULL_ENTITY_FLUENT_SCENARIO,
+        TOKEN_COLLECTION_REPEAT_LOAD_RUNS,
+    );
+    print_fluent_repeat_load_attribution("token.collection_id full entity", &repeat);
+    let attribution = &repeat.attribution;
+    let repeated_hits = u64::from(TOKEN_COLLECTION_REPEAT_LOAD_RUNS.saturating_sub(1));
+
+    assert_eq!(
+        repeat.outcome.result_kind, "rows",
+        "repeated collection load should return full entity rows",
+    );
+    assert_eq!(
+        repeat.outcome.entity, "PerfAuditToken",
+        "repeated collection load should target the token fixture",
+    );
+    assert_eq!(
+        repeat.outcome.row_count, TOKEN_COLLECTION_FULL_ENTITY_ROWS,
+        "repeated collection load should cover the Toko-sized target collection",
+    );
+    assert_eq!(
+        attribution.shared_query_plan_cache_hits, repeated_hits,
+        "same-call repeated collection load should reuse the prepared plan after the first pass",
+    );
+    assert_eq!(
+        attribution.shared_query_plan_cache_misses, 1,
+        "same-call repeated collection load should cold-fill the prepared plan once",
+    );
+    assert_eq!(
+        attribution.index_store_range_scan_calls, 1,
+        "each averaged repeated collection load should still perform one indexed range traversal",
+    );
+    assert!(
+        attribution.index_store_entry_reads >= u64::from(TOKEN_COLLECTION_FULL_ENTITY_ROWS),
+        "each averaged repeated collection load should still walk the full target collection index, got {} entries",
+        attribution.index_store_entry_reads,
+    );
+    assert!(
+        attribution.store_get_calls >= u64::from(TOKEN_COLLECTION_FULL_ENTITY_ROWS),
+        "each averaged repeated collection load should still hydrate the full target collection, got {} row reads",
+        attribution.store_get_calls,
+    );
+}
+
+#[test]
 fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
     let fixture = install_sql_perf_canister_fixture();
 
@@ -3258,10 +3367,16 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
             "token.collection_stage_id.large_in_fallback.page_only.limit50",
         ),
     );
+    let sparse_collection_in = sample_perf_scenario(
+        &fixture,
+        &baseline,
+        one_sample_sql_perf_scenario("token.collection_id.sparse_in.page_only.limit50"),
+    );
     print_branch_set_perf_sample("limit50 branch", &branch);
     print_branch_set_perf_sample("limit50 wide branch", &wide_branch);
     print_branch_set_perf_sample("limit50 overcap fallback", &fallback);
     print_branch_set_perf_sample("limit50 large IN fallback", &large_in_fallback);
+    print_branch_set_perf_sample("limit50 sparse collection IN", &sparse_collection_in);
     let execute_delta = i128::from(fallback.avg_execute_local_instructions)
         - i128::from(branch.avg_execute_local_instructions);
     let total_delta =
@@ -3317,6 +3432,15 @@ fn sql_perf_token_branch_set_limit50_pressure_beats_overcap_fallback() {
         large_in_fallback.avg_index_store_entry_reads <= 320,
         "large-IN fallback should stay bounded to the fixed collection prefix, got {}",
         large_in_fallback.avg_index_store_entry_reads,
+    );
+    assert_eq!(
+        sparse_collection_in.outcome.row_count, 50,
+        "sparse collection IN audit row should return the requested page size",
+    );
+    assert!(
+        sparse_collection_in.avg_index_store_range_scan_calls <= 1,
+        "sparse collection IN should prune empty prefixes before range traversal, got {} range scans",
+        sparse_collection_in.avg_index_store_range_scan_calls,
     );
 }
 

@@ -152,6 +152,7 @@ pub struct SqlQueryExecutionAttribution {
     pub output_blob: SqlOutputBlobAttribution,
     pub store_get_calls: u64,
     pub index_store_get_calls: u64,
+    pub index_store_range_scan_calls: u64,
     pub index_store_entry_reads: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,

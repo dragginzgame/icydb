@@ -41,12 +41,30 @@ pub(in crate::db::executor) fn lowered_index_prefix_empty_bitmap(
     store.with_index(|index_store| {
         specs
             .iter()
-            .map(|spec| lowered_index_prefix_is_proven_empty(index_store, data_generation, spec))
+            .map(|spec| {
+                lowered_index_prefix_is_proven_empty_at_generation(
+                    index_store,
+                    data_generation,
+                    spec,
+                )
+            })
             .collect()
     })
 }
 
-fn lowered_index_prefix_is_proven_empty(
+/// Return whether one lowered exact-prefix scan is proven empty by synchronized metadata.
+#[must_use]
+pub(in crate::db::executor) fn lowered_index_prefix_is_proven_empty(
+    store: StoreHandle,
+    spec: &LoweredIndexPrefixSpec,
+) -> bool {
+    let data_generation = store.with_data(DataStore::generation);
+    store.with_index(|index_store| {
+        lowered_index_prefix_is_proven_empty_at_generation(index_store, data_generation, spec)
+    })
+}
+
+fn lowered_index_prefix_is_proven_empty_at_generation(
     index_store: &IndexStore,
     data_generation: u64,
     spec: &LoweredIndexPrefixSpec,
@@ -102,11 +120,11 @@ pub(in crate::db::executor) fn exact_count_cardinality_prefixes_for_plan(
     let prefix_len = index.slot_arity();
     let expected_prefix_specs = match path {
         ExecutionPathPayload::IndexBranchSet { branch_count, .. } => *branch_count,
+        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => *value_count,
         ExecutionPathPayload::IndexPrefix { .. } => 1,
         ExecutionPathPayload::ByKey(_)
         | ExecutionPathPayload::ByKeys(_)
         | ExecutionPathPayload::KeyRange { .. }
-        | ExecutionPathPayload::IndexMultiLookup { .. }
         | ExecutionPathPayload::IndexRange { .. }
         | ExecutionPathPayload::FullScan => return None,
     };

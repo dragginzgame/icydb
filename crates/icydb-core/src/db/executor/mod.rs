@@ -80,7 +80,7 @@ pub(in crate::db) use explain::{
 };
 pub(in crate::db::executor) use index_prefix_cardinality::{
     LoweredIndexPrefixCardinalityKey, exact_count_cardinality_prefixes_for_plan,
-    lowered_index_prefix_empty_bitmap,
+    lowered_index_prefix_empty_bitmap, lowered_index_prefix_is_proven_empty,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;

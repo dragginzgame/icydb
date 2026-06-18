@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.24` trims Toko-shaped indexed lookup pressure by pruning empty index
+  prefixes, bounding limited `IN (...)` pages, answering covered
+  `count()`/`exists()` from exact prefix cardinality, and adding range-scan
+  perf diagnostics.
+
 - `0.183.23` trims SQL aggregate reuse, fluent cold query planning, and wider
   branch-stream execution while adding compile-phase attribution for future
   perf audits.

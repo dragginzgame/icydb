@@ -728,6 +728,7 @@ impl<C: CanisterKind> DbSession<C> {
                 output_blob,
                 store_get_calls: store_counters.data_store_get_calls,
                 index_store_get_calls: store_counters.index_store_get_calls,
+                index_store_range_scan_calls: store_counters.index_store_range_scan_calls,
                 index_store_entry_reads: store_counters.index_store_entry_reads,
                 response_decode_local_instructions: 0,
                 execute_local_instructions,
