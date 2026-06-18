@@ -5,7 +5,10 @@
 
 use crate::db::query::{
     builder::AggregateExpr,
-    plan::{AggregateKind, expr::Expr},
+    plan::{
+        AggregateKind,
+        expr::{Expr, aggregate_count_input_expr_is_non_null_literal},
+    },
 };
 
 ///
@@ -52,13 +55,19 @@ pub(in crate::db) enum AggregateIdentity {
 }
 
 impl AggregateIdentity {
-    /// Build aggregate identity from its normalized kind, input, and DISTINCT bit.
+    /// Build aggregate identity from its kind, input, and DISTINCT bit.
+    ///
+    /// Non-distinct `COUNT` over a non-null literal normalizes to row count
+    /// identity so SQL, grouped, and fluent aggregate callers share the same
+    /// meaning-level key.
     #[must_use]
-    pub(in crate::db) const fn from_kind_input_and_distinct(
+    pub(in crate::db) fn from_kind_input_and_distinct(
         kind: AggregateKind,
         input_expr: Option<Expr>,
         distinct: bool,
     ) -> Self {
+        let input_expr = normalize_aggregate_identity_input(kind, input_expr, distinct);
+
         match kind {
             AggregateKind::Count => Self::Count {
                 input_expr,
@@ -210,6 +219,23 @@ impl AggregateIdentity {
     }
 }
 
+fn normalize_aggregate_identity_input(
+    kind: AggregateKind,
+    input_expr: Option<Expr>,
+    distinct: bool,
+) -> Option<Expr> {
+    if kind == AggregateKind::Count
+        && !distinct
+        && input_expr
+            .as_ref()
+            .is_some_and(aggregate_count_input_expr_is_non_null_literal)
+    {
+        return None;
+    }
+
+    input_expr
+}
+
 ///
 /// AggregateSemanticKey
 ///
@@ -251,5 +277,44 @@ impl AggregateSemanticKey {
     #[cfg(feature = "sql")]
     pub(in crate::db) fn into_identity_and_filter(self) -> (AggregateIdentity, Option<Expr>) {
         (self.identity, self.filter_expr)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::value::Value;
+
+    use super::*;
+
+    #[test]
+    fn aggregate_identity_normalizes_only_non_distinct_count_non_null_literals() {
+        let literal_count = AggregateIdentity::from_kind_input_and_distinct(
+            AggregateKind::Count,
+            Some(Expr::Literal(Value::Nat64(1))),
+            false,
+        );
+        let null_count = AggregateIdentity::from_kind_input_and_distinct(
+            AggregateKind::Count,
+            Some(Expr::Literal(Value::Null)),
+            false,
+        );
+        let distinct_literal_count = AggregateIdentity::from_kind_input_and_distinct(
+            AggregateKind::Count,
+            Some(Expr::Literal(Value::Nat64(1))),
+            true,
+        );
+
+        assert!(literal_count.is_count_rows_only());
+        assert!(matches!(
+            null_count.input_expr(),
+            Some(Expr::Literal(Value::Null))
+        ));
+        assert!(matches!(
+            distinct_literal_count,
+            AggregateIdentity::Count {
+                input_expr: Some(Expr::Literal(Value::Nat64(1))),
+                distinct: true
+            }
+        ));
     }
 }

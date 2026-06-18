@@ -70,9 +70,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (plan_lookup_local_instructions, plan_and_cache) =
-            measure_query_stage(|| self.cached_prepared_query_plan_for_entity::<E>(query));
-        let (plan, cache_attribution) = plan_and_cache?;
+        let (plan_lookup_local_instructions, plan_and_cache) = measure_query_stage(|| {
+            self.cached_prepared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)
+        });
+        let (plan, cache_attribution, compile_phase_attribution) = plan_and_cache?;
         let compile_local_instructions = plan_lookup_local_instructions;
 
         let store_counters_before = StoreCounterSnapshot::capture();
@@ -96,6 +97,13 @@ impl<C: CanisterKind> DbSession<C> {
             output,
             FluentTerminalExecutionAttribution {
                 compile_local_instructions,
+                compile_schema_catalog_local_instructions: compile_phase_attribution.schema_catalog,
+                compile_schema_info_local_instructions: compile_phase_attribution.schema_info,
+                compile_prepare_local_instructions: compile_phase_attribution.prepare,
+                compile_cache_key_local_instructions: compile_phase_attribution.cache_key,
+                compile_cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
+                compile_plan_build_local_instructions: compile_phase_attribution.plan_build,
+                compile_cache_insert_local_instructions: compile_phase_attribution.cache_insert,
                 plan_lookup_local_instructions,
                 executor_invocation_local_instructions,
                 execute_local_instructions,

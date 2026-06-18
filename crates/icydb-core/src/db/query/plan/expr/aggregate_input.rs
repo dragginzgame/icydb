@@ -38,6 +38,12 @@ pub(in crate::db) fn canonicalize_aggregate_input_expr(kind: AggregateKind, expr
     }
 }
 
+// SQL COUNT over any non-null literal is semantically COUNT(*) unless DISTINCT
+// is present, so frontends can share the row-count route for those shapes.
+pub(in crate::db) const fn aggregate_count_input_expr_is_non_null_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::Literal(value) if !matches!(value, Value::Null))
+}
+
 // Fold literal-only aggregate-input subexpressions so aggregate identity
 // matching can treat `AVG(age + 1 * 2)` and `AVG(age + 2)` as the same input.
 fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {

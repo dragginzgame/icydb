@@ -404,7 +404,27 @@ fn merge_stream_rejects_child_direction_mismatch() {
 }
 
 #[test]
-fn ordered_key_stream_box_merge_all_reduces_streams_pairwise() {
+fn ordered_key_stream_box_merge_all_uses_pair_merge_for_two_streams() {
+    let streams = vec![
+        OrderedKeyStreamBox::materialized(vec![data_key(1), data_key(3)]),
+        OrderedKeyStreamBox::materialized(vec![data_key(2), data_key(4)]),
+    ];
+    let mut merged =
+        OrderedKeyStreamBox::merge_all(streams, KeyOrderComparator::from_direction(Direction::Asc));
+
+    assert!(
+        matches!(merged, OrderedKeyStreamBox::Merge(_)),
+        "two-stream merge-all should keep the lower-overhead pair merge route",
+    );
+    let out = collect_stream(&mut merged).expect("two-stream merge-all should succeed");
+    assert_eq!(
+        out,
+        vec![data_key(1), data_key(2), data_key(3), data_key(4)]
+    );
+}
+
+#[test]
+fn ordered_key_stream_box_merge_all_uses_flat_merge_stream() {
     let streams = vec![
         OrderedKeyStreamBox::materialized(vec![data_key(1), data_key(4)]),
         OrderedKeyStreamBox::materialized(vec![data_key(2), data_key(4)]),
@@ -413,6 +433,10 @@ fn ordered_key_stream_box_merge_all_reduces_streams_pairwise() {
     let mut merged =
         OrderedKeyStreamBox::merge_all(streams, KeyOrderComparator::from_direction(Direction::Asc));
 
+    assert!(
+        matches!(merged, OrderedKeyStreamBox::FlatMerge(_)),
+        "merge-all should avoid building a nested pairwise merge tree",
+    );
     let out = collect_stream(&mut merged).expect("merge-all should succeed");
     assert_eq!(
         out,

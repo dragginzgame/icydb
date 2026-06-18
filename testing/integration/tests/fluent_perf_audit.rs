@@ -71,6 +71,20 @@ struct FluentPerfBaselineRow {
     #[serde(default)]
     avg_compile_local_instructions: u64,
     #[serde(default)]
+    avg_compile_schema_catalog_local_instructions: u64,
+    #[serde(default)]
+    avg_compile_schema_info_local_instructions: u64,
+    #[serde(default)]
+    avg_compile_prepare_local_instructions: u64,
+    #[serde(default)]
+    avg_compile_cache_key_local_instructions: u64,
+    #[serde(default)]
+    avg_compile_cache_lookup_local_instructions: u64,
+    #[serde(default)]
+    avg_compile_plan_build_local_instructions: u64,
+    #[serde(default)]
+    avg_compile_cache_insert_local_instructions: u64,
+    #[serde(default)]
     avg_runtime_local_instructions: u64,
     #[serde(default)]
     avg_finalize_local_instructions: u64,
@@ -125,6 +139,13 @@ struct FluentPerfScenarioSample {
     query_label: String,
     query_loop_count: usize,
     baseline_avg_compile_local_instructions: Option<u64>,
+    baseline_avg_compile_schema_catalog_local_instructions: Option<u64>,
+    baseline_avg_compile_schema_info_local_instructions: Option<u64>,
+    baseline_avg_compile_prepare_local_instructions: Option<u64>,
+    baseline_avg_compile_cache_key_local_instructions: Option<u64>,
+    baseline_avg_compile_cache_lookup_local_instructions: Option<u64>,
+    baseline_avg_compile_plan_build_local_instructions: Option<u64>,
+    baseline_avg_compile_cache_insert_local_instructions: Option<u64>,
     baseline_avg_runtime_local_instructions: Option<u64>,
     baseline_avg_finalize_local_instructions: Option<u64>,
     baseline_avg_direct_data_row_scan_local_instructions: Option<u64>,
@@ -149,6 +170,13 @@ struct FluentPerfScenarioSample {
     baseline_avg_execute_local_instructions: Option<u64>,
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
+    avg_compile_schema_catalog_local_instructions: u64,
+    avg_compile_schema_info_local_instructions: u64,
+    avg_compile_prepare_local_instructions: u64,
+    avg_compile_cache_key_local_instructions: u64,
+    avg_compile_cache_lookup_local_instructions: u64,
+    avg_compile_plan_build_local_instructions: u64,
+    avg_compile_cache_insert_local_instructions: u64,
     avg_runtime_local_instructions: u64,
     avg_finalize_local_instructions: u64,
     avg_direct_data_row_scan_local_instructions: u64,
@@ -440,6 +468,19 @@ fn maybe_write_blessed_baseline(samples: &[FluentPerfScenarioSample]) {
         .map(|sample| FluentPerfBaselineRow {
             scenario_key: sample.scenario_key.clone(),
             avg_compile_local_instructions: sample.avg_compile_local_instructions,
+            avg_compile_schema_catalog_local_instructions: sample
+                .avg_compile_schema_catalog_local_instructions,
+            avg_compile_schema_info_local_instructions: sample
+                .avg_compile_schema_info_local_instructions,
+            avg_compile_prepare_local_instructions: sample.avg_compile_prepare_local_instructions,
+            avg_compile_cache_key_local_instructions: sample
+                .avg_compile_cache_key_local_instructions,
+            avg_compile_cache_lookup_local_instructions: sample
+                .avg_compile_cache_lookup_local_instructions,
+            avg_compile_plan_build_local_instructions: sample
+                .avg_compile_plan_build_local_instructions,
+            avg_compile_cache_insert_local_instructions: sample
+                .avg_compile_cache_insert_local_instructions,
             avg_runtime_local_instructions: sample.avg_runtime_local_instructions,
             avg_finalize_local_instructions: sample.avg_finalize_local_instructions,
             avg_direct_data_row_scan_local_instructions: sample
@@ -495,6 +536,13 @@ fn sample_perf_scenario(
     scenario: FluentPerfScenario,
 ) -> FluentPerfScenarioSample {
     let mut compile_samples = Vec::with_capacity(scenario.sample_count);
+    let mut compile_schema_catalog_samples = Vec::with_capacity(scenario.sample_count);
+    let mut compile_schema_info_samples = Vec::with_capacity(scenario.sample_count);
+    let mut compile_prepare_samples = Vec::with_capacity(scenario.sample_count);
+    let mut compile_cache_key_samples = Vec::with_capacity(scenario.sample_count);
+    let mut compile_cache_lookup_samples = Vec::with_capacity(scenario.sample_count);
+    let mut compile_plan_build_samples = Vec::with_capacity(scenario.sample_count);
+    let mut compile_cache_insert_samples = Vec::with_capacity(scenario.sample_count);
     let mut runtime_samples = Vec::with_capacity(scenario.sample_count);
     let mut finalize_samples = Vec::with_capacity(scenario.sample_count);
     let mut direct_data_row_scan_samples = Vec::with_capacity(scenario.sample_count);
@@ -561,6 +609,16 @@ fn sample_perf_scenario(
             )
         });
         compile_samples.push(sample.attribution.compile_local_instructions);
+        compile_schema_catalog_samples
+            .push(sample.attribution.compile_schema_catalog_local_instructions);
+        compile_schema_info_samples.push(sample.attribution.compile_schema_info_local_instructions);
+        compile_prepare_samples.push(sample.attribution.compile_prepare_local_instructions);
+        compile_cache_key_samples.push(sample.attribution.compile_cache_key_local_instructions);
+        compile_cache_lookup_samples
+            .push(sample.attribution.compile_cache_lookup_local_instructions);
+        compile_plan_build_samples.push(sample.attribution.compile_plan_build_local_instructions);
+        compile_cache_insert_samples
+            .push(sample.attribution.compile_cache_insert_local_instructions);
         runtime_samples.push(sample.attribution.runtime_local_instructions);
         finalize_samples.push(sample.attribution.finalize_local_instructions);
         let direct_data_row = sample.attribution.direct_data_row;
@@ -599,6 +657,14 @@ fn sample_perf_scenario(
         .expect("scenario should sample once");
     let outcome_stable = outcomes.iter().all(|outcome| *outcome == first_outcome);
     let avg_compile_local_instructions = average_u64(&compile_samples);
+    let avg_compile_schema_catalog_local_instructions =
+        average_u64(&compile_schema_catalog_samples);
+    let avg_compile_schema_info_local_instructions = average_u64(&compile_schema_info_samples);
+    let avg_compile_prepare_local_instructions = average_u64(&compile_prepare_samples);
+    let avg_compile_cache_key_local_instructions = average_u64(&compile_cache_key_samples);
+    let avg_compile_cache_lookup_local_instructions = average_u64(&compile_cache_lookup_samples);
+    let avg_compile_plan_build_local_instructions = average_u64(&compile_plan_build_samples);
+    let avg_compile_cache_insert_local_instructions = average_u64(&compile_cache_insert_samples);
     let avg_runtime_local_instructions = average_u64(&runtime_samples);
     let avg_finalize_local_instructions = average_u64(&finalize_samples);
     let avg_direct_data_row_scan_local_instructions = average_u64(&direct_data_row_scan_samples);
@@ -662,6 +728,20 @@ fn sample_perf_scenario(
         query_loop_count: scenario.query_loop_count,
         baseline_avg_compile_local_instructions: baseline_row
             .map(|row| row.avg_compile_local_instructions),
+        baseline_avg_compile_schema_catalog_local_instructions: baseline_row
+            .map(|row| row.avg_compile_schema_catalog_local_instructions),
+        baseline_avg_compile_schema_info_local_instructions: baseline_row
+            .map(|row| row.avg_compile_schema_info_local_instructions),
+        baseline_avg_compile_prepare_local_instructions: baseline_row
+            .map(|row| row.avg_compile_prepare_local_instructions),
+        baseline_avg_compile_cache_key_local_instructions: baseline_row
+            .map(|row| row.avg_compile_cache_key_local_instructions),
+        baseline_avg_compile_cache_lookup_local_instructions: baseline_row
+            .map(|row| row.avg_compile_cache_lookup_local_instructions),
+        baseline_avg_compile_plan_build_local_instructions: baseline_row
+            .map(|row| row.avg_compile_plan_build_local_instructions),
+        baseline_avg_compile_cache_insert_local_instructions: baseline_row
+            .map(|row| row.avg_compile_cache_insert_local_instructions),
         baseline_avg_runtime_local_instructions: baseline_row
             .map(|row| row.avg_runtime_local_instructions),
         baseline_avg_finalize_local_instructions: baseline_row
@@ -708,6 +788,13 @@ fn sample_perf_scenario(
             .map(|row| row.avg_execute_local_instructions),
         baseline_avg_local_instructions: baseline_row.map(|row| row.avg_local_instructions),
         avg_compile_local_instructions,
+        avg_compile_schema_catalog_local_instructions,
+        avg_compile_schema_info_local_instructions,
+        avg_compile_prepare_local_instructions,
+        avg_compile_cache_key_local_instructions,
+        avg_compile_cache_lookup_local_instructions,
+        avg_compile_plan_build_local_instructions,
+        avg_compile_cache_insert_local_instructions,
         avg_runtime_local_instructions,
         avg_finalize_local_instructions,
         avg_direct_data_row_scan_local_instructions,
@@ -922,8 +1009,15 @@ fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
     );
 
     println!(
-        "fluent token branch-set page: compile={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
+        "fluent token branch-set page: compile={} compile_schema={} compile_info={} compile_prepare={} compile_key={} compile_lookup={} compile_plan={} compile_insert={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
         sample.avg_compile_local_instructions,
+        sample.avg_compile_schema_catalog_local_instructions,
+        sample.avg_compile_schema_info_local_instructions,
+        sample.avg_compile_prepare_local_instructions,
+        sample.avg_compile_cache_key_local_instructions,
+        sample.avg_compile_cache_lookup_local_instructions,
+        sample.avg_compile_plan_build_local_instructions,
+        sample.avg_compile_cache_insert_local_instructions,
         sample.avg_runtime_local_instructions,
         sample.avg_direct_data_row_scan_local_instructions,
         sample.avg_direct_data_row_key_stream_local_instructions,
@@ -978,8 +1072,15 @@ fn fluent_perf_token_branch_set_page_reports_bounded_runtime() {
     );
 
     println!(
-        "warm fluent token branch-set page: compile={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
+        "warm fluent token branch-set page: compile={} compile_schema={} compile_info={} compile_prepare={} compile_key={} compile_lookup={} compile_plan={} compile_insert={} runtime={} direct_scan={} direct_key={} direct_read={} direct_store={} direct_order={} direct_page={} execute={} cache_hits={} cache_misses={} total={}",
         warm.avg_compile_local_instructions,
+        warm.avg_compile_schema_catalog_local_instructions,
+        warm.avg_compile_schema_info_local_instructions,
+        warm.avg_compile_prepare_local_instructions,
+        warm.avg_compile_cache_key_local_instructions,
+        warm.avg_compile_cache_lookup_local_instructions,
+        warm.avg_compile_plan_build_local_instructions,
+        warm.avg_compile_cache_insert_local_instructions,
         warm.avg_runtime_local_instructions,
         warm.avg_direct_data_row_scan_local_instructions,
         warm.avg_direct_data_row_key_stream_local_instructions,
@@ -1021,11 +1122,18 @@ fn fluent_perf_audit_harness_reports_instruction_samples() {
 
     for sample in &samples {
         println!(
-            "{} | {} | runs={} | compile={} | runtime={} | direct_scan={} | direct_key={} | direct_read={} | direct_encode={} | direct_store={} | direct_order={} | direct_page={} | grouped_stream={} | grouped_fold={} | grouped_finalize={} | count_hash={} | count_buckets={} | count_hits={} | count_inserts={} | count_read={} | count_lookup={} | count_update={} | count_admit={} | finalize={} | decode={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
+            "{} | {} | runs={} | compile={} | compile_schema={} | compile_info={} | compile_prepare={} | compile_key={} | compile_lookup={} | compile_plan={} | compile_insert={} | runtime={} | direct_scan={} | direct_key={} | direct_read={} | direct_encode={} | direct_store={} | direct_order={} | direct_page={} | grouped_stream={} | grouped_fold={} | grouped_finalize={} | count_hash={} | count_buckets={} | count_hits={} | count_inserts={} | count_read={} | count_lookup={} | count_update={} | count_admit={} | finalize={} | decode={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
             sample.scenario_key,
             sample.query_label,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
+            sample.avg_compile_schema_catalog_local_instructions,
+            sample.avg_compile_schema_info_local_instructions,
+            sample.avg_compile_prepare_local_instructions,
+            sample.avg_compile_cache_key_local_instructions,
+            sample.avg_compile_cache_lookup_local_instructions,
+            sample.avg_compile_plan_build_local_instructions,
+            sample.avg_compile_cache_insert_local_instructions,
             sample.avg_runtime_local_instructions,
             sample.avg_direct_data_row_scan_local_instructions,
             sample.avg_direct_data_row_key_stream_local_instructions,

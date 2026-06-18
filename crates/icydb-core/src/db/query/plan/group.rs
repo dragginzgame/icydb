@@ -140,7 +140,7 @@ impl GroupedAggregateExecutionSpec {
     /// route preparation.
     #[must_use]
     #[cfg(feature = "sql")]
-    pub(in crate::db) const fn from_uncompiled_inputs(
+    pub(in crate::db) fn from_uncompiled_inputs(
         kind: AggregateKind,
         target_slot: Option<FieldSlot>,
         input_expr: Option<Expr>,

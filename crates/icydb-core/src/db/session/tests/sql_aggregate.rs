@@ -126,6 +126,11 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
             Value::Nat64(2),
         ),
         (
+            "count null literal expression",
+            "SELECT COUNT(NULL) FROM SessionSqlEntity",
+            Value::Nat64(0),
+        ),
+        (
             "sum arithmetic expression",
             "SELECT SUM(age + 1) FROM SessionSqlEntity",
             Value::Decimal(crate::types::Decimal::from(54u64)),
@@ -216,10 +221,6 @@ fn global_aggregate_attribution_reports_buffered_terminal_work() {
         ],
     );
 
-    // Phase 1: execute a non-fast-path aggregate query that shares one input
-    // expression across two terminals and one filter expression on a third
-    // terminal. The counts prove expression interning remains visible through
-    // the executor-owned terminal diagnostics seam.
     let (_result, attribution) = session
         .execute_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT SUM(age + 1), AVG(age + 1), \
@@ -259,9 +260,22 @@ fn global_aggregate_attribution_reports_buffered_terminal_work() {
         scalar_aggregate.rows_ingested, 3,
         "aggregate reducer diagnostics should count final rows fed to reducers",
     );
+}
 
-    // Phase 2: keep the COUNT(*) fast path out of the scalar aggregate terminal
-    // attribution so existing shared scalar count behavior remains distinguishable.
+#[cfg(feature = "diagnostics")]
+#[test]
+fn global_aggregate_attribution_keeps_count_equivalent_terms_on_fast_path() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-count-attribution-a", 20),
+            ("aggregate-count-attribution-b", 32),
+            ("aggregate-count-attribution-c", 40),
+        ],
+    );
+
     let (_result, count_attribution) = session
         .execute_sql_query_with_attribution::<SessionSqlEntity>(
             "SELECT COUNT(*) FROM SessionSqlEntity",
@@ -270,6 +284,71 @@ fn global_aggregate_attribution_reports_buffered_terminal_work() {
     assert_eq!(
         count_attribution.scalar_aggregate, None,
         "COUNT(*) fast path should not populate scalar aggregate terminal diagnostics",
+    );
+
+    let (_result, literal_count_attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+            "SELECT COUNT(1) FROM SessionSqlEntity",
+        )
+        .expect("diagnostics literal count fast-path attribution query should execute");
+    assert_eq!(
+        literal_count_attribution.scalar_aggregate, None,
+        "COUNT(non-null literal) should share the COUNT(*) fast path",
+    );
+
+    let (_result, duplicate_count_attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+            "SELECT COUNT(*), COUNT(name), COUNT(*) FROM SessionSqlEntity",
+        )
+        .expect("diagnostics duplicate count-equivalent query should execute");
+    assert_eq!(
+        duplicate_count_attribution.scalar_aggregate, None,
+        "duplicate count-equivalent terminals should stay on the shared count fast path",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn global_aggregate_attribution_fans_out_count_equivalent_terms_around_buffered_work() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-mixed-attribution-a", 20),
+            ("aggregate-mixed-attribution-b", 32),
+            ("aggregate-mixed-attribution-c", 40),
+        ],
+    );
+
+    let (mixed_result, mixed_attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+            "SELECT COUNT(*), SUM(age), COUNT(name) FROM SessionSqlEntity",
+        )
+        .expect("diagnostics mixed count-equivalent and buffered aggregate query should execute");
+    let SqlStatementResult::Projection { rows, .. } = mixed_result else {
+        panic!("mixed count-equivalent aggregate should return a projection row");
+    };
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Nat64(3)),
+            output(Value::Decimal(crate::types::Decimal::from(92_u64))),
+            output(Value::Nat64(3)),
+        ]],
+        "mixed aggregate query should preserve count-equivalent outputs around the buffered terminal",
+    );
+    let mixed_scalar_aggregate = mixed_attribution
+        .scalar_aggregate
+        .expect("mixed aggregate query should report buffered terminal work");
+    assert_eq!(
+        mixed_scalar_aggregate.sink_mode.as_deref(),
+        Some("Buffered"),
+        "mixed aggregate diagnostics should surface the buffered reducer lane",
+    );
+    assert_eq!(
+        mixed_scalar_aggregate.terminal_count, 1,
+        "count-equivalent terminals should not be duplicated into the buffered reducer",
     );
 }
 
@@ -914,6 +993,40 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
         session.query_plan_cache_len(),
         1,
         "equivalent fluent count should reuse the shared query-plan cache entry populated by SQL COUNT(*)",
+    );
+}
+
+#[test]
+fn global_aggregate_query_execution_context_reuses_compile_catalog() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-context-a", 10),
+            ("aggregate-context-b", 20),
+            ("aggregate-context-c", 30),
+        ],
+    );
+
+    session.clear_sql_caches_for_tests();
+    session.clear_query_plan_cache_for_tests();
+    DbSession::<SessionSqlCanister>::reset_accepted_catalog_runtime_counters_for_tests();
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
+        )
+        .expect("context-owned SQL global aggregate should execute")
+    else {
+        panic!("context-owned SQL global aggregate should return a projection row");
+    };
+    let counters =
+        DbSession::<SessionSqlCanister>::accepted_catalog_runtime_counter_snapshot_for_tests();
+
+    assert_eq!(rows, vec![vec![output(Value::Nat64(2))]]);
+    assert_eq!(
+        counters.schema_info_projections, 1,
+        "immediate SQL aggregate execution should reuse the compile catalog instead of rebuilding SchemaInfo during execution",
     );
 }
 

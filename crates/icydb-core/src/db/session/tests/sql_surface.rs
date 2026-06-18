@@ -8695,8 +8695,8 @@ fn filterless_shared_query_plan_cache_hit_uses_identity_without_schema_projectio
         "filterless miss should build accepted SchemaInfo exactly once",
     );
     assert_eq!(
-        first_counters.persisted_schema_decodes, 1,
-        "filterless miss should decode the selected accepted snapshot once",
+        first_counters.persisted_schema_decodes, 0,
+        "filterless miss should reuse the warmed accepted query catalog snapshot without decoding raw schema bytes",
     );
     assert_eq!(
         first_counters.generated_compatible_row_layout_proofs, 1,

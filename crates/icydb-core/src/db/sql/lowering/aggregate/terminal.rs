@@ -1,7 +1,10 @@
 use crate::db::{
     query::{
         builder::AggregateExpr,
-        plan::{AggregateKind, expr::Expr},
+        plan::{
+            AggregateKind,
+            expr::{Expr, aggregate_count_input_expr_is_non_null_literal},
+        },
     },
     sql::lowering::SqlLoweringError,
 };
@@ -36,9 +39,9 @@ pub(in crate::db::sql::lowering::aggregate) struct SqlGlobalAggregateTerminal {
 }
 
 impl SqlGlobalAggregateTerminal {
-    // Build one terminal from the planner aggregate expression while preserving
-    // the raw SQL aggregate facts. Semantic normalization happens later in the
-    // aggregate semantics owner, not in this syntactic terminal.
+    // Build one terminal from the planner aggregate expression. Normalization
+    // stays limited to executor-equivalent COUNT row inputs and is mirrored by
+    // aggregate identity so projection lookup and runtime terminals agree.
     pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
         aggregate_expr: &AggregateExpr,
     ) -> Result<Self, SqlLoweringError> {
@@ -66,6 +69,14 @@ impl SqlGlobalAggregateTerminal {
         if kind == AggregateKind::Count
             && aggregate_expr.target_field().is_none()
             && aggregate_expr.input_expr().is_none()
+        {
+            return Ok(AggregateInput::Rows);
+        }
+        if kind == AggregateKind::Count
+            && !aggregate_expr.is_distinct()
+            && aggregate_expr
+                .input_expr()
+                .is_some_and(aggregate_count_input_expr_is_non_null_literal)
         {
             return Ok(AggregateInput::Rows);
         }

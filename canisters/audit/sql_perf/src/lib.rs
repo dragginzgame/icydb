@@ -307,6 +307,13 @@ fn average_attribution(
 )]
 fn average_fluent_attribution(
     total_compile_local_instructions: u64,
+    total_compile_schema_catalog_local_instructions: u64,
+    total_compile_schema_info_local_instructions: u64,
+    total_compile_prepare_local_instructions: u64,
+    total_compile_cache_key_local_instructions: u64,
+    total_compile_cache_lookup_local_instructions: u64,
+    total_compile_plan_build_local_instructions: u64,
+    total_compile_cache_insert_local_instructions: u64,
     total_plan_lookup_local_instructions: u64,
     total_executor_invocation_local_instructions: u64,
     total_response_finalization_local_instructions: u64,
@@ -349,6 +356,20 @@ fn average_fluent_attribution(
 
     let mut attribution = QueryExecutionAttribution::default();
     attribution.compile_local_instructions = total_compile_local_instructions / divisor;
+    attribution.compile_schema_catalog_local_instructions =
+        total_compile_schema_catalog_local_instructions / divisor;
+    attribution.compile_schema_info_local_instructions =
+        total_compile_schema_info_local_instructions / divisor;
+    attribution.compile_prepare_local_instructions =
+        total_compile_prepare_local_instructions / divisor;
+    attribution.compile_cache_key_local_instructions =
+        total_compile_cache_key_local_instructions / divisor;
+    attribution.compile_cache_lookup_local_instructions =
+        total_compile_cache_lookup_local_instructions / divisor;
+    attribution.compile_plan_build_local_instructions =
+        total_compile_plan_build_local_instructions / divisor;
+    attribution.compile_cache_insert_local_instructions =
+        total_compile_cache_insert_local_instructions / divisor;
     attribution.plan_lookup_local_instructions = total_plan_lookup_local_instructions / divisor;
     attribution.executor_invocation_local_instructions =
         total_executor_invocation_local_instructions / divisor;
@@ -894,6 +915,13 @@ fn query_fluent_scenario_loop(
     let session = db();
     let mut first_outcome = None;
     let mut total_compile_local_instructions = 0_u64;
+    let mut total_compile_schema_catalog_local_instructions = 0_u64;
+    let mut total_compile_schema_info_local_instructions = 0_u64;
+    let mut total_compile_prepare_local_instructions = 0_u64;
+    let mut total_compile_cache_key_local_instructions = 0_u64;
+    let mut total_compile_cache_lookup_local_instructions = 0_u64;
+    let mut total_compile_plan_build_local_instructions = 0_u64;
+    let mut total_compile_cache_insert_local_instructions = 0_u64;
     let mut total_plan_lookup_local_instructions = 0_u64;
     let mut total_executor_invocation_local_instructions = 0_u64;
     let mut total_response_finalization_local_instructions = 0_u64;
@@ -942,6 +970,23 @@ fn query_fluent_scenario_loop(
 
         total_compile_local_instructions =
             total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
+        total_compile_schema_catalog_local_instructions =
+            total_compile_schema_catalog_local_instructions
+                .saturating_add(attribution.compile_schema_catalog_local_instructions);
+        total_compile_schema_info_local_instructions = total_compile_schema_info_local_instructions
+            .saturating_add(attribution.compile_schema_info_local_instructions);
+        total_compile_prepare_local_instructions = total_compile_prepare_local_instructions
+            .saturating_add(attribution.compile_prepare_local_instructions);
+        total_compile_cache_key_local_instructions = total_compile_cache_key_local_instructions
+            .saturating_add(attribution.compile_cache_key_local_instructions);
+        total_compile_cache_lookup_local_instructions =
+            total_compile_cache_lookup_local_instructions
+                .saturating_add(attribution.compile_cache_lookup_local_instructions);
+        total_compile_plan_build_local_instructions = total_compile_plan_build_local_instructions
+            .saturating_add(attribution.compile_plan_build_local_instructions);
+        total_compile_cache_insert_local_instructions =
+            total_compile_cache_insert_local_instructions
+                .saturating_add(attribution.compile_cache_insert_local_instructions);
         total_plan_lookup_local_instructions = total_plan_lookup_local_instructions
             .saturating_add(attribution.plan_lookup_local_instructions);
         total_executor_invocation_local_instructions = total_executor_invocation_local_instructions
@@ -1017,6 +1062,13 @@ fn query_fluent_scenario_loop(
         outcome: first_outcome.expect("perf loop with runs > 0 should record one fluent outcome"),
         attribution: average_fluent_attribution(
             total_compile_local_instructions,
+            total_compile_schema_catalog_local_instructions,
+            total_compile_schema_info_local_instructions,
+            total_compile_prepare_local_instructions,
+            total_compile_cache_key_local_instructions,
+            total_compile_cache_lookup_local_instructions,
+            total_compile_plan_build_local_instructions,
+            total_compile_cache_insert_local_instructions,
             total_plan_lookup_local_instructions,
             total_executor_invocation_local_instructions,
             total_response_finalization_local_instructions,

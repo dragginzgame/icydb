@@ -10,7 +10,9 @@ mod order;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db::executor) use composite::{IntersectOrderedKeyStream, MergeOrderedKeyStream};
+pub(in crate::db::executor) use composite::{
+    FlatMergeOrderedKeyStream, IntersectOrderedKeyStream, MergeOrderedKeyStream,
+};
 #[cfg(test)]
 pub(in crate::db::executor) use contracts::BudgetedOrderedKeyStream;
 #[cfg(test)]

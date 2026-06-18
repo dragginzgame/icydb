@@ -262,6 +262,13 @@ impl ScalarAggregateAttribution {
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct FluentTerminalExecutionAttribution {
     pub compile_local_instructions: u64,
+    pub compile_schema_catalog_local_instructions: u64,
+    pub compile_schema_info_local_instructions: u64,
+    pub compile_prepare_local_instructions: u64,
+    pub compile_cache_key_local_instructions: u64,
+    pub compile_cache_lookup_local_instructions: u64,
+    pub compile_plan_build_local_instructions: u64,
+    pub compile_cache_insert_local_instructions: u64,
     pub plan_lookup_local_instructions: u64,
     pub executor_invocation_local_instructions: u64,
     pub execute_local_instructions: u64,
@@ -284,6 +291,13 @@ pub struct FluentTerminalExecutionAttribution {
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct QueryExecutionAttribution {
     pub compile_local_instructions: u64,
+    pub compile_schema_catalog_local_instructions: u64,
+    pub compile_schema_info_local_instructions: u64,
+    pub compile_prepare_local_instructions: u64,
+    pub compile_cache_key_local_instructions: u64,
+    pub compile_cache_lookup_local_instructions: u64,
+    pub compile_plan_build_local_instructions: u64,
+    pub compile_cache_insert_local_instructions: u64,
     pub plan_lookup_local_instructions: u64,
     pub executor_invocation_local_instructions: u64,
     pub response_finalization_local_instructions: u64,
@@ -418,9 +432,10 @@ impl<C: CanisterKind> DbSession<C> {
         // including the shared lower query-plan cache lookup/build exactly
         // once. This preserves honest hit/miss attribution without
         // double-building plans on one-shot cache misses.
-        let (plan_lookup_local_instructions, plan_and_cache) =
-            measure_query_stage(|| self.cached_prepared_query_plan_for_entity::<E>(query));
-        let (plan, cache_attribution) = plan_and_cache?;
+        let (plan_lookup_local_instructions, plan_and_cache) = measure_query_stage(|| {
+            self.cached_prepared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)
+        });
+        let (plan, cache_attribution, compile_phase_attribution) = plan_and_cache?;
         let compile_local_instructions = plan_lookup_local_instructions;
 
         // Phase 2: execute one prepared plan through the shared execution
@@ -446,6 +461,13 @@ impl<C: CanisterKind> DbSession<C> {
             result,
             QueryExecutionAttribution {
                 compile_local_instructions,
+                compile_schema_catalog_local_instructions: compile_phase_attribution.schema_catalog,
+                compile_schema_info_local_instructions: compile_phase_attribution.schema_info,
+                compile_prepare_local_instructions: compile_phase_attribution.prepare,
+                compile_cache_key_local_instructions: compile_phase_attribution.cache_key,
+                compile_cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
+                compile_plan_build_local_instructions: compile_phase_attribution.plan_build,
+                compile_cache_insert_local_instructions: compile_phase_attribution.cache_insert,
                 plan_lookup_local_instructions,
                 executor_invocation_local_instructions: execute_phase_attribution
                     .executor_invocation_local_instructions,

@@ -5751,9 +5751,21 @@ fn compile_sql_global_aggregate_command_for_model_only_accepts_expression_input_
         3,
         "expression aggregate inputs should preserve one prepared strategy per aggregate leaf",
     );
-    assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, false);
+    assert_count_rows_strategy(&command.terminals()[0]);
     assert_expr_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, false);
     assert_expr_aggregate_strategy(&command.terminals()[2], AggregateKind::Avg, false);
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_for_model_only_keeps_count_null_as_expression_input() {
+    let strategy = compile_prepared_sql_scalar_strategy("SELECT COUNT(NULL) FROM SqlLowerEntity");
+    assert!(
+        matches!(
+            assert_expr_aggregate_strategy(&strategy, AggregateKind::Count, false),
+            Expr::Literal(Value::Null)
+        ),
+        "COUNT(NULL) must not normalize to COUNT(*)",
+    );
 }
 
 #[test]
@@ -5860,9 +5872,9 @@ fn compile_sql_global_aggregate_command_for_model_only_deduplicates_expression_i
     assert_eq!(
         command.terminals().len(),
         2,
-        "duplicate expression aggregate inputs should keep one unique executable terminal per aggregate semantics",
+        "duplicate literal count and expression aggregate inputs should keep one unique executable terminal per aggregate semantics",
     );
-    assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, false);
+    assert_count_rows_strategy(&command.terminals()[0]);
     assert_expr_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, false);
     assert_eq!(
         command.output_remap(),

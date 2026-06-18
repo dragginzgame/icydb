@@ -31,6 +31,14 @@ use crate::{
 use std::cell::Cell;
 use std::{cell::RefCell, collections::HashMap};
 
+#[cfg(any(feature = "diagnostics", feature = "sql"))]
+use crate::db::diagnostics::measure_local_instruction_delta as measure_query_plan_compile_stage;
+
+#[cfg(not(any(feature = "diagnostics", feature = "sql")))]
+fn measure_query_plan_compile_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
+    (0, run())
+}
+
 // Bump this when the shared lower query-plan cache key meaning changes in a
 // way that must force old in-heap entries to miss instead of aliasing.
 const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 3;
@@ -118,6 +126,32 @@ pub(in crate::db) struct QueryPlanCacheAttribution {
     pub misses: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct QueryPlanCompilePhaseAttribution {
+    pub schema_catalog: u64,
+    pub schema_info: u64,
+    pub prepare: u64,
+    pub cache_key: u64,
+    pub cache_lookup: u64,
+    pub plan_build: u64,
+    pub cache_insert: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QueryPlanCompilePhase {
+    SchemaCatalog,
+    SchemaInfo,
+    Prepare,
+    CacheKey,
+    CacheLookup,
+    PlanBuild,
+    CacheInsert,
+}
+
+struct QueryPlanCompilePhaseRecorder<'a> {
+    attribution: Option<&'a mut QueryPlanCompilePhaseAttribution>,
+}
+
 pub(in crate::db) type QueryPlanCache = HashMap<QueryPlanCacheKey, SharedPreparedExecutionPlan>;
 
 // Classify one shared query-plan cache miss by comparing the missed key against
@@ -203,6 +237,58 @@ impl QueryPlanCacheAttribution {
     }
 }
 
+impl QueryPlanCompilePhaseAttribution {
+    const fn record(&mut self, phase: QueryPlanCompilePhase, local_instructions: u64) {
+        match phase {
+            QueryPlanCompilePhase::SchemaCatalog => {
+                self.schema_catalog = self.schema_catalog.saturating_add(local_instructions);
+            }
+            QueryPlanCompilePhase::SchemaInfo => {
+                self.schema_info = self.schema_info.saturating_add(local_instructions);
+            }
+            QueryPlanCompilePhase::Prepare => {
+                self.prepare = self.prepare.saturating_add(local_instructions);
+            }
+            QueryPlanCompilePhase::CacheKey => {
+                self.cache_key = self.cache_key.saturating_add(local_instructions);
+            }
+            QueryPlanCompilePhase::CacheLookup => {
+                self.cache_lookup = self.cache_lookup.saturating_add(local_instructions);
+            }
+            QueryPlanCompilePhase::PlanBuild => {
+                self.plan_build = self.plan_build.saturating_add(local_instructions);
+            }
+            QueryPlanCompilePhase::CacheInsert => {
+                self.cache_insert = self.cache_insert.saturating_add(local_instructions);
+            }
+        }
+    }
+}
+
+impl<'a> QueryPlanCompilePhaseRecorder<'a> {
+    const fn none() -> Self {
+        Self { attribution: None }
+    }
+
+    #[cfg(feature = "diagnostics")]
+    const fn new(attribution: &'a mut QueryPlanCompilePhaseAttribution) -> Self {
+        Self {
+            attribution: Some(attribution),
+        }
+    }
+
+    fn measure<T>(&mut self, phase: QueryPlanCompilePhase, run: impl FnOnce() -> T) -> T {
+        if let Some(attribution) = &mut self.attribution {
+            let (local_instructions, output) = measure_query_plan_compile_stage(run);
+            attribution.record(phase, local_instructions);
+
+            output
+        } else {
+            run()
+        }
+    }
+}
+
 fn schema_info_for_plan_cache_authority(
     authority: &EntityAuthority,
     accepted_schema: &AcceptedSchemaSnapshot,
@@ -256,6 +342,62 @@ impl<C: CanisterKind> DbSession<C> {
 
             f(cache)
         })
+    }
+
+    fn lookup_shared_query_plan_for_authority_recording(
+        &self,
+        authority: &EntityAuthority,
+        cache_key: &QueryPlanCacheKey,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> (
+        Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)>,
+        Option<CacheMissReason>,
+    ) {
+        recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
+            let (cached, entries, miss_reason) = self.with_query_plan_cache(|cache| {
+                let cached = cache.get(cache_key).cloned();
+                let miss_reason = cached
+                    .is_none()
+                    .then(|| shared_query_plan_cache_miss_reason(cache, cache_key));
+
+                (cached, cache.len(), miss_reason)
+            });
+            record_cache_entries(CacheKind::SharedQueryPlan, entries);
+            if let Some(prepared_plan) = cached {
+                record_cache_event_for_path(
+                    CacheKind::SharedQueryPlan,
+                    CacheOutcome::Hit,
+                    authority.entity_path(),
+                );
+                return (
+                    Some((prepared_plan, QueryPlanCacheAttribution::hit())),
+                    None,
+                );
+            }
+
+            (None, miss_reason)
+        })
+    }
+
+    fn insert_shared_query_plan_for_authority_recording(
+        &self,
+        authority: &EntityAuthority,
+        cache_key: QueryPlanCacheKey,
+        prepared_plan: &SharedPreparedExecutionPlan,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) {
+        let entries = recorder.measure(QueryPlanCompilePhase::CacheInsert, || {
+            self.with_query_plan_cache(|cache| {
+                cache.insert(cache_key, prepared_plan.clone());
+                cache.len()
+            })
+        });
+        record_cache_entries(CacheKind::SharedQueryPlan, entries);
+        record_cache_event_for_path(
+            CacheKind::SharedQueryPlan,
+            CacheOutcome::Insert,
+            authority.entity_path(),
+        );
     }
 
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
@@ -349,6 +491,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    #[cfg(feature = "sql")]
     fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
         &self,
         authority: EntityAuthority,
@@ -357,36 +500,68 @@ impl<C: CanisterKind> DbSession<C> {
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+        let mut recorder = QueryPlanCompilePhaseRecorder::none();
+
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
+            authority,
+            accepted_schema,
+            schema_fingerprint,
+            visibility,
+            query,
+            &mut recorder,
+        )
+    }
+
+    fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
+        &self,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let schema_identity = SchemaCacheIdentity::new(
             accepted_schema.persisted_snapshot().version(),
             accepted_schema_cache_fingerprint_method_version(),
             schema_fingerprint,
         );
-        if let Some(cached) = self.try_cached_filterless_query_plan_for_authority(
+        if let Some(cached) = self.try_cached_filterless_query_plan_for_authority_recording(
             &authority,
             schema_identity,
             visibility,
             query,
+            recorder,
         ) {
             return Ok(cached);
         }
-        let schema_info = schema_info_for_plan_cache_authority(&authority, accepted_schema);
+        let schema_info = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
+            schema_info_for_plan_cache_authority(&authority, accepted_schema)
+        });
         if query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
-            return self.cached_trivial_scalar_load_plan_for_authority(
+            return self.cached_trivial_scalar_load_plan_for_authority_recording(
                 authority,
                 schema_identity,
                 schema_info,
                 visibility,
                 query,
+                recorder,
             );
         }
 
-        let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
-        let planning_state = query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
-        let normalized_predicate_fingerprint = planning_state
-            .normalized_predicate()
-            .map(predicate_fingerprint_normalized);
-        let cache_key =
+        let visible_indexes = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
+            Self::visible_indexes_for_accepted_schema(&schema_info, visibility)
+        });
+        let planning_state = recorder.measure(QueryPlanCompilePhase::Prepare, || {
+            query.prepare_scalar_planning_state_with_schema_info(schema_info)
+        })?;
+        let normalized_predicate_fingerprint =
+            recorder.measure(QueryPlanCompilePhase::Prepare, || {
+                planning_state
+                    .normalized_predicate()
+                    .map(predicate_fingerprint_normalized)
+            });
+        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
             QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
                 authority.clone(),
                 schema_identity,
@@ -394,29 +569,14 @@ impl<C: CanisterKind> DbSession<C> {
                 query,
                 normalized_predicate_fingerprint,
                 SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
-            );
+            )
+        });
 
-        let miss_reason = {
-            let (cached, entries, miss_reason) = self.with_query_plan_cache(|cache| {
-                let cached = cache.get(&cache_key).cloned();
-                let miss_reason = cached
-                    .is_none()
-                    .then(|| shared_query_plan_cache_miss_reason(cache, &cache_key));
-
-                (cached, cache.len(), miss_reason)
-            });
-            record_cache_entries(CacheKind::SharedQueryPlan, entries);
-            if let Some(prepared_plan) = cached {
-                record_cache_event_for_path(
-                    CacheKind::SharedQueryPlan,
-                    CacheOutcome::Hit,
-                    authority.entity_path(),
-                );
-                return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
-            }
-
-            miss_reason
-        };
+        let (cached_plan, miss_reason) =
+            self.lookup_shared_query_plan_for_authority_recording(&authority, &cache_key, recorder);
+        if let Some(cached_plan) = cached_plan {
+            return Ok(cached_plan);
+        }
         record_cache_event_for_path(
             CacheKind::SharedQueryPlan,
             CacheOutcome::Miss,
@@ -430,53 +590,58 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
-            &visible_indexes,
-            planning_state,
-        )?;
-        let prepared_plan =
-            SharedPreparedExecutionPlan::from_plan(authority.clone(), plan, schema_fingerprint);
-        let entries = self.with_query_plan_cache(|cache| {
-            cache.insert(cache_key, prepared_plan.clone());
-            cache.len()
-        });
-        record_cache_entries(CacheKind::SharedQueryPlan, entries);
-        record_cache_event_for_path(
-            CacheKind::SharedQueryPlan,
-            CacheOutcome::Insert,
-            authority.entity_path(),
+        let prepared_plan = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
+            let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
+                &visible_indexes,
+                planning_state,
+            )?;
+
+            Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
+                authority.clone(),
+                plan,
+                schema_fingerprint,
+            ))
+        })?;
+        self.insert_shared_query_plan_for_authority_recording(
+            &authority,
+            cache_key,
+            &prepared_plan,
+            recorder,
         );
 
         Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
     }
 
-    fn try_cached_filterless_query_plan_for_authority(
+    fn try_cached_filterless_query_plan_for_authority_recording(
         &self,
         authority: &EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)> {
-        self.try_cached_filterless_query_plan_for_entity_path(
+        self.try_cached_filterless_query_plan_for_entity_path_recording(
             authority.entity_path(),
             schema_identity,
             visibility,
             query,
+            recorder,
         )
     }
 
-    fn try_cached_filterless_query_plan_for_entity_path(
+    fn try_cached_filterless_query_plan_for_entity_path_recording(
         &self,
         entity_path: &'static str,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)> {
         if query.has_scalar_filter() {
             return None;
         }
 
-        let cache_key =
+        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
             QueryPlanCacheKey::for_entity_path_with_normalized_predicate_fingerprint_and_method_version(
                 entity_path,
                 schema_identity,
@@ -484,11 +649,14 @@ impl<C: CanisterKind> DbSession<C> {
                 query,
                 None,
                 SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
-            );
-        let (cached, entries) = self.with_query_plan_cache(|cache| {
-            let cached = cache.get(&cache_key).cloned();
+            )
+        });
+        let (cached, entries) = recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
+            self.with_query_plan_cache(|cache| {
+                let cached = cache.get(&cache_key).cloned();
 
-            (cached, cache.len())
+                (cached, cache.len())
+            })
         });
         record_cache_entries(CacheKind::SharedQueryPlan, entries);
         if let Some(prepared_plan) = cached {
@@ -499,15 +667,16 @@ impl<C: CanisterKind> DbSession<C> {
         None
     }
 
-    fn cached_trivial_scalar_load_plan_for_authority(
+    fn cached_trivial_scalar_load_plan_for_authority_recording(
         &self,
         authority: EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         schema_info: SchemaInfo,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let cache_key =
+        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
             QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
                 authority.clone(),
                 schema_identity,
@@ -515,29 +684,14 @@ impl<C: CanisterKind> DbSession<C> {
                 query,
                 None,
                 SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
-            );
+            )
+        });
 
-        let miss_reason = {
-            let (cached, entries, miss_reason) = self.with_query_plan_cache(|cache| {
-                let cached = cache.get(&cache_key).cloned();
-                let miss_reason = cached
-                    .is_none()
-                    .then(|| shared_query_plan_cache_miss_reason(cache, &cache_key));
-
-                (cached, cache.len(), miss_reason)
-            });
-            record_cache_entries(CacheKind::SharedQueryPlan, entries);
-            if let Some(prepared_plan) = cached {
-                record_cache_event_for_path(
-                    CacheKind::SharedQueryPlan,
-                    CacheOutcome::Hit,
-                    authority.entity_path(),
-                );
-                return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
-            }
-
-            miss_reason
-        };
+        let (cached_plan, miss_reason) =
+            self.lookup_shared_query_plan_for_authority_recording(&authority, &cache_key, recorder);
+        if let Some(cached_plan) = cached_plan {
+            return Ok(cached_plan);
+        }
         record_cache_event_for_path(
             CacheKind::SharedQueryPlan,
             CacheOutcome::Miss,
@@ -551,24 +705,24 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let Some(plan) = query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?
-        else {
-            return Err(QueryError::invariant());
-        };
-        let prepared_plan = SharedPreparedExecutionPlan::from_plan(
-            authority.clone(),
-            plan,
-            schema_identity.fingerprint,
-        );
-        let entries = self.with_query_plan_cache(|cache| {
-            cache.insert(cache_key, prepared_plan.clone());
-            cache.len()
-        });
-        record_cache_entries(CacheKind::SharedQueryPlan, entries);
-        record_cache_event_for_path(
-            CacheKind::SharedQueryPlan,
-            CacheOutcome::Insert,
-            authority.entity_path(),
+        let prepared_plan = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
+            let Some(plan) =
+                query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?
+            else {
+                return Err(QueryError::invariant());
+            };
+
+            Ok::<_, QueryError>(SharedPreparedExecutionPlan::from_plan(
+                authority.clone(),
+                plan,
+                schema_identity.fingerprint,
+            ))
+        })?;
+        self.insert_shared_query_plan_for_authority_recording(
+            &authority,
+            cache_key,
+            &prepared_plan,
+            recorder,
         );
 
         Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
@@ -653,6 +807,33 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((prepared_plan.typed_clone::<E>(), attribution))
     }
 
+    #[cfg(feature = "diagnostics")]
+    pub(in crate::db::session) fn cached_prepared_query_plan_for_entity_with_compile_phase_attribution<
+        E,
+    >(
+        &self,
+        query: &Query<E>,
+    ) -> Result<
+        (
+            PreparedExecutionPlan<E>,
+            QueryPlanCacheAttribution,
+            QueryPlanCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let (prepared_plan, cache_attribution, compile_attribution) =
+            self.cached_shared_query_plan_for_entity_with_compile_phase_attribution::<E>(query)?;
+
+        Ok((
+            prepared_plan.typed_clone::<E>(),
+            cache_attribution,
+            compile_attribution,
+        ))
+    }
+
     // Resolve one typed query through the shared lower query-plan cache using
     // the canonical authority and schema-fingerprint pair for that entity.
     pub(in crate::db::session) fn cached_shared_query_plan_for_entity<E>(
@@ -662,10 +843,50 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
+        let mut recorder = QueryPlanCompilePhaseRecorder::none();
+
+        self.cached_shared_query_plan_for_entity_recording(query, &mut recorder)
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn cached_shared_query_plan_for_entity_with_compile_phase_attribution<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            QueryPlanCacheAttribution,
+            QueryPlanCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let mut compile_attribution = QueryPlanCompilePhaseAttribution::default();
+        let mut recorder = QueryPlanCompilePhaseRecorder::new(&mut compile_attribution);
+        let (plan, cache_attribution) =
+            self.cached_shared_query_plan_for_entity_recording(query, &mut recorder)?;
+
+        Ok((plan, cache_attribution, compile_attribution))
+    }
+
+    fn cached_shared_query_plan_for_entity_recording<E>(
+        &self,
+        query: &Query<E>,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
         if !query.structural().has_scalar_filter() {
-            let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
-            if let Some(selection) = self
-                .accepted_catalog_snapshot_selection_for_query::<E>()
+            let visibility = recorder.measure(QueryPlanCompilePhase::SchemaCatalog, || {
+                self.query_plan_visibility_for_store_path(E::Store::PATH)
+            })?;
+            if let Some(selection) = recorder
+                .measure(QueryPlanCompilePhase::SchemaCatalog, || {
+                    self.accepted_catalog_snapshot_selection_for_query::<E>()
+                })
                 .map_err(QueryError::execute)?
             {
                 let identity = selection.identity();
@@ -681,33 +902,42 @@ impl<C: CanisterKind> DbSession<C> {
                     identity.fingerprint_method_version(),
                     identity.accepted_schema_fingerprint(),
                 );
-                if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path(
-                    E::PATH,
-                    schema_identity,
-                    visibility,
-                    query.structural(),
-                ) {
+                if let Some(cached) = self
+                    .try_cached_filterless_query_plan_for_entity_path_recording(
+                        E::PATH,
+                        schema_identity,
+                        visibility,
+                        query.structural(),
+                        recorder,
+                    )
+                {
                     return Ok(cached);
                 }
 
-                if let Some(catalog) = self
-                    .accepted_schema_catalog_context_from_selection::<E>(&selection)
+                if let Some(catalog) = recorder
+                    .measure(QueryPlanCompilePhase::SchemaCatalog, || {
+                        self.accepted_schema_catalog_context_from_selection::<E>(&selection)
+                    })
                     .map_err(QueryError::execute)?
                 {
-                    return self.cached_shared_query_plan_for_entity_with_catalog_and_visibility(
-                        query, &catalog, visibility,
-                    );
+                    return self
+                        .cached_shared_query_plan_for_entity_with_catalog_and_visibility_recording(
+                            query, &catalog, visibility, recorder,
+                        );
                 }
             }
         }
 
-        let catalog = self
-            .accepted_schema_catalog_context_for_query::<E>()
+        let catalog = recorder
+            .measure(QueryPlanCompilePhase::SchemaCatalog, || {
+                self.accepted_schema_catalog_context_for_query::<E>()
+            })
             .map_err(QueryError::execute)?;
 
-        self.cached_shared_query_plan_for_entity_with_catalog(query, &catalog)
+        self.cached_shared_query_plan_for_entity_with_catalog_recording(query, &catalog, recorder)
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db::session) fn cached_shared_query_plan_for_entity_with_catalog<E>(
         &self,
         query: &Query<E>,
@@ -716,18 +946,39 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
+        let mut recorder = QueryPlanCompilePhaseRecorder::none();
 
-        self.cached_shared_query_plan_for_entity_with_catalog_and_visibility(
-            query, catalog, visibility,
+        self.cached_shared_query_plan_for_entity_with_catalog_recording(
+            query,
+            catalog,
+            &mut recorder,
         )
     }
 
-    fn cached_shared_query_plan_for_entity_with_catalog_and_visibility<E>(
+    fn cached_shared_query_plan_for_entity_with_catalog_recording<E>(
+        &self,
+        query: &Query<E>,
+        catalog: &AcceptedSchemaCatalogContext,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let visibility = recorder.measure(QueryPlanCompilePhase::SchemaCatalog, || {
+            self.query_plan_visibility_for_store_path(E::Store::PATH)
+        })?;
+
+        self.cached_shared_query_plan_for_entity_with_catalog_and_visibility_recording(
+            query, catalog, visibility, recorder,
+        )
+    }
+
+    fn cached_shared_query_plan_for_entity_with_catalog_and_visibility_recording<E>(
         &self,
         query: &Query<E>,
         catalog: &AcceptedSchemaCatalogContext,
         visibility: QueryPlanVisibility,
+        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
     where
         E: EntityKind<Canister = C>,
@@ -737,24 +988,28 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.fingerprint_method_version(),
             catalog.fingerprint(),
         );
-        if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path(
+        if let Some(cached) = self.try_cached_filterless_query_plan_for_entity_path_recording(
             E::PATH,
             schema_identity,
             visibility,
             query.structural(),
+            recorder,
         ) {
             return Ok(cached);
         }
-        let authority = catalog
-            .accepted_entity_authority_for::<E>()
+        let authority = recorder
+            .measure(QueryPlanCompilePhase::SchemaCatalog, || {
+                catalog.accepted_entity_authority_for::<E>()
+            })
             .map_err(QueryError::execute)?;
 
-        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
+        self.cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
             authority,
             catalog.snapshot(),
             catalog.fingerprint(),
             visibility,
             query.structural(),
+            recorder,
         )
     }
 

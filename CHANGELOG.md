@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Split COUNT terminal cardinality helpers out of scalar terminal dispatch,
-  centralized exact index-prefix derivation, and made metadata-backed
-  SQL/fluent `count()` an explicit early preflight contract.
-
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
+
+- `0.183.23` trims SQL aggregate reuse, fluent cold query planning, and wider
+  branch-stream execution while adding compile-phase attribution for future
+  perf audits.
+
+- `0.183.22` splits COUNT terminal cardinality helpers out of scalar terminal
+  dispatch, centralizes exact index-prefix derivation, and makes
+  metadata-backed SQL/fluent `count()` an explicit early preflight contract.
 
 - `0.183.21` shares SQL/fluent physical-work attribution and trims
   metadata-backed fluent `count()` by answering exact prefix-cardinality counts

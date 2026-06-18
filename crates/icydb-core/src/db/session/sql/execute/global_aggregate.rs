@@ -11,12 +11,15 @@ use crate::{
             StructuralAggregateTerminalKind,
         },
         query::plan::AggregateKind,
-        session::sql::{
-            SqlCacheAttribution, SqlStatementResult,
-            projection::{
-                projection_fixed_scales_from_projection_spec,
-                projection_labels_from_projection_spec,
-                sql_projection_statement_result_from_value_rows,
+        session::{
+            AcceptedSchemaCatalogContext,
+            sql::{
+                SqlCacheAttribution, SqlStatementResult,
+                projection::{
+                    projection_fixed_scales_from_projection_spec,
+                    projection_labels_from_projection_spec,
+                    sql_projection_statement_result_from_value_rows,
+                },
             },
         },
         sql::lowering::{
@@ -85,12 +88,26 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (query, strategies, projection, having) = command.into_execution_inputs();
-        let columns = projection_labels_from_projection_spec(&projection);
-        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
         let catalog = self
             .accepted_schema_catalog_context_for_query::<E>()
             .map_err(QueryError::execute)?;
+
+        self.execute_global_aggregate_statement_with_catalog::<E>(command, &catalog)
+    }
+
+    // Execute one prepared SQL aggregate command when the caller already owns
+    // the accepted catalog loaded during SQL compile.
+    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_with_catalog<E>(
+        &self,
+        command: StructuralSqlGlobalAggregateCommand,
+        catalog: &AcceptedSchemaCatalogContext,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (query, strategies, projection, having) = command.into_execution_inputs();
+        let columns = projection_labels_from_projection_spec(&projection);
+        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
         let schema_info = catalog.accepted_schema_info_for::<E>();
         let terminals = strategies
             .into_iter()
@@ -102,7 +119,7 @@ impl<C: CanisterKind> DbSession<C> {
         let request = StructuralAggregateRequest::new(terminals, projection, having, schema_info);
         let query = Query::<E>::from_inner(query);
         let (prepared_plan, cache_attribution) =
-            self.cached_shared_query_plan_for_entity_with_catalog::<E>(&query, &catalog)?;
+            self.cached_shared_query_plan_for_entity_with_catalog::<E>(&query, catalog)?;
         let result = self
             .with_metrics(|| {
                 self.load_executor::<E>()

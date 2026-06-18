@@ -82,7 +82,9 @@ mod scalar;
 mod truth_value;
 mod type_inference;
 
-pub(in crate::db) use aggregate_input::canonicalize_aggregate_input_expr;
+pub(in crate::db) use aggregate_input::{
+    aggregate_count_input_expr_is_non_null_literal, canonicalize_aggregate_input_expr,
+};
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use ast::Alias;
 pub(in crate::db) use ast::{

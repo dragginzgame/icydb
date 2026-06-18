@@ -81,19 +81,29 @@ where
         let mut unique_values = vec![None; terminal_count];
         let mut scalar_aggregate_terminals = Vec::with_capacity(terminal_count);
         let mut scalar_aggregate_terminal_positions = Vec::with_capacity(terminal_count);
+        let mut shared_count_value: Option<Value> = None;
 
         // Phase 1: route count-equivalent terminals through the shared scalar
-        // count boundary and stage all remaining terminals for the aggregate
-        // reducer sink. Both paths stay under executor ownership.
+        // count boundary once, fan it out to equivalent slots, and stage all
+        // remaining terminals for the aggregate reducer sink. Both paths stay
+        // under executor ownership.
         for (terminal_index, terminal) in request.terminals().iter().enumerate() {
             if terminal.uses_shared_count_terminal(request.schema_info()) {
-                let count = self
-                    .execute_scalar_terminal_request(
-                        shared_plan.typed_clone::<E>(),
-                        ScalarTerminalBoundaryRequest::Count,
-                    )?
-                    .into_count()?;
-                unique_values[terminal_index] = Some(finalize_count(u64::from(count)));
+                let count = if let Some(count) = &shared_count_value {
+                    count.clone()
+                } else {
+                    let count = self
+                        .execute_scalar_terminal_request(
+                            shared_plan.typed_clone::<E>(),
+                            ScalarTerminalBoundaryRequest::Count,
+                        )?
+                        .into_count()?;
+                    let count = finalize_count(u64::from(count));
+                    shared_count_value = Some(count.clone());
+
+                    count
+                };
+                unique_values[terminal_index] = Some(count);
             } else {
                 scalar_aggregate_terminals.push(compile_structural_scalar_aggregate_terminal(
                     request.schema_info(),

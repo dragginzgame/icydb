@@ -729,12 +729,22 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
+        let cache_key = (self.db.cache_scope_id(), E::PATH);
+        if let Some(entry) =
+            ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| cache.borrow().get(&cache_key).cloned())
+            && entry.identity == selection.identity()
+        {
+            return Ok(Some(AcceptedSchemaCatalogContext::new(
+                entry.snapshot,
+                entry.identity,
+            )));
+        }
+
         let snapshot = selection.decode_verified()?;
         if snapshot.persisted_snapshot().fields().len() != E::MODEL.fields().len() {
             return Ok(None);
         }
         let context = AcceptedSchemaCatalogContext::new(snapshot.clone(), selection.identity());
-        let cache_key = (self.db.cache_scope_id(), E::PATH);
 
         ACCEPTED_SCHEMA_QUERY_CACHES.with(|cache| {
             cache.borrow_mut().insert(

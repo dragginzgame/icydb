@@ -246,6 +246,133 @@ where
     }
 }
 
+struct FlatMergeChild<S> {
+    stream: S,
+    state: StreamSideState,
+}
+
+impl<S> FlatMergeChild<S> {
+    const fn new(stream: S, comparator: KeyOrderComparator) -> Self {
+        Self {
+            stream,
+            state: StreamSideState::new(comparator),
+        }
+    }
+}
+
+///
+/// FlatMergeOrderedKeyStream
+///
+/// Pull-based merger over a sibling set of ordered key streams.
+/// This is the `merge_all` runtime shape for branch-like access routes where a
+/// balanced binary merge tree would add nested stream polling without adding
+/// ordering information.
+///
+
+pub(in crate::db::executor) struct FlatMergeOrderedKeyStream<S> {
+    children: Vec<FlatMergeChild<S>>,
+    comparator: KeyOrderComparator,
+    last_emitted: Option<RowKeyWitness>,
+}
+
+impl<S> FlatMergeOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    /// Construct one flat merge stream using explicit key comparator policy.
+    #[must_use]
+    pub(in crate::db::executor) fn new_with_comparator(
+        streams: Vec<S>,
+        comparator: KeyOrderComparator,
+    ) -> Self {
+        Self {
+            children: streams
+                .into_iter()
+                .map(|stream| FlatMergeChild::new(stream, comparator))
+                .collect(),
+            comparator,
+            last_emitted: None,
+        }
+    }
+
+    fn ensure_items(&mut self) -> Result<(), InternalError> {
+        for child in &mut self.children {
+            child.state.ensure_item(&mut child.stream)?;
+        }
+
+        Ok(())
+    }
+
+    fn next_child_index(&self) -> Option<usize> {
+        let mut best = None;
+        for (index, child) in self.children.iter().enumerate() {
+            let Some(candidate) = child.state.item.as_ref() else {
+                continue;
+            };
+            let Some(best_index) = best else {
+                best = Some(index);
+                continue;
+            };
+            let Some(best_key) = self.children[best_index].state.item.as_ref() else {
+                best = Some(index);
+                continue;
+            };
+            if self
+                .comparator
+                .compare_data_keys(candidate, best_key)
+                .is_lt()
+            {
+                best = Some(index);
+            }
+        }
+
+        best
+    }
+
+    fn clear_duplicate_heads(&mut self, emitted: &DecodedDataStoreKey) {
+        let emitted_witness = row_key_witness(emitted);
+        for child in &mut self.children {
+            if child
+                .state
+                .item
+                .as_ref()
+                .is_some_and(|key| witness_matches_key(&emitted_witness, key))
+            {
+                child.state.clear_item();
+            }
+        }
+    }
+}
+
+impl<S> OrderedKeyStream for FlatMergeOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+        loop {
+            self.ensure_items()?;
+            let Some(child_index) = self.next_child_index() else {
+                return Ok(None);
+            };
+            let Some(next) = self.children[child_index].state.take_item() else {
+                return Ok(None);
+            };
+            self.clear_duplicate_heads(&next);
+
+            if self
+                .last_emitted
+                .as_ref()
+                .is_some_and(|last| witness_matches_key(last, &next))
+            {
+                continue;
+            }
+
+            self.last_emitted = Some(row_key_witness(&next));
+            return Ok(Some(next));
+        }
+    }
+}
+
 ///
 /// IntersectOrderedKeyStream
 ///

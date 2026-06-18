@@ -9,8 +9,8 @@ use crate::{
         executor::stream::{
             access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
             key::{
-                DistinctOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
-                MergeOrderedKeyStream,
+                DistinctOrderedKeyStream, FlatMergeOrderedKeyStream, IntersectOrderedKeyStream,
+                KeyOrderComparator, MergeOrderedKeyStream,
             },
         },
     },
@@ -82,6 +82,7 @@ pub(in crate::db::executor) enum OrderedKeyStreamBox {
     Budgeted(BudgetedOrderedKeyStream<Box<Self>>),
     Distinct(DistinctOrderedKeyStream<Box<Self>>),
     Merge(MergeOrderedKeyStream<Box<Self>, Box<Self>>),
+    FlatMerge(FlatMergeOrderedKeyStream<Self>),
     Intersect(IntersectOrderedKeyStream<Box<Self>, Box<Self>>),
 }
 
@@ -174,11 +175,7 @@ impl OrderedKeyStreamBox {
 
     /// Construct one owned merge ordered key stream.
     #[must_use]
-    pub(in crate::db::executor) fn merge(
-        left: Self,
-        right: Self,
-        comparator: KeyOrderComparator,
-    ) -> Self {
+    fn merge(left: Self, right: Self, comparator: KeyOrderComparator) -> Self {
         Self::Merge(MergeOrderedKeyStream::new_with_comparator(
             left.boxed(),
             right.boxed(),
@@ -206,7 +203,22 @@ impl OrderedKeyStreamBox {
         streams: Vec<Self>,
         comparator: KeyOrderComparator,
     ) -> Self {
-        Self::reduce_pairwise(streams, |left, right| Self::merge(left, right, comparator))
+        match streams.len() {
+            0 => Self::empty(),
+            1 => {
+                let mut streams = streams;
+                streams.pop().unwrap_or_else(Self::empty)
+            }
+            2 => {
+                let mut streams = streams;
+                let right = streams.pop().unwrap_or_else(Self::empty);
+                let left = streams.pop().unwrap_or_else(Self::empty);
+                Self::merge(left, right, comparator)
+            }
+            _ => Self::FlatMerge(FlatMergeOrderedKeyStream::new_with_comparator(
+                streams, comparator,
+            )),
+        }
     }
 
     /// Construct one balanced intersection tree from already ordered streams.
@@ -259,6 +271,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Budgeted(stream) => stream.next_key(),
             Self::Distinct(stream) => stream.next_key(),
             Self::Merge(stream) => stream.next_key(),
+            Self::FlatMerge(stream) => stream.next_key(),
             Self::Intersect(stream) => stream.next_key(),
         }
     }
@@ -273,6 +286,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Budgeted(stream) => stream.exact_key_count_hint(),
             Self::Distinct(stream) => stream.exact_key_count_hint(),
             Self::Merge(stream) => stream.exact_key_count_hint(),
+            Self::FlatMerge(stream) => stream.exact_key_count_hint(),
             Self::Intersect(stream) => stream.exact_key_count_hint(),
         }
     }
@@ -287,6 +301,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Budgeted(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Distinct(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Merge(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::FlatMerge(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Intersect(stream) => stream.cheap_access_candidate_count_hint(),
         }
     }
@@ -301,6 +316,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Budgeted(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::Distinct(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::Merge(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::FlatMerge(stream) => stream.exact_diagnostic_access_candidate_count(),
             Self::Intersect(stream) => stream.exact_diagnostic_access_candidate_count(),
         }
     }

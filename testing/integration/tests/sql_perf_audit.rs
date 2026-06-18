@@ -2429,8 +2429,15 @@ fn print_fluent_limit_one_attribution(label: &str, perf: &FluentQueryPerfResult)
     let attribution = &perf.attribution;
 
     println!(
-        "{label} fluent attributed limit1: compile={} plan_lookup={} executor_invocation={} load_plan={} row_layout={} continuation={} handoff={} route_plan={} runtime_prepare={} runtime={} finalize={} response_finalize={} response_decode={} execute={} total={} shared_hits={} shared_misses={} direct={:?}",
+        "{label} fluent attributed limit1: compile={} compile_schema={} compile_info={} compile_prepare={} compile_key={} compile_lookup={} compile_plan={} compile_insert={} plan_lookup={} executor_invocation={} load_plan={} row_layout={} continuation={} handoff={} route_plan={} runtime_prepare={} runtime={} finalize={} response_finalize={} response_decode={} execute={} total={} shared_hits={} shared_misses={} direct={:?}",
         attribution.compile_local_instructions,
+        attribution.compile_schema_catalog_local_instructions,
+        attribution.compile_schema_info_local_instructions,
+        attribution.compile_prepare_local_instructions,
+        attribution.compile_cache_key_local_instructions,
+        attribution.compile_cache_lookup_local_instructions,
+        attribution.compile_plan_build_local_instructions,
+        attribution.compile_cache_insert_local_instructions,
         attribution.plan_lookup_local_instructions,
         attribution.executor_invocation_local_instructions,
         attribution.load_plan_local_instructions,
