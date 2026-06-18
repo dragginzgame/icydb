@@ -5,6 +5,7 @@
 
 pub(in crate::db::executor) mod capability;
 mod contracts;
+mod count_terminal;
 mod distinct;
 mod execution;
 mod fast_path;
@@ -79,7 +80,7 @@ pub(in crate::db::executor) use execution::{
     PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary, PreparedScalarNumericOp,
     PreparedScalarNumericPayload, PreparedScalarProjectionBoundary, PreparedScalarProjectionOp,
     PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary, PreparedScalarTerminalOp,
-    PreparedScalarTerminalStrategy, ScalarProjectionWindow,
+    PreparedScalarTerminalPreflight, PreparedScalarTerminalStrategy, ScalarProjectionWindow,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use scalar_terminals::{

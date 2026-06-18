@@ -9,7 +9,8 @@ use crate::{
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, StoreResolver,
+            LoweredIndexPrefixCardinalityKey, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            StoreResolver,
             aggregate::{AggregateKind, ScalarTerminalKind, field::FieldSlot},
             pipeline::contracts::GroupedRouteStage,
             route::AggregateRouteShape,
@@ -611,6 +612,24 @@ pub(in crate::db::executor) enum PreparedScalarTerminalStrategy {
     KernelAggregate,
     CountPrimaryKeyCardinality,
     ExistingRows { direction: Direction },
+}
+
+///
+/// PreparedScalarTerminalPreflight
+///
+/// PreparedScalarTerminalPreflight is the explicit early terminal contract for
+/// scalar terminal work that must run before aggregate streaming setup. These
+/// contracts are fail-open: if runtime metadata is unavailable, execution falls
+/// through to the normal prepared scalar terminal boundary.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::executor) enum PreparedScalarTerminalPreflight<'plan> {
+    CountIndexPrefixCardinality {
+        authority: EntityAuthority,
+        logical_plan: &'plan AccessPlannedQuery,
+        prefixes: Vec<LoweredIndexPrefixCardinalityKey>,
+    },
 }
 
 ///

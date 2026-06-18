@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Split COUNT terminal cardinality helpers out of scalar terminal dispatch,
+  centralized exact index-prefix derivation, and made metadata-backed
+  SQL/fluent `count()` an explicit early preflight contract.
+
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)

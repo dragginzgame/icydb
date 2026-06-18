@@ -3,17 +3,19 @@
 //! Does not own: aggregate dispatch internals or fast-path eligibility derivation.
 //! Boundary: user-facing aggregate terminal helpers on `LoadExecutor`.
 
+use super::count_terminal::{
+    execute_count_primary_key_cardinality_terminal_request, execute_scalar_terminal_preflight,
+    try_prepare_scalar_terminal_preflight,
+};
 use crate::{
     db::{
-        access::{ExecutionPathPayload, LoweredAccess, LoweredIndexPrefixSpec, lower_access},
-        data::{DataStore, DecodedDataStoreKey, StoreVisit},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
             PreparedAggregatePlan, PreparedExecutionPlan, TraversalRuntime,
             aggregate::{
                 AccessPlannedQuery, AggregateFoldMode, AggregateKind,
-                FieldSlot as PlannedFieldSlot, PageSpec, PreparedAggregateSpec,
+                FieldSlot as PlannedFieldSlot, PreparedAggregateSpec,
                 PreparedAggregateStreamingInputs, PreparedAggregateTargetField,
                 PreparedFieldOrderSensitiveTerminalOp, PreparedOrderSensitiveTerminalBoundary,
                 PreparedOrderSensitiveTerminalOp, PreparedScalarTerminalBoundary,
@@ -25,24 +27,21 @@ use crate::{
                 },
             },
             pipeline::contracts::LoadExecutor,
-            plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
+            plan_metrics::record_rows_scanned_for_path,
             planning::route::{
                 CountTerminalFastPathContract, ExistsTerminalFastPathContract,
                 derive_count_terminal_fast_path_contract_for_model,
                 derive_exists_terminal_fast_path_contract_for_model,
             },
-            validate_executor_plan_for_authority,
         },
-        index::{IndexId, IndexKey, IndexKeyKind, predicate::IndexPredicateExecution},
+        index::predicate::IndexPredicateExecution,
         query::builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
         registry::StoreHandle,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::EntityTag,
-    value::Value,
 };
-use std::ops::Bound;
 
 ///
 /// IndexTerminalRuntime
@@ -130,22 +129,6 @@ where
     super::scalar_terminals::record_kernel_aggregate_terminal_attribution();
 
     Ok(output)
-}
-
-// Execute prepared COUNT through store-cardinality fast-path semantics.
-fn execute_count_primary_key_cardinality_terminal_request(
-    prepared: PreparedAggregateStreamingInputs<'_>,
-) -> Result<ScalarAggregateOutput, InternalError> {
-    let lowered_access = prepared.lowered_access()?;
-    let (count, rows_scanned) = aggregate_count_from_pk_cardinality_with_store(
-        &prepared.logical_plan,
-        &lowered_access,
-        prepared.authority.entity_tag(),
-        prepared.store,
-    )?;
-    record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
-
-    Ok(ScalarAggregateOutput::Count(count))
 }
 
 // Execute one COUNT/EXISTS existing-row terminal through one streaming fold
@@ -241,211 +224,6 @@ fn aggregate_index_terminal_output_with_runtime(
     Ok((aggregate_output, rows_scanned))
 }
 
-// Execute COUNT from exact index-prefix metadata before aggregate streaming
-// preparation when the prepared plan already proves a finite prefix set.
-fn try_count_index_prefix_cardinality_prepared_plan<E>(
-    executor: &LoadExecutor<E>,
-    plan: &PreparedAggregatePlan,
-) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let authority = plan.authority();
-    let logical_plan = plan.logical_plan();
-    let Ok(lowered_access) = lower_access(authority.entity_tag(), &logical_plan.access) else {
-        return Ok(None);
-    };
-    let Ok(index_prefix_specs) = plan.index_prefix_specs() else {
-        return Ok(None);
-    };
-    let Some(prefixes) =
-        exact_count_cardinality_prefixes(logical_plan, &lowered_access, index_prefix_specs)
-    else {
-        return Ok(None);
-    };
-
-    validate_executor_plan_for_authority(&authority, logical_plan)?;
-    let store = executor.db.recovered_store(authority.store_path())?;
-    let Some(count) =
-        count_index_prefix_cardinality(store, logical_plan.scalar_plan().page.as_ref(), &prefixes)
-    else {
-        return Ok(None);
-    };
-
-    record_plan_metrics(authority.entity_path(), logical_plan);
-    record_index_prefix_cardinality_count(authority.entity_path());
-
-    Ok(Some(ScalarTerminalBoundaryOutput::Count(count)))
-}
-
-fn count_index_prefix_cardinality(
-    store: StoreHandle,
-    page: Option<&PageSpec>,
-    prefixes: &[ExactCountCardinalityPrefix],
-) -> Option<u32> {
-    let data_generation = store.with_data(DataStore::generation);
-    let available_rows = store.with_index(|store| {
-        let mut total = 0_u64;
-        for prefix in prefixes {
-            let count = store.exact_prefix_cardinality(
-                data_generation,
-                IndexKeyKind::User,
-                prefix.index_id,
-                prefix.components.as_slice(),
-            )?;
-            total = total.saturating_add(count);
-        }
-        Some(total)
-    });
-    let available_rows = available_rows?;
-    let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
-    let (count, _rows_scanned) = count_window_result_from_page(page, available_rows);
-
-    Some(count)
-}
-
-fn record_index_prefix_cardinality_count(entity_path: &'static str) {
-    record_rows_scanned_for_path(entity_path, 0);
-    #[cfg(all(feature = "diagnostics", feature = "sql"))]
-    super::scalar_terminals::record_index_prefix_cardinality_count_attribution();
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct ExactCountCardinalityPrefix {
-    index_id: IndexId,
-    components: Vec<Vec<u8>>,
-}
-
-fn exact_count_cardinality_prefixes(
-    plan: &AccessPlannedQuery,
-    lowered_access: &LoweredAccess<'_, Value>,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-) -> Option<Vec<ExactCountCardinalityPrefix>> {
-    if !plan.has_no_distinct()
-        || plan.scalar_plan().order.is_some()
-        || plan.has_residual_filter_expr()
-        || plan.has_residual_filter_predicate()
-    {
-        return None;
-    }
-
-    let path = lowered_access.executable().as_path()?;
-    let index = path.index_prefix_details()?;
-    let prefix_len = index.slot_arity();
-    let expected_prefix_specs = match path {
-        ExecutionPathPayload::IndexBranchSet { branch_count, .. } => *branch_count,
-        ExecutionPathPayload::IndexPrefix { .. } => 1,
-        ExecutionPathPayload::ByKey(_)
-        | ExecutionPathPayload::ByKeys(_)
-        | ExecutionPathPayload::KeyRange { .. }
-        | ExecutionPathPayload::IndexMultiLookup { .. }
-        | ExecutionPathPayload::IndexRange { .. }
-        | ExecutionPathPayload::FullScan => return None,
-    };
-
-    exact_cardinality_prefixes_from_lowered_specs(
-        index_prefix_specs,
-        expected_prefix_specs,
-        prefix_len,
-    )
-}
-
-fn exact_cardinality_prefixes_from_lowered_specs(
-    specs: &[LoweredIndexPrefixSpec],
-    expected_prefix_specs: usize,
-    prefix_len: usize,
-) -> Option<Vec<ExactCountCardinalityPrefix>> {
-    if prefix_len == 0 || specs.len() != expected_prefix_specs {
-        return None;
-    }
-
-    let mut prefixes = Vec::with_capacity(specs.len());
-    for spec in specs {
-        prefixes.push(exact_cardinality_prefix_from_lowered_spec(
-            spec, prefix_len,
-        )?);
-    }
-    prefixes.sort();
-    prefixes.dedup();
-
-    Some(prefixes)
-}
-
-fn exact_cardinality_prefix_from_lowered_spec(
-    spec: &LoweredIndexPrefixSpec,
-    prefix_len: usize,
-) -> Option<ExactCountCardinalityPrefix> {
-    let Bound::Included(raw_key) = spec.lower() else {
-        return None;
-    };
-    let key = IndexKey::try_from_raw(raw_key).ok()?;
-    if key.key_kind() != IndexKeyKind::User || key.component_count() < prefix_len {
-        return None;
-    }
-
-    let components = (0..prefix_len)
-        .map(|slot| key.component(slot).map(<[u8]>::to_vec))
-        .collect::<Option<Vec<_>>>()?;
-
-    Some(ExactCountCardinalityPrefix {
-        index_id: *key.index_id(),
-        components,
-    })
-}
-
-// Resolve COUNT for PK full-scan/key-range shapes from store cardinality while
-// preserving canonical page-window and scan-accounting semantics.
-fn aggregate_count_from_pk_cardinality_with_store(
-    logical_plan: &AccessPlannedQuery,
-    lowered_access: &LoweredAccess<'_, Value>,
-    entity_tag: EntityTag,
-    store: StoreHandle,
-) -> Result<(u32, usize), InternalError> {
-    // Phase 1: snapshot pagination + access payload before resolving store cardinality.
-    let page = logical_plan.scalar_plan().page.as_ref();
-    let Some(path) = lowered_access.executable().as_path() else {
-        return Err(InternalError::query_executor_invariant());
-    };
-
-    // Phase 2: read candidate-row cardinality directly from primary storage.
-    let available_rows = match path {
-        ExecutionPathPayload::FullScan => store.with_data(|data| {
-            let mut count = 0usize;
-            let _: Result<(), InternalError> = data.visit_entity(entity_tag, |_raw_key, _row| {
-                count = count.saturating_add(1);
-                Ok(StoreVisit::Continue)
-            });
-            count
-        }),
-        ExecutionPathPayload::KeyRange { start, end } => {
-            let start_raw =
-                DecodedDataStoreKey::try_from_structural_key(entity_tag, start)?.to_raw()?;
-            let end_raw =
-                DecodedDataStoreKey::try_from_structural_key(entity_tag, end)?.to_raw()?;
-
-            store.with_data(|data| {
-                let mut count = 0usize;
-                let _: Result<(), InternalError> = data.visit_range(
-                    (Bound::Included(start_raw), Bound::Included(end_raw)),
-                    |_raw_key, _row| {
-                        count = count.saturating_add(1);
-                        Ok(StoreVisit::Continue)
-                    },
-                );
-                count
-            })
-        }
-        _ => {
-            return Err(InternalError::query_executor_invariant());
-        }
-    };
-
-    // Phase 3: apply canonical COUNT window semantics and emit scan metrics.
-    let (count, rows_scanned) = count_window_result_from_page(page, available_rows);
-
-    Ok((count, rows_scanned))
-}
-
 // Execute one prepared order-sensitive terminal contract without consulting
 // plan-owned slot resolution or aggregate setup again.
 fn execute_prepared_order_sensitive_terminal_boundary<E>(
@@ -534,18 +312,15 @@ where
     ) -> Result<ScalarTerminalBoundaryOutput, InternalError> {
         let plan = plan.into_prepared_aggregate_plan();
 
+        if let Some(preflight) = try_prepare_scalar_terminal_preflight(&plan, &request)
+            && let Some(output) = execute_scalar_terminal_preflight(self, preflight)?
+        {
+            return Ok(output);
+        }
+
         match request {
-            ScalarTerminalBoundaryRequest::Count => {
-                if let Some(output) = try_count_index_prefix_cardinality_prepared_plan(self, &plan)?
-                {
-                    return Ok(output);
-                }
-
-                let prepared = self.prepare_scalar_terminal_boundary(plan, request)?;
-
-                self.execute_prepared_scalar_terminal_boundary(prepared)
-            }
-            ScalarTerminalBoundaryRequest::Exists
+            ScalarTerminalBoundaryRequest::Count
+            | ScalarTerminalBoundaryRequest::Exists
             | ScalarTerminalBoundaryRequest::IdBySlot { .. } => {
                 let prepared = self.prepare_scalar_terminal_boundary(plan, request)?;
 
@@ -759,32 +534,4 @@ where
                 .map(ScalarTerminalBoundaryOutput::Id),
         }
     }
-}
-
-// Map one candidate cardinality and optional page contract to canonical COUNT
-// result and scan accounting (`rows_scanned`) semantics.
-fn count_window_result_from_page(page: Option<&PageSpec>, available_rows: usize) -> (u32, usize) {
-    let Some(page) = page else {
-        return (usize_to_u32_saturating(available_rows), available_rows);
-    };
-    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-
-    match page.limit {
-        Some(0) => (0, 0),
-        Some(limit) => {
-            let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-            let rows_scanned = available_rows.min(offset.saturating_add(limit));
-            let count = available_rows.saturating_sub(offset).min(limit);
-
-            (usize_to_u32_saturating(count), rows_scanned)
-        }
-        None => {
-            let count = available_rows.saturating_sub(offset);
-            (usize_to_u32_saturating(count), available_rows)
-        }
-    }
-}
-
-fn usize_to_u32_saturating(value: usize) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
 }
