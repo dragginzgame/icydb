@@ -167,6 +167,93 @@ fn aggregate_optimizations_index_multi_lookup_count_uses_prefix_cardinality() {
 }
 
 #[test]
+fn aggregate_optimizations_sparse_index_multi_lookup_count_batches_prefix_cardinality() {
+    seed_indexed_metrics_rows(&[(8_741, 10, "a"), (8_742, 10, "b"), (8_743, 20, "c")]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let mut values = (100..180).collect::<Vec<_>>();
+    values.push(10);
+    values.extend(180..220);
+
+    let lookups_before = IndexStore::current_prefix_cardinality_lookup_count();
+    let range_scans_before = IndexStore::current_range_scan_call_count();
+    let (count, scanned) = capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+        execute_count_terminal(
+            &load,
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                .filter_predicate(u32_in_predicate_strict("tag", values.as_slice()))
+                .plan()
+                .map(crate::db::executor::PreparedExecutionPlan::from)
+                .expect("sparse indexed IN COUNT plan should build"),
+        )
+        .expect("sparse indexed IN COUNT should succeed")
+    });
+    let lookups =
+        IndexStore::current_prefix_cardinality_lookup_count().saturating_sub(lookups_before);
+    let range_scans =
+        IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+
+    assert_eq!(count, 2, "sparse indexed IN COUNT should match rows");
+    assert_eq!(
+        scanned, 0,
+        "sparse indexed IN COUNT should not scan rows with synchronized cardinality",
+    );
+    assert_eq!(
+        range_scans, 0,
+        "sparse indexed IN COUNT should not open index ranges for missing literals",
+    );
+    assert_eq!(
+        lookups, 1,
+        "sparse indexed IN COUNT should batch prefix-cardinality metadata probes",
+    );
+}
+
+#[test]
+fn aggregate_optimizations_index_multi_lookup_count_limit_stops_prefix_cardinality_after_window() {
+    seed_indexed_metrics_rows(&[
+        (8_731, 10, "a"),
+        (8_732, 10, "b"),
+        (8_733, 20, "c"),
+        (8_734, 30, "d"),
+    ]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let lookups_before = IndexStore::current_prefix_cardinality_lookup_count();
+    let range_scans_before = IndexStore::current_range_scan_call_count();
+    let (count, scanned) = capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+        execute_count_terminal(
+            &load,
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                .filter_predicate(u32_in_predicate_strict("tag", &[10, 20, 30, 40, 50, 60]))
+                .order_term(crate::db::asc("id"))
+                .offset(1)
+                .limit(1)
+                .plan()
+                .map(crate::db::executor::PreparedExecutionPlan::from)
+                .expect("windowed indexed IN COUNT plan should build"),
+        )
+        .expect("windowed indexed IN COUNT should succeed")
+    });
+    let lookups =
+        IndexStore::current_prefix_cardinality_lookup_count().saturating_sub(lookups_before);
+    let range_scans =
+        IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
+
+    assert_eq!(count, 1, "windowed indexed IN COUNT should match LIMIT");
+    assert_eq!(
+        scanned, 0,
+        "windowed indexed IN COUNT should not scan rows when prefix cardinality is synchronized",
+    );
+    assert_eq!(
+        range_scans, 0,
+        "windowed indexed IN COUNT should not open an index range when prefix cardinality is synchronized",
+    );
+    assert_eq!(
+        lookups, 1,
+        "windowed indexed IN COUNT should stop cardinality probes after offset + limit is proven",
+    );
+}
+
+#[test]
 fn aggregate_optimizations_index_multi_lookup_exists_uses_prefix_cardinality() {
     seed_indexed_metrics_rows(&[
         (8_716, 10, "a"),
@@ -181,10 +268,13 @@ fn aggregate_optimizations_index_multi_lookup_exists_uses_prefix_cardinality() {
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("indexed IN EXISTS plan should build");
+    let lookups_before = IndexStore::current_prefix_cardinality_lookup_count();
     let range_scans_before = IndexStore::current_range_scan_call_count();
     let (exists, scanned) = capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
         execute_exists_terminal(&load, plan).expect("indexed IN EXISTS should succeed")
     });
+    let lookups =
+        IndexStore::current_prefix_cardinality_lookup_count().saturating_sub(lookups_before);
     let range_scans =
         IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before);
 
@@ -199,6 +289,10 @@ fn aggregate_optimizations_index_multi_lookup_exists_uses_prefix_cardinality() {
     assert_eq!(
         range_scans, 0,
         "indexed IN EXISTS should not open an index range when prefix cardinality is synchronized",
+    );
+    assert_eq!(
+        lookups, 1,
+        "indexed IN EXISTS should stop cardinality probes after the first matching prefix",
     );
 }
 

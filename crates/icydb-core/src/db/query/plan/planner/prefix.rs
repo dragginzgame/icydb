@@ -15,8 +15,8 @@ use crate::{
             key_item_match::eq_lookup_value_for_key_item,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
-                access_candidate_score_outranks, index_literal_matches_schema,
-                selected_index_contract_satisfies_secondary_order,
+                access_candidate_score_outranks, index_field_literal_matcher,
+                index_literal_matches_schema, selected_index_contract_satisfies_secondary_order,
             },
         },
         schema::SchemaInfo,
@@ -99,9 +99,10 @@ pub(super) fn index_multi_lookup_for_in(
 ) -> Option<Vec<AccessPlan<Value>>> {
     // Cache schema/literal compatibility once per `IN` item so candidate-index
     // selection does not repeat the same field-type check for every index.
+    let matcher = index_field_literal_matcher(schema, field);
     let cached_values = values
         .iter()
-        .map(|value| (value, index_literal_matches_schema(schema, field, value)))
+        .map(|value| (value, matcher.matches(value)))
         .collect::<Vec<_>>();
 
     let mut out = Vec::new();

@@ -4,6 +4,7 @@
 //! Boundary: carries generic-free compiled SQL state between session compile and execute phases.
 
 use crate::db::{
+    access::LoweredIndexPrefixCardinalitySpec,
     commit::CommitSchemaFingerprint,
     executor::{EntityAuthority, SharedPreparedExecutionPlan},
     query::intent::StructuralQuery,
@@ -61,6 +62,80 @@ impl SqlSelectPlanCacheEntry {
     }
 }
 
+#[derive(Debug)]
+pub(in crate::db) struct SqlGlobalAggregatePlanCacheEntry {
+    schema_fingerprint_method_version: u8,
+    schema_fingerprint: CommitSchemaFingerprint,
+    prepared_plan: SharedPreparedExecutionPlan,
+}
+
+impl SqlGlobalAggregatePlanCacheEntry {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        schema_fingerprint_method_version: u8,
+        schema_fingerprint: CommitSchemaFingerprint,
+        prepared_plan: SharedPreparedExecutionPlan,
+    ) -> Self {
+        Self {
+            schema_fingerprint_method_version,
+            schema_fingerprint,
+            prepared_plan,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
+        self.schema_fingerprint_method_version
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.schema_fingerprint
+    }
+
+    #[must_use]
+    pub(in crate::db) fn prepared_plan(&self) -> SharedPreparedExecutionPlan {
+        self.prepared_plan.clone()
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::db) struct SqlGlobalAggregateCountPlanCacheEntry {
+    schema_fingerprint_method_version: u8,
+    schema_fingerprint: CommitSchemaFingerprint,
+    prefix_specs: Arc<[LoweredIndexPrefixCardinalitySpec]>,
+}
+
+impl SqlGlobalAggregateCountPlanCacheEntry {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        schema_fingerprint_method_version: u8,
+        schema_fingerprint: CommitSchemaFingerprint,
+        prefix_specs: Arc<[LoweredIndexPrefixCardinalitySpec]>,
+    ) -> Self {
+        Self {
+            schema_fingerprint_method_version,
+            schema_fingerprint,
+            prefix_specs,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint_method_version(&self) -> u8 {
+        self.schema_fingerprint_method_version
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.schema_fingerprint
+    }
+
+    #[must_use]
+    pub(in crate::db) fn prefix_specs(&self) -> &[LoweredIndexPrefixCardinalitySpec] {
+        self.prefix_specs.as_ref()
+    }
+}
+
 ///
 /// CompiledSqlCommand
 ///
@@ -80,7 +155,9 @@ pub(in crate::db) enum CompiledSqlCommand {
         returning: Option<SqlReturningProjection>,
     },
     GlobalAggregate {
-        command: Box<StructuralSqlGlobalAggregateCommand>,
+        command: Arc<StructuralSqlGlobalAggregateCommand>,
+        plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregatePlanCacheEntry>>>,
+        count_plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
     Explain(Box<LoweredSqlCommand>),
     Insert(SqlInsertStatement),
@@ -104,6 +181,15 @@ impl CompiledSqlCommand {
         Self::Select {
             query: Arc::new(query),
             plan_cache: Arc::new(OnceLock::new()),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn global_aggregate(command: StructuralSqlGlobalAggregateCommand) -> Self {
+        Self::GlobalAggregate {
+            command: Arc::new(command),
+            plan_cache: Arc::new(OnceLock::new()),
+            count_plan_cache: Arc::new(OnceLock::new()),
         }
     }
 
@@ -140,6 +226,74 @@ impl CompiledSqlCommand {
                 prepared_plan,
                 projection,
             )));
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn cached_global_aggregate_plan(
+        &self,
+        schema_fingerprint_method_version: u8,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Option<SharedPreparedExecutionPlan> {
+        let Self::GlobalAggregate { plan_cache, .. } = self else {
+            return None;
+        };
+        let entry = plan_cache.get()?;
+        if entry.schema_fingerprint_method_version() != schema_fingerprint_method_version
+            || entry.schema_fingerprint() != schema_fingerprint
+        {
+            return None;
+        }
+
+        Some(entry.prepared_plan())
+    }
+
+    #[must_use]
+    pub(in crate::db) fn cached_global_aggregate_count_plan(
+        &self,
+        schema_fingerprint_method_version: u8,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
+        let Self::GlobalAggregate {
+            count_plan_cache, ..
+        } = self
+        else {
+            return None;
+        };
+        let entry = count_plan_cache.get()?;
+        if entry.schema_fingerprint_method_version() != schema_fingerprint_method_version
+            || entry.schema_fingerprint() != schema_fingerprint
+        {
+            return None;
+        }
+
+        Some(Arc::clone(entry))
+    }
+
+    pub(in crate::db) fn set_cached_global_aggregate_plan(
+        &self,
+        schema_fingerprint_method_version: u8,
+        schema_fingerprint: CommitSchemaFingerprint,
+        prepared_plan: SharedPreparedExecutionPlan,
+    ) {
+        if let Self::GlobalAggregate { plan_cache, .. } = self {
+            let _ = plan_cache.set(Arc::new(SqlGlobalAggregatePlanCacheEntry::new(
+                schema_fingerprint_method_version,
+                schema_fingerprint,
+                prepared_plan,
+            )));
+        }
+    }
+
+    pub(in crate::db) fn set_cached_global_aggregate_count_plan(
+        &self,
+        entry: Arc<SqlGlobalAggregateCountPlanCacheEntry>,
+    ) {
+        if let Self::GlobalAggregate {
+            count_plan_cache, ..
+        } = self
+        {
+            let _ = count_plan_cache.set(entry);
         }
     }
 }

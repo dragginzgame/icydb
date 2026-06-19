@@ -233,8 +233,16 @@ impl<C: CanisterKind> DbSession<C> {
                     query,
                     || self.sql_select_prepared_plan_for_entity::<E>(query),
                 ),
+            CompiledSqlCommand::GlobalAggregate { command, .. } => {
+                let catalog = self
+                    .accepted_schema_catalog_context_for_query::<E>()
+                    .map_err(QueryError::execute)?;
+
+                self.execute_global_aggregate_compiled_statement_ref_with_phase_attribution::<E>(
+                    compiled, command, &catalog,
+                )
+            }
             CompiledSqlCommand::Delete { .. }
-            | CompiledSqlCommand::GlobalAggregate { .. }
             | CompiledSqlCommand::Explain(..)
             | CompiledSqlCommand::Insert(..)
             | CompiledSqlCommand::Update(..)
@@ -333,6 +341,12 @@ impl<C: CanisterKind> DbSession<C> {
 
                 Ok((result, cache_attribution, phase_attribution))
             }
+            CompiledSqlCommand::GlobalAggregate { command, .. } => self
+                .execute_global_aggregate_compiled_statement_ref_with_phase_attribution::<E>(
+                    context.command(),
+                    command,
+                    context.accepted_catalog(),
+                ),
             compiled => self
                 .execute_non_select_compiled_sql_with_phase_attribution_from_catalog::<E>(
                     compiled,
@@ -408,8 +422,8 @@ impl<C: CanisterKind> DbSession<C> {
                     self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
                 sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Delete, result)
             }
-            CompiledSqlCommand::GlobalAggregate { command } => {
-                self.execute_global_aggregate_statement::<E>(*command.clone())
+            CompiledSqlCommand::GlobalAggregate { command, .. } => {
+                self.execute_global_aggregate_statement_ref::<E>(command)
             }
             CompiledSqlCommand::Explain(lowered) => {
                 self.execute_explain_sql_with_cache_attribution::<E>(lowered)
@@ -478,9 +492,10 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         match compiled {
-            CompiledSqlCommand::GlobalAggregate { command } => {
-                self.execute_global_aggregate_statement_with_catalog::<E>(*command.clone(), catalog)
-            }
+            CompiledSqlCommand::GlobalAggregate { command, .. } => self
+                .execute_global_aggregate_compiled_statement_ref_with_catalog::<E>(
+                    compiled, command, catalog,
+                ),
             _ => self.execute_compiled_sql_with_cache_attribution::<E>(compiled),
         }
     }
@@ -506,8 +521,8 @@ impl<C: CanisterKind> DbSession<C> {
                     self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
                 sql_write_statement_result_with_default_cache::<E, C>(SqlWriteKind::Delete, result)
             }
-            CompiledSqlCommand::GlobalAggregate { command } => {
-                self.execute_global_aggregate_statement::<E>(*command)
+            CompiledSqlCommand::GlobalAggregate { command, .. } => {
+                self.execute_global_aggregate_statement_ref::<E>(&command)
             }
             CompiledSqlCommand::Explain(lowered) => {
                 self.execute_explain_sql_with_cache_attribution::<E>(&lowered)

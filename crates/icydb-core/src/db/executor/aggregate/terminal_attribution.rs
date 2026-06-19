@@ -94,8 +94,9 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    const fn from_index_prefix_cardinality_terminal() -> Self {
+    const fn from_index_prefix_cardinality_terminal(base_row_local_instructions: u64) -> Self {
         Self {
+            base_row_local_instructions,
             terminal_count: 1,
             sink_mode: ScalarAggregateSinkMode::IndexPrefixCardinality,
             ..Self::none()
@@ -189,9 +190,13 @@ pub(in crate::db::executor::aggregate) fn record_scalar_aggregate_terminal_attri
     });
 }
 
-pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_terminal_attribution() {
+pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_terminal_attribution(
+    base_row_local_instructions: u64,
+) {
     record_scalar_aggregate_terminal_attribution(
-        ScalarAggregateTerminalAttribution::from_index_prefix_cardinality_terminal(),
+        ScalarAggregateTerminalAttribution::from_index_prefix_cardinality_terminal(
+            base_row_local_instructions,
+        ),
     );
 }
 

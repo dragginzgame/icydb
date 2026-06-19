@@ -5,13 +5,18 @@ use crate::db::sql_shared::{
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
+const SQL_TOKEN_INITIAL_CAPACITY_BASE: usize = 16;
+const SQL_TOKEN_INITIAL_CAPACITY_BYTES_PER_TOKEN_HINT: usize = 12;
+const SQL_TOKEN_INITIAL_CAPACITY_MAX: usize = 1024;
+
 impl<'a> Lexer<'a> {
     pub(super) fn tokenize(sql: &'a str) -> Result<Vec<Token>, SqlParseError> {
         let mut lexer = Self {
+            source: sql,
             bytes: sql.as_bytes(),
             pos: 0,
         };
-        let mut tokens = Vec::with_capacity(sql.len().saturating_div(4).saturating_add(1));
+        let mut tokens = Vec::with_capacity(initial_token_capacity(sql));
 
         while let Some(token) = lexer.next_token()? {
             tokens.push(token);
@@ -149,5 +154,17 @@ impl<'a> Lexer<'a> {
                 },
             )),
         }
+    }
+}
+
+const fn initial_token_capacity(sql: &str) -> usize {
+    let estimated = sql
+        .len()
+        .saturating_div(SQL_TOKEN_INITIAL_CAPACITY_BYTES_PER_TOKEN_HINT)
+        .saturating_add(SQL_TOKEN_INITIAL_CAPACITY_BASE);
+    if estimated > SQL_TOKEN_INITIAL_CAPACITY_MAX {
+        SQL_TOKEN_INITIAL_CAPACITY_MAX
+    } else {
+        estimated
     }
 }

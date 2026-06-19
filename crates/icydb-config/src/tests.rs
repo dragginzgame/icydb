@@ -12,7 +12,7 @@ use crate::{
 use std::{env, fs};
 
 #[test]
-fn absent_config_defaults_all_generated_surfaces_off() {
+fn absent_config_defaults_minimal_metrics_on() {
     let config = parse_icydb_toml("", &[]).expect("empty config should parse");
 
     assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
@@ -22,7 +22,7 @@ fn absent_config_defaults_all_generated_surfaces_off() {
     assert!(config.canister_sql_introspection_policy("demo_rpg").local());
     assert!(!config.canister_sql_introspection_policy("demo_rpg").ic());
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
-    assert!(!config.canister_metrics_enabled("demo_rpg"));
+    assert!(config.canister_metrics_enabled("demo_rpg"));
     assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
@@ -60,7 +60,7 @@ fn explicit_false_disables_metrics_default_surface() {
 }
 
 #[test]
-fn partial_config_entries_do_not_enable_metrics_without_explicit_flag() {
+fn partial_metrics_config_uses_default_enabled_surface() {
     let config = parse_icydb_toml(
         r"
             [canisters.demo_rpg.sql]
@@ -77,8 +77,8 @@ fn partial_config_entries_do_not_enable_metrics_without_explicit_flag() {
     assert!(config.canister_sql_ddl_enabled("demo_rpg"));
     assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
     assert_eq!(config.canister_sql_update_policy("demo_rpg"), None);
-    assert!(!config.canister_metrics_enabled("demo_rpg"));
-    assert!(!config.canister_metrics_extended_enabled("demo_rpg"));
+    assert!(config.canister_metrics_enabled("demo_rpg"));
+    assert!(config.canister_metrics_extended_enabled("demo_rpg"));
     assert!(!config.canister_snapshot_enabled("demo_rpg"));
     assert!(!config.canister_schema_enabled("demo_rpg"));
 }

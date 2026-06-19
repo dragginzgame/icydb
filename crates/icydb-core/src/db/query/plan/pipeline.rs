@@ -27,6 +27,13 @@ use crate::{
     value::{Value, canonicalize_value_set},
 };
 
+#[cfg(feature = "sql")]
+use crate::db::{
+    access::SemanticIndexAccessContract,
+    predicate::{CoercionId, ComparePredicate},
+    query::plan::planner::index_field_literal_matcher,
+};
+
 ///
 /// PreparedScalarPlanningState
 ///
@@ -60,6 +67,50 @@ impl<'a> PreparedScalarPlanningState<'a> {
     #[must_use]
     pub(in crate::db) const fn normalized_predicate(&self) -> Option<&Predicate> {
         self.normalized_predicate.as_ref()
+    }
+}
+
+#[cfg(feature = "sql")]
+pub(in crate::db) struct CountCardinalityPrefixAccess<'a> {
+    index: SemanticIndexAccessContract,
+    values: CountCardinalityPrefixValues<'a>,
+}
+
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy)]
+pub(in crate::db) enum CountCardinalityPrefixValues<'a> {
+    One(&'a Value),
+    Many(&'a [Value]),
+}
+
+#[cfg(feature = "sql")]
+impl CountCardinalityPrefixValues<'_> {
+    #[must_use]
+    pub(in crate::db) const fn is_empty(&self) -> bool {
+        match self {
+            Self::One(_) => false,
+            Self::Many(values) => values.is_empty(),
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+impl<'a> CountCardinalityPrefixAccess<'a> {
+    const fn new(
+        index: SemanticIndexAccessContract,
+        values: CountCardinalityPrefixValues<'a>,
+    ) -> Self {
+        Self { index, values }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn index(&self) -> &SemanticIndexAccessContract {
+        &self.index
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn values(&self) -> CountCardinalityPrefixValues<'a> {
+        self.values
     }
 }
 
@@ -205,6 +256,148 @@ where
     .map_err(QueryError::execute)?;
 
     Ok(plan)
+}
+
+/// Build the exact-prefix COUNT metadata access proof directly from query
+/// intent that already carries a normalized SQL predicate subset.
+#[cfg(feature = "sql")]
+pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query_model<'query, K>(
+    query: &'query QueryModel<'_, K>,
+    visible_indexes: &VisibleIndexes<'_>,
+    schema_info: &SchemaInfo,
+) -> Result<Option<CountCardinalityPrefixAccess<'query>>, QueryError>
+where
+    K: KeyValueCodec,
+{
+    query.validate_policy_shape()?;
+    let access_inputs = query.planning_access_inputs();
+    let logical_inputs = query.planning_logical_inputs();
+    if access_inputs.order().is_some()
+        || access_inputs.has_key_access_override()
+        || logical_inputs.distinct()
+        || logical_inputs.has_group()
+        || logical_inputs.has_having_expr()
+        || (logical_inputs.has_filter_expr() && !logical_inputs.filter_predicate_covers_expr())
+    {
+        return Ok(None);
+    }
+    let crate::db::query::plan::QueryMode::Load(load_spec) = query.mode() else {
+        return Ok(None);
+    };
+    if load_spec.limit().is_some() || load_spec.offset() > 0 {
+        return Ok(None);
+    }
+    let Some(predicate) = access_inputs.predicate() else {
+        return Ok(None);
+    };
+
+    Ok(direct_count_cardinality_prefix_access_from_predicate(
+        visible_indexes,
+        schema_info,
+        predicate,
+    ))
+}
+
+#[cfg(feature = "sql")]
+fn direct_count_cardinality_prefix_access_from_predicate<'predicate>(
+    visible_indexes: &VisibleIndexes<'_>,
+    schema_info: &SchemaInfo,
+    normalized_predicate: &'predicate Predicate,
+) -> Option<CountCardinalityPrefixAccess<'predicate>> {
+    visible_indexes.accepted_field_path_index_count()?;
+    let cmp = direct_count_exact_prefix_compare(normalized_predicate)?;
+    let values = direct_count_exact_prefix_values(schema_info, cmp)?;
+    let index = direct_count_exact_prefix_index(visible_indexes, cmp.field.as_str())?;
+
+    Some(CountCardinalityPrefixAccess::new(index, values))
+}
+
+#[cfg(feature = "sql")]
+fn direct_count_exact_prefix_compare(predicate: &Predicate) -> Option<&ComparePredicate> {
+    let Predicate::Compare(cmp) = predicate else {
+        return None;
+    };
+    if !matches!(cmp.op, CompareOp::Eq | CompareOp::In) || cmp.coercion.id != CoercionId::Strict {
+        return None;
+    }
+
+    Some(cmp)
+}
+
+#[cfg(feature = "sql")]
+fn direct_count_exact_prefix_values<'predicate>(
+    schema_info: &SchemaInfo,
+    cmp: &'predicate ComparePredicate,
+) -> Option<CountCardinalityPrefixValues<'predicate>> {
+    let values = match cmp.op {
+        CompareOp::Eq => CountCardinalityPrefixValues::One(&cmp.value),
+        CompareOp::In => {
+            let Value::List(values) = &cmp.value else {
+                return None;
+            };
+            CountCardinalityPrefixValues::Many(values.as_slice())
+        }
+        CompareOp::Ne
+        | CompareOp::NotIn
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::StartsWith
+        | CompareOp::Contains
+        | CompareOp::EndsWith => return None,
+    };
+    if values.is_empty() || direct_count_exact_prefix_values_mismatch(schema_info, cmp, values) {
+        return None;
+    }
+
+    (!values.is_empty()).then_some(values)
+}
+
+#[cfg(feature = "sql")]
+fn direct_count_exact_prefix_values_mismatch(
+    schema_info: &SchemaInfo,
+    cmp: &ComparePredicate,
+    values: CountCardinalityPrefixValues<'_>,
+) -> bool {
+    let matcher = index_field_literal_matcher(schema_info, &cmp.field);
+    match values {
+        CountCardinalityPrefixValues::One(value) => !matcher.matches(value),
+        CountCardinalityPrefixValues::Many(values) => {
+            values.iter().any(|value| !matcher.matches(value))
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn direct_count_exact_prefix_index(
+    visible_indexes: &VisibleIndexes<'_>,
+    field: &str,
+) -> Option<SemanticIndexAccessContract> {
+    let mut best: Option<SemanticIndexAccessContract> = None;
+    for candidate in visible_indexes.accepted_field_path_indexes() {
+        let index = candidate.semantic_access_contract();
+        if direct_count_index_supports_exact_prefix(&index, field)
+            && best.as_ref().is_none_or(|best| {
+                index.key_arity() < best.key_arity()
+                    || (index.key_arity() == best.key_arity() && index.name() < best.name())
+            })
+        {
+            best = Some(index);
+        }
+    }
+
+    best
+}
+
+#[cfg(feature = "sql")]
+fn direct_count_index_supports_exact_prefix(
+    index: &SemanticIndexAccessContract,
+    field: &str,
+) -> bool {
+    !index.is_filtered()
+        && !index.has_expression_key_items()
+        && index.key_field_at(0) == Some(field)
 }
 
 /// Build the model-only no-predicate scalar-load fast path when the query shape

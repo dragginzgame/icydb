@@ -14,6 +14,8 @@ mod paging;
 mod planning;
 
 pub(in crate::db) use cache::QueryPlanCacheAttribution;
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
 #[cfg(test)]
 pub(in crate::db) use cache::QueryPlanVisibility;
 pub(in crate::db::session) use cache::query_plan_cache_reuse_event;

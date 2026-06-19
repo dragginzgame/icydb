@@ -1138,6 +1138,71 @@ fn session_branch_set_sql_count_covered_predicate_uses_prefix_cardinality() {
         scalar_aggregate.rows_ingested, 0,
         "metadata COUNT should not ingest rows through the buffered reducer",
     );
+    assert_eq!(
+        attribution.cache.shared_query_plan_hits, 0,
+        "direct metadata COUNT should not hit the shared prepared-plan cache",
+    );
+    assert_eq!(
+        attribution.cache.shared_query_plan_misses, 0,
+        "direct metadata COUNT should not build a shared prepared-plan cache entry",
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn session_branch_set_sql_sparse_in_count_uses_direct_prefix_cardinality() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = format!(
+        "SELECT COUNT(*) \
+         FROM BranchIndexedSessionSqlEntity \
+         WHERE collection_id IN (\
+             '{BRANCH_COLLECTION}', \
+             'missing-collection-000', \
+             'missing-collection-001', \
+             'missing-collection-002', \
+             'missing-collection-003', \
+             'missing-collection-004'\
+         )",
+    );
+
+    let (result, attribution) = session
+        .execute_sql_query_with_attribution::<BranchIndexedSessionSqlEntity>(sql.as_str())
+        .unwrap_or_else(|err| panic!("sparse collection COUNT SQL should execute: {err:?}"));
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("sparse collection COUNT SQL should return a projection row");
+    };
+
+    assert_eq!(
+        rows,
+        vec![outputs(vec![Value::Nat64(16)])],
+        "sparse collection COUNT should include only the existing collection prefix",
+    );
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "sparse collection COUNT should use metadata without row probes",
+    );
+    assert_eq!(
+        attribution.index_store_entry_reads, 0,
+        "sparse collection COUNT should not scan index entries",
+    );
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .expect("sparse collection COUNT should report its terminal source");
+    assert_eq!(
+        scalar_aggregate.sink_mode.as_deref(),
+        Some("IndexPrefixCardinality"),
+        "sparse collection COUNT should attribute the exact metadata source",
+    );
+    assert_eq!(
+        attribution.cache.shared_query_plan_hits, 0,
+        "direct sparse COUNT should not hit the shared prepared-plan cache",
+    );
+    assert_eq!(
+        attribution.cache.shared_query_plan_misses, 0,
+        "direct sparse COUNT should not build a shared prepared-plan cache entry",
+    );
 }
 
 #[cfg(feature = "diagnostics")]

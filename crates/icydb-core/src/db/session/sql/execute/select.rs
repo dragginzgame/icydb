@@ -184,6 +184,74 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
+    const fn grouped_select_execute_phase_attribution(
+        planner_local_instructions: u64,
+        execute_local_instructions: u64,
+        store_local_instructions: u64,
+        response_finalization_local_instructions: u64,
+        grouped_phase_attribution: crate::db::executor::GroupedExecutePhaseAttribution,
+    ) -> SqlExecutePhaseAttribution {
+        SqlExecutePhaseAttribution {
+            planner_local_instructions,
+            planner_schema_info_local_instructions: 0,
+            planner_prepare_local_instructions: 0,
+            planner_cache_key_local_instructions: 0,
+            planner_cache_lookup_local_instructions: 0,
+            planner_plan_build_local_instructions: 0,
+            planner_cache_insert_local_instructions: 0,
+            store_local_instructions,
+            executor_invocation_local_instructions: execute_local_instructions
+                .saturating_sub(response_finalization_local_instructions),
+            executor_local_instructions: execute_local_instructions
+                .saturating_sub(store_local_instructions)
+                .saturating_sub(response_finalization_local_instructions),
+            response_finalization_local_instructions,
+            grouped_stream_local_instructions: grouped_phase_attribution.stream_local_instructions,
+            grouped_fold_local_instructions: grouped_phase_attribution.fold_local_instructions,
+            grouped_finalize_local_instructions: grouped_phase_attribution
+                .finalize_local_instructions,
+            grouped_count: grouped_phase_attribution.grouped_count,
+            scalar_aggregate_terminal:
+                crate::db::executor::ScalarAggregateTerminalAttribution::none(),
+            direct_data_row: None,
+            kernel_row: None,
+        }
+    }
+
+    #[cfg(feature = "diagnostics")]
+    const fn projection_select_execute_phase_attribution(
+        planner_local_instructions: u64,
+        execute_local_instructions: u64,
+        store_local_instructions: u64,
+        response_finalization_local_instructions: u64,
+        direct_data_row: Option<crate::db::DirectDataRowAttribution>,
+        kernel_row: Option<crate::db::KernelRowAttribution>,
+    ) -> SqlExecutePhaseAttribution {
+        SqlExecutePhaseAttribution {
+            planner_local_instructions,
+            planner_schema_info_local_instructions: 0,
+            planner_prepare_local_instructions: 0,
+            planner_cache_key_local_instructions: 0,
+            planner_cache_lookup_local_instructions: 0,
+            planner_plan_build_local_instructions: 0,
+            planner_cache_insert_local_instructions: 0,
+            store_local_instructions,
+            executor_invocation_local_instructions: execute_local_instructions,
+            executor_local_instructions: execute_local_instructions
+                .saturating_sub(store_local_instructions),
+            response_finalization_local_instructions,
+            grouped_stream_local_instructions: 0,
+            grouped_fold_local_instructions: 0,
+            grouped_finalize_local_instructions: 0,
+            grouped_count: crate::db::executor::GroupedCountAttribution::none(),
+            scalar_aggregate_terminal:
+                crate::db::executor::ScalarAggregateTerminalAttribution::none(),
+            direct_data_row,
+            kernel_row,
+        }
+    }
+
+    #[cfg(feature = "diagnostics")]
     pub(super) fn execute_select_compiled_sql_with_phase_attribution_from_resolver<E>(
         &self,
         query: &StructuralQuery,
@@ -234,27 +302,13 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok((
                 statement_result,
                 cache_attribution,
-                SqlExecutePhaseAttribution {
+                Self::grouped_select_execute_phase_attribution(
                     planner_local_instructions,
+                    execute_local_instructions,
                     store_local_instructions,
-                    executor_invocation_local_instructions: execute_local_instructions
-                        .saturating_sub(response_finalization_local_instructions),
-                    executor_local_instructions: execute_local_instructions
-                        .saturating_sub(store_local_instructions)
-                        .saturating_sub(response_finalization_local_instructions),
                     response_finalization_local_instructions,
-                    grouped_stream_local_instructions: grouped_phase_attribution
-                        .stream_local_instructions,
-                    grouped_fold_local_instructions: grouped_phase_attribution
-                        .fold_local_instructions,
-                    grouped_finalize_local_instructions: grouped_phase_attribution
-                        .finalize_local_instructions,
-                    grouped_count: grouped_phase_attribution.grouped_count,
-                    scalar_aggregate_terminal:
-                        crate::db::executor::ScalarAggregateTerminalAttribution::none(),
-                    direct_data_row: None,
-                    kernel_row: None,
-                },
+                    grouped_phase_attribution,
+                ),
             ));
         }
 
@@ -286,22 +340,14 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((
             statement_result,
             cache_attribution,
-            SqlExecutePhaseAttribution {
+            Self::projection_select_execute_phase_attribution(
                 planner_local_instructions,
+                execute_local_instructions,
                 store_local_instructions,
-                executor_invocation_local_instructions: execute_local_instructions,
-                executor_local_instructions: execute_local_instructions
-                    .saturating_sub(store_local_instructions),
                 response_finalization_local_instructions,
-                grouped_stream_local_instructions: 0,
-                grouped_fold_local_instructions: 0,
-                grouped_finalize_local_instructions: 0,
-                grouped_count: crate::db::executor::GroupedCountAttribution::none(),
-                scalar_aggregate_terminal:
-                    crate::db::executor::ScalarAggregateTerminalAttribution::none(),
                 direct_data_row,
                 kernel_row,
-            },
+            ),
         ))
     }
 

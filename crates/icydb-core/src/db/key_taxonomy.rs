@@ -710,6 +710,16 @@ impl RawDataStoreKey {
     }
 
     #[must_use]
+    pub(in crate::db) fn entity_tag_prefix(&self) -> Option<EntityTag> {
+        const ENTITY_TAG_SIZE: usize = size_of::<u64>();
+        let prefix = self.bytes.get(..ENTITY_TAG_SIZE)?;
+        let mut bytes = [0u8; ENTITY_TAG_SIZE];
+        bytes.copy_from_slice(prefix);
+
+        Some(EntityTag::new(u64::from_be_bytes(bytes)))
+    }
+
+    #[must_use]
     pub(in crate::db) fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }

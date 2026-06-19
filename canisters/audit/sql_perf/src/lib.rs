@@ -247,6 +247,12 @@ fn average_attribution(
     attribution.plan_lookup_local_instructions = total_plan_lookup_local_instructions / divisor;
     attribution.execution = SqlExecutionAttribution {
         planner_local_instructions: total_planner_local_instructions / divisor,
+        planner_schema_info_local_instructions: 0,
+        planner_prepare_local_instructions: 0,
+        planner_cache_key_local_instructions: 0,
+        planner_cache_lookup_local_instructions: 0,
+        planner_plan_build_local_instructions: 0,
+        planner_cache_insert_local_instructions: 0,
         store_local_instructions: total_store_local_instructions / divisor,
         executor_invocation_local_instructions: total_executor_invocation_local_instructions
             / divisor,

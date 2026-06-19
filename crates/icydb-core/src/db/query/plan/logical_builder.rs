@@ -62,6 +62,36 @@ impl LogicalPlanningInputs {
         self.filter_predicate_covers_expr = false;
         self
     }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) const fn has_filter_expr(&self) -> bool {
+        self.filter_expr.is_some()
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) const fn filter_predicate_covers_expr(&self) -> bool {
+        self.filter_predicate_covers_expr
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) const fn distinct(&self) -> bool {
+        self.distinct
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) const fn has_group(&self) -> bool {
+        self.group.is_some()
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) const fn has_having_expr(&self) -> bool {
+        self.having_expr.is_some()
+    }
 }
 
 ///

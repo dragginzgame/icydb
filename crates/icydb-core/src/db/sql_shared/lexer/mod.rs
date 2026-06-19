@@ -11,6 +11,7 @@ use crate::db::sql_shared::{SqlParseError, types::Token};
 /// without exposing mutable lexical state outside this boundary.
 ///
 struct Lexer<'a> {
+    source: &'a str,
     bytes: &'a [u8],
     pos: usize,
 }

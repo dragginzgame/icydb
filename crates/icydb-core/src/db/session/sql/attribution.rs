@@ -54,6 +54,12 @@ pub struct SqlCompileAttribution {
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlExecutionAttribution {
     pub planner_local_instructions: u64,
+    pub planner_schema_info_local_instructions: u64,
+    pub planner_prepare_local_instructions: u64,
+    pub planner_cache_key_local_instructions: u64,
+    pub planner_cache_lookup_local_instructions: u64,
+    pub planner_plan_build_local_instructions: u64,
+    pub planner_cache_insert_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_invocation_local_instructions: u64,
     pub executor_local_instructions: u64,
@@ -171,6 +177,12 @@ pub struct SqlQueryExecutionAttribution {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub planner_local_instructions: u64,
+    pub planner_schema_info_local_instructions: u64,
+    pub planner_prepare_local_instructions: u64,
+    pub planner_cache_key_local_instructions: u64,
+    pub planner_cache_lookup_local_instructions: u64,
+    pub planner_plan_build_local_instructions: u64,
+    pub planner_cache_insert_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_invocation_local_instructions: u64,
     pub executor_local_instructions: u64,
@@ -194,6 +206,12 @@ impl SqlExecutePhaseAttribution {
     ) -> Self {
         Self {
             planner_local_instructions: 0,
+            planner_schema_info_local_instructions: 0,
+            planner_prepare_local_instructions: 0,
+            planner_cache_key_local_instructions: 0,
+            planner_cache_lookup_local_instructions: 0,
+            planner_plan_build_local_instructions: 0,
+            planner_cache_insert_local_instructions: 0,
             store_local_instructions,
             executor_invocation_local_instructions: execute_local_instructions,
             executor_local_instructions: execute_local_instructions

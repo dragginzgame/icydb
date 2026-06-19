@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
-            LoweredIndexPrefixCardinalityKey, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            LoweredIndexPrefixCardinalityPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             StoreResolver,
             aggregate::{AggregateKind, ScalarTerminalKind, field::FieldSlot},
             pipeline::contracts::GroupedRouteStage,
@@ -628,12 +628,12 @@ pub(in crate::db::executor) enum PreparedScalarTerminalPreflight<'plan> {
     CountIndexPrefixCardinality {
         authority: EntityAuthority,
         logical_plan: &'plan AccessPlannedQuery,
-        prefixes: Vec<LoweredIndexPrefixCardinalityKey>,
+        prefixes: LoweredIndexPrefixCardinalityPlan<'plan>,
     },
     ExistsIndexPrefixCardinality {
         authority: EntityAuthority,
         logical_plan: &'plan AccessPlannedQuery,
-        prefixes: Vec<LoweredIndexPrefixCardinalityKey>,
+        prefixes: LoweredIndexPrefixCardinalityPlan<'plan>,
     },
 }
 

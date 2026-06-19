@@ -104,9 +104,13 @@ struct ConfigInitSurfaceArgs {
     #[arg(long = "update-policy", value_enum, value_name = "POLICY")]
     update_policy: Option<ConfigInitUpdatePolicy>,
 
-    /// Also generate metrics report endpoint.
+    /// Generate metrics report endpoint. Enabled by default.
     #[arg(long)]
     metrics: bool,
+
+    /// Disable the default metrics report endpoint.
+    #[arg(long = "no-metrics")]
+    no_metrics: bool,
 
     /// Also generate extended metrics report endpoint.
     #[arg(long = "metrics-extended")]
@@ -193,11 +197,13 @@ impl ConfigInitSurfaceArgs {
     }
 
     const fn metrics(&self) -> bool {
-        self.surface_enabled(self.metrics) || self.metrics_extended
+        let _ = self.metrics;
+
+        !self.no_metrics
     }
 
     const fn metrics_extended(&self) -> bool {
-        self.surface_enabled(self.metrics_extended)
+        !self.no_metrics && self.surface_enabled(self.metrics_extended)
     }
 
     const fn snapshot(&self) -> bool {

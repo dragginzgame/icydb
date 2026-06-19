@@ -188,6 +188,42 @@ impl LoweredIndexPrefixSpec {
 }
 
 ///
+/// LoweredIndexPrefixCardinalitySpec
+///
+/// Exact index-prefix metadata key for count-only paths.
+/// It intentionally carries only the already-encoded prefix components needed
+/// by index cardinality metadata, not scan bounds or executor traversal state.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+pub(in crate::db) struct LoweredIndexPrefixCardinalitySpec {
+    index_id: IndexId,
+    prefix_components: Vec<Vec<u8>>,
+}
+
+#[cfg(feature = "sql")]
+impl LoweredIndexPrefixCardinalitySpec {
+    #[must_use]
+    const fn new(index_id: IndexId, prefix_components: Vec<Vec<u8>>) -> Self {
+        Self {
+            index_id,
+            prefix_components,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn index_id(&self) -> IndexId {
+        self.index_id
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn prefix_components(&self) -> &[Vec<u8>] {
+        self.prefix_components.as_slice()
+    }
+}
+
+///
 /// LoweredIndexRangeSpec
 ///
 /// Lowered index-range contract with fully materialized byte bounds.
@@ -360,6 +396,58 @@ fn lower_index_specs_for_path<K>(
     }
 
     Ok(())
+}
+
+#[cfg(feature = "sql")]
+pub(in crate::db) fn lower_exact_index_prefix_cardinality_specs_for_prefix_access(
+    entity_tag: EntityTag,
+    access: &crate::db::query::plan::CountCardinalityPrefixAccess<'_>,
+) -> Result<Vec<LoweredIndexPrefixCardinalitySpec>, LoweredAccessError> {
+    let values = access.values();
+    if values.is_empty() {
+        return Err(LoweredAccessError::IndexPrefix);
+    }
+
+    match values {
+        crate::db::query::plan::CountCardinalityPrefixValues::One(value) => {
+            lower_single_component_index_prefix_cardinality_specs(
+                entity_tag,
+                access.index().ordinal(),
+                std::slice::from_ref(value),
+            )
+            .map_err(|_err| LoweredAccessError::IndexPrefix)
+        }
+        crate::db::query::plan::CountCardinalityPrefixValues::Many(values) => {
+            lower_single_component_index_prefix_cardinality_specs(
+                entity_tag,
+                access.index().ordinal(),
+                values,
+            )
+            .map_err(|_err| LoweredAccessError::IndexPrefix)
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn lower_single_component_index_prefix_cardinality_specs(
+    entity_tag: EntityTag,
+    index_ordinal: u16,
+    values: &[Value],
+) -> Result<Vec<LoweredIndexPrefixCardinalitySpec>, InternalError> {
+    if values.is_empty() {
+        return Err(InternalError::query_executor_invariant());
+    }
+
+    let index_id = IndexId::new(entity_tag, index_ordinal);
+    let encoded = EncodedValue::try_encode_all(values)
+        .map_err(|_| InternalError::query_executor_invariant())?;
+
+    Ok(encoded
+        .into_iter()
+        .map(|component| {
+            LoweredIndexPrefixCardinalitySpec::new(index_id, vec![component.encoded().to_vec()])
+        })
+        .collect())
 }
 
 fn lower_index_prefix_values_for_specs(

@@ -106,7 +106,44 @@ fn config_init_writes_bounded_update_policy() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = \"bounded\"\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = true\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
+    );
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn config_init_can_disable_default_metrics_surface() {
+    let root = config_init_test_root("no-metrics");
+    let workspace = root.join("workspace");
+    let package = workspace.join("member");
+    let canister = package.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    write_workspace_manifest(workspace.as_path());
+    write_package_manifest(package.as_path(), "demo_member", "");
+
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        canister.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+        "--no-metrics",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    init_config_without_existing_config(args).expect("config init should succeed");
+
+    let config = std::fs::read_to_string(workspace.join("icydb.toml"))
+        .expect("config file should be written");
+    assert_eq!(
+        config,
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = false\nfixtures = false\nupdate = false\n\n[canisters.demo_rpg.sql.introspection]\nlocal = true\nic = false\n\n[canisters.demo_rpg.metrics]\nenabled = false\nextended = false\n\n[canisters.demo_rpg.snapshot]\nenabled = false\n\n[canisters.demo_rpg.schema]\nenabled = false\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -634,10 +671,11 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
     let resolved = icydb_config::load_resolved_icydb_toml(canister.as_path(), &[])
         .expect("config should resolve");
 
-    let message = disabled_config_surface_message(&resolved, "demo_rpg", ConfigSurface::Metrics);
+    let message =
+        disabled_config_surface_message(&resolved, "demo_rpg", ConfigSurface::MetricsExtended);
 
     assert!(message.contains("metrics"));
-    assert!(message.contains("canisters.<name>.metrics.enabled"));
+    assert!(message.contains("canisters.<name>.metrics.extended"));
     assert!(message.contains(config_path.to_string_lossy().as_ref()));
     assert!(message.contains("rebuild and deploy"));
     std::fs::remove_dir_all(root).expect("test directory should be removed");

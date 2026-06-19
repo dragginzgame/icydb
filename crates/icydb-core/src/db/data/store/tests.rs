@@ -89,6 +89,127 @@ fn data_store_visit_entity_preserves_compact_entity_prefix_bounds() {
 }
 
 #[test]
+fn data_store_entity_cardinality_tracks_heap_writes() {
+    let mut store = seed_heap_store(&[(1, 1, 11), (1, 2, 12), (2, 1, 21)]);
+
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
+    assert_eq!(store.exact_entity_count(EntityTag::new(2)), Some(1));
+    assert_eq!(store.exact_entity_count(EntityTag::new(3)), Some(0));
+
+    store.insert_raw_for_test(raw_key(1, 2), raw_row(22));
+    assert_eq!(
+        store.exact_entity_count(EntityTag::new(1)),
+        Some(2),
+        "replacing a row must not change entity cardinality",
+    );
+
+    store.insert_raw_for_test(raw_key(1, 3), raw_row(13));
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(3));
+
+    let removed = store.remove(&raw_key(1, 1));
+    assert!(removed.is_some());
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
+
+    let removed = store.remove(&raw_key(1, 99));
+    assert!(removed.is_none());
+    assert_eq!(
+        store.exact_entity_count(EntityTag::new(1)),
+        Some(2),
+        "removing a missing row must not change entity cardinality",
+    );
+}
+
+#[test]
+fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
+    let mut store = DataStore::init_journaled(test_memory(226));
+    store
+        .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
+        .expect("canonical seed should fold");
+    store
+        .fold_recovered_journal_put(raw_key(1, 3), raw_row(13))
+        .expect("canonical seed should fold");
+    store
+        .fold_recovered_journal_put(raw_key(2, 1), raw_row(21))
+        .expect("canonical seed should fold");
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
+    assert_eq!(store.exact_entity_count(EntityTag::new(2)), Some(1));
+
+    store
+        .apply_recovered_journal_put(raw_key(1, 0), raw_row(10))
+        .expect("live put should apply");
+    store
+        .apply_recovered_journal_put(raw_key(1, 3), raw_row(33))
+        .expect("live replacement should apply");
+    store
+        .apply_recovered_journal_delete(&raw_key(1, 1))
+        .expect("live delete should apply");
+    assert_eq!(
+        store.exact_entity_count(EntityTag::new(1)),
+        Some(2),
+        "one insert, one replacement, and one delete should leave two entity rows",
+    );
+
+    store
+        .reset_journaled_live_projection()
+        .expect("projection reset should succeed");
+    assert_eq!(
+        store.exact_entity_count(EntityTag::new(1)),
+        Some(2),
+        "projection reset should rebuild counts from canonical rows",
+    );
+}
+
+#[test]
+fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
+    let mut store = DataStore::init_journaled(test_memory(227));
+    store
+        .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
+        .expect("canonical seed should fold");
+    store
+        .fold_recovered_journal_put(raw_key(1, 2), raw_row(12))
+        .expect("canonical seed should fold");
+    store
+        .fold_recovered_journal_put(raw_key(1, 3), raw_row(13))
+        .expect("canonical seed should fold");
+
+    store
+        .apply_recovered_journal_put(raw_key(1, 2), raw_row(22))
+        .expect("live replacement should apply");
+    store
+        .apply_recovered_journal_delete(&raw_key(1, 3))
+        .expect("live delete should apply");
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
+
+    store
+        .fold_recovered_journal_delete(&raw_key(1, 2))
+        .expect("hidden canonical delete should fold");
+    store
+        .fold_recovered_journal_put(raw_key(1, 3), raw_row(33))
+        .expect("hidden canonical put should fold");
+
+    assert_eq!(
+        store.exact_entity_count(EntityTag::new(1)),
+        Some(2),
+        "folding canonical rows hidden by live rows or tombstones must not change visible counts",
+    );
+}
+
+#[test]
+fn data_store_entity_cardinality_fails_closed_for_malformed_raw_keys() {
+    let mut store = seed_heap_store(&[(1, 1, 11)]);
+    store.insert_raw_for_test(
+        RawDataStoreKey::from_persisted_bytes(vec![1, 2, 3]),
+        raw_row(99),
+    );
+
+    assert_eq!(
+        store.exact_entity_count(EntityTag::new(1)),
+        None,
+        "malformed raw keys should disable entity-cardinality metadata",
+    );
+}
+
+#[test]
 fn data_store_visit_entries_can_stop_without_error() {
     let store = seed_store(224, &[(1, 1, 11), (1, 2, 12), (1, 3, 13)]);
 

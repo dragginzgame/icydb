@@ -116,17 +116,16 @@ impl StructuralSqlGlobalAggregateCommand {
         self.strategies.as_slice()
     }
 
-    /// Move the structural aggregate execution inputs out of this command.
+    /// Borrow the canonical output projection for aggregate execution.
     #[must_use]
-    pub(in crate::db) fn into_execution_inputs(
-        self,
-    ) -> (
-        StructuralQuery,
-        Vec<PreparedSqlScalarAggregateStrategy>,
-        ProjectionSpec,
-        Option<Expr>,
-    ) {
-        (self.query, self.strategies, self.projection, self.having)
+    pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
+        &self.projection
+    }
+
+    /// Borrow the optional global aggregate HAVING expression.
+    #[must_use]
+    pub(in crate::db) const fn having(&self) -> Option<&Expr> {
+        self.having.as_ref()
     }
 }
 

@@ -132,14 +132,14 @@ struct MatrixScenario {
     sql: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 struct MatrixOutcome {
     result_kind: &'static str,
     entity: String,
     row_count: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 struct MatrixSample {
     key: String,
     source: String,
@@ -161,11 +161,26 @@ struct MatrixSample {
     compile_cache_insert_local_instructions: u64,
     execute_local_instructions: u64,
     planner_local_instructions: u64,
+    planner_schema_info_local_instructions: u64,
+    planner_prepare_local_instructions: u64,
+    planner_cache_key_local_instructions: u64,
+    planner_cache_lookup_local_instructions: u64,
+    planner_plan_build_local_instructions: u64,
+    planner_cache_insert_local_instructions: u64,
     store_local_instructions: u64,
     executor_local_instructions: u64,
     grouped_stream_local_instructions: u64,
     grouped_fold_local_instructions: u64,
     grouped_finalize_local_instructions: u64,
+    scalar_aggregate_base_row_local_instructions: u64,
+    scalar_aggregate_reducer_fold_local_instructions: u64,
+    scalar_aggregate_expression_evaluations: u64,
+    scalar_aggregate_filter_evaluations: u64,
+    scalar_aggregate_rows_ingested: u64,
+    scalar_aggregate_terminal_count: u64,
+    scalar_aggregate_unique_input_expr_count: u64,
+    scalar_aggregate_unique_filter_expr_count: u64,
+    scalar_aggregate_sink_mode: Option<String>,
     pure_covering_decode_local_instructions: u64,
     pure_covering_row_assembly_local_instructions: u64,
     hybrid_covering_path_hits: u64,
@@ -1264,92 +1279,163 @@ fn sample_scenario(
 ) -> Result<MatrixSample, Box<MatrixFailure>> {
     let perf = query_surface_with_perf(fixture, scenario)
         .map_err(|err| Box::new(matrix_failure_from_error(scenario, err)))?;
-    let attribution = perf.attribution;
-    let compile = attribution.compile;
-    let grouped = attribution.grouped;
-    let pure_covering = attribution.pure_covering;
-    let hybrid_covering = attribution.hybrid_covering;
-    let direct_data_row = attribution.direct_data_row;
-    let kernel_row = attribution.kernel_row;
 
-    Ok(MatrixSample {
+    Ok(matrix_sample_from_perf(scenario, &perf))
+}
+
+fn matrix_sample_from_perf(scenario: &MatrixScenario, perf: &SqlQueryPerfResult) -> MatrixSample {
+    let attribution = &perf.attribution;
+    let mut sample = MatrixSample {
         key: scenario.key.clone(),
         source: scenario.source.label().to_string(),
         surface: scenario.surface.label().to_string(),
         family: scenario.family.clone(),
         sql: scenario.sql.clone(),
-        compile_local_instructions: attribution.compile_local_instructions,
-        compile_cache_key_local_instructions: compile.cache_key_local_instructions,
-        compile_cache_lookup_local_instructions: compile.cache_lookup_local_instructions,
-        compile_parse_local_instructions: compile.parse_local_instructions,
-        compile_parse_tokenize_local_instructions: compile.parse_tokenize_local_instructions,
-        compile_parse_select_local_instructions: compile.parse_select_local_instructions,
-        compile_parse_expr_local_instructions: compile.parse_expr_local_instructions,
-        compile_parse_predicate_local_instructions: compile.parse_predicate_local_instructions,
-        compile_aggregate_lane_check_local_instructions: compile
-            .aggregate_lane_check_local_instructions,
-        compile_prepare_local_instructions: compile.prepare_local_instructions,
-        compile_lower_local_instructions: compile.lower_local_instructions,
-        compile_bind_local_instructions: compile.bind_local_instructions,
-        compile_cache_insert_local_instructions: compile.cache_insert_local_instructions,
-        execute_local_instructions: attribution.execute_local_instructions,
-        planner_local_instructions: attribution.execution.planner_local_instructions,
-        store_local_instructions: attribution.execution.store_local_instructions,
-        executor_local_instructions: attribution.execution.executor_local_instructions,
-        grouped_stream_local_instructions: grouped
-            .map_or(0, |grouped| grouped.stream_local_instructions),
-        grouped_fold_local_instructions: grouped
-            .map_or(0, |grouped| grouped.fold_local_instructions),
-        grouped_finalize_local_instructions: grouped
-            .map_or(0, |grouped| grouped.finalize_local_instructions),
-        pure_covering_decode_local_instructions: pure_covering
-            .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
-        pure_covering_row_assembly_local_instructions: pure_covering.map_or(0, |pure_covering| {
-            pure_covering.row_assembly_local_instructions
-        }),
-        hybrid_covering_path_hits: hybrid_covering.map_or(0, |hybrid| hybrid.path_hits),
-        hybrid_covering_index_field_accesses: hybrid_covering
-            .map_or(0, |hybrid| hybrid.index_field_accesses),
-        hybrid_covering_row_field_accesses: hybrid_covering
-            .map_or(0, |hybrid| hybrid.row_field_accesses),
-        direct_data_row_scan_local_instructions: direct_data_row
-            .map_or(0, |direct| direct.scan_local_instructions),
-        direct_data_row_key_stream_local_instructions: direct_data_row
-            .map_or(0, |direct| direct.key_stream_local_instructions),
-        direct_data_row_row_read_local_instructions: direct_data_row
-            .map_or(0, |direct| direct.row_read_local_instructions),
-        direct_data_row_key_encode_local_instructions: direct_data_row
-            .map_or(0, |direct| direct.key_encode_local_instructions),
-        direct_data_row_store_get_local_instructions: direct_data_row
-            .map_or(0, |direct| direct.store_get_local_instructions),
-        direct_data_row_order_window_local_instructions: direct_data_row
-            .map_or(0, |direct| direct.order_window_local_instructions),
-        direct_data_row_page_window_local_instructions: direct_data_row
-            .map_or(0, |direct| direct.page_window_local_instructions),
-        kernel_row_scan_local_instructions: kernel_row
-            .map_or(0, |kernel| kernel.scan_local_instructions),
-        kernel_row_key_stream_local_instructions: kernel_row
-            .map_or(0, |kernel| kernel.key_stream_local_instructions),
-        kernel_row_row_read_local_instructions: kernel_row
-            .map_or(0, |kernel| kernel.row_read_local_instructions),
-        kernel_row_order_window_local_instructions: kernel_row
-            .map_or(0, |kernel| kernel.order_window_local_instructions),
-        kernel_row_page_window_local_instructions: kernel_row
-            .map_or(0, |kernel| kernel.page_window_local_instructions),
-        data_store_get_calls: attribution.store_get_calls,
-        index_store_get_calls: attribution.index_store_get_calls,
-        index_store_range_scan_calls: attribution.index_store_range_scan_calls,
-        index_store_entry_reads: attribution.index_store_entry_reads,
-        output_blob_values: attribution.output_blob.projected_values,
-        output_blob_bytes: attribution.output_blob.projected_bytes,
-        output_blob_hex_bytes: attribution.output_blob.rendered_hex_bytes,
-        sql_compiled_command_hits: attribution.cache.sql_compiled_command_hits,
-        sql_compiled_command_misses: attribution.cache.sql_compiled_command_misses,
-        shared_query_plan_hits: attribution.cache.shared_query_plan_hits,
-        shared_query_plan_misses: attribution.cache.shared_query_plan_misses,
-        total_local_instructions: attribution.total_local_instructions,
         outcome: summarize_perf_outcome(&perf.result),
-    })
+        ..MatrixSample::default()
+    };
+
+    fill_matrix_compile_sample(&mut sample, attribution);
+    fill_matrix_execution_sample(&mut sample, attribution);
+    fill_matrix_grouped_sample(&mut sample, attribution);
+    fill_matrix_scalar_aggregate_sample(&mut sample, attribution);
+    fill_matrix_projection_path_sample(&mut sample, attribution);
+    fill_matrix_store_output_cache_sample(&mut sample, attribution);
+
+    sample
+}
+
+const fn fill_matrix_compile_sample(
+    sample: &mut MatrixSample,
+    attribution: &SqlQueryExecutionAttribution,
+) {
+    let compile = attribution.compile;
+
+    sample.compile_local_instructions = attribution.compile_local_instructions;
+    sample.compile_cache_key_local_instructions = compile.cache_key_local_instructions;
+    sample.compile_cache_lookup_local_instructions = compile.cache_lookup_local_instructions;
+    sample.compile_parse_local_instructions = compile.parse_local_instructions;
+    sample.compile_parse_tokenize_local_instructions = compile.parse_tokenize_local_instructions;
+    sample.compile_parse_select_local_instructions = compile.parse_select_local_instructions;
+    sample.compile_parse_expr_local_instructions = compile.parse_expr_local_instructions;
+    sample.compile_parse_predicate_local_instructions = compile.parse_predicate_local_instructions;
+    sample.compile_aggregate_lane_check_local_instructions =
+        compile.aggregate_lane_check_local_instructions;
+    sample.compile_prepare_local_instructions = compile.prepare_local_instructions;
+    sample.compile_lower_local_instructions = compile.lower_local_instructions;
+    sample.compile_bind_local_instructions = compile.bind_local_instructions;
+    sample.compile_cache_insert_local_instructions = compile.cache_insert_local_instructions;
+}
+
+const fn fill_matrix_execution_sample(
+    sample: &mut MatrixSample,
+    attribution: &SqlQueryExecutionAttribution,
+) {
+    let execution = attribution.execution;
+
+    sample.execute_local_instructions = attribution.execute_local_instructions;
+    sample.planner_local_instructions = execution.planner_local_instructions;
+    sample.planner_schema_info_local_instructions =
+        execution.planner_schema_info_local_instructions;
+    sample.planner_prepare_local_instructions = execution.planner_prepare_local_instructions;
+    sample.planner_cache_key_local_instructions = execution.planner_cache_key_local_instructions;
+    sample.planner_cache_lookup_local_instructions =
+        execution.planner_cache_lookup_local_instructions;
+    sample.planner_plan_build_local_instructions = execution.planner_plan_build_local_instructions;
+    sample.planner_cache_insert_local_instructions =
+        execution.planner_cache_insert_local_instructions;
+    sample.store_local_instructions = execution.store_local_instructions;
+    sample.executor_local_instructions = execution.executor_local_instructions;
+    sample.total_local_instructions = attribution.total_local_instructions;
+}
+
+const fn fill_matrix_grouped_sample(
+    sample: &mut MatrixSample,
+    attribution: &SqlQueryExecutionAttribution,
+) {
+    let Some(grouped) = attribution.grouped else {
+        return;
+    };
+
+    sample.grouped_stream_local_instructions = grouped.stream_local_instructions;
+    sample.grouped_fold_local_instructions = grouped.fold_local_instructions;
+    sample.grouped_finalize_local_instructions = grouped.finalize_local_instructions;
+}
+
+fn fill_matrix_scalar_aggregate_sample(
+    sample: &mut MatrixSample,
+    attribution: &SqlQueryExecutionAttribution,
+) {
+    let Some(aggregate) = &attribution.scalar_aggregate else {
+        return;
+    };
+
+    sample.scalar_aggregate_base_row_local_instructions = aggregate.base_row_local_instructions;
+    sample.scalar_aggregate_reducer_fold_local_instructions =
+        aggregate.reducer_fold_local_instructions;
+    sample.scalar_aggregate_expression_evaluations = aggregate.expression_evaluations;
+    sample.scalar_aggregate_filter_evaluations = aggregate.filter_evaluations;
+    sample.scalar_aggregate_rows_ingested = aggregate.rows_ingested;
+    sample.scalar_aggregate_terminal_count = aggregate.terminal_count;
+    sample.scalar_aggregate_unique_input_expr_count = aggregate.unique_input_expr_count;
+    sample.scalar_aggregate_unique_filter_expr_count = aggregate.unique_filter_expr_count;
+    sample
+        .scalar_aggregate_sink_mode
+        .clone_from(&aggregate.sink_mode);
+}
+
+const fn fill_matrix_projection_path_sample(
+    sample: &mut MatrixSample,
+    attribution: &SqlQueryExecutionAttribution,
+) {
+    if let Some(pure_covering) = attribution.pure_covering {
+        sample.pure_covering_decode_local_instructions = pure_covering.decode_local_instructions;
+        sample.pure_covering_row_assembly_local_instructions =
+            pure_covering.row_assembly_local_instructions;
+    }
+
+    if let Some(hybrid) = attribution.hybrid_covering {
+        sample.hybrid_covering_path_hits = hybrid.path_hits;
+        sample.hybrid_covering_index_field_accesses = hybrid.index_field_accesses;
+        sample.hybrid_covering_row_field_accesses = hybrid.row_field_accesses;
+    }
+
+    if let Some(direct) = attribution.direct_data_row {
+        sample.direct_data_row_scan_local_instructions = direct.scan_local_instructions;
+        sample.direct_data_row_key_stream_local_instructions = direct.key_stream_local_instructions;
+        sample.direct_data_row_row_read_local_instructions = direct.row_read_local_instructions;
+        sample.direct_data_row_key_encode_local_instructions = direct.key_encode_local_instructions;
+        sample.direct_data_row_store_get_local_instructions = direct.store_get_local_instructions;
+        sample.direct_data_row_order_window_local_instructions =
+            direct.order_window_local_instructions;
+        sample.direct_data_row_page_window_local_instructions =
+            direct.page_window_local_instructions;
+    }
+
+    if let Some(kernel) = attribution.kernel_row {
+        sample.kernel_row_scan_local_instructions = kernel.scan_local_instructions;
+        sample.kernel_row_key_stream_local_instructions = kernel.key_stream_local_instructions;
+        sample.kernel_row_row_read_local_instructions = kernel.row_read_local_instructions;
+        sample.kernel_row_order_window_local_instructions = kernel.order_window_local_instructions;
+        sample.kernel_row_page_window_local_instructions = kernel.page_window_local_instructions;
+    }
+}
+
+const fn fill_matrix_store_output_cache_sample(
+    sample: &mut MatrixSample,
+    attribution: &SqlQueryExecutionAttribution,
+) {
+    sample.data_store_get_calls = attribution.store_get_calls;
+    sample.index_store_get_calls = attribution.index_store_get_calls;
+    sample.index_store_range_scan_calls = attribution.index_store_range_scan_calls;
+    sample.index_store_entry_reads = attribution.index_store_entry_reads;
+    sample.output_blob_values = attribution.output_blob.projected_values;
+    sample.output_blob_bytes = attribution.output_blob.projected_bytes;
+    sample.output_blob_hex_bytes = attribution.output_blob.rendered_hex_bytes;
+    sample.sql_compiled_command_hits = attribution.cache.sql_compiled_command_hits;
+    sample.sql_compiled_command_misses = attribution.cache.sql_compiled_command_misses;
+    sample.shared_query_plan_hits = attribution.cache.shared_query_plan_hits;
+    sample.shared_query_plan_misses = attribution.cache.shared_query_plan_misses;
 }
 
 fn matrix_failure_from_error(scenario: &MatrixScenario, err: Error) -> MatrixFailure {
@@ -2743,11 +2829,26 @@ fn report_matrix_sample(
         compile_cache_insert_local_instructions: 0,
         execute_local_instructions: total.saturating_sub(1),
         planner_local_instructions: 0,
+        planner_schema_info_local_instructions: 0,
+        planner_prepare_local_instructions: 0,
+        planner_cache_key_local_instructions: 0,
+        planner_cache_lookup_local_instructions: 0,
+        planner_plan_build_local_instructions: 0,
+        planner_cache_insert_local_instructions: 0,
         store_local_instructions: store,
         executor_local_instructions: total.saturating_sub(store),
         grouped_stream_local_instructions: 0,
         grouped_fold_local_instructions: 0,
         grouped_finalize_local_instructions: 0,
+        scalar_aggregate_base_row_local_instructions: 0,
+        scalar_aggregate_reducer_fold_local_instructions: 0,
+        scalar_aggregate_expression_evaluations: 0,
+        scalar_aggregate_filter_evaluations: 0,
+        scalar_aggregate_rows_ingested: 0,
+        scalar_aggregate_terminal_count: 0,
+        scalar_aggregate_unique_input_expr_count: 0,
+        scalar_aggregate_unique_filter_expr_count: 0,
+        scalar_aggregate_sink_mode: None,
         pure_covering_decode_local_instructions: 0,
         pure_covering_row_assembly_local_instructions: 0,
         hybrid_covering_path_hits: 0,

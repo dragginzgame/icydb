@@ -9,7 +9,7 @@ use crate::{
     },
     value::{
         CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
-        hash_value,
+        canonicalize_value_set, hash_value,
     },
 };
 use std::cmp::Ordering;
@@ -475,6 +475,22 @@ fn canonical_cmp_map_entry_orders_by_key_then_value() {
         Ordering::Greater,
         "map entry comparison must keep value tie-break deterministic",
     );
+}
+
+#[test]
+fn canonicalize_value_set_preserves_sorted_unique_fast_path_semantics() {
+    let mut values = vec![v_txt("a"), v_txt("b"), v_txt("c")];
+    canonicalize_value_set(&mut values);
+
+    assert_eq!(values, vec![v_txt("a"), v_txt("b"), v_txt("c")]);
+}
+
+#[test]
+fn canonicalize_value_set_still_sorts_and_dedups_non_canonical_input() {
+    let mut values = vec![v_txt("c"), v_txt("a"), v_txt("b"), v_txt("a")];
+    canonicalize_value_set(&mut values);
+
+    assert_eq!(values, vec![v_txt("a"), v_txt("b"), v_txt("c")]);
 }
 
 // ---- list membership ---------------------------------------------------

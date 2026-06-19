@@ -493,6 +493,37 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_compile_phase_attribution(
+        &self,
+        authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
+        schema_fingerprint: CommitSchemaFingerprint,
+        query: &StructuralQuery,
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            QueryPlanCacheAttribution,
+            QueryPlanCompilePhaseAttribution,
+        ),
+        QueryError,
+    > {
+        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
+        let mut compile_attribution = QueryPlanCompilePhaseAttribution::default();
+        let mut recorder = QueryPlanCompilePhaseRecorder::new(&mut compile_attribution);
+        let (prepared_plan, cache_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility_recording(
+                authority,
+                accepted_schema,
+                schema_fingerprint,
+                visibility,
+                query,
+                &mut recorder,
+            )?;
+
+        Ok((prepared_plan, cache_attribution, compile_attribution))
+    }
+
     #[cfg(feature = "sql")]
     fn cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint_and_visibility(
         &self,
@@ -937,24 +968,6 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
 
         self.cached_shared_query_plan_for_entity_with_catalog_recording(query, &catalog, recorder)
-    }
-
-    #[cfg(feature = "sql")]
-    pub(in crate::db::session) fn cached_shared_query_plan_for_entity_with_catalog<E>(
-        &self,
-        query: &Query<E>,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let mut recorder = QueryPlanCompilePhaseRecorder::none();
-
-        self.cached_shared_query_plan_for_entity_with_catalog_recording(
-            query,
-            catalog,
-            &mut recorder,
-        )
     }
 
     fn cached_shared_query_plan_for_entity_with_catalog_recording<E>(

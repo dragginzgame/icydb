@@ -40,3 +40,7 @@ pub(in crate::db) use lowering::{
     LoweredAccess, LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
     LoweredIndexScanContract, LoweredKey, lower_access,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use lowering::{
+    LoweredIndexPrefixCardinalitySpec, lower_exact_index_prefix_cardinality_specs_for_prefix_access,
+};

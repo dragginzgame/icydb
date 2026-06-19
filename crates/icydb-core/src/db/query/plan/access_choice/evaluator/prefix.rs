@@ -9,7 +9,10 @@ use crate::{
                 AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore,
             },
             key_item_match::{eq_lookup_value_for_key_item, key_item_matches_field_and_coercion},
-            planner::{MAX_INDEX_BRANCH_SET_VALUES, index_literal_matches_schema},
+            planner::{
+                MAX_INDEX_BRANCH_SET_VALUES, index_field_literal_matcher,
+                index_literal_matches_schema,
+            },
         },
         schema::SchemaInfo,
     },
@@ -251,8 +254,9 @@ pub(super) fn evaluate_multi_lookup_candidate_from_contract(
     if values.is_empty() {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::InLiteralEmpty);
     }
+    let matcher = index_field_literal_matcher(schema, cmp.field.as_str());
     for value in values {
-        let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), value);
+        let literal_compatible = matcher.matches(value);
         if eq_lookup_value_for_key_item(
             leading_key_item,
             cmp.field.as_str(),
@@ -421,9 +425,9 @@ fn branch_values_for_key_item(
         }
 
         let mut branch_values = Vec::with_capacity(values.len());
+        let literal_matcher = index_field_literal_matcher(schema, cmp.field.as_str());
         for value in values {
-            let literal_compatible =
-                index_literal_matches_schema(schema, cmp.field.as_str(), value);
+            let literal_compatible = literal_matcher.matches(value);
             let Some(lookup_value) = eq_lookup_value_for_key_item(
                 key_item,
                 cmp.field.as_str(),

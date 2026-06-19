@@ -75,7 +75,7 @@ Current generated surfaces:
 - `__icydb_fixtures_reset` and `__icydb_fixtures_load` for local fixture flows
 - `__icydb_snapshot` for storage inventory and stable allocation metadata
 - `__icydb_schema` and `__icydb_schema_check` for accepted schema diagnostics
-- `__icydb_metrics` and `__icydb_metrics_reset` for explicitly enabled runtime metrics
+- `__icydb_metrics` and `__icydb_metrics_reset` for default runtime metrics
 
 Fixture loading calls a plain non-exported user hook when present:
 

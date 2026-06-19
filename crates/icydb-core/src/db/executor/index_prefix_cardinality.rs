@@ -4,7 +4,7 @@
 //! Boundary: fail-open helpers for runtime branch pruning.
 
 use crate::db::{
-    access::{ExecutionPathPayload, LoweredAccess, LoweredIndexPrefixSpec},
+    access::{AccessPath, LoweredIndexPrefixSpec},
     data::DataStore,
     index::{IndexId, IndexKey, IndexKeyKind, IndexStore},
     query::plan::AccessPlannedQuery,
@@ -12,6 +12,30 @@ use crate::db::{
 };
 use crate::value::Value;
 use std::ops::Bound;
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::db::executor) struct LoweredIndexPrefixCardinalityPlan<'a> {
+    index_id: IndexId,
+    prefix_len: usize,
+    specs: &'a [LoweredIndexPrefixSpec],
+}
+
+impl<'a> LoweredIndexPrefixCardinalityPlan<'a> {
+    #[must_use]
+    pub(in crate::db::executor) const fn index_id(&self) -> IndexId {
+        self.index_id
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn prefix_len(&self) -> usize {
+        self.prefix_len
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn specs(&self) -> &'a [LoweredIndexPrefixSpec] {
+        self.specs
+    }
+}
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::db::executor) struct LoweredIndexPrefixCardinalityKey {
@@ -102,57 +126,91 @@ pub(in crate::db::executor) fn lowered_index_prefix_cardinality_key(
     })
 }
 
-pub(in crate::db::executor) fn exact_count_cardinality_prefixes_for_plan(
+pub(in crate::db::executor) fn exact_count_cardinality_prefixes_for_plan<'specs>(
+    entity_tag: crate::types::EntityTag,
     plan: &AccessPlannedQuery,
-    lowered_access: &LoweredAccess<'_, Value>,
-    index_prefix_specs: &[LoweredIndexPrefixSpec],
-) -> Option<Vec<LoweredIndexPrefixCardinalityKey>> {
+    index_prefix_specs: &'specs [LoweredIndexPrefixSpec],
+    allow_ordered_plan: bool,
+) -> Option<LoweredIndexPrefixCardinalityPlan<'specs>> {
+    // COUNT page windows only need exact candidate cardinality. ORDER BY
+    // affects row identity, but not COUNT window size once residual filtering
+    // and DISTINCT are already ruled out. EXISTS keeps ordered plans on the
+    // kernel path because missing-row policy and stale index entries can affect
+    // which candidate first proves existence.
     if !plan.has_no_distinct()
-        || plan.scalar_plan().order.is_some()
+        || (!allow_ordered_plan && plan.scalar_plan().order.is_some())
         || plan.has_residual_filter_expr()
         || plan.has_residual_filter_predicate()
     {
         return None;
     }
 
-    let path = lowered_access.executable().as_path()?;
-    let index = path.index_prefix_details()?;
-    let prefix_len = index.slot_arity();
-    let expected_prefix_specs = match path {
-        ExecutionPathPayload::IndexBranchSet { branch_count, .. } => *branch_count,
-        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => *value_count,
-        ExecutionPathPayload::IndexPrefix { .. } => 1,
-        ExecutionPathPayload::ByKey(_)
-        | ExecutionPathPayload::ByKeys(_)
-        | ExecutionPathPayload::KeyRange { .. }
-        | ExecutionPathPayload::IndexRange { .. }
-        | ExecutionPathPayload::FullScan => return None,
-    };
+    let path = plan.access.as_path()?;
+    let contract = cardinality_prefix_contract_for_path(path)?;
 
-    exact_cardinality_prefixes_from_lowered_specs(
+    exact_cardinality_plan_from_lowered_specs(
+        entity_tag,
         index_prefix_specs,
-        expected_prefix_specs,
-        prefix_len,
+        contract.index_ordinal,
+        contract.expected_prefix_specs,
+        contract.prefix_len,
     )
 }
 
-fn exact_cardinality_prefixes_from_lowered_specs(
-    specs: &[LoweredIndexPrefixSpec],
+#[derive(Clone, Copy)]
+struct CardinalityPrefixContract {
+    index_ordinal: u16,
     expected_prefix_specs: usize,
     prefix_len: usize,
-) -> Option<Vec<LoweredIndexPrefixCardinalityKey>> {
+}
+
+fn cardinality_prefix_contract_for_path(
+    path: &AccessPath<Value>,
+) -> Option<CardinalityPrefixContract> {
+    if let Some((index, values)) = path.as_index_prefix_contract() {
+        return Some(CardinalityPrefixContract {
+            index_ordinal: index.ordinal(),
+            expected_prefix_specs: 1,
+            prefix_len: values.len(),
+        });
+    }
+    if let Some((index, values)) = path.as_index_multi_lookup_contract() {
+        return Some(CardinalityPrefixContract {
+            index_ordinal: index.ordinal(),
+            expected_prefix_specs: values.len(),
+            prefix_len: 1,
+        });
+    }
+    if let Some(spec) = path.as_index_branch_set_spec() {
+        return Some(CardinalityPrefixContract {
+            index_ordinal: spec.index_ref().ordinal(),
+            expected_prefix_specs: spec.branch_count(),
+            prefix_len: spec.branch_prefix_len(),
+        });
+    }
+
+    None
+}
+
+fn exact_cardinality_plan_from_lowered_specs(
+    entity_tag: crate::types::EntityTag,
+    specs: &[LoweredIndexPrefixSpec],
+    index_ordinal: u16,
+    expected_prefix_specs: usize,
+    prefix_len: usize,
+) -> Option<LoweredIndexPrefixCardinalityPlan<'_>> {
     if prefix_len == 0 || specs.len() != expected_prefix_specs {
         return None;
     }
-
-    let mut prefixes = Vec::with_capacity(specs.len());
     for spec in specs {
-        prefixes.push(lowered_index_prefix_cardinality_key(spec, prefix_len)?);
+        spec.prefix_components().get(..prefix_len)?;
     }
-    prefixes.sort();
-    prefixes.dedup();
 
-    Some(prefixes)
+    Some(LoweredIndexPrefixCardinalityPlan {
+        index_id: IndexId::new(entity_tag, index_ordinal),
+        prefix_len,
+        specs,
+    })
 }
 
 fn exact_cardinality_index_id_from_lowered_spec(spec: &LoweredIndexPrefixSpec) -> Option<IndexId> {

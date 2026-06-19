@@ -362,6 +362,19 @@ impl StructuralQuery {
         Ok(plan)
     }
 
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn try_build_count_cardinality_prefix_access_with_schema_info(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        schema_info: &SchemaInfo,
+    ) -> Result<Option<crate::db::query::plan::CountCardinalityPrefixAccess<'_>>, QueryError> {
+        crate::db::query::plan::try_build_count_cardinality_prefix_access_from_query_model(
+            &self.intent,
+            visible_indexes,
+            schema_info,
+        )
+    }
+
     pub(in crate::db) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
         schema_info: SchemaInfo,

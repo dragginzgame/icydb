@@ -33,8 +33,8 @@ use crate::{
 };
 
 pub(in crate::db::query::plan) use crate::db::access::MAX_INDEX_BRANCH_SET_VALUES;
-pub(in crate::db::query::plan) use index_select::{
-    index_literal_matches_schema, sorted_index_contracts,
+pub(in crate::db::query) use index_select::{
+    index_field_literal_matcher, index_literal_matches_schema, sorted_index_contracts,
 };
 pub(in crate::db) use index_select::{
     residual_query_predicate_after_access_path_bounds,

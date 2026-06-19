@@ -45,6 +45,7 @@ fn record_data_store_get_call() {
 pub struct DataStore {
     backend: DataStoreBackend,
     generation: u64,
+    entity_cardinality: EntityCardinality,
 }
 
 enum DataStoreBackend {
@@ -76,6 +77,7 @@ impl DataStore {
         Self {
             backend: DataStoreBackend::Heap(HeapBTreeMap::new()),
             generation: 0,
+            entity_cardinality: EntityCardinality::empty(),
         }
     }
 
@@ -86,14 +88,17 @@ impl DataStore {
     /// methods.
     #[must_use]
     pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        Self {
+        let mut store = Self {
             backend: DataStoreBackend::Journaled {
                 canonical: StableBTreeMap::init(memory),
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
             },
             generation: 0,
-        }
+            entity_cardinality: EntityCardinality::empty(),
+        };
+        store.rebuild_entity_cardinality_from_entries();
+        store
     }
 
     /// Insert or replace one row by raw key.
@@ -108,6 +113,7 @@ impl DataStore {
         } else {
             None
         };
+        let cardinality_key = key.clone();
         let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
@@ -118,6 +124,8 @@ impl DataStore {
                 previous_journaled
             }
         };
+        self.entity_cardinality
+            .apply_insert(&cardinality_key, previous.as_ref());
         self.bump_generation();
         previous
     }
@@ -134,6 +142,7 @@ impl DataStore {
         } else {
             None
         };
+        let cardinality_key = key.clone();
         let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
@@ -144,6 +153,8 @@ impl DataStore {
                 previous_journaled
             }
         };
+        self.entity_cardinality
+            .apply_insert(&cardinality_key, previous.as_ref());
         self.bump_generation();
         previous
     }
@@ -165,6 +176,7 @@ impl DataStore {
                 previous_journaled
             }
         };
+        self.entity_cardinality.apply_remove(key, previous.as_ref());
         self.bump_generation();
         previous
     }
@@ -183,6 +195,7 @@ impl DataStore {
 
         live.clear();
         tombstones.clear();
+        self.rebuild_entity_cardinality_from_entries();
         self.bump_generation();
 
         Ok(())
@@ -209,7 +222,10 @@ impl DataStore {
             live.get(&key).cloned().or_else(|| canonical.get(&key))
         };
         tombstones.remove(&key);
+        let cardinality_key = key.clone();
         live.insert(key, row);
+        self.entity_cardinality
+            .apply_insert(&cardinality_key, previous.as_ref());
         self.bump_generation();
 
         Ok(previous)
@@ -236,6 +252,7 @@ impl DataStore {
         };
         live.remove(key);
         tombstones.insert(key.clone());
+        self.entity_cardinality.apply_remove(key, previous.as_ref());
         self.bump_generation();
 
         Ok(previous)
@@ -247,11 +264,22 @@ impl DataStore {
         key: RawDataStoreKey,
         row: RawRow,
     ) -> Result<Option<RawRow>, crate::error::InternalError> {
-        let DataStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &mut self.backend
+        else {
             return Err(crate::error::InternalError::store_invariant());
         };
 
+        let visible = !live.contains_key(&key) && !tombstones.contains(&key);
+        let cardinality_key = key.clone();
         let previous = canonical.insert(key, row);
+        if visible {
+            self.entity_cardinality
+                .apply_insert(&cardinality_key, previous.as_ref());
+        }
         self.bump_generation();
 
         Ok(previous)
@@ -262,11 +290,20 @@ impl DataStore {
         &mut self,
         key: &RawDataStoreKey,
     ) -> Result<Option<RawRow>, crate::error::InternalError> {
-        let DataStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
+        let DataStoreBackend::Journaled {
+            canonical,
+            live,
+            tombstones,
+        } = &mut self.backend
+        else {
             return Err(crate::error::InternalError::store_invariant());
         };
 
+        let visible = !live.contains_key(key) && !tombstones.contains(key);
         let previous = canonical.remove(key);
+        if visible {
+            self.entity_cardinality.apply_remove(key, previous.as_ref());
+        }
         self.bump_generation();
 
         Ok(previous)
@@ -309,6 +346,7 @@ impl DataStore {
                 tombstones.clear();
             }
         }
+        self.entity_cardinality.clear();
         self.bump_generation();
     }
 
@@ -332,6 +370,12 @@ impl DataStore {
     #[must_use]
     pub(in crate::db) const fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Return an exact current row count for one entity when store metadata is valid.
+    #[must_use]
+    pub(in crate::db) fn exact_entity_count(&self, entity: EntityTag) -> Option<u64> {
+        self.entity_cardinality.exact_count(entity)
     }
 
     /// Return whether the data store currently contains no rows.
@@ -482,6 +526,15 @@ impl DataStore {
         self.generation = self.generation.saturating_add(1);
     }
 
+    fn rebuild_entity_cardinality_from_entries(&mut self) {
+        let mut cardinality = EntityCardinality::empty();
+        let _: Result<(), Infallible> = self.visit_entries(|key, _row| {
+            cardinality.apply_present_key(key);
+            Ok(StoreVisit::Continue)
+        });
+        self.entity_cardinality = cardinality;
+    }
+
     /// Return the monotonic perf-only count of stable row fetches seen by this process.
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn current_get_call_count() -> u64 {
@@ -627,6 +680,81 @@ impl DataStore {
                 },
             ),
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct EntityCardinality {
+    counts: HeapBTreeMap<EntityTag, u64>,
+    decodable: bool,
+}
+
+impl EntityCardinality {
+    const fn empty() -> Self {
+        Self {
+            counts: HeapBTreeMap::new(),
+            decodable: true,
+        }
+    }
+
+    fn exact_count(&self, entity: EntityTag) -> Option<u64> {
+        self.decodable
+            .then(|| self.counts.get(&entity).copied().unwrap_or(0))
+    }
+
+    #[cfg(test)]
+    fn clear(&mut self) {
+        self.counts.clear();
+        self.decodable = true;
+    }
+
+    fn apply_insert(&mut self, key: &RawDataStoreKey, previous: Option<&RawRow>) {
+        if previous.is_some() {
+            return;
+        }
+        self.apply_present_key(key);
+    }
+
+    fn apply_remove(&mut self, key: &RawDataStoreKey, previous: Option<&RawRow>) {
+        if previous.is_none() {
+            return;
+        }
+        self.apply_removed_key(key);
+    }
+
+    fn apply_present_key(&mut self, key: &RawDataStoreKey) {
+        if !self.decodable {
+            return;
+        }
+        let Some(entity) = key.entity_tag_prefix() else {
+            self.invalidate();
+            return;
+        };
+
+        let count = self.counts.entry(entity).or_insert(0);
+        *count = count.saturating_add(1);
+    }
+
+    fn apply_removed_key(&mut self, key: &RawDataStoreKey) {
+        if !self.decodable {
+            return;
+        }
+        let Some(entity) = key.entity_tag_prefix() else {
+            self.invalidate();
+            return;
+        };
+
+        if let Some(count) = self.counts.get_mut(&entity) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.counts.remove(&entity);
+            }
+        }
+    }
+
+    fn invalidate(&mut self) {
+        self.counts.clear();
+        self.decodable = false;
     }
 }
 

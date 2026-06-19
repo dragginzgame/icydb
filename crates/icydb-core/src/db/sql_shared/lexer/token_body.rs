@@ -40,40 +40,37 @@ impl Lexer<'_> {
         self.expect_byte(b'\'')?;
         let mut segment_start = self.pos;
         let mut out = None;
-        while let Some(byte) = self.peek_byte() {
-            self.pos += 1;
-            if byte == b'\'' {
-                if self.peek_byte() == Some(b'\'') {
-                    let out = out.get_or_insert_with(String::new);
-                    out.push_str(string_literal_slice(
-                        self.bytes,
-                        segment_start,
-                        self.pos - 1,
-                    ));
-                    self.pos += 1;
-                    out.push('\'');
-                    segment_start = self.pos;
-                    continue;
-                }
 
-                if let Some(mut out) = out {
-                    out.push_str(string_literal_slice(
-                        self.bytes,
-                        segment_start,
-                        self.pos - 1,
-                    ));
-                    return Ok(out);
-                }
+        loop {
+            let Some(relative_quote) = self.bytes[self.pos..]
+                .iter()
+                .position(|byte| *byte == b'\'')
+            else {
+                return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
+                    SqlSyntaxErrorKind::StringLiteralUnterminated,
+                ));
+            };
+            let quote_pos = self.pos + relative_quote;
+            self.pos = quote_pos + 1;
 
-                return Ok(
-                    string_literal_slice(self.bytes, segment_start, self.pos - 1).to_owned(),
-                );
+            if self.peek_byte() == Some(b'\'') {
+                let out = out.get_or_insert_with(|| {
+                    String::with_capacity(quote_pos.saturating_sub(segment_start) + 1)
+                });
+                out.push_str(self.source_slice(segment_start, quote_pos));
+                self.pos += 1;
+                out.push('\'');
+                segment_start = self.pos;
+                continue;
             }
-        }
 
-        Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-            SqlSyntaxErrorKind::StringLiteralUnterminated,
-        ))
+            if let Some(mut out) = out {
+                out.push_str(self.source_slice(segment_start, quote_pos));
+                return Ok(out);
+            }
+
+            return Ok(self.source_slice(segment_start, quote_pos).to_owned());
+        }
     }
 
     pub(super) fn lex_number(&mut self) -> String {
@@ -93,9 +90,7 @@ impl Lexer<'_> {
             }
         }
 
-        std::str::from_utf8(&self.bytes[start..self.pos])
-            .expect("numeric token bytes must remain utf-8")
-            .to_owned()
+        self.source_slice(start, self.pos).to_owned()
     }
 
     pub(super) fn lex_identifier_or_keyword(&mut self) -> TokenKind {
@@ -109,17 +104,13 @@ impl Lexer<'_> {
 
         match keyword_from_ident_bytes(ident_bytes) {
             Some(keyword) => TokenKind::Keyword(keyword),
-            None => TokenKind::Identifier(
-                std::str::from_utf8(ident_bytes)
-                    .expect("identifier token bytes must remain utf-8")
-                    .to_owned(),
-            ),
+            None => TokenKind::Identifier(self.source_slice(start, self.pos).to_owned()),
         }
     }
-}
 
-fn string_literal_slice(bytes: &[u8], start: usize, end: usize) -> &str {
-    std::str::from_utf8(&bytes[start..end]).expect("SQL source bytes must remain utf-8")
+    fn source_slice(&self, start: usize, end: usize) -> &str {
+        &self.source[start..end]
+    }
 }
 
 // Decode the SQL-standard-ish `X'ABCD'` blob surface at the lexical boundary so

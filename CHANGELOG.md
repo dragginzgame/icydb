@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.28` broadens metadata-backed count and large-`IN` optimizations,
+  reducing SQL/fluent count scans, sparse `IN` planning, compiled aggregate
+  cache insertion, and literal-heavy SQL tokenization while enabling minimal
+  generated metrics by default.
+
 - `0.183.27` restores diagnostics-only package builds without SQL by moving
   aggregate terminal attribution out of SQL-gated scalar terminal code and
   adding diagnostics-only feature-matrix coverage.

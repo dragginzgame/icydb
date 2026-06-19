@@ -32,6 +32,7 @@ thread_local! {
     static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_RANGE_SCAN_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
+    static INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
 #[cfg(feature = "diagnostics")]
@@ -51,6 +52,13 @@ fn record_index_store_range_scan_call() {
 #[cfg(feature = "diagnostics")]
 fn record_index_store_entry_read() {
     INDEX_STORE_ENTRY_READ_COUNT.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_index_store_prefix_cardinality_lookup() {
+    INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
@@ -270,8 +278,34 @@ impl IndexStore {
         index_id: IndexId,
         components: &[Vec<u8>],
     ) -> Option<u64> {
+        #[cfg(feature = "diagnostics")]
+        record_index_store_prefix_cardinality_lookup();
+
         self.prefix_cardinality
             .exact_count(data_generation, key_kind, index_id, components)
+    }
+
+    /// Return the sum of exact prefix counts for prefixes on the same index
+    /// when synchronized metadata can prove all requested counts.
+    #[must_use]
+    pub(in crate::db) fn exact_prefix_cardinality_sum<'a>(
+        &self,
+        data_generation: u64,
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
+        stop_after: Option<u64>,
+    ) -> Option<u64> {
+        #[cfg(feature = "diagnostics")]
+        record_index_store_prefix_cardinality_lookup();
+
+        self.prefix_cardinality.exact_count_sum(
+            data_generation,
+            key_kind,
+            index_id,
+            component_prefixes,
+            stop_after,
+        )
     }
 
     /// Mark prefix-cardinality metadata synchronized with the authoritative
@@ -417,6 +451,12 @@ impl IndexStore {
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn current_entry_read_count() -> u64 {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
+    }
+
+    /// Return the monotonic perf-only count of exact prefix-cardinality probes.
+    #[cfg(all(test, feature = "diagnostics"))]
+    pub(in crate::db) fn current_prefix_cardinality_lookup_count() -> u64 {
+        INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(Cell::get)
     }
 
     #[cfg(feature = "diagnostics")]

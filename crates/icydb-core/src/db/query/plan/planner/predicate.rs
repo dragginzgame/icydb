@@ -11,8 +11,9 @@ use crate::{
             key_item_match::eq_lookup_value_for_key_item,
             planner::{
                 AndFamilyCandidateScore, AndFamilyPriorityClass, PlannedAccessSelection,
-                and_family_candidate_score_outranks, compare, index_literal_matches_schema, prefix,
-                range, selected_index_contract_satisfies_secondary_order,
+                and_family_candidate_score_outranks, compare, index_field_literal_matcher,
+                index_literal_matches_schema, prefix, range,
+                selected_index_contract_satisfies_secondary_order,
             },
         },
         schema::SchemaInfo,
@@ -623,11 +624,11 @@ fn lookup_compare_values_for_key_item(
             let crate::value::Value::List(values) = cmp.value() else {
                 return None;
             };
+            let matcher = index_field_literal_matcher(schema, cmp.field.as_str());
             let mut lookup_values = values
                 .iter()
                 .filter_map(|value| {
-                    let literal_compatible =
-                        index_literal_matches_schema(schema, cmp.field.as_str(), value);
+                    let literal_compatible = matcher.matches(value);
                     eq_lookup_value_for_key_item(
                         key_item,
                         cmp.field.as_str(),

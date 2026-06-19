@@ -6,13 +6,13 @@ use crate::{
         access::{AccessPath, SemanticIndexAccessContract},
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        schema::{SchemaInfo, literal_matches_type},
+        schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     value::Value,
 };
 use std::cmp::Ordering;
 
-pub(in crate::db::query::plan) fn sorted_index_contracts(
+pub(in crate::db::query) fn sorted_index_contracts(
     indexes: &[SemanticIndexAccessContract],
     query_predicate: &Predicate,
 ) -> Vec<SemanticIndexAccessContract> {
@@ -24,19 +24,35 @@ pub(in crate::db::query::plan) fn sorted_index_contracts(
         .collect()
 }
 
-pub(in crate::db::query::plan) fn index_literal_matches_schema(
+pub(in crate::db::query) fn index_literal_matches_schema(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
 ) -> bool {
-    let Some(field_type) = schema.field(field) else {
-        return false;
-    };
-    if !literal_matches_type(value, field_type) {
-        return false;
-    }
+    index_field_literal_matcher(schema, field).matches(value)
+}
 
-    true
+#[derive(Clone, Copy)]
+pub(in crate::db::query) struct IndexFieldLiteralMatcher<'a> {
+    field_type: Option<&'a FieldType>,
+}
+
+impl IndexFieldLiteralMatcher<'_> {
+    #[must_use]
+    pub(in crate::db::query) fn matches(self, value: &Value) -> bool {
+        self.field_type
+            .is_some_and(|field_type| literal_matches_type(value, field_type))
+    }
+}
+
+#[must_use]
+pub(in crate::db::query) fn index_field_literal_matcher<'a>(
+    schema: &'a SchemaInfo,
+    field: &str,
+) -> IndexFieldLiteralMatcher<'a> {
+    IndexFieldLiteralMatcher {
+        field_type: schema.field(field),
+    }
 }
 
 // Filtered indexes are eligible only when the full query predicate implies the

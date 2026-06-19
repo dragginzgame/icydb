@@ -1025,7 +1025,7 @@ fn aggregate_path_by_ids_strict_missing_surfaces_corruption_error() {
 }
 
 #[test]
-fn aggregate_path_count_full_scan_window_scans_offset_plus_limit() {
+fn aggregate_path_count_full_scan_window_uses_entity_cardinality() {
     seed_simple_entities(&[8_671, 8_672, 8_673, 8_674, 8_675, 8_676, 8_677]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
@@ -1045,8 +1045,8 @@ fn aggregate_path_count_full_scan_window_scans_offset_plus_limit() {
 
     assert_eq!(count, 2, "full-scan COUNT should honor the page window");
     assert_eq!(
-        scanned, 4,
-        "full-scan COUNT should scan exactly offset + limit keys"
+        scanned, 0,
+        "full-scan COUNT should use entity cardinality without scanning rows"
     );
 }
 

@@ -268,10 +268,19 @@ impl BuildSqlSurfaceFlags {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BuildMetricsOptions {
     enabled: bool,
     extended_enabled: bool,
+}
+
+impl Default for BuildMetricsOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            extended_enabled: false,
+        }
+    }
 }
 
 /// Generated SQL update endpoint policy selected by actor codegen.
@@ -443,7 +452,7 @@ mod tests {
     use super::BuildOptions;
 
     #[test]
-    fn default_build_options_disable_generated_endpoints() {
+    fn default_build_options_enable_minimal_metrics_only() {
         let options = BuildOptions::default();
 
         assert!(!options.sql_readonly_enabled());
@@ -452,7 +461,7 @@ mod tests {
         assert!(!options.sql_introspection_enabled());
         assert!(!options.sql_update_enabled());
         assert_eq!(options.sql_update_policy(), None);
-        assert!(!options.metrics_enabled());
+        assert!(options.metrics_enabled());
         assert!(!options.metrics_extended_enabled());
         assert!(!options.snapshot_enabled());
         assert!(!options.schema_enabled());
@@ -460,7 +469,9 @@ mod tests {
 
     #[test]
     fn extended_metrics_requires_metrics_surface() {
-        let options = BuildOptions::default().with_metrics_extended_enabled(true);
+        let options = BuildOptions::default()
+            .with_metrics_enabled(false)
+            .with_metrics_extended_enabled(true);
 
         assert!(!options.metrics_enabled());
         assert!(!options.metrics_extended_enabled());

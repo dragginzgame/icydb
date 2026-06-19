@@ -5,10 +5,10 @@
 
 use crate::{
     db::{
-        access::{ExecutionPathPayload, LoweredAccess, lower_access},
-        data::{DataStore, DecodedDataStoreKey, StoreVisit},
+        access::{ExecutionPathPayload, LoweredAccess},
+        data::{DataStore, DecodedDataStoreKey, RawDataStoreKey, StoreVisit},
         executor::{
-            EntityAuthority, LoweredIndexPrefixCardinalityKey, PreparedAggregatePlan,
+            EntityAuthority, LoweredIndexPrefixCardinalityPlan, PreparedAggregatePlan,
             aggregate::{
                 AccessPlannedQuery, PageSpec, PreparedAggregateStreamingInputs,
                 PreparedScalarTerminalPreflight, ScalarAggregateOutput,
@@ -28,6 +28,51 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
+
+#[cfg(feature = "sql")]
+use crate::db::access::LoweredIndexPrefixCardinalitySpec;
+
+#[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::measure_local_instruction_delta as measure_count_terminal_phase;
+
+#[cfg(feature = "diagnostics")]
+fn measure_index_prefix_cardinality_preflight<T>(run: impl FnOnce() -> T) -> (u64, T) {
+    measure_count_terminal_phase(run)
+}
+
+#[cfg(not(feature = "diagnostics"))]
+fn measure_index_prefix_cardinality_preflight<T>(run: impl FnOnce() -> T) -> (u64, T) {
+    (0, run())
+}
+
+impl<E> LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn execute_direct_count_index_prefix_cardinality_request(
+        &self,
+        authority: EntityAuthority,
+        page: Option<&PageSpec>,
+        prefixes: &[LoweredIndexPrefixCardinalitySpec],
+    ) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError> {
+        let store = self.db.recovered_store(authority.store_path())?;
+        let (metadata_local_instructions, count) =
+            measure_index_prefix_cardinality_preflight(|| {
+                count_index_prefix_cardinality_specs(store, page, prefixes)
+            });
+        let Some(count) = count else {
+            return Ok(None);
+        };
+
+        record_index_prefix_cardinality_terminal(
+            authority.entity_path(),
+            metadata_local_instructions,
+        );
+
+        Ok(Some(ScalarTerminalBoundaryOutput::Count(count)))
+    }
+}
 
 // Execute prepared COUNT through store-cardinality fast-path semantics.
 pub(super) fn execute_count_primary_key_cardinality_terminal_request(
@@ -55,6 +100,7 @@ pub(super) fn try_prepare_scalar_terminal_preflight<'plan>(
     match request {
         ScalarTerminalBoundaryRequest::Count => try_prepare_index_prefix_cardinality_preflight(
             plan,
+            true,
             |authority, logical_plan, prefixes| {
                 PreparedScalarTerminalPreflight::CountIndexPrefixCardinality {
                     authority,
@@ -65,6 +111,7 @@ pub(super) fn try_prepare_scalar_terminal_preflight<'plan>(
         ),
         ScalarTerminalBoundaryRequest::Exists => try_prepare_index_prefix_cardinality_preflight(
             plan,
+            false,
             |authority, logical_plan, prefixes| {
                 PreparedScalarTerminalPreflight::ExistsIndexPrefixCardinality {
                     authority,
@@ -83,24 +130,23 @@ pub(super) fn try_prepare_scalar_terminal_preflight<'plan>(
 
 fn try_prepare_index_prefix_cardinality_preflight<'plan>(
     plan: &'plan PreparedAggregatePlan,
+    allow_ordered_plan: bool,
     build: impl FnOnce(
         EntityAuthority,
         &'plan AccessPlannedQuery,
-        Vec<LoweredIndexPrefixCardinalityKey>,
+        LoweredIndexPrefixCardinalityPlan<'plan>,
     ) -> PreparedScalarTerminalPreflight<'plan>,
 ) -> Option<PreparedScalarTerminalPreflight<'plan>> {
     let authority = plan.authority();
     let logical_plan = plan.logical_plan();
-    let Ok(lowered_access) = lower_access(authority.entity_tag(), &logical_plan.access) else {
-        return None;
-    };
     let Ok(index_prefix_specs) = plan.index_prefix_specs() else {
         return None;
     };
     let prefixes = exact_count_cardinality_prefixes_for_plan(
+        authority.entity_tag(),
         logical_plan,
-        &lowered_access,
         index_prefix_specs,
+        allow_ordered_plan,
     )?;
 
     Some(build(authority, logical_plan, prefixes))
@@ -122,7 +168,7 @@ where
             executor,
             authority,
             logical_plan,
-            &prefixes,
+            prefixes,
         ),
         PreparedScalarTerminalPreflight::ExistsIndexPrefixCardinality {
             authority,
@@ -132,7 +178,7 @@ where
             executor,
             authority,
             logical_plan,
-            &prefixes,
+            prefixes,
         ),
     }
 }
@@ -141,21 +187,22 @@ fn execute_count_index_prefix_cardinality_preflight<E>(
     executor: &LoadExecutor<E>,
     authority: EntityAuthority,
     logical_plan: &AccessPlannedQuery,
-    prefixes: &[LoweredIndexPrefixCardinalityKey],
+    prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
 ) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError>
 where
     E: EntityKind + EntityValue,
 {
     validate_executor_plan_for_authority(&authority, logical_plan)?;
     let store = executor.db.recovered_store(authority.store_path())?;
-    let Some(count) =
+    let (metadata_local_instructions, count) = measure_index_prefix_cardinality_preflight(|| {
         count_index_prefix_cardinality(store, logical_plan.scalar_plan().page.as_ref(), prefixes)
-    else {
+    });
+    let Some(count) = count else {
         return Ok(None);
     };
 
     record_plan_metrics(authority.entity_path(), logical_plan);
-    record_index_prefix_cardinality_terminal(authority.entity_path());
+    record_index_prefix_cardinality_terminal(authority.entity_path(), metadata_local_instructions);
 
     Ok(Some(ScalarTerminalBoundaryOutput::Count(count)))
 }
@@ -164,21 +211,22 @@ fn execute_exists_index_prefix_cardinality_preflight<E>(
     executor: &LoadExecutor<E>,
     authority: EntityAuthority,
     logical_plan: &AccessPlannedQuery,
-    prefixes: &[LoweredIndexPrefixCardinalityKey],
+    prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
 ) -> Result<Option<ScalarTerminalBoundaryOutput>, InternalError>
 where
     E: EntityKind + EntityValue,
 {
     validate_executor_plan_for_authority(&authority, logical_plan)?;
     let store = executor.db.recovered_store(authority.store_path())?;
-    let Some(exists) =
+    let (metadata_local_instructions, exists) = measure_index_prefix_cardinality_preflight(|| {
         exists_index_prefix_cardinality(store, logical_plan.scalar_plan().page.as_ref(), prefixes)
-    else {
+    });
+    let Some(exists) = exists else {
         return Ok(None);
     };
 
     record_plan_metrics(authority.entity_path(), logical_plan);
-    record_index_prefix_cardinality_terminal(authority.entity_path());
+    record_index_prefix_cardinality_terminal(authority.entity_path(), metadata_local_instructions);
 
     Ok(Some(ScalarTerminalBoundaryOutput::Exists(exists)))
 }
@@ -186,21 +234,33 @@ where
 fn count_index_prefix_cardinality(
     store: StoreHandle,
     page: Option<&PageSpec>,
-    prefixes: &[LoweredIndexPrefixCardinalityKey],
+    prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
 ) -> Option<u32> {
+    let required_candidate_rows = count_window_required_candidate_rows(page);
+    if required_candidate_rows == Some(0) {
+        return Some(0);
+    }
+
     let data_generation = store.with_data(DataStore::generation);
+    let prefix_len = prefixes.prefix_len();
+    if prefixes
+        .specs()
+        .iter()
+        .any(|spec| spec.prefix_components().len() < prefix_len)
+    {
+        return None;
+    }
     let available_rows = store.with_index(|store| {
-        let mut total = 0_u64;
-        for prefix in prefixes {
-            let count = store.exact_prefix_cardinality(
-                data_generation,
-                IndexKeyKind::User,
-                prefix.index_id(),
-                prefix.prefix_components(),
-            )?;
-            total = total.saturating_add(count);
-        }
-        Some(total)
+        store.exact_prefix_cardinality_sum(
+            data_generation,
+            IndexKeyKind::User,
+            prefixes.index_id(),
+            prefixes
+                .specs()
+                .iter()
+                .map(|spec| &spec.prefix_components()[..prefix_len]),
+            required_candidate_rows,
+        )
     });
     let available_rows = available_rows?;
     let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
@@ -209,33 +269,89 @@ fn count_index_prefix_cardinality(
     Some(count_window.count())
 }
 
+#[cfg(feature = "sql")]
+fn count_index_prefix_cardinality_specs(
+    store: StoreHandle,
+    page: Option<&PageSpec>,
+    prefixes: &[LoweredIndexPrefixCardinalitySpec],
+) -> Option<u32> {
+    let required_candidate_rows = count_window_required_candidate_rows(page);
+    if required_candidate_rows == Some(0) {
+        return Some(0);
+    }
+
+    let index_id = common_prefix_cardinality_index_id(prefixes)?;
+    let data_generation = store.with_data(DataStore::generation);
+    let available_rows = store.with_index(|store| {
+        store.exact_prefix_cardinality_sum(
+            data_generation,
+            IndexKeyKind::User,
+            index_id,
+            prefixes
+                .iter()
+                .map(LoweredIndexPrefixCardinalitySpec::prefix_components),
+            required_candidate_rows,
+        )
+    });
+    let available_rows = available_rows?;
+    let available_rows = usize::try_from(available_rows).unwrap_or(usize::MAX);
+    let count_window = CountWindowResult::from_candidate_rows(page, available_rows);
+
+    Some(count_window.count())
+}
+
+#[cfg(feature = "sql")]
+fn common_prefix_cardinality_index_id(
+    prefixes: &[LoweredIndexPrefixCardinalitySpec],
+) -> Option<crate::db::index::IndexId> {
+    let index_id = prefixes.first()?.index_id();
+    prefixes
+        .iter()
+        .all(|spec| spec.index_id() == index_id)
+        .then_some(index_id)
+}
+
+fn count_window_required_candidate_rows(page: Option<&PageSpec>) -> Option<u64> {
+    match page {
+        Some(page) => page
+            .limit
+            .map(|limit| u64::from(page.offset).saturating_add(u64::from(limit))),
+        None => None,
+    }
+}
+
 fn exists_index_prefix_cardinality(
     store: StoreHandle,
     page: Option<&PageSpec>,
-    prefixes: &[LoweredIndexPrefixCardinalityKey],
+    prefixes: LoweredIndexPrefixCardinalityPlan<'_>,
 ) -> Option<bool> {
     let Some(required_candidate_rows) = exists_window_required_candidate_rows(page) else {
         return Some(false);
     };
     let data_generation = store.with_data(DataStore::generation);
+    let prefix_len = prefixes.prefix_len();
+    if prefixes
+        .specs()
+        .iter()
+        .any(|spec| spec.prefix_components().len() < prefix_len)
+    {
+        return None;
+    }
 
-    store.with_index(|store| {
-        let mut available_rows = 0_u64;
-        for prefix in prefixes {
-            let count = store.exact_prefix_cardinality(
-                data_generation,
-                IndexKeyKind::User,
-                prefix.index_id(),
-                prefix.prefix_components(),
-            )?;
-            available_rows = available_rows.saturating_add(count);
-            if available_rows >= required_candidate_rows {
-                return Some(true);
-            }
-        }
+    let available_rows = store.with_index(|store| {
+        store.exact_prefix_cardinality_sum(
+            data_generation,
+            IndexKeyKind::User,
+            prefixes.index_id(),
+            prefixes
+                .specs()
+                .iter()
+                .map(|spec| &spec.prefix_components()[..prefix_len]),
+            Some(required_candidate_rows),
+        )
+    })?;
 
-        Some(false)
-    })
+    Some(available_rows >= required_candidate_rows)
 }
 
 fn exists_window_required_candidate_rows(page: Option<&PageSpec>) -> Option<u64> {
@@ -246,10 +362,17 @@ fn exists_window_required_candidate_rows(page: Option<&PageSpec>) -> Option<u64>
     }
 }
 
-fn record_index_prefix_cardinality_terminal(entity_path: &'static str) {
+fn record_index_prefix_cardinality_terminal(
+    entity_path: &'static str,
+    base_row_local_instructions: u64,
+) {
     record_rows_scanned_for_path(entity_path, 0);
+    #[cfg(not(feature = "diagnostics"))]
+    let _ = base_row_local_instructions;
     #[cfg(feature = "diagnostics")]
-    super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution();
+    super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution(
+        base_row_local_instructions,
+    );
 }
 
 // Resolve COUNT for PK full-scan/key-range shapes from store cardinality while
@@ -266,33 +389,16 @@ fn aggregate_count_from_pk_cardinality_with_store(
         return Err(InternalError::query_executor_invariant());
     };
 
-    // Phase 2: read candidate-row cardinality directly from primary storage.
-    let available_rows = match path {
-        ExecutionPathPayload::FullScan => store.with_data(|data| {
-            let mut count = 0usize;
-            let _: Result<(), InternalError> = data.visit_entity(entity_tag, |_raw_key, _row| {
-                count = count.saturating_add(1);
-                Ok(StoreVisit::Continue)
-            });
-            count
-        }),
+    // Phase 2: read or scan only the candidate-row cardinality needed by COUNT.
+    let candidate_rows = match path {
+        ExecutionPathPayload::FullScan => count_full_entity_candidate_rows(store, entity_tag, page),
         ExecutionPathPayload::KeyRange { start, end } => {
             let start_raw =
                 DecodedDataStoreKey::try_from_structural_key(entity_tag, start)?.to_raw()?;
             let end_raw =
                 DecodedDataStoreKey::try_from_structural_key(entity_tag, end)?.to_raw()?;
 
-            store.with_data(|data| {
-                let mut count = 0usize;
-                let _: Result<(), InternalError> = data.visit_range(
-                    (Bound::Included(start_raw), Bound::Included(end_raw)),
-                    |_raw_key, _row| {
-                        count = count.saturating_add(1);
-                        Ok(StoreVisit::Continue)
-                    },
-                );
-                count
-            })
+            count_data_range_candidate_rows(store, start_raw, end_raw, page)
         }
         _ => {
             return Err(InternalError::query_executor_invariant());
@@ -300,15 +406,99 @@ fn aggregate_count_from_pk_cardinality_with_store(
     };
 
     // Phase 3: apply canonical COUNT window semantics and emit scan metrics.
-    let count_window = CountWindowResult::from_candidate_rows(page, available_rows);
+    let count_window = CountWindowResult::from_candidate_rows(page, candidate_rows.available);
 
-    Ok((count_window.count(), count_window.rows_scanned()))
+    Ok((count_window.count(), candidate_rows.scanned))
+}
+
+fn count_full_entity_candidate_rows(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    page: Option<&PageSpec>,
+) -> CountCandidateRows {
+    if let Some(available) = store.with_data(|data| data.exact_entity_count(entity_tag)) {
+        return CountCandidateRows::metadata(available);
+    }
+
+    store.with_data(|data| {
+        let mut count = 0usize;
+        let scan_limit = count_scan_limit(page);
+        if scan_limit == Some(0) {
+            return CountCandidateRows::scanned(0);
+        }
+
+        let _: Result<(), InternalError> = data.visit_entity(entity_tag, |_raw_key, _row| {
+            count = count.saturating_add(1);
+            Ok(count_store_visit(count, scan_limit))
+        });
+
+        CountCandidateRows::scanned(count)
+    })
+}
+
+fn count_data_range_candidate_rows(
+    store: StoreHandle,
+    start_raw: RawDataStoreKey,
+    end_raw: RawDataStoreKey,
+    page: Option<&PageSpec>,
+) -> CountCandidateRows {
+    store.with_data(|data| {
+        let mut count = 0usize;
+        let scan_limit = count_scan_limit(page);
+        if scan_limit == Some(0) {
+            return CountCandidateRows::scanned(0);
+        }
+
+        let _: Result<(), InternalError> = data.visit_range(
+            (Bound::Included(start_raw), Bound::Included(end_raw)),
+            |_raw_key, _row| {
+                count = count.saturating_add(1);
+                Ok(count_store_visit(count, scan_limit))
+            },
+        );
+
+        CountCandidateRows::scanned(count)
+    })
+}
+
+fn count_scan_limit(page: Option<&PageSpec>) -> Option<usize> {
+    count_window_required_candidate_rows(page)
+        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX))
+}
+
+fn count_store_visit(count: usize, scan_limit: Option<usize>) -> StoreVisit {
+    if scan_limit.is_some_and(|limit| count >= limit) {
+        StoreVisit::Stop
+    } else {
+        StoreVisit::Continue
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CountCandidateRows {
+    available: usize,
+    scanned: usize,
+}
+
+impl CountCandidateRows {
+    fn metadata(available: u64) -> Self {
+        Self {
+            available: usize::try_from(available).unwrap_or(usize::MAX),
+            scanned: 0,
+        }
+    }
+
+    const fn scanned(count: usize) -> Self {
+        Self {
+            available: count,
+            scanned: count,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CountWindowResult {
     count: u32,
-    rows_scanned: usize,
 }
 
 impl CountWindowResult {
@@ -316,39 +506,31 @@ impl CountWindowResult {
     // COUNT result and scan accounting semantics.
     fn from_candidate_rows(page: Option<&PageSpec>, available_rows: usize) -> Self {
         let Some(page) = page else {
-            return Self::new(usize_to_u32_saturating(available_rows), available_rows);
+            return Self::new(usize_to_u32_saturating(available_rows));
         };
         let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
 
         match page.limit {
-            Some(0) => Self::new(0, 0),
+            Some(0) => Self::new(0),
             Some(limit) => {
                 let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-                let rows_scanned = available_rows.min(offset.saturating_add(limit));
                 let count = available_rows.saturating_sub(offset).min(limit);
 
-                Self::new(usize_to_u32_saturating(count), rows_scanned)
+                Self::new(usize_to_u32_saturating(count))
             }
             None => {
                 let count = available_rows.saturating_sub(offset);
-                Self::new(usize_to_u32_saturating(count), available_rows)
+                Self::new(usize_to_u32_saturating(count))
             }
         }
     }
 
-    const fn new(count: u32, rows_scanned: usize) -> Self {
-        Self {
-            count,
-            rows_scanned,
-        }
+    const fn new(count: u32) -> Self {
+        Self { count }
     }
 
     const fn count(self) -> u32 {
         self.count
-    }
-
-    const fn rows_scanned(self) -> usize {
-        self.rows_scanned
     }
 }
 

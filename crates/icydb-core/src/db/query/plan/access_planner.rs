@@ -63,6 +63,13 @@ impl<'a> AccessPlanningInputs<'a> {
         self.order
     }
 
+    /// Return whether explicit key access was projected from query intent.
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) const fn has_key_access_override(&self) -> bool {
+        self.key_access_override.is_some()
+    }
+
     /// Consume and return explicit key-access override if present.
     #[must_use]
     pub(in crate::db::query) fn into_key_access_override(self) -> Option<AccessPlan<Value>> {

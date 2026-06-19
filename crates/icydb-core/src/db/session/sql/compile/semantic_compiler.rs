@@ -136,9 +136,7 @@ impl<C: CanisterKind> DbSession<C> {
         })?;
 
         Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::GlobalAggregate {
-                command: Box::new(command),
-            },
+            CompiledSqlCommand::global_aggregate(command),
             SqlQueryShape::read_rows(true),
             aggregate_lane_check_local_instructions,
             prepare_local_instructions,
