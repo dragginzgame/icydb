@@ -205,7 +205,7 @@ pub(in crate::db) struct LoweredIndexPrefixCardinalitySpec {
 #[cfg(feature = "sql")]
 impl LoweredIndexPrefixCardinalitySpec {
     #[must_use]
-    const fn new(index_id: IndexId, prefix_components: Vec<Vec<u8>>) -> Self {
+    pub(in crate::db) const fn new(index_id: IndexId, prefix_components: Vec<Vec<u8>>) -> Self {
         Self {
             index_id,
             prefix_components,

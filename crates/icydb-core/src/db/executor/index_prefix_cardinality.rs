@@ -14,7 +14,7 @@ use crate::value::Value;
 use std::ops::Bound;
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::db::executor) struct LoweredIndexPrefixCardinalityPlan<'a> {
+pub(in crate::db) struct LoweredIndexPrefixCardinalityPlan<'a> {
     index_id: IndexId,
     prefix_len: usize,
     specs: &'a [LoweredIndexPrefixSpec],
@@ -22,17 +22,17 @@ pub(in crate::db::executor) struct LoweredIndexPrefixCardinalityPlan<'a> {
 
 impl<'a> LoweredIndexPrefixCardinalityPlan<'a> {
     #[must_use]
-    pub(in crate::db::executor) const fn index_id(&self) -> IndexId {
+    pub(in crate::db) const fn index_id(&self) -> IndexId {
         self.index_id
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn prefix_len(&self) -> usize {
+    pub(in crate::db) const fn prefix_len(&self) -> usize {
         self.prefix_len
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn specs(&self) -> &'a [LoweredIndexPrefixSpec] {
+    pub(in crate::db) const fn specs(&self) -> &'a [LoweredIndexPrefixSpec] {
         self.specs
     }
 }
@@ -126,7 +126,7 @@ pub(in crate::db::executor) fn lowered_index_prefix_cardinality_key(
     })
 }
 
-pub(in crate::db::executor) fn exact_count_cardinality_prefixes_for_plan<'specs>(
+pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(
     entity_tag: crate::types::EntityTag,
     plan: &AccessPlannedQuery,
     index_prefix_specs: &'specs [LoweredIndexPrefixSpec],
