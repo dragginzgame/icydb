@@ -6,17 +6,14 @@
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        access::{
-            LoweredIndexPrefixCardinalitySpec, lower_access,
-            lower_exact_index_prefix_cardinality_specs_for_prefix_access,
-        },
+        access::LoweredIndexPrefixCardinalitySpec,
         executor::{
-            EntityAuthority, LoweredIndexPrefixCardinalityPlan, ScalarTerminalBoundaryRequest,
-            SharedPreparedExecutionPlan, StructuralAggregateRequest, StructuralAggregateTerminal,
-            StructuralAggregateTerminalKind, exact_count_cardinality_prefixes_for_plan,
+            EntityAuthority, ScalarTerminalBoundaryRequest, SharedPreparedExecutionPlan,
+            StructuralAggregateRequest, StructuralAggregateTerminal,
+            StructuralAggregateTerminalKind,
         },
         query::plan::{
-            AccessPlannedQuery, AggregateKind,
+            AggregateKind,
             expr::{Expr, ProjectionField, ProjectionSpec},
         },
         session::{
@@ -159,67 +156,20 @@ fn direct_count_rows_statement_result(
     )
 }
 
-fn direct_count_cardinality_plan_entry_from_access(
+fn direct_count_cardinality_plan_entry_from_prefix_specs(
     catalog: &AcceptedSchemaCatalogContext,
-    authority: &EntityAuthority,
-    access: &crate::db::query::plan::CountCardinalityPrefixAccess,
-) -> Result<Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>, QueryError> {
-    let prefix_specs = lower_exact_index_prefix_cardinality_specs_for_prefix_access(
-        authority.entity_tag(),
-        access,
-    )
-    .map_err(|_err| QueryError::invariant())?;
+    prefix_specs: Option<Vec<LoweredIndexPrefixCardinalitySpec>>,
+) -> Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>> {
+    let prefix_specs = prefix_specs?;
     if prefix_specs.is_empty() {
-        return Ok(None);
+        return None;
     }
 
-    Ok(Some(Arc::new(SqlGlobalAggregateCountPlanCacheEntry::new(
+    Some(Arc::new(SqlGlobalAggregateCountPlanCacheEntry::new(
         catalog.fingerprint_method_version(),
         catalog.fingerprint(),
         Arc::from(prefix_specs),
-    ))))
-}
-
-fn direct_count_cardinality_plan_entry_from_planned_query(
-    catalog: &AcceptedSchemaCatalogContext,
-    authority: &EntityAuthority,
-    plan: &AccessPlannedQuery,
-) -> Result<Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>, QueryError> {
-    let lowered_access = lower_access(authority.entity_tag(), &plan.access)
-        .map_err(|_err| QueryError::invariant())?;
-    let Some(prefix_plan) = exact_count_cardinality_prefixes_for_plan(
-        authority.entity_tag(),
-        plan,
-        lowered_access.index_prefix_specs(),
-        true,
-    ) else {
-        return Ok(None);
-    };
-    let Some(prefix_specs) = count_cardinality_specs_from_lowered_plan(prefix_plan) else {
-        return Ok(None);
-    };
-
-    Ok(Some(Arc::new(SqlGlobalAggregateCountPlanCacheEntry::new(
-        catalog.fingerprint_method_version(),
-        catalog.fingerprint(),
-        Arc::from(prefix_specs),
-    ))))
-}
-
-fn count_cardinality_specs_from_lowered_plan(
-    plan: LoweredIndexPrefixCardinalityPlan<'_>,
-) -> Option<Vec<LoweredIndexPrefixCardinalitySpec>> {
-    let prefix_len = plan.prefix_len();
-    let mut specs = Vec::with_capacity(plan.specs().len());
-    for spec in plan.specs() {
-        let prefix_components = spec.prefix_components().get(..prefix_len)?.to_vec();
-        specs.push(LoweredIndexPrefixCardinalitySpec::new(
-            plan.index_id(),
-            prefix_components,
-        ));
-    }
-
-    (!specs.is_empty()).then_some(specs)
+    )))
 }
 
 #[cfg(feature = "diagnostics")]
@@ -339,28 +289,15 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_info = catalog.accepted_schema_info_for::<E>();
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
-        if let Some(access) = command
-            .query()
-            .try_build_count_cardinality_prefix_access_with_schema_info(
+        let entry = direct_count_cardinality_plan_entry_from_prefix_specs(
+            catalog,
+            Self::direct_count_cardinality_prefix_specs_for_accepted_authority(
+                &authority,
+                command.query(),
                 &visible_indexes,
                 &schema_info,
-            )?
-        {
-            if let Some(entry) =
-                direct_count_cardinality_plan_entry_from_access(catalog, &authority, &access)?
-            {
-                return Ok(Some(DirectCountCardinalityPlanProbe {
-                    authority,
-                    entry: Some(entry),
-                }));
-            }
-        }
-
-        let plan = command
-            .query()
-            .build_plan_with_visible_indexes(&visible_indexes)?;
-        let entry =
-            direct_count_cardinality_plan_entry_from_planned_query(catalog, &authority, &plan)?;
+            )?,
+        );
 
         Ok(Some(DirectCountCardinalityPlanProbe { authority, entry }))
     }
@@ -467,24 +404,15 @@ impl<C: CanisterKind> DbSession<C> {
         });
         attribution.schema_info = attribution.schema_info.saturating_add(schema_info_local);
         let (plan_build_local, entry) = measure_sql_stage(|| {
-            if let Some(access) = command
-                .query()
-                .try_build_count_cardinality_prefix_access_with_schema_info(
-                    &visible_indexes,
-                    &schema_info,
-                )?
-            {
-                if let Some(entry) =
-                    direct_count_cardinality_plan_entry_from_access(catalog, &authority, &access)?
-                {
-                    return Ok(Some(entry));
-                }
-            }
-
-            let plan = command
-                .query()
-                .build_plan_with_visible_indexes(&visible_indexes)?;
-            direct_count_cardinality_plan_entry_from_planned_query(catalog, &authority, &plan)
+            Self::direct_count_cardinality_prefix_specs_for_accepted_authority(
+                &authority,
+                command.query(),
+                &visible_indexes,
+                &schema_info,
+            )
+            .map(|prefix_specs| {
+                direct_count_cardinality_plan_entry_from_prefix_specs(catalog, prefix_specs)
+            })
         });
         attribution.plan_build = attribution.plan_build.saturating_add(plan_build_local);
         let entry = entry?;

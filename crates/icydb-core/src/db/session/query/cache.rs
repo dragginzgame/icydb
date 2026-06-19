@@ -8,8 +8,15 @@ use crate::db::schema::accepted_schema_cache_fingerprint;
 use crate::{
     db::{
         DbSession, Query, QueryError, TraceReuseArtifactClass, TraceReuseEvent,
+        access::{
+            LoweredIndexPrefixCardinalitySpec, lower_access,
+            lower_exact_index_prefix_cardinality_specs_for_prefix_access,
+        },
         commit::CommitSchemaFingerprint,
-        executor::{EntityAuthority, PreparedExecutionPlan, SharedPreparedExecutionPlan},
+        executor::{
+            EntityAuthority, LoweredIndexPrefixCardinalityPlan, PreparedExecutionPlan,
+            SharedPreparedExecutionPlan, exact_count_cardinality_prefixes_for_plan,
+        },
         predicate::predicate_fingerprint_normalized,
         query::{
             intent::StructuralQuery,
@@ -334,6 +341,23 @@ pub(in crate::db::session) const fn query_plan_cache_reuse_event(
     }
 }
 
+#[cfg(feature = "sql")]
+fn count_cardinality_specs_from_lowered_plan(
+    plan: LoweredIndexPrefixCardinalityPlan<'_>,
+) -> Option<Vec<LoweredIndexPrefixCardinalitySpec>> {
+    let prefix_len = plan.prefix_len();
+    let mut specs = Vec::with_capacity(plan.specs().len());
+    for spec in plan.specs() {
+        let prefix_components = spec.prefix_components().get(..prefix_len)?.to_vec();
+        specs.push(LoweredIndexPrefixCardinalitySpec::new(
+            plan.index_id(),
+            prefix_components,
+        ));
+    }
+
+    (!specs.is_empty()).then_some(specs)
+}
+
 impl<C: CanisterKind> DbSession<C> {
     fn with_query_plan_cache<R>(&self, f: impl FnOnce(&mut QueryPlanCache) -> R) -> R {
         let scope_id = self.db.cache_scope_id();
@@ -455,6 +479,51 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         Ok(visibility)
+    }
+
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn direct_count_cardinality_prefix_specs_for_accepted_authority(
+        authority: &EntityAuthority,
+        query: &StructuralQuery,
+        visible_indexes: &VisibleIndexes<'_>,
+        schema_info: &SchemaInfo,
+    ) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
+        if let Some(access) = query.try_build_count_cardinality_prefix_access_with_schema_info(
+            visible_indexes,
+            schema_info,
+        )? {
+            let prefix_specs = lower_exact_index_prefix_cardinality_specs_for_prefix_access(
+                authority.entity_tag(),
+                &access,
+            )
+            .map_err(|_err| QueryError::invariant())?;
+            if !prefix_specs.is_empty() {
+                return Ok(Some(prefix_specs));
+            }
+        }
+
+        let plan = query.build_plan_with_visible_indexes(visible_indexes)?;
+
+        Self::direct_count_cardinality_prefix_specs_from_planned_query(authority, &plan)
+    }
+
+    #[cfg(feature = "sql")]
+    fn direct_count_cardinality_prefix_specs_from_planned_query(
+        authority: &EntityAuthority,
+        plan: &AccessPlannedQuery,
+    ) -> Result<Option<Vec<LoweredIndexPrefixCardinalitySpec>>, QueryError> {
+        let lowered_access = lower_access(authority.entity_tag(), &plan.access)
+            .map_err(|_err| QueryError::invariant())?;
+        let Some(prefix_plan) = exact_count_cardinality_prefixes_for_plan(
+            authority.entity_tag(),
+            plan,
+            lowered_access.index_prefix_specs(),
+            true,
+        ) else {
+            return Ok(None);
+        };
+
+        Ok(count_cardinality_specs_from_lowered_plan(prefix_plan))
     }
 
     #[cfg(feature = "sql")]
