@@ -378,6 +378,7 @@ fn response_branch_ids(
     rows.ids().map(|id| id.key()).collect()
 }
 
+#[cfg(feature = "diagnostics")]
 fn fluent_branch_target_query(limit: u32) -> Query<BranchIndexedSessionSqlEntity> {
     Query::<BranchIndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
         .filter(crate::db::query::builder::FieldRef::new("collection_id").eq(BRANCH_COLLECTION))
