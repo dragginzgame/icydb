@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
+
+Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.0` starts the mega-audit line by routing SQL membership predicates
+  through canonical boolean lowering first, preserving `NULL` semantics,
+  recovering compact wide-`IN` pushdown, adding index/full-scan parity guards,
+  and trimming shared plan-cache miss classification.
+
 ## [0.183.x] 🔧 - 2026-06-15 - Branch-Aware Query Routing
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)

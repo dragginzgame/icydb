@@ -752,7 +752,7 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
 }
 
 #[test]
-fn compile_sql_command_select_membership_uses_predicate_only_filter() {
+fn compile_sql_command_select_membership_keeps_filter_and_extracts_predicate() {
     let sql_query = compile_sql_lower_query_command(
         "SELECT * FROM SqlLowerEntity WHERE age IN (10, 20, 10)",
         "membership WHERE SQL query",
@@ -763,12 +763,12 @@ fn compile_sql_command_select_membership_uses_predicate_only_filter() {
         .into_inner();
 
     assert!(
-        plan.scalar_plan().filter_expr.is_none(),
-        "top-level membership should not retain a separate visible filter expression",
+        plan.scalar_plan().filter_expr.is_some(),
+        "SQL membership should keep the lowered boolean filter expression visible",
     );
     assert!(
-        !plan.scalar_plan().predicate_covers_filter_expr,
-        "predicate-only membership has no visible filter expression to cover",
+        plan.scalar_plan().predicate_covers_filter_expr,
+        "membership predicate extraction should happen after boolean lowering and cover the visible filter",
     );
     let Some(Predicate::Compare(compare)) = plan.scalar_plan().predicate.as_ref() else {
         panic!("membership WHERE should lower to one compact compare predicate");
@@ -787,7 +787,7 @@ fn compile_sql_command_select_membership_uses_predicate_only_filter() {
 }
 
 #[test]
-fn compile_sql_command_select_membership_conjunction_uses_predicate_only_filter() {
+fn compile_sql_command_select_membership_conjunction_keeps_filter_and_extracts_predicate() {
     let sql_query = compile_sql_lower_query_command(
         "SELECT * FROM SqlLowerEntity WHERE name = 'Ada' AND age IN (10, 20, 10)",
         "membership conjunction WHERE SQL query",
@@ -798,12 +798,12 @@ fn compile_sql_command_select_membership_conjunction_uses_predicate_only_filter(
         .into_inner();
 
     assert!(
-        plan.scalar_plan().filter_expr.is_none(),
-        "simple compare plus membership should not retain a separate visible filter expression",
+        plan.scalar_plan().filter_expr.is_some(),
+        "simple compare plus membership should keep the lowered boolean filter expression visible",
     );
     assert!(
-        !plan.scalar_plan().predicate_covers_filter_expr,
-        "predicate-only membership conjunction has no visible filter expression to cover",
+        plan.scalar_plan().predicate_covers_filter_expr,
+        "membership conjunction predicate extraction should happen after boolean lowering and cover the visible filter",
     );
     let Some(Predicate::And(children)) = plan.scalar_plan().predicate.as_ref() else {
         panic!("membership conjunction WHERE should lower to one compact AND predicate");
@@ -832,6 +832,60 @@ fn compile_sql_command_select_membership_conjunction_uses_predicate_only_filter(
                     )
         )),
         "membership conjunction should keep the IN predicate compact and schema-canonicalized",
+    );
+}
+
+#[test]
+fn compile_sql_command_membership_with_null_uses_sql_truth_filter() {
+    let in_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE age IN (NULL, 20)",
+        "IN-with-NULL WHERE SQL query",
+    );
+    let in_plan = in_query
+        .plan()
+        .expect("IN-with-NULL WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        in_plan.scalar_plan().filter_expr.is_some(),
+        "IN with NULL must keep the SQL truth expression visible",
+    );
+    assert!(
+        in_plan.scalar_plan().predicate_covers_filter_expr,
+        "the derived predicate should still exactly cover SQL WHERE TRUE rows",
+    );
+    assert!(
+        matches!(
+            in_plan.scalar_plan().predicate.as_ref(),
+            Some(Predicate::Compare(compare))
+                if compare.field() == "age"
+                    && compare.op() == CompareOp::Eq
+                    && compare.value() == &Value::Nat64(20)
+        ),
+        "IN with NULL should derive only the non-NULL TRUE-set predicate",
+    );
+
+    let not_in_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE age NOT IN (NULL, 20)",
+        "NOT-IN-with-NULL WHERE SQL query",
+    );
+    let not_in_plan = not_in_query
+        .plan()
+        .expect("NOT-IN-with-NULL WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        not_in_plan.scalar_plan().filter_expr.is_some(),
+        "NOT IN with NULL must keep the SQL truth expression visible",
+    );
+    assert!(
+        not_in_plan.scalar_plan().predicate_covers_filter_expr,
+        "the derived predicate should exactly cover the empty SQL TRUE set",
+    );
+    assert_eq!(
+        not_in_plan.scalar_plan().predicate.as_ref(),
+        Some(&Predicate::False),
+        "NOT IN with NULL should derive an empty TRUE-set predicate, not runtime NOT IN membership",
     );
 }
 

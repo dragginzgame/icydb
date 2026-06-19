@@ -6,5 +6,5 @@ End-user projects typically depend on `icydb`, which re-exports the macro surfac
 
 References:
 
-- Workspace overview: `README.md`
-- Release notes: `CHANGELOG.md`
+- Workspace overview: `../../README.md`
+- Release notes: `../../CHANGELOG.md`

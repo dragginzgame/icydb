@@ -8,5 +8,5 @@ Most users should depend on `icydb`, not this crate directly.
 
 References:
 
-- Workspace overview: `README.md`
-- Release notes: `CHANGELOG.md`
+- Workspace overview: `../../README.md`
+- Release notes: `../../CHANGELOG.md`

@@ -836,6 +836,68 @@ fn execute_sql_scalar_eq_null_on_non_nullable_field_returns_no_rows() {
 }
 
 #[test]
+fn execute_sql_scalar_null_compare_boolean_composition_preserves_unknown() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-null-compose-a", 10),
+            ("where-null-compose-b", 20),
+            ("where-null-compose-c", 30),
+            ("where-null-compose-d", 40),
+        ],
+    );
+
+    let not_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE NOT (age = NULL) \
+         ORDER BY age ASC",
+    )
+    .expect("NOT compare-to-NULL WHERE query should execute");
+    let or_true_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE (age = NULL) OR TRUE \
+         ORDER BY age ASC",
+    )
+    .expect("compare-to-NULL OR TRUE WHERE query should execute");
+    let and_true_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE (age = NULL) AND TRUE \
+         ORDER BY age ASC",
+    )
+    .expect("compare-to-NULL AND TRUE WHERE query should execute");
+
+    assert_eq!(
+        not_rows,
+        Vec::<Vec<Value>>::new(),
+        "NOT UNKNOWN should remain UNKNOWN and filter every row",
+    );
+    assert_eq!(
+        or_true_rows,
+        vec![
+            vec![Value::Text("where-null-compose-a".to_string())],
+            vec![Value::Text("where-null-compose-b".to_string())],
+            vec![Value::Text("where-null-compose-c".to_string())],
+            vec![Value::Text("where-null-compose-d".to_string())],
+        ],
+        "UNKNOWN OR TRUE should admit every row",
+    );
+    assert_eq!(
+        and_true_rows,
+        Vec::<Vec<Value>>::new(),
+        "UNKNOWN AND TRUE should remain UNKNOWN and filter every row",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_is_not_null_differs_from_ne_null_on_non_nullable_field() {
     reset_session_sql_store();
     let session = sql_session();

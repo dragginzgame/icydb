@@ -9,14 +9,15 @@ Pin IcyDB by tag in the canister crate:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.7" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28" }
 ```
 
-For typed/fluent-only builds without the SQL feature set:
+The default crate feature set is typed/fluent-only. Enable SQL explicitly when
+the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.175.7", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28", features = ["sql"] }
 ```
 
 The public `icydb` crate path supports Rust `1.88.0` and newer. Repository
@@ -198,11 +199,11 @@ The repository includes a demo RPG canister with SQL-visible `character` and
 
 ```bash
 icydb canister refresh -e demo demo_rpg
-icydb sql -e demo -c demo_rpg --sql "SHOW TABLES"
+icydb sql -e demo -c demo_rpg --sql "SHOW ENTITIES"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT x, y, terrain FROM grid ORDER BY danger_level DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW ENTITIES"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "CREATE INDEX IF NOT EXISTS character_renown_idx ON character (renown)"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX IF EXISTS character_renown_idx ON character"
 ```
@@ -233,7 +234,7 @@ icydb config show --environment demo
 icydb config check --environment demo
 
 icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
-icydb sql -e test -c demo_rpg --sql "SHOW TABLES"
+icydb sql -e test -c demo_rpg --sql "SHOW ENTITIES"
 
 icydb canister list
 icydb canister deploy demo_rpg

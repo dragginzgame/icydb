@@ -10,6 +10,18 @@ It is a **normative constraint on future changes**, not an implementation plan.
 This model applies to all IcyDB mutation executors in the current architecture.
 It assumes no `await`, yield, or re-entrancy during mutation execution.
 
+This is not a Postgres-style transaction model. It does not make an entire
+canister update method transactional, and it does not roll back prior state
+changes when application code returns `Err`. A returned `Err` is just a response
+value; only a trap/panic participates in IC message rollback semantics, and
+IcyDB must not rely on that rollback for database correctness.
+
+Internet Computer update calls for one canister are serialized. If two clients
+submit updates concurrently, the canister observes them one at a time. For
+example, if only one mint budget remains, the first update that consumes it can
+commit and the later update can observe the exhausted budget and return an
+error.
+
 ---
 
 ## 1. Core Principle
@@ -21,6 +33,10 @@ Within a single mutation operation:
 
 > Either all intended durable mutations are committed as a unit,
 > or the operation returns an error and no partial durable mutation is made visible.
+
+This statement is scoped to that one IcyDB mutation operation. It does not undo
+earlier successful IcyDB operations or unrelated application state changes in
+the same canister update method.
 
 IC traps may still occur, but traps are treated as catastrophic failures, not a
 correctness mechanism. This guarantee must hold **even if execution does not trap**.

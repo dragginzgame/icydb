@@ -6,6 +6,7 @@
 #[cfg(feature = "diagnostics")]
 mod diagnostics;
 mod entrypoints;
+mod execution;
 mod finalize;
 mod hints;
 mod materialized;

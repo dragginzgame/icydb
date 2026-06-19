@@ -7,6 +7,13 @@ It is intentionally narrow: it covers what the current APIs guarantee today.
 The atomic batch surface is strictly single-entity-type; it is not multi-entity
 transaction support.
 
+This document does not define database-session transactions. IcyDB does not
+provide Postgres-style transaction blocks, isolation levels, or automatic
+rollback when a canister update method returns `Err`. If application code
+performs a successful write and then returns `Err` later in the same update
+method, that prior write remains committed unless the application explicitly
+compensates for it.
+
 ---
 
 ## Scope

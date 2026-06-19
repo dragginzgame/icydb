@@ -106,6 +106,8 @@ Current guarantees:
 - Non-atomic batch helpers are fail-fast and non-atomic.
 - Atomic batch helpers are atomic per single entity type per call.
 - Multi-entity transaction semantics are not part of the current contract.
+- Returning `Err` from a canister update method does not roll back prior
+  successful writes in that method.
 
 Future transactional expansion will:
 
@@ -113,6 +115,7 @@ Future transactional expansion will:
 - Have formal semantics
 - Include replay/recovery test coverage
 - Never be implicit or inferred
+- Not infer Postgres-style transaction blocks or isolation levels
 
 ---
 

@@ -439,6 +439,98 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
 }
 
 #[test]
+fn grouped_and_global_singleton_aggregate_lanes_match_having_and_projection_semantics() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("singleton-lane-a", 20),
+            ("singleton-lane-b", 20),
+            ("singleton-lane-c", 20),
+        ],
+    );
+
+    let cases = [
+        (
+            "alias CASE HAVING keeps implicit group",
+            "SELECT COUNT(*) AS c \
+             FROM SessionSqlEntity \
+             HAVING CASE WHEN c > 0 THEN TRUE END",
+            "SELECT age, COUNT(*) AS c \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             HAVING CASE WHEN c > 0 THEN TRUE END \
+             ORDER BY age ASC LIMIT 10",
+        ),
+        (
+            "alias CASE HAVING rejects implicit group",
+            "SELECT COUNT(*) AS c \
+             FROM SessionSqlEntity \
+             HAVING CASE WHEN c > 10 THEN TRUE END",
+            "SELECT age, COUNT(*) AS c \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             HAVING CASE WHEN c > 10 THEN TRUE END \
+             ORDER BY age ASC LIMIT 10",
+        ),
+        (
+            "filtered count alias HAVING",
+            "SELECT COUNT(*) FILTER (WHERE age >= 20) AS filtered \
+             FROM SessionSqlEntity \
+             HAVING filtered = 3",
+            "SELECT age, COUNT(*) FILTER (WHERE age >= 20) AS filtered \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             HAVING filtered = 3 \
+             ORDER BY age ASC LIMIT 10",
+        ),
+        (
+            "post aggregate projection HAVING",
+            "SELECT ROUND(AVG(age), 0) AS avg_rounded \
+             FROM SessionSqlEntity \
+             HAVING AVG(age) >= 20",
+            "SELECT age, ROUND(AVG(age), 0) AS avg_rounded \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             HAVING AVG(age) >= 20 \
+             ORDER BY age ASC LIMIT 10",
+        ),
+    ];
+
+    for (context, global_sql, grouped_sql) in cases {
+        let global_rows = statement_projection_rows::<SessionSqlEntity>(&session, global_sql)
+            .unwrap_or_else(|err| panic!("{context} global aggregate SQL should succeed: {err}"));
+        let grouped =
+            execute_grouped_select_for_tests::<SessionSqlEntity>(&session, grouped_sql, None)
+                .unwrap_or_else(|err| {
+                    panic!("{context} grouped aggregate SQL should succeed: {err}")
+                });
+        let grouped_rows = grouped_result_rows(&grouped);
+
+        assert!(
+            grouped_rows
+                .iter()
+                .all(|(group_key, _)| group_key == &Value::Nat64(20)),
+            "{context} grouped singleton fixture should stay in one key",
+        );
+        assert_eq!(
+            grouped.continuation_cursor().map(crate::db::encode_cursor),
+            None,
+            "{context} grouped singleton fixture should fully materialize",
+        );
+        assert_eq!(
+            grouped_rows
+                .into_iter()
+                .map(|(_, values)| values)
+                .collect::<Vec<_>>(),
+            global_rows,
+            "{context} should match dedicated global aggregate output semantics",
+        );
+    }
+}
+
+#[test]
 fn grouped_select_lowering_explain_and_execution_project_grouped_fallback_publicly() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2986,6 +3078,103 @@ fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_column
     assert_eq!(
         runtime_outputs(second_page.rows()[0].aggregate_values()),
         [Value::Nat64(1)]
+    );
+}
+
+#[test]
+fn grouped_select_pagination_rejects_order_prefix_ties_without_group_key_tie_break() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("bravo", 10), ("charlie", 20), ("delta", 20)],
+    );
+
+    let sql = "SELECT age, name, COUNT(*) FROM SessionSqlEntity GROUP BY age, name ORDER BY age ASC LIMIT 1";
+    let err = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect_err("grouped prefix-tie pagination should stay fail-closed");
+
+    std::assert_matches!(
+        err,
+        QueryError::Plan(plan_err)
+            if matches!(
+                plan_err.as_ref(),
+                PlanError::Policy(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::PlanPolicyError::Group(group)
+                            if matches!(
+                                group.as_ref(),
+                                crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+                            )
+                    )
+            )
+    );
+}
+
+#[test]
+fn grouped_select_pagination_accepts_full_group_key_tie_break_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("bravo", 10), ("charlie", 20), ("delta", 20)],
+    );
+
+    let sql = "SELECT age, name, COUNT(*) \
+               FROM SessionSqlEntity \
+               GROUP BY age, name \
+               ORDER BY age ASC, name ASC LIMIT 1";
+    let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect("first grouped full-key page should succeed");
+    assert_eq!(
+        runtime_outputs(first_page.rows()[0].group_key()),
+        [Value::Nat64(10), Value::Text("alpha".to_string())],
+    );
+
+    let first_cursor = crate::db::encode_cursor(
+        first_page
+            .continuation_cursor()
+            .expect("first grouped full-key page should emit cursor"),
+    );
+    let second_page =
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, Some(&first_cursor))
+            .expect("second grouped full-key page should succeed");
+    assert_eq!(
+        runtime_outputs(second_page.rows()[0].group_key()),
+        [Value::Nat64(10), Value::Text("bravo".to_string())],
+    );
+
+    let second_cursor = crate::db::encode_cursor(
+        second_page
+            .continuation_cursor()
+            .expect("second grouped full-key page should emit cursor"),
+    );
+    let third_page =
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, Some(&second_cursor))
+            .expect("third grouped full-key page should succeed");
+    assert_eq!(
+        runtime_outputs(third_page.rows()[0].group_key()),
+        [Value::Nat64(20), Value::Text("charlie".to_string())],
+    );
+
+    let third_cursor = crate::db::encode_cursor(
+        third_page
+            .continuation_cursor()
+            .expect("third grouped full-key page should emit cursor"),
+    );
+    let fourth_page =
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, Some(&third_cursor))
+            .expect("fourth grouped full-key page should succeed");
+    assert_eq!(
+        runtime_outputs(fourth_page.rows()[0].group_key()),
+        [Value::Nat64(20), Value::Text("delta".to_string())],
+    );
+    assert!(
+        fourth_page.continuation_cursor().is_none(),
+        "full group-key tie-break pagination should exhaust after the final group",
     );
 }
 

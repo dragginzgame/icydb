@@ -7,9 +7,8 @@ use crate::{
         },
         sql::{
             lowering::predicate::{
-                derive_sql_where_expr_predicate_only_subset,
-                derive_sql_where_expr_predicate_only_subset_owned, lower_sql_where_bool_expr,
-                lower_sql_where_expr,
+                derive_sql_where_expr_predicate_subset, lower_sql_scalar_where_bool_expr,
+                lower_sql_where_bool_expr, lower_sql_where_expr,
             },
             parser::parse_sql,
         },
@@ -91,13 +90,13 @@ fn lower_sql_where_expr_rejects_expression_only_shapes_on_strict_predicate_path(
 }
 
 #[test]
-fn lower_sql_where_expr_keeps_top_level_membership_compact() {
+fn lower_sql_where_expr_recovers_membership_after_bool_lowering() {
     let expr = parse_where_expr("SELECT * FROM users WHERE age IN (10, 20, 10)");
 
     let predicate =
-        lower_sql_where_expr(&expr).expect("strict top-level membership WHERE should lower");
+        lower_sql_where_expr(&expr).expect("strict membership WHERE predicate should lower");
     let Predicate::Compare(compare) = predicate else {
-        panic!("top-level membership should lower to one compact compare predicate");
+        panic!("membership should extract one compact compare predicate after bool lowering");
     };
 
     assert_eq!(compare.field(), "age");
@@ -113,39 +112,38 @@ fn lower_sql_where_expr_keeps_top_level_membership_compact() {
 }
 
 #[test]
-fn derive_where_predicate_only_subset_rejects_plain_compare_without_membership() {
+fn derive_where_predicate_subset_recovers_plain_compare_after_bool_lowering() {
     let expr = parse_where_expr("SELECT * FROM users WHERE age >= 21");
+    let lowered = lower_sql_where_bool_expr(&expr).expect("plain compare WHERE shape should lower");
+    let predicate = derive_sql_where_expr_predicate_subset(&lowered)
+        .expect("plain compare WHERE shape should recover one predicate subset");
 
     assert!(
-        derive_sql_where_expr_predicate_only_subset(&expr).is_none(),
-        "plain compares must keep the visible scalar filter expression for semantic identity",
+        matches!(
+            predicate,
+            Predicate::Compare(ref compare)
+                if compare.field() == "age"
+                    && compare.op() == CompareOp::Gte
+                    && compare.value() == &Value::Int64(21)
+        ),
+        "plain compares should derive from the lowered boolean expression",
     );
 }
 
 #[test]
-fn derive_where_predicate_only_subset_owned_returns_original_for_plain_compare() {
-    let expr = parse_where_expr("SELECT * FROM users WHERE age >= 21");
-    let returned = derive_sql_where_expr_predicate_only_subset_owned(expr.clone())
-        .expect_err("owned predicate-only lowering should reject plain compares");
-
-    assert_eq!(
-        returned, expr,
-        "owned predicate-only fallback must preserve the original visible filter expression",
-    );
-}
-
-#[test]
-fn derive_where_predicate_only_subset_keeps_compare_and_membership_compact() {
+fn derive_where_predicate_subset_recovers_compare_and_membership_after_bool_lowering() {
     let expr = parse_where_expr(
         "SELECT * FROM users \
          WHERE collection_id = '01KV5N439P0000000000000000' \
            AND stage IN ('Draft', 'Review', 'Draft')",
     );
+    let lowered = lower_sql_where_bool_expr(&expr)
+        .expect("simple compare plus membership WHERE shape should lower");
 
-    let predicate = derive_sql_where_expr_predicate_only_subset(&expr)
-        .expect("simple compare plus membership WHERE should stay predicate-only");
+    let predicate = derive_sql_where_expr_predicate_subset(&lowered)
+        .expect("simple compare plus membership WHERE should recover one predicate subset");
     let Predicate::And(children) = predicate else {
-        panic!("predicate-only conjunction should lower to one AND predicate");
+        panic!("lowered conjunction should recover one AND predicate");
     };
 
     assert!(
@@ -157,7 +155,7 @@ fn derive_where_predicate_only_subset_keeps_compare_and_membership_compact() {
                     && compare.value()
                         == &Value::Text("01KV5N439P0000000000000000".to_string())
         )),
-        "predicate-only conjunction should retain the fixed equality prefix",
+        "lowered conjunction should retain the fixed equality prefix",
     );
     assert!(
         children.iter().any(|child| matches!(
@@ -175,7 +173,37 @@ fn derive_where_predicate_only_subset_keeps_compare_and_membership_compact() {
                                 ]
                     )
         )),
-        "predicate-only conjunction should keep membership compact and deduplicated",
+        "lowered conjunction should keep membership compact and deduplicated",
+    );
+}
+
+#[test]
+fn derive_where_predicate_subset_recovers_wide_membership_after_scalar_bool_lowering() {
+    let expr = parse_where_expr(
+        "SELECT * FROM users \
+         WHERE collection_id = '01KV5N439P0000000000000000' \
+           AND stage IN (\
+             'Draft', 'Review', 'Published', 'Archived', 'Queued', \
+             'Rejected', 'Minted', 'Burned', 'Frozen'\
+           )",
+    );
+    let lowered = lower_sql_scalar_where_bool_expr(&expr)
+        .expect("scalar compare plus wide membership WHERE shape should lower");
+    let predicate = derive_sql_where_expr_predicate_subset(&lowered)
+        .expect("scalar compare plus wide membership WHERE should recover one predicate subset");
+    let Predicate::And(children) = predicate else {
+        panic!("scalar lowered conjunction should recover one AND predicate: {predicate:?}");
+    };
+
+    assert!(
+        children.iter().any(|child| matches!(
+            child,
+            Predicate::Compare(compare)
+                if compare.field() == "stage"
+                    && compare.op() == CompareOp::In
+                    && matches!(compare.value(), Value::List(values) if values.len() == 9)
+        )),
+        "scalar lowered conjunction should keep wide membership compact: {children:?}",
     );
 }
 

@@ -29,6 +29,9 @@ IcyDB SQL is a constrained single-entity language for:
 - explain and schema/introspection commands
 
 IcyDB SQL is not a general-purpose relational SQL engine.
+It is also not Postgres-style transaction SQL: it does not provide implicit
+transaction blocks, rollback-on-returned-error semantics, isolation levels, or
+cross-entity/cross-canister transaction coordination.
 
 Typed and fluent APIs are the canonical public surfaces.
 The remaining public SQL surfaces are:
@@ -77,6 +80,12 @@ These are available only through typed and fluent APIs.
 
 SQL guarantees semantic equivalence for admitted query and mutation shapes, but
 not transport-level or diagnostic behavior.
+
+Returned `Err` values are ordinary canister responses. If application code
+performs one successful mutation and later returns `Err`, the earlier mutation
+is not rolled back by IcyDB or by IC message semantics. IcyDB's atomicity
+contracts apply only to the specific IcyDB mutation operation or explicit
+atomic batch helper being executed.
 
 ## Supported Public SQL Statements
 

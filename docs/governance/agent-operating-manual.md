@@ -8,13 +8,16 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 - `crates/icydb`: public meta-crate re-exporting the workspace API.
 - `crates/icydb-core`: runtime, storage, executors, and core types.
+- `crates/icydb-diagnostic-code`: compact diagnostic code registry.
+- `crates/icydb-primitives`: shared scalar primitive capability metadata.
 - `crates/icydb-schema-derive`: derive and codegen macros.
 - `crates/icydb-schema`: schema AST/builders and validation.
 - `crates/icydb-build`: build/codegen helpers and canister glue.
+- `crates/icydb-utils`: shared internal utility helpers.
 - `canisters/audit/*`: SQL audit harnesses for wasm baselines.
-- `canisters/demo/rpg`: character-only RPG demo/perf canister harness.
-- `canisters/test/sql_parity`: broad SQL parity/explain/perf harness.
+- `canisters/demo/rpg`: RPG demo canister with character and grid entities.
 - `canisters/test/sql`: lightweight SQL smoke-test harness.
+- `canisters/test/sql_bounded`: generated bounded SQL update harness.
 - `schema/demo/rpg`: demo schema fixtures and seed data.
 - `schema/audit/*`: audit schema fixtures.
 - `schema/test/*`: shared macro/e2e and SQL fixtures.

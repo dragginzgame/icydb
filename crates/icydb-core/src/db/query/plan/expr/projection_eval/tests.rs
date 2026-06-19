@@ -2,11 +2,33 @@ use super::{eval_builder_expr_for_value_preview, eval_projection_function_call};
 use crate::{
     db::{
         QueryError,
-        query::plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldPath, Function, UnaryOp},
+        query::plan::expr::{
+            BinaryOp, CaseWhenArm, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader,
+            Expr, FieldId, FieldPath, Function, UnaryOp,
+        },
     },
     value::Value,
 };
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryProjectionCode};
+use std::borrow::Cow;
+
+struct PreviewParityRow {
+    value: Value,
+}
+
+impl CompiledExprValueReader for PreviewParityRow {
+    fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        (slot == 0).then_some(Cow::Borrowed(&self.value))
+    }
+
+    fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
+        None
+    }
+
+    fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
+        None
+    }
+}
 
 fn assert_projection_reason(err: QueryError, reason: QueryProjectionCode) {
     let diagnostic = err.diagnostic();
@@ -21,6 +43,42 @@ fn assert_projection_reason(err: QueryError, reason: QueryProjectionCode) {
     );
 }
 
+fn assert_preview_matches_compiled(
+    expr: &Expr,
+    compiled_expr: &CompiledExpr,
+    field_name: &str,
+    value: Value,
+    expected: Value,
+) {
+    let preview = eval_builder_expr_for_value_preview(expr, field_name, &value)
+        .expect("preview expression should evaluate");
+    let compiled = compiled_expr
+        .evaluate(&PreviewParityRow { value })
+        .expect("compiled expression should evaluate")
+        .into_owned();
+
+    assert_eq!(preview, expected);
+    assert_eq!(compiled, expected);
+}
+
+fn age_eq_null_expr() -> Expr {
+    Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("age"))),
+        right: Box::new(Expr::Literal(Value::Null)),
+    }
+}
+
+fn compiled_age_eq_null() -> CompiledExpr {
+    CompiledExpr::BinarySlotLiteral {
+        op: BinaryOp::Eq,
+        slot: 0,
+        field: "age".to_string(),
+        literal: Value::Null,
+        slot_on_left: true,
+    }
+}
+
 #[test]
 fn preview_rejects_nested_field_path_with_compact_projection_code() {
     let err = eval_builder_expr_for_value_preview(
@@ -31,6 +89,80 @@ fn preview_rejects_nested_field_path_with_compact_projection_code() {
     .expect_err("nested field-path preview should reject");
 
     assert_projection_reason(err, QueryProjectionCode::NestedFieldPathPreview);
+}
+
+#[test]
+fn preview_eval_matches_compiled_expr_for_null_boolean_composition() {
+    assert_preview_matches_compiled(
+        &Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(age_eq_null_expr()),
+        },
+        &CompiledExpr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(compiled_age_eq_null()),
+        },
+        "age",
+        Value::Nat64(20),
+        Value::Null,
+    );
+    assert_preview_matches_compiled(
+        &Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(age_eq_null_expr()),
+            right: Box::new(Expr::Literal(Value::Bool(true))),
+        },
+        &CompiledExpr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(compiled_age_eq_null()),
+            right: Box::new(CompiledExpr::Literal(Value::Bool(true))),
+        },
+        "age",
+        Value::Nat64(20),
+        Value::Bool(true),
+    );
+    assert_preview_matches_compiled(
+        &Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(age_eq_null_expr()),
+            right: Box::new(Expr::Literal(Value::Bool(true))),
+        },
+        &CompiledExpr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(compiled_age_eq_null()),
+            right: Box::new(CompiledExpr::Literal(Value::Bool(true))),
+        },
+        "age",
+        Value::Nat64(20),
+        Value::Null,
+    );
+}
+
+#[test]
+fn preview_eval_matches_compiled_expr_for_case_truth_admission() {
+    let expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            age_eq_null_expr(),
+            Expr::Literal(Value::Text("then".to_string())),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Text("else".to_string()))),
+    };
+    let compiled_expr = CompiledExpr::Case {
+        when_then_arms: vec![CompiledExprCaseArm::new(
+            compiled_age_eq_null(),
+            CompiledExpr::Literal(Value::Text("then".to_string())),
+        )]
+        .into_boxed_slice(),
+        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+    };
+
+    assert_preview_matches_compiled(
+        &expr,
+        &compiled_expr,
+        "age",
+        Value::Nat64(20),
+        Value::Text("else".to_string()),
+    );
 }
 
 #[test]

@@ -2,7 +2,6 @@ use crate::{
     db::predicate::{
         CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize,
         normalize::{normalize_compare_value_for_kind, normalize_value_for_kind},
-        normalize_owned,
     },
     model::field::FieldKind,
     value::Value,
@@ -31,7 +30,7 @@ fn normalize_owned_matches_borrowed_normalize_for_compact_membership_conjunction
     ]);
 
     assert_eq!(
-        normalize_owned(predicate.clone()),
+        super::normalize_owned(predicate.clone()),
         normalize(&predicate),
         "owned normalization must preserve borrowed normalization semantics",
     );

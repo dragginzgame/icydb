@@ -236,7 +236,7 @@ fn membership_compare_leaf(expr: &Expr, compare_op: BinaryOp) -> Option<(&str, V
 }
 
 const fn membership_value_is_in_safe(value: &Value) -> bool {
-    !matches!(value, Value::List(_) | Value::Map(_))
+    !matches!(value, Value::Null | Value::List(_) | Value::Map(_))
 }
 
 // Compile one normalized boolean expression into the predicate pair that holds
@@ -246,6 +246,10 @@ const fn membership_value_is_in_safe(value: &Value) -> bool {
 // same rows as evaluating the expression and applying TRUE-only admission.
 fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
     debug_assert!(runtime_predicate_admissible_expr(expr));
+
+    if let Some(predicate) = collapse_membership_bool_expr(expr) {
+        return compile_membership_truth_sets(predicate);
+    }
 
     match expr {
         Expr::Field(field) => compile_bool_field_truth_sets(field.as_str()),
@@ -299,6 +303,28 @@ fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
         #[cfg(test)]
         Expr::Alias { .. } => unreachable!("predicate compiler invariant"),
     }
+}
+
+// Compile a recovered compact membership expression without routing it through
+// recursive predicate normalization, which can partially collapse wide OR
+// chains before the full same-field set is visible.
+fn compile_membership_truth_sets(predicate: Predicate) -> (Predicate, Predicate) {
+    let Predicate::Compare(compare) = predicate else {
+        unreachable!("membership collapse returns one compare predicate");
+    };
+    let inverse_op = match compare.op() {
+        CompareOp::In => CompareOp::NotIn,
+        CompareOp::NotIn => CompareOp::In,
+        _ => unreachable!("membership collapse returns IN-family compare predicates"),
+    };
+    let inverse = Predicate::Compare(ComparePredicate::with_coercion(
+        compare.field().to_string(),
+        inverse_op,
+        compare.value().clone(),
+        compare.coercion().id(),
+    ));
+
+    (Predicate::Compare(compare), inverse)
 }
 
 // Compile one normalized searched-CASE tree by recursively composing the

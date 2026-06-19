@@ -6,25 +6,18 @@
 use crate::{
     db::{
         executor::{
-            AccessStreamBindings, ExecutionKernel, ExecutionTrace, ScalarContinuationContext,
-            TraversalRuntime,
-            diagnostics::execution_trace_for_access,
-            pipeline::timing::{elapsed_execution_micros, start_execution_timer},
+            ExecutionKernel, ExecutionTrace, ScalarContinuationContext,
             pipeline::{
                 contracts::{
-                    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-                    MaterializedExecutionPayload, PreparedExecutionInputContext,
-                    StructuralCursorPage,
+                    ExecutionOutcomeMetrics, MaterializedExecutionPayload, StructuralCursorPage,
                 },
                 entrypoints::scalar::{
+                    execution::{attach_execution_stats_to_trace, execute_prepared_scalar_kernel},
                     finalize::finalize_scalar_structural_path_execution,
-                    hints::apply_unpaged_top_n_seek_hints, runtime::PreparedScalarRouteRuntime,
+                    runtime::PreparedScalarRouteRuntime,
                 },
             },
-            plan_metrics::record_plan_metrics,
-            planning::route::top_n_seek_lookahead_required_for_shape,
             route::access_order_satisfied_by_route_mode,
-            with_execution_stats_capture,
         },
         index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,
@@ -43,27 +36,6 @@ pub(super) type ScalarPathExecution = (
     Option<ExecutionTrace>,
     u64,
 );
-
-// Apply route hints and continuation invariants shared by scalar materialized
-// execution before the kernel receives the route plan.
-const fn prepare_scalar_route_for_execution(
-    route_plan: &mut crate::db::executor::ExecutionPlan,
-    continuation: &ScalarContinuationContext,
-    unpaged_rows_mode: bool,
-    top_n_seek_requires_lookahead: bool,
-    suppress_route_scan_hints: bool,
-) {
-    apply_unpaged_top_n_seek_hints(
-        continuation,
-        unpaged_rows_mode,
-        top_n_seek_requires_lookahead,
-        route_plan,
-    );
-    if suppress_route_scan_hints {
-        route_plan.scan_hints.physical_fetch_hint = None;
-        route_plan.scan_hints.load_scan_budget_hint = None;
-    }
-}
 
 fn apply_index_set_page_fetch_hint(
     route_plan: &mut crate::db::executor::ExecutionPlan,
@@ -109,85 +81,29 @@ fn apply_index_set_page_fetch_hint(
 pub(super) fn execute_prepared_scalar_path_execution(
     prepared: PreparedScalarRouteRuntime,
 ) -> Result<ScalarPathExecution, InternalError> {
-    let PreparedScalarRouteRuntime {
-        store,
-        authority,
-        plan_core,
-        mut route_plan,
-        prep,
-        projection,
-        continuation,
-        unpaged_rows_mode,
-        cursor_emission,
-        projection_runtime_mode,
-        suppress_route_scan_hints,
-        debug,
-    } = prepared;
-    let entity_path = authority.entity_path();
-    let runtime = ExecutionRuntimeAdapter::from_scalar_runtime(
-        TraversalRuntime::new(store, authority.entity_tag()),
-        store,
-        authority,
-    );
-    let plan = plan_core.plan();
-    let index_prefix_specs = plan_core.index_prefix_specs()?;
-    let index_range_specs = plan_core.index_range_specs()?;
-
-    // Phase 1: apply structural route hints derived from the scalar load plan.
-    let top_n_seek_requires_lookahead = plan
-        .access_shape_facts()
-        .single_path_facts()
-        .is_some_and(|shape_facts| top_n_seek_lookahead_required_for_shape(&shape_facts));
-    prepare_scalar_route_for_execution(
-        &mut route_plan,
-        &continuation,
-        unpaged_rows_mode,
-        top_n_seek_requires_lookahead,
-        suppress_route_scan_hints,
-    );
-
-    // Phase 2: project continuation invariants and optional trace setup once.
-    let route_continuation = route_plan.continuation();
-    let continuation_applied = route_continuation.applied();
-    continuation.debug_assert_route_continuation_invariants(plan, route_continuation);
-    let direction = route_plan.direction();
-    apply_index_set_page_fetch_hint(
-        &mut route_plan,
-        plan,
-        &continuation,
-        prep.effective_runtime_filter_program().is_some(),
-    );
-    let mut execution_trace =
-        debug.then(|| execution_trace_for_access(&plan.access, direction, continuation_applied));
-    let execution_started_at = start_execution_timer();
-
-    // Phase 3: build canonical execution inputs and materialize the scalar route.
-    let executable_access = plan.access.executable_contract();
-    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
-        runtime: &runtime,
-        plan,
-        executable_access,
-        stream_bindings: AccessStreamBindings {
-            index_prefix_specs,
-            index_range_specs,
-            continuation: continuation.access_scan_input(direction, plan),
+    let execution = execute_prepared_scalar_kernel(
+        prepared,
+        |route_plan, plan, continuation, prep| {
+            apply_index_set_page_fetch_hint(
+                route_plan,
+                plan,
+                continuation,
+                prep.effective_runtime_filter_program().is_some(),
+            );
         },
-        execution_preparation: &prep,
-        projection_materialization: projection_runtime_mode,
-        prepared_projection: projection,
-        emit_cursor: cursor_emission.enabled(),
-    });
-    record_plan_metrics(entity_path, plan);
-    let (materialized, mut execution_stats) = with_execution_stats_capture(debug, || {
-        ExecutionKernel::materialize_with_optional_residual_retry(
-            &execution_inputs,
-            &route_plan,
-            &continuation,
-            IndexCompilePolicy::ConservativeSubset,
-        )
-    });
-    let materialized = materialized?;
-    let execution_time_micros = elapsed_execution_micros(execution_started_at);
+        |execution_inputs, route_plan, continuation| {
+            ExecutionKernel::materialize_with_optional_residual_retry(
+                execution_inputs,
+                route_plan,
+                continuation,
+                IndexCompilePolicy::ConservativeSubset,
+            )
+        },
+    )?;
+    let mut execution_stats = execution.execution_stats;
+    let mut execution_trace = execution.execution_trace;
+    let execution_time_micros = execution.execution_time_micros;
+    let materialized = execution.attempt;
     let (payload, metrics) = materialized.into_payload_and_metrics();
     if let Some(stats) = execution_stats.as_mut() {
         stats.apply_scalar_outcome(
@@ -197,11 +113,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
             metrics.distinct_keys_deduped,
         );
     }
-    if let Some(trace) = execution_trace.as_mut() {
-        trace.set_execution_stats(
-            execution_stats.map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
-        );
-    }
+    attach_execution_stats_to_trace(&mut execution_trace, execution_stats);
 
     Ok((
         payload,

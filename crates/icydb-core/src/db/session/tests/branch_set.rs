@@ -185,9 +185,11 @@ fn seed_skew_branch_set_fixture(session: &DbSession<SessionSqlCanister>) {
 
 fn branch_descriptor(sql: &str) -> ExplainExecutionNodeDescriptor {
     let session = indexed_sql_session();
-    lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, sql)
-        .unwrap_or_else(|err| panic!("branch-set SQL should lower: {err:?}"))
-        .explain_execution()
+    let query = lower_select_query_for_tests::<BranchIndexedSessionSqlEntity>(&session, sql)
+        .unwrap_or_else(|err| panic!("branch-set SQL should lower: {err:?}"));
+
+    session
+        .explain_query_execution_with_visible_indexes(&query)
         .unwrap_or_else(|err| panic!("branch-set SQL should explain execution: {err:?}"))
 }
 
@@ -437,7 +439,12 @@ fn session_branch_set_sql_admits_nine_branch_route_under_current_cap() {
     let descriptor = branch_descriptor(sql.as_str());
     let branch_node =
         explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::IndexBranchSet)
-            .expect("nine-value IN list should stay inside the branch-set cap");
+            .unwrap_or_else(|| {
+                panic!(
+                    "nine-value IN list should stay inside the branch-set cap:\n{}",
+                    descriptor.render_text_tree()
+                )
+            });
     let Some(ExplainAccessPath::IndexBranchSet { branch_values, .. }) =
         branch_node.access_strategy()
     else {
@@ -609,6 +616,57 @@ fn session_branch_set_sql_rows_match_full_filter_primary_key_sort() {
         rows,
         expected_branch_rows(BRANCH_LIMIT),
         "branch merge should match full filter plus global primary-key ASC sort",
+    );
+}
+
+#[test]
+fn session_branch_set_sql_index_route_matches_forced_full_scan_fallback() {
+    let limit = BRANCH_LIMIT * 2;
+
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_branch_set_fixture(&session);
+    let sql = branch_target_sql("id", limit);
+    let ready_descriptor = branch_descriptor(sql.as_str());
+
+    assert_target_branch_route(&ready_descriptor);
+
+    let ready_rows =
+        statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("branch-set indexed projection should execute: {err:?}"));
+
+    hide_indexed_session_indexes();
+
+    let fallback_descriptor = branch_descriptor(sql.as_str());
+    assert!(
+        !explain_execution_contains_node_type(
+            &fallback_descriptor,
+            ExplainExecutionNodeType::IndexBranchSet
+        ),
+        "forced fallback must not reuse the branch-aware route:\n{}",
+        fallback_descriptor.render_text_tree(),
+    );
+    assert!(
+        explain_execution_contains_node_type(
+            &fallback_descriptor,
+            ExplainExecutionNodeType::FullScan
+        ),
+        "forced fallback should route through a full scan:\n{}",
+        fallback_descriptor.render_text_tree(),
+    );
+
+    let fallback_rows =
+        statement_projection_rows::<BranchIndexedSessionSqlEntity>(&session, sql.as_str())
+            .unwrap_or_else(|err| panic!("branch-set fallback projection should execute: {err:?}"));
+
+    assert_eq!(
+        ready_rows,
+        expected_branch_rows(limit),
+        "ready branch route should match the canonical filtered primary-key window",
+    );
+    assert_eq!(
+        fallback_rows, ready_rows,
+        "branch-aware index route and forced full-scan fallback should return identical rows",
     );
 }
 
@@ -952,7 +1010,8 @@ fn session_branch_set_sql_wide_sparse_route_prunes_empty_branch_streams() {
 
     assert!(
         explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::IndexBranchSet),
-        "sparse wide branch list should stay inside the branch-set route",
+        "sparse wide branch list should stay inside the branch-set route:\n{}",
+        descriptor.render_text_tree(),
     );
 
     let (result, attribution) = session

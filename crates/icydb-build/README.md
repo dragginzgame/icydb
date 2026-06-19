@@ -16,5 +16,5 @@ support downstream dependency resolution.
 
 References:
 
-- Workspace overview: `README.md`
-- Release notes: `CHANGELOG.md`
+- Workspace overview: `../../README.md`
+- Release notes: `../../CHANGELOG.md`

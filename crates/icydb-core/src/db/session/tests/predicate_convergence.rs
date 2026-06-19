@@ -59,15 +59,6 @@ fn expression_sql_rows(session: &DbSession<SessionSqlCanister>, sql: &str) -> Ve
     )
 }
 
-// Hide secondary indexes without clearing the underlying rows so the same SQL
-// statement can be compared through index pushdown and full-scan fallback.
-fn hide_indexed_session_indexes() {
-    INDEXED_SESSION_SQL_DB
-        .recovered_store(IndexedSessionSqlStore::PATH)
-        .expect("indexed SQL store should recover")
-        .mark_index_building();
-}
-
 #[test]
 fn predicate_sql_and_fluent_filters_converge_on_scalar_rows() {
     reset_session_sql_store();
@@ -175,6 +166,88 @@ fn predicate_optional_null_converges_but_sql_eq_null_stays_unknown_false() {
     assert!(
         rejected_direct_null.is_err(),
         "query validation currently rejects direct Compare(field, NULL); runtime direct NULL equality is locked in predicate runtime tests",
+    );
+}
+
+#[test]
+fn predicate_sql_membership_with_null_preserves_three_valued_semantics() {
+    reset_indexed_session_sql_store();
+    let indexed_session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &indexed_session,
+        &[("alpha", 10), ("bravo", 20), ("charlie", 30)],
+    );
+
+    let indexed_in_sql = "SELECT * FROM IndexedSessionSqlEntity \
+                          WHERE name IN (NULL, 'bravo') \
+                          ORDER BY name ASC, id ASC";
+    let indexed_not_in_sql = "SELECT * FROM IndexedSessionSqlEntity \
+                              WHERE name NOT IN (NULL, 'bravo') \
+                              ORDER BY name ASC, id ASC";
+    let ready_in_rows = indexed_sql_rows(&indexed_session, indexed_in_sql);
+    let ready_not_in_rows = indexed_sql_rows(&indexed_session, indexed_not_in_sql);
+
+    assert_eq!(
+        ready_in_rows,
+        vec![("bravo".to_string(), 20)],
+        "indexed non-null IN with NULL should admit only literal matches",
+    );
+    assert!(
+        ready_not_in_rows.is_empty(),
+        "indexed non-null NOT IN with NULL should admit no SQL TRUE rows",
+    );
+
+    hide_indexed_session_indexes();
+
+    assert_eq!(
+        indexed_sql_rows(&indexed_session, indexed_in_sql),
+        ready_in_rows,
+        "indexed and full-scan IN-with-NULL execution should agree",
+    );
+    assert_eq!(
+        indexed_sql_rows(&indexed_session, indexed_not_in_sql),
+        ready_not_in_rows,
+        "indexed and full-scan NOT-IN-with-NULL execution should agree",
+    );
+
+    reset_session_sql_store();
+    let nullable_session = sql_session();
+    seed_nullable_session_sql_entities(
+        &nullable_session,
+        &[
+            ("explicit-null", None),
+            ("other", Some("other")),
+            ("present", Some("present")),
+        ],
+    );
+
+    let nullable_in_rows = nullable_names(
+        execute_scalar_select_for_tests::<SessionNullableSqlEntity>(
+            &nullable_session,
+            "SELECT * FROM SessionNullableSqlEntity \
+             WHERE nickname IN (NULL, 'present') \
+             ORDER BY name ASC",
+        )
+        .expect("nullable IN-with-NULL SQL should execute"),
+    );
+    let nullable_not_in_rows = nullable_names(
+        execute_scalar_select_for_tests::<SessionNullableSqlEntity>(
+            &nullable_session,
+            "SELECT * FROM SessionNullableSqlEntity \
+             WHERE nickname NOT IN (NULL, 'present') \
+             ORDER BY name ASC",
+        )
+        .expect("nullable NOT-IN-with-NULL SQL should execute"),
+    );
+
+    assert_eq!(
+        nullable_in_rows,
+        vec!["present".to_string()],
+        "nullable full-scan IN with NULL should admit only non-NULL literal matches",
+    );
+    assert!(
+        nullable_not_in_rows.is_empty(),
+        "nullable full-scan NOT IN with NULL should admit no SQL TRUE rows",
     );
 }
 

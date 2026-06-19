@@ -47,11 +47,12 @@ Pin IcyDB by tag in downstream canisters:
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28" }
 ```
 
-SQL is enabled by default. For typed/fluent-only builds:
+The default crate feature set is typed/fluent-only. Enable SQL explicitly when
+the canister uses session/library SQL APIs or generated SQL endpoints:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.183.28", features = ["sql"] }
 ```
 
 Canisters normally call `icydb::start!()` in `src/lib.rs` and use a build
@@ -149,7 +150,7 @@ pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
 }
 ```
 
-With the default `sql` feature, the same entity can be queried or mutated
+With the `sql` feature enabled, the same entity can be queried or mutated
 through session/library reduced single-entity SQL:
 
 ```rust
@@ -186,6 +187,13 @@ IcyDB supports a focused, canister-friendly SQL subset:
 - field-path indexes, multi-field indexes, unique indexes, filtered indexes,
   and deterministic `LOWER`/`UPPER`/`TRIM` expression indexes
 
+IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
+single-entity IcyDB operations, and returning `Err` from a canister update
+method does not roll back earlier state changes made by that method. On the
+Internet Computer, update calls for one canister execute one at a time; two
+concurrent client requests observe serialized canister state rather than a
+shared database transaction.
+
 Generated canister SQL endpoints are deliberately narrower than the
 session/library SQL APIs. `__icydb_query` is read-only, `__icydb_ddl` is for
 schema DDL, and `__icydb_update` is emitted only when `icydb.toml` selects an
@@ -215,8 +223,13 @@ usage, IC test prerequisites, and wasm report commands live in
 - `crates/icydb-config` - host-side `icydb.toml` parsing for build
   scripts and CLI checks.
 - `crates/icydb-derive` - public derive helpers.
+- `crates/icydb-diagnostic-code` - compact diagnostic code registry and
+  public diagnostic metadata.
+- `crates/icydb-primitives` - shared primitive helpers used by facade,
+  schema, and runtime crates.
 - `crates/icydb-schema-derive` and `crates/icydb-schema` - schema macros and
   schema AST.
+- `crates/icydb-utils` - shared internal utility helpers.
 - `crates/icydb-cli` - developer CLI for local SQL, config checks, canister
   lifecycle helpers, and observability reports.
 - `schema/*` - demo, audit, and test schemas.
@@ -233,6 +246,7 @@ usage, IC test prerequisites, and wasm report commands live in
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
 - [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
+- [docs/contracts/ATOMICITY.md](docs/contracts/ATOMICITY.md)
 - [docs/contracts/REF_INTEGRITY.md](docs/contracts/REF_INTEGRITY.md)
 - [docs/contracts/RESOURCE_MODEL.md](docs/contracts/RESOURCE_MODEL.md)
 - [docs/contracts/TRANSACTION_SEMANTICS.md](docs/contracts/TRANSACTION_SEMANTICS.md)

@@ -363,6 +363,30 @@ fn write_selector_ids(sql: &str) -> Vec<u64> {
     statement_nat_ids::<SessionSqlWriteEntity>(&session, sql)
 }
 
+// Run one count-returning write statement against the same fresh deterministic
+// write fixture used by selector convergence tests.
+fn write_count(sql: &str) -> u32 {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(
+        &session,
+        &[
+            (1, "Ada", 21),
+            (2, "Bea", 30),
+            (3, "Cid", 25),
+            (4, "Dee", 40),
+        ],
+    );
+
+    let payload = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
+        .unwrap_or_else(|err| panic!("count-returning SQL write should succeed: {err}"));
+    let SqlStatementResult::Count { row_count } = payload else {
+        panic!("count-returning SQL write should return a count payload");
+    };
+
+    row_count
+}
+
 // Compare selector keys while allowing explicitly unordered SQL surfaces to
 // differ in row order but never in the target key set.
 fn assert_selector_ids_match(
@@ -2669,6 +2693,48 @@ fn execute_sql_statement_update_selector_converges_with_select_and_delete_target
 
         assert_selector_ids_match(select_ids.clone(), update_ids, ordered, context);
         assert_selector_ids_match(select_ids, delete_ids, ordered, context);
+    }
+}
+
+#[test]
+fn execute_sql_statement_write_residual_filters_converge_with_select_returning_and_count() {
+    for (clause, context) in [
+        (
+            "WHERE CASE WHEN age > 25 THEN TRUE ELSE NULL END",
+            "CASE ELSE NULL residual",
+        ),
+        (
+            "WHERE (age = 21 OR age = 25) \
+             AND CASE WHEN name != 'Bea' THEN TRUE ELSE NULL END",
+            "OR plus CASE residual",
+        ),
+        (
+            "WHERE (age = 30 OR NULL) AND name = 'Bea'",
+            "OR NULL residual",
+        ),
+        (
+            "WHERE (age < 25 AND TRUE) \
+             OR CASE WHEN age = 40 THEN TRUE ELSE NULL END",
+            "AND plus CASE OR residual",
+        ),
+    ] {
+        let select_ids =
+            write_selector_ids(&format!("SELECT id FROM SessionSqlWriteEntity {clause}"));
+        let update_ids = write_selector_ids(&format!(
+            "UPDATE SessionSqlWriteEntity SET age = 99 {clause} RETURNING id"
+        ));
+        let delete_ids = write_selector_ids(&format!(
+            "DELETE FROM SessionSqlWriteEntity {clause} RETURNING id"
+        ));
+        let delete_count = write_count(&format!("DELETE FROM SessionSqlWriteEntity {clause}"));
+
+        assert_selector_ids_match(select_ids.clone(), update_ids, false, context);
+        assert_selector_ids_match(select_ids.clone(), delete_ids, false, context);
+        assert_eq!(
+            delete_count as usize,
+            select_ids.len(),
+            "{context} DELETE count should match the selected residual-filter target set",
+        );
     }
 }
 

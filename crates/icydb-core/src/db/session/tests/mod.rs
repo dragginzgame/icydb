@@ -2650,6 +2650,18 @@ fn reset_indexed_session_sql_store() {
     reset_commit_marker_test_journal_sequence();
 }
 
+// Hide secondary indexes without clearing the underlying rows so tests can
+// compare ready-index routes with forced full-scan fallbacks.
+fn hide_indexed_session_indexes() {
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+        .mark_index_building();
+    let session = indexed_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
+}
+
 fn indexed_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(INDEXED_SESSION_SQL_DB)
 }

@@ -14,5 +14,5 @@ Schema-only trait-generation policy stays outside this crate. Decisions such as 
 
 References:
 
-- Workspace overview: `README.md`
-- Release notes: `CHANGELOG.md`
+- Workspace overview: `../../README.md`
+- Release notes: `../../CHANGELOG.md`

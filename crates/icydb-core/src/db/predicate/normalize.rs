@@ -76,7 +76,7 @@ pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
 /// Normalize an already-owned predicate into the same canonical,
 /// deterministic form as [`normalize`] without cloning leaf payloads.
 #[must_use]
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 pub(in crate::db) fn normalize_owned(predicate: Predicate) -> Predicate {
     // Normalize recursively while preserving logical equivalence.
     match predicate {
@@ -482,7 +482,7 @@ fn normalize_not(inner: &Predicate) -> Predicate {
     normalize_not_from_normalized(normalize(inner), |predicate| normalize(&predicate))
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 fn normalize_not_owned(inner: Predicate) -> Predicate {
     normalize_not_from_normalized(normalize_owned(inner), normalize_owned)
 }
@@ -512,7 +512,7 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
     normalize_and_from_normalized(children.iter().map(normalize))
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 fn normalize_and_owned(children: Vec<Predicate>) -> Predicate {
     normalize_and_from_normalized(children.into_iter().map(normalize_owned))
 }
@@ -567,7 +567,7 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
     normalize_or_from_normalized(children.iter().map(normalize))
 }
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 fn normalize_or_owned(children: Vec<Predicate>) -> Predicate {
     normalize_or_from_normalized(children.into_iter().map(normalize_owned))
 }

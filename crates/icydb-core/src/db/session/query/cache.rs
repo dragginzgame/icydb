@@ -173,55 +173,57 @@ fn shared_query_plan_cache_miss_reason(
         return CacheMissReason::Cold;
     }
 
-    if cache.keys().any(|candidate| {
-        candidate.entity_path == key.entity_path
-            && candidate.schema_version == key.schema_version
-            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
-            && candidate.schema_fingerprint == key.schema_fingerprint
-            && candidate.visibility == key.visibility
-            && candidate.structural_query == key.structural_query
-            && candidate.cache_method_version != key.cache_method_version
-    }) {
-        return CacheMissReason::MethodVersion;
+    let mut schema_version_mismatch = false;
+    let mut schema_fingerprint_mismatch = false;
+    let mut visibility_mismatch = false;
+
+    for candidate in cache.keys() {
+        if candidate.entity_path != key.entity_path
+            || candidate.structural_query != key.structural_query
+        {
+            continue;
+        }
+
+        let same_method_version = candidate.cache_method_version == key.cache_method_version;
+        let same_schema_version = candidate.schema_version == key.schema_version;
+        let same_schema_fingerprint_method =
+            candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version;
+        let same_schema_fingerprint = candidate.schema_fingerprint == key.schema_fingerprint;
+        let same_visibility = candidate.visibility == key.visibility;
+
+        if same_schema_version
+            && same_schema_fingerprint_method
+            && same_schema_fingerprint
+            && same_visibility
+            && !same_method_version
+        {
+            return CacheMissReason::MethodVersion;
+        }
+
+        schema_version_mismatch |= same_schema_fingerprint_method
+            && same_schema_fingerprint
+            && same_visibility
+            && same_method_version
+            && !same_schema_version;
+        schema_fingerprint_mismatch |= same_visibility
+            && same_method_version
+            && (!same_schema_fingerprint_method || !same_schema_fingerprint);
+        visibility_mismatch |= same_schema_version
+            && same_schema_fingerprint_method
+            && same_schema_fingerprint
+            && same_method_version
+            && !same_visibility;
     }
 
-    if cache.keys().any(|candidate| {
-        candidate.entity_path == key.entity_path
-            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
-            && candidate.schema_fingerprint == key.schema_fingerprint
-            && candidate.visibility == key.visibility
-            && candidate.structural_query == key.structural_query
-            && candidate.cache_method_version == key.cache_method_version
-            && candidate.schema_version != key.schema_version
-    }) {
-        return CacheMissReason::SchemaVersion;
+    if schema_version_mismatch {
+        CacheMissReason::SchemaVersion
+    } else if schema_fingerprint_mismatch {
+        CacheMissReason::SchemaFingerprint
+    } else if visibility_mismatch {
+        CacheMissReason::Visibility
+    } else {
+        CacheMissReason::DistinctKey
     }
-
-    if cache.keys().any(|candidate| {
-        candidate.entity_path == key.entity_path
-            && candidate.visibility == key.visibility
-            && candidate.structural_query == key.structural_query
-            && candidate.cache_method_version == key.cache_method_version
-            && (candidate.schema_fingerprint_method_version
-                != key.schema_fingerprint_method_version
-                || candidate.schema_fingerprint != key.schema_fingerprint)
-    }) {
-        return CacheMissReason::SchemaFingerprint;
-    }
-
-    if cache.keys().any(|candidate| {
-        candidate.entity_path == key.entity_path
-            && candidate.schema_version == key.schema_version
-            && candidate.schema_fingerprint_method_version == key.schema_fingerprint_method_version
-            && candidate.schema_fingerprint == key.schema_fingerprint
-            && candidate.structural_query == key.structural_query
-            && candidate.cache_method_version == key.cache_method_version
-            && candidate.visibility != key.visibility
-    }) {
-        return CacheMissReason::Visibility;
-    }
-
-    CacheMissReason::DistinctKey
 }
 
 thread_local! {

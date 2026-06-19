@@ -8,5 +8,5 @@ Use this crate when building canister data models and queries.
 
 For full setup, examples, and release notes:
 
-- Workspace README: `README.md`
-- Changelog: `CHANGELOG.md`
+- Workspace README: `../../README.md`
+- Changelog: `../../CHANGELOG.md`
