@@ -5,18 +5,19 @@
 
 #[cfg(feature = "sql")]
 use crate::db::schema::accepted_schema_cache_fingerprint;
+#[cfg(feature = "sql")]
+use crate::db::{
+    access::{
+        LoweredIndexPrefixCardinalitySpec, lower_access,
+        lower_exact_index_prefix_cardinality_specs_for_prefix_access,
+    },
+    executor::{LoweredIndexPrefixCardinalityPlan, exact_count_cardinality_prefixes_for_plan},
+};
 use crate::{
     db::{
         DbSession, Query, QueryError, TraceReuseArtifactClass, TraceReuseEvent,
-        access::{
-            LoweredIndexPrefixCardinalitySpec, lower_access,
-            lower_exact_index_prefix_cardinality_specs_for_prefix_access,
-        },
         commit::CommitSchemaFingerprint,
-        executor::{
-            EntityAuthority, LoweredIndexPrefixCardinalityPlan, PreparedExecutionPlan,
-            SharedPreparedExecutionPlan, exact_count_cardinality_prefixes_for_plan,
-        },
+        executor::{EntityAuthority, PreparedExecutionPlan, SharedPreparedExecutionPlan},
         predicate::predicate_fingerprint_normalized,
         query::{
             intent::StructuralQuery,
