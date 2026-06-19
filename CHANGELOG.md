@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.1` continues the query-engine audit by reusing compiled
+  `INSERT ... SELECT` sources, converging preview projection evaluation onto
+  `CompiledExpr`, and carrying lowered SQL expressions with shared analysis
+  proof through grouped/global projection lowering.
+
 - `0.184.0` starts the mega-audit line by routing SQL membership predicates
   through canonical boolean lowering first, preserving `NULL` semantics,
   recovering compact wide-`IN` pushdown, adding index/full-scan parity guards,

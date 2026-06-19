@@ -1,6 +1,49 @@
 use crate::{db::query::plan::expr::Expr, model::entity::EntityModel};
 
 ///
+/// AnalyzedLoweredExpr
+///
+/// One lowered planner expression plus the compile-time facts derived from the
+/// same tree walk. SQL lowering code should pass this around when the lowered
+/// expression and its aggregate/field proof are consumed together, instead of
+/// keeping the proof as an adjacent loose value.
+///
+
+#[derive(Debug)]
+pub(in crate::db::sql::lowering) struct AnalyzedLoweredExpr {
+    expr: Expr,
+    analysis: LoweredExprAnalysis,
+}
+
+impl AnalyzedLoweredExpr {
+    /// Analyze one owned lowered planner expression.
+    #[must_use]
+    pub(in crate::db::sql::lowering) fn new(expr: Expr, model: Option<&EntityModel>) -> Self {
+        let analysis = analyze_lowered_expr(&expr, model);
+
+        Self { expr, analysis }
+    }
+
+    /// Borrow the lowered expression.
+    #[must_use]
+    pub(in crate::db::sql::lowering) const fn expr(&self) -> &Expr {
+        &self.expr
+    }
+
+    /// Borrow the analysis proof derived from the lowered expression.
+    #[must_use]
+    pub(in crate::db::sql::lowering) const fn analysis(&self) -> &LoweredExprAnalysis {
+        &self.analysis
+    }
+
+    /// Consume the artifact and return the lowered expression.
+    #[must_use]
+    pub(in crate::db::sql::lowering) fn into_expr(self) -> Expr {
+        self.expr
+    }
+}
+
+///
 /// LoweredExprAnalysis
 ///
 /// LoweredExprAnalysis keeps the compile-time facts SQL lowering repeatedly
@@ -16,7 +59,8 @@ use crate::{db::query::plan::expr::Expr, model::entity::EntityModel};
 #[derive(Debug, Default)]
 pub(in crate::db::sql::lowering) struct LoweredExprAnalysis {
     contains_aggregate: bool,
-    references_direct_fields: bool,
+    direct_field_roots: Vec<String>,
+    contains_field_path: bool,
     first_unknown_field: Option<String>,
 }
 
@@ -31,7 +75,22 @@ impl LoweredExprAnalysis {
     /// outside aggregate-owned subtrees.
     #[must_use]
     pub(in crate::db::sql::lowering) const fn references_direct_fields(&self) -> bool {
-        self.references_direct_fields
+        !self.direct_field_roots.is_empty()
+    }
+
+    /// Return whether all analyzed field references are direct leaves from the
+    /// supplied allowlist. Field paths fail this direct-field proof, matching
+    /// grouped projection admission.
+    #[must_use]
+    pub(in crate::db::sql::lowering) fn references_only_direct_fields(
+        &self,
+        allowed: &[&str],
+    ) -> bool {
+        !self.contains_field_path
+            && self
+                .direct_field_roots
+                .iter()
+                .all(|field| allowed.contains(&field.as_str()))
     }
 
     /// Borrow the first unknown field discovered during left-to-right tree walk.
@@ -42,12 +101,17 @@ impl LoweredExprAnalysis {
 
     /// Record one field leaf while preserving the first unknown-field diagnostic.
     fn visit_field(&mut self, field: &str, model: Option<&EntityModel>) {
-        self.references_direct_fields = true;
+        self.direct_field_roots.push(field.to_string());
         if self.first_unknown_field.is_none()
             && model.is_some_and(|model| model.resolve_field_slot(field).is_none())
         {
             self.first_unknown_field = Some(field.to_string());
         }
+    }
+
+    fn visit_field_path(&mut self, field: &str, model: Option<&EntityModel>) {
+        self.contains_field_path = true;
+        self.visit_field(field, model);
     }
 }
 
@@ -60,8 +124,9 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
     model: Option<&EntityModel>,
 ) -> LoweredExprAnalysis {
     let mut analysis = LoweredExprAnalysis {
-        contains_aggregate: expr.contains_aggregate(),
-        references_direct_fields: false,
+        contains_aggregate: false,
+        direct_field_roots: Vec::new(),
+        contains_field_path: false,
         first_unknown_field: None,
     };
 
@@ -71,7 +136,11 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
             Ok::<(), ()>(())
         }
         Expr::FieldPath(path) => {
-            analysis.visit_field(path.root().as_str(), model);
+            analysis.visit_field_path(path.root().as_str(), model);
+            Ok::<(), ()>(())
+        }
+        Expr::Aggregate(_) => {
+            analysis.contains_aggregate = true;
             Ok::<(), ()>(())
         }
         _ => Ok(()),
@@ -93,10 +162,10 @@ mod tests {
                 builder::aggregate::AggregateExpr,
                 plan::{
                     AggregateKind,
-                    expr::{BinaryOp, Expr, Function},
+                    expr::{BinaryOp, Expr, FieldId, FieldPath, Function},
                 },
             },
-            sql::lowering::analysis::analyze_lowered_expr,
+            sql::lowering::analysis::{AnalyzedLoweredExpr, analyze_lowered_expr},
         },
         model::field::FieldKind,
         traits::EntitySchema,
@@ -181,5 +250,34 @@ mod tests {
             global.first_unknown_field(),
             "equivalent grouped/global post-aggregate shapes must agree on unknown-field diagnostics",
         );
+    }
+
+    #[test]
+    fn lowered_expr_analysis_proves_direct_group_fields_without_admitting_field_paths() {
+        let direct = analyze_lowered_expr(&Expr::Field(FieldId::new("age")), None);
+        let path = analyze_lowered_expr(
+            &Expr::FieldPath(FieldPath::new("age", vec!["rank".to_string()])),
+            None,
+        );
+
+        assert!(direct.references_direct_fields());
+        assert!(direct.references_only_direct_fields(&["age"]));
+        assert!(path.references_direct_fields());
+        assert!(
+            !path.references_only_direct_fields(&["age"]),
+            "field paths must not satisfy grouped direct-field authority just because their root is grouped",
+        );
+    }
+
+    #[test]
+    fn analyzed_lowered_expr_keeps_expr_and_analysis_coupled() {
+        let expr = Expr::Field(FieldId::new("age"));
+        let analyzed =
+            AnalyzedLoweredExpr::new(expr.clone(), Some(LoweredExprAnalysisEntity::MODEL));
+
+        assert_eq!(analyzed.expr(), &expr);
+        assert!(analyzed.analysis().references_direct_fields());
+        assert_eq!(analyzed.analysis().first_unknown_field(), None);
+        assert_eq!(analyzed.into_expr(), expr);
     }
 }

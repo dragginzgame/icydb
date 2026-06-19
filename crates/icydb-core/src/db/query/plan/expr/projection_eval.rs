@@ -15,6 +15,7 @@
 #[cfg(test)]
 mod tests;
 
+use super::scalar::ScalarProjectionField;
 use crate::{
     db::{
         QueryError,
@@ -23,14 +24,34 @@ use crate::{
             coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
-            BinaryOp, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
-            collapse_true_only_boolean_admission,
+            BinaryOp, CompiledExpr, CompiledExprValueReader, Expr, Function, ProjectionEvalError,
+            ScalarEvalFunctionShape, ScalarProjectionCaseArm, ScalarProjectionExpr,
         },
     },
     value::Value,
 };
-use icydb_diagnostic_code::QueryProjectionCode;
-use std::cmp::Ordering;
+use icydb_diagnostic_code::{DiagnosticDetail, QueryProjectionCode};
+use std::{borrow::Cow, cmp::Ordering};
+
+const PREVIEW_VALUE_SLOT: usize = 0;
+
+struct PreviewValueReader<'value> {
+    value: &'value Value,
+}
+
+impl CompiledExprValueReader for PreviewValueReader<'_> {
+    fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        (slot == PREVIEW_VALUE_SLOT).then_some(Cow::Borrowed(self.value))
+    }
+
+    fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
+        None
+    }
+
+    fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
+        None
+    }
+}
 
 ///
 /// ProjectionFunctionEvalError
@@ -55,6 +76,17 @@ impl ProjectionFunctionEvalError {
             Self::Numeric(err) => QueryError::from_numeric_eval_error(err),
         }
     }
+
+    /// Return the compact projection reason when this function failure already
+    /// crossed a query-facing projection boundary.
+    pub(in crate::db) fn query_projection_reason(err: &QueryError) -> Option<QueryProjectionCode> {
+        let Some(DiagnosticDetail::QueryProjection { reason }) = err.diagnostic().detail().copied()
+        else {
+            return None;
+        };
+
+        Some(reason)
+    }
 }
 
 impl From<QueryError> for ProjectionFunctionEvalError {
@@ -75,6 +107,7 @@ fn projection_unsupported(reason: QueryProjectionCode) -> ProjectionFunctionEval
 
 /// Evaluate one bounded projection-function call over already-evaluated
 /// argument values.
+#[cfg(test)]
 pub(in crate::db) fn eval_projection_function_call(
     function: Function,
     args: &[Value],
@@ -116,60 +149,114 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
     field_name: &str,
     value: &Value,
 ) -> Result<Value, QueryError> {
+    let preview_expr = compile_builder_preview_expr(expr, field_name)?;
+    let compiled = CompiledExpr::compile(&preview_expr);
+    let reader = PreviewValueReader { value };
+
+    compiled
+        .evaluate(&reader)
+        .map(Cow::into_owned)
+        .map_err(preview_eval_error_into_query_error)
+}
+
+fn compile_builder_preview_expr(
+    expr: &Expr,
+    field_name: &str,
+) -> Result<ScalarProjectionExpr, QueryError> {
     match expr {
         Expr::Field(field) => {
             if field.as_str() != field_name {
                 return Err(QueryError::invariant());
             }
 
-            Ok(value.clone())
+            Ok(ScalarProjectionExpr::Field(ScalarProjectionField::new(
+                field.as_str().to_string(),
+                PREVIEW_VALUE_SLOT,
+            )))
         }
         Expr::FieldPath(_) => Err(QueryError::unsupported_projection(
             QueryProjectionCode::NestedFieldPathPreview,
         )),
-        Expr::Literal(value) => Ok(value.clone()),
+        Expr::Literal(value) => Ok(ScalarProjectionExpr::Literal(value.clone())),
         Expr::FunctionCall { function, args } => {
-            let evaluated_args = args
+            let args = args
                 .iter()
-                .map(|arg| eval_builder_expr_for_value_preview(arg, field_name, value))
+                .map(|arg| compile_builder_preview_expr(arg, field_name))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            eval_projection_function_call(*function, evaluated_args.as_slice())
+            Ok(ScalarProjectionExpr::FunctionCall {
+                function: *function,
+                args,
+            })
         }
         Expr::Case {
             when_then_arms,
             else_expr,
         } => {
-            for arm in when_then_arms {
-                let condition =
-                    eval_builder_expr_for_value_preview(arm.condition(), field_name, value)?;
-                if collapse_true_only_boolean_admission(condition, |_| {
-                    QueryError::unsupported_projection(
-                        QueryProjectionCode::CaseConditionBooleanRequired,
-                    )
-                })? {
-                    return eval_builder_expr_for_value_preview(arm.result(), field_name, value);
-                }
-            }
+            let when_then_arms = when_then_arms
+                .iter()
+                .map(|arm| {
+                    Ok(ScalarProjectionCaseArm::new(
+                        compile_builder_preview_expr(arm.condition(), field_name)?,
+                        compile_builder_preview_expr(arm.result(), field_name)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, QueryError>>()?;
+            let else_expr = Box::new(compile_builder_preview_expr(else_expr, field_name)?);
 
-            eval_builder_expr_for_value_preview(else_expr.as_ref(), field_name, value)
+            Ok(ScalarProjectionExpr::Case {
+                when_then_arms,
+                else_expr,
+            })
         }
         Expr::Aggregate(_) => Err(QueryError::invariant()),
         Expr::Binary { op, left, right } => {
-            let left = eval_builder_expr_for_value_preview(left.as_ref(), field_name, value)?;
-            let right = eval_builder_expr_for_value_preview(right.as_ref(), field_name, value)?;
+            let left = compile_builder_preview_expr(left, field_name)?;
+            let right = compile_builder_preview_expr(right, field_name)?;
 
-            eval_preview_binary_expr(*op, &left, &right)
+            Ok(ScalarProjectionExpr::Binary {
+                op: *op,
+                left: Box::new(left),
+                right: Box::new(right),
+            })
         }
         Expr::Unary { op, expr } => {
-            let value = eval_builder_expr_for_value_preview(expr.as_ref(), field_name, value)?;
+            let expr = compile_builder_preview_expr(expr, field_name)?;
 
-            eval_preview_unary_expr(*op, &value)
+            Ok(ScalarProjectionExpr::Unary {
+                op: *op,
+                expr: Box::new(expr),
+            })
         }
         #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            eval_builder_expr_for_value_preview(expr.as_ref(), field_name, value)
+        Expr::Alias { expr, .. } => compile_builder_preview_expr(expr, field_name),
+    }
+}
+
+fn preview_eval_error_into_query_error(err: ProjectionEvalError) -> QueryError {
+    match err {
+        ProjectionEvalError::Numeric(err) => QueryError::from_numeric_eval_error(err),
+        ProjectionEvalError::InvalidProjection { reason } => {
+            QueryError::unsupported_projection(reason)
         }
+        ProjectionEvalError::InvalidUnaryOperand { .. } => {
+            QueryError::unsupported_projection(QueryProjectionCode::UnaryOperandIncompatible)
+        }
+        ProjectionEvalError::InvalidCaseCondition { .. } => {
+            QueryError::unsupported_projection(QueryProjectionCode::CaseConditionBooleanRequired)
+        }
+        ProjectionEvalError::InvalidBinaryOperands { .. } => {
+            QueryError::unsupported_projection(QueryProjectionCode::BinaryOperandsIncompatible)
+        }
+        ProjectionEvalError::UnknownField { .. }
+        | ProjectionEvalError::MissingFieldValue { .. }
+        | ProjectionEvalError::MissingFieldPathValue { .. }
+        | ProjectionEvalError::FieldPathEvaluationFailed { .. }
+        | ProjectionEvalError::ReaderFailed { .. }
+        | ProjectionEvalError::UnknownGroupedAggregateExpression { .. }
+        | ProjectionEvalError::MissingGroupedAggregateValue { .. }
+        | ProjectionEvalError::InvalidFunctionCall { .. }
+        | ProjectionEvalError::InvalidGroupedHavingResult { .. } => QueryError::invariant(),
     }
 }
 
@@ -427,24 +514,6 @@ fn eval_numeric_scale_function_call(
             };
 
             Ok(value)
-        }
-    }
-}
-
-fn eval_preview_unary_expr(op: UnaryOp, value: &Value) -> Result<Value, QueryError> {
-    if matches!(value, Value::Null) {
-        return Ok(Value::Null);
-    }
-
-    match op {
-        UnaryOp::Not => {
-            let Value::Bool(v) = value else {
-                return Err(QueryError::unsupported_projection(
-                    QueryProjectionCode::UnaryOperandIncompatible,
-                ));
-            };
-
-            Ok(Value::Bool(!*v))
         }
     }
 }

@@ -30,6 +30,10 @@ thread_local! {
 #[cfg(feature = "diagnostics")]
 thread_local! {
     static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(any(test, feature = "diagnostics"))]
+thread_local! {
     static INDEX_STORE_RANGE_SCAN_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
     static INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT: Cell<u64> = const { Cell::new(0) };
@@ -42,21 +46,21 @@ fn record_index_store_get_call() {
     });
 }
 
-#[cfg(feature = "diagnostics")]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_index_store_range_scan_call() {
     INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(feature = "diagnostics")]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_index_store_entry_read() {
     INDEX_STORE_ENTRY_READ_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
     });
 }
 
-#[cfg(feature = "diagnostics")]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_index_store_prefix_cardinality_lookup() {
     INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
@@ -68,7 +72,7 @@ fn visit_index_store_entry<E>(
     value: &IndexEntryValue,
     visit: &mut impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
 ) -> Result<bool, E> {
-    #[cfg(feature = "diagnostics")]
+    #[cfg(any(test, feature = "diagnostics"))]
     record_index_store_entry_read();
 
     visit(key, value)
@@ -197,7 +201,7 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => {
                 for (key, value) in map {
-                    #[cfg(feature = "diagnostics")]
+                    #[cfg(any(test, feature = "diagnostics"))]
                     record_index_store_entry_read();
 
                     if visitor(key, value)?.should_stop() {
@@ -278,7 +282,7 @@ impl IndexStore {
         index_id: IndexId,
         components: &[Vec<u8>],
     ) -> Option<u64> {
-        #[cfg(feature = "diagnostics")]
+        #[cfg(any(test, feature = "diagnostics"))]
         record_index_store_prefix_cardinality_lookup();
 
         self.prefix_cardinality
@@ -296,7 +300,7 @@ impl IndexStore {
         component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         stop_after: Option<u64>,
     ) -> Option<u64> {
-        #[cfg(feature = "diagnostics")]
+        #[cfg(any(test, feature = "diagnostics"))]
         record_index_store_prefix_cardinality_lookup();
 
         self.prefix_cardinality.exact_count_sum(
@@ -442,24 +446,24 @@ impl IndexStore {
     }
 
     /// Return the monotonic perf-only count of index range traversal probes seen by this process.
-    #[cfg(feature = "diagnostics")]
+    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn current_range_scan_call_count() -> u64 {
         INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of index entries yielded by traversal.
-    #[cfg(feature = "diagnostics")]
+    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn current_entry_read_count() -> u64 {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
     }
 
     /// Return the monotonic perf-only count of exact prefix-cardinality probes.
-    #[cfg(all(test, feature = "diagnostics"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn current_prefix_cardinality_lookup_count() -> u64 {
         INDEX_STORE_PREFIX_CARDINALITY_LOOKUP_COUNT.with(Cell::get)
     }
 
-    #[cfg(feature = "diagnostics")]
+    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db::index) fn record_range_scan_call() {
         record_index_store_range_scan_call();
     }

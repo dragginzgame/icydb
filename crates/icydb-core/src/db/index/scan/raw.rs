@@ -33,7 +33,7 @@ impl IndexStore {
             return Ok(());
         }
 
-        #[cfg(feature = "diagnostics")]
+        #[cfg(any(test, feature = "diagnostics"))]
         Self::record_range_scan_call();
 
         match direction {

@@ -152,12 +152,6 @@ impl QueryError {
         Self::invariant()
     }
 
-    /// Construct one invariant for prepared INSERT SELECT extraction that lost SELECT source shape.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn prepared_sql_insert_select_source_mismatch() -> Self {
-        Self::invariant()
-    }
-
     /// Construct one invariant for prepared UPDATE extraction that lost UPDATE shape.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn prepared_sql_update_lane_mismatch() -> Self {

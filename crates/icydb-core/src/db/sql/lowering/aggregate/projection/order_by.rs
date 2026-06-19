@@ -1,10 +1,7 @@
 use crate::db::{
     query::plan::expr::Alias,
     sql::{
-        lowering::{
-            SqlLoweringError, analyze_lowered_expr, expr::SqlExprPhase,
-            select::lower_select_item_expr,
-        },
+        lowering::{SqlLoweringError, expr::SqlExprPhase, select::lower_analyzed_select_item_expr},
         parser::{SqlExpr, SqlOrderTerm, SqlProjection},
     },
 };
@@ -38,8 +35,8 @@ fn collect_global_aggregate_output_order_targets(
 
     let mut targets = Vec::with_capacity(items.len());
     for (item, alias) in items.iter().zip(projection_aliases.iter()) {
-        let expr = lower_select_item_expr(item, SqlExprPhase::PostAggregate)?;
-        let analysis = analyze_lowered_expr(&expr, None);
+        let analyzed = lower_analyzed_select_item_expr(item, SqlExprPhase::PostAggregate, None)?;
+        let analysis = analyzed.analysis();
         if !analysis.contains_aggregate() || analysis.references_direct_fields() {
             continue;
         }

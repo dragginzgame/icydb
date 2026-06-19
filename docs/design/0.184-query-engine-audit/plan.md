@@ -112,6 +112,15 @@ Trait-object / RefCell reader dispatch may be hot, but it may also be lost in st
 
 If it is not clearly hot, leave it alone.
 
+Result:
+Done in 0.184.0 as an ignored native microbenchmark beside the executor scalar
+reader adapters. The cleaned run measured direct slice access at roughly 97us
+per iteration, borrowed callback reader dispatch at roughly 97us, mixed `Cow`
+callback dispatch at roughly 112us, and owned callback dispatch at roughly
+102us over 512 rows and 1,024 iterations. The overhead is measurable in the
+mixed/owned callback paths but not high enough to justify a second production
+evaluator path before the semantic convergence items.
+
 Phase 3 — Expression convergence
 5. F1 / D2 / H4 / C3: make preview evaluation reuse CompiledExpr
 Finding:
@@ -140,6 +149,13 @@ Route preview evaluation through compilation.
 
 Step 4:
 Delete or heavily shrink the direct recursive evaluator.
+
+Result:
+Done in 0.184.0. Builder preview expressions now compile into the shared
+`ScalarProjectionExpr` / `CompiledExpr` path and evaluate through a one-slot
+preview reader. The old recursive preview evaluator was removed, while the
+shared function evaluator remains the source of compact projection error
+reasons.
 6. H3 / F7: typed/analyzed expression pass
 Finding:
 H3 / F7
@@ -151,6 +167,24 @@ Goal:
 Reduce repeated expression walking across projection, aggregate collection, HAVING, ORDER BY, and predicate derivation.
 
 This should be design-first, not a casual refactor. It starts moving toward a real binder artifact.
+
+First slice:
+Lowered SQL expression analysis now performs one traversal for aggregate
+presence, direct field roots, field-path presence, and unknown-field
+diagnostics. Grouped projection validation and grouped aggregate collection
+consume the analysis proof for grouped-field authority instead of walking the
+expression tree again.
+
+Second slice:
+Lowered SELECT-item consumers that need the expression and its facts now use an
+`AnalyzedLoweredExpr` artifact. This keeps grouped/global projection lowering
+from treating the lowered expression and its aggregate/field proof as separate
+loose values, without broadening the artifact into a full binder product yet.
+
+Deferred:
+The broader typed/analyzed expression artifact still needs a short design before
+it carries type inference, aggregate references, ORDER BY facts, and predicate
+derivation inputs.
 
 Phase 4 — Filter and predicate contract
 7. F2 / D3: introduce unified filter contract
@@ -226,6 +260,8 @@ Only after that should you design chunked mutation preparation.
 11. F8 / H10: reuse compiled SELECT for INSERT SELECT
 Finding:
 F8 / H10
+
+Done in 0.184.0.
 
 Why after write-path tests:
 It removes reparse/rebind duplication, but it affects write execution.

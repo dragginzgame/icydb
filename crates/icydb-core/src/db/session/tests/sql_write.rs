@@ -2802,6 +2802,39 @@ fn execute_sql_statement_insert_select_matrix_accepts_supported_source_shapes() 
 }
 
 #[test]
+fn compile_sql_insert_select_carries_bound_source_query_artifact() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21)]);
+
+    let compiled = session
+        .compile_sql_update::<SessionSqlEntity>(
+            "INSERT INTO SessionSqlEntity (name, age) \
+             SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' RETURNING *",
+        )
+        .expect("INSERT SELECT should compile");
+    let crate::db::session::sql::CompiledSqlCommand::Insert(command) = &compiled else {
+        panic!("INSERT SELECT should compile to the INSERT command family");
+    };
+    assert!(
+        command.source_query().is_some(),
+        "compiled INSERT SELECT should carry the bound source query artifact",
+    );
+
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_compiled_sql::<SessionSqlEntity>(&compiled)
+        .expect("compiled INSERT SELECT should execute")
+    else {
+        panic!("compiled INSERT SELECT should return projected rows");
+    };
+    assert_eq!(
+        rows.len(),
+        1,
+        "compiled INSERT SELECT should insert and return one projected row",
+    );
+}
+
+#[test]
 fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
     reset_session_sql_store();
     let session = sql_session();

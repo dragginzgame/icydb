@@ -428,10 +428,11 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Explain(lowered) => {
                 self.execute_explain_sql_with_cache_attribution::<E>(lowered)
             }
-            CompiledSqlCommand::Insert(statement) => {
-                let result = self.execute_sql_insert_statement::<E>(statement);
+            CompiledSqlCommand::Insert(command) => {
+                let result = self
+                    .execute_sql_insert_statement::<E>(command.statement(), command.source_query());
                 sql_write_statement_result_with_default_cache::<E, C>(
-                    sql_insert_write_kind(statement),
+                    sql_insert_write_kind(command.statement()),
                     result,
                 )
             }
@@ -527,9 +528,10 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Explain(lowered) => {
                 self.execute_explain_sql_with_cache_attribution::<E>(&lowered)
             }
-            CompiledSqlCommand::Insert(statement) => {
-                let kind = sql_insert_write_kind(&statement);
-                let result = self.execute_sql_insert_statement::<E>(&statement);
+            CompiledSqlCommand::Insert(command) => {
+                let kind = sql_insert_write_kind(command.statement());
+                let result = self
+                    .execute_sql_insert_statement::<E>(command.statement(), command.source_query());
                 sql_write_statement_result_with_default_cache::<E, C>(kind, result)
             }
             CompiledSqlCommand::Update(statement) => {

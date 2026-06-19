@@ -56,18 +56,19 @@ pub(crate) use aggregate::{
     StructuralSqlGlobalAggregateCommand,
     bind_lowered_sql_explain_global_aggregate_structural_with_schema,
 };
-pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
+pub(in crate::db::sql::lowering) use analysis::{
+    AnalyzedLoweredExpr, LoweredExprAnalysis, analyze_lowered_expr,
+};
 #[cfg(test)]
 pub(in crate::db::sql::lowering) use order_expr::{
     lower_grouped_post_aggregate_order_expr_text, lower_supported_order_expr_text,
 };
-pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural_with_schema;
+pub(in crate::db) use prepare::bind_sql_select_statement_structural_with_schema;
 #[cfg(test)]
 pub(crate) use prepare::lower_sql_command_from_prepared_statement_for_model_only;
 pub(crate) use prepare::{
-    extract_prepared_sql_insert_select_source, extract_prepared_sql_insert_statement,
-    extract_prepared_sql_update_statement, lower_prepared_sql_delete_statement,
-    lower_prepared_sql_select_statement_with_schema,
+    extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
+    lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement_with_schema,
     lower_sql_command_from_prepared_statement_with_schema, prepare_sql_statement,
 };
 pub(crate) use select::LoweredDeleteShape;

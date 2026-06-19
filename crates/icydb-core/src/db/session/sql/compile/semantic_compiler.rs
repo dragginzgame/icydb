@@ -12,7 +12,7 @@ use crate::{
         executor::EntityAuthority,
         schema::SchemaInfo,
         session::sql::{
-            CompiledSqlCommand, SqlCompiledCommandSurface,
+            CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandSurface,
             compile::{SqlCompileArtifacts, SqlCompilePhaseAttribution, SqlQueryShape},
             measured,
         },
@@ -20,13 +20,17 @@ use crate::{
             lowering::{
                 PreparedSqlStatement, bind_lowered_sql_delete_query_structural_with_schema,
                 bind_lowered_sql_select_query_structural_with_schema,
+                bind_sql_select_statement_structural_with_schema,
                 compile_structural_sql_global_aggregate_command_from_prepared_with_schema,
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement,
                 lower_prepared_sql_select_statement_with_schema,
                 lower_sql_command_from_prepared_statement_with_schema, prepare_sql_statement,
             },
-            parser::SqlStatement,
+            parser::{
+                SqlExpr, SqlInsertSource, SqlOrderDirection, SqlOrderTerm, SqlSelectStatement,
+                SqlStatement,
+            },
         },
     },
     model::entity::EntityModel,
@@ -48,7 +52,7 @@ impl<C: CanisterKind> DbSession<C> {
         match statement {
             SqlStatement::Select(_) => Self::compile_select(statement, entity_name, model, schema),
             SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, model, schema),
-            SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name),
+            SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name, model, schema),
             SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
             SqlStatement::Ddl(_) => Err(QueryError::sql_lowering(
                 SqlLoweringCode::SqlDdlExecutionUnsupported,
@@ -226,22 +230,53 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_insert(
         statement: &SqlStatement,
         entity_name: &str,
+        model: &'static EntityModel,
+        schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
             Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let statement = extract_prepared_sql_insert_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
+        let (bind_local_instructions, source_query) =
+            Self::compile_insert_select_source_query(&statement.source, model, schema)?;
 
         let shape = SqlQueryShape::mutation(statement.returning.is_some());
 
         Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::Insert(statement),
+            CompiledSqlCommand::Insert(CompiledSqlInsertCommand::new(statement, source_query)),
             shape,
             0,
             prepare_local_instructions,
             0,
-            0,
+            bind_local_instructions,
         ))
+    }
+
+    // Compile the SELECT source for INSERT SELECT once while the SQL compiled
+    // command cache owns the accepted schema snapshot and model authority.
+    fn compile_insert_select_source_query(
+        source: &SqlInsertSource,
+        model: &'static EntityModel,
+        schema: &SchemaInfo,
+    ) -> Result<(u64, Option<crate::db::query::intent::StructuralQuery>), QueryError> {
+        let SqlInsertSource::Select(source) = source else {
+            return Ok((0, None));
+        };
+        let source = insert_select_source_with_primary_key_order(
+            source.as_ref(),
+            schema.primary_key_names(),
+        )?;
+        let (bind_local_instructions, query) = measured(|| {
+            bind_sql_select_statement_structural_with_schema(
+                source,
+                model,
+                MissingRowPolicy::Ignore,
+                schema,
+            )
+            .map_err(QueryError::from_sql_lowering_error)
+        })?;
+
+        Ok((bind_local_instructions, Some(query)))
     }
 
     // Compile UPDATE after the shared prepare phase. Like INSERT, UPDATE owns
@@ -425,4 +460,31 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok((artifacts, attribution))
     }
+}
+
+fn insert_select_source_with_primary_key_order(
+    source: &SqlSelectStatement,
+    primary_key_names: &[String],
+) -> Result<SqlSelectStatement, QueryError> {
+    if primary_key_names.is_empty() {
+        return Err(QueryError::invariant());
+    }
+
+    let mut source = source.clone();
+    for primary_key_name in primary_key_names {
+        if source
+            .order_by
+            .iter()
+            .any(|term| matches!(&term.field, SqlExpr::Field(field) if field == primary_key_name))
+        {
+            continue;
+        }
+
+        source.order_by.push(SqlOrderTerm {
+            field: SqlExpr::Field(primary_key_name.clone()),
+            direction: SqlOrderDirection::Asc,
+        });
+    }
+
+    Ok(source)
 }

@@ -1,9 +1,6 @@
 use crate::{
     db::sql::{
-        lowering::{
-            SqlLoweringError, analyze_lowered_expr, expr::SqlExprPhase,
-            select::lower_select_item_expr,
-        },
+        lowering::{SqlLoweringError, expr::SqlExprPhase, select::lower_analyzed_select_item_expr},
         parser::{SqlAggregateCall, SqlProjection, SqlSelectItem},
     },
     model::entity::EntityModel,
@@ -74,8 +71,9 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
     // Validate one grouped projection item before collecting any aggregate
     // leaves so field-resolution and grouped-key diagnostics stay precise.
     fn collect_item(&mut self, index: usize, item: &SqlSelectItem) -> Result<(), SqlLoweringError> {
-        let expr = lower_select_item_expr(item, SqlExprPhase::PostAggregate)?;
-        let analysis = analyze_lowered_expr(&expr, Some(self.model));
+        let analyzed =
+            lower_analyzed_select_item_expr(item, SqlExprPhase::PostAggregate, Some(self.model))?;
+        let analysis = analyzed.analysis();
         let contains_aggregate = analysis.contains_aggregate();
         if self.seen_aggregate && !contains_aggregate {
             return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
@@ -85,7 +83,7 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
         if let Some(field) = analysis.first_unknown_field() {
             return Err(SqlLoweringError::unknown_field(field));
         }
-        if !expr.references_only_fields(self.grouped_field_names.as_slice()) {
+        if !analysis.references_only_direct_fields(self.grouped_field_names.as_slice()) {
             return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
         }
         if contains_aggregate {

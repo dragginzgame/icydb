@@ -160,7 +160,7 @@ pub(in crate::db) enum CompiledSqlCommand {
         count_plan_cache: Arc<OnceLock<Arc<SqlGlobalAggregateCountPlanCacheEntry>>>,
     },
     Explain(Box<LoweredSqlCommand>),
-    Insert(SqlInsertStatement),
+    Insert(CompiledSqlInsertCommand),
     Update(SqlUpdateStatement),
     DescribeEntity,
     ShowIndexesEntity,
@@ -173,6 +173,49 @@ pub(in crate::db) enum CompiledSqlCommand {
         verbose: bool,
     },
     ShowMemory,
+}
+
+///
+/// CompiledSqlInsertCommand
+///
+/// CompiledSqlInsertCommand carries one normalized INSERT statement plus the
+/// optional bound source query for `INSERT ... SELECT`.
+/// VALUES inserts keep no source query; SELECT inserts reuse the compiled
+/// source artifact during execution instead of preparing and binding it again.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct CompiledSqlInsertCommand {
+    statement: SqlInsertStatement,
+    source_query: Option<Arc<StructuralQuery>>,
+}
+
+impl CompiledSqlInsertCommand {
+    /// Build one compiled INSERT command from its normalized statement and
+    /// optional already-bound source query.
+    #[must_use]
+    pub(in crate::db) fn new(
+        statement: SqlInsertStatement,
+        source_query: Option<StructuralQuery>,
+    ) -> Self {
+        Self {
+            statement,
+            source_query: source_query.map(Arc::new),
+        }
+    }
+
+    /// Borrow the normalized INSERT syntax surface.
+    #[must_use]
+    pub(in crate::db) const fn statement(&self) -> &SqlInsertStatement {
+        &self.statement
+    }
+
+    /// Borrow the bound INSERT SELECT source query when this command uses a
+    /// SELECT source.
+    #[must_use]
+    pub(in crate::db) fn source_query(&self) -> Option<&StructuralQuery> {
+        self.source_query.as_deref()
+    }
 }
 
 impl CompiledSqlCommand {

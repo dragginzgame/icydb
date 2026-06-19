@@ -10,9 +10,8 @@ use crate::db::{
                 projection::remap::collect_global_aggregate_terminals_from_expr,
                 terminal::SqlGlobalAggregateTerminal,
             },
-            analyze_lowered_expr,
             expr::SqlExprPhase,
-            select::lower_select_item_expr,
+            select::lower_analyzed_select_item_expr,
         },
         parser::SqlProjection,
     },
@@ -54,14 +53,15 @@ impl LoweredSqlGlobalAggregateTerminals {
         let mut saw_wrapped_projection = false;
 
         for (index, item) in items.into_iter().enumerate() {
-            let expr = lower_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
-            let analysis = analyze_lowered_expr(&expr, None);
+            let analyzed =
+                lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, None)?;
+            let analysis = analyzed.analysis();
             if !analysis.contains_aggregate() || analysis.references_direct_fields() {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());
             }
 
             let direct_terminal_index =
-                collect_global_aggregate_terminals_from_expr(&expr, &mut terminals)?;
+                collect_global_aggregate_terminals_from_expr(analyzed.expr(), &mut terminals)?;
             #[cfg(test)]
             match direct_terminal_index {
                 Some(unique_index) => output_remap.push(unique_index),
@@ -73,7 +73,7 @@ impl LoweredSqlGlobalAggregateTerminals {
             let _ = direct_terminal_index;
 
             fields.push(ProjectionField::Scalar {
-                expr,
+                expr: analyzed.into_expr(),
                 alias: projection_aliases
                     .get(index)
                     .and_then(Option::as_deref)

@@ -27,6 +27,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     value::Value,
 };
+use icydb_diagnostic_code::QueryProjectionCode;
 use std::borrow::Cow;
 
 pub(in crate::db) use compile::{compile_grouped_projection_expr, compile_grouped_projection_plan};
@@ -328,6 +329,10 @@ pub(in crate::db) enum ProjectionEvalError {
         argument_count: usize,
     },
 
+    InvalidProjection {
+        reason: QueryProjectionCode,
+    },
+
     Numeric(NumericEvalError),
 
     InvalidGroupedHavingResult {
@@ -436,6 +441,10 @@ impl ProjectionEvalError {
         }
     }
 
+    pub(in crate::db) const fn invalid_projection(reason: QueryProjectionCode) -> Self {
+        Self::InvalidProjection { reason }
+    }
+
     pub(in crate::db) const fn invalid_grouped_having_result(found: &Value) -> Self {
         Self::InvalidGroupedHavingResult {
             found: ProjectionValueKindCode::from_value(found),
@@ -491,6 +500,10 @@ impl ProjectionEvalError {
                 argument_count,
             } => {
                 let _ = (function, argument_count);
+                InternalError::query_invalid_logical_plan()
+            }
+            Self::InvalidProjection { reason } => {
+                let _ = reason;
                 InternalError::query_invalid_logical_plan()
             }
             Self::InvalidGroupedHavingResult { found } => {

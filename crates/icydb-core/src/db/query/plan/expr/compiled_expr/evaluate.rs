@@ -484,8 +484,11 @@ fn eval_grouped_function_call(
 ) -> Result<Value, ProjectionEvalError> {
     eval_projection_function_call_checked(function, args).map_err(|err| match err {
         ProjectionFunctionEvalError::Numeric(err) => ProjectionEvalError::Numeric(err),
-        ProjectionFunctionEvalError::Query(_) => {
-            ProjectionEvalError::invalid_function_call(function, args.len())
+        ProjectionFunctionEvalError::Query(err) => {
+            ProjectionFunctionEvalError::query_projection_reason(&err).map_or_else(
+                || ProjectionEvalError::invalid_function_call(function, args.len()),
+                ProjectionEvalError::invalid_projection,
+            )
         }
     })
 }

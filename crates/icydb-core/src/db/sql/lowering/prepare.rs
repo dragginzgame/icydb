@@ -232,19 +232,18 @@ pub(crate) fn lower_prepared_sql_delete_statement(
     lower_delete_statement_shape(statement)
 }
 
-/// Bind one prepared SQL SELECT through an explicit schema projection.
+/// Bind one already-prepared SQL SELECT through an explicit schema projection.
 ///
-/// Write-side `INSERT ... SELECT` uses this accepted-schema-aware route so
-/// source predicates follow the same top-level field authority as cached
-/// query-surface SELECT compilation.
+/// Compiled `INSERT ... SELECT` carries a normalized source SELECT, so write
+/// execution can reuse that artifact without running the prepare phase again.
 #[inline(never)]
-pub(in crate::db) fn bind_prepared_sql_select_statement_structural_with_schema(
-    prepared: PreparedSqlStatement,
+pub(in crate::db) fn bind_sql_select_statement_structural_with_schema(
+    statement: SqlSelectStatement,
     model: &'static EntityModel,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let select = lower_prepared_sql_select_statement_with_schema(prepared, model, schema)?;
+    let select = lower_select_shape_with_schema(statement, model, schema)?;
 
     bind_lowered_sql_select_query_structural_with_schema(model, select, consistency, schema)
 }
@@ -258,18 +257,6 @@ pub(crate) fn extract_prepared_sql_insert_statement(
     };
 
     Ok(statement)
-}
-
-/// Extract one normalized prepared SQL INSERT SELECT source statement.
-pub(crate) fn extract_prepared_sql_insert_select_source(
-    prepared: PreparedSqlStatement,
-) -> Result<SqlSelectStatement, SqlLoweringError> {
-    let statement = extract_prepared_sql_insert_statement(prepared)?;
-    let SqlInsertSource::Select(select) = statement.source else {
-        return Err(QueryError::prepared_sql_insert_select_source_mismatch().into());
-    };
-
-    Ok(*select)
 }
 
 /// Extract one normalized prepared SQL UPDATE statement.

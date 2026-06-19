@@ -54,7 +54,7 @@ pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_ex
 pub(in crate::db) use binding::{
     canonicalize_sql_filter_expr_for_schema, canonicalize_sql_predicate_for_schema,
 };
-pub(in crate::db::sql::lowering) use projection::lower_select_item_expr;
+pub(in crate::db::sql::lowering) use projection::lower_analyzed_select_item_expr;
 
 pub(in crate::db::sql::lowering) fn lower_order_terms(
     order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,

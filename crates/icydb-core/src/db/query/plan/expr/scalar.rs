@@ -136,6 +136,13 @@ pub(in crate::db) struct ScalarProjectionField {
 }
 
 impl ScalarProjectionField {
+    /// Build one resolved scalar field reference from an already-owned field
+    /// label and slot.
+    #[must_use]
+    pub(in crate::db::query::plan::expr) const fn new(field: String, slot: usize) -> Self {
+        Self { field, slot }
+    }
+
     /// Borrow the declared field name for diagnostics.
     #[must_use]
     pub(in crate::db) const fn field(&self) -> &str {

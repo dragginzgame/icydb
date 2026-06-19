@@ -216,7 +216,7 @@ impl SqlCompileArtifacts {
         match command {
             CompiledSqlCommand::Select { .. } | CompiledSqlCommand::GlobalAggregate { .. } => true,
             CompiledSqlCommand::Delete { returning, .. } => returning.is_some(),
-            CompiledSqlCommand::Insert(statement) => statement.returning.is_some(),
+            CompiledSqlCommand::Insert(command) => command.statement().returning.is_some(),
             CompiledSqlCommand::Update(statement) => statement.returning.is_some(),
             CompiledSqlCommand::Explain(_)
             | CompiledSqlCommand::DescribeEntity

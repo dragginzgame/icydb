@@ -480,3 +480,236 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
         InternalError::query_invalid_logical_plan()
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CompiledExpr, CompiledExprValueReader, ValueCowSlotReader, ValueRefSlotReader,
+        ValueSlotReader,
+    };
+    use crate::{db::query::plan::expr::BinaryOp, value::Value};
+    use std::{
+        borrow::Cow,
+        cell::RefCell,
+        hint::black_box,
+        time::{Duration, Instant},
+    };
+
+    const READER_DISPATCH_ROWS: usize = 512;
+    const READER_DISPATCH_ITERATIONS: usize = 1_024;
+
+    type ReaderDispatchRow = [Value; 4];
+
+    struct SliceReader<'row> {
+        row: &'row [Value],
+    }
+
+    impl CompiledExprValueReader for SliceReader<'_> {
+        fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+            self.row.get(slot).map(Cow::Borrowed)
+        }
+
+        fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
+            None
+        }
+
+        fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
+            None
+        }
+    }
+
+    // Run explicitly when assessing whether reader dispatch deserves
+    // specialization. The report is informational; correctness stays limited to
+    // proving every measured path evaluates the same compiled expression.
+    #[test]
+    #[ignore = "native microbenchmark: run explicitly with --ignored --nocapture"]
+    fn compiled_expr_reader_dispatch_microbenchmark_report() {
+        let rows = reader_dispatch_rows();
+        let expr = reader_dispatch_expr();
+        let expected = direct_slice_checksum(&expr, &rows);
+
+        println!();
+        println!("Compiled expression reader dispatch microbenchmark");
+        println!(
+            "rows={READER_DISPATCH_ROWS} iterations={READER_DISPATCH_ITERATIONS} expression=slot arithmetic"
+        );
+        println!();
+
+        report_reader_dispatch_result(
+            "direct slice reader",
+            expected,
+            measure_reader_dispatch(|| direct_slice_checksum(&expr, &rows)),
+        );
+        report_reader_dispatch_result(
+            "borrowed callback reader",
+            expected,
+            measure_reader_dispatch(|| borrowed_callback_checksum(&expr, &rows)),
+        );
+        report_reader_dispatch_result(
+            "cow callback reader",
+            expected,
+            measure_reader_dispatch(|| cow_callback_checksum(&expr, &rows)),
+        );
+        report_reader_dispatch_result(
+            "owned callback reader",
+            expected,
+            measure_reader_dispatch(|| owned_callback_checksum(&expr, &rows)),
+        );
+    }
+
+    fn reader_dispatch_rows() -> Vec<ReaderDispatchRow> {
+        (0..READER_DISPATCH_ROWS)
+            .map(|index| {
+                let base = u64::try_from(index).expect("benchmark row index should fit u64");
+
+                [
+                    Value::Nat64(base + 1),
+                    Value::Nat64(2),
+                    Value::Nat64((base % 7) + 3),
+                    Value::Nat64(5),
+                ]
+            })
+            .collect()
+    }
+
+    fn reader_dispatch_expr() -> CompiledExpr {
+        CompiledExpr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(CompiledExpr::Add {
+                left_slot: 0,
+                left_field: "a".to_string(),
+                right_slot: 1,
+                right_field: "b".to_string(),
+            }),
+            right: Box::new(CompiledExpr::Mul {
+                left_slot: 2,
+                left_field: "c".to_string(),
+                right_slot: 3,
+                right_field: "d".to_string(),
+            }),
+        }
+    }
+
+    fn measure_reader_dispatch(mut checksum: impl FnMut() -> usize) -> (Duration, usize) {
+        let warm = black_box(checksum());
+        assert!(warm > 0, "reader dispatch benchmark should exercise rows");
+
+        let mut measured = 0usize;
+        let started_at = Instant::now();
+        for _ in 0..READER_DISPATCH_ITERATIONS {
+            measured = measured.saturating_add(black_box(checksum()));
+        }
+
+        (started_at.elapsed(), measured)
+    }
+
+    fn report_reader_dispatch_result(
+        label: &'static str,
+        expected: usize,
+        result: (Duration, usize),
+    ) {
+        let (elapsed, checksum) = result;
+        let expected_total = expected.saturating_mul(READER_DISPATCH_ITERATIONS);
+
+        assert_eq!(checksum, expected_total, "{label} checksum drifted");
+        let iterations =
+            u128::try_from(READER_DISPATCH_ITERATIONS).expect("iteration count should fit u128");
+        println!(
+            "{label:<28} total_ns={:<14} avg_ns_per_iteration={}",
+            elapsed.as_nanos(),
+            elapsed.as_nanos() / iterations,
+        );
+    }
+
+    fn direct_slice_checksum(expr: &CompiledExpr, rows: &[ReaderDispatchRow]) -> usize {
+        checksum_rows(rows, |row| {
+            let reader = SliceReader {
+                row: row.as_slice(),
+            };
+
+            eval_reader_checksum(
+                expr,
+                &reader,
+                "direct slice reader expression should evaluate",
+            )
+        })
+    }
+
+    fn borrowed_callback_checksum(expr: &CompiledExpr, rows: &[ReaderDispatchRow]) -> usize {
+        checksum_rows(rows, |row| {
+            let mut read_slot = |slot| row.get(slot);
+            let reader = ValueRefSlotReader {
+                read_slot: RefCell::new(&mut read_slot),
+                field_path_missing_is_null: true,
+            };
+
+            eval_reader_checksum(
+                expr,
+                &reader,
+                "borrowed callback reader expression should evaluate",
+            )
+        })
+    }
+
+    fn cow_callback_checksum(expr: &CompiledExpr, rows: &[ReaderDispatchRow]) -> usize {
+        checksum_rows(rows, |row| {
+            let mut read_slot = |slot| row.get(slot).map(Cow::Borrowed);
+            let reader = ValueCowSlotReader {
+                read_slot: RefCell::new(&mut read_slot),
+                field_path_missing_is_null: true,
+            };
+
+            eval_reader_checksum(
+                expr,
+                &reader,
+                "cow callback reader expression should evaluate",
+            )
+        })
+    }
+
+    fn owned_callback_checksum(expr: &CompiledExpr, rows: &[ReaderDispatchRow]) -> usize {
+        checksum_rows(rows, |row| {
+            let mut read_slot = |slot| row.get(slot).cloned();
+            let reader = ValueSlotReader {
+                read_slot: RefCell::new(&mut read_slot),
+                field_path_missing_is_null: true,
+            };
+
+            eval_reader_checksum(
+                expr,
+                &reader,
+                "owned callback reader expression should evaluate",
+            )
+        })
+    }
+
+    fn checksum_rows(
+        rows: &[ReaderDispatchRow],
+        checksum_row: impl FnMut(&ReaderDispatchRow) -> usize,
+    ) -> usize {
+        rows.iter().map(checksum_row).sum()
+    }
+
+    fn eval_reader_checksum(
+        expr: &CompiledExpr,
+        reader: &dyn CompiledExprValueReader,
+        context: &'static str,
+    ) -> usize {
+        let value = expr.evaluate(reader).expect(context);
+
+        integer_checksum(value)
+    }
+
+    fn integer_checksum(value: Cow<'_, Value>) -> usize {
+        match value.as_ref() {
+            Value::Nat64(value) => {
+                usize::try_from(*value).expect("benchmark value should fit usize")
+            }
+            Value::Decimal(value) => {
+                assert_eq!(value.scale(), 0, "benchmark decimal should stay integral");
+                usize::try_from(value.mantissa()).expect("benchmark value should fit usize")
+            }
+            found => panic!("reader dispatch expression returned {found:?}"),
+        }
+    }
+}

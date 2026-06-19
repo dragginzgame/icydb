@@ -5,7 +5,7 @@ use crate::{
         sql::{
             identifier::split_qualified_identifier,
             lowering::{
-                LoweredExprAnalysis, SqlLoweringError, analyze_lowered_expr,
+                AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
                 expr::{SqlExprPhase, lower_sql_expr},
                 select::order::LoweredSqlOrderTerm,
             },
@@ -66,19 +66,20 @@ pub(super) fn lower_grouped_projection_selection(
     let mut fields = Vec::with_capacity(items.len());
 
     for (index, item) in items.into_iter().enumerate() {
-        let expr = lower_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
-        let analysis = analyze_lowered_expr(&expr, Some(model));
+        let analyzed =
+            lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, Some(model))?;
+        let analysis = analyzed.analysis();
         let contains_aggregate = analysis.contains_aggregate();
         if seen_aggregate && !contains_aggregate {
             return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
                 index,
             ));
         }
-        validate_grouped_projection_expr(index, &expr, grouped_field_names.as_slice(), &analysis)?;
+        validate_grouped_projection_expr(index, grouped_field_names.as_slice(), analysis)?;
         seen_aggregate |= contains_aggregate;
 
         fields.push(ProjectionField::Scalar {
-            expr,
+            expr: analyzed.into_expr(),
             alias: projection_aliases
                 .get(index)
                 .and_then(Option::as_deref)
@@ -104,14 +105,13 @@ pub(super) fn lower_grouped_projection_selection(
 // while preserving specific unknown-field diagnostics.
 fn validate_grouped_projection_expr(
     index: usize,
-    expr: &Expr,
     grouped_field_names: &[&str],
     analysis: &LoweredExprAnalysis,
 ) -> Result<(), SqlLoweringError> {
     if let Some(field) = analysis.first_unknown_field() {
         return Err(SqlLoweringError::unknown_field(field));
     }
-    if !expr.references_only_fields(grouped_field_names) {
+    if !analysis.references_only_direct_fields(grouped_field_names) {
         return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
     }
 
@@ -255,4 +255,15 @@ pub(in crate::db::sql::lowering) fn lower_select_item_expr(
         &crate::db::sql::parser::SqlExpr::from_select_item(item),
         phase,
     )
+}
+
+pub(in crate::db::sql::lowering) fn lower_analyzed_select_item_expr(
+    item: &SqlSelectItem,
+    phase: SqlExprPhase,
+    model: Option<&EntityModel>,
+) -> Result<AnalyzedLoweredExpr, SqlLoweringError> {
+    Ok(AnalyzedLoweredExpr::new(
+        lower_select_item_expr(item, phase)?,
+        model,
+    ))
 }

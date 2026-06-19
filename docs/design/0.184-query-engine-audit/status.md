@@ -24,6 +24,28 @@ Status: active.
 - C7 / D7 / F6: write residual filters now compare SELECT targets, UPDATE
   RETURNING targets, DELETE RETURNING targets, and non-returning DELETE counts
   across CASE/NULL/OR/AND predicates.
+- C8 / F8 / H10: compiled `INSERT ... SELECT` commands now carry the bound
+  source query artifact, so execution reuses the compiled source instead of
+  preparing and binding the SELECT source again.
+- H5: runtime expression-reader dispatch now has an ignored native
+  microbenchmark. The first cleaned measurement showed borrowed callback
+  dispatch roughly level with direct slice access, mixed `Cow` callback dispatch
+  about 15% over direct access, and owned callback dispatch about 5% over direct
+  access for a synthetic expression-heavy retained-row loop, so specialization
+  is deferred until broader profiling makes it a top hotspot.
+- F1 / D2 / H4 / C3: builder preview projection evaluation now compiles to the
+  shared `ScalarProjectionExpr` / `CompiledExpr` path and evaluates through a
+  one-slot preview reader, while compact projection error reasons from shared
+  function evaluation are preserved.
+- H3 / F7 first slice: lowered SQL expression analysis now gathers aggregate
+  presence, direct field roots, field-path presence, and unknown-field
+  diagnostics in one pass. Grouped projection validation and grouped aggregate
+  collection consume that analysis for grouped-field authority instead of
+  walking the expression tree again.
+- H3 / F7 second slice: lowered SELECT items that also need expression facts
+  now flow through an `AnalyzedLoweredExpr` artifact, so grouped/global
+  projection consumers receive the lowered expression and its aggregate/field
+  proof as one contract instead of loose adjacent values.
 
 ## Current Slice
 
@@ -31,4 +53,6 @@ Status: active.
 
 ## Next Candidates
 
-- C8 / F8 / H10: INSERT SELECT source-preparation parity and reuse audit.
+- H3 / F7: extend the analyzed artifact only after a narrow design for type
+  inference, aggregate references, ORDER BY facts, and predicate-derivation
+  inputs.

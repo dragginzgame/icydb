@@ -6,9 +6,10 @@ use super::{
 };
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, PersistedRow, QueryError,
+        DbSession, PersistedRow, QueryError,
         data::StructuralPatch,
         executor::MutationMode,
+        query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy,
@@ -19,16 +20,7 @@ use crate::{
                 sql_write_statement_result, validate_sql_returning_projection_fields,
             },
         },
-        sql::{
-            lowering::{
-                bind_prepared_sql_select_statement_structural_with_schema,
-                extract_prepared_sql_insert_select_source, prepare_sql_statement,
-            },
-            parser::{
-                SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
-                SqlProjection, SqlSelectStatement, SqlStatement,
-            },
-        },
+        sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection},
         sql_shared::SqlSyntaxErrorKind,
     },
     metrics::sink::SqlWriteKind,
@@ -242,36 +234,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((key, patch))
     }
 
-    fn sql_insert_select_source_statement(
-        schema: &AcceptedSchemaSnapshot,
-        primary_key_names: &[&str],
-        statement: &SqlInsertStatement,
-    ) -> Result<SqlSelectStatement, QueryError> {
-        if primary_key_names.is_empty() {
-            return Err(QueryError::invariant());
-        }
-        let statement = SqlStatement::Insert(statement.clone());
-        let prepared = prepare_sql_statement(&statement, schema.entity_name())
-            .map_err(QueryError::from_sql_lowering_error)?;
-        let mut select = extract_prepared_sql_insert_select_source(prepared)
-            .map_err(QueryError::from_sql_lowering_error)?;
-
-        for primary_key_name in primary_key_names {
-            if select.order_by.iter().any(
-                |term| matches!(&term.field, SqlExpr::Field(field) if field == primary_key_name),
-            ) {
-                continue;
-            }
-
-            select.order_by.push(SqlOrderTerm {
-                field: SqlExpr::Field((*primary_key_name).to_string()),
-                direction: SqlOrderDirection::Asc,
-            });
-        }
-
-        Ok(select)
-    }
-
     // Execute the SELECT source for `INSERT ... SELECT` and consume the
     // projected rows directly into the structural mutation batch. SQL
     // projection still owns row materialization, but write execution no longer
@@ -280,32 +242,24 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         schema: &AcceptedSchemaSnapshot,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        source: &SqlSelectStatement,
+        source_query: &StructuralQuery,
         columns: &[String],
         rows: &mut Vec<(E::Key, StructuralPatch)>,
     ) -> Result<crate::db::schema::SchemaInfo, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let statement = SqlStatement::Select(source.clone());
-        let prepared = prepare_sql_statement(&statement, schema.entity_name())
-            .map_err(QueryError::from_sql_lowering_error)?;
         let authority =
             Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
         let schema_info = authority
             .accepted_schema_info()
             .ok_or_else(QueryError::invariant)?;
         let save_schema_info = schema_info.clone();
-        let query = bind_prepared_sql_select_statement_structural_with_schema(
-            prepared,
-            authority.model(),
-            MissingRowPolicy::Ignore,
-            schema_info,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
-                query, authority, schema,
+                source_query.clone(),
+                authority,
+                schema,
             )?;
         let (_, _, projected_rows, _) = payload.into_components();
         rows.reserve(projected_rows.len());
@@ -344,6 +298,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement<E>(
         &self,
         statement: &SqlInsertStatement,
+        source_query: Option<&StructuralQuery>,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -380,15 +335,11 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
             SqlInsertSource::Select(_) => {
-                let source = Self::sql_insert_select_source_statement(
-                    &schema,
-                    descriptor.primary_key_names(),
-                    statement,
-                )?;
+                let source_query = source_query.ok_or_else(QueryError::invariant)?;
                 save_schema_info = Some(self.execute_sql_insert_select_source_patches::<E>(
                     &schema,
                     &descriptor,
-                    &source,
+                    source_query,
                     columns.as_slice(),
                     &mut rows,
                 )?);

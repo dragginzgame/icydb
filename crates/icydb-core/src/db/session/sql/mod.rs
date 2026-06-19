@@ -70,8 +70,8 @@ pub(in crate::db::session::sql) use compile::{
     SqlCompileAttributionBuilder, SqlCompilePhaseAttribution,
 };
 pub(in crate::db) use compiled::{
-    CompiledSqlCommand, SqlCompiledCommandExecutionContext, SqlGlobalAggregateCountPlanCacheEntry,
-    SqlProjectionContract,
+    CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
+    SqlGlobalAggregateCountPlanCacheEntry, SqlProjectionContract,
 };
 pub use result::SqlStatementResult;
 #[cfg(test)]
