@@ -126,7 +126,7 @@ where
 
     let output = ExecutionKernel::execute_prepared_aggregate_state(executor, state)?;
     #[cfg(feature = "diagnostics")]
-    super::scalar_terminals::record_kernel_aggregate_terminal_attribution();
+    super::terminal_attribution::record_kernel_aggregate_terminal_attribution();
 
     Ok(output)
 }
@@ -153,15 +153,17 @@ fn execute_existing_rows_terminal_request(
             return Err(InternalError::query_executor_invariant());
         }
     };
-    let aggregate_output =
-        aggregate_index_terminal_output_with_runtime(runtime, aggregate_kind, direction).map(
-            |(output, rows_scanned)| {
-                record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
-                #[cfg(feature = "diagnostics")]
-                super::scalar_terminals::record_existing_rows_terminal_attribution(rows_scanned);
-                output
-            },
-        )?;
+    let aggregate_output = aggregate_index_terminal_output_with_runtime(
+        runtime,
+        aggregate_kind,
+        direction,
+    )
+    .map(|(output, rows_scanned)| {
+        record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
+        #[cfg(feature = "diagnostics")]
+        super::terminal_attribution::record_existing_rows_terminal_attribution(rows_scanned);
+        output
+    })?;
 
     match op {
         PreparedScalarTerminalOp::Count => aggregate_output

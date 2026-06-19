@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.27` restores diagnostics-only package builds without SQL by moving
+  aggregate terminal attribution out of SQL-gated scalar terminal code and
+  adding diagnostics-only feature-matrix coverage.
+
 - `0.183.26` keeps SQL feature-matrix builds covered, expands `IN`/`COUNT(*)`
   perf generation, and aligns branch-set covering projections with the shared
   stream-set merge shape.

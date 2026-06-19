@@ -3,8 +3,6 @@
 //! Does not own: adapter lowering, grouped DISTINCT policy, or response DTO shaping.
 //! Boundary: consumes prepared scalar access/window plans plus uncached terminal metadata.
 
-#[cfg(feature = "diagnostics")]
-mod diagnostics;
 mod expr_cache;
 mod reducer;
 mod request;
@@ -40,29 +38,9 @@ use crate::{
 use std::borrow::Cow;
 
 #[cfg(feature = "diagnostics")]
-pub(in crate::db) use diagnostics::{
-    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
+use crate::db::executor::aggregate::terminal_attribution::{
+    ScalarAggregateTerminalAttribution, measure_phase, record_scalar_aggregate_terminal_attribution,
 };
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_terminal_attribution() {
-    diagnostics::record_scalar_aggregate_terminal_attribution(
-        ScalarAggregateTerminalAttribution::from_index_prefix_cardinality_terminal(),
-    );
-}
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor::aggregate) fn record_existing_rows_terminal_attribution(
-    rows_ingested: usize,
-) {
-    diagnostics::record_scalar_aggregate_terminal_attribution(
-        ScalarAggregateTerminalAttribution::from_existing_rows_terminal(rows_ingested),
-    );
-}
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor::aggregate) fn record_kernel_aggregate_terminal_attribution() {
-    diagnostics::record_scalar_aggregate_terminal_attribution(
-        ScalarAggregateTerminalAttribution::from_kernel_aggregate_terminal(),
-    );
-}
 pub(in crate::db) use request::{StructuralAggregateRequest, StructuralAggregateResult};
 pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregateTerminalKind};
 
@@ -177,8 +155,11 @@ where
             return Ok(Vec::new());
         }
         #[cfg(feature = "diagnostics")]
-        let mut terminal_attribution =
-            ScalarAggregateTerminalAttribution::from_terminal_set(&terminals);
+        let mut terminal_attribution = ScalarAggregateTerminalAttribution::from_terminal_counts(
+            terminals.terminal_count(),
+            terminals.input_expr_count(),
+            terminals.filter_expr_count(),
+        );
 
         // Phase 1: prepare the scalar plan with an execution-local retained-slot
         // layout that includes aggregate input and filter slots.
@@ -193,7 +174,7 @@ where
         let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
         #[cfg(feature = "diagnostics")]
         {
-            let (total_local_instructions, execution) = diagnostics::measure_phase(|| {
+            let (total_local_instructions, execution) = measure_phase(|| {
                 execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
                     &self.db,
                     self.debug,
@@ -207,7 +188,7 @@ where
             terminal_attribution.merge_runtime(runtime_attribution);
             terminal_attribution.base_row_local_instructions = total_local_instructions
                 .saturating_sub(terminal_attribution.reducer_fold_local_instructions);
-            diagnostics::record_scalar_aggregate_terminal_attribution(terminal_attribution);
+            record_scalar_aggregate_terminal_attribution(terminal_attribution);
         }
         #[cfg(not(feature = "diagnostics"))]
         execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(

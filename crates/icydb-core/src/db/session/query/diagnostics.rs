@@ -40,6 +40,7 @@ pub struct DirectDataRowAttribution {
 }
 
 impl DirectDataRowAttribution {
+    #[cfg(any(test, feature = "sql"))]
     const fn from_direct_phase(phase: DirectDataRowPhaseAttribution) -> Option<Self> {
         let attribution = Self::from_phase_unchecked(phase);
 
@@ -62,6 +63,7 @@ impl DirectDataRowAttribution {
         })
     }
 
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn from_captured_phase(
         phase: DirectDataRowPhaseAttribution,
     ) -> Option<Self> {
@@ -80,6 +82,7 @@ impl DirectDataRowAttribution {
         }
     }
 
+    #[cfg(any(test, feature = "sql"))]
     const fn has_work(self) -> bool {
         self.scan_local_instructions != 0
             || self.key_stream_local_instructions != 0
@@ -118,6 +121,7 @@ impl KernelRowAttribution {
         })
     }
 
+    #[cfg(any(test, feature = "sql"))]
     pub(in crate::db) const fn from_captured_phase(
         phase: KernelRowPhaseAttribution,
     ) -> Option<Self> {

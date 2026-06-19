@@ -18,6 +18,8 @@ mod projection;
 pub(in crate::db::executor) mod runtime;
 #[cfg(feature = "sql")]
 mod scalar_terminals;
+#[cfg(feature = "diagnostics")]
+mod terminal_attribution;
 mod terminals;
 pub(in crate::db::executor::aggregate) mod value_reducer;
 
@@ -82,13 +84,13 @@ pub(in crate::db::executor) use execution::{
     PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary, PreparedScalarTerminalOp,
     PreparedScalarTerminalPreflight, PreparedScalarTerminalStrategy, ScalarProjectionWindow,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use scalar_terminals::{
-    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use scalar_terminals::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
+};
+#[cfg(feature = "diagnostics")]
+pub(in crate::db) use terminal_attribution::{
+    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
 };
 
 impl<E> LoadExecutor<E>

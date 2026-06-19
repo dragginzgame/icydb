@@ -39,7 +39,7 @@ fn record_physical_access_local_instructions(delta: u64) {
 ///
 /// Panics if physical-access attribution stack state is corrupted while the
 /// scoped measurement is active.
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn with_physical_access_attribution<T>(run: impl FnOnce() -> T) -> (u64, T) {
     PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| {
         stack.borrow_mut().push(0);

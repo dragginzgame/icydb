@@ -1,13 +1,10 @@
-//! Module: executor::aggregate::scalar_terminals::diagnostics
+//! Module: executor::aggregate::terminal_attribution
 //! Responsibility: diagnostics-only scalar aggregate terminal attribution.
 //! Boundary: keeps counters and instruction measurement out of reducer logic.
 
+#[cfg(feature = "sql")]
+use crate::db::diagnostics::measure_local_instruction_delta as measure_scalar_aggregate_terminal_phase;
 use std::cell::Cell;
-
-use crate::db::{
-    diagnostics::measure_local_instruction_delta as measure_scalar_aggregate_terminal_phase,
-    executor::aggregate::scalar_terminals::terminal::PreparedScalarAggregateTerminalSet,
-};
 
 std::thread_local! {
     static SCALAR_AGGREGATE_TERMINAL_ATTRIBUTION: Cell<ScalarAggregateTerminalAttribution> =
@@ -26,6 +23,7 @@ std::thread_local! {
 pub(in crate::db) enum ScalarAggregateSinkMode {
     #[default]
     None,
+    #[cfg(feature = "sql")]
     Buffered,
     ExistingRows,
     IndexPrefixCardinality,
@@ -36,6 +34,7 @@ impl ScalarAggregateSinkMode {
     pub(in crate::db) const fn label(self) -> Option<&'static str> {
         match self {
             Self::None => None,
+            #[cfg(feature = "sql")]
             Self::Buffered => Some("Buffered"),
             Self::ExistingRows => Some("ExistingRows"),
             Self::IndexPrefixCardinality => Some("IndexPrefixCardinality"),
@@ -80,17 +79,22 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    pub(super) fn from_terminal_set(terminals: &PreparedScalarAggregateTerminalSet) -> Self {
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor::aggregate) fn from_terminal_counts(
+        terminal_count: usize,
+        input_expr_count: usize,
+        filter_expr_count: usize,
+    ) -> Self {
         Self {
-            terminal_count: usize_to_u64(terminals.terminal_count()),
-            unique_input_expr_count: usize_to_u64(terminals.input_expr_count()),
-            unique_filter_expr_count: usize_to_u64(terminals.filter_expr_count()),
+            terminal_count: usize_to_u64(terminal_count),
+            unique_input_expr_count: usize_to_u64(input_expr_count),
+            unique_filter_expr_count: usize_to_u64(filter_expr_count),
             sink_mode: ScalarAggregateSinkMode::Buffered,
             ..Self::none()
         }
     }
 
-    pub(super) const fn from_index_prefix_cardinality_terminal() -> Self {
+    const fn from_index_prefix_cardinality_terminal() -> Self {
         Self {
             terminal_count: 1,
             sink_mode: ScalarAggregateSinkMode::IndexPrefixCardinality,
@@ -98,7 +102,7 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    pub(super) fn from_existing_rows_terminal(rows_ingested: usize) -> Self {
+    fn from_existing_rows_terminal(rows_ingested: usize) -> Self {
         Self {
             rows_ingested: usize_to_u64(rows_ingested),
             terminal_count: 1,
@@ -107,7 +111,7 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    pub(super) const fn from_kernel_aggregate_terminal() -> Self {
+    const fn from_kernel_aggregate_terminal() -> Self {
         Self {
             terminal_count: 1,
             sink_mode: ScalarAggregateSinkMode::KernelAggregate,
@@ -115,7 +119,8 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    pub(super) const fn merge_runtime(&mut self, runtime: Self) {
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor::aggregate) const fn merge_runtime(&mut self, runtime: Self) {
         self.reducer_fold_local_instructions = self
             .reducer_fold_local_instructions
             .saturating_add(runtime.reducer_fold_local_instructions);
@@ -174,7 +179,7 @@ pub(in crate::db) fn with_scalar_aggregate_terminal_attribution<T>(
     (captured, output)
 }
 
-pub(super) fn record_scalar_aggregate_terminal_attribution(
+pub(in crate::db::executor::aggregate) fn record_scalar_aggregate_terminal_attribution(
     recorded: ScalarAggregateTerminalAttribution,
 ) {
     SCALAR_AGGREGATE_TERMINAL_ATTRIBUTION.with(|attribution| {
@@ -184,10 +189,31 @@ pub(super) fn record_scalar_aggregate_terminal_attribution(
     });
 }
 
-pub(super) fn measure_phase<T>(run: impl FnOnce() -> T) -> (u64, T) {
+pub(in crate::db::executor::aggregate) fn record_index_prefix_cardinality_terminal_attribution() {
+    record_scalar_aggregate_terminal_attribution(
+        ScalarAggregateTerminalAttribution::from_index_prefix_cardinality_terminal(),
+    );
+}
+
+pub(in crate::db::executor::aggregate) fn record_existing_rows_terminal_attribution(
+    rows_ingested: usize,
+) {
+    record_scalar_aggregate_terminal_attribution(
+        ScalarAggregateTerminalAttribution::from_existing_rows_terminal(rows_ingested),
+    );
+}
+
+pub(in crate::db::executor::aggregate) fn record_kernel_aggregate_terminal_attribution() {
+    record_scalar_aggregate_terminal_attribution(
+        ScalarAggregateTerminalAttribution::from_kernel_aggregate_terminal(),
+    );
+}
+
+#[cfg(feature = "sql")]
+pub(in crate::db::executor::aggregate) fn measure_phase<T>(run: impl FnOnce() -> T) -> (u64, T) {
     measure_scalar_aggregate_terminal_phase(run)
 }
 
-pub(super) fn usize_to_u64(value: usize) -> u64 {
+pub(in crate::db::executor::aggregate) fn usize_to_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }

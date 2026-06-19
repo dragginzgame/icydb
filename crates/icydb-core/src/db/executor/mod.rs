@@ -44,7 +44,7 @@ pub(in crate::db) use aggregate::runtime::RuntimeGroupedRow;
 pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db) use aggregate::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
 };
@@ -170,15 +170,16 @@ pub(in crate::db::executor) use stream::key::{
 };
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
 #[cfg(feature = "diagnostics")]
-pub(in crate::db) use terminal::{
-    DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
-    with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
-};
+pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};
 #[cfg(feature = "diagnostics")]
 pub use terminal::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use terminal::{
     ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
+};
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use terminal::{
+    with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
 pub(in crate::db::executor) use util::apply_offset_limit_window;
 pub(in crate::db::executor) use util::saturating_row_len;

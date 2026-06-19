@@ -197,6 +197,7 @@ clippy: ensure-hooks
 	$(MAKE) check-invariants
 	$(MAKE) check-feature-matrix
 	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features sql -- -D warnings
+	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features diagnostics -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 fmt: ensure-hooks
@@ -238,6 +239,8 @@ check-invariants:
 check-feature-matrix:
 	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features sql
 	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features sql
+	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features diagnostics
+	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features diagnostics
 
 lint-workflows:
 	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \

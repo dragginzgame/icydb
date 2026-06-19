@@ -22,7 +22,9 @@ use crate::{
 };
 
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::aggregate::scalar_terminals::diagnostics::ScalarAggregateTerminalAttribution;
+use crate::db::executor::aggregate::terminal_attribution::{
+    ScalarAggregateTerminalAttribution, measure_phase,
+};
 
 ///
 /// ScalarAggregateReducerState
@@ -265,10 +267,7 @@ impl ScalarAggregateReducerRuntime {
         #[cfg(feature = "diagnostics")]
         {
             self.attribution.rows_ingested = self.attribution.rows_ingested.saturating_add(1);
-            let (local_instructions, result) =
-                crate::db::executor::aggregate::scalar_terminals::diagnostics::measure_phase(
-                    || self.ingest_row_inner(row),
-                );
+            let (local_instructions, result) = measure_phase(|| self.ingest_row_inner(row));
             self.attribution.reducer_fold_local_instructions = self
                 .attribution
                 .reducer_fold_local_instructions

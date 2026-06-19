@@ -115,6 +115,7 @@ pub(in crate::db) struct GroupedCountAttribution {
 
 #[cfg(feature = "diagnostics")]
 impl GroupedCountAttribution {
+    #[cfg(any(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {

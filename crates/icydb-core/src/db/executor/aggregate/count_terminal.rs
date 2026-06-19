@@ -248,8 +248,8 @@ fn exists_window_required_candidate_rows(page: Option<&PageSpec>) -> Option<u64>
 
 fn record_index_prefix_cardinality_terminal(entity_path: &'static str) {
     record_rows_scanned_for_path(entity_path, 0);
-    #[cfg(all(feature = "diagnostics", feature = "sql"))]
-    super::scalar_terminals::record_index_prefix_cardinality_terminal_attribution();
+    #[cfg(feature = "diagnostics")]
+    super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution();
 }
 
 // Resolve COUNT for PK full-scan/key-range shapes from store cardinality while
