@@ -30,8 +30,10 @@ jobs:
           cache-targets: "false"
       - run: cargo fetch --locked
       - run: cargo check --locked -p icydb --no-default-features
+      - run: cargo check --locked -p icydb --no-default-features --features sql
       - run: cargo check --locked -p icydb
       - run: cargo check --locked -p icydb-core
+      - run: cargo check --locked -p icydb-core --no-default-features --features sql
 
   check:
     runs-on: ubuntu-latest
@@ -70,6 +72,9 @@ jobs:
       - run: cargo fetch --locked
       - run: make check-invariants
       - run: cargo fmt --all -- --check
+      - run: cargo check --locked -p icydb --no-default-features --features sql
+      - run: cargo check --locked -p icydb-core --no-default-features --features sql
+      - run: cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
       - run: cargo clippy --locked --workspace --all-targets --exclude icydb-testing-integration -- -D warnings
       - run: cargo test --locked --workspace --all-targets --exclude icydb-testing-integration --verbose
       - run: cargo test --locked -p icydb-testing-integration --test sql_canister --verbose

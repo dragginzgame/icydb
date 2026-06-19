@@ -388,7 +388,6 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|result| (result, SqlCacheAttribution::default()))
     }
 
-    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn execute_compiled_sql_with_cache_attribution<E>(
         &self,
         compiled: &CompiledSqlCommand,
@@ -482,7 +481,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::GlobalAggregate { command } => {
                 self.execute_global_aggregate_statement_with_catalog::<E>(*command.clone(), catalog)
             }
-            _ => self.execute_compiled_sql_owned_with_cache_attribution::<E>(compiled.clone()),
+            _ => self.execute_compiled_sql_with_cache_attribution::<E>(compiled),
         }
     }
 

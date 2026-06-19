@@ -4,7 +4,7 @@
         fetch test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks \
         wasm-size-report wasm-audit-report \
-        lint-workflows check-invariants \
+        lint-workflows check-invariants check-feature-matrix \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -190,10 +190,13 @@ build: ensure-clean ensure-hooks
 
 check: ensure-hooks fmt-check
 	$(MAKE) check-invariants
+	$(MAKE) check-feature-matrix
 	$(CARGO_WORK_ENV) cargo check --workspace
 
 clippy: ensure-hooks
 	$(MAKE) check-invariants
+	$(MAKE) check-feature-matrix
+	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features sql -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 fmt: ensure-hooks
@@ -231,6 +234,10 @@ check-invariants:
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-sql-branch-ownership-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
+
+check-feature-matrix:
+	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features sql
+	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features sql
 
 lint-workflows:
 	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \

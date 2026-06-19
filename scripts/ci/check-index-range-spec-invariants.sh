@@ -26,6 +26,15 @@ INDEX_EXECUTOR_FILES=(
   "crates/icydb-core/src/db/executor/delete/mod.rs"
 )
 
+# Branch-set execution must consume already-lowered branch prefix specs. Planner
+# and access-layer code may own semantic values; executor stream assembly must
+# not rebuild branch slots, branch prefixes, or ordered-suffix proofs.
+BRANCH_SET_RUNTIME_FILES=(
+  "crates/icydb-core/src/db/executor/stream/access/physical.rs"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs"
+  "crates/icydb-core/src/db/executor/stream/access/bindings.rs"
+)
+
 # These patterns indicate semantic fallback logic creeping back into execution.
 FORBIDDEN_PATTERNS=(
   "encode_canonical_index_component"
@@ -42,8 +51,22 @@ EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS=(
   "IndexKey::new_from_components_with_primary_key_value\\("
 )
 
+# These patterns indicate branch-set route semantics leaking back into executor
+# stream assembly instead of staying on IndexBranchSetSpec plus lowering.
+BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS=(
+  "\\bIndexBranchSetSpec\\b"
+  "\\bIndexBranchSetOrderedSuffix\\b"
+  "\\bbranch_values\\b"
+  "branch_prefix_values\\("
+  "fixed_values\\.len\\(\\)([[:space:]]*\\+|\\.saturating_add\\()[[:space:]]*1"
+)
+
 # Required guardrails that enforce the planner->executor lowering contract.
 REQUIRED_MATCHES=(
+  "crates/icydb-core/src/db/access/path.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
+  "crates/icydb-core/src/db/access/lowering.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
+  "crates/icydb-core/src/db/query/intent/cache_key.rs:::ordered_suffix: branch_set_ordered_suffix_cache_label\\(spec\\.ordered_suffix\\(\\)\\):::branch-set cache identity must include the ordered suffix proof"
+  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::branch_set_ordered_suffix_label\\(ordered_suffix\\):::branch-set fingerprint identity must include the ordered suffix proof"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::index_prefix_offset < self.index_prefix_specs.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::validate_index_prefix_spec_alignment:::missing invariant error for misaligned index-prefix specs in physical path resolution"
@@ -57,6 +80,9 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/index/key/build.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
   "crates/icydb-core/src/db/executor/stream/key/contracts.rs:::fn reduce_pairwise:::ordered stream set reduction must stay centralized"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::OrderedKeyStreamBox::merge_all:::branch-set execution must use the shared merge tree helper"
+  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::index_prefix_specs\\.len\\(\\) != branch_count:::branch-set execution must validate lowered branch-prefix count"
+  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::branch_stream_chunk_entries\\(index_fetch_hint, active_specs\\.len\\(\\)\\):::branch-set execution must size pulls by active branch count"
+  "crates/icydb-core/src/db/executor/covering.rs:::CoveringComponentStreamBox::merge_all:::covering branch projections must use a component stream-set merge helper"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::OrderedKeyStreamBox::merge_all:::access union execution must use the shared merge tree helper"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::OrderedKeyStreamBox::intersect_all:::access intersection execution must use the shared intersection tree helper"
   "crates/icydb-core/src/db/executor/traversal.rs:::pub\\(in crate::db::executor\\) fn require_spec:::missing invariant error for unresolved index-range specs at shared traversal boundary"
@@ -113,6 +139,15 @@ for pattern in "${EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS[@]}"; do
   )"
   if [[ -n "$matches" ]]; then
     echo "[ERROR] Executor runtime must stay byte-only: found forbidden pattern '$pattern'" >&2
+    echo "$matches" >&2
+    status=1
+  fi
+done
+
+for pattern in "${BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS[@]}"; do
+  matches="$(rg -n --no-heading --color=never "$pattern" "${BRANCH_SET_RUNTIME_FILES[@]}" || true)"
+  if [[ -n "$matches" ]]; then
+    echo "[ERROR] Branch-set executor runtime must consume lowered specs, not semantic branch values: found forbidden pattern '$pattern'" >&2
     echo "$matches" >&2
     status=1
   fi

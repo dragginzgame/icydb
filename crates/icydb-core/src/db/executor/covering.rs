@@ -226,11 +226,12 @@ where
         return Ok(Vec::new());
     }
 
-    let comparator = KeyOrderComparator::from_direction(direction);
-    let mut stream = streams.remove(0);
-    for next in streams {
-        stream = CoveringComponentStreamBox::merge(stream, next, comparator);
-    }
+    let Some(mut stream) = CoveringComponentStreamBox::merge_all(
+        streams,
+        KeyOrderComparator::from_direction(direction),
+    ) else {
+        return Ok(Vec::new());
+    };
 
     stream.collect_limit(limit)
 }
@@ -335,6 +336,30 @@ impl<'a> CoveringComponentStreamBox<'a> {
         Self::Merge(Box::new(MergeCoveringComponentStream::new(
             left, right, comparator,
         )))
+    }
+
+    fn merge_all(mut streams: Vec<Self>, comparator: KeyOrderComparator) -> Option<Self> {
+        if streams.is_empty() {
+            return None;
+        }
+        if streams.len() == 1 {
+            return streams.pop();
+        }
+
+        while streams.len() > 1 {
+            let mut next_round = Vec::with_capacity(streams.len().div_ceil(2));
+            let mut iter = streams.into_iter();
+            while let Some(left) = iter.next() {
+                if let Some(right) = iter.next() {
+                    next_round.push(Self::merge(left, right, comparator));
+                } else {
+                    next_round.push(left);
+                }
+            }
+            streams = next_round;
+        }
+
+        streams.pop()
     }
 
     fn next_row(&mut self) -> Result<Option<CoveringProjectionComponentRow>, InternalError> {

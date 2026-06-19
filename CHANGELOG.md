@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.183.md](docs/changelog/0.183.md)
 
+- `0.183.26` keeps SQL feature-matrix builds covered, expands `IN`/`COUNT(*)`
+  perf generation, and aligns branch-set covering projections with the shared
+  stream-set merge shape.
+
+- `0.183.25` restores non-diagnostics SQL builds by removing a cfg-gated
+  compiled-SQL attribution fallback from the catalog-aware execution path.
+
 - `0.183.24` trims Toko-shaped indexed lookup pressure by pruning empty index
   prefixes, bounding limited `IN (...)` pages, answering covered
   `count()`/`exists()` from exact prefix cardinality, and adding range-scan

@@ -374,6 +374,12 @@ fn token_branch_route_hotspot_matrix() -> Vec<MatrixScenario> {
             "route.sparse_in.page_only",
             token_sparse_collection_in_page_sql(250, 50),
         ),
+        scenario(
+            "token.collection_id.sparse_in.count",
+            MatrixSurface::Token,
+            "route.sparse_in.count",
+            token_sparse_collection_in_count_sql(250),
+        ),
     ]
 }
 
@@ -400,15 +406,25 @@ fn token_branch_count_sql(stages: &str) -> String {
     )
 }
 
-fn token_sparse_collection_in_page_sql(missing_count: usize, limit: u32) -> String {
+fn token_sparse_collection_in_filter(missing_count: usize) -> String {
     let mut collections = format!("'{TOKEN_TARGET_COLLECTION}'");
     for index in 0..missing_count {
         let _ = write!(collections, ", 'missing-collection-{index:03}'");
     }
 
-    format!(
-        "SELECT id FROM PerfAuditToken WHERE collection_id IN ({collections}) ORDER BY id ASC LIMIT {limit}"
-    )
+    format!("collection_id IN ({collections})")
+}
+
+fn token_sparse_collection_in_page_sql(missing_count: usize, limit: u32) -> String {
+    let filter = token_sparse_collection_in_filter(missing_count);
+
+    format!("SELECT id FROM PerfAuditToken WHERE {filter} ORDER BY id ASC LIMIT {limit}")
+}
+
+fn token_sparse_collection_in_count_sql(missing_count: usize) -> String {
+    let filter = token_sparse_collection_in_filter(missing_count);
+
+    format!("SELECT COUNT(*) FROM PerfAuditToken WHERE {filter}")
 }
 
 fn select_matrix(
@@ -797,6 +813,12 @@ fn aggregate_and_metadata_matrix() -> Vec<MatrixScenario> {
             "SELECT COUNT(*) FROM PerfAuditUser WHERE active = true",
         ),
         scenario(
+            "user.aggregate.count_age_in",
+            MatrixSurface::User,
+            "aggregate.count_in",
+            "SELECT COUNT(*) FROM PerfAuditUser WHERE age IN (24, 31, 43)",
+        ),
+        scenario(
             "user.aggregate.group_age_count",
             MatrixSurface::User,
             "aggregate.grouped",
@@ -819,6 +841,12 @@ fn aggregate_and_metadata_matrix() -> Vec<MatrixScenario> {
             MatrixSurface::Account,
             "aggregate.grouped",
             "SELECT tier, COUNT(*) FROM PerfAuditAccount WHERE active = true GROUP BY tier ORDER BY tier ASC LIMIT 10",
+        ),
+        scenario(
+            "account.aggregate.count_active_tier_in",
+            MatrixSurface::Account,
+            "aggregate.count_in",
+            "SELECT COUNT(*) FROM PerfAuditAccount WHERE active = true AND tier IN ('gold', 'silver')",
         ),
         scenario(
             "blob.aggregate.count_bucket",
@@ -886,6 +914,7 @@ fn random_scenario(rng: &mut Lcg, seed: u64, index: usize) -> MatrixScenario {
         MatrixSurface::User,
         MatrixSurface::Account,
         MatrixSurface::Blob,
+        MatrixSurface::Token,
     ]);
     let key = format!("random.{seed:016x}.{index:04}.{}", surface.label());
 
@@ -2308,6 +2337,12 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
         "over-cap route hotspot should exceed the branch-set admission cap"
     );
 
+    assert_sparse_collection_in_route_hotspots(&scenarios_by_key);
+}
+
+fn assert_sparse_collection_in_route_hotspots(
+    scenarios_by_key: &BTreeMap<&str, (usize, &MatrixScenario)>,
+) {
     let (sparse_position, sparse_in) = scenarios_by_key
         .get("token.collection_id.sparse_in.page_only.limit50")
         .expect("sparse collection IN route hotspot should exist")
@@ -2327,6 +2362,23 @@ fn sql_perf_generated_matrix_includes_branch_route_hotspots() {
     assert!(
         sparse_in.sql.contains("ORDER BY id ASC LIMIT 50"),
         "sparse collection IN hotspot should preserve the primary-key page order"
+    );
+
+    let (sparse_count_position, sparse_count) = scenarios_by_key
+        .get("token.collection_id.sparse_in.count")
+        .expect("sparse collection IN count hotspot should exist")
+        .to_owned();
+    assert!(
+        sparse_count_position < DEFAULT_MATRIX_LIMIT,
+        "sparse collection IN count hotspot should run inside the default matrix window; position={sparse_count_position}"
+    );
+    assert!(
+        sparse_count.sql.contains("SELECT COUNT(*)"),
+        "sparse collection IN count hotspot should exercise count terminal routing"
+    );
+    assert!(
+        sparse_count.sql.contains("missing-collection-249"),
+        "sparse collection IN count hotspot should include 250 missing prefixes"
     );
 }
 
@@ -2377,6 +2429,12 @@ fn sql_perf_random_matrix_has_seeded_stable_shape() {
             scenario.key,
         );
     }
+    assert!(
+        random
+            .iter()
+            .any(|scenario| scenario.surface == MatrixSurface::Token),
+        "seeded random matrix should include token IN/branch route pressure"
+    );
 }
 
 #[test]
