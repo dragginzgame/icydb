@@ -7,17 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Tighten SQL global aggregate terminal interning so duplicate terminals check
-  retained semantic keys before runtime-bound construction, while terminal/key
-  alignment is owned by one interner contract.
-- Centralize SQL write row attribution so INSERT, UPDATE, and DELETE report
-  matched, mutated, and returning rows through one shared write-metrics
-  contract, while INSERT/UPDATE staging uses an explicit mutation-batch
-  boundary for future boundedness work.
-
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
+
+- `0.184.6` continues the query-engine audit by tightening global aggregate
+  terminal interning and making SQL write row attribution/staging explicit for
+  future boundedness work.
 
 - `0.184.5` continues the query-engine audit by carrying analyzed global
   aggregate terminal facts through model binding and centralizing
