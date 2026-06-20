@@ -6092,7 +6092,25 @@ fn compile_sql_global_aggregate_command_for_model_only_rejects_unknown_filter_fi
         "global aggregate FILTER should validate against the accepted model before execution",
     );
 
-    std::assert_matches!(err, SqlLoweringError::UnsupportedAggregateInputExpressions);
+    let SqlLoweringError::Query(err) = err else {
+        panic!("global aggregate FILTER unknown field should preserve invariant diagnostic");
+    };
+    let diagnostic = err.diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::RuntimeInvariantViolation,
+        "global aggregate FILTER unknown field should preserve invariant diagnostic",
+    );
+    assert_eq!(
+        diagnostic.origin(),
+        icydb_diagnostic_code::ErrorOrigin::Query,
+        "global aggregate FILTER unknown field should remain query-owned",
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        None,
+        "global aggregate FILTER unknown field should remain compact",
+    );
 }
 
 fn assert_count_rows_strategy(strategy: &PreparedSqlScalarAggregateStrategy) {
