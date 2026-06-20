@@ -103,12 +103,7 @@ impl PreparedSqlScalarAggregateStrategy {
         };
         let filter_expr = match filter_expr {
             Some(filter_expr) => {
-                validate_analyzed_model_bound_scalar_expr(
-                    model,
-                    schema,
-                    &filter_expr,
-                    SqlLoweringError::unsupported_where_expression,
-                )?;
+                Self::validate_global_aggregate_filter_expr(model, schema, &filter_expr)?;
                 Some(filter_expr.into_expr())
             }
             None => None,
@@ -118,6 +113,25 @@ impl PreparedSqlScalarAggregateStrategy {
             PreparedAggregateSemantics::from_kind_target_and_distinct(kind, target, distinct_input),
             filter_expr,
         ))
+    }
+
+    fn validate_global_aggregate_filter_expr(
+        model: &'static EntityModel,
+        schema: &SchemaInfo,
+        filter_expr: &crate::db::sql::lowering::AnalyzedLoweredExpr,
+    ) -> Result<(), SqlLoweringError> {
+        match validate_analyzed_model_bound_scalar_expr(
+            model,
+            schema,
+            filter_expr,
+            SqlLoweringError::unsupported_where_expression,
+        ) {
+            Err(SqlLoweringError::UnknownField { field }) => {
+                let _ = field;
+                Err(crate::db::QueryError::invariant().into())
+            }
+            result => result,
+        }
     }
 
     /// Borrow the resolved target slot when this prepared SQL scalar strategy is field-targeted.
