@@ -4337,25 +4337,7 @@ fn lower_aggregate_call_rejects_aggregate_predicates_inside_filter() {
     })
     .expect_err("aggregate expressions inside FILTER should stay fail-closed");
 
-    let SqlLoweringError::Query(err) = err else {
-        panic!("global aggregate FILTER unknown field should preserve invariant diagnostic");
-    };
-    let diagnostic = err.diagnostic();
-    assert_eq!(
-        diagnostic.code(),
-        DiagnosticCode::RuntimeInvariantViolation,
-        "global aggregate FILTER unknown field should preserve invariant diagnostic",
-    );
-    assert_eq!(
-        diagnostic.origin(),
-        icydb_diagnostic_code::ErrorOrigin::Query,
-        "global aggregate FILTER unknown field should remain query-owned",
-    );
-    assert_eq!(
-        diagnostic.detail(),
-        None,
-        "global aggregate FILTER unknown field should remain compact",
-    );
+    std::assert_matches!(err, SqlLoweringError::UnsupportedAggregateInputExpressions);
 }
 
 #[test]
