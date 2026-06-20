@@ -11,13 +11,11 @@ use crate::{
         schema::SchemaInfo,
         sql::{
             lowering::{
-                SqlLoweringError,
-                aggregate::{
-                    expr_references_global_direct_fields, resolve_having_aggregate_expr_index,
-                },
+                AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError,
+                aggregate::resolve_having_aggregate_expr_index,
                 expr::{SqlExprPhase, lower_sql_expr},
             },
-            parser::{SqlAggregateCall, SqlExpr, SqlProjection},
+            parser::{SqlExpr, SqlProjection},
         },
     },
     model::entity::EntityModel,
@@ -32,19 +30,23 @@ pub(super) fn lower_having_clauses(
     having_exprs: Vec<SqlExpr>,
     projection: &SqlProjection,
     group_by_fields: &[String],
-    grouped_aggregates: &[SqlAggregateCall],
+    grouped_aggregates: &[AggregateExpr],
     model: &'static EntityModel,
     schema: &SchemaInfo,
 ) -> Result<Vec<Expr>, SqlLoweringError> {
-    lower_having_clauses_with_policy(
-        having_exprs,
-        projection,
-        |aggregate| resolve_having_aggregate_expr_index(aggregate, grouped_aggregates),
-        group_by_fields.is_empty(),
-    )?
-    .into_iter()
-    .map(|clause| canonicalize_grouped_having_expr_from_lowered_sql_clause(model, schema, clause))
-    .collect()
+    let clauses =
+        lower_having_clauses_with_policy(having_exprs, projection, group_by_fields.is_empty())?;
+    let mut lowered = Vec::with_capacity(clauses.len());
+    for clause in clauses {
+        register_having_analysis_aggregates(clause.analysis(), &mut |aggregate| {
+            resolve_having_aggregate_expr_index(aggregate, grouped_aggregates)
+        })?;
+        lowered.push(canonicalize_grouped_having_expr_from_lowered_sql_clause(
+            model, schema, clause,
+        )?);
+    }
+
+    Ok(lowered)
 }
 
 /// Lower global aggregate SQL `HAVING` clauses onto planner-owned expressions
@@ -57,34 +59,28 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_having_expr<F>(
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
-    let clauses = lower_having_clauses_with_policy(
-        having_exprs,
-        projection,
-        |aggregate| resolve_aggregate_index(aggregate),
-        false,
-    )?;
+    let clauses = lower_having_clauses_with_policy(having_exprs, projection, false)?;
     if clauses.is_empty() {
         return Ok(None);
     }
 
     let mut canonicalized = Vec::with_capacity(clauses.len());
     for clause in clauses {
-        register_having_expr_aggregates(&clause.expr, &mut resolve_aggregate_index, true)?;
+        if clause.analysis().references_direct_fields() {
+            return Err(SqlLoweringError::unsupported_select_having());
+        }
+        register_having_analysis_aggregates(clause.analysis(), &mut resolve_aggregate_index)?;
         canonicalized.push(canonicalize_grouped_global_having_clause(clause)?);
     }
 
     Ok(Some(combine_having_clauses(canonicalized)))
 }
 
-fn lower_having_clauses_with_policy<F>(
+fn lower_having_clauses_with_policy(
     having_exprs: Vec<SqlExpr>,
     projection: &SqlProjection,
-    mut resolve_aggregate_index: F,
     require_group_by: bool,
-) -> Result<Vec<LoweredHavingClause>, SqlLoweringError>
-where
-    F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
-{
+) -> Result<Vec<LoweredHavingClause>, SqlLoweringError> {
     if having_exprs.is_empty() {
         return Ok(Vec::new());
     }
@@ -98,9 +94,10 @@ where
 
     let mut lowered = Vec::with_capacity(having_exprs.len());
     for expr in having_exprs {
+        let contains_omitted_else_case = expr.contains_omitted_else_case();
         lowered.push(LoweredHavingClause {
-            contains_omitted_else_case: expr.contains_omitted_else_case(),
-            expr: lower_having_expr_with_policy(expr, &mut resolve_aggregate_index)?,
+            contains_omitted_else_case,
+            analyzed: lower_having_expr(expr)?,
         });
     }
 
@@ -116,49 +113,36 @@ where
 
 struct LoweredHavingClause {
     contains_omitted_else_case: bool,
-    expr: Expr,
+    analyzed: AnalyzedLoweredExpr,
 }
 
-fn lower_having_expr_with_policy<F>(
-    expr: SqlExpr,
-    resolve_aggregate_index: &mut F,
-) -> Result<Expr, SqlLoweringError>
-where
-    F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
-{
-    let expr = lower_having_value_expr_with_policy(expr, resolve_aggregate_index)?;
+impl LoweredHavingClause {
+    const fn analysis(&self) -> &LoweredExprAnalysis {
+        self.analyzed.analysis()
+    }
 
-    Ok(expr)
+    fn into_expr(self) -> Expr {
+        self.analyzed.into_expr()
+    }
 }
 
-fn lower_having_value_expr_with_policy<F>(
-    expr: SqlExpr,
-    resolve_aggregate_index: &mut F,
-) -> Result<Expr, SqlLoweringError>
-where
-    F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
-{
+fn lower_having_expr(expr: SqlExpr) -> Result<AnalyzedLoweredExpr, SqlLoweringError> {
     let expr = lower_sql_expr(&expr, SqlExprPhase::PostAggregate)?;
-    register_having_expr_aggregates(&expr, resolve_aggregate_index, false)?;
 
-    Ok(expr)
+    Ok(AnalyzedLoweredExpr::new(expr, None))
 }
 
-fn register_having_expr_aggregates<F>(
-    expr: &Expr,
+fn register_having_analysis_aggregates<F>(
+    analysis: &LoweredExprAnalysis,
     resolve_aggregate_index: &mut F,
-    reject_direct_fields: bool,
 ) -> Result<(), SqlLoweringError>
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
-    if reject_direct_fields && expr_references_global_direct_fields(expr) {
-        return Err(SqlLoweringError::unsupported_select_having());
-    }
-
-    expr.try_for_each_tree_aggregate(&mut |aggregate| {
-        resolve_aggregate_index(aggregate).map(|_| ())
-    })
+    analysis
+        .aggregate_refs()
+        .iter()
+        .try_for_each(|aggregate| resolve_aggregate_index(aggregate).map(|_| ()))
 }
 
 fn combine_having_clauses(mut clauses: Vec<Expr>) -> Expr {
@@ -246,10 +230,11 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
     schema: &SchemaInfo,
     clause: LoweredHavingClause,
 ) -> Result<Expr, SqlLoweringError> {
-    let expr = canonicalize_grouped_having_expr(model, schema, clause.expr)?;
+    let contains_omitted_else_case = clause.contains_omitted_else_case;
+    let expr = canonicalize_grouped_having_expr(model, schema, clause.into_expr())?;
     let canonical = canonicalize_grouped_having_bool_expr(expr);
 
-    if clause.contains_omitted_else_case && canonical.contains_case() {
+    if contains_omitted_else_case && canonical.contains_case() {
         return Err(SqlLoweringError::unsupported_select_having());
     }
 
@@ -265,9 +250,10 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
 fn canonicalize_grouped_global_having_clause(
     clause: LoweredHavingClause,
 ) -> Result<Expr, SqlLoweringError> {
-    let canonical = canonicalize_grouped_having_bool_expr(clause.expr);
+    let contains_omitted_else_case = clause.contains_omitted_else_case;
+    let canonical = canonicalize_grouped_having_bool_expr(clause.into_expr());
 
-    if clause.contains_omitted_else_case && canonical.contains_case() {
+    if contains_omitted_else_case && canonical.contains_case() {
         return Err(SqlLoweringError::unsupported_select_having());
     }
 

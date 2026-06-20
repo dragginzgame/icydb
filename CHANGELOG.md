@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.4` continues the query-engine audit by carrying SQL expression
+  analysis through ORDER BY, HAVING, grouped aggregate, and global aggregate
+  terminal interning paths to remove repeated lowering and expression walks.
+
 - `0.184.3` continues the query-engine audit by proving encoded index
   predicates against runtime semantics, tuning large `IN` evaluation, and
   moving verbose predicate-pushdown diagnostics onto planner-owned

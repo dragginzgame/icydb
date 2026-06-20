@@ -8,7 +8,7 @@ use crate::db::{
             SqlLoweringError,
             aggregate::{
                 projection::remap::collect_global_aggregate_terminals_from_analysis,
-                terminal::SqlGlobalAggregateTerminal,
+                semantics::AggregateTerminalSemanticKey, terminal::SqlGlobalAggregateTerminal,
             },
             expr::SqlExprPhase,
             select::lower_analyzed_select_item_expr,
@@ -26,6 +26,7 @@ use crate::db::{
 ///
 pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminals {
     pub(in crate::db::sql::lowering::aggregate) terminals: Vec<SqlGlobalAggregateTerminal>,
+    terminal_semantic_keys: Vec<AggregateTerminalSemanticKey>,
     pub(in crate::db::sql::lowering::aggregate) projection: ProjectionSpec,
     #[cfg(test)]
     pub(in crate::db::sql::lowering::aggregate) output_remap: Vec<usize>,
@@ -46,6 +47,8 @@ impl LoweredSqlGlobalAggregateTerminals {
         }
 
         let mut terminals = Vec::<SqlGlobalAggregateTerminal>::with_capacity(items.len());
+        let mut terminal_semantic_keys =
+            Vec::<AggregateTerminalSemanticKey>::with_capacity(items.len());
         #[cfg(test)]
         let mut output_remap = Vec::<usize>::with_capacity(items.len());
         let mut fields = Vec::<ProjectionField>::with_capacity(items.len());
@@ -64,6 +67,7 @@ impl LoweredSqlGlobalAggregateTerminals {
                 analysis.aggregate_refs(),
                 matches!(analyzed.expr(), Expr::Aggregate(_)),
                 &mut terminals,
+                &mut terminal_semantic_keys,
             )?;
             #[cfg(test)]
             match direct_terminal_index {
@@ -86,6 +90,7 @@ impl LoweredSqlGlobalAggregateTerminals {
 
         Ok(Self {
             terminals,
+            terminal_semantic_keys,
             projection: lower_global_aggregate_projection(fields),
             #[cfg(test)]
             output_remap: if saw_wrapped_projection {
@@ -94,5 +99,16 @@ impl LoweredSqlGlobalAggregateTerminals {
                 output_remap
             },
         })
+    }
+
+    pub(in crate::db::sql::lowering::aggregate) fn intern_having_terminal_index(
+        &mut self,
+        aggregate_expr: &crate::db::query::builder::AggregateExpr,
+    ) -> Result<usize, SqlLoweringError> {
+        super::remap::intern_global_aggregate_terminal_index(
+            &mut self.terminals,
+            &mut self.terminal_semantic_keys,
+            aggregate_expr,
+        )
     }
 }

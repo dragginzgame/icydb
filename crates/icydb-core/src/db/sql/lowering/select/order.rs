@@ -5,7 +5,7 @@ use crate::db::{
     },
     sql::{
         lowering::{
-            SqlLoweringError,
+            LoweredExprAnalysis, SqlLoweringError, analyze_lowered_expr,
             expr::{SqlExprPhase, lower_sql_expr},
         },
         parser::{SqlOrderDirection, SqlOrderTerm},
@@ -21,6 +21,7 @@ use crate::db::{
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct LoweredSqlOrderTerm {
     pub(in crate::db::sql::lowering) expr: crate::db::query::plan::expr::Expr,
+    pub(in crate::db::sql::lowering) analysis: LoweredExprAnalysis,
     pub(in crate::db::sql::lowering) direction: SqlOrderDirection,
 }
 
@@ -63,9 +64,55 @@ fn lower_order_term(term: SqlOrderTerm) -> Result<LoweredSqlOrderTerm, SqlLoweri
         SqlExprPhase::Scalar
     };
     let expr = lower_sql_expr(&term.field, phase)?;
+    let analysis = analyze_lowered_expr(&expr, None);
 
     Ok(LoweredSqlOrderTerm {
+        analysis,
         expr,
         direction: term.direction,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::sql::parser::{SqlExpr, SqlOrderDirection, SqlOrderTerm, SqlScalarFunction};
+
+    use super::lower_order_term;
+
+    #[test]
+    fn lowered_order_term_carries_expression_analysis_for_distinct_projection_proof() {
+        let lowered = lower_order_term(SqlOrderTerm {
+            field: SqlExpr::FunctionCall {
+                function: SqlScalarFunction::Lower,
+                args: vec![SqlExpr::Field("name".to_string())],
+            },
+            direction: SqlOrderDirection::Asc,
+        })
+        .expect("order term should lower");
+
+        assert!(
+            lowered.analysis.references_only_direct_fields(&["name"]),
+            "order analysis should prove derived expressions over projected direct fields",
+        );
+        assert!(
+            !lowered.analysis.references_only_direct_fields(&["age"]),
+            "order analysis should reject hidden direct fields",
+        );
+
+        let field_path = lower_order_term(SqlOrderTerm {
+            field: SqlExpr::FieldPath {
+                root: "profile".to_string(),
+                segments: vec!["name".to_string()],
+            },
+            direction: SqlOrderDirection::Asc,
+        })
+        .expect("field-path order term should lower");
+
+        assert!(
+            !field_path
+                .analysis
+                .references_only_direct_fields(&["profile"]),
+            "field paths must not satisfy DISTINCT direct-field projection proof",
+        );
+    }
 }

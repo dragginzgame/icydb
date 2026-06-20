@@ -5,7 +5,9 @@ use crate::{
         sql::{
             lowering::{
                 SqlLoweringError,
-                aggregate::{lower_aggregate_call, lowering::validate_model_bound_scalar_expr},
+                aggregate::lowering::{
+                    LoweredSqlAggregateShape, validate_analyzed_model_bound_scalar_expr,
+                },
             },
             parser::{SqlAggregateCall, SqlExpr, SqlSelectItem},
         },
@@ -43,18 +45,12 @@ pub(super) fn extend_unique_sql_select_item_aggregate_calls(
 
 pub(in crate::db::sql::lowering) fn resolve_having_aggregate_expr_index(
     target: &AggregateExpr,
-    grouped_projection_aggregates: &[SqlAggregateCall],
+    grouped_aggregates: &[AggregateExpr],
 ) -> Result<usize, SqlLoweringError> {
-    let mut matched =
-        grouped_projection_aggregates
-            .iter()
-            .enumerate()
-            .filter_map(|(index, aggregate)| {
-                lower_aggregate_call(aggregate.clone())
-                    .ok()
-                    .filter(|current| current == target)
-                    .map(|_| index)
-            });
+    let mut matched = grouped_aggregates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, aggregate)| (aggregate == target).then_some(index));
     let Some(index) = matched.next() else {
         return Err(SqlLoweringError::unsupported_select_having());
     };
@@ -71,10 +67,10 @@ pub(in crate::db::sql::lowering) fn resolve_having_aggregate_expr_index(
 pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar_subexpressions(
     model: &'static EntityModel,
     schema: &SchemaInfo,
-    aggregate: &AggregateExpr,
+    aggregate: &LoweredSqlAggregateShape,
 ) -> Result<(), SqlLoweringError> {
     if let Some(input_expr) = aggregate.input_expr() {
-        validate_model_bound_scalar_expr(
+        validate_analyzed_model_bound_scalar_expr(
             model,
             schema,
             input_expr,
@@ -82,7 +78,7 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar
         )?;
     }
     if let Some(filter_expr) = aggregate.filter_expr() {
-        validate_model_bound_scalar_expr(
+        validate_analyzed_model_bound_scalar_expr(
             model,
             schema,
             filter_expr,

@@ -53,6 +53,24 @@ Status: active.
   lowered expression order, and global aggregate projection lowering consumes
   those analysis-owned leaves instead of walking the same expression again to
   intern executable terminals.
+- H3 / F7 fourth slice: lowered SQL `ORDER BY` terms now carry
+  `LoweredExprAnalysis`, and DISTINCT projection validation consumes that
+  order-term analysis instead of rewalking lowered order expressions for
+  direct-field proof.
+- H3 / F7 fifth slice: lowered SQL `HAVING` clauses now carry
+  `AnalyzedLoweredExpr`; grouped HAVING aggregate-slot resolution and global
+  HAVING aggregate/direct-field validation consume that artifact instead of
+  rewalking lowered HAVING expressions.
+- H3 / F7 sixth slice: grouped SELECT artifacts now carry validated
+  planner-owned `AggregateExpr`s, so HAVING aggregate-slot resolution and query
+  application reuse the same lowered aggregate list instead of relowering
+  parser aggregate calls.
+- H3 / F7 seventh slice: aggregate-call lowering shapes now carry analyzed
+  grouped aggregate input/FILTER expressions, and grouped aggregate validation
+  consumes those facts before building the final `AggregateExpr`.
+- H3 / F7 eighth slice: global aggregate terminal collection now stores
+  retained semantic keys beside terminals, so projection/HAVING terminal
+  interning compares retained keys directly instead of rebuilding them.
 - F2 / D3 first slice: the SQL-lowering filter contract is documented, and
   `LoweredSqlFilter` now owns the current visible-expression plus
   predicate-pushdown construction policies for scalar SELECT, grouped SELECT,
@@ -95,5 +113,6 @@ Status: active.
   later design moves executor route-preparation facts into a planner/executor
   handoff contract.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
-  inference, aggregate input/filter validation facts, ORDER BY facts, and
+  inference, global aggregate terminal input/filter validation facts,
+  additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.

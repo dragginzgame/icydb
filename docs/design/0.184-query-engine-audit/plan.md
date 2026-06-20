@@ -194,10 +194,40 @@ expression order, and global aggregate projection lowering consumes those
 analysis-owned leaves when interning executable aggregate terminals instead of
 walking the same expression tree again.
 
+Fourth slice:
+Lowered SQL `ORDER BY` terms now carry `LoweredExprAnalysis`, and DISTINCT
+projection validation consumes that proof instead of rewalking lowered order
+expressions to prove projected-field derivability.
+
+Fifth slice:
+Lowered SQL `HAVING` clauses now carry `AnalyzedLoweredExpr`. Grouped HAVING
+uses the analysis-owned aggregate leaves for projection aggregate-slot
+resolution, and global aggregate HAVING uses the same artifact for direct-field
+rejection and HAVING-only terminal interning instead of rewalking the lowered
+expression.
+
+Sixth slice:
+Grouped SELECT lowering now converts parser aggregate calls into validated
+planner-owned `AggregateExpr`s once. The lowered SELECT artifact carries those
+aggregates through HAVING slot resolution and query application, removing the
+previous repeated aggregate-call lowering at those boundaries.
+
+Seventh slice:
+Aggregate-call lowering shapes now carry analyzed aggregate input and `FILTER`
+expressions. Grouped aggregate validation consumes those facts before final
+`AggregateExpr` construction, preserving unknown-field diagnostics from the
+recorded field-root order without rewalking the lowered input/filter trees.
+
+Eighth slice:
+Global aggregate terminal collection now retains semantic keys alongside the
+terminal list. Projection and HAVING terminal interning compare against those
+keys directly instead of rebuilding semantic keys for every retained terminal
+on each insert.
+
 Deferred:
 The broader typed/analyzed expression artifact still needs a short design before
-it carries type inference, aggregate input/filter validation facts, ORDER BY
-facts, and predicate derivation inputs.
+it carries type inference, global aggregate terminal input/filter validation
+facts, richer ORDER BY facts, and predicate derivation inputs.
 
 Phase 4 — Filter and predicate contract
 7. F2 / D3: introduce unified filter contract

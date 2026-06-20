@@ -10,7 +10,7 @@ use crate::{
         schema::SchemaInfo,
         sql::{
             lowering::{
-                SqlLoweringError,
+                AnalyzedLoweredExpr, SqlLoweringError,
                 aggregate::{
                     distinct::{apply_distinct_marker, reject_distinct_filter_pairing},
                     grouped::validate_grouped_aggregate_scalar_subexpressions,
@@ -38,9 +38,13 @@ fn lower_sql_aggregate_shape(
     } = call;
     let filter_expr = filter_expr
         .map(|expr| lower_sql_pre_aggregate_bool_expr(expr.as_ref()))
+        .map(|expr| expr.map(|expr| AnalyzedLoweredExpr::new(expr, None)))
         .transpose()?;
 
-    reject_distinct_filter_pairing(distinct, filter_expr.as_ref())?;
+    reject_distinct_filter_pairing(
+        distinct,
+        filter_expr.as_ref().map(AnalyzedLoweredExpr::expr),
+    )?;
 
     match input.map(|input| *input) {
         None if kind.supports_star_input() && !distinct => {
@@ -63,9 +67,12 @@ fn lower_sql_aggregate_shape(
         }
         Some(input) => Ok(LoweredSqlAggregateShape::ExpressionInput {
             kind,
-            input_expr: canonicalize_aggregate_input_expr(
-                kind.aggregate_kind(),
-                lower_sql_expr(&input, SqlExprPhase::PreAggregate)?,
+            input_expr: AnalyzedLoweredExpr::new(
+                canonicalize_aggregate_input_expr(
+                    kind.aggregate_kind(),
+                    lower_sql_expr(&input, SqlExprPhase::PreAggregate)?,
+                ),
+                None,
             ),
             filter_expr,
             distinct,
@@ -77,10 +84,17 @@ fn lower_sql_aggregate_shape(
 pub(in crate::db::sql::lowering) fn lower_aggregate_call(
     call: SqlAggregateCall,
 ) -> Result<AggregateExpr, SqlLoweringError> {
-    match lower_sql_aggregate_shape(call)? {
-        LoweredSqlAggregateShape::CountRows { filter_expr } => {
-            Ok(apply_aggregate_filter_expr(count(), filter_expr))
-        }
+    lower_sql_aggregate_shape_to_expr(lower_sql_aggregate_shape(call)?)
+}
+
+fn lower_sql_aggregate_shape_to_expr(
+    shape: LoweredSqlAggregateShape,
+) -> Result<AggregateExpr, SqlLoweringError> {
+    match shape {
+        LoweredSqlAggregateShape::CountRows { filter_expr } => Ok(apply_aggregate_filter_expr(
+            count(),
+            lowered_filter_expr(filter_expr),
+        )),
         LoweredSqlAggregateShape::CountField {
             field,
             filter_expr,
@@ -88,24 +102,31 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
         } => {
             let aggregate = apply_distinct_marker(count_by(field), distinct);
 
-            Ok(apply_aggregate_filter_expr(aggregate, filter_expr))
+            Ok(apply_aggregate_filter_expr(
+                aggregate,
+                lowered_filter_expr(filter_expr),
+            ))
         }
         LoweredSqlAggregateShape::FieldTarget {
             kind,
             field,
             filter_expr,
             distinct,
-        } => kind.lower_field_target_aggregate(field, filter_expr, distinct),
+        } => kind.lower_field_target_aggregate(field, lowered_filter_expr(filter_expr), distinct),
         LoweredSqlAggregateShape::ExpressionInput {
             kind,
             input_expr,
             filter_expr,
             distinct,
         } => Ok(apply_aggregate_filter_expr(
-            kind.lower_expression_owned_aggregate(input_expr, distinct),
-            filter_expr,
+            kind.lower_expression_owned_aggregate(input_expr.into_expr(), distinct),
+            lowered_filter_expr(filter_expr),
         )),
     }
+}
+
+fn lowered_filter_expr(filter_expr: Option<AnalyzedLoweredExpr>) -> Option<Expr> {
+    filter_expr.map(AnalyzedLoweredExpr::into_expr)
 }
 
 // Lower one grouped aggregate call while validating its model-bound scalar
@@ -115,11 +136,11 @@ pub(in crate::db::sql::lowering) fn lower_grouped_aggregate_call(
     schema: &SchemaInfo,
     call: SqlAggregateCall,
 ) -> Result<AggregateExpr, SqlLoweringError> {
-    let aggregate = lower_aggregate_call(call)?;
+    let shape = lower_sql_aggregate_shape(call)?;
 
-    validate_grouped_aggregate_scalar_subexpressions(model, schema, &aggregate)?;
+    validate_grouped_aggregate_scalar_subexpressions(model, schema, &shape)?;
 
-    Ok(aggregate)
+    lower_sql_aggregate_shape_to_expr(shape)
 }
 
 impl SqlAggregateKind {

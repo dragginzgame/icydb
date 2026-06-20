@@ -25,6 +25,7 @@ use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},
         query::{
+            builder::AggregateExpr,
             intent::{QueryError, StructuralQuery},
             plan::expr::{
                 Expr, FieldId, FieldPath, ProjectionSelection,
@@ -33,8 +34,8 @@ use crate::{
         },
         schema::{SchemaInfo, SqlCapabilities},
         sql::parser::{
-            SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm,
-            SqlReturningProjection, SqlSelectStatement, SqlUpdateStatement,
+            SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm, SqlReturningProjection,
+            SqlSelectStatement, SqlUpdateStatement,
         },
     },
     model::entity::EntityModel,
@@ -167,7 +168,7 @@ impl LoweredSqlFilter {
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredSelectShape {
     projection_selection: ProjectionSelection,
-    grouped_aggregates: Vec<SqlAggregateCall>,
+    grouped_aggregates: Vec<AggregateExpr>,
     group_by_fields: Vec<String>,
     distinct: bool,
     having: Vec<crate::db::query::plan::expr::Expr>,
@@ -298,6 +299,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
             projection_aggregates.len() == grouped_aggregates.len(),
             model,
         )?;
+        let grouped_aggregates = lower_grouped_aggregate_calls(grouped_aggregates, model, schema)?;
         (projection_selection, grouped_aggregates, false)
     } else {
         let projection_selection =
@@ -392,7 +394,7 @@ fn apply_lowered_select_shape_with_schema(
     }
     query = query.projection_selection(projection_selection);
     for aggregate in grouped_aggregates {
-        query = query.aggregate(lower_grouped_aggregate_call(model, schema, aggregate)?);
+        query = query.aggregate(aggregate);
     }
 
     // Phase 3: bind resolved HAVING expressions against grouped terminals.
@@ -411,6 +413,17 @@ fn apply_lowered_select_shape_with_schema(
         },
         schema,
     ))
+}
+
+fn lower_grouped_aggregate_calls(
+    grouped_aggregates: Vec<crate::db::sql::parser::SqlAggregateCall>,
+    model: &'static EntityModel,
+    schema: &SchemaInfo,
+) -> Result<Vec<AggregateExpr>, SqlLoweringError> {
+    grouped_aggregates
+        .into_iter()
+        .map(|aggregate| lower_grouped_aggregate_call(model, schema, aggregate))
+        .collect()
 }
 
 // Expand scalar `SELECT *` to the selectable top-level field subset when a

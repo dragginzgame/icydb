@@ -33,7 +33,6 @@ pub(in crate::db::sql::lowering) use grouped::{
 pub(in crate::db::sql::lowering) use lowering::{
     lower_aggregate_call, lower_grouped_aggregate_call,
 };
-pub(in crate::db::sql::lowering) use projection::expr_references_global_direct_fields;
 pub(crate) use strategy::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
 };

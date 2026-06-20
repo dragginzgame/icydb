@@ -166,7 +166,7 @@ pub(super) fn validate_distinct_order_terms_against_projection(
 ) -> Result<(), SqlLoweringError> {
     if order_by
         .iter()
-        .all(|term| distinct_order_term_is_derivable_from_projection(projection, &term.expr, model))
+        .all(|term| distinct_order_term_is_derivable_from_projection(projection, term, model))
     {
         return Ok(());
     }
@@ -182,7 +182,7 @@ pub(super) fn validate_distinct_order_terms_against_projection(
 // broader symbolic derivation model.
 fn distinct_order_term_is_derivable_from_projection(
     projection: &ProjectionSelection,
-    order_expr: &Expr,
+    order_term: &LoweredSqlOrderTerm,
     model: &'static EntityModel,
 ) -> bool {
     match projection {
@@ -193,16 +193,20 @@ fn distinct_order_term_is_derivable_from_projection(
                 .map(crate::model::field::FieldModel::name)
                 .collect::<Vec<_>>();
 
-            order_expr.references_only_fields(projected_fields.as_slice())
+            order_term
+                .analysis
+                .references_only_direct_fields(projected_fields.as_slice())
         }
         ProjectionSelection::Fields(field_ids) => {
             let projected_fields = field_ids.iter().map(FieldId::as_str).collect::<Vec<_>>();
 
-            order_expr.references_only_fields(projected_fields.as_slice())
+            order_term
+                .analysis
+                .references_only_direct_fields(projected_fields.as_slice())
         }
         ProjectionSelection::Exprs(fields) => {
             if fields.iter().any(|field| match field {
-                ProjectionField::Scalar { expr, .. } => expr == order_expr,
+                ProjectionField::Scalar { expr, .. } => expr == &order_term.expr,
             }) {
                 return true;
             }
@@ -212,7 +216,9 @@ fn distinct_order_term_is_derivable_from_projection(
                 .filter_map(ProjectionField::direct_field_name)
                 .collect::<Vec<_>>();
 
-            order_expr.references_only_fields(projected_fields.as_slice())
+            order_term
+                .analysis
+                .references_only_direct_fields(projected_fields.as_slice())
         }
     }
 }

@@ -59,7 +59,7 @@ impl AnalyzedLoweredExpr {
 /// reuse the summary across unrelated lowering contexts.
 ///
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(in crate::db::sql::lowering) struct LoweredExprAnalysis {
     aggregate_refs: Vec<AggregateExpr>,
     direct_field_roots: Vec<String>,
@@ -108,6 +108,22 @@ impl LoweredExprAnalysis {
     #[must_use]
     pub(in crate::db::sql::lowering) fn first_unknown_field(&self) -> Option<&str> {
         self.first_unknown_field.as_deref()
+    }
+
+    /// Return the first unknown direct field for one model without rewalking
+    /// the expression tree. This lets callers that analyzed without model
+    /// context reuse the recorded field-root order later at a model-bound seam.
+    #[must_use]
+    pub(in crate::db::sql::lowering) fn first_unknown_field_for_model(
+        &self,
+        model: &EntityModel,
+    ) -> Option<&str> {
+        self.first_unknown_field().or_else(|| {
+            self.direct_field_roots
+                .iter()
+                .find(|field| model.resolve_field_slot(field.as_str()).is_none())
+                .map(String::as_str)
+        })
     }
 
     /// Record one field leaf while preserving the first unknown-field diagnostic.
