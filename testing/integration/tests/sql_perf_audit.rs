@@ -58,12 +58,11 @@ struct StorageWritePerfResult {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlWriteMaterializationPerfResult {
-    local_instructions: [u64; 5],
-    rows: [u32; 5],
+    local_instructions: [u64; 4],
+    rows: [u32; 4],
 }
 
-const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 5] = [
-    "insert select",
+const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 4] = [
     "update count",
     "update returning",
     "delete count",
@@ -2844,17 +2843,15 @@ fn measure_sql_write_materialization_matrix(
 
 fn print_sql_write_materialization_matrix(label: &str, result: &SqlWriteMaterializationPerfResult) {
     println!(
-        "{label} SQL write materialization: insert_select={} update_count={} update_returning={} delete_count={} delete_returning={} rows=[{},{},{},{},{}]",
+        "{label} SQL write materialization: update_count={} update_returning={} delete_count={} delete_returning={} rows=[{},{},{},{}]",
         result.local_instructions[0],
         result.local_instructions[1],
         result.local_instructions[2],
         result.local_instructions[3],
-        result.local_instructions[4],
         result.rows[0],
         result.rows[1],
         result.rows[2],
         result.rows[3],
-        result.rows[4],
     );
 }
 

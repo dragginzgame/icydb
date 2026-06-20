@@ -115,10 +115,13 @@ Status: active.
 
 - H6 / D7 / F6 first slice: SQL write metrics now carry staged-row counts
   beside matched, mutated, and RETURNING row counts, and broad write-shape
-  guards plus a SQL perf-matrix hook cover INSERT SELECT, UPDATE, UPDATE
-  RETURNING, DELETE, and DELETE RETURNING materialization pressure before any
-  streaming/chunked mutation redesign. The local sandbox could not complete
-  the live PocketIC run because the PocketIC child exited during startup.
+  guards plus a SQL perf-matrix hook cover broad UPDATE, UPDATE RETURNING,
+  DELETE, and DELETE RETURNING materialization pressure before any
+  streaming/chunked mutation redesign. INSERT SELECT staged-row attribution is
+  covered by core SQL write tests because the live heap/journaled perf fixtures
+  use explicit Int32 primary keys and reject computed primary-key insertion by
+  design. The local sandbox could not complete the live PocketIC run because
+  the pinned PocketIC server binary is unavailable in the local cache.
 
 ## Next Candidates
 

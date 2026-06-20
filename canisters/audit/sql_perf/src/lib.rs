@@ -83,8 +83,8 @@ struct StorageWritePerfResult {
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 struct SqlWriteMaterializationPerfResult {
-    local_instructions: [u64; 5],
-    rows: [u32; 5],
+    local_instructions: [u64; 4],
+    rows: [u32; 4],
 }
 
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
@@ -1441,18 +1441,11 @@ where
     B: Fn(i32, &str, i32) -> E + Copy,
 {
     let expected_rows = u32::try_from(SQL_WRITE_MATERIALIZATION_ROWS).unwrap_or(u32::MAX);
-    let insert_select_source_start = base_id + 1_000;
     let update_count_start = base_id + 2_000;
     let update_returning_start = base_id + 3_000;
     let delete_count_start = base_id + 4_000;
     let delete_returning_start = base_id + 5_000;
 
-    db().insert_many_atomic(sql_write_window_rows(
-        insert_select_source_start,
-        "insert-select-source",
-        31,
-        build,
-    ))?;
     db().insert_many_atomic(sql_write_window_rows(
         update_count_start,
         "update-count",
@@ -1478,21 +1471,11 @@ where
         build,
     ))?;
 
-    let insert_select_end = insert_select_source_start + SQL_WRITE_MATERIALIZATION_ROWS;
     let update_count_end = update_count_start + SQL_WRITE_MATERIALIZATION_ROWS;
     let update_returning_end = update_returning_start + SQL_WRITE_MATERIALIZATION_ROWS;
     let delete_count_end = delete_count_start + SQL_WRITE_MATERIALIZATION_ROWS;
     let delete_returning_end = delete_returning_start + SQL_WRITE_MATERIALIZATION_ROWS;
 
-    let insert_select = measure_sql_write_statement::<E>(
-        "SQL write materialization INSERT SELECT",
-        &format!(
-            "INSERT INTO {entity_name} (id, name, age) \
-             SELECT id + 10000, name, age FROM {entity_name} \
-             WHERE id >= {insert_select_source_start} AND id < {insert_select_end}"
-        ),
-        expected_rows,
-    )?;
     let update_count = measure_sql_write_statement::<E>(
         "SQL write materialization UPDATE count",
         &format!(
@@ -1530,14 +1513,12 @@ where
 
     Ok(SqlWriteMaterializationPerfResult {
         local_instructions: [
-            insert_select.0,
             update_count.0,
             update_returning.0,
             delete_count.0,
             delete_returning.0,
         ],
         rows: [
-            insert_select.1,
             update_count.1,
             update_returning.1,
             delete_count.1,
