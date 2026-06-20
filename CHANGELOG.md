@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- SQL global aggregate terminal binding now carries analyzed input and
+  `FILTER` expressions through the lowered-terminal contract, so model-bound
+  validation reuses the same expression facts and filtered global aggregates
+  reject unknown fields before execution.
+- Strict index-prefilter EXPLAIN observability now uses one route-owned
+  predicate-stage contract for descriptor children and verbose diagnostics,
+  keeping existing labels stable while removing duplicated stage selection.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

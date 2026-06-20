@@ -6037,6 +6037,49 @@ fn compile_sql_global_aggregate_command_for_model_only_accepts_case_input_expres
     );
 }
 
+#[test]
+fn compile_sql_global_aggregate_command_for_model_only_accepts_filter_expr_terminals() {
+    let command = compile_sql_lower_global_aggregate_command(
+        "SELECT \
+         COUNT(*) FILTER (WHERE age >= 21), \
+         SUM(age) FILTER (WHERE name = 'Ada') \
+         FROM SqlLowerEntity",
+        "filtered global aggregate terminals",
+    );
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "filtered global aggregate SQL should keep one prepared strategy per unique filtered terminal",
+    );
+    assert_count_rows_strategy(&command.terminals()[0]);
+    assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, "age", false);
+    assert!(
+        command.terminals()[0].filter_expr().is_some(),
+        "COUNT(*) FILTER should retain its analyzed filter expression after strategy binding",
+    );
+    assert!(
+        command.terminals()[1].filter_expr().is_some(),
+        "SUM(field) FILTER should retain its analyzed filter expression after strategy binding",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_for_model_only_rejects_unknown_filter_fields() {
+    let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
+        "SELECT COUNT(*) FILTER (WHERE missing_field > 0) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err(
+        "global aggregate FILTER should validate against the accepted model before execution",
+    );
+
+    std::assert_matches!(
+        err,
+        SqlLoweringError::UnknownField { field } if field == "missing_field"
+    );
+}
+
 fn assert_count_rows_strategy(strategy: &PreparedSqlScalarAggregateStrategy) {
     assert_eq!(
         strategy.plan_fragment(),

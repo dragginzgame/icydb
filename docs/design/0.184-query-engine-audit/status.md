@@ -71,6 +71,11 @@ Status: active.
 - H3 / F7 eighth slice: global aggregate terminal collection now stores
   retained semantic keys beside terminals, so projection/HAVING terminal
   interning compares retained keys directly instead of rebuilding them.
+- H3 / F7 ninth slice: lowered global aggregate terminals now carry their
+  semantic key, analyzed expression input, and analyzed `FILTER` expression
+  together through model binding. Strategy preparation validates those
+  analyzed facts directly, and global aggregate filters now reject unknown
+  fields before execution.
 - F2 / D3 first slice: the SQL-lowering filter contract is documented, and
   `LoweredSqlFilter` now owns the current visible-expression plus
   predicate-pushdown construction policies for scalar SELECT, grouped SELECT,
@@ -102,6 +107,9 @@ Status: active.
   planner-owned `outcome` and `reason` fields, covering no-filter,
   expression-only/no-subset, access-applied, residual-after-access, and
   full-scan fallback cases without changing the legacy compact label.
+- F2 / D3 seventh slice: strict index-prefilter observability remains
+  route-owned but now flows through one `PredicateStageObservability` contract
+  shared by execution-descriptor children and verbose diagnostics.
 
 ## Current Slice
 
@@ -109,10 +117,6 @@ Status: active.
 
 ## Next Candidates
 
-- F2 / D3: keep strict index-prefilter observability route-owned unless a
-  later design moves executor route-preparation facts into a planner/executor
-  handoff contract.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
-  inference, global aggregate terminal input/filter validation facts,
-  additional ORDER BY facts beyond the current field proof, and
+  inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.

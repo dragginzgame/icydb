@@ -19,23 +19,74 @@ use crate::{
 };
 use std::{fmt::Write, ops::Bound};
 
+///
+/// PredicateStageObservability
+///
+/// Route-owned predicate-stage observability for scalar load execution.
+/// Planner-owned predicate-pushdown diagnostics describe logical predicate
+/// coverage; this enum describes the executor route stage that will run, if
+/// any, after route preparation and strict index-prefilter compatibility.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor::explain::descriptor) enum PredicateStageObservability {
+    None,
+    IndexPrefilterStrictAllOrNone,
+    ResidualPostAccess,
+}
+
+impl PredicateStageObservability {
+    #[must_use]
+    pub(in crate::db::executor::explain::descriptor) const fn from_parts(
+        strict_prefilter_compiled: bool,
+        residual_filter_shape: ResidualFilterShape,
+    ) -> Self {
+        if strict_prefilter_compiled {
+            return Self::IndexPrefilterStrictAllOrNone;
+        }
+        if !residual_filter_shape.is_absent() {
+            return Self::ResidualPostAccess;
+        }
+
+        Self::None
+    }
+
+    #[must_use]
+    pub(in crate::db::executor::explain::descriptor) const fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::IndexPrefilterStrictAllOrNone => "index_prefilter(strict_all_or_none)",
+            Self::ResidualPostAccess => "residual_post_access",
+        }
+    }
+
+    #[must_use]
+    const fn strict_prefilter_compiled(self) -> bool {
+        matches!(self, Self::IndexPrefilterStrictAllOrNone)
+    }
+
+    #[must_use]
+    const fn is_absent(self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
 pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     filter_expr: Option<String>,
     residual_filter_expr: Option<String>,
     explain_predicate: Option<ExplainPredicate>,
     residual_filter_shape: ResidualFilterShape,
     access_strategy: Option<&ExplainAccessRoute>,
-    strict_prefilter_compiled: bool,
+    stage: PredicateStageObservability,
     execution_mode: ExplainExecutionMode,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
-    if !strict_prefilter_compiled && residual_filter_shape.is_absent() {
+    if stage.is_absent() {
         return Vec::new();
     }
 
     // Strict prefilters still describe one pushdown-only predicate stage. The
     // semantic filter expression is carried through for wording parity, but
     // there is no residual execution-stage predicate node in this case.
-    if strict_prefilter_compiled {
+    if stage.strict_prefilter_compiled() {
         let mut node =
             crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
                 ExplainExecutionNodeType::IndexPredicatePrefilter,
@@ -315,5 +366,37 @@ pub(in crate::db::executor::explain::descriptor) fn aggregate_covering_projectio
         index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::{
+        executor::explain::descriptor::shared::PredicateStageObservability,
+        query::plan::ResidualFilterShape,
+    };
+
+    #[test]
+    fn predicate_stage_observability_prefers_strict_prefilter() {
+        assert_eq!(
+            PredicateStageObservability::from_parts(
+                true,
+                ResidualFilterShape::ExpressionAndPredicate,
+            ),
+            PredicateStageObservability::IndexPrefilterStrictAllOrNone,
+            "route-owned strict prefilter stage should win over residual labels",
+        );
+    }
+
+    #[test]
+    fn predicate_stage_observability_reports_residual_and_absent_shapes() {
+        assert_eq!(
+            PredicateStageObservability::from_parts(false, ResidualFilterShape::Expression).label(),
+            "residual_post_access",
+        );
+        assert_eq!(
+            PredicateStageObservability::from_parts(false, ResidualFilterShape::Absent).label(),
+            "none",
+        );
     }
 }

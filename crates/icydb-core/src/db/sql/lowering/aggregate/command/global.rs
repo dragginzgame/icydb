@@ -2,7 +2,6 @@ use crate::db::{
     query::{
         builder::aggregate::count,
         plan::{
-            AggregateKind,
             expr::{Alias, Expr, ProjectionField, ProjectionSpec},
             lower_global_aggregate_projection,
         },
@@ -13,7 +12,7 @@ use crate::db::{
             aggregate::projection::{
                 LoweredSqlGlobalAggregateTerminals, strip_inert_global_aggregate_output_order_terms,
             },
-            aggregate::terminal::{AggregateInput, SqlGlobalAggregateTerminal},
+            aggregate::terminal::LoweredSqlGlobalAggregateTerminal,
             select::{lower_global_aggregate_having_expr, lower_order_terms},
         },
         parser::{
@@ -34,7 +33,8 @@ use crate::db::{
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering::aggregate::command) query: LoweredBaseQueryShape,
-    pub(in crate::db::sql::lowering::aggregate::command) terminals: Vec<SqlGlobalAggregateTerminal>,
+    pub(in crate::db::sql::lowering::aggregate::command) terminals:
+        Vec<LoweredSqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering::aggregate::command) projection: ProjectionSpec,
     pub(in crate::db::sql::lowering::aggregate::command) having: Option<Expr>,
     #[cfg(test)]
@@ -112,12 +112,7 @@ impl LoweredSqlGlobalAggregateCommand {
 
         Ok(Self {
             query: lower_global_aggregate_base_query_shape(predicate, Vec::new(), limit, offset)?,
-            terminals: vec![SqlGlobalAggregateTerminal {
-                kind: AggregateKind::Count,
-                input: AggregateInput::Rows,
-                filter_expr: None,
-                distinct: false,
-            }],
+            terminals: vec![LoweredSqlGlobalAggregateTerminal::count_rows()],
             projection: lower_global_aggregate_projection(vec![ProjectionField::Scalar {
                 expr: Expr::Aggregate(count()),
                 alias,

@@ -3,7 +3,7 @@ use crate::db::{
     sql::lowering::{
         SqlLoweringError,
         aggregate::{
-            semantics::AggregateTerminalSemanticKey, terminal::SqlGlobalAggregateTerminal,
+            semantics::AggregateTerminalSemanticKey, terminal::LoweredSqlGlobalAggregateTerminal,
         },
     },
 };
@@ -22,7 +22,7 @@ enum GlobalAggregateTerminalCollectionMode {
 }
 
 pub(super) fn intern_global_aggregate_terminal_index(
-    terminals: &mut Vec<SqlGlobalAggregateTerminal>,
+    terminals: &mut Vec<LoweredSqlGlobalAggregateTerminal>,
     semantic_keys: &mut Vec<AggregateTerminalSemanticKey>,
     aggregate_expr: &AggregateExpr,
 ) -> Result<usize, SqlLoweringError> {
@@ -36,7 +36,7 @@ pub(super) fn intern_global_aggregate_terminal_index(
 pub(super) fn collect_global_aggregate_terminals_from_analysis(
     aggregate_refs: &[AggregateExpr],
     direct_output: bool,
-    terminals: &mut Vec<SqlGlobalAggregateTerminal>,
+    terminals: &mut Vec<LoweredSqlGlobalAggregateTerminal>,
     semantic_keys: &mut Vec<AggregateTerminalSemanticKey>,
 ) -> Result<Option<usize>, SqlLoweringError> {
     let mode = if direct_output {
@@ -50,7 +50,7 @@ pub(super) fn collect_global_aggregate_terminals_from_analysis(
 
 fn collect_global_aggregate_terminals_with_mode(
     aggregate_refs: &[AggregateExpr],
-    terminals: &mut Vec<SqlGlobalAggregateTerminal>,
+    terminals: &mut Vec<LoweredSqlGlobalAggregateTerminal>,
     semantic_keys: &mut Vec<AggregateTerminalSemanticKey>,
     mode: GlobalAggregateTerminalCollectionMode,
 ) -> Result<Option<usize>, SqlLoweringError> {
@@ -69,7 +69,7 @@ fn collect_global_aggregate_terminals_with_mode(
 }
 
 fn intern_global_aggregate_terminal(
-    terminals: &mut Vec<SqlGlobalAggregateTerminal>,
+    terminals: &mut Vec<LoweredSqlGlobalAggregateTerminal>,
     semantic_keys: &mut Vec<AggregateTerminalSemanticKey>,
     aggregate_expr: &AggregateExpr,
 ) -> Result<usize, SqlLoweringError> {
@@ -79,8 +79,8 @@ fn intern_global_aggregate_terminal(
         "global aggregate terminal semantic keys must stay aligned with retained terminals",
     );
 
-    let terminal = SqlGlobalAggregateTerminal::from_aggregate_expr(aggregate_expr)?;
-    let semantic_key = AggregateTerminalSemanticKey::from_terminal(&terminal);
+    let terminal = LoweredSqlGlobalAggregateTerminal::from_aggregate_expr(aggregate_expr)?;
+    let semantic_key = terminal.semantic_key().clone();
 
     Ok(semantic_keys
         .iter()

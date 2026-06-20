@@ -87,8 +87,17 @@ key beside the terminal. Projection and HAVING terminal interning compare
 against the retained key list directly instead of rebuilding semantic keys from
 all retained terminals on each insert.
 
-This is not the full global terminal-preparation artifact. Expression-input and
-filter validation for global terminals remains on the typed preparation seam.
+## Global Terminal Preparation
+
+Lowered global aggregate terminals now carry their semantic key beside the
+analyzed aggregate input and analyzed aggregate-local `FILTER` expression. The
+model-bound strategy seam consumes that lowered terminal artifact, validates
+expression inputs and filters from the existing analysis proof, and only then
+projects the terminal into the executor-neutral prepared strategy.
+
+This keeps terminal de-duplication, input validation, and filter validation on
+one SQL-lowering contract instead of rebuilding terminal meaning from a raw
+terminal DTO during typed binding.
 
 ## Deferred
 
@@ -98,5 +107,4 @@ explicit shape for:
 - type inference results;
 - additional ORDER BY expression facts;
 - predicate-derivation inputs;
-- global aggregate terminal input/filter validation facts;
 - phase ownership for scalar, grouped, post-aggregate, and write filters.

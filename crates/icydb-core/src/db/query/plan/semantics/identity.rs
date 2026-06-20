@@ -155,22 +155,6 @@ impl AggregateIdentity {
         }
     }
 
-    /// Move the identity aggregate input expression out of this identity.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn into_input_expr(self) -> Option<Expr> {
-        match self {
-            Self::Count { input_expr, .. }
-            | Self::Sum { input_expr, .. }
-            | Self::Avg { input_expr, .. }
-            | Self::Min { input_expr }
-            | Self::Max { input_expr }
-            | Self::Exists { input_expr, .. }
-            | Self::First { input_expr, .. }
-            | Self::Last { input_expr, .. } => input_expr,
-        }
-    }
-
     /// Return whether DISTINCT changes observable aggregate behavior.
     #[must_use]
     pub(in crate::db) const fn distinct(&self) -> bool {

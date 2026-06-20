@@ -30,7 +30,11 @@ predicates, and full-scan fallback causes while preserving the legacy compact
 
 Strict index-prefilter observability remains route-level for now through
 `diag.r.predicate_stage=index_prefilter(strict_all_or_none)`, because that
-stage depends on executor route preparation and covering compatibility.
+stage depends on executor route preparation and covering compatibility. The
+stage selection is now centralized in the route-owned
+`PredicateStageObservability` contract so descriptor children and verbose
+diagnostics cannot drift while the planner-owned predicate-pushdown outcome
+contract remains separate.
 
 ## Current Problem
 

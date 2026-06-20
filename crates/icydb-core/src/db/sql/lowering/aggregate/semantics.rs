@@ -1,30 +1,7 @@
-use crate::db::{
-    query::plan::{
-        AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
-        expr::{Expr, FieldId},
-    },
-    sql::lowering::aggregate::terminal::{AggregateInput, SqlGlobalAggregateTerminal},
+use crate::db::query::{
+    builder::AggregateExpr,
+    plan::{AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, expr::Expr},
 };
-
-pub(in crate::db::sql::lowering::aggregate) fn aggregate_input_from_semantics(
-    semantic_identity: AggregateIdentity,
-) -> AggregateInput {
-    match semantic_identity.into_input_expr() {
-        None => AggregateInput::Rows,
-        Some(Expr::Field(field)) => AggregateInput::Field(field.as_str().to_string()),
-        Some(input_expr) => AggregateInput::Expr(input_expr),
-    }
-}
-
-fn semantic_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> AggregateIdentity {
-    let input_expr = match terminal.input.clone() {
-        AggregateInput::Rows => None,
-        AggregateInput::Field(field) => Some(Expr::Field(FieldId::new(field))),
-        AggregateInput::Expr(input_expr) => Some(input_expr),
-    };
-
-    AggregateIdentity::from_kind_input_and_distinct(terminal.kind, input_expr, terminal.distinct)
-}
 
 ///
 /// AggregateTerminalSemanticKey
@@ -40,32 +17,15 @@ pub(in crate::db::sql::lowering::aggregate) struct AggregateTerminalSemanticKey 
 }
 
 impl AggregateTerminalSemanticKey {
-    // Build a canonical executable semantic key from a raw syntactic terminal
+    // Build a canonical executable semantic key from a raw aggregate expression
     // without consuming it. This lets projection dedup compare aggregate meaning
-    // before deciding whether to retain the raw first-seen terminal.
+    // before deciding whether to retain the first-seen lowered terminal.
     #[must_use]
-    pub(in crate::db::sql::lowering::aggregate) fn from_terminal(
-        terminal: &SqlGlobalAggregateTerminal,
+    pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
+        aggregate_expr: &AggregateExpr,
     ) -> Self {
         Self {
-            semantic_key: AggregateSemanticKey::from_identity(
-                semantic_identity_from_terminal(terminal),
-                terminal.filter_expr.clone(),
-            ),
-        }
-    }
-
-    // Consume one raw syntactic terminal when strategy preparation owns the
-    // first-seen terminal and can avoid cloning the filter expression.
-    #[must_use]
-    pub(in crate::db::sql::lowering::aggregate) fn from_owned_terminal(
-        terminal: SqlGlobalAggregateTerminal,
-    ) -> Self {
-        Self {
-            semantic_key: AggregateSemanticKey::from_identity(
-                semantic_identity_from_terminal(&terminal),
-                terminal.filter_expr,
-            ),
+            semantic_key: AggregateSemanticKey::from_aggregate_expr(aggregate_expr),
         }
     }
 

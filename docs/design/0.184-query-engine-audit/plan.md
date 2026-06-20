@@ -224,10 +224,16 @@ terminal list. Projection and HAVING terminal interning compare against those
 keys directly instead of rebuilding semantic keys for every retained terminal
 on each insert.
 
+Ninth slice:
+Lowered global aggregate terminals now carry the retained semantic key plus
+analyzed expression input and `FILTER` facts through model binding. Strategy
+preparation validates those analyzed facts directly and rejects unknown fields
+inside filtered global aggregates before execution.
+
 Deferred:
 The broader typed/analyzed expression artifact still needs a short design before
-it carries type inference, global aggregate terminal input/filter validation
-facts, richer ORDER BY facts, and predicate derivation inputs.
+it carries type inference, richer ORDER BY facts, and predicate derivation
+inputs.
 
 Phase 4 — Filter and predicate contract
 7. F2 / D3: introduce unified filter contract
@@ -289,6 +295,13 @@ cover no-filter, expression-only/no-subset, access-applied,
 residual-after-access, and full-scan fallback cases while preserving the
 legacy compact `predicate_pushdown` label. Strict index-prefilter stage
 diagnostics remain route-owned.
+
+Seventh slice:
+Strict index-prefilter stage selection now remains route-owned but flows through
+one `PredicateStageObservability` contract. Execution descriptor children and
+verbose diagnostics consume that same contract, preserving the existing
+`diag.r.predicate_stage` labels while removing duplicated stage-selection
+logic.
 
 Deferred:
 Do not fold richer pushdown diagnostics into route planning or access-choice

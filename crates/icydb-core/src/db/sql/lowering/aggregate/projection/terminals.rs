@@ -8,7 +8,8 @@ use crate::db::{
             SqlLoweringError,
             aggregate::{
                 projection::remap::collect_global_aggregate_terminals_from_analysis,
-                semantics::AggregateTerminalSemanticKey, terminal::SqlGlobalAggregateTerminal,
+                semantics::AggregateTerminalSemanticKey,
+                terminal::LoweredSqlGlobalAggregateTerminal,
             },
             expr::SqlExprPhase,
             select::lower_analyzed_select_item_expr,
@@ -25,7 +26,7 @@ use crate::db::{
 /// original SQL projection order.
 ///
 pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminals {
-    pub(in crate::db::sql::lowering::aggregate) terminals: Vec<SqlGlobalAggregateTerminal>,
+    pub(in crate::db::sql::lowering::aggregate) terminals: Vec<LoweredSqlGlobalAggregateTerminal>,
     terminal_semantic_keys: Vec<AggregateTerminalSemanticKey>,
     pub(in crate::db::sql::lowering::aggregate) projection: ProjectionSpec,
     #[cfg(test)]
@@ -46,7 +47,7 @@ impl LoweredSqlGlobalAggregateTerminals {
             return Err(SqlLoweringError::unsupported_global_aggregate_projection());
         }
 
-        let mut terminals = Vec::<SqlGlobalAggregateTerminal>::with_capacity(items.len());
+        let mut terminals = Vec::<LoweredSqlGlobalAggregateTerminal>::with_capacity(items.len());
         let mut terminal_semantic_keys =
             Vec::<AggregateTerminalSemanticKey>::with_capacity(items.len());
         #[cfg(test)]

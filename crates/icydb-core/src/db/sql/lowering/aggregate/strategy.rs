@@ -7,12 +7,9 @@ use crate::{
         sql::lowering::{
             SqlLoweringError,
             aggregate::{
-                lowering::validate_model_bound_scalar_expr,
-                semantics::{
-                    AggregateTerminalSemanticKey, PreparedAggregateSemantics,
-                    PreparedAggregateTarget, aggregate_input_from_semantics,
-                },
-                terminal::{AggregateInput, SqlGlobalAggregateTerminal},
+                lowering::validate_analyzed_model_bound_scalar_expr,
+                semantics::{PreparedAggregateSemantics, PreparedAggregateTarget},
+                terminal::{LoweredAggregateInput, LoweredSqlGlobalAggregateTerminal},
             },
         },
     },
@@ -72,30 +69,49 @@ impl PreparedSqlScalarAggregateStrategy {
     pub(in crate::db::sql::lowering::aggregate) fn from_lowered_terminal_with_schema(
         model: &'static EntityModel,
         schema: &SchemaInfo,
-        terminal: SqlGlobalAggregateTerminal,
+        terminal: LoweredSqlGlobalAggregateTerminal,
     ) -> Result<Self, SqlLoweringError> {
-        let (semantic_identity, filter_expr) =
-            AggregateTerminalSemanticKey::from_owned_terminal(terminal).into_identity_and_filter();
+        let (semantic_key, input, filter_expr) = terminal.into_parts();
+        let (semantic_identity, semantic_filter_expr) = semantic_key.into_identity_and_filter();
+        debug_assert_eq!(
+            semantic_filter_expr.as_ref(),
+            filter_expr
+                .as_ref()
+                .map(crate::db::sql::lowering::AnalyzedLoweredExpr::expr),
+            "global aggregate semantic key filter must match retained filter analysis",
+        );
         let kind = semantic_identity.kind();
         let distinct_input = semantic_identity.distinct();
-        let target = match aggregate_input_from_semantics(semantic_identity) {
-            AggregateInput::Rows => PreparedAggregateTarget::Rows,
-            AggregateInput::Field(field) => {
+        let target = match input {
+            LoweredAggregateInput::Rows => PreparedAggregateTarget::Rows,
+            LoweredAggregateInput::Field(field) => {
                 validate_field_target_sql_aggregate_capabilities(schema, field.as_str(), kind)?;
                 let target_slot =
                     resolve_aggregate_target_field_slot_with_schema(model, schema, field.as_str())
                         .map_err(SqlLoweringError::from)?;
                 PreparedAggregateTarget::Field(target_slot)
             }
-            AggregateInput::Expr(input_expr) => {
-                validate_model_bound_scalar_expr(
+            LoweredAggregateInput::Expr(input_expr) => {
+                validate_analyzed_model_bound_scalar_expr(
                     model,
                     schema,
                     &input_expr,
                     SqlLoweringError::unsupported_aggregate_input_expressions,
                 )?;
-                PreparedAggregateTarget::Expr(input_expr)
+                PreparedAggregateTarget::Expr(input_expr.into_expr())
             }
+        };
+        let filter_expr = match filter_expr {
+            Some(filter_expr) => {
+                validate_analyzed_model_bound_scalar_expr(
+                    model,
+                    schema,
+                    &filter_expr,
+                    SqlLoweringError::unsupported_where_expression,
+                )?;
+                Some(filter_expr.into_expr())
+            }
+            None => None,
         };
 
         Ok(Self::from_semantics(

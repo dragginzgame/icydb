@@ -1,64 +1,96 @@
 use crate::db::{
     query::{
         builder::AggregateExpr,
-        plan::{
-            AggregateKind,
-            expr::{Expr, aggregate_count_input_expr_is_non_null_literal},
-        },
+        plan::{AggregateKind, expr::aggregate_count_input_expr_is_non_null_literal},
     },
-    sql::lowering::SqlLoweringError,
+    sql::lowering::{
+        AnalyzedLoweredExpr, SqlLoweringError, aggregate::semantics::AggregateTerminalSemanticKey,
+    },
 };
 
 ///
-/// AggregateInput
+/// LoweredAggregateInput
 ///
-/// Canonical input shape for one executable SQL global aggregate terminal.
-/// This separates aggregate function identity from the row, field, or scalar
-/// expression input consumed by the aggregate runtime.
+/// Canonical input shape for one lowered SQL global aggregate terminal.
+/// Expression inputs keep the lowering analysis derived from their exact
+/// expression tree so later model-bound validation does not re-analyze them.
 ///
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering::aggregate) enum AggregateInput {
+#[derive(Clone, Debug)]
+pub(in crate::db::sql::lowering::aggregate) enum LoweredAggregateInput {
     Rows,
     Field(String),
-    Expr(Expr),
+    Expr(AnalyzedLoweredExpr),
 }
 
 ///
-/// SqlGlobalAggregateTerminal
+/// LoweredSqlGlobalAggregateTerminal
 ///
-/// Global SQL aggregate terminal currently executable through the dedicated
-/// aggregate SQL entrypoint. The shape is intentionally data-driven so adding
-/// a supported aggregate kind does not require another terminal variant family.
+/// Global SQL aggregate terminal prepared before model binding. It keeps the
+/// semantic de-dup key aligned with the analyzed input/filter expressions that
+/// strategy binding validates against the accepted schema.
 ///
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering::aggregate) struct SqlGlobalAggregateTerminal {
-    pub(in crate::db::sql::lowering::aggregate) kind: AggregateKind,
-    pub(in crate::db::sql::lowering::aggregate) input: AggregateInput,
-    pub(in crate::db::sql::lowering::aggregate) filter_expr: Option<Expr>,
-    pub(in crate::db::sql::lowering::aggregate) distinct: bool,
+#[derive(Clone, Debug)]
+pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminal {
+    semantic_key: AggregateTerminalSemanticKey,
+    input: LoweredAggregateInput,
+    filter_expr: Option<AnalyzedLoweredExpr>,
 }
 
-impl SqlGlobalAggregateTerminal {
+impl LoweredSqlGlobalAggregateTerminal {
+    pub(in crate::db::sql::lowering::aggregate) fn count_rows() -> Self {
+        let aggregate_expr = crate::db::query::builder::aggregate::count();
+
+        Self::from_aggregate_expr(&aggregate_expr)
+            .expect("COUNT(*) is a supported global aggregate terminal")
+    }
+
     // Build one terminal from the planner aggregate expression. Normalization
     // stays limited to executor-equivalent COUNT row inputs and is mirrored by
     // aggregate identity so projection lookup and runtime terminals agree.
     pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
         aggregate_expr: &AggregateExpr,
     ) -> Result<Self, SqlLoweringError> {
-        let kind = aggregate_expr.kind();
+        let semantic_key = AggregateTerminalSemanticKey::from_aggregate_expr(aggregate_expr);
         let input = Self::resolve_input(aggregate_expr)?;
+        let filter_expr = aggregate_expr
+            .filter_expr()
+            .cloned()
+            .map(|expr| AnalyzedLoweredExpr::new(expr, None));
 
         Ok(Self {
-            kind,
+            semantic_key,
             input,
-            filter_expr: aggregate_expr.filter_expr().cloned(),
-            distinct: aggregate_expr.is_distinct(),
+            filter_expr,
         })
+    }
+
+    pub(in crate::db::sql::lowering::aggregate) const fn semantic_key(
+        &self,
+    ) -> &AggregateTerminalSemanticKey {
+        &self.semantic_key
+    }
+
+    pub(in crate::db::sql::lowering::aggregate) fn into_parts(
+        self,
+    ) -> (
+        AggregateTerminalSemanticKey,
+        LoweredAggregateInput,
+        Option<AnalyzedLoweredExpr>,
+    ) {
+        let Self {
+            semantic_key,
+            input,
+            filter_expr,
+        } = self;
+
+        (semantic_key, input, filter_expr)
     }
 
     // Resolve the aggregate target into the compact input model accepted by
     // the global aggregate execution lane.
-    fn resolve_input(aggregate_expr: &AggregateExpr) -> Result<AggregateInput, SqlLoweringError> {
+    fn resolve_input(
+        aggregate_expr: &AggregateExpr,
+    ) -> Result<LoweredAggregateInput, SqlLoweringError> {
         let kind = aggregate_expr.kind();
         if matches!(
             kind,
@@ -70,7 +102,7 @@ impl SqlGlobalAggregateTerminal {
             && aggregate_expr.target_field().is_none()
             && aggregate_expr.input_expr().is_none()
         {
-            return Ok(AggregateInput::Rows);
+            return Ok(LoweredAggregateInput::Rows);
         }
         if kind == AggregateKind::Count
             && !aggregate_expr.is_distinct()
@@ -78,14 +110,17 @@ impl SqlGlobalAggregateTerminal {
                 .input_expr()
                 .is_some_and(aggregate_count_input_expr_is_non_null_literal)
         {
-            return Ok(AggregateInput::Rows);
+            return Ok(LoweredAggregateInput::Rows);
         }
 
         if let Some(field) = aggregate_expr.target_field() {
-            return Ok(AggregateInput::Field(field.to_string()));
+            return Ok(LoweredAggregateInput::Field(field.to_string()));
         }
         if let Some(input_expr) = aggregate_expr.input_expr() {
-            return Ok(AggregateInput::Expr(input_expr.clone()));
+            return Ok(LoweredAggregateInput::Expr(AnalyzedLoweredExpr::new(
+                input_expr.clone(),
+                None,
+            )));
         }
 
         Err(SqlLoweringError::unsupported_global_aggregate_projection())

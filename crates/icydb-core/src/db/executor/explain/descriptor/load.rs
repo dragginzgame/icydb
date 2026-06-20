@@ -36,11 +36,12 @@ use crate::{
 };
 
 use crate::db::executor::explain::descriptor::shared::{
-    annotate_access_choice_node_properties, annotate_access_root_node_properties,
-    annotate_fast_path_reason_node_properties, annotate_projection_pushdown_node_properties,
-    cursor_resume_execution_node_descriptor, descriptor_route_property_line,
-    distinct_execution_node_descriptor, execution_preparation_predicate_index_capability,
-    explain_execution_mode, explain_filter_expr_for_plan, explain_predicate_for_plan,
+    PredicateStageObservability, annotate_access_choice_node_properties,
+    annotate_access_root_node_properties, annotate_fast_path_reason_node_properties,
+    annotate_projection_pushdown_node_properties, cursor_resume_execution_node_descriptor,
+    descriptor_route_property_line, distinct_execution_node_descriptor,
+    execution_preparation_predicate_index_capability, explain_execution_mode,
+    explain_filter_expr_for_plan, explain_predicate_for_plan,
     explain_residual_filter_expr_for_plan, fallback_explain_predicate_index_capability_for_plan,
     index_range_limit_pushdown_descriptor, order_by_execution_node_descriptor,
     predicate_index_capability_label, predicate_stage_descriptors, route_diagnostic_line_bool,
@@ -78,6 +79,10 @@ impl LoadExplainPreparation {
             predicate_index_capability,
             strict_predicate_compatible,
         }
+    }
+
+    const fn strict_prefilter_compiled(&self) -> bool {
+        self.strict_predicate_compatible && self.predicate_index_capability.is_some()
     }
 }
 
@@ -204,8 +209,11 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
 
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
-    let strict_prefilter_compiled =
-        strict_predicate_compatible && explain_preparation.predicate_index_capability.is_some();
+    let strict_prefilter_compiled = explain_preparation.strict_prefilter_compiled();
+    let predicate_stage_observability = PredicateStageObservability::from_parts(
+        strict_prefilter_compiled,
+        plan.residual_filter_shape(),
+    );
     let execution_mode = explain_execution_mode(route_plan);
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
     let hybrid_covering_read_plan = route_facts.hybrid_covering_read_plan.as_ref();
@@ -270,7 +278,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         explain_predicate,
         plan.residual_filter_shape(),
         root.access_strategy.as_ref(),
-        strict_prefilter_compiled,
+        predicate_stage_observability,
         execution_mode,
     ) {
         root.children.push(predicate_stage);
@@ -363,9 +371,10 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
 
     // Phase 1: build canonical route/planner inputs for load mode.
     let verbose_preparation = LoadVerbosePreparation::from_plan(plan);
-    let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
-    let strict_prefilter_compiled =
-        strict_predicate_compatible && explain_preparation.predicate_index_capability.is_some();
+    let strict_prefilter_compiled = explain_preparation.strict_prefilter_compiled();
+    let residual_filter_shape = plan.residual_filter_shape();
+    let predicate_stage_observability =
+        PredicateStageObservability::from_parts(strict_prefilter_compiled, residual_filter_shape);
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = render_access_choice_verbose_section(&verbose_preparation);
@@ -384,17 +393,9 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
-    let residual_filter_shape = plan.residual_filter_shape();
-    let predicate_stage = if strict_prefilter_compiled {
-        "index_prefilter(strict_all_or_none)"
-    } else if !residual_filter_shape.is_absent() {
-        "residual_post_access"
-    } else {
-        "none"
-    };
     lines.push(descriptor_route_property_line(
         "diag.r.predicate_stage",
-        predicate_stage,
+        predicate_stage_observability.label(),
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.residual_filter_shape",

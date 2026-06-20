@@ -12,7 +12,7 @@ use crate::{
 /// keeping the proof as an adjacent loose value.
 ///
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct AnalyzedLoweredExpr {
     expr: Expr,
     analysis: LoweredExprAnalysis,
