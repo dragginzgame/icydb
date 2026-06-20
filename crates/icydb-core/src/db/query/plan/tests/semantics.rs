@@ -148,6 +148,50 @@ fn assert_trivial_scalar_fast_path_matches_general(query: QueryModel<'static, Va
     );
 }
 
+fn scalar_load_plan_with_predicate(
+    predicate: Option<Predicate>,
+    access: AccessPlan<Value>,
+) -> AccessPlannedQuery {
+    AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
+            predicate_covers_filter_expr: predicate.is_some(),
+            predicate,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access,
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
+        static_execution_planning_contract: None,
+    }
+}
+
+fn finalized_predicate_pushdown_labels(
+    predicate: Option<Predicate>,
+    access: AccessPlan<Value>,
+) -> (String, &'static str, &'static str) {
+    let model = model_with_index();
+    let mut plan = scalar_load_plan_with_predicate(predicate, access);
+
+    plan.finalize_planner_route_profile_for_model(model);
+    plan.finalize_static_execution_planning_contract_for_model_only(model)
+        .expect("predicate pushdown diagnostics contract should finalize");
+
+    (
+        plan.predicate_pushdown_label(),
+        plan.predicate_pushdown_outcome_label(),
+        plan.predicate_pushdown_reason_label(),
+    )
+}
+
 fn lower_name_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
         Expr::FunctionCall {
@@ -166,6 +210,94 @@ fn lower_tag_order_term(direction: OrderDirection) -> crate::db::query::plan::Or
         },
         direction,
     )
+}
+
+#[test]
+fn finalized_static_contract_owns_predicate_pushdown_none_label() {
+    assert_eq!(
+        finalized_predicate_pushdown_labels(None, AccessPlan::path(AccessPath::FullScan)),
+        ("none".to_string(), "none", "no_filter"),
+    );
+}
+
+#[test]
+fn finalized_static_contract_owns_applied_predicate_pushdown_label() {
+    let key = Value::Ulid(Ulid::from_u128(4_201));
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "id",
+        CompareOp::Eq,
+        key.clone(),
+        CoercionId::Strict,
+    ));
+
+    assert_eq!(
+        finalized_predicate_pushdown_labels(
+            Some(predicate),
+            AccessPlan::path(AccessPath::ByKey(key)),
+        ),
+        (
+            "applied(by_key)".to_string(),
+            "partial",
+            "residual_after_access",
+        ),
+    );
+}
+
+#[test]
+fn finalized_static_contract_owns_full_scan_fallback_pushdown_reason_labels() {
+    let full_scan = || AccessPlan::path(AccessPath::FullScan);
+    let non_strict = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Gt,
+        Value::Int64(7),
+        CoercionId::NumericWiden,
+    ));
+    let empty_starts_with = Predicate::Compare(ComparePredicate::with_coercion(
+        "tag",
+        CompareOp::StartsWith,
+        Value::Text(String::new()),
+        CoercionId::Strict,
+    ));
+    let is_null = Predicate::IsNull {
+        field: "tag".to_string(),
+    };
+    let text_scan = Predicate::TextContains {
+        field: "tag".to_string(),
+        value: Value::Text("blue".to_string()),
+    };
+
+    assert_eq!(
+        finalized_predicate_pushdown_labels(Some(non_strict), full_scan()),
+        (
+            "fallback(non_strict_compare_coercion)".to_string(),
+            "fallback",
+            "non_strict_compare_coercion",
+        ),
+    );
+    assert_eq!(
+        finalized_predicate_pushdown_labels(Some(empty_starts_with), full_scan()),
+        (
+            "fallback(starts_with_empty_prefix)".to_string(),
+            "fallback",
+            "starts_with_empty_prefix",
+        ),
+    );
+    assert_eq!(
+        finalized_predicate_pushdown_labels(Some(is_null), full_scan()),
+        (
+            "fallback(is_null_full_scan)".to_string(),
+            "fallback",
+            "is_null_full_scan",
+        ),
+    );
+    assert_eq!(
+        finalized_predicate_pushdown_labels(Some(text_scan), full_scan()),
+        (
+            "fallback(text_operator_full_scan)".to_string(),
+            "fallback",
+            "text_operator_full_scan",
+        ),
+    );
 }
 
 #[test]
@@ -259,6 +391,15 @@ fn finalized_static_contract_carries_explicit_expression_only_residual_filter_st
         plan.residual_filter_shape(),
         ResidualFilterShape::Expression,
         "expression-only residual filters should carry an explicit diagnostics shape",
+    );
+    assert_eq!(
+        (
+            plan.predicate_pushdown_label(),
+            plan.predicate_pushdown_outcome_label(),
+            plan.predicate_pushdown_reason_label(),
+        ),
+        ("none".to_string(), "fallback", "no_predicate_subset"),
+        "expression-only filters should keep the legacy compact label while carrying an explicit planner-owned fallback reason",
     );
 }
 
@@ -396,6 +537,19 @@ fn finalized_static_contract_keeps_expression_residual_when_predicate_subset_als
         plan.residual_filter_shape(),
         ResidualFilterShape::ExpressionAndPredicate,
         "mixed predicate-plus-expression filters should carry an explicit diagnostics shape",
+    );
+    assert_eq!(
+        (
+            plan.predicate_pushdown_label(),
+            plan.predicate_pushdown_outcome_label(),
+            plan.predicate_pushdown_reason_label(),
+        ),
+        (
+            "applied(by_key)".to_string(),
+            "partial",
+            "predicate_subset_does_not_cover_expression",
+        ),
+        "mixed expression/predicate filters should expose partial predicate pushdown with an explicit residual-expression reason",
     );
 }
 

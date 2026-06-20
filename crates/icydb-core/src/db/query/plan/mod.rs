@@ -45,9 +45,9 @@ pub(in crate::db::query) use access_choice::{
 };
 pub(in crate::db) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
-    EffectiveRuntimeFilterProgram, PlannedNonIndexAccessReason, ResidualFilterContract,
-    ResidualFilterShape, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
-    StaticExecutionPlanningContract,
+    EffectiveRuntimeFilterProgram, PlannedNonIndexAccessReason, PredicatePushdownDiagnostics,
+    ResidualFilterContract, ResidualFilterShape, ResolvedOrder, ResolvedOrderField,
+    ResolvedOrderValueSource, StaticExecutionPlanningContract,
 };
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
@@ -145,10 +145,10 @@ pub(in crate::db) use semantics::group_aggregate_spec_expr;
 pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,
-    GroupedPlanStrategy, access_plan_label, explain_access_kind_label,
-    explain_access_strategy_label, grouped_distinct_admissibility,
-    grouped_having_binary_compare_op, grouped_having_compare_op_supported, project_access_plan,
-    project_explain_access_path, resolve_global_distinct_field_aggregate,
+    GroupedPlanStrategy, access_plan_label, explain_access_strategy_label,
+    grouped_distinct_admissibility, grouped_having_binary_compare_op,
+    grouped_having_compare_op_supported, project_access_plan, project_explain_access_path,
+    resolve_global_distinct_field_aggregate,
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,

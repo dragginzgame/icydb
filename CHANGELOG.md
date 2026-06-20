@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.3` continues the query-engine audit by proving encoded index
+  predicates against runtime semantics, tuning large `IN` evaluation, and
+  moving verbose predicate-pushdown diagnostics onto planner-owned
+  outcome/reason contracts.
+
 - `0.184.2` continues the query-engine audit by reusing aggregate expression
   analysis for global aggregate terminals, centralizing SQL filter contracts,
   freezing residual-filter planning state, caching accepted semantic index

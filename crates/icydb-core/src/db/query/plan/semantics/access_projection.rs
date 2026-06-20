@@ -343,8 +343,10 @@ pub(in crate::db) fn explain_access_strategy_label(access: &ExplainAccessPath) -
 /// access-kind code from the transport DTO surface.
 ///
 
+#[cfg(test)]
 struct ExplainAccessKindProjection;
 
+#[cfg(test)]
 impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
     type Output = &'static str;
 
@@ -421,6 +423,7 @@ impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
 
 /// Classify one explain access DTO into the stable access-kind code used by
 /// intent/debug labels without rebuilding a local branch ladder elsewhere.
+#[cfg(test)]
 pub(in crate::db) fn explain_access_kind_label(access: &ExplainAccessPath) -> &'static str {
     project_explain_access_path(access, &mut ExplainAccessKindProjection)
 }

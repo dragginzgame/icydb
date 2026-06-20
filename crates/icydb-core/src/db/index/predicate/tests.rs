@@ -9,18 +9,29 @@ use crate::{
             IndexCompareOp, IndexId, IndexKey, IndexKeyKind, IndexLiteral, IndexPredicateProgram,
             predicate::literal_index_component_bytes,
         },
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         predicate::{
-            CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate, ExecutablePredicate,
-            IndexCompileTarget, Predicate, compare_eq, compare_order,
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, ExecutableComparePredicate,
+            ExecutablePredicate, IndexCompileTarget, Predicate, PredicateProgram, compare_eq,
+            compare_order,
         },
     },
     error::{ErrorClass, ErrorOrigin},
-    model::index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldModel},
+        index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
+    },
     types::Decimal,
     types::EntityTag,
     value::Value,
 };
-use std::{cmp::Ordering, sync::LazyLock};
+use std::{
+    cmp::Ordering,
+    hint::black_box,
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use super::{
     IndexCompilePolicy, canonical_index_predicate, compile_index_program,
@@ -31,12 +42,184 @@ use super::{
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
 
+static INDEX_PREDICATE_FIELDS: [FieldModel; 5] = [
+    FieldModel::generated("id", FieldKind::Nat64),
+    FieldModel::generated("collection_id", FieldKind::Text { max_len: None }),
+    FieldModel::generated("stage", FieldKind::Text { max_len: None }),
+    FieldModel::generated("rank", FieldKind::Nat64),
+    FieldModel::generated("title", FieldKind::Text { max_len: None }),
+];
+static INDEX_PREDICATE_MODEL: EntityModel = EntityModel::generated(
+    "IndexPredicateTestEntity",
+    "IndexPredicateTestEntity",
+    1,
+    &INDEX_PREDICATE_FIELDS[0],
+    0,
+    &INDEX_PREDICATE_FIELDS,
+    &[],
+);
+const INDEX_PREDICATE_SLOTS: [usize; 4] = [1, 2, 3, 4];
+const INDEX_MEMBERSHIP_BENCH_ITERATIONS: usize = 20_000;
+const INDEX_MEMBERSHIP_BENCH_COUNTS: [usize; 8] = [4, 8, 16, 24, 32, 48, 64, 128];
+
 fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
 }
 
 const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
     IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
+
+fn strict_predicate(field: &str, op: CompareOp, value: Value) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        op,
+        value,
+        CoercionId::Strict,
+    ))
+}
+
+fn strict_text(field: &str, op: CompareOp, value: &str) -> Predicate {
+    strict_predicate(field, op, Value::Text(value.to_string()))
+}
+
+fn index_predicate_row(collection_id: &str, stage: &str, rank: u64, title: &str) -> Vec<Value> {
+    vec![
+        Value::Nat64(rank),
+        Value::Text(collection_id.to_string()),
+        Value::Text(stage.to_string()),
+        Value::Nat64(rank),
+        Value::Text(title.to_string()),
+    ]
+}
+
+fn index_key_for_predicate_row(row: &[Value], primary_key: u64) -> IndexKey {
+    let components = INDEX_PREDICATE_SLOTS
+        .iter()
+        .map(|slot| literal_index_component_bytes(&row[*slot]).expect("index value should encode"))
+        .collect::<Vec<_>>();
+
+    IndexKey::new_from_components_with_primary_key_value(
+        &IndexId::new(EntityTag::new(0x184), 1),
+        IndexKeyKind::User,
+        &components,
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
+    )
+}
+
+fn assert_index_program_matches_runtime(predicate: Predicate, rows: Vec<Vec<Value>>) {
+    let runtime_program =
+        PredicateProgram::compile_for_model_only(&INDEX_PREDICATE_MODEL, &predicate);
+    let index_program = compile_index_program(
+        runtime_program.executable(),
+        &INDEX_PREDICATE_SLOTS,
+        IndexCompilePolicy::StrictAllOrNone,
+    )
+    .expect("strict predicate should compile into an index predicate");
+
+    for (row_index, row) in rows.iter().enumerate() {
+        let key = index_key_for_predicate_row(row, row_index as u64);
+        let mut read_slot = |slot| row.get(slot);
+        let runtime_result = runtime_program.eval_with_slot_value_ref_reader(&mut read_slot);
+        let index_result = eval_index_program_on_decoded_key(&key, &index_program)
+            .expect("index predicate should evaluate");
+
+        assert_eq!(
+            index_result, runtime_result,
+            "index predicate result diverged from runtime predicate for row_index={row_index} row={row:?}",
+        );
+    }
+}
+
+// Run explicitly when assessing whether the small linear membership threshold
+// should move. Timings are informational; correctness stays covered by the
+// non-ignored equivalence tests above.
+#[test]
+#[ignore = "native microbenchmark: run explicitly with --ignored --nocapture"]
+fn index_predicate_membership_microbenchmark_report() {
+    println!();
+    println!("Encoded index predicate membership microbenchmark");
+    println!("iterations={INDEX_MEMBERSHIP_BENCH_ITERATIONS}");
+    println!();
+
+    for candidate_count in INDEX_MEMBERSHIP_BENCH_COUNTS {
+        report_membership_benchmark(candidate_count, false);
+        report_membership_benchmark(candidate_count, true);
+        println!();
+    }
+}
+
+fn report_membership_benchmark(candidate_count: usize, sorted: bool) {
+    let candidates = membership_benchmark_candidates(candidate_count);
+    let probes = membership_benchmark_probes(candidate_count);
+    let literal = if sorted {
+        IndexLiteral::ManySorted(candidates)
+    } else {
+        IndexLiteral::Many(candidates)
+    };
+    let label = if sorted {
+        "sorted binary"
+    } else {
+        "linear scan"
+    };
+    let (elapsed, checksum) = measure_membership_benchmark(&literal, probes.as_slice());
+    let iterations =
+        u128::try_from(INDEX_MEMBERSHIP_BENCH_ITERATIONS).expect("iterations should fit u128");
+
+    println!(
+        "candidates={candidate_count:<4} {label:<13} total_ns={:<14} avg_ns_per_iteration={} checksum={checksum}",
+        elapsed.as_nanos(),
+        elapsed.as_nanos() / iterations,
+    );
+}
+
+fn measure_membership_benchmark(literal: &IndexLiteral, probes: &[Vec<u8>]) -> (Duration, usize) {
+    let warm = black_box(membership_checksum(literal, probes));
+    assert!(warm > 0, "membership benchmark should exercise probes");
+
+    let started_at = Instant::now();
+    let mut measured = 0usize;
+    for _ in 0..INDEX_MEMBERSHIP_BENCH_ITERATIONS {
+        measured = measured.saturating_add(black_box(membership_checksum(literal, probes)));
+    }
+
+    (started_at.elapsed(), measured)
+}
+
+fn membership_checksum(literal: &IndexLiteral, probes: &[Vec<u8>]) -> usize {
+    probes
+        .iter()
+        .enumerate()
+        .map(|(index, probe)| {
+            let passed = eval_index_compare(probe.as_slice(), IndexCompareOp::In, literal);
+            usize::from(passed).saturating_mul(index + 1)
+        })
+        .sum()
+}
+
+fn membership_benchmark_candidates(candidate_count: usize) -> Vec<Vec<u8>> {
+    (0..candidate_count)
+        .map(membership_benchmark_component)
+        .collect()
+}
+
+fn membership_benchmark_probes(candidate_count: usize) -> Vec<Vec<u8>> {
+    [
+        0,
+        candidate_count / 2,
+        candidate_count.saturating_sub(1),
+        candidate_count,
+        candidate_count + 1,
+        candidate_count + 2,
+    ]
+    .into_iter()
+    .map(membership_benchmark_component)
+    .collect()
+}
+
+fn membership_benchmark_component(index: usize) -> Vec<u8> {
+    literal_index_component_bytes(&Value::Text(format!("member-{index:04}")))
+        .expect("benchmark literal should encode")
 }
 
 // Match index compare operations to strict predicate semantics for expected results.
@@ -539,6 +722,40 @@ fn compile_index_program_keeps_small_in_literals_linear() {
 }
 
 #[test]
+fn compile_index_program_canonicalizes_threshold_in_literals_for_binary_membership() {
+    let values = (0..16)
+        .rev()
+        .map(|idx| Value::Text(format!("v{idx:02}")))
+        .collect::<Vec<_>>();
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::In,
+        Value::List(values),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
+        .expect("threshold-size strict IN should compile to an index predicate");
+    let mut expected = (0..16)
+        .map(|idx| {
+            literal_index_component_bytes(&Value::Text(format!("v{idx:02}")))
+                .expect("expected literal should encode")
+        })
+        .collect::<Vec<_>>();
+    expected.sort();
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::Compare {
+            component_index: 0,
+            op: IndexCompareOp::In,
+            literal: IndexLiteral::ManySorted(expected),
+        },
+        "threshold-size membership literals should use binary search",
+    );
+}
+
+#[test]
 fn compile_index_program_canonicalizes_large_in_literals_for_binary_membership() {
     let mut values = (0..40)
         .rev()
@@ -664,6 +881,124 @@ fn compile_index_program_strict_rejects_partial_and_support() {
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::StrictAllOrNone);
     assert!(program.is_none());
+}
+
+#[test]
+fn eval_index_program_matches_runtime_for_strict_compare_tree() {
+    let predicate = Predicate::And(vec![
+        strict_text("collection_id", CompareOp::Eq, "collection-a"),
+        Predicate::Or(vec![
+            strict_text("stage", CompareOp::Eq, "Draft"),
+            strict_text("stage", CompareOp::Eq, "Review"),
+        ]),
+        strict_predicate("rank", CompareOp::Gte, Value::Nat64(10)),
+        strict_predicate("rank", CompareOp::Lt, Value::Nat64(20)),
+    ]);
+    let rows = vec![
+        index_predicate_row("collection-a", "Draft", 10, "Alpha"),
+        index_predicate_row("collection-a", "Review", 19, "Beta"),
+        index_predicate_row("collection-a", "Review", 20, "Gamma"),
+        index_predicate_row("collection-a", "Published", 12, "Delta"),
+        index_predicate_row("collection-b", "Draft", 12, "Epsilon"),
+    ];
+
+    assert_index_program_matches_runtime(predicate, rows);
+}
+
+#[test]
+fn eval_index_program_matches_runtime_for_membership_literals() {
+    let predicate = Predicate::And(vec![
+        strict_predicate(
+            "stage",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("Draft".to_string()),
+                Value::Text("Review".to_string()),
+            ]),
+        ),
+        strict_predicate(
+            "title",
+            CompareOp::NotIn,
+            Value::List(vec![
+                Value::Text("Rejected".to_string()),
+                Value::Text("Archived".to_string()),
+            ]),
+        ),
+    ]);
+    let rows = vec![
+        index_predicate_row("collection-a", "Draft", 1, "Ready"),
+        index_predicate_row("collection-a", "Review", 2, "Rejected"),
+        index_predicate_row("collection-a", "Published", 3, "Ready"),
+        index_predicate_row("collection-a", "Review", 4, "Archived"),
+    ];
+
+    assert_index_program_matches_runtime(predicate, rows);
+}
+
+#[test]
+fn eval_index_program_matches_runtime_for_large_sorted_membership_literals() {
+    let values = (0..40)
+        .map(|idx| Value::Text(format!("stage-{idx:02}")))
+        .collect::<Vec<_>>();
+    let predicate = strict_predicate("stage", CompareOp::In, Value::List(values));
+    let rows = vec![
+        index_predicate_row("collection-a", "stage-00", 1, "Alpha"),
+        index_predicate_row("collection-a", "stage-17", 2, "Beta"),
+        index_predicate_row("collection-a", "stage-39", 3, "Gamma"),
+        index_predicate_row("collection-a", "stage-99", 4, "Delta"),
+    ];
+
+    assert_index_program_matches_runtime(predicate, rows);
+}
+
+#[test]
+fn eval_index_program_matches_runtime_for_text_prefix_bounds() {
+    let predicate = strict_text("title", CompareOp::StartsWith, "Alp");
+    let rows = vec![
+        index_predicate_row("collection-a", "Draft", 1, "Alpha"),
+        index_predicate_row("collection-a", "Draft", 2, "Alpine"),
+        index_predicate_row("collection-a", "Draft", 3, "Alq"),
+        index_predicate_row("collection-a", "Draft", 4, "Beta"),
+    ];
+
+    assert_index_program_matches_runtime(predicate, rows);
+}
+
+#[test]
+fn conservative_and_subset_never_rejects_runtime_matches() {
+    let predicate = Predicate::And(vec![
+        strict_text("stage", CompareOp::Eq, "Draft"),
+        Predicate::TextContains {
+            field: "title".to_string(),
+            value: Value::Text("urgent".to_string()),
+        },
+    ]);
+    let runtime_program =
+        PredicateProgram::compile_for_model_only(&INDEX_PREDICATE_MODEL, &predicate);
+    let index_program = compile_index_program(
+        runtime_program.executable(),
+        &INDEX_PREDICATE_SLOTS,
+        IndexCompilePolicy::ConservativeSubset,
+    )
+    .expect("strict indexed AND child should remain as a conservative subset");
+    let rows = [
+        index_predicate_row("collection-a", "Draft", 1, "urgent item"),
+        index_predicate_row("collection-a", "Draft", 2, "ordinary item"),
+        index_predicate_row("collection-a", "Review", 3, "urgent item"),
+    ];
+
+    for (row_index, row) in rows.iter().enumerate() {
+        let key = index_key_for_predicate_row(row, row_index as u64);
+        let mut read_slot = |slot| row.get(slot);
+        let runtime_result = runtime_program.eval_with_slot_value_ref_reader(&mut read_slot);
+        let index_result = eval_index_program_on_decoded_key(&key, &index_program)
+            .expect("index predicate should evaluate");
+
+        assert!(
+            !runtime_result || index_result,
+            "conservative index predicate must not reject a runtime match for row_index={row_index} row={row:?}",
+        );
+    }
 }
 
 #[test]

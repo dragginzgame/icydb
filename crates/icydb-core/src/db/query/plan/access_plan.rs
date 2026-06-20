@@ -4,9 +4,9 @@
 //! Boundary: glue between logical plan semantics and selected access paths.
 
 use crate::db::{
-    access::{AccessPlan, AccessShapeFacts, SemanticIndexAccessContract},
+    access::{AccessPath, AccessPlan, AccessShapeFacts, SemanticIndexAccessContract},
     direction::Direction,
-    predicate::{IndexCompileTarget, Predicate, PredicateProgram},
+    predicate::{CoercionId, CompareOp, IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
         AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
         GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
@@ -29,7 +29,6 @@ use crate::{
 
 #[cfg(test)]
 use crate::db::{
-    access::AccessPath,
     predicate::MissingRowPolicy,
     query::plan::{LoadSpec, QueryMode, ScalarPlan},
 };
@@ -193,6 +192,7 @@ pub(in crate::db) struct StaticExecutionPlanningContract {
     pub(in crate::db) execution_preparation_predicate: Option<Predicate>,
     pub(in crate::db) execution_preparation_compiled_predicate: Option<PredicateProgram>,
     pub(in crate::db) residual_filter_contract: ResidualFilterContract,
+    pub(in crate::db) predicate_pushdown_diagnostics: PredicatePushdownDiagnostics,
     pub(in crate::db) scalar_projection_plan: Option<Vec<CompiledExpr>>,
     pub(in crate::db) grouped_aggregate_execution_specs: Option<Vec<GroupedAggregateExecutionSpec>>,
     pub(in crate::db) grouped_distinct_execution_strategy: Option<GroupedDistinctExecutionStrategy>,
@@ -313,6 +313,286 @@ pub(in crate::db) struct ResidualFilterContract {
     residual_filter_expr: Option<Expr>,
     residual_filter_predicate: Option<Predicate>,
     effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
+}
+
+///
+/// PredicatePushdownDiagnostics
+///
+/// PredicatePushdownDiagnostics freezes the planner-owned predicate pushdown
+/// label facts consumed by verbose EXPLAIN. This keeps fallback labels tied to
+/// the same predicate/access facts that finalized planning used, instead of
+/// deriving them later from rendered EXPLAIN predicate trees.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PredicatePushdownDiagnostics {
+    outcome: PredicatePushdownOutcome,
+    reason: PredicatePushdownReason,
+    access_label: &'static str,
+}
+
+///
+/// PredicatePushdownOutcome
+///
+/// Coarse planner-owned predicate pushdown outcome.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PredicatePushdownOutcome {
+    None,
+    Full,
+    Partial,
+    Fallback,
+}
+
+///
+/// PredicatePushdownReason
+///
+/// Stable planner-owned reason vocabulary for predicate pushdown diagnostics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PredicatePushdownReason {
+    NoFilter,
+    NoPredicateSubset,
+    PredicateSubsetDoesNotCoverExpression,
+    AccessPathApplied,
+    ResidualAfterAccess,
+    NonStrictCompareCoercion,
+    StartsWithEmptyPrefix,
+    IsNullFullScan,
+    TextOperatorFullScan,
+    FullScanAccess,
+}
+
+impl PredicatePushdownDiagnostics {
+    /// Derive one predicate pushdown diagnostics contract from finalized
+    /// planner facts without changing route selection or residual execution.
+    #[must_use]
+    pub(in crate::db) fn from_plan(
+        filter_expr_present: bool,
+        predicate_covers_filter_expr: bool,
+        predicate: Option<&Predicate>,
+        access: &AccessPlan<Value>,
+        residual_filter_shape: ResidualFilterShape,
+    ) -> Self {
+        let Some(predicate) = predicate else {
+            if filter_expr_present {
+                return Self {
+                    outcome: PredicatePushdownOutcome::Fallback,
+                    reason: PredicatePushdownReason::NoPredicateSubset,
+                    access_label: "none",
+                };
+            }
+
+            return Self::none();
+        };
+
+        let access_label = predicate_pushdown_access_label(access);
+        if access_label == "full_scan" {
+            return Self {
+                outcome: PredicatePushdownOutcome::Fallback,
+                reason: predicate_pushdown_fallback_reason(predicate),
+                access_label,
+            };
+        }
+
+        let (outcome, reason) = if residual_filter_shape.is_absent() {
+            (
+                PredicatePushdownOutcome::Full,
+                PredicatePushdownReason::AccessPathApplied,
+            )
+        } else if filter_expr_present && !predicate_covers_filter_expr {
+            (
+                PredicatePushdownOutcome::Partial,
+                PredicatePushdownReason::PredicateSubsetDoesNotCoverExpression,
+            )
+        } else {
+            (
+                PredicatePushdownOutcome::Partial,
+                PredicatePushdownReason::ResidualAfterAccess,
+            )
+        };
+
+        Self {
+            outcome,
+            reason,
+            access_label,
+        }
+    }
+
+    /// Build the no-filter diagnostics contract.
+    #[must_use]
+    pub(in crate::db) const fn none() -> Self {
+        Self {
+            outcome: PredicatePushdownOutcome::None,
+            reason: PredicatePushdownReason::NoFilter,
+            access_label: "none",
+        }
+    }
+
+    /// Render the stable verbose EXPLAIN label for this diagnostics contract.
+    #[must_use]
+    pub(in crate::db) fn label(self) -> String {
+        match self.outcome {
+            PredicatePushdownOutcome::None => "none".to_string(),
+            PredicatePushdownOutcome::Full | PredicatePushdownOutcome::Partial => {
+                format!("applied({})", self.access_label)
+            }
+            PredicatePushdownOutcome::Fallback
+                if self.reason == PredicatePushdownReason::NoPredicateSubset =>
+            {
+                "none".to_string()
+            }
+            PredicatePushdownOutcome::Fallback => {
+                format!("fallback({})", self.reason.label())
+            }
+        }
+    }
+
+    /// Return the planner-owned coarse outcome label.
+    #[must_use]
+    pub(in crate::db) const fn outcome_label(self) -> &'static str {
+        self.outcome.label()
+    }
+
+    /// Return the planner-owned reason label.
+    #[must_use]
+    pub(in crate::db) const fn reason_label(self) -> &'static str {
+        self.reason.label()
+    }
+}
+
+impl PredicatePushdownOutcome {
+    /// Stable verbose EXPLAIN outcome label.
+    #[must_use]
+    pub(in crate::db) const fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Full => "full",
+            Self::Partial => "partial",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
+impl PredicatePushdownReason {
+    /// Stable verbose EXPLAIN reason label.
+    #[must_use]
+    pub(in crate::db) const fn label(self) -> &'static str {
+        match self {
+            Self::NoFilter => "no_filter",
+            Self::NoPredicateSubset => "no_predicate_subset",
+            Self::PredicateSubsetDoesNotCoverExpression => {
+                "predicate_subset_does_not_cover_expression"
+            }
+            Self::AccessPathApplied => "access_path_applied",
+            Self::ResidualAfterAccess => "residual_after_access",
+            Self::NonStrictCompareCoercion => "non_strict_compare_coercion",
+            Self::StartsWithEmptyPrefix => "starts_with_empty_prefix",
+            Self::IsNullFullScan => "is_null_full_scan",
+            Self::TextOperatorFullScan => "text_operator_full_scan",
+            Self::FullScanAccess => "full_scan",
+        }
+    }
+}
+
+fn predicate_pushdown_access_label(access: &AccessPlan<Value>) -> &'static str {
+    match access {
+        AccessPlan::Path(path) => predicate_pushdown_access_path_label(path),
+        AccessPlan::Union(_) => "union",
+        AccessPlan::Intersection(_) => "intersection",
+    }
+}
+
+const fn predicate_pushdown_access_path_label(path: &AccessPath<Value>) -> &'static str {
+    match path {
+        AccessPath::ByKey(_) => "by_key",
+        AccessPath::ByKeys(keys) if keys.is_empty() => "empty_access_contract",
+        AccessPath::ByKeys(_) => "by_keys",
+        AccessPath::KeyRange { .. } => "key_range",
+        AccessPath::IndexPrefix { .. } => "index_prefix",
+        AccessPath::IndexMultiLookup { .. } => "index_multi_lookup",
+        AccessPath::IndexBranchSet { .. } => "index_branch_set",
+        AccessPath::IndexRange { .. } => "index_range",
+        AccessPath::FullScan => "full_scan",
+    }
+}
+
+fn predicate_pushdown_fallback_reason(predicate: &Predicate) -> PredicatePushdownReason {
+    if predicate_contains_non_strict_compare(predicate) {
+        return PredicatePushdownReason::NonStrictCompareCoercion;
+    }
+    if predicate_contains_empty_prefix_starts_with(predicate) {
+        return PredicatePushdownReason::StartsWithEmptyPrefix;
+    }
+    if predicate_contains_is_null(predicate) {
+        return PredicatePushdownReason::IsNullFullScan;
+    }
+    if predicate_contains_text_scan_operator(predicate) {
+        return PredicatePushdownReason::TextOperatorFullScan;
+    }
+
+    PredicatePushdownReason::FullScanAccess
+}
+
+fn predicate_contains(predicate: &Predicate, leaf_matches: fn(&Predicate) -> bool) -> bool {
+    if leaf_matches(predicate) {
+        return true;
+    }
+
+    match predicate {
+        Predicate::And(children) | Predicate::Or(children) => children
+            .iter()
+            .any(|child| predicate_contains(child, leaf_matches)),
+        Predicate::Not(inner) => predicate_contains(inner, leaf_matches),
+        _ => false,
+    }
+}
+
+fn predicate_contains_non_strict_compare(predicate: &Predicate) -> bool {
+    predicate_contains(predicate, predicate_is_non_strict_compare)
+}
+
+fn predicate_is_non_strict_compare(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Compare(compare) => compare.coercion().id() != CoercionId::Strict,
+        Predicate::CompareFields(compare) => compare.coercion().id() != CoercionId::Strict,
+        _ => false,
+    }
+}
+
+fn predicate_contains_empty_prefix_starts_with(predicate: &Predicate) -> bool {
+    predicate_contains(predicate, predicate_is_empty_prefix_starts_with)
+}
+
+fn predicate_is_empty_prefix_starts_with(predicate: &Predicate) -> bool {
+    matches!(
+        predicate,
+        Predicate::Compare(compare)
+            if compare.op() == CompareOp::StartsWith
+                && matches!(compare.value(), Value::Text(prefix) if prefix.is_empty())
+    )
+}
+
+fn predicate_contains_is_null(predicate: &Predicate) -> bool {
+    predicate_contains(predicate, predicate_is_null_leaf)
+}
+
+const fn predicate_is_null_leaf(predicate: &Predicate) -> bool {
+    matches!(predicate, Predicate::IsNull { .. })
+}
+
+fn predicate_contains_text_scan_operator(predicate: &Predicate) -> bool {
+    predicate_contains(predicate, predicate_is_text_scan_operator)
+}
+
+fn predicate_is_text_scan_operator(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Compare(compare) if compare.op() == CompareOp::EndsWith => true,
+        Predicate::TextContains { .. } | Predicate::TextContainsCi { .. } => true,
+        _ => false,
+    }
 }
 
 ///

@@ -240,10 +240,29 @@ filters. Execution EXPLAIN residual nodes and verbose route diagnostics consume
 that planner-owned shape instead of inferring residual kind from rendered
 strings.
 
+Fourth slice:
+The remaining pushdown coverage/fallback diagnostics vocabulary is documented
+in `filter-pushdown-diagnostics.md`. The next implementation should move
+existing predicate-pushdown EXPLAIN labels onto planner-owned outcome/reason
+facts without changing access-route selection or runtime filtering.
+
+Fifth slice:
+Verbose predicate-pushdown diagnostics now consume
+`PredicatePushdownDiagnostics` from the finalized static planning contract
+instead of deriving fallback causes from rendered EXPLAIN predicate trees.
+The legacy compact labels remain stable.
+
+Sixth slice:
+Verbose execution diagnostics now expose explicit planner-owned
+`predicate_pushdown_outcome` and `predicate_pushdown_reason` fields. These
+cover no-filter, expression-only/no-subset, access-applied,
+residual-after-access, and full-scan fallback cases while preserving the
+legacy compact `predicate_pushdown` label. Strict index-prefilter stage
+diagnostics remain route-owned.
+
 Deferred:
-Richer coverage proof and fallback/explain reason should move onto the same
-contract only after a narrow diagnostics vocabulary design. Do not fold this
-into route planning or access-choice ranking in the same slice.
+Do not fold richer pushdown diagnostics into route planning or access-choice
+ranking in the same slice. Cost/selectivity decisions remain separate.
 
 8. F2 / D4 / C1: route membership through canonical boolean lowering
 Finding:
@@ -270,6 +289,18 @@ Order:
 1. property equivalence tests
 2. benchmark IN thresholds
 3. tune encoded path only if data supports it
+
+First slice:
+Compiled encoded index predicates are now tested against the canonical runtime
+predicate program for strict compare trees, `IN`, `NOT IN`, large sorted `IN`,
+text-prefix bounds, and conservative `AND` subset prefilters. This proves the
+byte-key evaluator before any threshold or hot-loop tuning.
+
+Second slice:
+An ignored native threshold benchmark now compares linear and sorted encoded
+membership evaluation. The local report showed sorted binary search winning
+from 16 candidates upward, so the production cutoff moved from 32 to 16
+candidates while leaving broader cost/selectivity tuning deferred.
 
 Keep the encoded fast path. Mature engines absolutely use encoded/index-specific predicate evaluation. The key is proving it equivalent to canonical predicate semantics.
 

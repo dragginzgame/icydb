@@ -13,8 +13,8 @@ mod logical;
 mod pushdown;
 
 pub(in crate::db) use access_projection::{
-    AccessPlanProjection, access_plan_label, explain_access_kind_label,
-    explain_access_strategy_label, project_access_plan, project_explain_access_path,
+    AccessPlanProjection, access_plan_label, explain_access_strategy_label, project_access_plan,
+    project_explain_access_path,
 };
 pub(in crate::db) use group_distinct::global_distinct_group_spec_for_aggregate_identity;
 pub(in crate::db) use group_distinct::{

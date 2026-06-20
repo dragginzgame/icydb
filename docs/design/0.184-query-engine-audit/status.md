@@ -65,6 +65,25 @@ Status: active.
   diagnostics shape for absent, predicate-only, expression-only, and
   expression-plus-predicate residual filters; execution EXPLAIN nodes and
   verbose route diagnostics consume that shape.
+- F2 / D3 fourth slice: the remaining pushdown coverage/fallback diagnostics
+  vocabulary is scoped in `filter-pushdown-diagnostics.md`, with EXPLAIN
+  intended to consume planner-owned outcome/reason labels in the next code
+  slice.
+- F4 / D5 / H9 / C6 first slice: compiled encoded index predicates are now
+  compared against the canonical runtime predicate program for strict compare
+  trees, `IN`, `NOT IN`, large sorted `IN`, text-prefix bounds, and
+  conservative `AND` prefilters.
+- F4 / D5 / H9 / C6 second slice: an ignored native threshold benchmark now
+  compares linear and sorted encoded membership evaluation, and the sorted
+  membership cutoff moved from 32 to 16 candidates based on the local signal.
+- F2 / D3 fifth slice: verbose predicate-pushdown diagnostics now consume a
+  planner-owned `PredicatePushdownDiagnostics` contract stored beside the
+  residual-filter contract, preserving existing labels while moving fallback
+  reason ownership out of late EXPLAIN predicate-tree scans.
+- F2 / D3 sixth slice: verbose predicate-pushdown diagnostics now expose
+  planner-owned `outcome` and `reason` fields, covering no-filter,
+  expression-only/no-subset, access-applied, residual-after-access, and
+  full-scan fallback cases without changing the legacy compact label.
 
 ## Current Slice
 
@@ -72,8 +91,9 @@ Status: active.
 
 ## Next Candidates
 
+- F2 / D3: keep strict index-prefilter observability route-owned unless a
+  later design moves executor route-preparation facts into a planner/executor
+  handoff contract.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, aggregate input/filter validation facts, ORDER BY facts, and
   predicate-derivation inputs.
-- F2 / D3: design the richer pushdown coverage/fallback reason vocabulary
-  before moving those explain facts onto the filter contract.

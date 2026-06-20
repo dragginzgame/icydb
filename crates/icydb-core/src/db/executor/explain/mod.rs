@@ -13,16 +13,14 @@ use crate::{
     db::{
         Query, TraceReuseEvent,
         executor::{BytesByProjectionMode, EntityAuthority, PreparedExecutionPlan},
-        predicate::{CoercionId, CompareOp},
         query::{
             builder::{AggregateExplain, ProjectionExplain},
             explain::{
-                ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
-                ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPredicate,
-                FinalizedQueryDiagnostics,
+                ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
+                ExplainExecutionNodeType, ExplainOrderPushdown, FinalizedQueryDiagnostics,
             },
             intent::{QueryError, StructuralQuery},
-            plan::{AccessPlannedQuery, VisibleIndexes, explain_access_kind_label},
+            plan::{AccessPlannedQuery, VisibleIndexes},
         },
     },
     model::entity::EntityModel,
@@ -85,7 +83,15 @@ impl StructuralQuery {
         ));
         logical_diagnostics.push(format!(
             "diag.p.predicate_pushdown={}",
-            plan_predicate_pushdown_label(explain.predicate(), explain.access())
+            plan.predicate_pushdown_label()
+        ));
+        logical_diagnostics.push(format!(
+            "diag.p.predicate_pushdown_outcome={}",
+            plan.predicate_pushdown_outcome_label()
+        ));
+        logical_diagnostics.push(format!(
+            "diag.p.predicate_pushdown_reason={}",
+            plan.predicate_pushdown_reason_label()
         ));
         logical_diagnostics.push(format!("diag.p.distinct={}", explain.distinct()));
         logical_diagnostics.push(format!("diag.p.page={:?}", explain.page()));
@@ -523,131 +529,5 @@ fn plan_order_pushdown_label(order_pushdown: &ExplainOrderPushdown) -> String {
             format!("eligible(index={index},prefix_len={prefix_len})")
         }
         ExplainOrderPushdown::Rejected(reason) => format!("rejected({reason:?})"),
-    }
-}
-
-// Render the logical predicate pushdown label for verbose execution diagnostics.
-fn plan_predicate_pushdown_label(
-    predicate: &ExplainPredicate,
-    access: &ExplainAccessPath,
-) -> String {
-    let access_label = explain_access_kind_label(access);
-    if matches!(predicate, ExplainPredicate::None) {
-        return "none".to_string();
-    }
-    if access_label == "full_scan" {
-        if explain_predicate_contains_non_strict_compare(predicate) {
-            return "fallback(non_strict_compare_coercion)".to_string();
-        }
-        if explain_predicate_contains_empty_prefix_starts_with(predicate) {
-            return "fallback(starts_with_empty_prefix)".to_string();
-        }
-        if explain_predicate_contains_is_null(predicate) {
-            return "fallback(is_null_full_scan)".to_string();
-        }
-        if explain_predicate_contains_text_scan_operator(predicate) {
-            return "fallback(text_operator_full_scan)".to_string();
-        }
-
-        return format!("fallback({access_label})");
-    }
-
-    format!("applied({access_label})")
-}
-
-// Detect predicates that force non-strict compare fallback diagnostics.
-fn explain_predicate_contains_non_strict_compare(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::Compare { coercion, .. }
-        | ExplainPredicate::CompareFields { coercion, .. } => coercion.id != CoercionId::Strict,
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
-            .iter()
-            .any(explain_predicate_contains_non_strict_compare),
-        ExplainPredicate::Not(inner) => explain_predicate_contains_non_strict_compare(inner),
-        ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::IsNull { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => false,
-    }
-}
-
-// Detect IS NULL predicates that force full-scan fallback diagnostics.
-fn explain_predicate_contains_is_null(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::IsNull { .. } => true,
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => {
-            children.iter().any(explain_predicate_contains_is_null)
-        }
-        ExplainPredicate::Not(inner) => explain_predicate_contains_is_null(inner),
-        ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::Compare { .. }
-        | ExplainPredicate::CompareFields { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => false,
-    }
-}
-
-// Detect empty starts_with predicates that force fallback diagnostics.
-fn explain_predicate_contains_empty_prefix_starts_with(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::Compare {
-            op: CompareOp::StartsWith,
-            value: Value::Text(prefix),
-            ..
-        } => prefix.is_empty(),
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
-            .iter()
-            .any(explain_predicate_contains_empty_prefix_starts_with),
-        ExplainPredicate::Not(inner) => explain_predicate_contains_empty_prefix_starts_with(inner),
-        ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::Compare { .. }
-        | ExplainPredicate::CompareFields { .. }
-        | ExplainPredicate::IsNull { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => false,
-    }
-}
-
-// Detect text scan predicates that force full-scan fallback diagnostics.
-fn explain_predicate_contains_text_scan_operator(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::Compare {
-            op: CompareOp::EndsWith,
-            ..
-        }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => true,
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
-            .iter()
-            .any(explain_predicate_contains_text_scan_operator),
-        ExplainPredicate::Not(inner) => explain_predicate_contains_text_scan_operator(inner),
-        ExplainPredicate::Compare { .. }
-        | ExplainPredicate::CompareFields { .. }
-        | ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::IsNull { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. } => false,
     }
 }

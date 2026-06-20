@@ -66,6 +66,8 @@ The larger filter contract still needs to carry richer proof/fallback facts:
 - pushdown predicate subset;
 - pushdown coverage proof and fallback reason for diagnostics.
 
-Do not merge the remaining work with route planning in one pass. The next safe
-step is to design the coverage/fallback vocabulary without changing
-access-route selection or runtime filter evaluation.
+The coverage/fallback vocabulary is now scoped in
+`filter-pushdown-diagnostics.md`. The first planner-owned diagnostics slices
+now keep the compact EXPLAIN label stable while adding explicit outcome/reason
+fields. Do not merge any remaining diagnostics work with route planning in one
+pass.

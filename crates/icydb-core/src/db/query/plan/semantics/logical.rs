@@ -13,9 +13,10 @@ use crate::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
             GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedPlanStrategy,
-            LogicalPlan, PlannerRouteProfile, QueryMode, ResidualFilterContract,
-            ResidualFilterShape, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
-            ScalarPlan, StaticExecutionPlanningContract, derive_logical_pushdown_eligibility,
+            LogicalPlan, PlannerRouteProfile, PredicatePushdownDiagnostics, QueryMode,
+            ResidualFilterContract, ResidualFilterShape, ResolvedOrder, ResolvedOrderField,
+            ResolvedOrderValueSource, ScalarPlan, StaticExecutionPlanningContract,
+            derive_logical_pushdown_eligibility,
             expr::{
                 CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
                 compile_scalar_projection_plan_with_schema,
@@ -224,6 +225,41 @@ impl AccessPlannedQuery {
             self.residual_filter_expr().is_some(),
             self.effective_execution_predicate().is_some(),
         )
+    }
+
+    /// Return the planner-owned predicate pushdown label consumed by verbose
+    /// execution diagnostics.
+    #[must_use]
+    pub(in crate::db) fn predicate_pushdown_label(&self) -> String {
+        self.predicate_pushdown_diagnostics().label()
+    }
+
+    /// Return planner-owned predicate-pushdown diagnostics.
+    #[must_use]
+    pub(in crate::db) fn predicate_pushdown_diagnostics(&self) -> PredicatePushdownDiagnostics {
+        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
+            return static_contract.predicate_pushdown_diagnostics;
+        }
+
+        PredicatePushdownDiagnostics::from_plan(
+            self.scalar_plan().filter_expr.is_some(),
+            self.scalar_plan().predicate_covers_filter_expr,
+            self.scalar_plan().predicate.as_ref(),
+            &self.access,
+            self.residual_filter_shape(),
+        )
+    }
+
+    /// Return the planner-owned predicate-pushdown outcome label.
+    #[must_use]
+    pub(in crate::db) fn predicate_pushdown_outcome_label(&self) -> &'static str {
+        self.predicate_pushdown_diagnostics().outcome_label()
+    }
+
+    /// Return the planner-owned predicate-pushdown reason label.
+    #[must_use]
+    pub(in crate::db) fn predicate_pushdown_reason_label(&self) -> &'static str {
+        self.predicate_pushdown_diagnostics().reason_label()
     }
 
     /// Borrow the planner-compiled execution-preparation predicate program.
@@ -568,6 +604,13 @@ fn project_static_execution_planning_contract_for_model(
         residual_filter_predicate,
         effective_runtime_filter_program,
     );
+    let predicate_pushdown_diagnostics = PredicatePushdownDiagnostics::from_plan(
+        plan.scalar_plan().filter_expr.is_some(),
+        plan.scalar_plan().predicate_covers_filter_expr,
+        plan.scalar_plan().predicate.as_ref(),
+        &plan.access,
+        residual_filter_contract.shape(),
+    );
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
             compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
@@ -609,6 +652,7 @@ fn project_static_execution_planning_contract_for_model(
         execution_preparation_predicate,
         execution_preparation_compiled_predicate,
         residual_filter_contract,
+        predicate_pushdown_diagnostics,
         scalar_projection_plan,
         grouped_aggregate_execution_specs,
         grouped_distinct_execution_strategy,

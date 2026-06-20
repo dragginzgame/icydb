@@ -21,7 +21,7 @@ use crate::{
 };
 use std::ops::Bound;
 
-const INDEX_MANY_BINARY_SEARCH_MIN_CANDIDATES: usize = 32;
+const INDEX_MANY_BINARY_SEARCH_MIN_CANDIDATES: usize = 16;
 
 ///
 /// IndexCompilePolicy
