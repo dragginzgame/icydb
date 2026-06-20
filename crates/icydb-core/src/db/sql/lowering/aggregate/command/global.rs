@@ -87,14 +87,15 @@ impl LoweredSqlGlobalAggregateCommand {
             lower_global_aggregate_having_expr(having, &projection_for_having, |aggregate| {
                 lowered_terminals.intern_having_terminal_index(aggregate)
             })?;
+        let lowered_terminal_parts = lowered_terminals.into_parts();
 
         Ok(Self {
             query: lower_global_aggregate_base_query_shape(predicate, order_by, limit, offset)?,
-            terminals: lowered_terminals.terminals,
-            projection: lowered_terminals.projection,
+            terminals: lowered_terminal_parts.terminals,
+            projection: lowered_terminal_parts.projection,
             having,
             #[cfg(test)]
-            output_remap: lowered_terminals.output_remap,
+            output_remap: lowered_terminal_parts.output_remap,
         })
     }
 

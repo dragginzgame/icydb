@@ -231,19 +231,106 @@ const fn sql_returning_rows(returning: Option<&SqlReturningProjection>, mutated_
     if returning.is_some() { mutated_rows } else { 0 }
 }
 
+#[derive(Clone, Copy)]
+struct SqlWriteRowAttribution {
+    matched: u64,
+    mutated: u64,
+    returning: u64,
+}
+
+#[derive(Clone, Copy)]
+struct SqlWriteStagedRows(usize);
+
+impl SqlWriteStagedRows {
+    fn attribution_after_mutation(
+        self,
+        mutated_rows: usize,
+        returning: Option<&SqlReturningProjection>,
+    ) -> SqlWriteRowAttribution {
+        SqlWriteRowAttribution::mutation_batch(self, mutated_rows, returning)
+    }
+}
+
+impl SqlWriteRowAttribution {
+    const fn delete_count(row_count: u32) -> Self {
+        let rows = row_count as u64;
+
+        Self {
+            matched: rows,
+            mutated: rows,
+            returning: 0,
+        }
+    }
+
+    const fn delete_returning(row_count: u32) -> Self {
+        let rows = row_count as u64;
+
+        Self {
+            matched: rows,
+            mutated: rows,
+            returning: rows,
+        }
+    }
+
+    fn mutation_batch(
+        staged_rows: SqlWriteStagedRows,
+        mutated_rows: usize,
+        returning: Option<&SqlReturningProjection>,
+    ) -> Self {
+        let matched_rows = usize_to_u64_saturating(staged_rows.0);
+        let mutated_rows = usize_to_u64_saturating(mutated_rows);
+
+        Self {
+            matched: matched_rows,
+            mutated: mutated_rows,
+            returning: sql_returning_rows(returning, mutated_rows),
+        }
+    }
+}
+
+struct SqlWriteMutationBatch<K> {
+    rows: Vec<(K, StructuralPatch)>,
+}
+
+impl<K> SqlWriteMutationBatch<K> {
+    const fn new() -> Self {
+        Self { rows: Vec::new() }
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            rows: Vec::with_capacity(capacity),
+        }
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        self.rows.reserve(additional);
+    }
+
+    fn push(&mut self, key: K, patch: StructuralPatch) {
+        self.rows.push((key, patch));
+    }
+
+    const fn staged_rows(&self) -> SqlWriteStagedRows {
+        SqlWriteStagedRows(self.rows.len())
+    }
+
+    fn into_rows(self) -> Vec<(K, StructuralPatch)> {
+        self.rows
+    }
+}
+
 fn record_sql_write_metrics(
     entity_path: &'static str,
     kind: SqlWriteKind,
-    matched_rows: u64,
-    mutated_rows: u64,
-    returning_rows: u64,
+    rows: SqlWriteRowAttribution,
 ) {
     record(MetricsEvent::SqlWrite {
         entity_path,
         kind,
-        matched_rows,
-        mutated_rows,
-        returning_rows,
+        matched_rows: rows.matched,
+        mutated_rows: rows.mutated,
+        returning_rows: rows.returning,
     });
 }
 
@@ -263,8 +350,11 @@ impl<C: CanisterKind> DbSession<C> {
         match returning {
             None => {
                 let row_count = self.execute_delete_count(&typed_query)?;
-                let rows = u64::from(row_count);
-                record_sql_write_metrics(E::PATH, SqlWriteKind::Delete, rows, rows, 0);
+                record_sql_write_metrics(
+                    E::PATH,
+                    SqlWriteKind::Delete,
+                    SqlWriteRowAttribution::delete_count(row_count),
+                );
 
                 Ok(SqlStatementResult::Count { row_count })
             }
@@ -287,13 +377,10 @@ impl<C: CanisterKind> DbSession<C> {
                     .map_err(QueryError::execute)?;
                 let (rows, row_count) = deleted.into_rows_and_count();
                 let rows = rows.into_value_rows();
-                let metric_rows = u64::from(row_count);
                 record_sql_write_metrics(
                     E::PATH,
                     SqlWriteKind::Delete,
-                    metric_rows,
-                    metric_rows,
-                    metric_rows,
+                    SqlWriteRowAttribution::delete_returning(row_count),
                 );
 
                 sql_returning_statement_projection(

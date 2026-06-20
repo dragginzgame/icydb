@@ -1,8 +1,8 @@
 use super::{
-    accepted_sql_write_save_contract, checked_accepted_write_descriptor, record_sql_write_metrics,
-    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    sql_returning_rows, sql_write_key_from_component_literals, sql_write_patch_set_accepted_field,
-    sql_write_value_for_accepted_field, usize_to_u64_saturating,
+    SqlWriteMutationBatch, accepted_sql_write_save_contract, checked_accepted_write_descriptor,
+    record_sql_write_metrics, reject_explicit_sql_write_to_generated_field,
+    reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
+    sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
 };
 use crate::{
     db::{
@@ -244,7 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         source_query: &StructuralQuery,
         columns: &[String],
-        rows: &mut Vec<(E::Key, StructuralPatch)>,
+        rows: &mut SqlWriteMutationBatch<E::Key>,
     ) -> Result<crate::db::schema::SchemaInfo, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -282,7 +282,7 @@ impl<C: CanisterKind> DbSession<C> {
     // whole source row set behind a shared temporary vector.
     fn sql_insert_push_patch_row<E>(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        rows: &mut Vec<(E::Key, StructuralPatch)>,
+        rows: &mut SqlWriteMutationBatch<E::Key>,
         columns: &[String],
         values: &[Value],
     ) -> Result<(), QueryError>
@@ -290,7 +290,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (key, patch) = Self::sql_insert_patch_and_key::<E>(descriptor, columns, values)?;
-        rows.push((key, patch));
+        rows.push(key, patch);
 
         Ok(())
     }
@@ -311,7 +311,7 @@ impl<C: CanisterKind> DbSession<C> {
         ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
         validate_sql_returning_projection_fields(&descriptor, statement.returning.as_ref())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
-        let mut rows = Vec::new();
+        let mut rows = SqlWriteMutationBatch::new();
         let mut save_schema_info = None;
 
         match &statement.source {
@@ -345,7 +345,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )?);
             }
         }
-        let source_rows = usize_to_u64_saturating(rows.len());
+        let staged_rows = rows.staged_rows();
         let kind = match &statement.source {
             SqlInsertSource::Values(_) => SqlWriteKind::Insert,
             SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
@@ -364,7 +364,7 @@ impl<C: CanisterKind> DbSession<C> {
                 |save| {
                     save.apply_internal_lowered_structural_mutation_batch(
                         MutationMode::Insert,
-                        rows,
+                        rows.into_rows(),
                         write_context,
                         mutation_row_decode_contract,
                     )
@@ -372,13 +372,10 @@ impl<C: CanisterKind> DbSession<C> {
                 std::convert::identity,
             )
             .map_err(QueryError::execute)?;
-        let mutated_rows = usize_to_u64_saturating(entities.len());
         record_sql_write_metrics(
             E::PATH,
             kind,
-            source_rows,
-            mutated_rows,
-            sql_returning_rows(statement.returning.as_ref(), mutated_rows),
+            staged_rows.attribution_after_mutation(entities.len(), statement.returning.as_ref()),
         );
 
         sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)

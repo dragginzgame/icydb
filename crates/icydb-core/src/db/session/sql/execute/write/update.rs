@@ -1,9 +1,9 @@
 use super::{
-    accepted_sql_write_save_contract, checked_accepted_write_descriptor, record_sql_write_metrics,
-    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    sql_returning_rows, sql_write_key_from_component_literals, sql_write_key_from_literal,
-    sql_write_patch_set_accepted_field, sql_write_value_for_accepted_field,
-    usize_to_u64_saturating,
+    SqlWriteMutationBatch, accepted_sql_write_save_contract, checked_accepted_write_descriptor,
+    record_sql_write_metrics, reject_explicit_sql_write_to_generated_field,
+    reject_explicit_sql_write_to_managed_field, sql_write_key_from_component_literals,
+    sql_write_key_from_literal, sql_write_patch_set_accepted_field,
+    sql_write_value_for_accepted_field,
 };
 use crate::{
     db::{
@@ -151,14 +151,14 @@ impl<C: CanisterKind> DbSession<C> {
                 selector, authority, &schema,
             )?;
         let (_, _, projected_rows, _) = payload.into_components();
-        let matched_rows = usize_to_u64_saturating(projected_rows.len());
-        let mut rows = Vec::with_capacity(projected_rows.len());
+        let mut rows = SqlWriteMutationBatch::with_capacity(projected_rows.len());
 
         for row in projected_rows {
             let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row.as_slice())?;
 
-            rows.push((key, patch.clone()));
+            rows.push(key, patch.clone());
         }
+        let staged_rows = rows.staged_rows();
         let (
             row_decode_contract,
             mutation_row_decode_contract,
@@ -173,7 +173,7 @@ impl<C: CanisterKind> DbSession<C> {
                 |save| {
                     save.apply_internal_lowered_structural_mutation_batch_with_precommit(
                         MutationMode::Update,
-                        rows,
+                        rows.into_rows(),
                         write_context,
                         mutation_row_decode_contract,
                         |entities| {
@@ -190,13 +190,10 @@ impl<C: CanisterKind> DbSession<C> {
                 std::convert::identity,
             )
             .map_err(QueryError::execute)?;
-        let mutated_rows = usize_to_u64_saturating(entities.len());
         record_sql_write_metrics(
             E::PATH,
             SqlWriteKind::Update,
-            matched_rows,
-            mutated_rows,
-            sql_returning_rows(statement.returning.as_ref(), mutated_rows),
+            staged_rows.attribution_after_mutation(entities.len(), statement.returning.as_ref()),
         );
 
         sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)

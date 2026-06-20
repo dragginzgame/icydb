@@ -7,8 +7,7 @@ use crate::db::{
         lowering::{
             SqlLoweringError,
             aggregate::{
-                projection::remap::collect_global_aggregate_terminals_from_analysis,
-                semantics::AggregateTerminalSemanticKey,
+                projection::remap::GlobalAggregateTerminalInterner,
                 terminal::LoweredSqlGlobalAggregateTerminal,
             },
             expr::SqlExprPhase,
@@ -26,8 +25,14 @@ use crate::db::{
 /// original SQL projection order.
 ///
 pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminals {
+    terminal_interner: GlobalAggregateTerminalInterner,
+    pub(in crate::db::sql::lowering::aggregate) projection: ProjectionSpec,
+    #[cfg(test)]
+    pub(in crate::db::sql::lowering::aggregate) output_remap: Vec<usize>,
+}
+
+pub(in crate::db::sql::lowering::aggregate) struct LoweredSqlGlobalAggregateTerminalParts {
     pub(in crate::db::sql::lowering::aggregate) terminals: Vec<LoweredSqlGlobalAggregateTerminal>,
-    terminal_semantic_keys: Vec<AggregateTerminalSemanticKey>,
     pub(in crate::db::sql::lowering::aggregate) projection: ProjectionSpec,
     #[cfg(test)]
     pub(in crate::db::sql::lowering::aggregate) output_remap: Vec<usize>,
@@ -47,9 +52,7 @@ impl LoweredSqlGlobalAggregateTerminals {
             return Err(SqlLoweringError::unsupported_global_aggregate_projection());
         }
 
-        let mut terminals = Vec::<LoweredSqlGlobalAggregateTerminal>::with_capacity(items.len());
-        let mut terminal_semantic_keys =
-            Vec::<AggregateTerminalSemanticKey>::with_capacity(items.len());
+        let mut terminal_interner = GlobalAggregateTerminalInterner::with_capacity(items.len());
         #[cfg(test)]
         let mut output_remap = Vec::<usize>::with_capacity(items.len());
         let mut fields = Vec::<ProjectionField>::with_capacity(items.len());
@@ -64,11 +67,9 @@ impl LoweredSqlGlobalAggregateTerminals {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());
             }
 
-            let direct_terminal_index = collect_global_aggregate_terminals_from_analysis(
+            let direct_terminal_index = terminal_interner.collect_from_analysis(
                 analysis.aggregate_refs(),
                 matches!(analyzed.expr(), Expr::Aggregate(_)),
-                &mut terminals,
-                &mut terminal_semantic_keys,
             )?;
             #[cfg(test)]
             match direct_terminal_index {
@@ -90,8 +91,7 @@ impl LoweredSqlGlobalAggregateTerminals {
         }
 
         Ok(Self {
-            terminals,
-            terminal_semantic_keys,
+            terminal_interner,
             projection: lower_global_aggregate_projection(fields),
             #[cfg(test)]
             output_remap: if saw_wrapped_projection {
@@ -106,10 +106,17 @@ impl LoweredSqlGlobalAggregateTerminals {
         &mut self,
         aggregate_expr: &crate::db::query::builder::AggregateExpr,
     ) -> Result<usize, SqlLoweringError> {
-        super::remap::intern_global_aggregate_terminal_index(
-            &mut self.terminals,
-            &mut self.terminal_semantic_keys,
-            aggregate_expr,
-        )
+        self.terminal_interner.intern(aggregate_expr)
+    }
+
+    pub(in crate::db::sql::lowering::aggregate) fn into_parts(
+        self,
+    ) -> LoweredSqlGlobalAggregateTerminalParts {
+        LoweredSqlGlobalAggregateTerminalParts {
+            terminals: self.terminal_interner.into_terminals(),
+            projection: self.projection,
+            #[cfg(test)]
+            output_remap: self.output_remap,
+        }
     }
 }
