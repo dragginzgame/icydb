@@ -61,8 +61,6 @@ crates/icydb-core/src/db/session/query/cache.rs
 
 2. H2 / D9: cache sorted semantic index contracts
 
-Do this after H1, but only if planner determinism tests are already solid.
-
 Finding:
 H2 / D9
 
@@ -75,7 +73,14 @@ Needs:
 - planner determinism tests
 - EXPLAIN stability checks if present
 
-I would not mix H1 and H2 in the same patch.
+Result:
+Done after H1 and the planner determinism checks. `VisibleIndexes` now stores
+one sorted reduced semantic candidate list for accepted runtime-visible indexes.
+Runtime access planning, residual-burden reranking, and accepted EXPLAIN
+access-choice finalization consume that list instead of rebuilding semantic
+index contracts from accepted field-path/expression metadata per query. The
+accepted field-path contracts remain available for the order-only fallback path
+that still needs field-path-specific order proof.
 
 Phase 2 — Remove low-level duplicate flows
 3. F5 / D6 / H8: share scalar route preparation — done
@@ -181,10 +186,18 @@ Lowered SELECT-item consumers that need the expression and its facts now use an
 from treating the lowered expression and its aggregate/field proof as separate
 loose values, without broadening the artifact into a full binder product yet.
 
+Third slice:
+The short expression artifact note is recorded in
+`docs/design/0.184-query-engine-audit/expression-analysis-artifact.md`.
+`LoweredExprAnalysis` now records aggregate leaves in left-to-right lowered
+expression order, and global aggregate projection lowering consumes those
+analysis-owned leaves when interning executable aggregate terminals instead of
+walking the same expression tree again.
+
 Deferred:
 The broader typed/analyzed expression artifact still needs a short design before
-it carries type inference, aggregate references, ORDER BY facts, and predicate
-derivation inputs.
+it carries type inference, aggregate input/filter validation facts, ORDER BY
+facts, and predicate derivation inputs.
 
 Phase 4 — Filter and predicate contract
 7. F2 / D3: introduce unified filter contract
@@ -204,6 +217,33 @@ One object carrying:
 - coverage proof / reason
 
 This is probably the most important architectural correction in the whole audit, but it should not be first. It touches the planner/executor boundary.
+
+First slice:
+The SQL-lowering side is documented in
+`docs/design/0.184-query-engine-audit/filter-contract.md`.
+`LoweredSqlFilter` now owns the current construction policies for pairing the
+visible SQL truth expression with its predicate-pushdown subset across scalar
+SELECT, grouped SELECT, global aggregate, DELETE, and UPDATE filters. Planner
+and executor residual-filter behavior is intentionally unchanged.
+
+Second slice:
+Finalized static planning now carries one `ResidualFilterContract` for the
+post-access residual expression, residual predicate subset, and compiled
+runtime filter program. Existing plan accessors still present the same facts to
+executor and explain callers, but the finalized planning artifact no longer
+stores the residual filter as loose sibling fields.
+
+Third slice:
+`ResidualFilterContract` now derives the compact diagnostics shape for
+absent, predicate-only, expression-only, and expression-plus-predicate residual
+filters. Execution EXPLAIN residual nodes and verbose route diagnostics consume
+that planner-owned shape instead of inferring residual kind from rendered
+strings.
+
+Deferred:
+Richer coverage proof and fallback/explain reason should move onto the same
+contract only after a narrow diagnostics vocabulary design. Do not fold this
+into route planning or access-choice ranking in the same slice.
 
 8. F2 / D4 / C1: route membership through canonical boolean lowering
 Finding:

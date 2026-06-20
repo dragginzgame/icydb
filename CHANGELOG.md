@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)
 
+- `0.184.2` continues the query-engine audit by reusing aggregate expression
+  analysis for global aggregate terminals, centralizing SQL filter contracts,
+  freezing residual-filter planning state, caching accepted semantic index
+  candidates, and surfacing residual-filter shape in EXPLAIN diagnostics.
+
 - `0.184.1` continues the query-engine audit by reusing compiled
   `INSERT ... SELECT` sources, converging preview projection evaluation onto
   `CompiledExpr`, and carrying lowered SQL expressions with shared analysis

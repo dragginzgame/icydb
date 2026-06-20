@@ -237,10 +237,9 @@ impl<C: CanisterKind> DbSession<C> {
                 )?;
             let visible_indexes = self
                 .visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
-            plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+            plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
                 authority.model(),
-                visible_indexes.accepted_field_path_indexes(),
-                visible_indexes.accepted_expression_indexes(),
+                visible_indexes.accepted_semantic_index_contracts(),
                 schema_info,
             );
             let diagnostics = structural

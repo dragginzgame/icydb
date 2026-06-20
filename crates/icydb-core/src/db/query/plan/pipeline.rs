@@ -14,10 +14,9 @@ use crate::{
                 OrderSpec, PlannedAccessSelection, PlannedNonIndexAccessReason, VisibleIndexes,
                 build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false,
-                rerank_access_plan_by_residual_burden_with_accepted_indexes,
-                rerank_access_plan_by_residual_burden_with_indexes, validate_group_query_semantics,
-                validate_query_semantics,
+                predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,
+                rerank_access_plan_by_residual_burden_with_semantic_indexes,
+                validate_group_query_semantics, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -212,10 +211,9 @@ where
         planned_non_index_reason,
     );
     let preferred_access = if visible_indexes.accepted_field_path_index_count().is_some() {
-        rerank_access_plan_by_residual_burden_with_accepted_indexes(
+        rerank_access_plan_by_residual_burden_with_semantic_indexes(
             query.model(),
-            visible_indexes.accepted_field_path_indexes(),
-            visible_indexes.accepted_expression_indexes(),
+            visible_indexes.accepted_semantic_index_contracts(),
             &schema_info,
             &plan,
         )

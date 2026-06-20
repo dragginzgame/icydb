@@ -45,6 +45,18 @@ fn assert_ready_visible_index_bridge_contracts(
         "accepted planner index contracts must stay internally consistent with their temporary generated bridge",
     );
     assert!(
+        ready_visible_indexes.accepted_semantic_contracts_are_consistent(),
+        "accepted semantic planner index contracts must stay sorted and count-aligned with accepted index metadata",
+    );
+    assert_eq!(
+        ready_visible_indexes
+            .accepted_semantic_index_contracts()
+            .len(),
+        ready_visible_indexes.accepted_field_path_indexes().len()
+            + ready_visible_indexes.accepted_expression_indexes().len(),
+        "ready planner-visible semantic index contracts should be projected once beside accepted metadata",
+    );
+    assert!(
         !ready_visible_indexes
             .accepted_field_path_indexes()
             .is_empty(),
@@ -196,6 +208,11 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     assert!(
         residual_node.residual_filter_predicate().is_some(),
         "residual node should still expose the derived predicate contract",
+    );
+    assert_eq!(
+        residual_node.node_properties().get("residual_filter_shape"),
+        Some(&Value::Text("predicate".to_string())),
+        "residual node should expose the planner-owned residual filter diagnostics shape",
     );
 
     let limit_zero = session

@@ -268,6 +268,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         explain_filter_expr_for_plan(plan),
         explain_residual_filter_expr_for_plan(plan),
         explain_predicate,
+        plan.residual_filter_shape(),
         root.access_strategy.as_ref(),
         strict_prefilter_compiled,
         execution_mode,
@@ -365,8 +366,6 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
     let strict_prefilter_compiled =
         strict_predicate_compatible && explain_preparation.predicate_index_capability.is_some();
-    let explain_predicate = explain_predicate_for_plan(plan);
-    let residual_filter_expr = explain_residual_filter_expr_for_plan(plan);
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = render_access_choice_verbose_section(&verbose_preparation);
@@ -385,9 +384,10 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
+    let residual_filter_shape = plan.residual_filter_shape();
     let predicate_stage = if strict_prefilter_compiled {
         "index_prefilter(strict_all_or_none)"
-    } else if explain_predicate.is_some() || residual_filter_expr.is_some() {
+    } else if !residual_filter_shape.is_absent() {
         "residual_post_access"
     } else {
         "none"
@@ -395,6 +395,10 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
     lines.push(descriptor_route_property_line(
         "diag.r.predicate_stage",
         predicate_stage,
+    ));
+    lines.push(descriptor_route_property_line(
+        "diag.r.residual_filter_shape",
+        residual_filter_shape.label(),
     ));
     lines.push(route_diagnostic_line_debug(
         "projected_fields",

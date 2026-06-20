@@ -4,17 +4,16 @@
 //! Boundary: glue between logical plan semantics and selected access paths.
 
 use crate::db::{
-    access::{AccessPlan, AccessShapeFacts},
+    access::{AccessPlan, AccessShapeFacts, SemanticIndexAccessContract},
     direction::Direction,
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
-        AcceptedPlannerExpressionIndex, AcceptedPlannerFieldPathIndex, AccessChoiceExplainSnapshot,
-        GroupPlan, GroupSpec, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
-        LogicalPlan, PlannerRouteProfile,
+        AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
+        GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
         access_choice::{
             non_index_access_choice_snapshot_for_access_plan,
-            project_access_choice_explain_snapshot_with_accepted_indexes_and_schema,
             project_access_choice_explain_snapshot_with_indexes_and_schema,
+            project_access_choice_explain_snapshot_with_semantic_indexes_and_schema,
         },
         expr::{CompiledExpr, Expr, ProjectionSelection, ProjectionSpec},
         model::OrderDirection,
@@ -192,10 +191,8 @@ pub(in crate::db) struct StaticExecutionPlanningContract {
     pub(in crate::db) primary_key_names: Vec<String>,
     pub(in crate::db) projection_spec: ProjectionSpec,
     pub(in crate::db) execution_preparation_predicate: Option<Predicate>,
-    pub(in crate::db) residual_filter_expr: Option<Expr>,
-    pub(in crate::db) residual_filter_predicate: Option<Predicate>,
     pub(in crate::db) execution_preparation_compiled_predicate: Option<PredicateProgram>,
-    pub(in crate::db) effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
+    pub(in crate::db) residual_filter_contract: ResidualFilterContract,
     pub(in crate::db) scalar_projection_plan: Option<Vec<CompiledExpr>>,
     pub(in crate::db) grouped_aggregate_execution_specs: Option<Vec<GroupedAggregateExecutionSpec>>,
     pub(in crate::db) grouped_distinct_execution_strategy: Option<GroupedDistinctExecutionStrategy>,
@@ -299,6 +296,122 @@ impl EffectiveRuntimeFilterProgram {
                 filter_expr.mark_referenced_slots(required_slots);
             }
         }
+    }
+}
+
+///
+/// ResidualFilterContract
+///
+/// ResidualFilterContract freezes the planner-facing post-access filter
+/// contract. It keeps the visible residual expression, the residual predicate
+/// subset, and the compiled runtime filter program together so downstream
+/// layers consume one residual-filter shape instead of rejoining loose fields.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ResidualFilterContract {
+    residual_filter_expr: Option<Expr>,
+    residual_filter_predicate: Option<Predicate>,
+    effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
+}
+
+///
+/// ResidualFilterShape
+///
+/// ResidualFilterShape is the compact diagnostics-facing classification of
+/// one finalized residual filter contract. It is derived from planner-owned
+/// residual artifacts, not from EXPLAIN rendering strings.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum ResidualFilterShape {
+    Absent,
+    Predicate,
+    Expression,
+    ExpressionAndPredicate,
+}
+
+impl ResidualFilterShape {
+    /// Classify one residual filter from expression/predicate presence.
+    #[must_use]
+    pub(in crate::db) const fn from_presence(has_expr: bool, has_predicate: bool) -> Self {
+        match (has_expr, has_predicate) {
+            (false, false) => Self::Absent,
+            (false, true) => Self::Predicate,
+            (true, false) => Self::Expression,
+            (true, true) => Self::ExpressionAndPredicate,
+        }
+    }
+
+    /// Stable diagnostics label for this residual-filter shape.
+    #[must_use]
+    pub(in crate::db) const fn label(self) -> &'static str {
+        match self {
+            Self::Absent => "none",
+            Self::Predicate => "predicate",
+            Self::Expression => "expression",
+            Self::ExpressionAndPredicate => "expression_and_predicate",
+        }
+    }
+
+    /// Return whether no post-access residual filter survives.
+    #[must_use]
+    pub(in crate::db) const fn is_absent(self) -> bool {
+        matches!(self, Self::Absent)
+    }
+}
+
+impl ResidualFilterContract {
+    /// Freeze one post-access residual filter contract.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        residual_filter_expr: Option<Expr>,
+        residual_filter_predicate: Option<Predicate>,
+        effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
+    ) -> Self {
+        Self {
+            residual_filter_expr,
+            residual_filter_predicate,
+            effective_runtime_filter_program,
+        }
+    }
+
+    /// Borrow the residual semantic expression, when runtime filtering still
+    /// needs expression evaluation.
+    #[must_use]
+    pub(in crate::db) const fn residual_filter_expr(&self) -> Option<&Expr> {
+        self.residual_filter_expr.as_ref()
+    }
+
+    /// Borrow the residual predicate subset, when runtime filtering can stay
+    /// on the predicate-native lane.
+    #[must_use]
+    pub(in crate::db) const fn residual_filter_predicate(&self) -> Option<&Predicate> {
+        self.residual_filter_predicate.as_ref()
+    }
+
+    /// Borrow the compiled runtime filter program derived from the residual
+    /// expression/predicate shape.
+    #[must_use]
+    pub(in crate::db) const fn effective_runtime_filter_program(
+        &self,
+    ) -> Option<&EffectiveRuntimeFilterProgram> {
+        self.effective_runtime_filter_program.as_ref()
+    }
+
+    /// Return whether any post-access residual filtering survives.
+    #[must_use]
+    pub(in crate::db) const fn has_residual_filter(&self) -> bool {
+        self.residual_filter_expr.is_some() || self.residual_filter_predicate.is_some()
+    }
+
+    /// Return the diagnostics-facing residual-filter shape.
+    #[must_use]
+    pub(in crate::db) const fn shape(&self) -> ResidualFilterShape {
+        ResidualFilterShape::from_presence(
+            self.residual_filter_expr.is_some(),
+            self.residual_filter_predicate.is_some(),
+        )
     }
 }
 
@@ -523,13 +636,12 @@ impl AccessPlannedQuery {
         );
     }
 
-    /// Freeze one explain-only access-choice snapshot using accepted field-path
-    /// index contracts where runtime accepted authority exists.
-    pub(in crate::db) fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+    /// Freeze one explain-only access-choice snapshot using already-projected
+    /// semantic index contracts from the visible-index boundary.
+    pub(in crate::db) fn finalize_access_choice_for_model_with_semantic_indexes_and_schema(
         &mut self,
         model: &EntityModel,
-        accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
-        accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
+        semantic_indexes: &[SemanticIndexAccessContract],
         schema_info: &SchemaInfo,
     ) {
         if !self.access.has_selected_index_access_path() {
@@ -537,10 +649,9 @@ impl AccessPlannedQuery {
         }
 
         self.access_choice =
-            project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
+            project_access_choice_explain_snapshot_with_semantic_indexes_and_schema(
                 model,
-                accepted_field_path_indexes,
-                accepted_expression_indexes,
+                semantic_indexes,
                 schema_info,
                 self,
             );

@@ -9,7 +9,7 @@ use crate::{
                 explain_predicate_from_expr,
             },
             plan::{
-                AccessPlanProjection, AccessPlannedQuery, AggregateKind,
+                AccessPlanProjection, AccessPlannedQuery, AggregateKind, ResidualFilterShape,
                 index_covering_existing_rows_terminal_eligible, project_explain_access_path,
                 render_scalar_filter_expr_plan_label,
             },
@@ -23,11 +23,12 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     filter_expr: Option<String>,
     residual_filter_expr: Option<String>,
     explain_predicate: Option<ExplainPredicate>,
+    residual_filter_shape: ResidualFilterShape,
     access_strategy: Option<&ExplainAccessRoute>,
     strict_prefilter_compiled: bool,
     execution_mode: ExplainExecutionMode,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
-    if !strict_prefilter_compiled && residual_filter_expr.is_none() && explain_predicate.is_none() {
+    if !strict_prefilter_compiled && residual_filter_shape.is_absent() {
         return Vec::new();
     }
 
@@ -63,6 +64,10 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     node.filter_expr = filter_expr;
     node.residual_filter_expr = residual_filter_expr;
     node.residual_filter_predicate = explain_predicate;
+    node.node_properties.insert(
+        "residual_filter_shape",
+        Value::from(residual_filter_shape.label()),
+    );
 
     vec![node]
 }

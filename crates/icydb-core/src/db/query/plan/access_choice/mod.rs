@@ -19,7 +19,7 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
-            AcceptedPlannerExpressionIndex, AcceptedPlannerFieldPathIndex, AccessPlannedQuery,
+            AccessPlannedQuery,
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
@@ -51,23 +51,6 @@ fn semantic_candidate_indexes_from_generated_model_only(
         .collect()
 }
 
-fn semantic_candidate_indexes_from_accepted_indexes(
-    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
-    accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
-) -> Vec<SemanticIndexAccessContract> {
-    let mut indexes = accepted_field_path_indexes
-        .iter()
-        .map(AcceptedPlannerFieldPathIndex::semantic_access_contract)
-        .collect::<Vec<_>>();
-    indexes.extend(
-        accepted_expression_indexes
-            .iter()
-            .map(AcceptedPlannerExpressionIndex::semantic_access_contract),
-    );
-
-    indexes
-}
-
 ///
 /// project_access_choice_explain_snapshot_with_indexes
 ///
@@ -94,22 +77,17 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
 }
 
 /// Project planner-owned access-choice candidate metadata for EXPLAIN using
-/// accepted field-path index contracts where runtime accepted authority exists.
+/// already-projected semantic index contracts from the visible-index boundary.
 #[must_use]
-pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
+pub(in crate::db) fn project_access_choice_explain_snapshot_with_semantic_indexes_and_schema(
     model: &EntityModel,
-    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
-    accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
+    semantic_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
     project_access_choice_explain_snapshot_from_authority(
         model,
-        semantic_candidate_indexes_from_accepted_indexes(
-            accepted_field_path_indexes,
-            accepted_expression_indexes,
-        )
-        .as_slice(),
+        semantic_indexes,
         schema_info,
         plan,
     )
@@ -293,26 +271,16 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
     )
 }
 
-/// Return one reranked access plan using accepted field-path index contracts
-/// for candidate access reconstruction where runtime accepted authority exists.
+/// Return one reranked access plan using already-projected semantic index
+/// contracts from the runtime visible-index boundary.
 #[must_use]
-pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_indexes(
+pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_semantic_indexes(
     model: &EntityModel,
-    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
-    accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
+    semantic_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
-    rerank_access_plan_by_residual_burden_from_authority(
-        model,
-        semantic_candidate_indexes_from_accepted_indexes(
-            accepted_field_path_indexes,
-            accepted_expression_indexes,
-        )
-        .as_slice(),
-        schema_info,
-        plan,
-    )
+    rerank_access_plan_by_residual_burden_from_authority(model, semantic_indexes, schema_info, plan)
 }
 
 fn rerank_access_plan_by_residual_burden_from_authority(

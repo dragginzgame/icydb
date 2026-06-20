@@ -442,6 +442,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info);
                 debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
                 debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
+                debug_assert!(visible_indexes.accepted_semantic_contracts_are_consistent());
                 debug_assert_eq!(
                     visible_indexes.accepted_expression_index_count(),
                     Some(visible_indexes.accepted_expression_indexes().len()),

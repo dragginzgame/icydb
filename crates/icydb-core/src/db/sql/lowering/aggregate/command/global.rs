@@ -15,7 +15,6 @@ use crate::db::{
                 strip_inert_global_aggregate_output_order_terms,
             },
             aggregate::terminal::{AggregateInput, SqlGlobalAggregateTerminal},
-            predicate::{derive_sql_where_expr_predicate_subset, lower_sql_where_bool_expr},
             select::{lower_global_aggregate_having_expr, lower_order_terms},
         },
         parser::{
@@ -165,14 +164,7 @@ fn lower_global_aggregate_base_query_shape(
 }
 
 fn lower_global_aggregate_filter(expr: SqlExpr) -> Result<LoweredSqlFilter, SqlLoweringError> {
-    let filter_expr = lower_sql_where_bool_expr(&expr)?;
-    let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr)
-        .ok_or_else(SqlLoweringError::unsupported_where_expression)?;
-
-    Ok(LoweredSqlFilter::from_visible_expr_and_predicate_subset(
-        filter_expr,
-        predicate_subset,
-    ))
+    LoweredSqlFilter::from_where_expr_requiring_predicate_subset(&expr)
 }
 
 pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(

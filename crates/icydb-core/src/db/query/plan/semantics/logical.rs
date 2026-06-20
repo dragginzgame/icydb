@@ -13,9 +13,9 @@ use crate::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
             GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedPlanStrategy,
-            LogicalPlan, PlannerRouteProfile, QueryMode, ResolvedOrder, ResolvedOrderField,
-            ResolvedOrderValueSource, ScalarPlan, StaticExecutionPlanningContract,
-            derive_logical_pushdown_eligibility,
+            LogicalPlan, PlannerRouteProfile, QueryMode, ResidualFilterContract,
+            ResidualFilterShape, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
+            ScalarPlan, StaticExecutionPlanningContract, derive_logical_pushdown_eligibility,
             expr::{
                 CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
                 compile_scalar_projection_plan_with_schema,
@@ -173,7 +173,10 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn effective_execution_predicate(&self) -> Option<Predicate> {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return static_contract.residual_filter_predicate.clone();
+            return static_contract
+                .residual_filter_contract
+                .residual_filter_predicate()
+                .cloned();
         }
 
         derive_residual_filter_predicate(self)
@@ -191,7 +194,9 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn residual_filter_expr(&self) -> Option<&Expr> {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return static_contract.residual_filter_expr.as_ref();
+            return static_contract
+                .residual_filter_contract
+                .residual_filter_expr();
         }
 
         if !derive_has_residual_filter(self) {
@@ -206,6 +211,19 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn has_residual_filter_expr(&self) -> bool {
         self.residual_filter_expr().is_some()
+    }
+
+    /// Return the planner-owned residual-filter shape used by diagnostics.
+    #[must_use]
+    pub(in crate::db) fn residual_filter_shape(&self) -> ResidualFilterShape {
+        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
+            return static_contract.residual_filter_contract.shape();
+        }
+
+        ResidualFilterShape::from_presence(
+            self.residual_filter_expr().is_some(),
+            self.effective_execution_predicate().is_some(),
+        )
     }
 
     /// Borrow the planner-compiled execution-preparation predicate program.
@@ -225,8 +243,8 @@ impl AccessPlannedQuery {
     ) -> Option<&PredicateProgram> {
         match self
             .static_execution_planning_contract()
-            .effective_runtime_filter_program
-            .as_ref()
+            .residual_filter_contract
+            .effective_runtime_filter_program()
         {
             Some(program) => program.predicate_program(),
             None => None,
@@ -241,8 +259,8 @@ impl AccessPlannedQuery {
     ) -> Option<&CompiledExpr> {
         match self
             .static_execution_planning_contract()
-            .effective_runtime_filter_program
-            .as_ref()
+            .residual_filter_contract
+            .effective_runtime_filter_program()
         {
             Some(program) => program.expression_filter(),
             None => None,
@@ -255,8 +273,8 @@ impl AccessPlannedQuery {
         &self,
     ) -> Option<&EffectiveRuntimeFilterProgram> {
         self.static_execution_planning_contract()
-            .effective_runtime_filter_program
-            .as_ref()
+            .residual_filter_contract
+            .effective_runtime_filter_program()
     }
 
     /// Lower scalar DISTINCT semantics into one executor-facing execution strategy.
@@ -329,8 +347,9 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn predicate_fully_satisfied_by_access_contract(&self) -> bool {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
             return self.scalar_plan().predicate.is_some()
-                && static_contract.residual_filter_predicate.is_none()
-                && static_contract.residual_filter_expr.is_none();
+                && !static_contract
+                    .residual_filter_contract
+                    .has_residual_filter();
         }
 
         derive_predicate_fully_satisfied_by_access_contract(self)
@@ -544,6 +563,11 @@ fn project_static_execution_planning_contract_for_model(
         residual_filter_expr.as_ref(),
         residual_filter_predicate.as_ref(),
     )?;
+    let residual_filter_contract = ResidualFilterContract::new(
+        residual_filter_expr,
+        residual_filter_predicate,
+        effective_runtime_filter_program,
+    );
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
             compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
@@ -583,10 +607,8 @@ fn project_static_execution_planning_contract_for_model(
         primary_key_names: schema_info.primary_key_names().to_vec(),
         projection_spec,
         execution_preparation_predicate,
-        residual_filter_expr,
-        residual_filter_predicate,
         execution_preparation_compiled_predicate,
-        effective_runtime_filter_program,
+        residual_filter_contract,
         scalar_projection_plan,
         grouped_aggregate_execution_specs,
         grouped_distinct_execution_strategy,

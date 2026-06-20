@@ -1,13 +1,13 @@
 use crate::db::{
     query::plan::{
-        expr::{Alias, ProjectionField, ProjectionSpec},
+        expr::{Alias, Expr, ProjectionField, ProjectionSpec},
         lower_global_aggregate_projection,
     },
     sql::{
         lowering::{
             SqlLoweringError,
             aggregate::{
-                projection::remap::collect_global_aggregate_terminals_from_expr,
+                projection::remap::collect_global_aggregate_terminals_from_analysis,
                 terminal::SqlGlobalAggregateTerminal,
             },
             expr::SqlExprPhase,
@@ -60,8 +60,11 @@ impl LoweredSqlGlobalAggregateTerminals {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());
             }
 
-            let direct_terminal_index =
-                collect_global_aggregate_terminals_from_expr(analyzed.expr(), &mut terminals)?;
+            let direct_terminal_index = collect_global_aggregate_terminals_from_analysis(
+                analysis.aggregate_refs(),
+                matches!(analyzed.expr(), Expr::Aggregate(_)),
+                &mut terminals,
+            )?;
             #[cfg(test)]
             match direct_terminal_index {
                 Some(unique_index) => output_remap.push(unique_index),

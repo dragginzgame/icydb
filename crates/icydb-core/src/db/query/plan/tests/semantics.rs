@@ -21,7 +21,7 @@ use crate::{
                 DeleteSpec, DistinctExecutionStrategy, ExecutionOrdering, FieldSlot,
                 GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
                 LogicalPlanningInputs, OrderDirection, OrderSpec, PageSpec, PlanPolicyError,
-                PlanUserError, QueryMode, VisibleIndexes, build_logical_plan,
+                PlanUserError, QueryMode, ResidualFilterShape, VisibleIndexes, build_logical_plan,
                 build_query_model_plan_with_indexes_from_scalar_planning_state,
                 expr::{BinaryOp, Expr, FieldId, FieldPath, Function},
                 logical_query_from_logical_inputs,
@@ -255,6 +255,11 @@ fn finalized_static_contract_carries_explicit_expression_only_residual_filter_st
         plan.effective_runtime_compiled_filter_expr().is_some(),
         "expression-only residual filters should compile onto the explicit expression runtime lane",
     );
+    assert_eq!(
+        plan.residual_filter_shape(),
+        ResidualFilterShape::Expression,
+        "expression-only residual filters should carry an explicit diagnostics shape",
+    );
 }
 
 #[test]
@@ -386,6 +391,11 @@ fn finalized_static_contract_keeps_expression_residual_when_predicate_subset_als
     assert!(
         plan.effective_runtime_filter_program().is_some(),
         "mixed predicate-plus-expression filters should still compile one explicit residual runtime filter program",
+    );
+    assert_eq!(
+        plan.residual_filter_shape(),
+        ResidualFilterShape::ExpressionAndPredicate,
+        "mixed predicate-plus-expression filters should carry an explicit diagnostics shape",
     );
 }
 

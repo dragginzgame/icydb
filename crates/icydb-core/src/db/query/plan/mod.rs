@@ -40,13 +40,14 @@ pub(in crate::db) use access_choice::{
     AccessChoiceSelectedReason,
 };
 pub(in crate::db::query) use access_choice::{
-    rerank_access_plan_by_residual_burden_with_accepted_indexes,
     rerank_access_plan_by_residual_burden_with_indexes,
+    rerank_access_plan_by_residual_burden_with_semantic_indexes,
 };
 pub(in crate::db) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
-    EffectiveRuntimeFilterProgram, PlannedNonIndexAccessReason, ResolvedOrder, ResolvedOrderField,
-    ResolvedOrderValueSource, StaticExecutionPlanningContract,
+    EffectiveRuntimeFilterProgram, PlannedNonIndexAccessReason, ResidualFilterContract,
+    ResidualFilterShape, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
+    StaticExecutionPlanningContract,
 };
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
@@ -126,7 +127,7 @@ pub(in crate::db::query) use planner::PlannerError;
 pub(in crate::db) use planner::plan_access;
 pub(in crate::db::query) use planner::{
     PlannedAccessSelection, plan_access_selection_with_order,
-    plan_access_selection_with_order_and_accepted_indexes,
+    plan_access_selection_with_order_and_accepted_semantic_indexes,
     plan_access_selection_with_order_and_semantic_indexes,
 };
 pub(in crate::db) use planner::{
@@ -230,37 +231,9 @@ pub(in crate::db) struct VisibleIndexes<'a> {
     generated_model_only_indexes: Cow<'a, [&'static IndexModel]>,
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
     accepted_expression_indexes: Vec<AcceptedPlannerExpressionIndex>,
+    accepted_semantic_index_contracts: Vec<SemanticIndexAccessContract>,
     accepted_schema_info: Option<SchemaInfo>,
     authority: VisibleIndexAuthority,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(in crate::db) struct AcceptedPlannerIndexes<'a> {
-    field_path_indexes: &'a [AcceptedPlannerFieldPathIndex],
-    expression_indexes: &'a [AcceptedPlannerExpressionIndex],
-}
-
-impl<'a> AcceptedPlannerIndexes<'a> {
-    #[must_use]
-    pub(in crate::db) const fn new(
-        field_path_indexes: &'a [AcceptedPlannerFieldPathIndex],
-        expression_indexes: &'a [AcceptedPlannerExpressionIndex],
-    ) -> Self {
-        Self {
-            field_path_indexes,
-            expression_indexes,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn field_path_indexes(&self) -> &'a [AcceptedPlannerFieldPathIndex] {
-        self.field_path_indexes
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn expression_indexes(&self) -> &'a [AcceptedPlannerExpressionIndex] {
-        self.expression_indexes
-    }
 }
 
 ///
@@ -480,6 +453,7 @@ impl<'a> VisibleIndexes<'a> {
             generated_model_only_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
+            accepted_semantic_index_contracts: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::StoreNotReady,
         }
@@ -494,6 +468,7 @@ impl<'a> VisibleIndexes<'a> {
             generated_model_only_indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
+            accepted_semantic_index_contracts: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
@@ -505,6 +480,7 @@ impl<'a> VisibleIndexes<'a> {
             generated_model_only_indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
+            accepted_semantic_index_contracts: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
@@ -522,6 +498,10 @@ impl<'a> VisibleIndexes<'a> {
             .iter()
             .map(AcceptedPlannerExpressionIndex::from_schema_index)
             .collect::<Vec<_>>();
+        let accepted_semantic_index_contracts = sorted_accepted_semantic_index_contracts(
+            accepted_field_path_indexes.as_slice(),
+            accepted_expression_indexes.as_slice(),
+        );
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
         let accepted_expression_index_count = accepted_expression_indexes.len();
 
@@ -529,6 +509,7 @@ impl<'a> VisibleIndexes<'a> {
             generated_model_only_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes,
             accepted_expression_indexes,
+            accepted_semantic_index_contracts,
             accepted_schema_info: Some(schema_info.clone()),
             authority: VisibleIndexAuthority::AcceptedSchema {
                 field_path_indexes: accepted_field_path_index_count,
@@ -558,14 +539,15 @@ impl<'a> VisibleIndexes<'a> {
         self.accepted_expression_indexes.as_slice()
     }
 
-    /// Borrow accepted planner-facing indexes as one grouped contract for
-    /// planning entrypoints that need both field-path and expression lanes.
+    /// Borrow sorted reduced semantic contracts for accepted planner-visible
+    /// indexes. Predicate planning and access-choice scoring consume this
+    /// reduced surface instead of reprojecting it from the richer accepted
+    /// field-path/expression contracts for every query.
     #[must_use]
-    pub(in crate::db) const fn accepted_planner_indexes(&self) -> AcceptedPlannerIndexes<'_> {
-        AcceptedPlannerIndexes::new(
-            self.accepted_field_path_indexes(),
-            self.accepted_expression_indexes(),
-        )
+    pub(in crate::db) const fn accepted_semantic_index_contracts(
+        &self,
+    ) -> &[SemanticIndexAccessContract] {
+        self.accepted_semantic_index_contracts.as_slice()
     }
 
     /// Borrow the accepted schema info that authorized this visible-index view.
@@ -592,6 +574,18 @@ impl<'a> VisibleIndexes<'a> {
             .all(AcceptedPlannerExpressionIndex::debug_contract_consistent)
     }
 
+    /// Return whether accepted semantic contracts match the accepted
+    /// field-path/expression counts and stay in deterministic planner order.
+    #[must_use]
+    pub(in crate::db) fn accepted_semantic_contracts_are_consistent(&self) -> bool {
+        let expected_count =
+            self.accepted_field_path_indexes.len() + self.accepted_expression_indexes.len();
+        self.accepted_semantic_index_contracts.len() == expected_count
+            && semantic_index_contracts_are_sorted(
+                self.accepted_semantic_index_contracts.as_slice(),
+            )
+    }
+
     #[must_use]
     pub(in crate::db) const fn accepted_field_path_index_count(&self) -> Option<usize> {
         match self.authority {
@@ -615,4 +609,28 @@ impl<'a> VisibleIndexes<'a> {
             }
         }
     }
+}
+
+fn sorted_accepted_semantic_index_contracts(
+    field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    expression_indexes: &[AcceptedPlannerExpressionIndex],
+) -> Vec<SemanticIndexAccessContract> {
+    let mut contracts = field_path_indexes
+        .iter()
+        .map(AcceptedPlannerFieldPathIndex::semantic_access_contract)
+        .collect::<Vec<_>>();
+    contracts.extend(
+        expression_indexes
+            .iter()
+            .map(AcceptedPlannerExpressionIndex::semantic_access_contract),
+    );
+    contracts.sort_unstable_by(|left, right| left.name().cmp(right.name()));
+
+    contracts
+}
+
+fn semantic_index_contracts_are_sorted(contracts: &[SemanticIndexAccessContract]) -> bool {
+    contracts
+        .windows(2)
+        .all(|pair| pair[0].name() <= pair[1].name())
 }

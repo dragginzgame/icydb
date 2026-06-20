@@ -1,4 +1,7 @@
-use crate::{db::query::plan::expr::Expr, model::entity::EntityModel};
+use crate::{
+    db::query::{builder::AggregateExpr, plan::expr::Expr},
+    model::entity::EntityModel,
+};
 
 ///
 /// AnalyzedLoweredExpr
@@ -49,7 +52,7 @@ impl AnalyzedLoweredExpr {
 /// LoweredExprAnalysis keeps the compile-time facts SQL lowering repeatedly
 /// asks of one already-lowered planner expression.
 /// This exists so grouped and global aggregate lowering stop rescanning the
-/// same `Expr` tree for aggregate presence, direct-field leakage, and unknown
+/// same `Expr` tree for aggregate leaves, direct-field leakage, and unknown
 /// field diagnostics on separate helper seams.
 /// The result is intentionally immutable and short-lived: callers analyze one
 /// lowered expression, consume the facts immediately, and do not cache or
@@ -58,7 +61,7 @@ impl AnalyzedLoweredExpr {
 
 #[derive(Debug, Default)]
 pub(in crate::db::sql::lowering) struct LoweredExprAnalysis {
-    contains_aggregate: bool,
+    aggregate_refs: Vec<AggregateExpr>,
     direct_field_roots: Vec<String>,
     contains_field_path: bool,
     first_unknown_field: Option<String>,
@@ -68,7 +71,15 @@ impl LoweredExprAnalysis {
     /// Return whether the analyzed expression contains at least one aggregate leaf.
     #[must_use]
     pub(in crate::db::sql::lowering) const fn contains_aggregate(&self) -> bool {
-        self.contains_aggregate
+        !self.aggregate_refs.is_empty()
+    }
+
+    /// Borrow aggregate leaves in the same left-to-right order as the analyzed
+    /// expression traversal. Aggregate input/filter expressions remain owned by
+    /// the aggregate leaf and are not analyzed as outer direct-field leakage.
+    #[must_use]
+    pub(in crate::db::sql::lowering) const fn aggregate_refs(&self) -> &[AggregateExpr] {
+        self.aggregate_refs.as_slice()
     }
 
     /// Return whether the analyzed expression references direct field leaves
@@ -113,6 +124,10 @@ impl LoweredExprAnalysis {
         self.contains_field_path = true;
         self.visit_field(field, model);
     }
+
+    fn visit_aggregate(&mut self, aggregate: &AggregateExpr) {
+        self.aggregate_refs.push(aggregate.clone());
+    }
 }
 
 /// Analyze one already-lowered planner expression once for the shared SQL
@@ -124,7 +139,7 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
     model: Option<&EntityModel>,
 ) -> LoweredExprAnalysis {
     let mut analysis = LoweredExprAnalysis {
-        contains_aggregate: false,
+        aggregate_refs: Vec::new(),
         direct_field_roots: Vec::new(),
         contains_field_path: false,
         first_unknown_field: None,
@@ -139,8 +154,8 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
             analysis.visit_field_path(path.root().as_str(), model);
             Ok::<(), ()>(())
         }
-        Expr::Aggregate(_) => {
-            analysis.contains_aggregate = true;
+        Expr::Aggregate(aggregate) => {
+            analysis.visit_aggregate(aggregate);
             Ok::<(), ()>(())
         }
         _ => Ok(()),
@@ -241,6 +256,11 @@ mod tests {
             "equivalent grouped/global post-aggregate shapes must agree on aggregate presence",
         );
         assert_eq!(
+            grouped.aggregate_refs(),
+            global.aggregate_refs(),
+            "equivalent grouped/global post-aggregate shapes must agree on aggregate leaves",
+        );
+        assert_eq!(
             grouped.references_direct_fields(),
             global.references_direct_fields(),
             "equivalent grouped/global post-aggregate shapes must agree on direct-field leakage",
@@ -279,5 +299,32 @@ mod tests {
         assert!(analyzed.analysis().references_direct_fields());
         assert_eq!(analyzed.analysis().first_unknown_field(), None);
         assert_eq!(analyzed.into_expr(), expr);
+    }
+
+    #[test]
+    fn lowered_expr_analysis_collects_aggregate_leaves_without_field_leakage() {
+        let avg_age = AggregateExpr::from_expression_input(
+            AggregateKind::Avg,
+            Expr::Field(FieldId::new("age")),
+        );
+        let count_all = AggregateExpr::terminal_for_kind(AggregateKind::Count);
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Aggregate(avg_age.clone())),
+            right: Box::new(Expr::Aggregate(count_all.clone())),
+        };
+
+        let analysis = analyze_lowered_expr(&expr, Some(LoweredExprAnalysisEntity::MODEL));
+
+        assert!(analysis.contains_aggregate());
+        assert_eq!(
+            analysis.aggregate_refs(),
+            &[avg_age, count_all],
+            "aggregate refs should preserve left-to-right lowered expression order",
+        );
+        assert!(
+            !analysis.references_direct_fields(),
+            "aggregate input fields are aggregate-owned and must not count as outer direct-field leakage",
+        );
     }
 }

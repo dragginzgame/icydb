@@ -24,6 +24,24 @@ pub(in crate::db::query) fn sorted_index_contracts(
         .collect()
 }
 
+pub(in crate::db::query) fn eligible_sorted_index_contracts(
+    indexes: &[SemanticIndexAccessContract],
+    query_predicate: &Predicate,
+) -> Vec<SemanticIndexAccessContract> {
+    debug_assert!(index_contracts_are_sorted(indexes));
+    indexes
+        .iter()
+        .filter(|index| index_contract_predicate_implied_by_query(index, query_predicate))
+        .cloned()
+        .collect()
+}
+
+fn index_contracts_are_sorted(indexes: &[SemanticIndexAccessContract]) -> bool {
+    indexes
+        .windows(2)
+        .all(|pair| pair[0].name() <= pair[1].name())
+}
+
 pub(in crate::db::query) fn index_literal_matches_schema(
     schema: &SchemaInfo,
     field: &str,

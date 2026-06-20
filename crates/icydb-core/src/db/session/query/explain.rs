@@ -70,10 +70,9 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_info()
             .ok_or_else(QueryError::invariant)?;
 
-        plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+        plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
             query.structural().model(),
-            visible_indexes.accepted_field_path_indexes(),
-            visible_indexes.accepted_expression_indexes(),
+            visible_indexes.accepted_semantic_index_contracts(),
             schema_info,
         );
 
@@ -94,10 +93,9 @@ impl<C: CanisterKind> DbSession<C> {
                 let schema_info = visible_indexes
                     .accepted_schema_info()
                     .ok_or_else(QueryError::invariant)?;
-                plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+                plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
                     query.structural().model(),
-                    visible_indexes.accepted_field_path_indexes(),
-                    visible_indexes.accepted_expression_indexes(),
+                    visible_indexes.accepted_semantic_index_contracts(),
                     schema_info,
                 );
 

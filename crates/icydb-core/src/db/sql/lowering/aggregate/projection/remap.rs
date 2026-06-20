@@ -40,35 +40,34 @@ pub(in crate::db::sql::lowering::aggregate) fn intern_having_global_aggregate_te
 // expression while deduplicating onto the canonical executable terminal list.
 // Direct aggregate terminals report the first-seen terminal remap so the
 // terminal-remap contract stays stable for direct aggregate outputs.
-pub(super) fn collect_global_aggregate_terminals_from_expr(
-    expr: &Expr,
+pub(super) fn collect_global_aggregate_terminals_from_analysis(
+    aggregate_refs: &[AggregateExpr],
+    direct_output: bool,
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
 ) -> Result<Option<usize>, SqlLoweringError> {
-    let mode = if matches!(expr, Expr::Aggregate(_)) {
+    let mode = if direct_output {
         GlobalAggregateTerminalCollectionMode::Direct
     } else {
         GlobalAggregateTerminalCollectionMode::Nested
     };
 
-    collect_global_aggregate_terminals_with_mode(expr, terminals, mode)
+    collect_global_aggregate_terminals_with_mode(aggregate_refs, terminals, mode)
 }
 
 fn collect_global_aggregate_terminals_with_mode(
-    expr: &Expr,
+    aggregate_refs: &[AggregateExpr],
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
     mode: GlobalAggregateTerminalCollectionMode,
 ) -> Result<Option<usize>, SqlLoweringError> {
     let mut direct_terminal_index = None;
-    expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
+    for aggregate_expr in aggregate_refs {
         let unique_index = intern_global_aggregate_terminal(terminals, aggregate_expr)?;
         if direct_terminal_index.is_none()
             && matches!(mode, GlobalAggregateTerminalCollectionMode::Direct)
         {
             direct_terminal_index = Some(unique_index);
         }
-
-        Ok::<(), SqlLoweringError>(())
-    })?;
+    }
 
     Ok(direct_terminal_index)
 }

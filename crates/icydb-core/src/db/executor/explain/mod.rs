@@ -192,10 +192,9 @@ impl StructuralQuery {
         visible_indexes: &VisibleIndexes<'_>,
     ) {
         if let Some(schema_info) = visible_indexes.accepted_schema_info() {
-            plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+            plan.finalize_access_choice_for_model_with_semantic_indexes_and_schema(
                 self.model(),
-                visible_indexes.accepted_field_path_indexes(),
-                visible_indexes.accepted_expression_indexes(),
+                visible_indexes.accepted_semantic_index_contracts(),
                 schema_info,
             );
             return;

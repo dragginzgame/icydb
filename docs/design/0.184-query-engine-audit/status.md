@@ -13,6 +13,9 @@ Status: active.
   fallbacks for predicate and branch-set query shapes.
 - H1 / D8: shared query-plan cache miss classification now walks warmed cache
   keys once while preserving the existing miss-reason priority.
+- H2 / D9: runtime-visible accepted indexes now cache a sorted reduced semantic
+  candidate list in `VisibleIndexes`, and planning/rerank/explain finalization
+  consume that list instead of rebuilding semantic index contracts per query.
 - C4 / D10: grouped pagination now has explicit tests for order-prefix ties
   failing closed and full group-key tie-breakers paging deterministically.
 - F5 / D6 / H8: materialized scalar pages and streaming aggregate row sinks now
@@ -46,6 +49,22 @@ Status: active.
   now flow through an `AnalyzedLoweredExpr` artifact, so grouped/global
   projection consumers receive the lowered expression and its aggregate/field
   proof as one contract instead of loose adjacent values.
+- H3 / F7 third slice: expression analysis now records aggregate leaves in
+  lowered expression order, and global aggregate projection lowering consumes
+  those analysis-owned leaves instead of walking the same expression again to
+  intern executable terminals.
+- F2 / D3 first slice: the SQL-lowering filter contract is documented, and
+  `LoweredSqlFilter` now owns the current visible-expression plus
+  predicate-pushdown construction policies for scalar SELECT, grouped SELECT,
+  global aggregate, DELETE, and UPDATE filters.
+- F2 / D3 second slice: finalized static planning now stores the residual
+  expression, residual predicate subset, and compiled runtime filter program in
+  one `ResidualFilterContract` while preserving the existing plan accessors and
+  executor behavior.
+- F2 / D3 third slice: `ResidualFilterContract` now owns the compact
+  diagnostics shape for absent, predicate-only, expression-only, and
+  expression-plus-predicate residual filters; execution EXPLAIN nodes and
+  verbose route diagnostics consume that shape.
 
 ## Current Slice
 
@@ -54,5 +73,7 @@ Status: active.
 ## Next Candidates
 
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
-  inference, aggregate references, ORDER BY facts, and predicate-derivation
-  inputs.
+  inference, aggregate input/filter validation facts, ORDER BY facts, and
+  predicate-derivation inputs.
+- F2 / D3: design the richer pushdown coverage/fallback reason vocabulary
+  before moving those explain facts onto the filter contract.

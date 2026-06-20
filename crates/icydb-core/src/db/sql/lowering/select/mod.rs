@@ -75,9 +75,68 @@ pub(in crate::db::sql::lowering) struct LoweredSqlFilter {
 }
 
 impl LoweredSqlFilter {
-    // Build a SQL filter when the caller has already derived a predicate
-    // subset from parser-owned context and wants to avoid recomputing it from
-    // the visible expression tree.
+    // Lower one scalar WHERE expression into the shared visible-expression plus
+    // optional predicate-pushdown contract used by ordinary scalar SELECTs.
+    fn from_scalar_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
+        Ok(Self::from_lowered_visible_expr_with_optional_predicate_subset(filter_expr))
+    }
+
+    // Lower one grouped WHERE expression without scalar-only CASE
+    // canonicalization, preserving the existing grouped/base-query behavior.
+    fn from_grouped_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_where_bool_expr(expr)?;
+        Ok(Self::from_lowered_visible_expr_with_optional_predicate_subset(filter_expr))
+    }
+
+    // Lower one WHERE expression for lanes that must prove a predicate subset
+    // before execution can use the shape.
+    pub(in crate::db::sql::lowering) fn from_where_expr_requiring_predicate_subset(
+        expr: &SqlExpr,
+    ) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_where_bool_expr(expr)?;
+        let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr)
+            .ok_or_else(SqlLoweringError::unsupported_where_expression)?;
+
+        Ok(Self::from_visible_expr_and_predicate_subset(
+            filter_expr,
+            predicate_subset,
+        ))
+    }
+
+    // Preserve DELETE's broad predicate fallback: expression-only DELETE
+    // filters remain visible as expressions while their predicate lane stays
+    // `True`.
+    fn from_delete_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
+        let predicate_subset =
+            derive_normalized_bool_expr_predicate_subset(&filter_expr).unwrap_or(Predicate::True);
+
+        Ok(Self::from_visible_expr_and_predicate_subset(
+            filter_expr,
+            predicate_subset,
+        ))
+    }
+
+    // Preserve UPDATE's two-part filter policy: keep the scalar-visible filter
+    // expression while requiring a strict SQL predicate subset for selector
+    // admission.
+    fn from_update_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
+        let predicate_subset = lower_sql_where_expr(expr)?;
+
+        Ok(Self::from_visible_expr_and_predicate_subset(
+            filter_expr,
+            predicate_subset,
+        ))
+    }
+
+    fn from_lowered_visible_expr_with_optional_predicate_subset(expr: Expr) -> Self {
+        let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr);
+
+        Self::from_visible_expr_and_optional_predicate_subset(expr, predicate_subset)
+    }
+
     const fn from_visible_expr_and_optional_predicate_subset(
         expr: Expr,
         predicate_subset: Option<Predicate>,
@@ -88,24 +147,10 @@ impl LoweredSqlFilter {
         }
     }
 
-    // Build the strict SQL filter shape used by paths that already required a
-    // predicate subset and must fail before reaching query binding otherwise.
-    pub(in crate::db::sql::lowering) const fn from_visible_expr_and_predicate_subset(
+    const fn from_visible_expr_and_predicate_subset(
         expr: Expr,
         predicate_subset: Predicate,
     ) -> Self {
-        Self {
-            visible_expr: Some(expr),
-            predicate_subset: Some(predicate_subset),
-        }
-    }
-
-    // Preserve DELETE's broad predicate fallback: expression-only DELETE filters
-    // remain visible as expressions while their predicate lane stays `True`.
-    fn from_visible_expr_with_predicate_fallback(expr: Expr, fallback: Predicate) -> Self {
-        let predicate_subset =
-            derive_normalized_bool_expr_predicate_subset(&expr).unwrap_or(fallback);
-
         Self {
             visible_expr: Some(expr),
             predicate_subset: Some(predicate_subset),
@@ -281,28 +326,8 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
     )?;
 
     let filter = match predicate {
-        Some(expr) if !is_grouped => {
-            let filter_expr = lower_sql_scalar_where_bool_expr(&expr)?;
-            let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr);
-
-            Some(
-                LoweredSqlFilter::from_visible_expr_and_optional_predicate_subset(
-                    filter_expr,
-                    predicate_subset,
-                ),
-            )
-        }
-        Some(expr) => {
-            let filter_expr = lower_sql_where_bool_expr(&expr)?;
-            let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr);
-
-            Some(
-                LoweredSqlFilter::from_visible_expr_and_optional_predicate_subset(
-                    filter_expr,
-                    predicate_subset,
-                ),
-            )
-        }
+        Some(expr) if !is_grouped => Some(LoweredSqlFilter::from_scalar_where_expr(&expr)?),
+        Some(expr) => Some(LoweredSqlFilter::from_grouped_where_expr(&expr)?),
         None => None,
     };
 
@@ -794,14 +819,7 @@ fn lower_delete_query_modifiers(
     offset: Option<u32>,
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let filter = match predicate.as_ref() {
-        Some(expr) => {
-            let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
-
-            Some(LoweredSqlFilter::from_visible_expr_with_predicate_fallback(
-                filter_expr,
-                Predicate::True,
-            ))
-        }
+        Some(expr) => Some(LoweredSqlFilter::from_delete_where_expr(expr)?),
         None => None,
     };
 
@@ -840,14 +858,8 @@ fn lower_update_selector_shape(
 
     append_primary_key_order_fallback(&mut order_by, primary_key_names);
 
-    let filter_expr = lower_sql_scalar_where_bool_expr(&predicate)?;
-    let predicate_subset = lower_sql_where_expr(&predicate)?;
-
     Ok(LoweredBaseQueryShape {
-        filter: Some(LoweredSqlFilter::from_visible_expr_and_predicate_subset(
-            filter_expr,
-            predicate_subset,
-        )),
+        filter: Some(LoweredSqlFilter::from_update_where_expr(&predicate)?),
         order_by: lower_order_terms(order_by)?,
         limit: statement.limit,
         offset: statement.offset,
