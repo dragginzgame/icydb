@@ -494,12 +494,15 @@ impl MetricsSink for GlobalMetricsSink {
             MetricsEvent::SqlWrite {
                 entity_path,
                 kind,
+                staged_rows,
                 matched_rows,
                 mutated_rows,
                 returning_rows,
             } => {
                 metrics::with_state_mut(|m| {
                     record_global_sql_write_kind(&mut m.ops, kind);
+                    m.ops.sql_write_staged_rows =
+                        m.ops.sql_write_staged_rows.saturating_add(staged_rows);
                     m.ops.sql_write_matched_rows =
                         m.ops.sql_write_matched_rows.saturating_add(matched_rows);
                     m.ops.sql_write_mutated_rows =
@@ -511,6 +514,8 @@ impl MetricsSink for GlobalMetricsSink {
 
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     record_entity_sql_write_kind(entry, kind);
+                    entry.sql_write_staged_rows =
+                        entry.sql_write_staged_rows.saturating_add(staged_rows);
                     entry.sql_write_matched_rows =
                         entry.sql_write_matched_rows.saturating_add(matched_rows);
                     entry.sql_write_mutated_rows =

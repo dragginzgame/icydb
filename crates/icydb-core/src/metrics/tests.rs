@@ -370,6 +370,7 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "sql_insert_select_calls",
         "sql_update_calls",
         "sql_delete_calls",
+        "sql_write_staged_rows",
         "sql_write_matched_rows",
         "sql_write_mutated_rows",
         "sql_write_returning_rows",
@@ -934,6 +935,7 @@ fn derived_ratio_helpers_use_raw_counter_totals_without_changing_report_shape() 
         load_candidate_rows_scanned: 16,
         load_candidate_rows_filtered: 12,
         load_result_rows_emitted: 4,
+        sql_write_staged_rows: 10,
         sql_write_matched_rows: 8,
         sql_write_mutated_rows: 4,
         sql_write_returning_rows: 2,
@@ -1101,6 +1103,7 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         sql_insert_select_calls: 69,
         sql_update_calls: 70,
         sql_delete_calls: 71,
+        sql_write_staged_rows: 72,
         sql_write_matched_rows: 72,
         sql_write_mutated_rows: 73,
         sql_write_returning_rows: 74,
@@ -1244,6 +1247,7 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "sql_insert_select_calls",
         "sql_update_calls",
         "sql_delete_calls",
+        "sql_write_staged_rows",
         "sql_write_matched_rows",
         "sql_write_mutated_rows",
         "sql_write_returning_rows",
@@ -1420,6 +1424,7 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.sql_insert_select_calls(), 69);
     assert_eq!(summary.sql_update_calls(), 70);
     assert_eq!(summary.sql_delete_calls(), 71);
+    assert_eq!(summary.sql_write_staged_rows(), 72);
     assert_eq!(summary.sql_write_matched_rows(), 72);
     assert_eq!(summary.sql_write_mutated_rows(), 73);
     assert_eq!(summary.sql_write_returning_rows(), 74);
@@ -1459,6 +1464,7 @@ fn entity_summary_derived_ratio_helpers_use_projected_counter_totals() {
                 load_candidate_rows_scanned: 20,
                 load_candidate_rows_filtered: 5,
                 load_result_rows_emitted: 10,
+                sql_write_staged_rows: 9,
                 sql_write_matched_rows: 8,
                 sql_write_mutated_rows: 6,
                 sql_write_returning_rows: 3,

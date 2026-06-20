@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- SQL write metrics now expose staged-row counts, with broad write-shape guards
+  and a PocketIC perf-matrix hook covering INSERT SELECT, UPDATE, UPDATE
+  RETURNING, DELETE, and DELETE RETURNING materialization pressure.
+
 ## [0.184.x] 📊 - 2026-06-19 - Query Engine Audit
 
 Detailed notes: [docs/changelog/0.184.md](docs/changelog/0.184.md)

@@ -195,6 +195,7 @@ pub struct EventOps {
     pub(crate) sql_insert_select_calls: u64,
     pub(crate) sql_update_calls: u64,
     pub(crate) sql_delete_calls: u64,
+    pub(crate) sql_write_staged_rows: u64,
     pub(crate) sql_write_matched_rows: u64,
     pub(crate) sql_write_mutated_rows: u64,
     pub(crate) sql_write_returning_rows: u64,
@@ -773,6 +774,11 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn sql_write_staged_rows(&self) -> u64 {
+        self.sql_write_staged_rows
+    }
+
+    #[must_use]
     pub const fn sql_write_matched_rows(&self) -> u64 {
         self.sql_write_matched_rows
     }
@@ -1068,6 +1074,7 @@ pub(crate) struct EntityCounters {
     pub(crate) sql_insert_select_calls: u64,
     pub(crate) sql_update_calls: u64,
     pub(crate) sql_delete_calls: u64,
+    pub(crate) sql_write_staged_rows: u64,
     pub(crate) sql_write_matched_rows: u64,
     pub(crate) sql_write_mutated_rows: u64,
     pub(crate) sql_write_returning_rows: u64,
@@ -1310,6 +1317,8 @@ pub mod compact_metric_code {
     pub const CACHE_SQL_COMPILED_COMMAND_HITS: u16 = 22;
     /// SQL compiled-command cache misses.
     pub const CACHE_SQL_COMPILED_COMMAND_MISSES: u16 = 23;
+    /// SQL write rows staged before mutation.
+    pub const SQL_WRITE_STAGED_ROWS: u16 = 24;
 }
 
 #[cfg_attr(doc, doc = "CompactMetric\n\nCompact metrics counter.")]
@@ -1633,6 +1642,7 @@ pub struct EntitySummary {
     sql_insert_select_calls: u64,
     sql_update_calls: u64,
     sql_delete_calls: u64,
+    sql_write_staged_rows: u64,
     sql_write_matched_rows: u64,
     sql_write_mutated_rows: u64,
     sql_write_returning_rows: u64,
@@ -2204,6 +2214,11 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn sql_write_staged_rows(&self) -> u64 {
+        self.sql_write_staged_rows
+    }
+
+    #[must_use]
     pub const fn sql_write_matched_rows(&self) -> u64 {
         self.sql_write_matched_rows
     }
@@ -2500,6 +2515,7 @@ impl EntitySummary {
             .saturating_add(self.sql_insert_select_calls)
             .saturating_add(self.sql_update_calls)
             .saturating_add(self.sql_delete_calls)
+            .saturating_add(self.sql_write_staged_rows)
             .saturating_add(self.sql_write_matched_rows)
             .saturating_add(self.sql_write_mutated_rows)
             .saturating_add(self.sql_write_returning_rows)
@@ -2654,6 +2670,7 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         sql_insert_select_calls: ops.sql_insert_select_calls,
         sql_update_calls: ops.sql_update_calls,
         sql_delete_calls: ops.sql_delete_calls,
+        sql_write_staged_rows: ops.sql_write_staged_rows,
         sql_write_matched_rows: ops.sql_write_matched_rows,
         sql_write_mutated_rows: ops.sql_write_mutated_rows,
         sql_write_returning_rows: ops.sql_write_returning_rows,
@@ -2718,7 +2735,7 @@ fn compact_event_metrics(ops: &EventOps) -> Vec<CompactMetric> {
         EXEC_ABORTED, EXEC_ERRORS, EXEC_SUCCESS, LOAD_CALLS, ROWS_DELETED, ROWS_EMITTED,
         ROWS_FILTERED, ROWS_LOADED, ROWS_SAVED, ROWS_SCANNED, SAVE_CALLS, SQL_DELETE_CALLS,
         SQL_INSERT_CALLS, SQL_INSERT_SELECT_CALLS, SQL_UPDATE_CALLS, SQL_WRITE_MATCHED_ROWS,
-        SQL_WRITE_MUTATED_ROWS, SQL_WRITE_RETURNING_ROWS,
+        SQL_WRITE_MUTATED_ROWS, SQL_WRITE_RETURNING_ROWS, SQL_WRITE_STAGED_ROWS,
     };
 
     let mut metrics = Vec::new();
@@ -2759,6 +2776,11 @@ fn compact_event_metrics(ops: &EventOps) -> Vec<CompactMetric> {
     );
     push_compact_metric(
         &mut metrics,
+        SQL_WRITE_STAGED_ROWS,
+        ops.sql_write_staged_rows,
+    );
+    push_compact_metric(
+        &mut metrics,
         CACHE_SHARED_QUERY_PLAN_HITS,
         ops.cache_shared_query_plan_hits,
     );
@@ -2788,7 +2810,7 @@ fn compact_entity_metrics(ops: &EntityCounters) -> Vec<CompactMetric> {
         EXEC_ABORTED, EXEC_ERRORS, EXEC_SUCCESS, LOAD_CALLS, ROWS_DELETED, ROWS_EMITTED,
         ROWS_FILTERED, ROWS_LOADED, ROWS_SAVED, ROWS_SCANNED, SAVE_CALLS, SQL_DELETE_CALLS,
         SQL_INSERT_CALLS, SQL_INSERT_SELECT_CALLS, SQL_UPDATE_CALLS, SQL_WRITE_MATCHED_ROWS,
-        SQL_WRITE_MUTATED_ROWS, SQL_WRITE_RETURNING_ROWS,
+        SQL_WRITE_MUTATED_ROWS, SQL_WRITE_RETURNING_ROWS, SQL_WRITE_STAGED_ROWS,
     };
 
     let mut metrics = Vec::new();
@@ -2826,6 +2848,11 @@ fn compact_entity_metrics(ops: &EntityCounters) -> Vec<CompactMetric> {
         &mut metrics,
         SQL_WRITE_RETURNING_ROWS,
         ops.sql_write_returning_rows,
+    );
+    push_compact_metric(
+        &mut metrics,
+        SQL_WRITE_STAGED_ROWS,
+        ops.sql_write_staged_rows,
     );
     push_compact_metric(
         &mut metrics,

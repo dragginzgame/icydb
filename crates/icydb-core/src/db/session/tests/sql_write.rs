@@ -229,26 +229,68 @@ fn assert_sql_write_unsupported_transition(
 
 fn captured_sql_write_events(
     events: &[MetricsEvent],
-) -> Vec<(&'static str, SqlWriteKind, u64, u64, u64)> {
+) -> Vec<(&'static str, SqlWriteKind, [u64; 4])> {
     events
         .iter()
         .filter_map(|event| match event {
             MetricsEvent::SqlWrite {
                 entity_path,
                 kind,
+                staged_rows,
                 matched_rows,
                 mutated_rows,
                 returning_rows,
             } => Some((
                 *entity_path,
                 *kind,
-                *matched_rows,
-                *mutated_rows,
-                *returning_rows,
+                [*staged_rows, *matched_rows, *mutated_rows, *returning_rows],
             )),
             _ => None,
         })
         .collect()
+}
+
+fn capture_sql_write_events(run: impl FnOnce()) -> Vec<(&'static str, SqlWriteKind, [u64; 4])> {
+    let sink = SessionMetricsCaptureSink::default();
+    with_metrics_sink(&sink, run);
+
+    captured_sql_write_events(&sink.into_events())
+}
+
+const BROAD_SQL_WRITE_ROWS: [(u64, &str, u64); 6] = [
+    (1, "Ada", 21),
+    (2, "Bea", 22),
+    (3, "Cid", 23),
+    (4, "Dee", 24),
+    (5, "Eli", 25),
+    (6, "Fay", 26),
+];
+
+fn capture_seeded_write_entity_events(
+    run: impl FnOnce(&DbSession<SessionSqlCanister>),
+) -> Vec<(&'static str, SqlWriteKind, [u64; 4])> {
+    capture_sql_write_events(|| {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_write_entities(&session, &BROAD_SQL_WRITE_ROWS);
+
+        run(&session);
+    })
+}
+
+fn broad_write_id_rows() -> Vec<Vec<Value>> {
+    (1..=BROAD_SQL_WRITE_ROWS.len() as u64)
+        .map(|id| vec![Value::Nat64(id)])
+        .collect()
+}
+
+fn assert_single_sql_write_event(
+    actual: Vec<(&'static str, SqlWriteKind, [u64; 4])>,
+    entity_path: &'static str,
+    kind: SqlWriteKind,
+    rows: [u64; 4],
+) {
+    assert_eq!(actual, vec![(entity_path, kind, rows)]);
 }
 
 fn captured_sql_write_error_events(
@@ -2438,8 +2480,7 @@ fn execute_sql_statement_write_metrics_capture_sql_boundary_shape() {
     seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
     seed_session_sql_entities(&session, &[("Ada", 21)]);
 
-    let sink = SessionMetricsCaptureSink::default();
-    with_metrics_sink(&sink, || {
+    let events = capture_sql_write_events(|| {
         execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
             &session,
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (3, 'Cid', 31)",
@@ -2463,13 +2504,112 @@ fn execute_sql_statement_write_metrics_capture_sql_boundary_shape() {
     });
 
     assert_eq!(
-        captured_sql_write_events(&sink.into_events()),
+        events,
         vec![
-            (SessionSqlWriteEntity::PATH, SqlWriteKind::Insert, 1, 1, 0),
-            (SessionSqlEntity::PATH, SqlWriteKind::InsertSelect, 1, 1, 1,),
-            (SessionSqlWriteEntity::PATH, SqlWriteKind::Update, 3, 3, 3),
-            (SessionSqlWriteEntity::PATH, SqlWriteKind::Delete, 1, 1, 1),
+            (
+                SessionSqlWriteEntity::PATH,
+                SqlWriteKind::Insert,
+                [1, 1, 1, 0],
+            ),
+            (
+                SessionSqlEntity::PATH,
+                SqlWriteKind::InsertSelect,
+                [1, 1, 1, 1],
+            ),
+            (
+                SessionSqlWriteEntity::PATH,
+                SqlWriteKind::Update,
+                [3, 3, 3, 3],
+            ),
+            (
+                SessionSqlWriteEntity::PATH,
+                SqlWriteKind::Delete,
+                [1, 1, 1, 1],
+            ),
         ],
+    );
+}
+
+#[test]
+fn execute_sql_statement_broad_write_metrics_capture_staged_row_pressure() {
+    let insert_select_events = capture_sql_write_events(|| {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_session_sql_entities(&session, &[("Ada", 21), ("Bea", 22), ("Cid", 23)]);
+
+        assert_statement_count::<SessionSqlEntity>(
+            &session,
+            "INSERT INTO SessionSqlEntity (name, age) \
+             SELECT name, age FROM SessionSqlEntity WHERE age >= 21",
+            3,
+            "broad INSERT SELECT",
+        );
+    });
+    assert_single_sql_write_event(
+        insert_select_events,
+        SessionSqlEntity::PATH,
+        SqlWriteKind::InsertSelect,
+        [3, 3, 3, 0],
+    );
+
+    let update_events = capture_seeded_write_entity_events(|session| {
+        assert_statement_count::<SessionSqlWriteEntity>(
+            session,
+            "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21",
+            6,
+            "broad UPDATE",
+        );
+    });
+    assert_single_sql_write_event(
+        update_events,
+        SessionSqlWriteEntity::PATH,
+        SqlWriteKind::Update,
+        [6, 6, 6, 0],
+    );
+
+    let update_returning_events = capture_seeded_write_entity_events(|session| {
+        assert_statement_returning_rows::<SessionSqlWriteEntity>(
+            session,
+            "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 RETURNING id",
+            broad_write_id_rows().as_slice(),
+            "broad UPDATE RETURNING",
+        );
+    });
+    assert_single_sql_write_event(
+        update_returning_events,
+        SessionSqlWriteEntity::PATH,
+        SqlWriteKind::Update,
+        [6, 6, 6, 6],
+    );
+
+    let delete_events = capture_seeded_write_entity_events(|session| {
+        assert_statement_count::<SessionSqlWriteEntity>(
+            session,
+            "DELETE FROM SessionSqlWriteEntity WHERE age >= 21",
+            6,
+            "broad DELETE",
+        );
+    });
+    assert_single_sql_write_event(
+        delete_events,
+        SessionSqlWriteEntity::PATH,
+        SqlWriteKind::Delete,
+        [6, 6, 6, 0],
+    );
+
+    let delete_returning_events = capture_seeded_write_entity_events(|session| {
+        assert_statement_returning_rows::<SessionSqlWriteEntity>(
+            session,
+            "DELETE FROM SessionSqlWriteEntity WHERE age >= 21 RETURNING id",
+            broad_write_id_rows().as_slice(),
+            "broad DELETE RETURNING",
+        );
+    });
+    assert_single_sql_write_event(
+        delete_returning_events,
+        SessionSqlWriteEntity::PATH,
+        SqlWriteKind::Delete,
+        [6, 6, 6, 6],
     );
 }
 
@@ -2843,12 +2983,18 @@ fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
         &[(1, "Ada", 21), (2, "Bea", 22), (12, "Existing", 32)],
     );
 
-    execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
-        &session,
-        "INSERT INTO SessionSqlWriteEntity (id, name, age) \
-         SELECT id + 10, name, age FROM SessionSqlWriteEntity WHERE id <= 2 ORDER BY id ASC",
-    )
-    .expect_err("late INSERT SELECT conflict should reject the whole statement");
+    let events = capture_sql_write_events(|| {
+        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+            &session,
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+             SELECT id + 10, name, age FROM SessionSqlWriteEntity WHERE id <= 2 ORDER BY id ASC",
+        )
+        .expect_err("late INSERT SELECT conflict should reject the whole statement");
+    });
+    assert!(
+        events.is_empty(),
+        "failed staged INSERT SELECT must not emit successful SQL write row metrics",
+    );
 
     assert_eq!(
         persisted_write_rows(&session),

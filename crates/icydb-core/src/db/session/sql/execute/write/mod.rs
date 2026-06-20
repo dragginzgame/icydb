@@ -233,6 +233,7 @@ const fn sql_returning_rows(returning: Option<&SqlReturningProjection>, mutated_
 
 #[derive(Clone, Copy)]
 struct SqlWriteRowAttribution {
+    staged: u64,
     matched: u64,
     mutated: u64,
     returning: u64,
@@ -256,6 +257,7 @@ impl SqlWriteRowAttribution {
         let rows = row_count as u64;
 
         Self {
+            staged: rows,
             matched: rows,
             mutated: rows,
             returning: 0,
@@ -266,6 +268,7 @@ impl SqlWriteRowAttribution {
         let rows = row_count as u64;
 
         Self {
+            staged: rows,
             matched: rows,
             mutated: rows,
             returning: rows,
@@ -281,6 +284,7 @@ impl SqlWriteRowAttribution {
         let mutated_rows = usize_to_u64_saturating(mutated_rows);
 
         Self {
+            staged: matched_rows,
             matched: matched_rows,
             mutated: mutated_rows,
             returning: sql_returning_rows(returning, mutated_rows),
@@ -328,6 +332,7 @@ fn record_sql_write_metrics(
     record(MetricsEvent::SqlWrite {
         entity_path,
         kind,
+        staged_rows: rows.staged,
         matched_rows: rows.matched,
         mutated_rows: rows.mutated,
         returning_rows: rows.returning,

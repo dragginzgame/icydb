@@ -113,10 +113,18 @@ Status: active.
 
 ## Current Slice
 
-- Ready for the next audit slice.
+- H6 / D7 / F6 first slice: SQL write metrics now carry staged-row counts
+  beside matched, mutated, and RETURNING row counts, and broad write-shape
+  guards plus a SQL perf-matrix hook cover INSERT SELECT, UPDATE, UPDATE
+  RETURNING, DELETE, and DELETE RETURNING materialization pressure before any
+  streaming/chunked mutation redesign. The local sandbox could not complete
+  the live PocketIC run because the PocketIC child exited during startup.
 
 ## Next Candidates
 
+- H6 / D7 / F6: run the live PocketIC SQL write materialization matrix in a
+  healthy PocketIC environment, record the heap/journaled deltas, and only then
+  decide whether chunked mutation preparation needs a separate design slice.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.

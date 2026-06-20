@@ -406,15 +406,16 @@ fn save_mutation_metrics_accumulate_by_mode() {
 fn sql_write_metrics_accumulate_by_command_shape() {
     metrics_reset_all();
 
-    for (kind, matched_rows, mutated_rows, returning_rows) in [
-        (SqlWriteKind::Insert, 2, 2, 0),
-        (SqlWriteKind::InsertSelect, 3, 3, 3),
-        (SqlWriteKind::Update, 5, 4, 4),
-        (SqlWriteKind::Delete, 2, 2, 1),
+    for (kind, staged_rows, matched_rows, mutated_rows, returning_rows) in [
+        (SqlWriteKind::Insert, 2, 2, 2, 0),
+        (SqlWriteKind::InsertSelect, 3, 3, 3, 3),
+        (SqlWriteKind::Update, 6, 5, 4, 4),
+        (SqlWriteKind::Delete, 2, 2, 2, 1),
     ] {
         record(MetricsEvent::SqlWrite {
             entity_path: "metrics::tests::Entity",
             kind,
+            staged_rows,
             matched_rows,
             mutated_rows,
             returning_rows,
@@ -429,6 +430,7 @@ fn sql_write_metrics_accumulate_by_command_shape() {
     assert_eq!(counters.ops.sql_insert_select_calls(), 1);
     assert_eq!(counters.ops.sql_update_calls(), 1);
     assert_eq!(counters.ops.sql_delete_calls(), 1);
+    assert_eq!(counters.ops.sql_write_staged_rows(), 13);
     assert_eq!(counters.ops.sql_write_matched_rows(), 12);
     assert_eq!(counters.ops.sql_write_mutated_rows(), 11);
     assert_eq!(counters.ops.sql_write_returning_rows(), 8);
@@ -441,6 +443,7 @@ fn sql_write_metrics_accumulate_by_command_shape() {
     assert_eq!(entity.sql_insert_select_calls(), 1);
     assert_eq!(entity.sql_update_calls(), 1);
     assert_eq!(entity.sql_delete_calls(), 1);
+    assert_eq!(entity.sql_write_staged_rows(), 13);
     assert_eq!(entity.sql_write_matched_rows(), 12);
     assert_eq!(entity.sql_write_mutated_rows(), 11);
     assert_eq!(entity.sql_write_returning_rows(), 8);

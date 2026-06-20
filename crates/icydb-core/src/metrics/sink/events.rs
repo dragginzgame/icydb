@@ -391,6 +391,7 @@ pub enum MetricsEvent {
     SqlWrite {
         entity_path: &'static str,
         kind: SqlWriteKind,
+        staged_rows: u64,
         matched_rows: u64,
         mutated_rows: u64,
         returning_rows: u64,

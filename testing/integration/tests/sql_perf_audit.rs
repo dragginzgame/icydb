@@ -56,6 +56,21 @@ struct StorageWritePerfResult {
     read_back_rows: u32,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlWriteMaterializationPerfResult {
+    local_instructions: [u64; 5],
+    rows: [u32; 5],
+}
+
+const SQL_WRITE_MATERIALIZATION_METRICS: [&str; 5] = [
+    "insert select",
+    "update count",
+    "update returning",
+    "delete count",
+    "delete returning",
+];
+const SQL_WRITE_MATERIALIZATION_BUDGET: u64 = 750_000_000;
+
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
     Account,
@@ -2812,6 +2827,83 @@ fn assert_storage_write_matrix_reports(fixture: &StandaloneCanisterFixture) {
     assert_storage_write_matrix_stays_bounded("journaled", &journaled);
 }
 
+fn measure_sql_write_materialization_matrix(
+    fixture: &StandaloneCanisterFixture,
+    method: &str,
+    label: &str,
+) -> SqlWriteMaterializationPerfResult {
+    let result: Result<SqlWriteMaterializationPerfResult, Error> =
+        fixture.update_call(method, ()).unwrap_or_else(|err| {
+            panic!("{label} SQL write materialization result should decode: {err}")
+        });
+
+    result.unwrap_or_else(|err| {
+        panic!("{label} SQL write materialization endpoint should succeed: {err}")
+    })
+}
+
+fn print_sql_write_materialization_matrix(label: &str, result: &SqlWriteMaterializationPerfResult) {
+    println!(
+        "{label} SQL write materialization: insert_select={} update_count={} update_returning={} delete_count={} delete_returning={} rows=[{},{},{},{},{}]",
+        result.local_instructions[0],
+        result.local_instructions[1],
+        result.local_instructions[2],
+        result.local_instructions[3],
+        result.local_instructions[4],
+        result.rows[0],
+        result.rows[1],
+        result.rows[2],
+        result.rows[3],
+        result.rows[4],
+    );
+}
+
+fn assert_sql_write_materialization_matrix_stays_bounded(
+    label: &str,
+    result: &SqlWriteMaterializationPerfResult,
+) {
+    for (metric, rows) in SQL_WRITE_MATERIALIZATION_METRICS
+        .iter()
+        .copied()
+        .zip(result.rows)
+    {
+        assert_eq!(
+            rows, 32,
+            "{label} {metric} should cover the broad fixture window"
+        );
+    }
+
+    for (metric, instructions) in SQL_WRITE_MATERIALIZATION_METRICS
+        .iter()
+        .copied()
+        .zip(result.local_instructions)
+    {
+        assert!(
+            instructions < SQL_WRITE_MATERIALIZATION_BUDGET,
+            "{label} SQL write materialization {metric} should stay bounded, got {instructions} >= {SQL_WRITE_MATERIALIZATION_BUDGET}",
+        );
+    }
+}
+
+fn assert_sql_write_materialization_matrix_reports(fixture: &StandaloneCanisterFixture) {
+    let heap = measure_sql_write_materialization_matrix(
+        fixture,
+        "measure_heap_user_sql_write_materialization_perf",
+        "heap",
+    );
+    let journaled = measure_sql_write_materialization_matrix(
+        fixture,
+        "measure_journaled_user_sql_write_materialization_perf",
+        "journaled",
+    );
+
+    print_sql_write_materialization_matrix("heap", &heap);
+    print_sql_write_materialization_matrix("journaled", &journaled);
+
+    assert_sql_write_materialization_matrix_stays_bounded("heap", &heap);
+    assert_sql_write_materialization_matrix_stays_bounded("journaled", &journaled);
+}
+
 struct StorageLimitOneReadSamples {
     heap: SqlQueryPerfResult,
     journaled: SqlQueryPerfResult,
@@ -3041,6 +3133,7 @@ fn sql_perf_journaled_primary_limit_one_stays_bounded() {
     assert_journaled_cached_limit_one_reports(&fixture, &read_samples.journaled);
     assert_storage_total_and_fluent_limit_one_reports(&fixture);
     assert_storage_write_matrix_reports(&fixture);
+    assert_sql_write_materialization_matrix_reports(&fixture);
 }
 
 #[test]

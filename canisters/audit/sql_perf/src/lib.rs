@@ -81,7 +81,14 @@ struct StorageWritePerfResult {
     read_back_rows: u32,
 }
 
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+struct SqlWriteMaterializationPerfResult {
+    local_instructions: [u64; 5],
+    rows: [u32; 5],
+}
+
 const STORAGE_WRITE_MATRIX_RUNS: u32 = 10;
+const SQL_WRITE_MATERIALIZATION_ROWS: i32 = 32;
 const TOKEN_TARGET_COLLECTION: &str = "01KV5N439P0000000000000000";
 const TOKEN_OTHER_COLLECTION: &str = "01KV5N439P1111111111111111";
 
@@ -1271,6 +1278,31 @@ const fn unexpected_write_perf_count_error(
 }
 
 #[cfg(feature = "sql")]
+const fn sql_write_result_row_count(result: &SqlQueryResult) -> Option<u32> {
+    match result {
+        SqlQueryResult::Count { row_count, .. } => Some(*row_count),
+        SqlQueryResult::Projection(rows) => Some(rows.row_count),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "sql")]
+const fn ensure_sql_write_row_count(
+    label: &str,
+    result: &SqlQueryResult,
+    expected: u32,
+) -> Result<u32, icydb::Error> {
+    let Some(actual) = sql_write_result_row_count(result) else {
+        return Err(query_validate_error());
+    };
+    if actual != expected {
+        return Err(unexpected_write_perf_count_error(label, expected, actual));
+    }
+
+    Ok(actual)
+}
+
+#[cfg(feature = "sql")]
 fn measure_storage_write_matrix<E, B>(
     storage_label: &str,
     base_id: i32,
@@ -1365,6 +1397,155 @@ where
     })
 }
 
+#[cfg(feature = "sql")]
+fn sql_write_window_rows<E, B>(start_id: i32, label: &str, age: i32, build: B) -> Vec<E>
+where
+    B: Fn(i32, &str, i32) -> E + Copy,
+{
+    (0..SQL_WRITE_MATERIALIZATION_ROWS)
+        .map(|offset| {
+            build(
+                start_id + offset,
+                &format!("{label}-{offset:03}"),
+                age + (offset % 7),
+            )
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn measure_sql_write_statement<E>(
+    label: &str,
+    sql: &str,
+    expected_rows: u32,
+) -> Result<(u64, u32), icydb::Error>
+where
+    E: EntityFor<PerfAuditCanister>,
+{
+    let start = ic_cdk::api::performance_counter(1);
+    let result = db().execute_sql_update::<E>(sql)?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
+
+    Ok((instructions, row_count))
+}
+
+#[cfg(feature = "sql")]
+fn measure_sql_write_materialization_matrix<E, B>(
+    entity_name: &str,
+    base_id: i32,
+    build: B,
+) -> Result<SqlWriteMaterializationPerfResult, icydb::Error>
+where
+    E: EntityFor<PerfAuditCanister>,
+    B: Fn(i32, &str, i32) -> E + Copy,
+{
+    let expected_rows = u32::try_from(SQL_WRITE_MATERIALIZATION_ROWS).unwrap_or(u32::MAX);
+    let insert_select_source_start = base_id + 1_000;
+    let update_count_start = base_id + 2_000;
+    let update_returning_start = base_id + 3_000;
+    let delete_count_start = base_id + 4_000;
+    let delete_returning_start = base_id + 5_000;
+
+    db().insert_many_atomic(sql_write_window_rows(
+        insert_select_source_start,
+        "insert-select-source",
+        31,
+        build,
+    ))?;
+    db().insert_many_atomic(sql_write_window_rows(
+        update_count_start,
+        "update-count",
+        41,
+        build,
+    ))?;
+    db().insert_many_atomic(sql_write_window_rows(
+        update_returning_start,
+        "update-returning",
+        51,
+        build,
+    ))?;
+    db().insert_many_atomic(sql_write_window_rows(
+        delete_count_start,
+        "delete-count",
+        61,
+        build,
+    ))?;
+    db().insert_many_atomic(sql_write_window_rows(
+        delete_returning_start,
+        "delete-returning",
+        71,
+        build,
+    ))?;
+
+    let insert_select_end = insert_select_source_start + SQL_WRITE_MATERIALIZATION_ROWS;
+    let update_count_end = update_count_start + SQL_WRITE_MATERIALIZATION_ROWS;
+    let update_returning_end = update_returning_start + SQL_WRITE_MATERIALIZATION_ROWS;
+    let delete_count_end = delete_count_start + SQL_WRITE_MATERIALIZATION_ROWS;
+    let delete_returning_end = delete_returning_start + SQL_WRITE_MATERIALIZATION_ROWS;
+
+    let insert_select = measure_sql_write_statement::<E>(
+        "SQL write materialization INSERT SELECT",
+        &format!(
+            "INSERT INTO {entity_name} (id, name, age) \
+             SELECT id + 10000, name, age FROM {entity_name} \
+             WHERE id >= {insert_select_source_start} AND id < {insert_select_end}"
+        ),
+        expected_rows,
+    )?;
+    let update_count = measure_sql_write_statement::<E>(
+        "SQL write materialization UPDATE count",
+        &format!(
+            "UPDATE {entity_name} SET age = 77 \
+             WHERE id >= {update_count_start} AND id < {update_count_end}"
+        ),
+        expected_rows,
+    )?;
+    let update_returning = measure_sql_write_statement::<E>(
+        "SQL write materialization UPDATE RETURNING",
+        &format!(
+            "UPDATE {entity_name} SET age = 78 \
+             WHERE id >= {update_returning_start} AND id < {update_returning_end} \
+             RETURNING id"
+        ),
+        expected_rows,
+    )?;
+    let delete_count = measure_sql_write_statement::<E>(
+        "SQL write materialization DELETE count",
+        &format!(
+            "DELETE FROM {entity_name} \
+             WHERE id >= {delete_count_start} AND id < {delete_count_end}"
+        ),
+        expected_rows,
+    )?;
+    let delete_returning = measure_sql_write_statement::<E>(
+        "SQL write materialization DELETE RETURNING",
+        &format!(
+            "DELETE FROM {entity_name} \
+             WHERE id >= {delete_returning_start} AND id < {delete_returning_end} \
+             RETURNING id"
+        ),
+        expected_rows,
+    )?;
+
+    Ok(SqlWriteMaterializationPerfResult {
+        local_instructions: [
+            insert_select.0,
+            update_count.0,
+            update_returning.0,
+            delete_count.0,
+            delete_returning.0,
+        ],
+        rows: [
+            insert_select.1,
+            update_count.1,
+            update_returning.1,
+            delete_count.1,
+            delete_returning.1,
+        ],
+    })
+}
+
 /// Measure the heap typed write path.
 #[cfg(feature = "sql")]
 #[update]
@@ -1383,6 +1564,30 @@ fn measure_journaled_user_write_matrix_perf() -> Result<StorageWritePerfResult, 
     measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
         "journaled write matrix",
         40_000,
+        build_perf_audit_journaled_user,
+    )
+}
+
+/// Measure broad SQL write materialization shapes against heap storage.
+#[cfg(feature = "sql")]
+#[update]
+fn measure_heap_user_sql_write_materialization_perf()
+-> Result<SqlWriteMaterializationPerfResult, icydb::Error> {
+    measure_sql_write_materialization_matrix::<PerfAuditHeapUser, _>(
+        "PerfAuditHeapUser",
+        50_000,
+        build_perf_audit_heap_user,
+    )
+}
+
+/// Measure broad SQL write materialization shapes against journaled storage.
+#[cfg(feature = "sql")]
+#[update]
+fn measure_journaled_user_sql_write_materialization_perf()
+-> Result<SqlWriteMaterializationPerfResult, icydb::Error> {
+    measure_sql_write_materialization_matrix::<PerfAuditJournaledUser, _>(
+        "PerfAuditJournaledUser",
+        60_000,
         build_perf_audit_journaled_user,
     )
 }
