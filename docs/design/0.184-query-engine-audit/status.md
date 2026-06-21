@@ -154,15 +154,27 @@ Status: active.
 - H3 / F7 twelfth slice: global aggregate terminal lowering now records the
   aggregate output expressions and aliases that make singleton-result ORDER BY
   terms inert, so output-order stripping no longer re-analyzes the projection.
+- D1 / F3 first aggregate-architecture slice: the shared aggregate operator
+  migration is scoped in `shared-aggregate-operator.md`, and the global
+  aggregate session adapter now prepares one private structural aggregate
+  operator envelope around the existing executor `StructuralAggregateRequest`
+  instead of reconstructing terminals, projection labels, fixed scales, HAVING,
+  and schema info inline. The direct-count cardinality fast path and grouped
+  execution behavior are unchanged.
 
 ## Current Slice
 
-- H3 / F7 twelfth slice: global aggregate singleton-output ORDER BY stripping
-  now consumes terminal-lowering facts instead of analyzing projection items
-  separately. The core `ProjectionSelection` contract remains unchanged.
+- D1 / F3 first aggregate-architecture slice: complete. The runtime change is
+  deliberately limited to the global aggregate session adapter envelope; it
+  does not move grouped execution or direct-count metadata behind the shared
+  contract yet.
 
 ## Next Candidates
 
+- D1 / F3: extend aggregate diagnostics/cache identity to distinguish the
+  semantic aggregate contract from physical implementations such as direct
+  prefix-cardinality COUNT, scalar aggregate terminal execution, hash grouped,
+  and ordered grouped.
 - H3 / F7: extend the analyzed artifact only after a narrow design for type
   inference, additional ORDER BY facts beyond the current field proof, and
   predicate-derivation inputs.

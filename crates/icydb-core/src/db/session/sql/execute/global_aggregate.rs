@@ -16,6 +16,7 @@ use crate::{
             AggregateKind,
             expr::{Expr, ProjectionField, ProjectionSpec},
         },
+        schema::SchemaInfo,
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
@@ -56,6 +57,52 @@ enum SqlAggregateTerminalBuildError {
 struct DirectCountCardinalityPlanProbe {
     authority: EntityAuthority,
     entry: Option<Arc<SqlGlobalAggregateCountPlanCacheEntry>>,
+}
+
+struct PreparedStructuralAggregateOperator {
+    request: StructuralAggregateRequest,
+    columns: Vec<String>,
+    fixed_scales: Vec<Option<u32>>,
+}
+
+impl PreparedStructuralAggregateOperator {
+    fn from_global_command(
+        command: &StructuralSqlGlobalAggregateCommand,
+        schema_info: SchemaInfo,
+    ) -> Result<Self, QueryError> {
+        let projection = command.projection();
+        let terminals = command
+            .strategies()
+            .iter()
+            .cloned()
+            .map(|strategy| {
+                build_structural_aggregate_terminal_from_sql_strategy(strategy)
+                    .map_err(|_err| QueryError::invariant())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let request = StructuralAggregateRequest::new(
+            terminals,
+            projection.clone(),
+            command.having().cloned(),
+            schema_info,
+        );
+
+        Ok(Self {
+            request,
+            columns: projection_labels_from_projection_spec(projection),
+            fixed_scales: projection_fixed_scales_from_projection_spec(projection),
+        })
+    }
+
+    fn into_parts(self) -> (StructuralAggregateRequest, Vec<String>, Vec<Option<u32>>) {
+        let Self {
+            request,
+            columns,
+            fixed_scales,
+        } = self;
+
+        (request, columns, fixed_scales)
+    }
 }
 
 // Convert one prepared SQL aggregate strategy into the executor terminal DTO at
@@ -442,8 +489,6 @@ impl<C: CanisterKind> DbSession<C> {
         let strategies = command.strategies();
         let projection = command.projection();
         let aggregate_filter = command.having();
-        let columns = projection_labels_from_projection_spec(projection);
-        let fixed_scales = projection_fixed_scales_from_projection_spec(projection);
         let use_direct_count_rows =
             is_direct_count_rows_global_aggregate(strategies, projection, aggregate_filter);
 
@@ -457,20 +502,9 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
         let schema_info = catalog.accepted_schema_info_for::<E>();
-        let terminals = strategies
-            .iter()
-            .cloned()
-            .map(|strategy| {
-                build_structural_aggregate_terminal_from_sql_strategy(strategy)
-                    .map_err(|_err| QueryError::invariant())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let request = StructuralAggregateRequest::new(
-            terminals,
-            projection.clone(),
-            aggregate_filter.cloned(),
-            schema_info,
-        );
+        let operator =
+            PreparedStructuralAggregateOperator::from_global_command(command, schema_info)?;
+        let (request, columns, fixed_scales) = operator.into_parts();
         let result = self
             .with_metrics(|| {
                 self.load_executor::<E>()
