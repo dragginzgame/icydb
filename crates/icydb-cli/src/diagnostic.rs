@@ -413,6 +413,9 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         SqlWriteBoundaryCode::ReturningRowsTooMany => {
             "UPDATE RETURNING emits more rows than this endpoint's row budget"
         }
+        SqlWriteBoundaryCode::StagedRowsTooMany => {
+            "SQL write stages more rows than this endpoint's row budget"
+        }
     }
 }
 
@@ -633,6 +636,22 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_QUERY_SQL_WRITE_BOUNDARY: SQL write rejected: INSERT is missing required primary key fields",
+        );
+    }
+
+    #[test]
+    fn renders_sql_write_staged_row_boundary_detail() {
+        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+            icydb::diagnostic::DiagnosticCode::QuerySqlWriteBoundary,
+            icydb::diagnostic::ErrorOrigin::Query,
+            Some(icydb::diagnostic::DiagnosticDetail::SqlWriteBoundary {
+                boundary: icydb::diagnostic::SqlWriteBoundaryCode::StagedRowsTooMany,
+            }),
+        ));
+
+        assert_eq!(
+            render_error(&err),
+            "E_QUERY_SQL_WRITE_BOUNDARY: SQL write rejected: SQL write stages more rows than this endpoint's row budget",
         );
     }
 
