@@ -667,8 +667,7 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
         Function::Replace => Some(SupportedOrderFunctionShape::FieldTwoLiterals),
         Function::Substring => Some(SupportedOrderFunctionShape::FieldOneOrTwoLiterals),
         Function::Round | Function::Trunc => Some(SupportedOrderFunctionShape::Round),
-        Function::CollectionContains => None,
-        Function::InList => None,
+        Function::CollectionContains | Function::InList => None,
     }
 }
 
